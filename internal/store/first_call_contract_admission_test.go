@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -12,14 +13,9 @@ import (
 )
 
 // First-call admission fixtures for approve_contract and revise_intent.contract.
-// Each valid call is assembled from the published closed input
-// variant — the same artifact contracts/agent-tool-surface-payloads.schema.json
-// host publication consumes — by walking the variant's own required set and
-// bounds. Live values the schema cannot encode (the pinned definition's
-// admitted predicate kinds and the WorkPin obligation membership) come from
-// pinned-context reads. The assembled call then passes the real store
-// admission on its first submission, and each invalid mutant is refused at
-// its owning guard with the guard's own refusal text.
+// Each valid call is assembled from the published closed input variant. The
+// workflow plan type supplies admitted predicate kinds, and the contract names
+// verification obligations using the current evidence-kind vocabulary.
 
 func firstCallPublishedDefs(t *testing.T) map[string]any {
 	t.Helper()
@@ -165,14 +161,11 @@ func firstCallActionInput(t *testing.T, defs map[string]any, workID string, vers
 	return input
 }
 
-// firstCallPredicates builds the outcome predicates from the pinned
-// definition's admitted predicate kinds and, for outcome-kind definitions,
-// the pinned outcome tokens: one predicate at the zero position, its ordinal
-// equal to that position. The payload shape follows the closed v1 union the
-// fold decodes: check carries check fields, outcome carries its token.
-func firstCallPredicates(definition WorkflowDefinition) []map[string]any {
+// firstCallPredicates builds one predicate admitted by the workflow plan type.
+func firstCallPredicates(planType WorkflowStepPlanType) []map[string]any {
+	kinds, tokens := WorkflowPlanAllowedPredicates(planType)
 	admitted := map[PredicateKind]bool{}
-	for _, kind := range definition.OutcomeSchema.AllowedKinds {
+	for _, kind := range kinds {
 		admitted[kind] = true
 	}
 	switch {
@@ -181,38 +174,30 @@ func firstCallPredicates(definition WorkflowDefinition) []map[string]any {
 			"predicate_id": "predicate:first-call-admission", "ordinal": 0, "outcome_kind": string(PredicateCheck),
 			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:first-call-admission", "immutable_subject_ref": "commit:" + strings.Repeat("0", 40), "expected_result": "pass"},
 		}}
-	case admitted[PredicateOutcome]:
-		if len(definition.OutcomeSchema.AllowedOutcomeTokens) == 0 {
-			return nil
-		}
+	case admitted[PredicateOutcome] && len(tokens) > 0:
 		return []map[string]any{{
 			"predicate_id": "predicate:first-call-admission", "ordinal": 0, "outcome_kind": string(PredicateOutcome),
-			"outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{definition.OutcomeSchema.AllowedOutcomeTokens[0]}},
+			"outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{tokens[0]}},
 		}}
 	default:
 		return nil
 	}
 }
 
-// firstCallImplementationDefinition returns the registered implementation
-// definition. approve_contract sits on its planning step, so a first call
-// needs the proposal, discovery, and design actions first; the definition is
-// Product-changing, so the published architecture_binding fields are part of
-// the legal call the variant must carry.
-func firstCallImplementationDefinition(t *testing.T) RegisteredDefinition {
+func firstCallApprovalFrontier(t *testing.T, planType WorkflowStepPlanType) string {
 	t.Helper()
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
+	for _, step := range currentWorkflowPlanFixture(t, planType).Steps {
+		if slices.Contains(WorkflowStepPlanTemplateActions(planType, step.ID), "approve_contract") {
+			return step.ID
+		}
 	}
-	return registered
+	t.Fatalf("plan type %s has no contract approval step", planType)
+	return ""
 }
 
-// seedFirstCallWorkflow seeds the Product-changing fixture owners: the law
-// home (seedWorkflowLaw) commits the law folder and Domain registry the
-// obligation guard's current-law lookup reads. It then initializes a real
-// instance of the named workflow, pinned to the current registered definition.
-func seedFirstCallWorkflow(t *testing.T, s *Store, workID, actorName string) WorkflowActor {
+// seedFirstCallWorkflow initializes intake and seeds the contract-approval
+// frontier of the selected Product-changing plan.
+func seedFirstCallWorkflow(t *testing.T, s *Store, workID, actorName string, planType WorkflowStepPlanType) WorkflowActor {
 	t.Helper()
 	ctx := context.Background()
 	seedWork(t, s, workID)
@@ -233,10 +218,11 @@ func seedFirstCallWorkflow(t *testing.T, s *Store, workID, actorName string) Wor
 	if err := initTx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	seedWorkflowPlanFrontier(t, s, workID, planType, firstCallApprovalFrontier(t, planType))
 	return actor
 }
 
-func firstCallApproveContract(t *testing.T, s *Store, workID string, version int64, operationID string, input map[string]any) error {
+func firstCallApproveContract(t *testing.T, s *Store, workID string, version int64, operationID string, actor WorkflowActor, input map[string]any) error {
 	t.Helper()
 	payload, err := json.Marshal(input["fields"])
 	if err != nil {
@@ -246,18 +232,22 @@ func firstCallApproveContract(t *testing.T, s *Store, workID string, version int
 	if err != nil {
 		return err
 	}
+	before := contractRecordEffectSnapshot(t, s, workID)
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, actionErr := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: stepFixtureActor(),
+	_, actionErr := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:first-call", IdempotencyIdentity: operationID, OperationID: operationID,
-		PrincipalRef: stepFixtureActor().PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,
+		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,
 		RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC),
 	})
 	if actionErr != nil {
 		_ = tx.Rollback()
+		if after := contractRecordEffectSnapshot(t, s, workID); after != before {
+			t.Fatalf("refused approve_contract changed durable state: before=%s after=%s", before, after)
+		}
 		return actionErr
 	}
 	if err := tx.Commit(); err != nil {
@@ -285,38 +275,14 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "work-first-call-approve"
-	actor := seedFirstCallWorkflow(t, s, workID, "first-call")
-	registered := firstCallImplementationDefinition(t)
-	definition := registered.Definition
-	if definition.ChangesProductTruth == nil || !*definition.ChangesProductTruth {
-		t.Fatal("the pinned implementation definition is not Product-changing; the fixture cannot exercise the binding guards")
-	}
-
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	// Advance to the planning step through the same real action owners the
-	// semantic-event test uses; these calls are scaffolding, not the surface
-	// under proof.
-	for _, action := range []string{"record_proposal", "record_alignment"} {
-		version = issue31WorkflowAction(t, s, workID, version, action, "first-call-"+action, actor)
-	}
-
-	// Take the obligation from the WorkPin's published list.
-	pin, err := ReadWorkPin(context.Background(), s, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pin.Obligations == nil || len(*pin.Obligations) == 0 {
-		t.Fatal("pinned definition declares no obligations; the fixture cannot prove declared-obligation membership")
-	}
-	pinnedObligation := (*pin.Obligations)[0]
+	actor := seedFirstCallWorkflow(t, s, workID, "first-call", WorkflowStepPlanChange)
+	const obligation = "verification"
+	version := readWorkVersion(t, s, workID)
 
 	defs := firstCallPublishedDefs(t)
 	// The legal binding: the added law is authorized by spec_mandate, every
 	// Domain names the seeded registry, and the verification obligation pairs
-	// the pinned obligation ID with the current pinned law spec:one.
+	// an evidence kind with the current law spec:one.
 	legalBinding := func() map[string]any {
 		return map[string]any{
 			"home_domain_id":           "root",
@@ -324,11 +290,11 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 			"domain_modifies":          []string{},
 			"domain_relation_modifies": []map[string]any{},
 			"law_additions":            []map[string]any{{"law_id": "law:new", "home_domain_id": "root"}},
-			"verification_obligations": []map[string]any{{"law_id": "spec:one", "obligation_id": pinnedObligation}},
+			"verification_obligations": []map[string]any{{"law_id": "spec:one", "obligation_id": obligation}},
 		}
 	}
 	input := firstCallActionInput(t, defs, workID, version, map[string]any{
-		"outcome_predicates":   firstCallPredicates(definition),
+		"outcome_predicates":   firstCallPredicates(WorkflowStepPlanChange),
 		"spec_mandate":         []string{"spec:one", "law:new"},
 		"architecture_binding": legalBinding(),
 	})
@@ -356,7 +322,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 		"spec_mandate":         []string{"spec:one", "law:new"},
 		"architecture_binding": legalBinding(),
 	})
-	mutantErr := firstCallApproveContract(t, s, workID, version, "first-call-approve-ordinal", ordinalMutant)
+	mutantErr := firstCallApproveContract(t, s, workID, version, "first-call-approve-ordinal", actor, ordinalMutant)
 	firstCallRequireRefusal(t, mutantErr, "declares ordinal 1 at position 0")
 
 	// Unauthorized-addition mutant: the addition is not in spec_mandate. The
@@ -364,27 +330,23 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	unauthorizedBinding := legalBinding()
 	unauthorizedBinding["law_additions"] = []map[string]any{{"law_id": "law:unauthorized", "home_domain_id": "root"}}
 	unauthorizedMutant := firstCallActionInput(t, defs, workID, version, map[string]any{
-		"outcome_predicates":   firstCallPredicates(definition),
+		"outcome_predicates":   firstCallPredicates(WorkflowStepPlanChange),
 		"spec_mandate":         []string{"spec:one"},
 		"architecture_binding": unauthorizedBinding,
 	})
-	mutantErr = firstCallApproveContract(t, s, workID, version, "first-call-approve-unauthorized", unauthorizedMutant)
+	mutantErr = firstCallApproveContract(t, s, workID, version, "first-call-approve-unauthorized", actor, unauthorizedMutant)
 	firstCallRequireRefusal(t, mutantErr, "law addition is outside spec_mandate")
 
-	// Undeclared-obligation mutant: the verification obligation names an ID
-	// the pinned workflow definition does not declare at root, step, or
-	// rigor level. The owning guard is
-	// validateArchitectureBindingObligationsTx against the pinned
-	// definition's obligation declarations.
+	// Verification obligations must name a declared evidence kind.
 	undeclaredBinding := legalBinding()
 	undeclaredBinding["verification_obligations"] = []map[string]any{{"law_id": "spec:one", "obligation_id": "undeclared-obligation"}}
 	undeclaredMutant := firstCallActionInput(t, defs, workID, version, map[string]any{
-		"outcome_predicates":   firstCallPredicates(definition),
+		"outcome_predicates":   firstCallPredicates(WorkflowStepPlanChange),
 		"spec_mandate":         []string{"spec:one", "law:new"},
 		"architecture_binding": undeclaredBinding,
 	})
-	mutantErr = firstCallApproveContract(t, s, workID, version, "first-call-approve-undeclared", undeclaredMutant)
-	firstCallRequireRefusal(t, mutantErr, "verification obligation is not declared by the pinned workflow definition")
+	mutantErr = firstCallApproveContract(t, s, workID, version, "first-call-approve-undeclared", actor, undeclaredMutant)
+	firstCallRequireRefusal(t, mutantErr, "verification obligation is not a declared evidence kind")
 
 	// Affected-Domain membership mutant: affected_domain_ids names a Domain
 	// the pinned registry does not declare. The owning guard is
@@ -392,22 +354,22 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	unknownDomainBinding := legalBinding()
 	unknownDomainBinding["affected_domain_ids"] = []string{"root", "ghost"}
 	unknownDomainMutant := firstCallActionInput(t, defs, workID, version, map[string]any{
-		"outcome_predicates":   firstCallPredicates(definition),
+		"outcome_predicates":   firstCallPredicates(WorkflowStepPlanChange),
 		"spec_mandate":         []string{"spec:one", "law:new"},
 		"architecture_binding": unknownDomainBinding,
 	})
-	mutantErr = firstCallApproveContract(t, s, workID, version, "first-call-approve-domain", unknownDomainMutant)
+	mutantErr = firstCallApproveContract(t, s, workID, version, "first-call-approve-domain", actor, unknownDomainMutant)
 	firstCallRequireRefusal(t, mutantErr, "architecture_binding.affected_domain_ids names an unknown Domain: ghost")
 
 	// Law-modification subset mutant: law_modifies names a law outside
 	// spec_mandate. The owning guard is validateLawModificationSubset.
 	subsetMutant := firstCallActionInput(t, defs, workID, version, map[string]any{
-		"outcome_predicates":   firstCallPredicates(definition),
+		"outcome_predicates":   firstCallPredicates(WorkflowStepPlanChange),
 		"spec_mandate":         []string{"spec:one"},
 		"law_modifies":         []string{"spec:unmandated"},
 		"architecture_binding": legalBinding(),
 	})
-	mutantErr = firstCallApproveContract(t, s, workID, version, "first-call-approve-subset", subsetMutant)
+	mutantErr = firstCallApproveContract(t, s, workID, version, "first-call-approve-subset", actor, subsetMutant)
 	firstCallRequireRefusal(t, mutantErr, "law_modifies must be a subset of spec_mandate")
 
 	// Nested kind-equality mutant (CON-412): the predicate declares
@@ -430,47 +392,20 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	if err := payloadschema.Validate("work_transition_action_variant_approve_contract", kindMismatchEncoded); err == nil {
 		t.Fatal("published approve variant admitted an outcome_predicates item whose outcome_kind and outcome_payload.kind disagree")
 	}
-	mutantErr = firstCallApproveContract(t, s, workID, version, "first-call-approve-kind", kindMismatchMutant)
+	mutantErr = firstCallApproveContract(t, s, workID, version, "first-call-approve-kind", actor, kindMismatchMutant)
 	firstCallRequireRefusal(t, mutantErr, `does not satisfy its declared schema "workflow_action_outcome_predicates"`)
 
-	if err := firstCallApproveContract(t, s, workID, version, "first-call-approve", input); err != nil {
+	if err := firstCallApproveContract(t, s, workID, version, "first-call-approve", actor, input); err != nil {
 		t.Fatalf("first-call approve_contract refused after the mutants were refused without effect: %v", err)
 	}
 }
 
-// firstCallBreakFixSeed drives the real break-fix admission path to an
-// approved Product-changing contract: the
-// alignment step records the legal none_found combination the published
-// variant admits, and the approve step assembles the same Product-changing
-// binding the approve first-call test proves.
+// firstCallBreakFixSeed approves a Product-changing contract at the fix plan frontier.
 func firstCallBreakFixSeed(t *testing.T, workID string) (*Store, WorkflowActor) {
 	t.Helper()
 	s := openTemp(t)
-	actor := seedFirstCallWorkflow(t, s, workID, "first-call-bf")
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if registered.Definition.ChangesProductTruth == nil || !*registered.Definition.ChangesProductTruth {
-		t.Fatal("the pinned break-fix definition is not Product-changing; the fixture cannot exercise the binding guards")
-	}
-	// CD-0198 D2: the merged diagnosis record replaces the three separate
-	// records, so the none_found combination the published variant admits
-	// rides record_diagnosis's sections.
-	version := issue31WorkflowActionWithPayload(t, s, workID, func() int64 {
-		var current int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&current); err != nil {
-			t.Fatal(err)
-		}
-		return current
-	}(), "record_diagnosis", "first-call-bf-record_diagnosis", actor, diagnosisPayload("the defect reproduces from a clean store", "The bounded backlog search statement.", "none_found", nil, "the cause is not a duplicate"))
-	pin, err := ReadWorkPin(context.Background(), s, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pin.Obligations == nil || len(*pin.Obligations) == 0 {
-		t.Fatal("pinned break-fix definition declares no obligations")
-	}
+	actor := seedFirstCallWorkflow(t, s, workID, "first-call-bf", WorkflowStepPlanFix)
+	version := readWorkVersion(t, s, workID)
 	defs := firstCallPublishedDefs(t)
 	binding := func() map[string]any {
 		return map[string]any{
@@ -479,15 +414,16 @@ func firstCallBreakFixSeed(t *testing.T, workID string) (*Store, WorkflowActor) 
 			"domain_modifies":          []string{},
 			"domain_relation_modifies": []map[string]any{},
 			"law_additions":            []map[string]any{{"law_id": "law:new", "home_domain_id": "root"}},
-			"verification_obligations": []map[string]any{{"law_id": "spec:one", "obligation_id": (*pin.Obligations)[0]}},
+			"verification_obligations": []map[string]any{{"law_id": "spec:one", "obligation_id": "verification"}},
 		}
 	}
 	approve := firstCallActionInput(t, defs, workID, version, map[string]any{
-		"outcome_predicates":   firstCallPredicates(registered.Definition),
+		"outcome_predicates":   firstCallPredicates(WorkflowStepPlanFix),
+		"required_evidence":    []string{"verification"},
 		"spec_mandate":         []string{"spec:one", "law:new"},
 		"architecture_binding": binding(),
 	})
-	if err := firstCallApproveContract(t, s, workID, version, "first-call-bf-approve", approve); err != nil {
+	if err := firstCallApproveContract(t, s, workID, version, "first-call-bf-approve", actor, approve); err != nil {
 		t.Fatalf("first-call break-fix approve_contract refused: %v", err)
 	}
 	return s, actor
@@ -503,6 +439,9 @@ func TestFirstCallContractUpdateAdmitsFromPublishedInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if pin.Obligations == nil {
+		t.Fatal("active contract has no required evidence projection")
+	}
 	defs := firstCallPublishedDefs(t)
 	var workKind string
 	if err := s.db.QueryRow(`SELECT kind FROM work_items WHERE id=?`, workID).Scan(&workKind); err != nil {
@@ -515,7 +454,7 @@ func TestFirstCallContractUpdateAdmitsFromPublishedInput(t *testing.T) {
 			"domain_modifies":          []string{},
 			"domain_relation_modifies": []map[string]any{},
 			"law_additions":            []map[string]any{{"law_id": "law:successor", "home_domain_id": "root"}},
-			"verification_obligations": []map[string]any{{"law_id": "spec:one", "obligation_id": (*pin.Obligations)[0]}},
+			"verification_obligations": []map[string]any{{"law_id": "spec:one", "obligation_id": "verification"}},
 		}
 	}
 	updateInput := func(mutate func(fields map[string]any)) map[string]any {
@@ -583,14 +522,13 @@ func TestFirstCallContractUpdateAdmitsFromPublishedInput(t *testing.T) {
 	err = applyUpdate(unauthorized)
 	firstCallRequireRefusal(t, err, "law addition is outside spec_mandate")
 
-	// Undeclared-obligation mutant: the successor verification obligation
-	// names an ID the pinned workflow definition does not declare.
+	// Verification obligations must name a declared evidence kind.
 	undeclared := updateInput(func(fields map[string]any) {
 		binding := fields["architecture_binding"].(map[string]any)
 		binding["verification_obligations"] = []map[string]any{{"law_id": "spec:one", "obligation_id": "undeclared-obligation"}}
 	})
 	err = applyUpdate(undeclared)
-	firstCallRequireRefusal(t, err, "verification obligation is not declared by the pinned workflow definition")
+	firstCallRequireRefusal(t, err, "verification obligation is not a declared evidence kind")
 
 	// Affected-Domain membership mutant: the successor binding names a
 	// Domain the pinned registry does not declare.

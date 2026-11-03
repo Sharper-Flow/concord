@@ -201,165 +201,26 @@ class UnidentifiedFindingReadbackProjectionTests(unittest.TestCase):
                 generator.schema_validate({**finding, key: value}, view, payload)
 
 
-class IndependentDefinitionIntegrationTests(unittest.TestCase):
-    """Exercise canonical definition identity and regeneration on disposable source bytes."""
-
-    PROBE = r'''
-package main
-
-import (
-    "encoding/json"
-    "errors"
-    "os"
-
-    "github.com/sharper-flow/concord/internal/store"
-)
-
-func must(err error) {
-    if err != nil { panic(err) }
-}
-
-func main() {
-    previous := map[string][]string{}
-    must(json.NewDecoder(os.Stdin).Decode(&previous))
-    registry := store.NewWorkflowDefinitionRegistry()
-    result := map[string]any{}
-    for _, definition := range store.BuiltinWorkflowDefinitions() {
-        registered, err := registry.Register(definition)
-        must(err)
-        current, ok := registry.Current(definition.Ref)
-        if !ok { panic("current definition missing") }
-        digest, err := store.WorkflowDefinitionDigest(current.Definition)
-        must(err)
-        if digest != current.Digest || digest != registered.Digest {
-            panic("current definition digest differs from registered content")
-        }
-        must(registry.Verify(definition.Ref, digest))
-        canonical, err := store.CanonicalWorkflowDefinition(current.Definition)
-        must(err)
-        rejected := []string{}
-        for _, old := range previous[definition.Ref] {
-            if old == digest {
-                must(registry.Verify(definition.Ref, old))
-                continue
-            }
-            var failure *store.Failure
-            err := registry.Verify(definition.Ref, old)
-            if !errors.As(err, &failure) || failure.Kind != store.KindDefinitionDigestMismatch {
-                panic("old definition digest did not receive a typed mismatch refusal")
-            }
-            rejected = append(rejected, old)
-        }
-        result[definition.Ref] = map[string]any{
-            "digest": digest, "manifest": json.RawMessage(canonical), "rejected": rejected,
-        }
-    }
-    must(json.NewEncoder(os.Stdout).Encode(result))
-}
-'''
-
-    def _run(self, root, *argv, input=None, show=True):
-        # The proof uses cached dependencies only, never an install or network fetch.
-        result = subprocess.run(
-            argv, cwd=root, input=input, text=True, capture_output=True,
-            timeout=240, env=os.environ | {"GOPROXY": "off", "GOSUMDB": "off"},
-        )
-        if show or result.returncode:
-            print(f"$ {' '.join(map(str, argv))}\n{result.stdout}{result.stderr}", flush=True)
-        self.assertEqual(result.returncode, 0, f"command failed: {argv}")
-        return result.stdout
-
-    def test_independent_definition_edits_merge_and_regenerate_without_version_edits(self):
-        with tempfile.TemporaryDirectory(prefix="concord-definition-integration-") as temporary:
-            scratch = Path(temporary)
-            root = scratch / "source"
-            root.mkdir()
-            tracked = self._run(ROOT, "git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", show=False).split("\0")
-            deleted = set(self._run(ROOT, "git", "ls-files", "--deleted", "-z", show=False).split("\0"))
-            excluded = {".git", "node_modules", "__pycache__", ".ruff_cache", "build", "dist"}
-            for relative in filter(None, tracked):
-                if relative in deleted:
-                    continue
-                path = Path(relative)
-                self.assertFalse(path.is_absolute() or ".." in path.parts)
-                if excluded.intersection(path.parts):
-                    continue
-                source = ROOT / path
-                self.assertFalse(source.is_symlink(), f"tracked source symlink: {relative}")
-                target = root / path
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, target)
-            self.assertFalse((root / ".git").exists())
-
-            definitions = root / "internal/store/workflow_definitions.go"
-            base = definitions.read_text()
-            # Reorder existing actions in distant, disjoint definitions, not shared counters.
-            edits = (
-                ('"record_alignment", "record_work_context"', '"record_work_context", "record_alignment"'),
-                ('"record_report", "link_successor"', '"link_successor", "record_report"'),
-            )
-            copies = []
-            for name, source in (("base", base), ("left", base.replace(*edits[0])), ("right", base.replace(*edits[1]))):
-                path = scratch / f"{name}.go"
-                path.write_text(source)
-                copies.append(path)
-            for old, new in edits:
-                self.assertEqual(base.count(old), 1)
-                self.assertNotIn(new, base)
-            merged = self._run(scratch, "git", "merge-file", "-p", str(copies[1]), str(copies[0]), str(copies[2]), show=False)
-            self.assertEqual(merged, base.replace(*edits[0]).replace(*edits[1]))
-            for old, new in edits:
-                self.assertNotIn(old, merged)
-                self.assertEqual(merged.count(new), 1)
-
-            probe = root / "scripts/definition-integration-probe/main.go"
-            probe.parent.mkdir()
-            probe.write_text(self.PROBE)
-            states = {}
-            previous = {}
-            for name, source in (("base", base), ("left", copies[1].read_text()), ("right", copies[2].read_text()), ("merged", merged)):
-                definitions.write_text(source)
-                states[name] = json.loads(self._run(root, "go", "run", "./scripts/definition-integration-probe", input=json.dumps(previous), show=False))
-                self.assertEqual(set(states[name]), {"workflow.implementation", "workflow.break_fix", "workflow.research"})
-                for ref, row in states[name].items():
-                    self.assertRegex(row["digest"], r"^sha256:[0-9a-f]{64}$")
-                    self.assertNotIn("version", row["manifest"])
-                    self.assertIn("capabilities", row["manifest"])
-                    self.assertEqual(bool(row["manifest"]["capabilities"]), ref != "workflow.research")
-                    self.assertEqual(row["rejected"], [old for old in previous.get(ref, []) if old != row["digest"]])
-                print(f"{name} digests: {json.dumps({ref: row['digest'] for ref, row in states[name].items()}, sort_keys=True)}", flush=True)
-                for ref, row in states[name].items():
-                    previous.setdefault(ref, []).append(row["digest"])
-
-            for ref in states["base"]:
-                expected_left = copy.deepcopy(states["base"][ref]["manifest"])
-                expected_right = copy.deepcopy(expected_left)
-                expected_merged = copy.deepcopy(expected_left)
-                for step in expected_left["step_graph"]["steps"]:
-                    if step["id"] == "alignment":
-                        step["actions"][0:2] = list(reversed(step["actions"][0:2]))
-                for step in expected_right["step_graph"]["steps"]:
-                    if step["id"] == "findings":
-                        step["actions"][0:2] = list(reversed(step["actions"][0:2]))
-                for step in expected_merged["step_graph"]["steps"]:
-                    if step["id"] in ("alignment", "findings"):
-                        step["actions"][0:2] = list(reversed(step["actions"][0:2]))
-                # Root available/action-definition ordering may also change with first use.
-                for name, expected in (("left", expected_left), ("right", expected_right), ("merged", expected_merged)):
-                    self.assertEqual(states[name][ref]["manifest"]["step_graph"], expected["step_graph"])
-                    changed = ref == "workflow.implementation" and name in ("left", "merged") or ref == "workflow.research" and name in ("right", "merged")
-                    self.assertEqual(states[name][ref]["digest"] != states["base"][ref]["digest"], changed, (name, ref))
-                owner = "left" if ref == "workflow.implementation" else "right" if ref == "workflow.research" else "base"
-                self.assertEqual(states["merged"][ref]["manifest"], states[owner][ref]["manifest"])
-                self.assertEqual(states["merged"][ref]["digest"], states[owner][ref]["digest"])
-
-            print("Independent edits merged exactly; current digests verified and stale affected digests received typed mismatch refusals.", flush=True)
-            self._run(root, sys.executable, "scripts/generate-agent-contracts.py")
-            self._run(root, sys.executable, "scripts/generate-agent-contracts.py", "--check")
-            self._run(root, sys.executable, "scripts/generate-agent-profiles.py", "--check")
-            self._run(root, "go", "test", "-timeout=4m", "./internal/store", "-run",
-                      "^Test(WorkflowDefinitionCanonicalEncodingMatchesPublicFixture|WorkflowCapabilityVocabularyMatchesPublicSchema|WorkflowDefinitionCanonicalDigestAndDriftProtection)$", "-count=1", "-v")
-            self.assertEqual(definitions.read_text(), merged)
+class WorkflowPlanTemplateSchemaTests(unittest.TestCase):
+    def test_template_steps_form_valid_initial_plans(self):
+        contract = json.loads((ROOT / "contracts/workflow-step-templates.v1.json").read_text())
+        schema = contract["plan_schema"]
+        types = [template["id"] for template in contract["types"]]
+        self.assertEqual(types, schema["properties"]["type"]["enum"])
+        self.assertEqual(len(types), len(set(types)))
+        for template in contract["types"]:
+            steps = []
+            for index, step in enumerate(template["steps"]):
+                self.assertTrue(step["actions"])
+                self.assertEqual(len(step["actions"]), len(set(step["actions"])))
+                steps.append({"id": step["id"], "required": True,
+                              "after": [template["steps"][index - 1]["id"]] if index else [],
+                              "skill": step["skill"], "helper": step["helper"], "reviewed": step["reviewed"]})
+            plan = {"schema_version": contract["schema_version"], "type": template["id"], "steps": steps}
+            with self.subTest(plan_type=template["id"]):
+                generator.schema_validate(plan, schema, schema)
+                with self.assertRaises(ValueError):
+                    generator.schema_validate(plan | {"unexpected": True}, schema, schema)
 
 
 class CurrentScenarioCarrierTests(unittest.TestCase):
@@ -1217,76 +1078,6 @@ class EvidenceBoundParityTests(unittest.TestCase):
         del value["$defs"]["evidence"]
         with self.assertRaises(ValueError):
             self.check(payload=value)
-
-
-class BuiltinWorkflowDefinitionSchemaTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.schema = json.loads((ROOT / "contracts/workflow-definition.schema.json").read_text())
-        with tempfile.TemporaryDirectory(prefix="manifest-schema-", dir=ROOT / "scripts") as temporary:
-            probe = Path(temporary) / "main.go"
-            probe.write_text(IndependentDefinitionIntegrationTests.PROBE)
-            result = subprocess.run(
-                ["go", "run", str(probe)], cwd=ROOT, input="{}", text=True,
-                capture_output=True, timeout=240,
-                env=os.environ | {"GOPROXY": "off", "GOSUMDB": "off"},
-            )
-        if result.returncode:
-            raise AssertionError(f"canonical manifest export failed:\n{result.stdout}{result.stderr}")
-        cls.definitions = {
-            ref: row["manifest"] | {"digest": row["digest"]}
-            for ref, row in json.loads(result.stdout).items()
-        }
-
-    def test_full_canonical_live_manifests_match_public_schema(self):
-        self.assertEqual(set(self.definitions), {
-            "workflow.implementation", "workflow.break_fix", "workflow.research",
-        })
-        for ref, definition in self.definitions.items():
-            with self.subTest(workflow=ref):
-                fields = next(action["payload"]["fields"] for action in definition["action_definitions"]
-                              if action["id"] == "confirm_premise")
-                self.assertFalse({"selected_choice", "decision_context_digest"} & {field["name"] for field in fields})
-                generator.schema_validate(definition, self.schema, self.schema)
-
-    def test_payload_field_is_closed_without_envelope(self):
-        for ref, definition in self.definitions.items():
-            for envelope in (False, True, None, "true", 1, [], {}):
-                with self.subTest(workflow=ref, envelope=envelope):
-                    changed = copy.deepcopy(definition)
-                    field = next(field for action in changed["action_definitions"] for field in action["payload"]["fields"])
-                    field["envelope"] = envelope
-                    with self.assertRaisesRegex(ValueError, "unknown properties.*envelope"):
-                        generator.schema_validate(changed, self.schema, self.schema)
-            changed = copy.deepcopy(definition)
-            field = next(field for action in changed["action_definitions"] for field in action["payload"]["fields"])
-            field["unrelated"] = True
-            with self.subTest(workflow=ref), self.assertRaisesRegex(ValueError, "unknown properties.*unrelated"):
-                generator.schema_validate(changed, self.schema, self.schema)
-
-
-class WorkflowDefinitionContentIdentityTests(unittest.TestCase):
-    def setUp(self):
-        self.schema = json.loads((ROOT / "contracts/workflow-definition.schema.json").read_text())
-        self.definition = json.loads((ROOT / "contracts/workflow-engine.fixtures.json").read_text())["cases"][0]["instance"]
-
-    def test_definition_is_version_free_and_capabilities_are_digest_covered(self):
-        generator.schema_validate(self.definition, self.schema, self.schema)
-        self.assertNotIn("version", self.definition)
-        self.assertEqual(lane_checker._validate_definition_semantics(self.definition), None)
-        changed = copy.deepcopy(self.definition)
-        changed["capabilities"] = ["produces_delivery"]
-        self.assertEqual(lane_checker._validate_definition_semantics(changed), "definition digest mismatch")
-        with self.assertRaises(ValueError):
-            generator.schema_validate(self.definition | {"version": 1}, self.schema, self.schema)
-
-    def test_capabilities_require_known_unique_sorted_names(self):
-        for capabilities in (["unknown"], ["refine_proof", "refine_proof"]):
-            with self.subTest(capabilities=capabilities), self.assertRaises(ValueError):
-                generator.schema_validate(self.definition | {"capabilities": capabilities}, self.schema, self.schema)
-        self.assertEqual(lane_checker._validate_definition_semantics(
-            self.definition | {"capabilities": ["refine_proof", "produces_delivery"]}),
-            "definition capabilities must be sorted and unique")
 
 
 class EnvelopeOperationVocabularyTests(unittest.TestCase):
@@ -2445,17 +2236,15 @@ class StrictFailureControls(unittest.TestCase):
             self.assertEqual(json.loads((workspace / "tsconfig.json").read_text()), {"compilerOptions": pin["compiler_options"], "include": ["src/*.ts"]})
 
     def test_a_broken_contract_fixture_fails_the_check(self):
-        # A digest that no longer matches its definition makes a valid-marked
-        # fixture invalid; the corpus validators are real, so main() must
-        # fail before any subprocess orchestration is reached.
+        # The outcome schema remains current even after definition pins retire.
         real_load = lane_checker._load_json
 
         def broken_fixture(path):
             value = real_load(path)
             if getattr(path, "name", str(path)) == "workflow-engine.fixtures.json":
                 for case in value["cases"]:
-                    if case["id"] == "definition-implementation-valid":
-                        case["instance"]["digest"] = "sha256:" + "0" * 64
+                    if case["id"] == "outcome-exists-valid":
+                        case["instance"]["kind"] = "unknown"
             return value
 
         out, err = io.StringIO(), io.StringIO()

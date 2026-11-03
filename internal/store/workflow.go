@@ -285,37 +285,35 @@ type workflowActionFailedPayload struct {
 
 type workflowContextCheckpointedPayload struct {
 	WorkflowVersionFields
-	CheckpointID             string   `json:"checkpoint_id"`
-	CheckpointSequence       int64    `json:"checkpoint_sequence"`
-	StepID                   string   `json:"step_id"`
-	AttemptEpoch             int64    `json:"attempt_epoch"`
-	ActiveUnit               string   `json:"active_unit"`
-	Hypothesis               string   `json:"hypothesis"`
-	Diagnosis                string   `json:"diagnosis"`
-	Strategy                 string   `json:"strategy"`
-	TouchedRefs              []string `json:"touched_refs"`
-	EvidenceRefs             []string `json:"evidence_refs"`
-	PendingQuestions         []string `json:"pending_questions"`
-	PendingDecisions         []string `json:"pending_decisions"`
-	WorkflowRef              string   `json:"workflow_ref"`
-	WorkflowDefinitionDigest string   `json:"workflow_definition_digest"`
-	ActorRef                 string   `json:"actor_ref"`
-	RequestID                string   `json:"request_id"`
+	CheckpointID       string   `json:"checkpoint_id"`
+	CheckpointSequence int64    `json:"checkpoint_sequence"`
+	StepID             string   `json:"step_id"`
+	AttemptEpoch       int64    `json:"attempt_epoch"`
+	ActiveUnit         string   `json:"active_unit"`
+	Hypothesis         string   `json:"hypothesis"`
+	Diagnosis          string   `json:"diagnosis"`
+	Strategy           string   `json:"strategy"`
+	TouchedRefs        []string `json:"touched_refs"`
+	EvidenceRefs       []string `json:"evidence_refs"`
+	PendingQuestions   []string `json:"pending_questions"`
+	PendingDecisions   []string `json:"pending_decisions"`
+	WorkflowRef        string   `json:"workflow_ref"`
+	ActorRef           string   `json:"actor_ref"`
+	RequestID          string   `json:"request_id"`
 }
 
 type workflowContextBoundaryCrossedPayload struct {
 	WorkflowVersionFields
-	BoundaryID               string `json:"boundary_id"`
-	BoundarySequence         int64  `json:"boundary_sequence"`
-	BoundaryKind             string `json:"boundary_kind"`
-	CheckpointID             string `json:"checkpoint_id"`
-	CheckpointSequence       int64  `json:"checkpoint_sequence"`
-	Summary                  string `json:"summary"`
-	WorkflowRef              string `json:"workflow_ref"`
-	WorkflowDefinitionDigest string `json:"workflow_definition_digest"`
-	AttemptEpoch             int64  `json:"attempt_epoch"`
-	ActorRef                 string `json:"actor_ref"`
-	RequestID                string `json:"request_id"`
+	BoundaryID         string `json:"boundary_id"`
+	BoundarySequence   int64  `json:"boundary_sequence"`
+	BoundaryKind       string `json:"boundary_kind"`
+	CheckpointID       string `json:"checkpoint_id"`
+	CheckpointSequence int64  `json:"checkpoint_sequence"`
+	Summary            string `json:"summary"`
+	WorkflowRef        string `json:"workflow_ref"`
+	AttemptEpoch       int64  `json:"attempt_epoch"`
+	ActorRef           string `json:"actor_ref"`
+	RequestID          string `json:"request_id"`
 }
 
 type workflowDesignDecisionPayload struct {
@@ -1182,7 +1180,7 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event, sco
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if err := startWorkflowInstanceStepTx(ctx, tx, nil, event.SubjectID, p.StepID, p.ActorRef, p.ExecutionModel, event.OccurredAt); err != nil {
+	if err := startWorkflowInstanceStepTx(ctx, tx, event.SubjectID, p.StepID, p.ActorRef, p.ExecutionModel, event.OccurredAt); err != nil {
 		return err
 	}
 	if err := recordWorkVersionActionTx(ctx, tx, event, p.ActionID, *p.ResultingVersion); err != nil {
@@ -1269,38 +1267,6 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 		return newFailure(KindUnauthorized, "fold_event", "checkpoint actor does not hold the workflow writing authority", false, "checkpoint through the workflow actor that holds the writing authority")
 	}
 	return persistWorkflowCheckpointTx(ctx, tx, event, scope, p)
-}
-
-func admitWorkflowCheckpointWriterTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCheckpointedPayload, definition WorkflowDefinition, step *WorkflowStep, currentStep, executionActor string) error {
-	fenced := step != nil && workflowStepFences(definition, *step)
-	var admitted bool
-	if !fenced {
-		admitted = workflowCheckpointWriterAdmitted(executionActor, p.ActorRef, false)
-	} else {
-		checkpointFields, checkpointFieldsErr := workflowActionObject(p.CheckpointPayload)
-		if checkpointFieldsErr != nil {
-			return checkpointFieldsErr
-		}
-		deriving, deriveErr := workflowDerivedStartPairAuthored(ctx, tx, definition, event.SubjectID, currentStep, workflowFieldStringDefault(checkpointFields, "action_id", ""), p.AttemptEpoch, event.Seq, p.ActorRef, event.EventID)
-		if deriveErr != nil {
-			return deriveErr
-		}
-		if deriving {
-			// The checkpoint that its own derived start opened (CD-0198 D3):
-			// the started fold already authenticated this actor and bound
-			// the step fence from it, so the checkpoint-writer rule that
-			// governs review and context events does not judge the
-			// derivation pair. Every later checkpoint at the step answers
-			// to the rule with the fence in place.
-			admitted = true
-		} else {
-			admitted = workflowCheckpointWriterAdmitted(executionActor, p.ActorRef, true)
-		}
-	}
-	if !admitted {
-		return newFailure(KindUnauthorized, "fold_event", "checkpoint actor does not hold the workflow writing authority", false, "checkpoint through the workflow actor that holds the writing authority")
-	}
-	return nil
 }
 
 func persistWorkflowCheckpointTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, p workflowActionCheckpointedPayload) error {
@@ -1412,7 +1378,7 @@ func foldWorkflowContextCheckpointed(ctx context.Context, tx *sql.Tx, event Even
 		!workflowString(p.ActiveUnit, 256) || !workflowString(p.Hypothesis, 4096) || !workflowString(p.Diagnosis, 4096) ||
 		!workflowString(p.Strategy, 4096) || !workflowList(p.TouchedRefs, 64, 1) || !workflowList(p.EvidenceRefs, 64, 1) ||
 		!workflowList(p.PendingQuestions, 16, 0) || !workflowList(p.PendingDecisions, 16, 0) || !workflowString(p.WorkflowRef, 128) ||
-		(p.WorkflowDefinitionDigest != "" && !workflowDigest(p.WorkflowDefinitionDigest)) || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
+		!workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
 		return newFailure(KindInvalidPayload, "fold_event", "context checkpoint is incomplete or outside its bounds", false, "supply all durable working-state fields within the context continuity bounds")
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
@@ -1422,7 +1388,7 @@ func foldWorkflowContextCheckpointed(ctx context.Context, tx *sql.Tx, event Even
 	if err != nil {
 		return err
 	}
-	if plan == nil || workflowPlanCurrentStep(plan) != p.StepID || string(plan.Type) != p.WorkflowRef || p.WorkflowDefinitionDigest != "" {
+	if plan == nil || workflowPlanCurrentStep(plan) != p.StepID || string(plan.Type) != p.WorkflowRef {
 		return newFailure(KindStaleAttempt, "fold_event", "context checkpoint does not bind the current workflow step and type", false, "reread the current workflow context")
 	}
 	var activeAttempt int64
@@ -1442,7 +1408,7 @@ func foldWorkflowContextCheckpointed(ctx context.Context, tx *sql.Tx, event Even
 	if p.CheckpointSequence != 0 && p.CheckpointSequence != sequence {
 		return newFailure(KindInvalidPayload, "fold_event", "context checkpoint sequence is not the next monotonic sequence", false, "use the next checkpoint sequence")
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_context_checkpoints(work_id,work_version,checkpoint_sequence,checkpoint_id,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions,workflow_ref,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, sequence, p.CheckpointID, p.StepID, p.AttemptEpoch, p.ActiveUnit, p.Hypothesis, p.Diagnosis, p.Strategy, workflowJSON(p.TouchedRefs), workflowJSON(p.EvidenceRefs), workflowJSON(p.PendingQuestions), workflowJSON(p.PendingDecisions), p.WorkflowRef, p.WorkflowDefinitionDigest, p.ActorRef, p.RequestID, event.OccurredAt.UTC().Format(time.RFC3339Nano))
+	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_context_checkpoints(work_id,work_version,checkpoint_sequence,checkpoint_id,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions,workflow_ref,actor_ref,request_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, sequence, p.CheckpointID, p.StepID, p.AttemptEpoch, p.ActiveUnit, p.Hypothesis, p.Diagnosis, p.Strategy, workflowJSON(p.TouchedRefs), workflowJSON(p.EvidenceRefs), workflowJSON(p.PendingQuestions), workflowJSON(p.PendingDecisions), p.WorkflowRef, p.ActorRef, p.RequestID, event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	return workflowProjectionError(err, "cannot record context checkpoint")
 }
 
@@ -1498,7 +1464,7 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 	if err := beginWorkflowLifecycleTx(ctx, tx, event); err != nil {
 		return err
 	}
-	if p.BoundaryKind != "summary" || !workflowString(p.BoundaryID, 128) || !workflowString(p.CheckpointID, 128) || !workflowString(p.Summary, 16*1024) || !workflowString(p.WorkflowRef, 128) || (p.WorkflowDefinitionDigest != "" && !workflowDigest(p.WorkflowDefinitionDigest)) || p.AttemptEpoch <= 0 || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
+	if p.BoundaryKind != "summary" || !workflowString(p.BoundaryID, 128) || !workflowString(p.CheckpointID, 128) || !workflowString(p.Summary, 16*1024) || !workflowString(p.WorkflowRef, 128) || p.AttemptEpoch <= 0 || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
 		return newFailure(KindInvalidPayload, "fold_event", "context boundary is not a bounded summary boundary", false, "cross only a summary boundary after a durable checkpoint")
 	}
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
@@ -1508,7 +1474,7 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 	if err != nil {
 		return err
 	}
-	if plan == nil || string(plan.Type) != p.WorkflowRef || p.WorkflowDefinitionDigest != "" {
+	if plan == nil || string(plan.Type) != p.WorkflowRef {
 		return newFailure(KindStaleAttempt, "fold_event", "context boundary does not bind the current workflow type", false, "reread the current workflow context")
 	}
 	var checkpointVersion, checkpointSequence, attemptEpoch int64
@@ -1558,7 +1524,7 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 	if p.BoundarySequence != 0 && p.BoundarySequence != sequence {
 		return newFailure(KindInvalidPayload, "fold_event", "context boundary sequence is not monotonic", false, "use the next boundary sequence")
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, sequence, sequence, p.BoundaryID, p.BoundaryKind, p.CheckpointID, p.CheckpointSequence, p.AttemptEpoch, p.Summary, p.WorkflowRef, p.WorkflowDefinitionDigest, p.ActorRef, p.RequestID, event.OccurredAt.UTC().Format(time.RFC3339Nano))
+	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,actor_ref,request_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, sequence, sequence, p.BoundaryID, p.BoundaryKind, p.CheckpointID, p.CheckpointSequence, p.AttemptEpoch, p.Summary, p.WorkflowRef, p.ActorRef, p.RequestID, event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	return workflowProjectionError(err, "cannot record context boundary")
 }
 
@@ -1591,147 +1557,6 @@ func validateWorkflowCompletionResultFields(p workflowActionCompletedPayload) er
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed has invalid result fields", false, "supply bounded action result references")
 	}
 	return nil
-}
-
-// admitWorkflowActionOffStep admits an ordinary write to its current record,
-// or a subject-bound evidence action.
-func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, entry RegisteredDefinition, currentStep string, scope *writeScope) error {
-	currentRecord := false
-	if workflowRecordAction(p.ActionID) {
-		records, err := workflowCurrentRecords(ctx, tx, event.SubjectID)
-		if err != nil {
-			return err
-		}
-		currentRecord = records[p.ActionID]
-		if currentRecord && p.ActionID != "record_verdict" {
-			if err := admitWorkflowRecordReplacementTx(ctx, tx, event, p, entry.Definition, currentStep, scope); err != nil {
-				return err
-			}
-			return nil
-		}
-	}
-	if p.ActionID == "record_verdict" && (currentRecord || workflowLateCriterionAssociationStep(entry.Definition, currentStep)) {
-		epoch, err := workflowActionStartEpochForDispatch(ctx, tx, event.SubjectID, currentStep, false)
-		if err != nil {
-			return err
-		}
-		if p.AttemptEpoch != epoch {
-			return newFailure(KindIllegalLifecycleTransition, "fold_event", "criterion association does not bind the current attempt", false, "reread_entities")
-		}
-		// Association events fold before their completion. Join this action's
-		// own verified effect for both late association and record replacement,
-		// rather than admitting a completion from the current record alone.
-		var effectID string
-		err = tx.QueryRowContext(ctx, `SELECT r.event_id FROM workflow_predicate_verdicts v JOIN effect_receipts r ON r.effect_seq=v.verdict_seq WHERE v.work_id=? AND v.verdict_seq<? AND v.actor=? AND json_extract(v.payload,'$.resulting_version')=? ORDER BY v.verdict_seq DESC LIMIT 1`, event.SubjectID, event.Seq, p.ActorRef, p.ExpectedVersion).Scan(&effectID)
-		if err != nil && err != sql.ErrNoRows {
-			return workflowProjectionError(err, "cannot read criterion association effect")
-		}
-		if err == nil && scope != nil && scope.operationEvents[effectID] {
-			return nil
-		}
-		return newFailure(KindMissingEvidence, "fold_event", "criterion association requires its own verified association effect", false, "associate applicable producer receipts before recording completion")
-	}
-	if p.ActionID != "bind_evidence" || stepDeclaresAction(entry.Definition, currentStep, "bind_evidence") {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
-	}
-	return admitWorkflowEvidenceCompletionTx(ctx, tx, event, p, entry.Definition, currentStep, scope)
-}
-
-func admitWorkflowRecordReplacementTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, definition WorkflowDefinition, currentStep string, scope *writeScope) error {
-	epoch, err := workflowActionStartEpochForDispatch(ctx, tx, event.SubjectID, currentStep, false)
-	if err != nil {
-		return err
-	}
-	if p.AttemptEpoch != epoch {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "record replacement does not bind the current attempt", false, "reread_entities")
-	}
-	switch p.ActionID {
-	case "record_delivery":
-		if !workflowDefinitionRequiresDeliveryPayload(definition) {
-			return newFailure(KindIllegalLifecycleTransition, "fold_event", "pinned delivery action does not produce a replacement assertion", false, "use a workflow definition that records delivery")
-		}
-		if p.DeliveryArtifact == "" || p.DeliveryState == "" {
-			return newFailure(KindInvalidPayload, "fold_event", "record_delivery requires delivery_artifact and delivery_state", false, "supply the asserted delivery artifact and state")
-		}
-		raw, err := json.Marshal(map[string]string{"delivery_artifact": p.DeliveryArtifact, "delivery_state": p.DeliveryState})
-		if err != nil {
-			return err
-		}
-		return validateWorkflowActionPayload(definition, p.ActionID, raw)
-	case "record_review":
-		// The review report is carried by the completion; its evidence binds
-		// that exact completion in the same operation.
-		var bindingID string
-		err := tx.QueryRowContext(ctx, `SELECT binding_id FROM workflow_evidence_bindings WHERE work_id=? AND binding_seq<? AND actor=? AND json_extract(payload,'$.resulting_version')=? AND json_extract(payload,'$.immutable_subject_ref')=? AND json_extract(payload,'$.evidence_kind')=? ORDER BY binding_seq DESC LIMIT 1`, event.SubjectID, event.Seq, p.ActorRef, p.ExpectedVersion, event.EventID, string(EvidenceReview)).Scan(&bindingID)
-		if err != nil && err != sql.ErrNoRows {
-			return workflowProjectionError(err, "cannot read review evidence effect")
-		}
-		if err == nil && scope != nil && scope.operationEvents[bindingID] {
-			return nil
-		}
-	default:
-		kind := map[string]string{
-			"record_proposal":   WorkflowProposalRecorded,
-			"record_design":     WorkflowDesignRecorded,
-			"record_alignment":  WorkflowBacklogAlignmentRecorded,
-			"record_diagnosis":  WorkflowDiagnosisRecorded,
-			"revise_candidates": WorkflowCandidateSetRevised,
-		}[p.ActionID]
-		var id string
-		err := tx.QueryRowContext(ctx, `SELECT event_id FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND effect_seq<? AND effect_seq=(SELECT MAX(effect_seq) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND effect_seq<?) AND kind=? AND actor=?`, event.SubjectID, event.Seq, event.SubjectID, event.Seq, kind, p.ActorRef).Scan(&id)
-		if err != nil && err != sql.ErrNoRows {
-			return workflowProjectionError(err, "cannot read record replacement effect")
-		}
-		if err == nil && scope != nil && scope.operationEvents[id] {
-			return nil
-		}
-	}
-	return newFailure(KindIllegalLifecycleTransition, "fold_event", "record replacement requires its own effect in the same operation", false, "record the replacement before completing the action")
-}
-
-func admitWorkflowEvidenceCompletionTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, definition WorkflowDefinition, currentStep string, scope *writeScope) error {
-	if !workflowEvidenceBindingAvailable(definition, currentStep) {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "evidence binding step has not been reached", false, "reach the evidence binding step")
-	}
-	var active int
-	var lifecycle string
-	if err := tx.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL), lifecycle FROM work_items WHERE id=?`, event.SubjectID, event.SubjectID).Scan(&active, &lifecycle); err != nil {
-		return workflowProjectionError(err, "cannot read active workflow contract")
-	}
-	if isTerminalLifecycle(lifecycle) {
-		return newFailure(KindInvalidOperation, "fold_event", "terminal work cannot bind evidence", false, "start a successor workflow")
-	}
-	if active != 1 {
-		return newFailure(KindInvariantViolation, "fold_event", "evidence binding requires exactly one active workflow contract", false, "restore the active workflow contract")
-	}
-	var raw []byte
-	var bindingID string
-	err := tx.QueryRowContext(ctx, `SELECT binding_id,payload FROM workflow_evidence_bindings WHERE work_id=? AND binding_seq=(SELECT max(effect_seq) FROM effect_receipts WHERE subject_id=? AND effect_seq<?) AND actor=? AND json_extract(payload,'$.resulting_version')=?`, event.SubjectID, event.SubjectID, event.Seq, p.ActorRef, p.ExpectedVersion).Scan(&bindingID, &raw)
-	if err != nil && err != sql.ErrNoRows {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot inspect evidence binding", true, "retry once the workflow evidence projection is readable", err)
-	}
-	if err == sql.ErrNoRows {
-		return newFailure(KindMissingEvidence, "fold_event", "evidence binding requires its own bound subject", false, "bind evidence before recording the action completion")
-	}
-	if scope == nil || !scope.operationEvents[bindingID] {
-		return newFailure(KindMissingEvidence, "fold_event", "evidence completion requires a binding from the same operation", false, "bind evidence in the same operation")
-	}
-	var binding workflowEvidenceBoundPayload
-	if err := json.Unmarshal(raw, &binding); err != nil {
-		return newFailure(KindInvariantViolation, "fold_event", "evidence binding payload is malformed", false, "reread_entities")
-	}
-	if !slices.Contains(p.ResultEvidenceRefs, binding.ImmutableSubjectRef) {
-		return newFailure(KindMissingEvidence, "fold_event", "evidence completion does not name its bound subject", false, "name the bound subject")
-	}
-	return guardEvidenceBindingMembership(ctx, tx, event.SubjectID, definition, raw, "fold_event")
-}
-
-// workflowCompletedActionAdvances reports whether a recorded action completion
-// advances the pinned step: an advance-mode action its step declares. An
-// action admitted off-step never moves the step.
-func workflowCompletedActionAdvances(definition WorkflowDefinition, p workflowActionCompletedPayload) bool {
-	mode, ok := workflowActionExecutionMode(definition, p.ActionID)
-	return ok && mode == ActionAdvance && definitionStepAllows(definition, p.StepID, p.ActionID)
 }
 
 func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
@@ -1837,170 +1662,16 @@ func latestWorkflowActionStart(ctx context.Context, q queryer, workID, stepID st
 	return start.Seq, payload.AttemptEpoch, true, nil
 }
 
-// workflowStepPassBoundary reports the event seq that opens the current pass
-// at a step, and whether the step has any pass activity. A step re-entered
-// through a return edge starts a new pass: the latest entry is the advancing
-// action completion whose fold moved the instance back onto the step, and a
-// WorkflowActionStarted that precedes that entry belongs to the previous pass.
-// The step's latest start bounds the entry search, so the query only sees
-// advancing completions recorded after the step's last observed start, and the
-// later of the two opens the pass. Readers use this boundary to agree on the
-// current pass. Non-advancing step moves are outside this rule.
-func workflowStepPassBoundary(ctx context.Context, q queryer, definition WorkflowDefinition, workID, stepID, subject string) (int64, bool, error) {
-	startSeq, _, started, err := latestWorkflowActionStart(ctx, q, workID, stepID)
-	if err != nil {
-		return 0, false, err
-	}
-	if !started {
-		return 0, false, nil
-	}
-	advancing := advancingWorkflowActions(definition)
-	if len(advancing) == 0 {
-		return startSeq, true, nil
-	}
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(advancing)), ",")
-	args := []any{workID, startSeq}
-	for _, action := range advancing {
-		args = append(args, action)
-	}
-	// An exit counts as a step entry only where its recorded step declares
-	// it. An ordinary record replacement admitted after its producing step
-	// holds the step, so it opens no new pass (workflow-engine contract §4.2).
-	declared := []string{}
-	for _, step := range definition.StepGraph.Steps {
-		for _, action := range step.Actions {
-			if slices.Contains(advancing, action) {
-				declared = append(declared, "(step_id=? AND action_id=?)")
-				args = append(args, step.ID, action)
-			}
-		}
-	}
-	if len(declared) == 0 {
-		return startSeq, true, nil
-	}
-	var entrySeq int64
-	// A held local job acceptance records a disposition and holds the step
-	// (CD-0205 D3), so it is no step entry: the pass boundary it would move
-	// past still governs the reads that recover results and corrections.
-	query := `SELECT COALESCE(MAX(exit_seq),0) FROM workflow_phase_exits WHERE work_id=? AND exit_seq>? AND action_id IN (` + placeholders + `) AND (step_id='' OR ` + strings.Join(declared, " OR ") + `)`
-	if err := q.QueryRowContext(ctx, query, args...).Scan(&entrySeq); err != nil {
-		return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect the workflow step's latest entry", true, "retry once the current workflow rows are readable", err)
-	}
-	if entrySeq > startSeq {
-		return entrySeq, true, nil
-	}
-	return startSeq, true, nil
-}
-
-// advancingWorkflowActions lists the pinned advance-mode actions, the mode
-// test the completed-action fold applies to declared actions. A late
-// confirm_premise exit at a terminal step also matches, without moving the
-// step; the pass boundary reads only steps that record action starts.
-func advancingWorkflowActions(definition WorkflowDefinition) []string {
-	var advancing []string
-	for _, action := range definition.ActionDefinitions {
-		if action.ExecutionMode == ActionAdvance {
-			advancing = append(advancing, action.ID)
-		}
-	}
-	return advancing
-}
-
-// workflowDerivedStartPairAuthored reports whether the checkpoint event at
-// beforeSeq is the one its own derived start opened (CD-0198 D3). Only a
-// derived-start pin qualifies, and the step's latest start must be the start
-// event the checkpoint's own operation wrote (opid:started beside
-// opid:checkpoint) naming the same qualifying action, epoch, and actor. A
-// dispatch start, a callable start on a released pin, and every later
-// checkpoint answer to the checkpoint-writer rule; the started fold
-// authenticated the actor for the derivation pair alone.
-func workflowDerivedStartPairAuthored(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID, stepID, actionID string, epoch int64, _ int64, actorRef, checkpointEventID string) (bool, error) {
-	if !workflowDerivedStepStartActive(definition) || workflowDerivedStartCheckpoints[actionID] != stepID {
-		return false, nil
-	}
-	start, err := readWorkflowActionStartTx(ctx, tx, workID, stepID)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, workflowProjectionError(err, "cannot read the derived step start")
-	}
-	var payload workflowActionStartedPayload
-	if err := json.Unmarshal(start.Payload, &payload); err != nil {
-		return false, err
-	}
-	if payload.AttemptEpoch != epoch {
-		return false, nil
-	}
-	operationID := strings.TrimSuffix(checkpointEventID, ":checkpoint")
-	if operationID == checkpointEventID || start.EventID != operationID+":started" || payload.ActionID != actionID {
-		return false, nil
-	}
-	return payload.ActorRef == actorRef, nil
-}
-
 func latestWorkflowActionStartEpoch(ctx context.Context, tx *sql.Tx, workID, stepID string, beforeSeq int64) (int64, bool, error) {
 	_, epoch, found, err := latestWorkflowActionStartAt(ctx, tx, workID, stepID, beforeSeq)
 	return epoch, found, err
 }
 
-// workflowCheckpointAttemptEpoch resolves the attempt epoch a checkpoint on
-// this step must carry, and is the single rule the checkpoint producer and the
-// checkpoint fold both answer to.
-//
-// A fenced action opens an attempt and records its start, so a checkpoint on
-// such a step must name a started attempt: a checkpoint with no start is a
-// checkpoint of an attempt that never ran. A step that declares no fenced
-// action opens no fenced attempt. Its checkpoint epoch follows the prior
-// checkpoint on that step, so a return can produce another typed artifact
-// without reusing the checkpoint's durable identity (CD-0112 D3).
-func workflowCheckpointAttemptEpoch(ctx context.Context, q queryer, definition WorkflowDefinition, step *WorkflowStep, workID, stepID string) (int64, error) {
-	_, latestEpoch, found, err := latestWorkflowActionStartAt(ctx, q, workID, stepID, 0)
-	if err != nil {
-		return 0, err
-	}
-	if step != nil && workflowStepFences(definition, *step) {
-		if found {
-			return latestEpoch, nil
-		}
-		return 0, newFailure(KindIllegalLifecycleTransition, "fold_event", "checkpoint does not match the latest workflow action start epoch", false, "checkpoint the current workflow action attempt")
-	}
-	var epoch int64
-	err = q.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch),0)+1
-		FROM workflow_checkpoints WHERE work_id=? AND step_id=?`, workID, stepID).Scan(&epoch)
-	if err != nil {
-		return 0, workflowProjectionError(err, "cannot inspect prior workflow checkpoint epochs")
-	}
-	// Review dispatches can start on an unfenced confirmation step. A later
-	// checkpoint must not reuse a prior checkpoint identity.
-	return max(epoch, latestEpoch), nil
-}
-
-// workflowCheckpointWriterAdmitted reports whether the workflow actor may
-// append checkpoint-event actions and action failures: a fenced step admits
-// only its execution actor.
 func workflowCheckpointWriterAdmitted(executionActor, actorRef string, fenced bool) bool {
 	if executionActor == "" || actorRef == "" {
 		return false
 	}
 	return !fenced || actorRef == executionActor
-}
-
-// workflowStepFences reports whether the step carries a coordinator
-// execution fence: a fenced action whose attempt the step's checkpoint and
-// failure events belong to. The CD-0187 checkpoint dispatch is a lane attempt
-// beside contract approval or confirmation, not a coordinator fence; a
-// checkpoint with no start still carries the first attempt epoch (CD-0112 D3).
-func workflowStepFences(definition WorkflowDefinition, step WorkflowStep) bool {
-	if slices.Contains(step.Actions, "approve_contract") || slices.Contains(step.Actions, "confirm_premise") {
-		return false
-	}
-	for _, actionID := range step.Actions {
-		if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionFenced {
-			return true
-		}
-	}
-	return false
 }
 
 func workflowActionStartEpochForDispatch(ctx context.Context, tx *sql.Tx, workID, stepID string, starting bool) (int64, error) {
@@ -2018,74 +1689,6 @@ func workflowActionStartEpochForDispatch(ctx context.Context, tx *sql.Tx, workID
 		return latestEpoch + 1, nil
 	}
 	return latestEpoch, nil
-}
-
-// workflowDerivedStartCheckpoints names the checkpoint whose admission
-// claims a derived step start (CD-0198 D3): the checkpoint matching the
-// step whose callable start the derived-start pins removed. dispatch_worker
-// needs no entry — a fenced dispatch opens the attempt epoch itself — and a
-// context checkpoint, job record, evidence bind, result rejection, or
-// delivery never appears here, so none of them can manufacture a start.
-var workflowDerivedStartCheckpoints = map[string]string{
-	"checkpoint_repair": "repair",
-	"checkpoint_refine": "refine",
-}
-
-// workflowDerivedStepStartActive reports whether a pinned definition
-// derives the repair/refine step starts from the first admitted qualifying
-// action (CD-0198 D3). Earlier versions keep the callable starts and the
-// behavior and digest they shipped with.
-func workflowDerivedStepStartActive(definition WorkflowDefinition) bool {
-	return workflowCapabilities(definition).has(WorkflowCapabilityDerivedStepStart)
-}
-
-// workflowDerivedCheckpointStartTx derives the step start a qualifying
-// checkpoint claims (CD-0198 D3). On a derived-start pin, when the matching
-// step holds no action start yet, the checkpoint opens the step's first
-// attempt: the returned event folds through the same started-event fold a
-// callable start uses, fencing the step from the checkpoint's own actor and
-// opening epoch 1, and the checkpoint carries that epoch. A step that
-// already started — by a dispatch or an earlier qualifying checkpoint —
-// returns no event, and the caller reads the existing epoch, so a repeated
-// qualifying action never resets the fence or its cutoff.
-func workflowDerivedCheckpointStartTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, currentStep, actor string, expectedVersion int64) (int64, *Event, error) {
-	if !workflowDerivedStepStartActive(definition) || workflowDerivedStartCheckpoints[request.ActionID] != currentStep {
-		return 0, nil, nil
-	}
-	// The step's first qualifying action of the CURRENT pass derives the
-	// start: a fresh entry has no start at all, and a step re-entered
-	// through a declared retry edge opened a new
-	// pass whose advancing entry postdates the previous pass's start, so
-	// its first qualifying action claims the next epoch exactly as the
-	// callable start did. A repeated qualifying action inside one pass
-	// finds its own pass's start and reuses the epoch.
-	latestStartSeq, _, startFound, err := latestWorkflowActionStartAt(ctx, tx, request.WorkID, currentStep, 0)
-	if err != nil {
-		return 0, nil, err
-	}
-	if startFound {
-		passSeq, active, passErr := workflowStepPassBoundary(ctx, tx, definition, request.WorkID, currentStep, "workflow_action")
-		if passErr != nil {
-			return 0, nil, passErr
-		}
-		if !active || passSeq <= latestStartSeq {
-			return 0, nil, nil
-		}
-	}
-	epoch, err := workflowActionStartEpochForDispatch(ctx, tx, request.WorkID, currentStep, true)
-	if err != nil {
-		return 0, nil, err
-	}
-	startPayload, err := json.Marshal(map[string]any{
-		"work_id": request.WorkID, "expected_version": expectedVersion, "resulting_version": expectedVersion + 1,
-		"step_id": currentStep, "action_id": request.ActionID, "attempt_epoch": epoch,
-		"accepted_inputs_digest": request.AcceptedInputsDigest, "idempotency_identity": request.IdempotencyIdentity, "actor_ref": actor,
-	})
-	if err != nil {
-		return 0, nil, workflowProjectionError(err, "cannot encode the derived step start")
-	}
-	event := Event{EventID: request.OperationID + ":started", Kind: WorkflowActionStarted, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actor, OccurredAt: request.Now, PayloadVersion: 1, Payload: startPayload}
-	return epoch, &event, nil
 }
 
 // Admission reads the current descriptor before its own start is written.
@@ -2120,72 +1723,6 @@ func readWorkflowActionStartTx(ctx context.Context, q queryer, workID, stepID st
 	}
 	start.Actor = payload.ActorRef
 	return start, nil
-}
-
-func workflowNextStep(definition WorkflowDefinition, current string) string {
-	for _, edge := range definition.StepGraph.Edges {
-		if edge.From == current && edge.Kind != WorkflowEdgeRetry {
-			return edge.To
-		}
-	}
-	return ""
-}
-
-func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, current, actionID string, registry DefinitionRegistry, beforeSeq int64) (string, error) {
-	if actionID != "confirm_premise" || workflowConfirmationFailureEdge(definition, current) == "" {
-		return workflowNextStep(definition, current), nil
-	}
-	var contractCount int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&contractCount); err != nil {
-		return "", workflowProjectionError(err, "cannot inspect workflow contracts")
-	}
-	if contractCount == 0 {
-		return workflowNextStep(definition, current), nil
-	}
-	contract, err := workflowCompletionContract(ctx, tx, registry, workID)
-	if err != nil {
-		return "", err
-	}
-	target, err := workflowConfirmationFailureTarget(ctx, tx, workID, definition, current, contract.Version, beforeSeq)
-	if err != nil || target != "" {
-		return target, err
-	}
-	return workflowNextStep(definition, current), nil
-}
-
-// workflowConfirmationFailureEdge names the failure-edge target of a verdict
-// step's premise confirmation, or "" when that confirmation only advances.
-func workflowConfirmationFailureEdge(definition WorkflowDefinition, current string) string {
-	step := workflowStep(definition, current)
-	if step == nil || !slices.Contains(step.Actions, "record_verdict") {
-		return ""
-	}
-	for _, edge := range definition.StepGraph.Edges {
-		if edge.From == current && edge.Kind == WorkflowEdgeFailure {
-			return edge.To
-		}
-	}
-	return ""
-}
-
-// workflowConfirmationFailureTarget returns the failure-edge target when any
-// latest verdict before beforeSeq (0 reads all) is non-ok or incomparable,
-// otherwise "": the confirmation then advances forward.
-func workflowConfirmationFailureTarget(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, current string, contractVersion, beforeSeq int64) (string, error) {
-	target := workflowConfirmationFailureEdge(definition, current)
-	if target == "" {
-		return "", nil
-	}
-	verdicts, err := latestWorkflowVerdictsBefore(ctx, q, workID, contractVersion, beforeSeq)
-	if err != nil {
-		return "", err
-	}
-	for _, verdict := range verdicts {
-		if verdict.VerdictKind != "ok" || verdict.IncomparableWithApproved {
-			return target, nil
-		}
-	}
-	return "", nil
 }
 
 func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {

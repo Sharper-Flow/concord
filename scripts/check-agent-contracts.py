@@ -381,11 +381,6 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
         walk(item)
     return findings
 
-def _derive_definition_digest(definition: dict) -> str:
-    body = copy.deepcopy(definition)
-    body.pop("digest", None)
-    return "sha256:" + hashlib.sha256(json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
-
 def _validate_instance(schema_path: Path, value: object) -> str | None:
     schema = _load_json(schema_path)
     try:
@@ -394,78 +389,14 @@ def _validate_instance(schema_path: Path, value: object) -> str | None:
         return str(exc)
     return None
 
-def _validate_definition_semantics(definition: dict) -> str | None:
-    capabilities = definition.get("capabilities", [])
-    if capabilities != sorted(set(capabilities)):
-        return "definition capabilities must be sorted and unique"
-    graph = definition["step_graph"]
-    step_ids = [step["id"] for step in graph["steps"]]
-    if len(step_ids) != len(set(step_ids)):
-        return "duplicate step ID"
-    step_set = set(step_ids)
-    if graph["start_step"] not in step_set:
-        return "graph start endpoint"
-    if any(step not in step_set for step in graph["terminal_steps"]):
-        return "graph terminal endpoint"
-    action_ids = set(definition["available_actions"])
-    action_definition_ids = [action["id"] for action in definition["action_definitions"]]
-    if len(action_definition_ids) != len(set(action_definition_ids)):
-        return "duplicate action ID"
-    if action_ids != set(action_definition_ids):
-        return "root action definitions do not match available actions"
-    for step in graph["steps"]:
-        if not set(step["actions"]).issubset(action_ids):
-            return "step action not declared at root"
-    for edge in graph["edges"]:
-        if edge["from"] not in step_set or edge["to"] not in step_set:
-            return "graph edge endpoint"
-    adjacency = {step: [] for step in step_ids}
-    for edge in graph["edges"]:
-        if edge["kind"] != "retry":
-            adjacency[edge["from"]].append(edge["to"])
-    visiting: set[str] = set()
-    visited: set[str] = set()
-    def walk(node: str) -> bool:
-        if node in visiting:
-            return True
-        if node in visited:
-            return False
-        visiting.add(node)
-        if any(walk(child) for child in adjacency[node]):
-            return True
-        visiting.remove(node)
-        visited.add(node)
-        return False
-    if any(walk(step) for step in step_ids):
-        return "non-retry graph cycle"
-    for action in definition["action_definitions"]:
-        names = [field["name"] for field in action["payload"]["fields"]]
-        if len(names) != len(set(names)):
-            return "duplicate action payload field"
-    if definition.get("digest") != _derive_definition_digest(definition):
-        return "definition digest mismatch"
-    return None
-
-def _validate_outcome_semantics(work_kind: str, outcome: dict) -> str | None:
-    if outcome.get("kind") != "outcome":
-        return None
-    tokens = set(outcome.get("allowed", []))
-    spike_tokens = {"accepted_decision", "insufficient_evidence"}
-    if work_kind == "research" and tokens & spike_tokens:
-        return "research cannot allow spike-only outcome"
-    return None
-
 def _validate_predicate_against_family(work_kind: str, predicate: dict) -> str | None:
     rules = {
-        "implementation": ("check", {"exists", "absent", "check"}, set()),
-        "break_fix": ("absent", {"exists", "absent", "check"}, set()),
-        "research": ("outcome", {"outcome"}, {"no_change", "resolved", "report_recorded"}),
-        "architecture_spike": ("outcome", {"outcome"}, {"accepted_decision", "insufficient_evidence"}),
-        "ops_runbook": ("check", {"exists", "absent", "check"}, set()),
-        "static_analysis": ("check", {"exists", "absent", "check"}, set()),
-        "generic_one_off": ("outcome", {"exists", "absent", "outcome", "check"}, {"no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"}),
+        "change": ({"exists", "absent", "check"}, set()),
+        "fix": ({"exists", "absent", "check"}, set()),
+        "research": ({"outcome"}, {"no_change", "resolved", "report_recorded"}),
+        "removal": ({"exists", "absent", "check"}, set()),
     }
-    _, allowed_kinds, allowed_tokens = rules[work_kind]
+    allowed_kinds, allowed_tokens = rules[work_kind]
     kind = predicate.get("kind")
     if kind not in allowed_kinds:
         return "predicate kind not allowed"
@@ -515,16 +446,11 @@ def _current_scenario_carrier_check(corpus: dict) -> list[str]:
 
 def check_workflow_contracts() -> list[str]:
     findings = []
-    for schema_path in (ROOT / "contracts/workflow-definition.schema.json", ROOT / "contracts/workflow-outcome.schema.json", ROOT / "contracts/workflow-engine-scenarios.schema.json"):
+    for schema_path in (ROOT / "contracts/workflow-outcome.schema.json", ROOT / "contracts/workflow-engine-scenarios.schema.json"):
         try:
             _generator.check_schema_keywords(_load_json(schema_path), str(schema_path.relative_to(ROOT)))
         except (OSError, json.JSONDecodeError, ValueError) as exc:
             findings.append(f"{schema_path.relative_to(ROOT)}: unsupported or invalid schema keyword: {exc}")
-    findings += _check_closed_schema(ROOT / "contracts/workflow-definition.schema.json", {
-        "schema_version", "ref", "digest", "work_kind", "capabilities", "step_graph",
-        "available_actions", "action_definitions", "required_evidence_kinds", "outcome_schema", "rigor_rules",
-        "staleness_rules", "composition_rules", "evaluator_independence",
-    })
     outcome = ROOT / "contracts/workflow-outcome.schema.json"
     findings += _check_closed_schema(outcome, set())
     scenario_schema = ROOT / "contracts/workflow-engine-scenarios.schema.json"
@@ -542,47 +468,17 @@ def check_workflow_contracts() -> list[str]:
             findings.append(f".concord/scenarios/workflow-engine.v1.json: expected scenarios {expected_ids}, got {[item.get('id') for item in corpus['scenarios']]}")
             return findings
         fixtures = _load_json(fixture_path)
-        fixture_by_id = {case["id"]: case for case in fixtures["cases"]}
         for case in fixtures["cases"]:
             schema_path = ROOT / "contracts" / case["schema"]
             error = _validate_instance(schema_path, case["instance"])
-            if error is None and case.get("work_kind"):
-                error = _validate_outcome_semantics(case["work_kind"], case["instance"])
-            if case["schema"] == "workflow-definition.schema.json" and error is None:
-                error = _validate_definition_semantics(case["instance"])
             if case["valid"] and error:
                 findings.append(f"{case['id']}: expected valid instance: {error}")
             if not case["valid"] and (error is None or case.get("expected_error") not in error):
                 findings.append(f"{case['id']}: wrong validation reason: {error}")
-            if case["schema"] == "workflow-definition.schema.json" and case["valid"]:
-                semantic_error = _validate_definition_semantics(case["instance"])
-                if semantic_error:
-                    findings.append(f"{case['id']}: semantic validation failed: {semantic_error}")
         for case in fixtures.get("predicate_negative_cases", []):
             predicate_error = _validate_predicate_against_family(case["work_kind"], case["predicate"])
             if predicate_error is None or case["expected_error"] not in predicate_error:
                 findings.append(f"{case['id']}: wrong predicate validation reason: {predicate_error}")
-        base_definition = copy.deepcopy(fixture_by_id["definition-implementation-valid"]["instance"])
-        for case in fixtures.get("semantic_negative_cases", []):
-            mutated = copy.deepcopy(base_definition)
-            mutation = case["mutation"]
-            if mutation == "start_step":
-                mutated["step_graph"]["start_step"] = "missing"
-            elif mutation == "terminal_step":
-                mutated["step_graph"]["terminal_steps"] = ["missing"]
-            elif mutation == "edge_endpoint":
-                mutated["step_graph"]["edges"][0]["to"] = "missing"
-            elif mutation == "non_retry_cycle":
-                mutated["step_graph"]["edges"].append({"from": "design", "to": "proposal", "kind": "forward"})
-            elif mutation == "step_action":
-                mutated["step_graph"]["steps"][0]["actions"] = ["ghost_action"]
-            elif mutation == "root_action":
-                mutated["available_actions"].append("ghost_action")
-            elif mutation == "definition_digest":
-                mutated["digest"] = "sha256:" + ("0" * 64)
-            semantic_error = _validate_definition_semantics(mutated)
-            if semantic_error is None or case["expected_error"] not in semantic_error:
-                findings.append(f"{case['id']}: wrong semantic validation reason: {semantic_error}")
         negative_scenario = copy.deepcopy(corpus)
         negative_scenario["scenarios"][0]["scenario_number"] = 0
         negative_error = _validate_instance(scenario_schema, negative_scenario)

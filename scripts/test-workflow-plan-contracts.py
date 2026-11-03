@@ -8,6 +8,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WorkflowPlanProjectionTest(unittest.TestCase):
+    def test_action_route_is_available_at_intake(self):
+        manifest = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text())
+        operation = next(item for item in manifest["operations"] if item["id"] == "concord_work_transition.workflow_action")
+        self.assertEqual(operation.get("availability", "always"), "always")
+        schema = json.loads((ROOT / "contracts/agent-tool-surface.schema.json").read_text())
+        self.assertEqual(schema["properties"]["operations"]["items"]["properties"]["availability"]["enum"], ["always"])
+
     def test_catalog_projection_tracks_templates_and_prelude(self):
         templates = json.loads((ROOT / "contracts/workflow-step-templates.v1.json").read_text())
         result = subprocess.run(["go", "run", "./scripts/workflow-action-contracts"], cwd=ROOT, text=True, capture_output=True, check=True)
@@ -44,6 +51,10 @@ class WorkflowPlanProjectionTest(unittest.TestCase):
         alignment = defs["workflow_backlog_alignment"]
         self.assertIn("all_matches_removed", alignment["required"])
         self.assertEqual(alignment["properties"]["all_matches_removed"], {"type": "boolean"})
+        guidance = defs["workflow_outcome_outcome"]["properties"]["allowed"]["description"]
+        for template in templates["types"]:
+            self.assertIn(template["id"] + " admits ", guidance)
+        self.assertIn("report_recorded", guidance)
 
 
 if __name__ == "__main__":

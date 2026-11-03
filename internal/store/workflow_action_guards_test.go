@@ -37,7 +37,7 @@ func TestDeclaredStepBindsAllEvidenceKinds(t *testing.T) {
 	for _, kind := range workflowEvidenceKinds {
 		t.Run(string(kind), func(t *testing.T) {
 			workID := "declared-bind-" + string(kind)
-			fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, "workflow.research"), "investigate", []string{"artifact"}, nil)
+			fixture := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, "investigate", []string{"artifact"}, nil)
 			ref := "evidence:" + string(kind)
 			if kind == EvidenceNativeRun {
 				ctx := t.Context()
@@ -71,7 +71,7 @@ func TestDeclaredStepBindsAllEvidenceKinds(t *testing.T) {
 
 func TestLateBindingRefusesUndeclaredEvidenceKind(t *testing.T) {
 	const workID = "late-bind-undeclared"
-	f := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+	f := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "review")
 	payload := json.RawMessage(`{"evidence_kind":"approval","immutable_subject_ref":"evidence:unrelated"}`)
 	assertRecoveryRefusalWithoutEffect(t, f.store, workID, KindIllegalLifecycleTransition, func() error {
 		return issue1013Preflight(t, f.store, workID, "bind_evidence", payload, f.owner)
@@ -201,7 +201,7 @@ func TestExternalCheckRecoveryPreservesEvidenceRefusals(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			workID := "external-check-refusal-" + test.name
-			fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+			fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "review")
 			s := fixture.store
 			subject := "commit:" + workID
 			authority := "external-check-source-" + test.name
@@ -222,7 +222,7 @@ func TestExternalCheckRecoveryPreservesEvidenceRefusals(t *testing.T) {
 	t.Run("stale-version", func(t *testing.T) {
 		t.Parallel()
 		const workID = "external-check-stale-version"
-		fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+		fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "review")
 		assertRecoveryRefusalWithoutEffect(t, fixture.store, workID, KindVersionConflict, func() error {
 			return runVerdictActionAs(t, fixture.store, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "verification", "immutable_subject_ref": "commit:" + workID}), readWorkVersion(t, fixture.store, workID)-1, fixture.owner)
 		})
@@ -260,7 +260,7 @@ func TestExternalCheckRecoveryCompletedEventUsesSharedEligibility(t *testing.T) 
 			t.Parallel()
 			ctx := context.Background()
 			workID := "external-check-event-" + kind
-			fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+			fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "review")
 			s := fixture.store
 			subject := "commit:" + workID
 			authority := "external-check-event-source-" + kind
@@ -293,7 +293,7 @@ func TestExternalCheckRecoveryCompletedEventUsesSharedEligibility(t *testing.T) 
 func TestOrdinaryEvidenceCompletionCannotBorrowPriorBinding(t *testing.T) {
 	ctx := context.Background()
 	const workID = "ordinary-binding-no-borrow"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+	fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "review")
 	s := fixture.store
 	subject := "commit:" + workID
 	seedWorkflowAuthority(t, s, "prior-binding-source", workID, "principal/check", "request/check", []string{subject})
@@ -346,7 +346,7 @@ func TestOrdinaryEvidenceBindingStageAndLifecycle(t *testing.T) {
 func TestRecoveryRequiredKindStillNeedsDurableProducerAuthority(t *testing.T) {
 	const workID = "recovery-kind-authority"
 	ctx := context.Background()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+	fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "review")
 	if _, err := fixture.store.DatabaseForTesting().Exec(`DELETE FROM durable_operations WHERE op_id=?`, "return-authority-verification-"+workID); err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +375,7 @@ func TestRecoveryPredicateRefusalStaysLocalToBinding(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			workID := "recovery-predicate-refusal-" + test.name
-			fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+			fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "review")
 			s := fixture.store
 			entry, err := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), workID)
 			if err != nil {

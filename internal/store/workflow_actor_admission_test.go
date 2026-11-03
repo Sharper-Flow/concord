@@ -8,13 +8,9 @@ import (
 	"testing"
 )
 
-// secondSessionActor is the same principal, client, and agent as the fixture
-// actor in a different session. DeriveWorkflowActorRef includes the session, so
-// this is a distinct actor_ref that no row records.
+// secondSessionActor is the capture actor in a different session.
 func secondSessionActor() WorkflowActor {
-	actor := stepFixtureActor()
-	actor.SessionRef = "session-2"
-	return actor
+	return WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord", AgentRef: "agent/concord", SessionRef: "session/bootstrap-work-handoff-restarted", ActorClass: ActorOperator}
 }
 
 // A work item is drivable by a session that did not capture it.
@@ -26,25 +22,15 @@ func secondSessionActor() WorkflowActor {
 // handoff was locked out of its own workflow.
 func TestPreflightAdmitsAnActorTheCapturingSessionNeverRecorded(t *testing.T) {
 	t.Parallel()
-	s := openTemp(t)
+	s, version := seedBootstrapCapturedWork(t, "work-handoff")
 	defer s.Close()
-	seedStepWork(t, s, "work-handoff")
-	var implementation WorkflowDefinition
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		if definition.Ref == "workflow.implementation" {
-			implementation = definition
-		}
-	}
-	initializeStepWorkflow(t, s, "work-handoff", implementation)
 
 	ctx := context.Background()
-	var version int64
-	if err := s.db.QueryRow(`SELECT version FROM work_items WHERE id=?`, "work-handoff").Scan(&version); err != nil {
-		t.Fatal(err)
-	}
 
 	// Only the capturing session's actor is recorded.
-	recordedRef, err := WorkflowActorRef(stepFixtureActor())
+	capturing := secondSessionActor()
+	capturing.SessionRef = "session/bootstrap-work-handoff"
+	recordedRef, err := WorkflowActorRef(capturing)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,15 +49,24 @@ func TestPreflightAdmitsAnActorTheCapturingSessionNeverRecorded(t *testing.T) {
 		t.Fatalf("second session actor rows=%d, want none before its first action", rows)
 	}
 
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	step, _, err := readWorkflowActionStateTx(ctx, tx, "work-handoff", version)
+	if err != nil {
+		t.Fatal(err)
+	}
 	request := WorkflowActionPreflightRequest{
 		WorkID:          "work-handoff",
 		ExpectedVersion: version,
-		StepID:          readInstanceStep(t, s, "work-handoff"),
-		ActionID:        "record_proposal",
-		Payload:         json.RawMessage(`{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`),
+		StepID:          step,
+		ActionID:        "record_intake",
+		Payload:         json.RawMessage(`{"outcome":"proceed","open_questions_found":false}`),
 		Actor:           secondSessionActor(),
 	}
-	if err := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), request); err != nil {
+	if _, err := workflowActionPreflightTx(ctx, tx, request); err != nil {
 		if strings.Contains(err.Error(), "workflow actor is not recorded") {
 			t.Fatalf("preflight refused an unrecorded actor: %v", err)
 		}
@@ -117,28 +112,20 @@ func seedMismatchedActorRowTx(t *testing.T, ctx context.Context, actor WorkflowA
 }
 
 // A recorded actor_ref whose tuple disagrees still fails closed. The preflight
-// stopped reading the actor row, so this check must remain reachable in the
-// guard, which reads both the stored tuple and the authenticated one. Real
-// dispatch derives the guard's actor ref from the request's own tuple, so the
-// guard runs here with that same canonical ref and requested tuple against
-// the synthetic mismatched row.
+// stopped reading the actor row, so the shared actor-prefix owner must still
+// compare the stored tuple with the authenticated one.
 func TestRecordedActorTupleMismatchStillFailsClosed(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	requested := stepFixtureActor()
-	requestedRef, err := WorkflowActorRef(requested)
-	if err != nil {
-		t.Fatal(err)
-	}
-	guard := &workflowActionGuardContext{ctx: ctx, tx: seedMismatchedActorRowTx(t, ctx, requested), actorRef: requestedRef, request: WorkflowActionExecutionRequest{Actor: requested}}
-	err = guardRecordedActorTuple(guard)
+	prefix, err := workflowActorRecordPrefixTx(ctx, seedMismatchedActorRowTx(t, ctx, requested), requested)
 	if err == nil {
 		t.Fatal("a recorded actor_ref carrying another tuple was admitted")
 	}
 	if !strings.Contains(err.Error(), "does not match the authenticated actor") {
 		t.Fatalf("mismatch refusal = %v, want the tuple mismatch", err)
 	}
-	if guard.actorRecordPrefix != nil {
-		t.Fatalf("mismatched tuple retained a recording draft %+v, want no actor prefix", guard.actorRecordPrefix)
+	if prefix != nil {
+		t.Fatalf("mismatched tuple retained a recording draft %+v, want no actor prefix", prefix)
 	}
 }

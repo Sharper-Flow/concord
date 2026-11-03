@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:271f2168c1ca5ae11223f397190a579fc15f511752c09036fce5103a213e9810"
+const ManifestDigest = "sha256:c5d6d0424ebad5bbcc104dda394b59dc4234ba2c894d50f66109685e49d6d610"
 
 type OperationKind string
 
@@ -21,10 +21,7 @@ type Capability string
 type OperationConsequence string
 type Availability string
 
-const (
-	AvailabilityAlways             Availability = "always"
-	AvailabilityWorkflowDefinition Availability = "workflow_definition"
-)
+const AvailabilityAlways Availability = "always"
 
 type ContractOperation struct {
 	ID, Tool, Operation       string
@@ -61,7 +58,7 @@ var ContractOperations = []ContractOperation{
 	{ID: "concord_work_define.issue_link_record", Tool: "concord_work_define", Operation: "issue_link_record", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_define"), Consequence: OperationConsequence("intent"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_define_issue_link_record_input", ResultSchema: "mutation_result"},
 	{ID: "concord_work_transition.lifecycle", Tool: "concord_work_transition", Operation: "lifecycle", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_transition"), Consequence: OperationConsequence("lifecycle"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_transition_lifecycle_input", ResultSchema: "mutation_result"},
 	{ID: "concord_work_transition.remove", Tool: "concord_work_transition", Operation: "remove", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_transition"), Consequence: OperationConsequence("lifecycle"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_transition_remove_input", ResultSchema: "mutation_result"},
-	{ID: "concord_work_transition.workflow_action", Tool: "concord_work_transition", Operation: "workflow_action", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_transition"), Consequence: OperationConsequence("workflow_action"), Availability: Availability("workflow_definition"), SupportedBudgetSeconds: 30, InputSchema: "work_transition_action_input", ResultSchema: "projectable_mutation_result"},
+	{ID: "concord_work_transition.workflow_action", Tool: "concord_work_transition", Operation: "workflow_action", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_transition"), Consequence: OperationConsequence("workflow_action"), Availability: Availability("always"), SupportedBudgetSeconds: 30, InputSchema: "work_transition_action_input", ResultSchema: "projectable_mutation_result"},
 	{ID: "concord_work_transition.project_handoff_record", Tool: "concord_work_transition", Operation: "project_handoff_record", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_transition"), Consequence: OperationConsequence("lifecycle"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_transition_project_handoff_record_input", ResultSchema: "project_handoff_record_result"},
 	{ID: "concord_work_transition.project_handoff_consume", Tool: "concord_work_transition", Operation: "project_handoff_consume", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_transition"), Consequence: OperationConsequence("lifecycle"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_transition_project_handoff_consume_input", ResultSchema: "project_handoff_consume_result"},
 	{ID: "concord_work_relate.set_memberships", Tool: "concord_work_relate", Operation: "set_memberships", Kind: OperationKind("mutation"), QueryID: "", Capability: Capability("work_relate"), Consequence: OperationConsequence("scope"), Availability: Availability("always"), SupportedBudgetSeconds: 300, InputSchema: "work_relate_memberships_input", ResultSchema: "mutation_result"},

@@ -6572,7 +6572,8 @@
               "report_recorded",
               "resolved"
             ]
-          }
+          },
+          "description": "Outcome tokens by plan type: change admits no outcome tokens; fix admits no outcome tokens; removal admits no outcome tokens; research admits no_change, resolved, report_recorded."
         },
         "decision_record": {
           "$ref": "#/$defs/workflow_outcome_decision_record"
@@ -6798,7 +6799,8 @@
                         "report_recorded",
                         "resolved"
                       ]
-                    }
+                    },
+                    "description": "Outcome tokens by plan type: change admits no outcome tokens; fix admits no outcome tokens; removal admits no outcome tokens; research admits no_change, resolved, report_recorded."
                   },
                   "decision_record": {
                     "$ref": "#/$defs/workflow_outcome_decision_record"
@@ -8257,7 +8259,7 @@
                                 "no_change"
                               ]
                             },
-                            "description": "Accepted shape: array of one of \"no_change\", \"report_recorded\", \"resolved\"; Bounds: 1..3 items inclusive; example: [\"no_change\"]",
+                            "description": "Outcome tokens by plan type: change admits no outcome tokens; fix admits no outcome tokens; removal admits no outcome tokens; research admits no_change, resolved, report_recorded. Accepted shape: array of one of \"no_change\", \"report_recorded\", \"resolved\"; Bounds: 1..3 items inclusive; example: [\"no_change\"]",
                             "examples": [
                               [
                                 "no_change"
@@ -12169,7 +12171,7 @@
                             "no_change"
                           ]
                         },
-                        "description": "Accepted shape: array of one of \"no_change\", \"report_recorded\", \"resolved\"; Bounds: 1..3 items inclusive; example: [\"no_change\"]",
+                        "description": "Outcome tokens by plan type: change admits no outcome tokens; fix admits no outcome tokens; removal admits no outcome tokens; research admits no_change, resolved, report_recorded. Accepted shape: array of one of \"no_change\", \"report_recorded\", \"resolved\"; Bounds: 1..3 items inclusive; example: [\"no_change\"]",
                         "examples": [
                           [
                             "no_change"

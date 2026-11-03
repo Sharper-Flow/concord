@@ -29,22 +29,6 @@ func validateWorkflowDesignContent(p workflowDesignContent) error {
 	return nil
 }
 
-func workflowDesignRecordedEvents(definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	if declared, err := workflowDeclaresDocument(definition, "record_design"); err != nil || !declared {
-		return nil, err
-	}
-	var content workflowDesignContent
-	if err := decodeWorkflowActionPayloadStrict(raw, &content); err != nil {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "design record is not a closed typed document", false, "supply only approach, decisions and touched_refs")
-	}
-	if err := validateWorkflowDesignContent(content); err != nil {
-		return nil, err
-	}
-	return []Event{workflowTypedEvent(eventID, WorkflowDesignRecorded, request.WorkID, actor, request.Now, expected, map[string]any{
-		"approach": content.Approach, "decisions": content.Decisions, "touched_refs": content.TouchedRefs,
-	})}, nil
-}
-
 // The latest recorded design owns architecture content. Contract counters do
 // not invalidate unchanged architecture; Review compares its content digest.
 func readCurrentWorkflowDesign(ctx context.Context, q queryer, workID string) (*WorkflowDesignRecord, error) {

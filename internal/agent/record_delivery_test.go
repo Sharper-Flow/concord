@@ -52,8 +52,8 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 			RequestID: "delivery-request-" + identity, AcceptedScope: `{"project":"project-1"}`, ContractDigest: agentcontract.ManifestDigest, Now: fixedTime(),
 		}
 		preflight := store.WorkflowActionPreflightRequest{WorkID: f.work, ExpectedVersion: v, ActionID: actionID, Payload: raw, Actor: execActor}
-		return store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.BuiltinWorkflowRegistry(), preflight, nil, func(tx *store.Transaction) error {
-			_, err := store.ApplyWorkflowActionTx(ctx, tx, store.BuiltinWorkflowRegistry(), request)
+		return store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, preflight, nil, func(tx *store.Transaction) error {
+			_, err := store.ApplyWorkflowActionTx(ctx, tx, request)
 			return err
 		})
 	}

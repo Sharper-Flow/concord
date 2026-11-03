@@ -89,8 +89,8 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 			RequestID: "verdict-seed-request-" + identity, AcceptedScope: `{"project":"project-1"}`, ContractDigest: agentcontract.ManifestDigest, Now: fixedTime(),
 		}
 		preflight := store.WorkflowActionPreflightRequest{WorkID: "work-1", ExpectedVersion: version, ActionID: actionID, Payload: raw, Actor: execActor}
-		if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.BuiltinWorkflowRegistry(), preflight, nil, func(tx *store.Transaction) error {
-			_, err := store.ApplyWorkflowActionTx(ctx, tx, store.BuiltinWorkflowRegistry(), request)
+		if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, preflight, nil, func(tx *store.Transaction) error {
+			_, err := store.ApplyWorkflowActionTx(ctx, tx, request)
 			return err
 		}); err != nil {
 			t.Fatalf("%s at v%d: %v", actionID, version, err)

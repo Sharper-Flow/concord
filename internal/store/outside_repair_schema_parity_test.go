@@ -20,7 +20,7 @@ import (
 // (adapter/opencode/concord.ts publishedRequestSchema) and the host validator
 // (adapter/opencode/core-runtime.ts validateAgainstSchema) through Bun, exactly as
 // the host runtime does, and the core boundary is exercised through the
-// owning core validators with the live builtin registry's own declarations.
+// owning core validators with the current action catalog's declarations.
 //
 // The Unicode probe also covers workflow reference list items, which the
 // store admits through ValidReference by UTF-8 bytes.
@@ -189,29 +189,20 @@ func outsideRepairPublishedVerdicts(t *testing.T, probes []map[string]any) map[s
 	return verdicts
 }
 
-// outsideRepairActionPayload returns the live builtin registry's payload
-// declaration for one action of the implementation family — the same
-// declaration the published variants generate from, read from the registry
-// itself so the probe judges the shape each tree actually enforces.
-func outsideRepairActionPayload(t *testing.T, actionID string) (WorkflowPayloadDefinition, WorkflowDefinition) {
+// outsideRepairActionPayload returns the current catalog payload declaration.
+func outsideRepairActionPayload(t *testing.T, actionID string) WorkflowPayloadDefinition {
 	t.Helper()
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	action, err := catalogAction(actionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, action := range registered.Definition.ActionDefinitions {
-		if action.ID == actionID {
-			return action.Payload, registered.Definition
-		}
-	}
-	t.Fatalf("the builtin implementation definition declares no %s action", actionID)
-	return WorkflowPayloadDefinition{}, WorkflowDefinition{}
+	return action.Payload
 }
 
 // outsideRepairActionField returns one declared payload field of an action.
 func outsideRepairActionField(t *testing.T, actionID, fieldName string) WorkflowPayloadField {
 	t.Helper()
-	payload, _ := outsideRepairActionPayload(t, actionID)
+	payload := outsideRepairActionPayload(t, actionID)
 	for _, field := range payload.Fields {
 		if field.Name == fieldName {
 			return field
@@ -232,7 +223,7 @@ func outsideRepairRaw(t *testing.T, value any) json.RawMessage {
 
 // TestOutsideRepairUnicodeParity pins the approved UTF-8 byte representation
 // of workflow string bounds at both admission boundaries, on boundary
-// fixtures: record_alignment.searched declares a two-unit floor and a
+// fixtures: approve_contract.premise declares a two-unit floor and a
 // 4096-unit ceiling on every tree under comparison, so the two-byte
 // one-code-point "é" and the 4096-code-point 8192-byte all-"é" string sit
 // exactly on the divergent bounds. Core validation
@@ -252,9 +243,9 @@ func TestOutsideRepairUnicodeParity(t *testing.T) {
 	if len(maxBoundMultibyte) != 8192 || utf8.RuneCountInString(maxBoundMultibyte) != 4096 {
 		t.Fatal("fixture is not 4096 code points of 8192 bytes")
 	}
-	searched := outsideRepairActionField(t, "record_alignment", "searched")
-	if searched.MinLength == nil || *searched.MinLength != 2 || searched.MaxLength == nil || *searched.MaxLength != 4096 {
-		t.Fatalf("the declared searched bounds are min=%v max=%v; the probe needs the declared floor 2 and ceiling 4096", searched.MinLength, searched.MaxLength)
+	premise := outsideRepairActionField(t, "approve_contract", "premise")
+	if premise.MinLength == nil || *premise.MinLength != 2 || premise.MaxLength == nil || *premise.MaxLength != 4096 {
+		t.Fatalf("the declared premise bounds are min=%v max=%v; the probe needs the declared floor 2 and ceiling 4096", premise.MinLength, premise.MaxLength)
 	}
 	fixtures := []struct {
 		id            string
@@ -286,7 +277,7 @@ func TestOutsideRepairUnicodeParity(t *testing.T) {
 	}
 	probes := make([]map[string]any, 0, len(fixtures))
 	for _, fixture := range fixtures {
-		probes = append(probes, map[string]any{"id": fixture.id, "mode": "field", "action": "record_alignment", "field": "searched", "value": fixture.value})
+		probes = append(probes, map[string]any{"id": fixture.id, "mode": "field", "action": "approve_contract", "field": "premise", "value": fixture.value})
 	}
 	// The same unit fault at list-item level: approve_contract
 	// route_conventions items are workflow references, which the store
@@ -306,7 +297,7 @@ func TestOutsideRepairUnicodeParity(t *testing.T) {
 	}
 	published := outsideRepairPublishedVerdicts(t, probes)
 	for _, fixture := range fixtures {
-		if coreAdmits := validateWorkflowPayloadValue(searched, outsideRepairRaw(t, fixture.value)); coreAdmits != fixture.wantAdmitted {
+		if coreAdmits := validateWorkflowPayloadValue(premise, outsideRepairRaw(t, fixture.value)); coreAdmits != fixture.wantAdmitted {
 			t.Errorf("unicode fixture %s: %s", fixture.id, fixture.coreFailure)
 		}
 		verdict, ok := published[fixture.id]
@@ -314,7 +305,7 @@ func TestOutsideRepairUnicodeParity(t *testing.T) {
 			t.Fatalf("the host publication probe returned no verdict for %s", fixture.id)
 		}
 		if verdict.Admit != fixture.wantAdmitted {
-			t.Errorf("unicode fixture %s: the published searched bounds %s; failures: %v", fixture.id, fixture.publishedSide, verdict.Failures)
+			t.Errorf("unicode fixture %s: the published premise bounds %s; failures: %v", fixture.id, fixture.publishedSide, verdict.Failures)
 		}
 	}
 	for _, fixture := range itemFixtures {
@@ -431,7 +422,7 @@ func TestOutsideRepairOutcomeKindParity(t *testing.T) {
 // admitted each complete-plus-partial payload.
 func TestOutsideRepairRecordVerdictGroupSubsets(t *testing.T) {
 	t.Parallel()
-	payload, definition := outsideRepairActionPayload(t, "record_verdict")
+	payload := outsideRepairActionPayload(t, "record_verdict")
 	declared := map[string]bool{}
 	for _, field := range payload.Fields {
 		declared[field.Name] = true
@@ -468,7 +459,8 @@ func TestOutsideRepairRecordVerdictGroupSubsets(t *testing.T) {
 		return map[string]any{"contract_version": 1, "verdicts": []any{verdict}}
 	}
 	core := func(fields map[string]any) error {
-		return validateWorkflowActionPayload(definition, "record_verdict", outsideRepairRaw(t, fields))
+		_, err := validateWorkflowPlanActionPayload("record_verdict", outsideRepairRaw(t, fields))
+		return err
 	}
 	// Every proper subset of the entry group with at least one member.
 	var properSubsets [][]string

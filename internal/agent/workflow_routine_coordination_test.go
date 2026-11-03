@@ -104,8 +104,8 @@ func routineCoordinationDriveWorkflow(t *testing.T, s *store.Store, workID strin
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := store.AuthorizeWorkflowActionAtBoundaryTx(verified, s, store.BuiltinWorkflowRegistry(), preflight, nil, func(tx *store.Transaction) error {
-			_, err := store.ApplyWorkflowActionTx(verified, tx, store.BuiltinWorkflowRegistry(), request)
+		if err := store.AuthorizeWorkflowActionAtBoundaryTx(verified, s, preflight, nil, func(tx *store.Transaction) error {
+			_, err := store.ApplyWorkflowActionTx(verified, tx, request)
 			return err
 		}); err != nil {
 			t.Fatalf("%s %s at v%d: %v", workID, actionID, version, err)

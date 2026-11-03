@@ -13,13 +13,13 @@ func TestOrdinaryExecutionStartDoesNotGrantCompletion(t *testing.T) {
 	t.Parallel()
 	workID := "authority-work"
 	s, executor, _ := seedOrdinaryExecutorAtExecution(t, workID)
-	if got := currentStep(t, s, workID); got != "execution" {
+	if got := currentStep(t, s, workID); got != "implement" {
 		t.Fatalf("starting a step advanced it: %q", got)
 	}
 	before := readWorkVersion(t, s, workID)
 	completion := workflowEventWithActor("authority-completion", WorkflowCompleted, workID, executor, map[string]any{
 		"work_id": workID, "expected_version": before, "resulting_version": before + 1,
-		"terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": executor,
+		"terminal_state": "completed", "impact_verdict": "non-breaking", "final_verdict_kind": "ok", "verdict_actor_ref": executor,
 		"premise_confirmed": false, "evidence_count": 0, "changed_refs_digest": "sha256:" + strings.Repeat("c", 64),
 	})
 	if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{completion}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): before}}); err == nil {
@@ -37,52 +37,6 @@ func TestOrdinaryExecutionStartDoesNotGrantCompletion(t *testing.T) {
 	}
 }
 
-func TestOffStepPublicProposalReplacementHoldsProgress(t *testing.T) {
-	const workID = "off-step-public-proposal"
-	s, version := seedBootstrapCapturedWork(t, workID)
-	seedWorkflowLaw(t, s)
-	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	proposal := func(problem string) json.RawMessage {
-		return mustJSONValue(map[string]any{"problem": problem, "affected": []string{"People"}, "stakes": "The stakes", "user_outcomes": []string{"An outcome"}})
-	}
-	version = issue31WorkflowActionWithPayload(t, s, workID, version, "record_proposal", "first-proposal", actor, proposal("First problem"))
-	step := currentStep(t, s, workID)
-	version = issue31WorkflowActionWithPayload(t, s, workID, version, "record_proposal", "replacement-proposal", actor, proposal("Replacement problem"))
-	if currentStep(t, s, workID) != step || readWorkVersion(t, s, workID) != version {
-		t.Fatal("proposal replacement changed workflow progress")
-	}
-	var problem string
-	if err := s.db.QueryRow(`SELECT problem FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, workID).Scan(&problem); err != nil || problem != "Replacement problem" {
-		t.Fatalf("replacement proposal=%q, error=%v", problem, err)
-	}
-}
-
-func TestOffStepPublicDesignReplacementHoldsProgress(t *testing.T) {
-	const workID = "off-step-public-design"
-	s, version := seedBootstrapCapturedWork(t, workID)
-	seedWorkflowLaw(t, s)
-	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	version = issue31WorkflowActionWithPayload(t, s, workID, version, "record_proposal", "design-proposal", actor, json.RawMessage(`{"problem":"Problem","affected":["People"],"stakes":"Stakes","user_outcomes":["Outcome"]}`))
-	version = issue31WorkflowActionWithPayload(t, s, workID, version, "record_alignment", "design-alignment", actor, json.RawMessage(`{"searched":"Inventory","outcome":"none_found"}`))
-	binding := corpusArchitectureBinding()
-	binding["home_domain_id"], binding["affected_domain_ids"] = "root", []string{"root"}
-	approval := mustJSONValue(map[string]any{"premise": "The design serves the accepted outcome.", "decision_domains": []string{}, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:design", "ordinal": 0, "outcome_kind": "exists", "outcome_payload": map[string]any{"kind": "exists", "surface": "fixture:design", "subjects": []string{"document:design"}}}}, "spec_mandate": []string{}, "law_modifies": []string{}, "architecture_binding": binding})
-	version = issue31WorkflowActionWithPayload(t, s, workID, version, "approve_contract", "design-contract", actor, approval)
-	design := func(approach string) json.RawMessage {
-		return mustJSONValue(map[string]any{"approach": approach, "decisions": []map[string]any{{"id": "decision:design", "question": "Which approach?", "choice": "Direct", "rationale": "It meets the outcome", "rejected": []string{}}}, "touched_refs": []string{"internal/store/workflow.go"}})
-	}
-	version = issue31WorkflowActionWithPayload(t, s, workID, version, "record_design", "first-design", actor, design("First approach"))
-	step := currentStep(t, s, workID)
-	version = issue31WorkflowActionWithPayload(t, s, workID, version, "record_design", "replacement-design", actor, design("Replacement approach"))
-	if currentStep(t, s, workID) != step || readWorkVersion(t, s, workID) != version {
-		t.Fatal("design replacement changed workflow progress")
-	}
-	var approach string
-	if err := s.db.QueryRow(`SELECT approach FROM workflow_design_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, workID).Scan(&approach); err != nil || approach != "Replacement approach" {
-		t.Fatalf("design=%q error=%v", approach, err)
-	}
-}
-
 func TestExecutorCannotAdvanceItsStepWithAnUndeclaredCompletionAction(t *testing.T) {
 	t.Parallel()
 	workID := "authority-step-transition"
@@ -90,14 +44,14 @@ func TestExecutorCannotAdvanceItsStepWithAnUndeclaredCompletionAction(t *testing
 	before := readWorkVersion(t, s, workID)
 	completed := workflowEventWithActor("authority-step-transition-completed", WorkflowActionCompleted, workID, executor, map[string]any{
 		"work_id": workID, "expected_version": before, "resulting_version": before + 1,
-		"step_id": "execution", "action_id": "record_proposal", "attempt_epoch": 2,
+		"step_id": "implement", "action_id": "record_delivery", "attempt_epoch": 2,
 		"result_evidence_refs": []string{}, "changed_refs": []string{}, "actor_ref": executor,
 	})
 	err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{completed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): before}})
 	if !hasFailureKind(err, KindIllegalLifecycleTransition) {
 		t.Fatalf("undeclared completion = %v, want illegal_lifecycle_transition", err)
 	}
-	if currentStep(t, s, workID) != "execution" || readWorkVersion(t, s, workID) != before {
+	if currentStep(t, s, workID) != "implement" || readWorkVersion(t, s, workID) != before {
 		t.Fatal("refused completion advanced the step or version")
 	}
 }
@@ -175,7 +129,7 @@ func TestOffStepNeverRecordedUndeclaredCompletion(t *testing.T) {
 	}
 	before := readWorkVersion(t, s, workID)
 	event := workflowTypedEvent("never-recorded", WorkflowActionCompleted, workID, actor, time.Unix(10, 0), before, map[string]any{
-		"step_id": "execution", "action_id": "record_finding", "attempt_epoch": 2, "actor_ref": actor,
+		"step_id": "implement", "action_id": "record_finding", "attempt_epoch": 2, "actor_ref": actor,
 		"result_evidence_refs": []string{}, "changed_refs": []string{},
 	})
 	err = applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): before}})
@@ -344,7 +298,7 @@ func TestWorkflowActionStartedV2AuthorizesActorStepAndEpoch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	currentVersion := int64(12)
+	currentVersion := readWorkVersion(t, s, workID)
 	beforeStarts := countWorkflowActionStarts(t, s, workID)
 	start := func(id, step, action, actor string, epoch, version int64) Event {
 		return workflowEventWithActor(id, WorkflowActionStarted, workID, executor, map[string]any{
@@ -359,25 +313,25 @@ func TestWorkflowActionStartedV2AuthorizesActorStepAndEpoch(t *testing.T) {
 		epoch                     int64
 		kind                      FailureKind
 	}{
-		{"forged actor", "execution", "start_execution", ownerRef, 3, KindUnauthorized},
-		{"future step", "acceptance", "record_verdict", executor, 3, KindIllegalLifecycleTransition},
-		{"undeclared current-step action", "execution", "record_proposal", executor, 3, KindIllegalLifecycleTransition},
-		{"duplicate epoch", "execution", "start_execution", executor, 1, KindIllegalLifecycleTransition},
-		{"jumped epoch", "execution", "start_execution", executor, 4, KindIllegalLifecycleTransition},
+		{"forged actor", "implement", "start_execution", ownerRef, 3, KindUnauthorized},
+		{"future step", "review", "record_verdict", executor, 3, KindIllegalLifecycleTransition},
+		{"undeclared current-step action", "implement", "record_delivery", executor, 3, KindIllegalLifecycleTransition},
+		{"duplicate epoch", "implement", "start_execution", executor, 1, KindIllegalLifecycleTransition},
+		{"jumped epoch", "implement", "start_execution", executor, 4, KindIllegalLifecycleTransition},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			assertRejectedActionStart(t, s, start(strings.ReplaceAll(test.name, " ", "-"), test.step, test.action, test.actor, test.epoch, currentVersion), currentVersion, test.kind, "execution", currentVersion, beforeStarts)
+			assertRejectedActionStart(t, s, start(strings.ReplaceAll(test.name, " ", "-"), test.step, test.action, test.actor, test.epoch, currentVersion), currentVersion, test.kind, "implement", currentVersion, beforeStarts)
 		})
 	}
-	exact := start("exact-retry-start", "execution", "start_execution", executor, 3, currentVersion)
+	exact := start("exact-retry-start", "implement", "start_execution", executor, 3, currentVersion)
 	if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{exact}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): currentVersion}}); err != nil {
 		t.Fatalf("exact next epoch rejected: %v", err)
 	}
-	if currentStep(t, s, workID) != "execution" || readWorkVersion(t, s, workID) != currentVersion+1 || countWorkflowActionStarts(t, s, workID) != beforeStarts+1 {
+	if currentStep(t, s, workID) != "implement" || readWorkVersion(t, s, workID) != currentVersion+1 || countWorkflowActionStarts(t, s, workID) != beforeStarts+1 {
 		t.Fatal("exact next epoch changed the step or failed to persist exactly one start/version")
 	}
-	stale := start("stale-retry-start", "execution", "start_execution", executor, 3, currentVersion+1)
-	assertRejectedActionStart(t, s, stale, currentVersion+1, KindIllegalLifecycleTransition, "execution", currentVersion+1, beforeStarts+1)
+	stale := start("stale-retry-start", "implement", "start_execution", executor, 3, currentVersion+1)
+	assertRejectedActionStart(t, s, stale, currentVersion+1, KindIllegalLifecycleTransition, "implement", currentVersion+1, beforeStarts+1)
 }
 
 func assertRejectedActionStart(t *testing.T, s *Store, event Event, expectedVersion int64, wantKind FailureKind, wantStep string, wantVersion int64, wantStarts int) {
@@ -413,7 +367,7 @@ func TestWorkflowActionCheckpointedV2BindsActorStepKindAndEpoch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	baseVersion := int64(11)
+	baseVersion := readWorkVersion(t, s, workID)
 	baseCheckpoints := countWorkflowCheckpoints(t, s, workID)
 	checkpoint := func(id, eventActor, payloadActor, stepID, stepKind string, epoch int64) Event {
 		return workflowEventWithActor(id, WorkflowActionCheckpointed, workID, eventActor, map[string]any{
@@ -424,16 +378,17 @@ func TestWorkflowActionCheckpointedV2BindsActorStepKindAndEpoch(t *testing.T) {
 			"checkpoint_id": "checkpoint:" + id, "accepted_inputs_digest": "sha256:" + strings.Repeat("i", 64), "idempotency_identity": id,
 		})
 	}
-	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-forged-actor", executor, ownerRef, "execution", "external_effect", 2), baseVersion, KindUnauthorized, baseCheckpoints)
-	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-wrong-step", executor, executor, "acceptance", "external_effect", 2), baseVersion, KindIllegalLifecycleTransition, baseCheckpoints)
-	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-wrong-kind", executor, executor, "execution", "cross_authority", 2), baseVersion, KindIllegalLifecycleTransition, baseCheckpoints)
-	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-wrong-epoch", executor, executor, "execution", "external_effect", 3), baseVersion, KindIllegalLifecycleTransition, baseCheckpoints)
-	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-non-executor", ownerRef, ownerRef, "execution", "external_effect", 2), baseVersion, KindUnauthorized, baseCheckpoints)
-	valid := checkpoint("checkpoint-valid", executor, executor, "execution", "external_effect", 2)
+	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-forged-actor", executor, ownerRef, "implement", "internal_sqlite", 2), baseVersion, KindUnauthorized, baseCheckpoints)
+	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-wrong-step", executor, executor, "review", "internal_sqlite", 2), baseVersion, KindIllegalLifecycleTransition, baseCheckpoints)
+	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-wrong-kind", executor, executor, "implement", "cross_authority", 2), baseVersion, KindIllegalLifecycleTransition, baseCheckpoints)
+	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-unknown-kind", executor, executor, "implement", "unknown", 2), baseVersion, KindInvalidPayload, baseCheckpoints)
+	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-wrong-epoch", executor, executor, "implement", "internal_sqlite", 3), baseVersion, KindIllegalLifecycleTransition, baseCheckpoints)
+	assertRejectedCheckpoint(t, s, workID, checkpoint("checkpoint-non-executor", ownerRef, ownerRef, "implement", "internal_sqlite", 2), baseVersion, KindUnauthorized, baseCheckpoints)
+	valid := checkpoint("checkpoint-valid", executor, executor, "implement", "internal_sqlite", 2)
 	if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{valid}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): baseVersion}}); err != nil {
 		t.Fatalf("valid executor checkpoint rejected: %v", err)
 	}
-	if currentStep(t, s, workID) != "execution" || readWorkVersion(t, s, workID) != baseVersion+1 || countWorkflowCheckpoints(t, s, workID) != baseCheckpoints+1 {
+	if currentStep(t, s, workID) != "implement" || readWorkVersion(t, s, workID) != baseVersion+1 || countWorkflowCheckpoints(t, s, workID) != baseCheckpoints+1 {
 		t.Fatal("valid checkpoint changed the step or failed to persist exactly one checkpoint/version")
 	}
 }
@@ -450,7 +405,7 @@ func assertRejectedCheckpoint(t *testing.T, s *Store, workID string, event Event
 	if !errors.As(err, &failure) || failure.Kind != wantKind {
 		t.Fatalf("checkpoint failure=%v, want %s", err, wantKind)
 	}
-	if currentStep(t, s, workID) != "execution" || readWorkVersion(t, s, workID) != expectedVersion || countWorkflowCheckpoints(t, s, workID) != wantCheckpoints {
+	if currentStep(t, s, workID) != "implement" || readWorkVersion(t, s, workID) != expectedVersion || countWorkflowCheckpoints(t, s, workID) != wantCheckpoints {
 		t.Fatal("refused checkpoint changed step, version or checkpoint count")
 	}
 }
@@ -473,21 +428,22 @@ func TestWorkflowActionCompletedV2BindsPayloadActorToEventActor(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := countWorkflowActionCompleted(t, s, workID)
+	version := readWorkVersion(t, s, workID)
 	completed := workflowEventWithActor("forged-completed-actor", WorkflowActionCompleted, workID, executor, map[string]any{
-		"work_id": workID, "expected_version": 12, "resulting_version": 13,
-		"step_id": "execution", "action_id": "checkpoint_execution", "attempt_epoch": 1,
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+		"step_id": "implement", "action_id": "checkpoint_execution", "attempt_epoch": 2,
 		"result_evidence_refs": []string{}, "changed_refs": []string{}, "actor_ref": ownerRef,
 	})
 	tx, err := s.db.BeginTx(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = applyWorkflowOperationTx(t.Context(), tx, Operation{Events: []Event{completed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 12}}, newWriteScope(tx))
+	_, err = applyWorkflowOperationTx(t.Context(), tx, Operation{Events: []Event{completed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}, newWriteScope(tx))
 	_ = tx.Rollback()
 	if !hasFailureKind(err, KindUnauthorized) {
 		t.Fatalf("forged completed actor = %v, want unauthorized", err)
 	}
-	if currentStep(t, s, workID) != "execution" || readWorkVersion(t, s, workID) != 12 || countWorkflowActionCompleted(t, s, workID) != before {
+	if currentStep(t, s, workID) != "implement" || readWorkVersion(t, s, workID) != version || countWorkflowActionCompleted(t, s, workID) != before {
 		t.Fatal("forged completion changed step, version or completion count")
 	}
 }
@@ -501,12 +457,12 @@ func TestWorkflowActionFailedV2BindsCurrentExecutorAttempt(t *testing.T) {
 		kind                             FailureKind
 		state                            string
 	}{
-		{name: "forged actor", step: "execution", epoch: 2, forged: true, recoverable: true, kind: KindUnauthorized},
-		{name: "wrong step", step: "acceptance", epoch: 2, recoverable: true, kind: KindIllegalLifecycleTransition},
-		{name: "stale epoch", step: "execution", epoch: 3, recoverable: true, kind: KindIllegalLifecycleTransition},
-		{name: "non-executor actor", step: "execution", epoch: 2, nonexecutor: true, recoverable: true, kind: KindUnauthorized},
-		{name: "recoverable failure keeps workflow running", step: "execution", epoch: 2, recoverable: true, state: "running"},
-		{name: "nonrecoverable failure blocks workflow", step: "execution", epoch: 2, state: "blocked"},
+		{name: "forged actor", step: "implement", epoch: 2, forged: true, recoverable: true, kind: KindUnauthorized},
+		{name: "wrong step", step: "review", epoch: 2, recoverable: true, kind: KindIllegalLifecycleTransition},
+		{name: "stale epoch", step: "implement", epoch: 3, recoverable: true, kind: KindIllegalLifecycleTransition},
+		{name: "non-executor actor", step: "implement", epoch: 2, nonexecutor: true, recoverable: true, kind: KindUnauthorized},
+		{name: "recoverable failure keeps workflow running", step: "implement", epoch: 2, recoverable: true, state: "running"},
+		{name: "nonrecoverable failure blocks workflow", step: "implement", epoch: 2, state: "blocked"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			workID := "authority-failed-" + strings.ReplaceAll(test.name, " ", "-")
@@ -522,38 +478,40 @@ func TestWorkflowActionFailedV2BindsCurrentExecutorAttempt(t *testing.T) {
 			if test.nonexecutor {
 				eventActor, payloadActor = ownerRef, ownerRef
 			}
-			event := actionFailedFixture("failed-"+workID, workID, eventActor, payloadActor, test.step, test.epoch, test.recoverable)
+			version := readWorkVersion(t, s, workID)
+			event := actionFailedFixture("failed-"+workID, workID, eventActor, payloadActor, test.step, test.epoch, version, test.recoverable)
 			if test.kind != "" {
 				assertRejectedActionFailed(t, s, event, test.kind)
 				return
 			}
-			if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 12}}); err != nil {
+			if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 				t.Fatalf("current executor failure rejected: %v", err)
 			}
-			if instanceState(t, s, workID) != test.state || readWorkVersion(t, s, workID) != 13 {
-				t.Fatalf("failure did not persist expected state %s/version 13", test.state)
+			if instanceState(t, s, workID) != test.state || readWorkVersion(t, s, workID) != version+1 {
+				t.Fatalf("failure did not persist expected state %s/version %d", test.state, version+1)
 			}
 		})
 	}
 }
 
-func actionFailedFixture(eventID, workID, eventActor, payloadActor, stepID string, epoch int64, recoverable bool) Event {
-	return actionFailedFixtureWithKind(eventID, workID, eventActor, payloadActor, stepID, epoch, recoverable, KindTimeout)
+func actionFailedFixture(eventID, workID, eventActor, payloadActor, stepID string, epoch, version int64, recoverable bool) Event {
+	return actionFailedFixtureWithKind(eventID, workID, eventActor, payloadActor, stepID, epoch, version, recoverable, KindTimeout)
 }
 
-func actionFailedFixtureWithKind(eventID, workID, eventActor, payloadActor, stepID string, epoch int64, recoverable bool, kind FailureKind) Event {
+func actionFailedFixtureWithKind(eventID, workID, eventActor, payloadActor, stepID string, epoch, version int64, recoverable bool, kind FailureKind) Event {
 	return workflowEventWithActor(eventID, WorkflowActionFailed, workID, eventActor, map[string]any{
-		"work_id": workID, "expected_version": 12, "resulting_version": 13, "step_id": stepID, "attempt_epoch": epoch,
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": stepID, "attempt_epoch": epoch,
 		"failure_kind": string(kind), "recoverable": recoverable, "actor_ref": payloadActor,
 	})
 }
 
 func assertRejectedActionFailed(t *testing.T, s *Store, event Event, wantKind FailureKind) {
 	t.Helper()
-	if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, event.SubjectID): 12}}); !hasFailureKind(err, wantKind) {
+	version := readWorkVersion(t, s, event.SubjectID)
+	if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, event.SubjectID): version}}); !hasFailureKind(err, wantKind) {
 		t.Fatalf("action_failed = %v, want %s", err, wantKind)
 	}
-	if instanceState(t, s, event.SubjectID) != "running" || readWorkVersion(t, s, event.SubjectID) != 12 {
+	if instanceState(t, s, event.SubjectID) != "running" || readWorkVersion(t, s, event.SubjectID) != version {
 		t.Fatal("refused failure changed state or version")
 	}
 	var events int
@@ -586,7 +544,7 @@ func applyWorkflowActionForTest(t *testing.T, s *Store, workID string, owner Wor
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	result, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: expectedVersion, ActionID: actionID, Payload: mustJSONValue(map[string]any{}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat(digestChar, 64), IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: now,
@@ -616,48 +574,36 @@ func seedOrdinaryExecutorAtExecution(t *testing.T, workID string) (*Store, strin
 
 func seedOrdinaryExecutorAtExecutionWithCheckpoint(t *testing.T, workID string, checkpoint bool) (*Store, string, WorkflowActor) {
 	t.Helper()
-	s := openTemp(t)
-	seedWork(t, s, workID)
-	seedWorkflowLaw(t, s)
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", []string{}, []string{})
+	s := f.store
 	executor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/executor", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	owner := f.owner
 	executorRef, err := WorkflowActorRef(executor)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition := workflowFixtureDefinition(t, 1)
-	setup := []Event{
-		workflowEvent("executor-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": executorRef, "principal_ref": executor.PrincipalRef, "client_ref": executor.ClientRef, "agent_ref": executor.AgentRef, "session_ref": executor.SessionRef, "actor_class": "agent"}),
-		workflowEvent("owner-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEvent("definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "ref": definition.Definition.Ref, "version": 1, "digest": definition.Digest, "work_kind": workflowFixtureWorkKind}),
-		workflowActionCompletedFixture("proposal-"+workID, workID, executorRef, 5, "proposal", "record_proposal"),
-		workflowActionCompletedFixture("discovery-"+workID, workID, executorRef, 6, "discovery", "record_discovery"),
-		workflowActionCompletedFixture("design-"+workID, workID, executorRef, 7, "design", "record_design"),
-		workflowActionCompletedFixture("planning-"+workID, workID, executorRef, 8, "planning", "approve_contract"),
-	}
+	version := readWorkVersion(t, s, workID)
+	setup := []Event{workflowEventWithActor("executor-actor-"+workID, WorkflowActorRecorded, workID, executorRef, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": executorRef, "principal_ref": executor.PrincipalRef, "client_ref": executor.ClientRef, "agent_ref": executor.AgentRef, "session_ref": executor.SessionRef, "actor_class": "agent"})}
+	version++
 	for epoch := int64(1); epoch <= 2; epoch++ {
-		version := 8 + epoch
 		id := "start-" + workID + "-" + itoa(int(epoch))
 		setup = append(setup, workflowEventWithActor(id, WorkflowActionStarted, workID, executorRef, map[string]any{
 			"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-			"step_id": "execution", "action_id": "start_execution", "attempt_epoch": epoch,
+			"step_id": "implement", "action_id": "start_execution", "attempt_epoch": epoch,
 			"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": id,
 			"actor_ref": executorRef, "execution_model": "model:fixture",
 		}))
+		version++
 	}
 	if checkpoint {
 		setup = append(setup, workflowEventWithActor("seed-checkpoint-"+workID, WorkflowActionCheckpointed, workID, executorRef, map[string]any{
-			"work_id": workID, "expected_version": 11, "resulting_version": 12, "step_id": "execution", "step_kind": "external_effect", "attempt_epoch": 2,
+			"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "implement", "step_kind": "internal_sqlite", "attempt_epoch": 2,
 			"checkpoint_payload": map[string]any{"action_id": "checkpoint_execution", "cursor": "seed"}, "resume_cursor": "cursor:seed", "actor_ref": executorRef,
 			"request_id": "request:seed-" + workID, "checkpoint_id": "checkpoint:seed-" + workID,
 			"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "seed-" + workID,
 		}))
 	}
-	if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
+	if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): readWorkVersion(t, s, workID)}}); err != nil {
 		t.Fatal(err)
 	}
 	return s, executorRef, owner
@@ -683,11 +629,11 @@ func readWorkVersion(t *testing.T, s *Store, workID string) int64 {
 
 func currentStep(t *testing.T, s *Store, workID string) string {
 	t.Helper()
-	var step string
-	if err := s.db.QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
+	plan, err := readWorkflowPlanTx(context.Background(), s.db, workID)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return step
+	return workflowPlanCurrentStep(plan)
 }
 
 func instanceState(t *testing.T, s *Store, workID string) string {

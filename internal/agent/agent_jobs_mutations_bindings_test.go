@@ -846,7 +846,6 @@ func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 	env := agentJobsMutationEnvelope(t, s, grant)
 
 	workID := "work-budget-audit"
-	definition := store.BuiltinWorkflowDefinitions()[0]
 	created := store.Event{EventID: workID + "-created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Run the approved audit","priority":3}`)}
 	membership := store.Event{EventID: workID + "-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"proj-web","role":"primary"}],"expected_version":1,"resulting_version":2}`)}
 	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{created, membership}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}}); err != nil {
@@ -858,13 +857,13 @@ func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 		t.Fatalf("initialize workflow: %v", err)
 	}
 	_, version := readWorkFromStore(t, s, workID)
-	actionID := definition.AvailableActions[0]
+	actionID := "record_intake"
 	key := "aj8-budget-1"
 	if seed, ok := sc.InitialState["idempotency_seed"].(string); ok && seed != "" {
 		key = seed
 	}
 
-	overBudget := []byte(fmt.Sprintf(`{"work_id":%q,"expected_version":%d,"action_id":%q,"fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"requested_budget_seconds":60,"idempotency_key":%q}`, workID, version, actionID, key))
+	overBudget := []byte(fmt.Sprintf(`{"work_id":%q,"expected_version":%d,"action_id":%q,"fields":{"outcome":"proceed","open_questions_found":false},"requested_budget_seconds":60,"idempotency_key":%q}`, workID, version, actionID, key))
 	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: overBudget}, env)
 	if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil || resp.Error.Kind != "budget_refused" {
 		t.Fatalf("60-second request was not refused outcome=%s err=%+v", resp.Outcome, resp.Error)
@@ -888,7 +887,7 @@ func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 	// The clamp probe, second half: the same idempotency key with an
 	// admissible budget executes for real. A silent clamp would have consumed
 	// the key or fabricated a completion; either fails here.
-	withinBudget := []byte(fmt.Sprintf(`{"work_id":%q,"expected_version":%d,"action_id":%q,"fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"requested_budget_seconds":30,"idempotency_key":%q}`, workID, version, actionID, key))
+	withinBudget := []byte(fmt.Sprintf(`{"work_id":%q,"expected_version":%d,"action_id":%q,"fields":{"outcome":"proceed","open_questions_found":false},"requested_budget_seconds":30,"idempotency_key":%q}`, workID, version, actionID, key))
 	retry := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: withinBudget}, env)
 	if retry.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("lowered-budget retry on the same key was refused outcome=%s err=%+v", retry.Outcome, retry.Error)

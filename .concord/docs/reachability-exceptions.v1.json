@@ -34,14 +34,6 @@
       "reason": "validateEventKindRegistry is an assertion helper for registry conformance tests: it rejects an ill-formed event-kind registration. It guards no production path: it runs where a malformed registration can actually be written, which is in a test that constructs one deliberately. Exposing it to an operator would offer a verb whose only honest answer is that the build already settled the question."
     },
     {
-      "id": "registry-injection-test-seam",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/agent.InvokeWithRegistry"
-      ],
-      "reason": "Production never injects a definition registry: cmd/concord enters through Invoke, which dispatches on the builtin registry. This seam lets the workflow corpus boundary runner drive a scenario registry through the real byte-oriented boundary instead of reaching past it. The tested seam remains until its disposition is decided."
-    },
-    {
       "id": "contract-generator-cross-field-projection",
       "state": "out_of_scope",
       "functions": [

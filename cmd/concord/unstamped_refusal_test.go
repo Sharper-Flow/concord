@@ -105,10 +105,6 @@ func TestReleaseManagedStoreRefusesABinaryTheInstallerDidNotPlace(t *testing.T) 
 			code, _, errOut := runUpgradeStdin(t, `{}`)
 			return code, errOut
 		}},
-		{"cutover cancellation upgrade", func(t *testing.T, _, _ string) (int, string) {
-			code, _, errOut := runUpgradeStdin(t, `{"cancel_cutover_pinned_work":true}`)
-			return code, errOut
-		}},
 		{"host leases", func(t *testing.T, _, _ string) (int, string) {
 			var out, errOut bytes.Buffer
 			return runWithInput([]string{"host-leases"}, strings.NewReader(`{}`), &out, &errOut), errOut.String()

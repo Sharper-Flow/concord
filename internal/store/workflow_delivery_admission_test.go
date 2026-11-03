@@ -3,210 +3,158 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 )
 
-func loadedAdmissionForTest(t *testing.T, s *Store, workID string, pin WorkPin) (WorkflowDefinition, WorkflowAdmissionState) {
+// The plan prefix is synthetic; Review and verification bindings use the
+// actual dispatcher and retain their own candidate and actor identities.
+func deliveryPlanFixture(t *testing.T, workID string, required []string, disposition string) (workflowReturnRouteFixture, string) {
 	t.Helper()
-	ctx, err := s.PrepareWorkLawProof(context.Background(), workID)
-	if err != nil {
-		t.Fatal(err)
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", required, nil)
+	repo, _ := reviewSubjectClaim(t, f.store, workID)
+	commit := runTestGit(t, repo, "rev-parse", "HEAD")
+	if disposition != "" {
+		report := currentReviewBlockForTest(t, f.store, workID, disposition)
+		request := planAdmissionRequest(workID, "record_review", readWorkVersion(t, f.store, workID), f.owner, mustJSONValue(map[string]any{"review": report}))
+		if err := planAdmissionDispatch(t, f.store, request); err != nil {
+			t.Fatalf("record Review: %v", err)
+		}
 	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
-	state, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, pin.Step, "admission_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return definition, state
+	moveWorkflowPlanFixtureFrontier(t, f.store, workID, "review")
+	return f, commit
 }
 
-func TestDeliveryPrerequisiteAdmissionAgreement(t *testing.T) {
-	for _, stage := range []string{"before-start", "missing-epoch-proof", "green-proof"} {
-		t.Run(stage, func(t *testing.T) {
-			const workID = "delivery-admission-agreement"
-			// Before the start the reviewed candidate parks at refine with no
-			// refine action recorded; otherwise the refine start is fenced.
-			step := "refine"
-			if stage == "before-start" {
-				step = "execution"
+func bindDeliveryReport(t *testing.T, f workflowReturnRouteFixture, workID, ref, commit, result string) {
+	t.Helper()
+	payload := mustJSONValue(map[string]any{
+		"evidence_kind": "verification", "immutable_subject_ref": ref,
+		"verification_report": VerificationReport{Source: "local", Commit: commit, Result: result, RunRef: "run:" + ref},
+	})
+	request := planAdmissionRequest(workID, "bind_evidence", readWorkVersion(t, f.store, workID), f.owner, payload)
+	if err := planAdmissionDispatch(t, f.store, request); err != nil {
+		t.Fatalf("bind %s: %v", ref, err)
+	}
+}
+
+func TestWorkflowPlanDeliverySharedAdmission(t *testing.T) {
+	for _, tc := range []struct {
+		name, review string
+		required     []string
+		reports      []string
+		want         FailureKind
+	}{
+		{"missing-review", "", []string{"verification"}, nil, KindMissingEvidence},
+		{"review-not-ready", "continue", []string{"verification"}, nil, KindMissingEvidence},
+		{"missing-proof", "ready_for_final_proof", []string{"verification"}, nil, KindMissingEvidence},
+		{"failed-proof", "ready_for_final_proof", []string{"verification"}, []string{"fail"}, KindMissingEvidence},
+		{"failed-then-passing", "ready_for_final_proof", []string{"verification"}, []string{"fail", "pass"}, ""},
+		{"passing-then-failed", "ready_for_final_proof", []string{"verification"}, []string{"pass", "fail"}, KindMissingEvidence},
+		{"passing-proof", "ready_for_final_proof", []string{"verification"}, []string{"pass"}, ""},
+		{"verification-not-required", "ready_for_final_proof", []string{}, nil, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workID := "plan-delivery-" + tc.name
+			f, commit := deliveryPlanFixture(t, workID, tc.required, tc.review)
+			for i, result := range tc.reports {
+				bindDeliveryReport(t, f, workID, fmt.Sprintf("report:%d", i), commit, result)
 			}
-			var c acceptDeliveryCandidate
-			if stage == "missing-epoch-proof" {
-				c = acceptDeliveryUnobservedCandidateAt(t, workID, "workflow.implementation")
-			} else {
-				c = acceptDeliveryCandidateAt(t, workID, "workflow.implementation", step, false)
+			pin, err := ReadWorkPin(t.Context(), f.store, workID)
+			if err != nil || pin.Step != "review" || !workPinContainsAction(pin.NextValidIntents, "record_delivery") || !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
+				t.Fatalf("plan pin=%+v err=%v", pin, err)
 			}
-			if stage == "before-start" {
-				setWorkflowStepForOperatorVerdictTest(t, c.f.store, workID, "refine")
-			}
-			if stage != "missing-epoch-proof" {
-				acceptDeliveryBindFresh(t, c, "agreement")
-			}
-			fixture := struct{ store *Store }{c.f.store}
-			pin := issue1013Pin(t, fixture.store, workID)
-			definition, state := loadedAdmissionForTest(t, fixture.store, workID, pin)
-			model := admissionModelState{
-				step: pin.Step, contracts: 1,
-				review:  admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true},
-				started: stage != "before-start", proof: stage == "green-proof",
-			}
-			if got, want := admissionConformanceViewOf(state), admissionConformanceViewOf(admissionWorkflowState(definition, model)); got != want {
-				t.Fatalf("%s: loaded admission %+v != expected %+v", stage, got, want)
-			}
-			decision := workflowAdmit(definition, state, "record_delivery")
-			payload := json.RawMessage(`{"delivery_artifact":"artifact:agreement","delivery_state":"asserted"}`)
-			tx, err := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
-			if err != nil {
+			payload := json.RawMessage(`{"delivery_artifact":"artifact:plan-delivery","delivery_state":"asserted"}`)
+			request := planAdmissionRequest(workID, "record_delivery", pin.Version, f.owner, payload)
+			var eventCount, operationCount int
+			if err := f.store.db.QueryRow(`SELECT (SELECT count(*) FROM effect_receipts WHERE subject_id=?),(SELECT count(*) FROM durable_operations WHERE work_id=?)`, workID, workID).Scan(&eventCount, &operationCount); err != nil {
 				t.Fatal(err)
 			}
-			_, _, _, admissionErr := workflowPlanActionAdmissionTx(context.Background(), tx, workID, pin.Version, "record_delivery", payload)
-			if err := tx.Rollback(); err != nil {
-				t.Fatal(err)
-			}
-			preflightErr := WorkflowActionPreflightWithRegistry(context.Background(), fixture.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-				WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_delivery", Actor: reviewGateAcceptor(workID),
-				Payload: payload,
-			})
-			executionErr := refineProofDelivery(t, fixture.store, workID)
-			advertised := workPinContainsAction(pin.NextValidIntents, "record_delivery")
-			if stage == "green-proof" {
-				if admissionErr != nil || !decision.Admitted || !advertised || preflightErr != nil || executionErr != nil {
-					t.Fatalf("green proof: admission=%v, decision=%+v, advertised=%v, preflight=%v, execution=%v", admissionErr, decision, advertised, preflightErr, executionErr)
+			preflight := planAdmissionPreflight(t, f.store, request)
+			dispatch := planAdmissionDispatch(t, f.store, request)
+			if tc.want != "" {
+				first := planAdmissionFailure(t, preflight, tc.want)
+				second := planAdmissionFailure(t, dispatch, tc.want)
+				var afterEvents, afterOperations int
+				if err := f.store.db.QueryRow(`SELECT (SELECT count(*) FROM effect_receipts WHERE subject_id=?),(SELECT count(*) FROM durable_operations WHERE work_id=?)`, workID, workID).Scan(&afterEvents, &afterOperations); err != nil {
+					t.Fatal(err)
+				}
+				if first.Detail != second.Detail || readWorkVersion(t, f.store, workID) != pin.Version || afterEvents != eventCount || afterOperations != operationCount {
+					t.Fatalf("refusal parity or effects: preflight=%v dispatch=%v", first, second)
+				}
+				if tc.name == "missing-proof" {
+					bindDeliveryReport(t, f, workID, "report:recovery", commit, "pass")
+					request = planAdmissionRequest(workID, "record_delivery", readWorkVersion(t, f.store, workID), f.owner, payload)
+					if err := planAdmissionPreflight(t, f.store, request); err != nil {
+						t.Fatalf("delivery preflight after recovery: %v", err)
+					}
+					if err := planAdmissionDispatch(t, f.store, request); err != nil {
+						t.Fatalf("delivery dispatch after recovery: %v", err)
+					}
 				}
 				return
 			}
-			if decision.Admitted || advertised || preflightErr == nil || executionErr == nil {
-				t.Fatalf("missing prerequisite: admission=%v, decision=%+v, advertised=%v, preflight=%v, execution=%v", admissionErr, decision, advertised, preflightErr, executionErr)
+			if preflight != nil || dispatch != nil {
+				t.Fatalf("delivery preflight=%v dispatch=%v", preflight, dispatch)
 			}
-			var preflightFailure, executionFailure *Failure
-			if !failureAs(preflightErr, &preflightFailure) || !failureAs(executionErr, &executionFailure) ||
-				decision.Failure.Kind != preflightFailure.Kind || decision.Failure.Kind != executionFailure.Kind ||
-				!strings.Contains(executionFailure.Detail, decision.Failure.Detail) || preflightFailure.Detail != decision.Failure.Detail {
-				t.Fatalf("refusals differ: admission=%v, decision=%v, preflight=%v, execution=%v", admissionErr, decision.Failure, preflightErr, executionErr)
+			var actor string
+			if err := f.store.db.QueryRow(`SELECT actor FROM effect_receipts WHERE subject_id=? AND kind=? ORDER BY effect_seq DESC LIMIT 1`, workID, WorkflowActionCompleted).Scan(&actor); err != nil || actor != mustActorRef(t, f.owner) {
+				t.Fatalf("delivery actor=%q err=%v", actor, err)
 			}
-		})
-	}
-}
-
-func TestDeliveryProofPreservesBindingOrderWithoutToolingGate(t *testing.T) {
-	malformed := newFailure(KindInvariantViolation, "workflow_action", "malformed verification report", false, "rebuild projections")
-	good := workflowVerificationRun{}
-	other := workflowVerificationRun{}
-	bad := workflowVerificationRun{Disqualifier: "the report recorded a failure"}
-	for _, test := range []struct {
-		name    string
-		runs    []workflowVerificationRun
-		ready   bool
-		failure bool
-	}{
-		{"green-before-malformed", []workflowVerificationRun{good, {Failure: malformed}}, true, false},
-		{"malformed-before-green", []workflowVerificationRun{{Failure: malformed}, good}, false, true},
-		{"non-green-before-green", []workflowVerificationRun{bad, good}, true, false},
-		{"later-declared-command", []workflowVerificationRun{other, good}, true, false},
-		{"report-before-malformed", []workflowVerificationRun{other, {Failure: malformed}}, true, false},
-		{"tooling-does-not-disqualify", []workflowVerificationRun{other}, true, false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			ready, why, err := workflowVerificationProof(test.runs)
-			if ready != test.ready || (err != nil) != test.failure || (!ready && err == nil && why == "") {
-				t.Fatalf("proof = %v, %q, %v", ready, why, err)
+			if got := workflowPlanFixtureFrontier(t, f.store, workID); got != "review" {
+				t.Fatalf("delivery changed frontier to %q", got)
 			}
 		})
 	}
 }
 
-func TestMalformedDeliveryProofDoesNotHideRecovery(t *testing.T) {
-	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
-	state := WorkflowAdmissionState{Step: "refine", ActiveContracts: 1, Delivery: workflowDeliveryAdmission{
-		Started: true, ProofRequired: true,
-		ProofFailure: newFailure(KindInvariantViolation, "workflow_action", "malformed verify operation", false, "rebuild projections"),
-	}}
-	if decision := workflowAdmit(definition, state, "record_delivery"); decision.Admitted || decision.Failure.Kind != KindInvariantViolation {
-		t.Fatalf("malformed proof admission = %+v", decision)
-	}
-	for _, action := range []string{"bind_evidence", "checkpoint_context", "checkpoint_refine"} {
-		if decision := workflowAdmit(definition, state, action); !decision.Admitted {
-			t.Fatalf("malformed proof hides %s: %+v", action, decision)
-		}
-	}
-}
-
-func TestDeliveryGuardConsumesTheSharedMandateDecision(t *testing.T) {
-	definition := WorkflowDefinition{
-		ActionDefinitions: []WorkflowActionDefinition{{ID: "record_delivery", ExecutionMode: ActionAdvance}},
-		StepGraph:         WorkflowStepGraph{Steps: []WorkflowStep{{ID: "execution", Actions: []string{"record_delivery", "bind_evidence"}}}},
-	}
-	state := WorkflowAdmissionState{
-		Step: "execution", ActiveContracts: 1, Delivery: workflowDeliveryAdmission{Started: true},
-		Mandate: workflowMandateAdmission{Present: true, LawID: "spec:one", BindingStep: "execution"},
-	}
-	decision := workflowAdmit(definition, state, "record_delivery")
-	if decision.Admitted || decision.Failure == nil {
-		t.Fatalf("unbound mandate admission = %+v", decision)
-	}
-	g := workflowActionGuardContext{
-		request:        WorkflowActionExecutionRequest{ActionID: "record_delivery"},
-		admissionState: &state, admissionDecision: &decision,
-	}
-	if err := guardDeliveryAdmission(&g); err != decision.Failure {
-		t.Fatalf("delivery guard = %v, want the shared mandate refusal %v", err, decision.Failure)
-	}
-}
-
-func TestDeliveryGuardKeepsProofEvidenceOutsideAbstractState(t *testing.T) {
-	const workID = "delivery-proof-snapshot"
-	c := acceptDeliveryCandidateAt(t, workID, "workflow.implementation", "refine", false)
-	acceptDeliveryBindFresh(t, c, "snapshot")
-	fixture := struct{ store *Store }{c.f.store}
-	ctx := context.Background()
-	tx, err := fixture.store.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
+func TestWorkflowPlanDeliveryMalformedProofKeepsRecovery(t *testing.T) {
+	const workID = "plan-delivery-malformed"
+	f, _ := deliveryPlanFixture(t, workID, []string{"verification"}, "ready_for_final_proof")
+	// Corrupt only this isolated projection to exercise fail-closed recovery.
+	if _, err := f.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_evidence_bindings(work_id,binding_seq,binding_id,actor,payload) VALUES(?,999999,'binding:malformed',?,'{"evidence_kind":"verification","immutable_subject_ref":"report:malformed","verification_report":{"source":"local"}}'); DELETE FROM write_guard`, workID, mustActorRef(t, f.owner)); err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback()
-	entry := mustBuiltinDefinition(t, "workflow.implementation")
-	state, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, entry.Definition, "refine", "workflow_action")
-	if err != nil {
-		t.Fatal(err)
+	version := readWorkVersion(t, f.store, workID)
+	request := planAdmissionRequest(workID, "record_delivery", version, f.owner, json.RawMessage(`{"delivery_artifact":"artifact:malformed","delivery_state":"asserted"}`))
+	first := planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindInvariantViolation)
+	second := planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindInvariantViolation)
+	if first.Detail != second.Detail || readWorkVersion(t, f.store, workID) != version {
+		t.Fatalf("malformed proof parity: %v / %v", first, second)
 	}
-	decision := workflowAdmit(entry.Definition, state, "record_delivery")
-	if !state.Delivery.ProofReady || !decision.Admitted {
-		t.Fatalf("proof snapshot: state=%+v, decision=%+v", state.Delivery, decision)
-	}
-	for _, cached := range []bool{false, true} {
-		g := workflowActionGuardContext{
-			ctx: ctx, tx: tx, entry: entry, currentStep: "refine",
-			request: WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_delivery"},
-		}
-		if cached {
-			g.admissionState, g.admissionDecision = &state, &decision
-		}
-		if err := guardDeliveryAdmission(&g); err != nil {
-			t.Fatalf("cached=%v: report refused: %v", cached, err)
-		}
-		if g.admissionState.Delivery != state.Delivery {
-			t.Fatalf("cached=%v: the guard changed the abstract proof classification", cached)
-		}
+	bind := planAdmissionRequest(workID, "bind_evidence", version, f.owner, json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"artifact:recovery"}`))
+	if err := planAdmissionPreflight(t, f.store, bind); err != nil {
+		t.Fatalf("malformed proof hid binding recovery: %v", err)
 	}
 }
 
-func TestDeliveryProofKeepsAmbiguousContractUpdateAtomic(t *testing.T) {
-	const workID = "delivery-proof-duplicate-contract"
-	c := acceptDeliveryCandidateAt(t, workID, "workflow.implementation", "refine", false)
-	contract := pContractSuccessor(t, c.f.store, workID, "Retain the current delivery proof.")
-	duplicateActiveWorkflowContract(context.Background(), t, c.f.store, workID)
-	before := lawUpgradeSnapshot(t, c.f.store)
-	assertRecoveryRefusalWithoutEffect(t, c.f.store, workID, KindInvariantViolation, func() error {
-		return reviseContractRecord(t, c.f.store, workID, c.f.owner, contract, readWorkVersion(t, c.f.store, workID), nil)
-	})
-	if after := lawUpgradeSnapshot(t, c.f.store); !reflect.DeepEqual(before, after) {
+func TestWorkflowPlanDeliveryAmbiguousContractUpdateIsAtomic(t *testing.T) {
+	const workID = "plan-delivery-duplicate-contract"
+	f, _ := deliveryPlanFixture(t, workID, []string{}, "ready_for_final_proof")
+	contract := pContractSuccessor(t, f.store, workID, "Retain the current delivery proof.")
+	duplicateActiveWorkflowContract(context.Background(), t, f.store, workID)
+	before := lawUpgradeSnapshot(t, f.store)
+	version := readWorkVersion(t, f.store, workID)
+	err := reviseContractRecord(t, f.store, workID, f.owner, contract, version)
+	planAdmissionFailure(t, err, KindInvariantViolation)
+	if after := lawUpgradeSnapshot(t, f.store); !reflect.DeepEqual(before, after) || readWorkVersion(t, f.store, workID) != version {
 		t.Fatal("refused ambiguous contract update changed application tables")
+	}
+}
+
+func TestWorkflowPlanDeliveryRejectsWrongCandidate(t *testing.T) {
+	const workID = "plan-delivery-wrong-candidate"
+	f, commit := deliveryPlanFixture(t, workID, []string{"verification"}, "ready_for_final_proof")
+	other := strings.Repeat("a", len(commit))
+	if other == commit {
+		other = strings.Repeat("b", len(commit))
+	}
+	bindDeliveryReport(t, f, workID, "report:other", other, "pass")
+	request := planAdmissionRequest(workID, "record_delivery", readWorkVersion(t, f.store, workID), f.owner, json.RawMessage(`{"delivery_artifact":"artifact:wrong","delivery_state":"asserted"}`))
+	first := planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindStaleRequiresReview)
+	second := planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindStaleRequiresReview)
+	if first.Detail != second.Detail || readWorkVersion(t, f.store, workID) != request.ExpectedVersion {
+		t.Fatalf("wrong-candidate refusal: %v / %v", first, second)
 	}
 }

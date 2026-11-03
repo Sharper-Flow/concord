@@ -58,7 +58,7 @@ func TestFirstWorkflowActionStartsLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, actionErr := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, actionErr := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "checkpoint_context", Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), IdempotencyIdentity: "first-action-checkpoint",
 		OperationID: "first-action-checkpoint", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition",
@@ -87,52 +87,6 @@ func TestFirstWorkflowActionStartsLifecycle(t *testing.T) {
 	for _, item := range ready.Items {
 		if item.ID == workID {
 			t.Fatal("the started item still reads ready")
-		}
-	}
-}
-
-// TestExecutionStartStepSetMatchesRegistry checks that the migration backfill
-// covers every current external-effect step. CD-0242 D14 retains no historical
-// definitions, so the frozen migration may also name retired steps.
-func TestExecutionStartStepSetMatchesRegistry(t *testing.T) {
-	t.Parallel()
-	var migrationSQL string
-	for _, migration := range migrations {
-		if migration.Version == 107 {
-			migrationSQL = migration.SQL
-		}
-	}
-	if migrationSQL == "" {
-		t.Fatal("migration 107 is missing")
-	}
-	const anchor = "'$.step_id') IN ("
-	start := strings.Index(migrationSQL, anchor)
-	if start < 0 {
-		t.Fatal("migration 107 carries no step-id IN list")
-	}
-	start += len(anchor)
-	end := strings.Index(migrationSQL[start:], ")")
-	if end < 0 {
-		t.Fatal("migration 107 step-id IN list is unterminated")
-	}
-	migrationSet := map[string]bool{}
-	for _, raw := range strings.Split(migrationSQL[start:start+end], ",") {
-		id := strings.TrimSpace(strings.Trim(strings.TrimSpace(raw), "'"))
-		if id != "" {
-			migrationSet[id] = true
-		}
-	}
-	registrySet := map[string]bool{}
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		for _, step := range definition.StepGraph.Steps {
-			if step.Kind == WorkflowStepExternalEffect {
-				registrySet[step.ID] = true
-			}
-		}
-	}
-	for id := range registrySet {
-		if !migrationSet[id] {
-			t.Errorf("registered external-effect step %q is missing from the migration set", id)
 		}
 	}
 }

@@ -12,7 +12,7 @@ import (
 func q7ExplicitCorpus(t *testing.T) historicalFactCorpus {
 	t.Helper()
 	const work = "q7-corpus"
-	base := seedWorkflowReturnRouteFixture(t, work, "workflow.research", "findings")
+	base := seedWorkflowReturnRouteFixture(t, work, WorkflowStepPlanResearch, "investigate")
 	actor, err := WorkflowActorRef(base.owner)
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func q7ExplicitCorpus(t *testing.T) historicalFactCorpus {
 	c.parents = func(t *testing.T, s *Store, guard string) {
 		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{
 			"work_items":         {"lifecycle": "'needed'", "transition_from": "NULL", "transition_reason": "''", "transition_actor": "''", "transition_evidence_refs": "'[]'", "transition_seq": "0", "transition_version": "1"},
-			"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "result_disposition": "''", "latest_non_dispatch_start_seq": "0", "unhealthy_verdict_seq": "0"}, "workflow_contracts": {"definition_version": "26", "law_change": "NULL"},
+			"workflow_instances": {"outside_repair_state": "NULL", "definition_ref": "'workflow.research'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "current_step": "'findings'", "result_disposition": "''", "latest_non_dispatch_start_seq": "0", "unhealthy_verdict_seq": "0"}, "workflow_contracts": {"definition_ref": "'workflow.research'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "law_change": "NULL"},
 		}, guard)
 		corpusWorkParents(t, s, guard, "q7-corpus-related", "q7-corpus-next", "q7-start-only")
 		if guard != "fold_guard" {
@@ -138,7 +138,7 @@ func q7ExplicitCorpus(t *testing.T) historicalFactCorpus {
 			if err := advanceWorkflowVersion(ctx, tx, e, completed.WorkflowVersionFields); err != nil {
 				return err
 			}
-			return persistWorkflowCompletionExitTx(ctx, tx, e, completed, RegisteredDefinition{}, false, "")
+			return persistWorkflowCompletionExitTx(ctx, tx, e, completed)
 		case "work.transitioned":
 			return updateWorkLifecycle(ctx, tx, e, p.To, p.Expected, p.Resulting)
 		case "work.reopened", "work.reopened_from_superseded":
@@ -175,15 +175,22 @@ func assertQ7Corpus150(t *testing.T) {
 	t.Helper()
 	c := q7ExplicitCorpus(t)
 	live := c.current(t)
+	plan, err := readWorkflowPlanTx(t.Context(), live.db, "q7-corpus")
+	if err != nil || plan == nil || plan.Type != WorkflowStepPlanResearch || len(plan.Steps) != 3 || len(plan.Steps[0].Attempts) != 1 || len(plan.Steps[1].Attempts) != 0 {
+		t.Fatalf("current plan attempts: plan=%+v err=%v", plan, err)
+	}
 	old := c.prefix(t, 149)
 	queries := []string{
 		`SELECT json_array(id,transition_from,transition_reason,transition_actor,transition_evidence_refs,transition_seq,transition_version) FROM work_items ORDER BY id`,
 		`SELECT json_array(id,reason,record_version) FROM relations ORDER BY id`,
-		`SELECT json_array(work_id,action_id,actor,step_id,contract_version,record_version) FROM workflow_phase_exits ORDER BY work_id,action_id`,
 	}
 	want := workerFactsQueryRows(t, live, queries)
 	if err := Migrate(t.Context(), old.db); err != nil {
 		t.Fatal(err)
+	}
+	plan, err = readWorkflowPlanTx(t.Context(), old.db, "q7-corpus")
+	if err != nil || plan != nil {
+		t.Fatalf("migrated historical plan: plan=%+v err=%v", plan, err)
 	}
 	if got := workerFactsQueryRows(t, old, queries); !reflect.DeepEqual(got, want) {
 		for i := range queries {

@@ -17,22 +17,14 @@ func TestReadWorkPinUsesOneTransactionAndDeclaredStepActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pin.WorkID != "workpin-reader" || pin.Title == "" || pin.LinearIssueKey != "" || pin.ProjectID != "project" || pin.ProjectDisplayName != "Core" || pin.Version != version || pin.Step != "proposal" {
+	if pin.WorkID != "workpin-reader" || pin.Title == "" || pin.LinearIssueKey != "" || pin.ProjectID != "project" || pin.ProjectDisplayName != "Core" || pin.Version != version || pin.WorkflowType != string(WorkflowStepPlanChange) || pin.Step != "plan" {
 		t.Fatalf("pin=%+v, want work, title, project, no unconfirmed key, version, and step", pin)
 	}
 	if !strings.HasPrefix(pin.Watermark, "seq:") {
 		t.Fatalf("watermark=%q, want sequence watermark", pin.Watermark)
 	}
-	if len(pin.DrivingSessions) != 1 || pin.DrivingSessions[0].SessionRef != "session:continuity" || pin.DrivingSessions[0].LastActionID != "record_proposal" || pin.DrivingSessions[0].LastActedAt != "2026-08-07T12:00:00Z" {
+	if len(pin.DrivingSessions) != 1 || pin.DrivingSessions[0].SessionRef != "session:continuity" || pin.DrivingSessions[0].LastActionID != "workflow.actor_recorded" || pin.DrivingSessions[0].LastActedAt != "2026-08-11T00:00:00Z" {
 		t.Fatalf("driving sessions=%v, want only the coordinator session", pin.DrivingSessions)
-	}
-	registered, err := BuiltinWorkflowDefinitionForRef(pin.WorkflowType)
-	if err != nil {
-		t.Fatal(err)
-	}
-	step := workflowStep(registered.Definition, pin.Step)
-	if step == nil {
-		t.Fatalf("step %q is not registered", pin.Step)
 	}
 	gotActions := make([]string, 0, len(pin.NextValidIntents))
 	for _, intent := range pin.NextValidIntents {
@@ -41,13 +33,7 @@ func TestReadWorkPinUsesOneTransactionAndDeclaredStepActions(t *testing.T) {
 			t.Fatalf("intent=%+v, want workflow action at pin version", intent)
 		}
 	}
-	var wantActions []string
-	for _, action := range step.Actions {
-		// A declaration is not admission: no worker result exists at proposal.
-		if action != "accept_worker_result" {
-			wantActions = append(wantActions, action)
-		}
-	}
+	wantActions := append([]string{"insert_step", "pick_type"}, WorkflowStepPlanTemplateActions(WorkflowStepPlanChange, "plan")...)
 	if !reflect.DeepEqual(gotActions, wantActions) {
 		t.Fatalf("intent actions=%v, want %v", gotActions, wantActions)
 	}
@@ -56,7 +42,7 @@ func TestReadWorkPinUsesOneTransactionAndDeclaredStepActions(t *testing.T) {
 	var available bool
 	if err := s.Transact(context.Background(), func(tx *Transaction) error {
 		var err error
-		transactionPin, available, err = ReadMutationWorkPinTxForRegistry(context.Background(), tx, nil, "workpin-reader", nil)
+		transactionPin, available, err = ReadMutationWorkPinTx(context.Background(), tx, "workpin-reader", nil)
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -110,23 +96,7 @@ func TestReadWorkPinAllowsWorkWithoutPrimaryProject(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	actorRef, err := WorkflowActorRef(actor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	start := workflowEventWithActor("workpin-no-primary-start", WorkflowActionStarted, workID, actorRef, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"step_id": "proposal", "action_id": "record_proposal", "attempt_epoch": 1,
-		"accepted_inputs_digest": "sha256:workpin-no-primary", "idempotency_identity": "workpin-no-primary:start",
-		"actor_ref": actorRef, "execution_model": "fixture-model",
-	})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		t.Fatal(err)
-	}
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
 
 	pin, err := ReadWorkPin(ctx, s, workID)
 	if err != nil {

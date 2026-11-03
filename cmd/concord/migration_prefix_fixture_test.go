@@ -42,7 +42,6 @@ func TestCLISeedMigrationPrefix(t *testing.T) {
  if err := s.db.QueryRow("SELECT count(*),max(version) FROM schema_migrations").Scan(&count,&top); err != nil { t.Fatal(err) }
  if count != target || top != target { t.Fatalf("incomplete prefix: count=%d top=%d",count,top) }
  if err := s.db.QueryRow("SELECT coalesce(max(version),0) FROM schema_migrations WHERE breaking=1").Scan(&floor); err != nil { t.Fatal(err) }
- if err := s.checkBinaryCompatibility(ctx); err != nil { t.Fatal(err) }
  t.Logf("production migration prefix=%d floor=%d",top,floor)
 }
 `

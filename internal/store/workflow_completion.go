@@ -32,12 +32,12 @@ func workflowCompletionRequired() error {
 	return newFailure(KindWorkflowCompletionRequired, "append_event", "workflow.completed is reserved for the ordered completion gate", false, "use the ordered workflow completion entry point")
 }
 
-// CompleteWorkflowTxWithRegistry is the caller-owned transaction seam.  No
+// CompleteWorkflowTx is the caller-owned transaction seam. No
 // completion or notice is appended until every earlier clause has passed. The
 // caller passes the write scope its region owns; the completion enters and
 // releases one depth level on it, so a boundary-owned guard survives until the
 // boundary's own level closes.
-func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, _ DefinitionRegistry, event Event, scope *writeScope) error {
+func CompleteWorkflowTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
 	if tx == nil {
 		return newFailure(KindUnavailable, "complete_workflow", "transaction is not open", false, "open a mutation transaction")
 	}
@@ -206,10 +206,6 @@ func workflowCompletionVersion(ctx context.Context, tx *sql.Tx, workID string, e
 	return nil
 }
 
-func workflowCompletionContract(ctx context.Context, tx queryer, _ DefinitionRegistry, workID string) (workflowCompletionContractData, error) {
-	return workflowCompletionContractRows(ctx, tx, workID)
-}
-
 func validateWorkflowCompletionContractPredicates(contract workflowCompletionContractData) error {
 	for _, item := range contract.Predicates {
 		approved, decodeErr := DecodeWorkflowPredicate([]byte(item.OutcomePayload))
@@ -301,12 +297,6 @@ func workflowStoredDecisionDomains(stored sql.NullString) ([]string, bool, error
 		return nil, false, err
 	}
 	return domains, true, nil
-}
-
-// verifyWorkflowDefinitionPinForFold resolves the current family definition;
-// recorded instance versions and digests never select another definition.
-func verifyWorkflowDefinitionPinForFold(registry DefinitionRegistry, pin WorkflowDefinitionPin) (RegisteredDefinition, error) {
-	return resolveCurrentWorkflowDefinition(registry, pin.Ref)
 }
 
 // missingPredicateVerdictsForContract lists the unverdicted approved
@@ -558,59 +548,6 @@ func latestWorkflowVerdictsBefore(ctx context.Context, q queryer, workID string,
 		result = append(result, verdict)
 	}
 	return result, nil
-}
-
-type workflowContractDefinitionPin struct {
-	definitionRef    string
-	definitionDigest string
-}
-
-type workflowContractDefinitionPinsData map[int64]workflowContractDefinitionPin
-
-func workflowContractDefinitionPins(ctx context.Context, q queryer, workID string, currentVersion int64) (workflowContractDefinitionPinsData, error) {
-	rows, err := q.QueryContext(ctx, `SELECT contract_version,definition_ref,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version<=? ORDER BY contract_version`, workID, currentVersion)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow contract definition pins", true, "retry once the database is readable", err)
-	}
-	pins := make(workflowContractDefinitionPinsData)
-	for rows.Next() {
-		var version int64
-		var pin workflowContractDefinitionPin
-		if err := rows.Scan(&version, &pin.definitionRef, &pin.definitionDigest); err != nil {
-			rows.Close()
-			return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot scan workflow contract definition pins", true, "retry once the database is readable", err)
-		}
-		pins[version] = pin
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot enumerate workflow contract definition pins", true, "retry once the database is readable", err)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot close workflow contract definition pins", true, "retry once the database is readable", err)
-	}
-	return pins, nil
-}
-
-func workflowContractDefinitionPinsCompatible(pins workflowContractDefinitionPinsData, from, to int64) bool {
-	if from <= 0 || to < from {
-		return false
-	}
-	var expectedRef, expectedDigest string
-	seen := from
-	for version := from; version <= to; version++ {
-		pin, ok := pins[version]
-		if !ok || version != seen || pin.definitionRef == "" || !validDigest(pin.definitionDigest) {
-			return false
-		}
-		if expectedRef == "" {
-			expectedRef, expectedDigest = pin.definitionRef, pin.definitionDigest
-		} else if pin.definitionRef != expectedRef || pin.definitionDigest != expectedDigest {
-			return false
-		}
-		seen++
-	}
-	return seen == to+1
 }
 
 type workflowContractPredicateHistoryData map[int64]map[string]WorkflowReadPredicate

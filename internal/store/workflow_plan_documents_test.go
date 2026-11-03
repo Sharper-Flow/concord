@@ -41,7 +41,7 @@ func TestWorkflowPlanDocumentsMigrationFlow(t *testing.T) {
 				var result WorkflowActionExecutionResult
 				err := s.Transact(ctx, func(tx *Transaction) error {
 					var err error
-					result, err = ApplyWorkflowActionTx(ctx, tx, nil, r)
+					result, err = ApplyWorkflowActionTx(ctx, tx, r)
 					return err
 				})
 				if err == nil {

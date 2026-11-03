@@ -14,16 +14,12 @@ type workflowHealthVerdict struct {
 type workflowHealthBasis struct {
 	version int64
 	history workflowContractPredicateHistoryData
-	pins    workflowContractDefinitionPinsData
 }
 
 func loadWorkflowHealthBasis(ctx context.Context, q queryer, workID string, version int64) (workflowHealthBasis, error) {
 	basis := workflowHealthBasis{version: version}
 	var err error
 	if basis.history, err = workflowContractPredicateHistory(ctx, q, workID, version); err != nil {
-		return basis, err
-	}
-	if basis.pins, err = workflowContractDefinitionPins(ctx, q, workID, version); err != nil {
 		return basis, err
 	}
 	return basis, nil
@@ -40,7 +36,7 @@ func (basis workflowHealthBasis) healthySequence(candidates []workflowHealthVerd
 		if _, active := predicates[v.PredicateID]; !active || v.ContractVersion <= 0 || v.ContractVersion > basis.version {
 			continue
 		}
-		if v.ContractVersion < basis.version && (!workflowPredicateHistoryCompatible(basis.history, v.ContractVersion, basis.version, v.PredicateID, v) || !workflowContractDefinitionPinsCompatible(basis.pins, v.ContractVersion, basis.version)) {
+		if v.ContractVersion < basis.version && !workflowPredicateHistoryCompatible(basis.history, v.ContractVersion, basis.version, v.PredicateID, v) {
 			continue
 		}
 		if prior, exists := latest[v.PredicateID]; !exists || candidate.seq > prior.seq {

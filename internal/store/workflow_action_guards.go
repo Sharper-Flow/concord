@@ -9,64 +9,8 @@ import (
 	"time"
 )
 
-// workflowActionGuardPhase names the point in the dispatcher's sequence where
-// a guard runs. Post-validation guards precede the operation guards, which run
-// after the durable operation is claimed.
-type workflowActionGuardPhase int
-
-const (
-	guardPhasePostValidation workflowActionGuardPhase = iota
-	guardPhaseOperation
-)
-
-// workflowActionGuardContext carries one action's execution state through the
-// guard phases.
 type workflowActionGuardContext struct {
-	ctx           context.Context
-	tx            *sql.Tx
-	request       WorkflowActionExecutionRequest
-	entry         RegisteredDefinition
-	currentStep   string
-	instanceState string
-	// registry is the authoritative definition source the dispatch verified
-	// the entry through: nil selects the builtin registry.
-	registry DefinitionRegistry
-
-	// admissionState and admissionDecision carry the fold's one admission
-	// derivation: the tx-scoped loader's folded state and workflowAdmit's
-	// decision over it. Guards consume them instead of re-deriving the
-	// conditions per site.
-	admissionState    *WorkflowAdmissionState
-	admissionDecision *WorkflowAdmissionDecision
-	actorRef          string
-	eventActor        string
-	actorRecordPrefix *workflowActorRecordPrefix
-}
-
-type workflowActionGuardFunc func(*workflowActionGuardContext) error
-
-type workflowActionGuard struct {
-	phase workflowActionGuardPhase
-	run   workflowActionGuardFunc
-}
-
-// workflowActionGuards declares every action-specific guard and the phase it
-// runs in. An action acquires a guard only by appearing here; the dispatcher
-// consults this table at each phase point in its sequence.
-var workflowActionGuards = map[string]workflowActionGuard{
-	"link_successor":         {guardPhasePostValidation, guardForwardLinkOnly},
-	"cross_context_boundary": {guardPhaseOperation, guardNoRestartDispatch},
-	"record_delivery":        {guardPhaseOperation, guardDeliveryAdmission},
-}
-
-// runWorkflowActionGuard runs the request's guard when one is declared for
-// this phase, and does nothing otherwise.
-func runWorkflowActionGuard(g *workflowActionGuardContext, phase workflowActionGuardPhase) error {
-	guard, ok := workflowActionGuards[g.request.ActionID]
-	if !ok || guard.phase != phase {
-		return nil
-	}
-	return guard.run(g)
+	request WorkflowActionExecutionRequest
 }
 
 // workflowContractAddsLaw reports whether the active contract itself declares
@@ -112,92 +56,42 @@ func workflowEvidenceReferenceBound(ctx context.Context, q queryer, workID, refe
 	return count != 0, nil
 }
 
-func stepDeclaresAction(definition WorkflowDefinition, stepID, actionID string) bool {
-	step := workflowStep(definition, stepID)
-	if step == nil {
-		return false
-	}
-	for _, declared := range step.Actions {
-		if declared == actionID {
-			return true
-		}
-	}
-	return false
-}
-
-func workflowEvidenceBindingStep(definition WorkflowDefinition, currentStep string) string {
-	if stepDeclaresAction(definition, currentStep, "bind_evidence") {
-		return currentStep
-	}
-	for _, step := range definition.StepGraph.Steps {
-		if stepDeclaresAction(definition, step.ID, "bind_evidence") {
-			return step.ID
-		}
-	}
-	return ""
-}
-
-func workflowStepFollows(definition WorkflowDefinition, earlierStep, currentStep string) bool {
-	seen := map[string]bool{}
-	for step := earlierStep; step != "" && !seen[step]; step = workflowNextStep(definition, step) {
-		seen[step] = true
-		if step != earlierStep && step == currentStep {
-			return true
-		}
-	}
-	return false
-}
-
-func workflowEvidenceBindingAvailable(definition WorkflowDefinition, currentStep string) bool {
-	if stepDeclaresAction(definition, currentStep, "bind_evidence") {
-		return true
-	}
-	for _, step := range definition.StepGraph.Steps {
-		if stepDeclaresAction(definition, step.ID, "bind_evidence") && workflowStepFollows(definition, step.ID, currentStep) {
-			return true
-		}
-	}
-	return false
-}
-
-func guardEvidenceBindingMembership(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, payload json.RawMessage, subject string) error {
-	fields, err := workflowActionObject(payload)
-	if err != nil {
-		return err
-	}
-	kind := workflowFieldStringDefault(fields, "evidence_kind", "verification")
-	reference := workflowFieldStringDefault(fields, "immutable_subject_ref", workflowFieldStringDefault(fields, "evidence_ref", ""))
-	required, mandates, obligations, err := workflowEvidenceRequirementInputs(ctx, q, workID)
-	if err != nil {
-		return err
-	}
-	matched := false
-	for _, requirement := range workflowEvidenceRequirementDefinitions(required, mandates, obligations) {
-		if (requirement.Kind == "" || requirement.Kind == kind) && (requirement.Reference == "" || requirement.Reference == reference) {
-			matched = true
-		}
-	}
-	version, err := activeWorkflowContractVersion(ctx, q, workID, subject)
-	if err != nil {
-		return err
-	}
-	predicates, err := readWorkflowContractPredicates(ctx, q, workID, version)
-	if err != nil {
-		return err
-	}
-	for _, predicate := range predicates {
-		approved, decodeErr := DecodeWorkflowPredicate([]byte(predicate.OutcomePayload))
-		if decodeErr != nil || string(approved.Kind) != predicate.OutcomeKind {
-			return newFailure(KindInvariantViolation, subject, "approved outcome predicate is malformed or mismatched", false, "reread_entities")
-		}
-		if kind == string(EvidenceVerification) && approved.Kind == PredicateCheck {
-			matched = true
-		}
-	}
-	if matched {
+func guardPlanMandate(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, step string, action WorkflowActionDefinition) error {
+	if action.ID == "bind_evidence" {
 		return nil
 	}
-	return newFailure(KindIllegalLifecycleTransition, subject, "evidence kind or obligation is not part of the active contract or definition", false, "bind evidence required by the active contract or definition")
+	terminal := action.ID == "record_review" || action.ID == "record_verdict" || action.ID == "confirm_premise" || action.ID == "complete"
+	if !terminal && (action.ExecutionMode != ActionAdvance || !workflowPlanAllowsAction(plan, step, "bind_evidence")) {
+		return nil
+	}
+	mandates, version, err := workflowSpecMandate(ctx, q, workID, "workflow_action")
+	if err != nil {
+		return err
+	}
+	for _, lawID := range mandates {
+		bound, err := workflowEvidenceReferenceBound(ctx, q, workID, lawID, "workflow_action")
+		if err != nil {
+			return err
+		}
+		if bound {
+			continue
+		}
+		added, err := workflowContractAddsLaw(ctx, q, workID, version, lawID)
+		if err != nil {
+			return err
+		}
+		if added && action.ID == "record_review" {
+			continue
+		}
+		detail := fmt.Sprintf("spec mandate law %q is not bound", lawID)
+		recovery := "run bind_evidence on a frontier step before " + action.ID
+		if added {
+			detail = fmt.Sprintf("spec mandate law %q is one of the contract's own law additions; bind it only when the branch adds that id", lawID)
+			recovery += fmt.Sprintf(" only when the branch adds %q; otherwise use revise_intent with the complete contract", lawID)
+		}
+		return newFailure(KindMissingEvidence, "workflow_action", detail, false, recovery)
+	}
+	return nil
 }
 
 // guardForwardLinkOnly rejects nested or non-forward workflow composition.
@@ -222,22 +116,6 @@ func guardForwardLinkOnly(g *workflowActionGuardContext) error {
 			return newFailure(KindInvalidRelation, "workflow_action", "nested or non-forward workflow composition is forbidden", false, "use relation_data.kind=forward_link")
 		}
 	}
-	return nil
-}
-
-// guardRecordedActorTuple verifies the authenticated actor against the durable
-// workflow actor record, or retains the shared actor-recording draft when no
-// row exists. It applies to every action rather than to one action ID, so the
-// dispatcher calls it directly instead of through the per-action table, as it
-// does for guardOperatorPremiseActor. Any action the current step declares is
-// some session's possible first action, and the folds that call requireActor
-// refuse until the row exists.
-func guardRecordedActorTuple(g *workflowActionGuardContext) error {
-	prefix, err := workflowActorRecordPrefixTx(g.ctx, g.tx, g.request.Actor)
-	if err != nil {
-		return err
-	}
-	g.actorRecordPrefix = prefix
 	return nil
 }
 
@@ -291,28 +169,6 @@ func guardNoRestartDispatch(g *workflowActionGuardContext) error {
 	return nil
 }
 
-// guardDeliveryAdmission consumes the shared admission decision.
-func guardDeliveryAdmission(g *workflowActionGuardContext) error {
-	decision, err := g.foldedAdmissionDecision()
-	if err != nil {
-		return err
-	}
-	if !decision.Admitted {
-		return decision.Failure
-	}
-	return nil
-}
-
-// workflowRefineProofGateActive reports whether the refine-exit proof guard
-// governs record_delivery on this step. The guard is active only at the
-// refinement step of a definition declaring the refine-proof capability.
-func workflowRefineProofGateActive(definition WorkflowDefinition, currentStep string) bool {
-	if currentStep == "" || workflowRefinementStepID(definition) != currentStep {
-		return false
-	}
-	return workflowCapabilities(definition).has(WorkflowCapabilityRefineProof)
-}
-
 // workflowVerificationBindingsAfter lists the immutable subject refs bound as
 // verification evidence after afterSeq, the current refine epoch's start, in
 // binding order.
@@ -339,40 +195,6 @@ func workflowVerificationBindingsAfter(ctx context.Context, q queryer, workID st
 		return nil, wrapFailure(KindUnavailable, subject, "cannot enumerate the refine epoch's evidence bindings", true, "retry once the workflow evidence projection is readable", err)
 	}
 	return refs, nil
-}
-
-// foldedAdmissionState returns the fold's admission state, folding it on the
-// guard's transaction when the caller did not carry one. The dispatch fold
-// always folds before the guard phases run; the fallback keeps a directly
-// constructed guard context on the same single derivation.
-func (g *workflowActionGuardContext) foldedAdmissionState() (*WorkflowAdmissionState, error) {
-	if g.admissionState != nil {
-		return g.admissionState, nil
-	}
-	state, err := loadWorkflowAdmissionStateTx(g.ctx, g.tx, g.request.WorkID, g.entry.Definition, g.currentStep, "workflow_action")
-	if err != nil {
-		return nil, err
-	}
-	g.admissionState = &state
-	return &state, nil
-}
-
-func (g *workflowActionGuardContext) foldedAdmissionDecision() (*WorkflowAdmissionDecision, error) {
-	if g.admissionDecision != nil {
-		return g.admissionDecision, nil
-	}
-	state, err := g.foldedAdmissionState()
-	if err != nil {
-		return nil, err
-	}
-	decision := workflowAdmit(g.entry.Definition, *state, g.request.ActionID)
-	if decision.Admitted || decision.OffStep || decision.AdvanceHeld {
-		if err := validateWorkflowReviewRequest(g.ctx, g.tx, g.request.WorkID, g.request.ActionID, g.request.Payload); err != nil {
-			return nil, err
-		}
-	}
-	g.admissionDecision = &decision
-	return &decision, nil
 }
 
 // defaultedPayload returns the action payload with an empty payload
@@ -429,17 +251,6 @@ func normalizeWorkflowActionRequest(request *WorkflowActionExecutionRequest) err
 		return newFailure(KindInvalidOperation, "workflow_action", "request ID is required", false, "retry with the transport request ID")
 	}
 	return nil
-}
-
-// recordAtomicWorkflowOperationTx prepares the result and evidence authority
-// in the same transaction that applies the action's effects.
-func recordAtomicWorkflowOperationTx(ctx context.Context, tx *sql.Tx, entry RegisteredDefinition, request WorkflowActionExecutionRequest, currentStep string) (*WorkflowStep, []string, error) {
-	step := workflowStep(entry.Definition, currentStep)
-	if step == nil {
-		return nil, nil, newFailure(KindInvariantViolation, "workflow_action", "current workflow step is not registered", false, "reread_entities")
-	}
-	evidenceRefs, err := recordWorkflowOperationTx(ctx, tx, request, entry.Definition.Ref, entry.Digest, currentStep)
-	return step, evidenceRefs, err
 }
 
 func recordWorkflowOperationTx(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, workflowType, workflowDigest, currentStep string) ([]string, error) {
@@ -524,20 +335,6 @@ func assemblePlanWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, request
 	return events, nil
 }
 
-func workflowDefinitionRequiresDeliveryPayload(definition WorkflowDefinition) bool {
-	for _, action := range definition.ActionDefinitions {
-		if action.ID != "record_delivery" {
-			continue
-		}
-		for _, field := range action.Payload.Fields {
-			if field.Name == "delivery_artifact" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // Completion carries receipt references in its operation record. It neither
 // creates receipts nor reclassifies them under a missing required evidence kind.
 func extendCompletionEvidenceAuthorityTx(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest) error {
@@ -570,7 +367,7 @@ func extendCompletionEvidenceAuthorityTx(ctx context.Context, tx *sql.Tx, reques
 // applyCompleteWorkflowActionTx completes the workflow in this transaction:
 // the ordered completion gate runs and workflow.completed is appended here.
 // The caller's write scope guards the whole action region.
-func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *writeScope, _ DefinitionRegistry, request WorkflowActionExecutionRequest, actor string, payload json.RawMessage, prefixEvents []Event) (WorkflowActionExecutionResult, error) {
+func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *writeScope, request WorkflowActionExecutionRequest, actor string, payload json.RawMessage, prefixEvents []Event) (WorkflowActionExecutionResult, error) {
 	var result WorkflowActionExecutionResult
 	if scope == nil {
 		return result, newFailure(KindInvalidOperation, "complete_workflow", "write scope is required", false, "open the write scope with beginWrite")

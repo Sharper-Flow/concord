@@ -12,7 +12,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func initializeMutationPinWorkflow(t *testing.T, s *store.Store, workID string, definition store.WorkflowDefinition) {
+func initializeMutationPinWorkflow(t *testing.T, s *store.Store, workID string) {
 	t.Helper()
 	ctx := agentWorkflowSourceProof(t, context.Background(), s, workID)
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {

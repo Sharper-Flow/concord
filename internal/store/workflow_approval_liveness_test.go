@@ -1,123 +1,104 @@
 package store
 
-// TestCoordinatorConfirmationLiveness is the model/fold conformance witness for the
-// workflow's confirmation exits: the abstract admission model and the real
-// fold agree on every seeded route — engineering work folds the coordinator
-// authority and holds no human-question exit, correction stays a routine
-// admission route, and the acceptance fold stays total under a duplicated
-// active count.
-//
-// The comparisons run through the shared conformance machinery
-// (conformanceCheckpoint): a fold that disagrees with the model on any
-// compared dimension fails the comparison.
-
 import (
-	"context"
+	"encoding/json"
 	"testing"
 )
 
-func TestCoordinatorConfirmationLiveness(t *testing.T) {
-	t.Parallel()
-
-	t.Run("engineering folds no human-question exit beside its real confirm exit", func(t *testing.T) {
-		t.Parallel()
-		const workID = "approval-liveness-engineering"
-		s, _, definition, _ := seedApprovalItemAtAcceptance(t, workID, []string{})
-		// The model lifts engineering to the coordinator confirmation exit;
-		// the real fold must agree on every compared dimension.
-		conformanceCheckpoint(t, s, workID, definition, rAcceptanceModel(), "engineering at acceptance")
-		state := foldedApprovalAdmission(t, s, definition, workID)
-		decision := workflowAdmit(definition, state, "confirm_premise")
-		if !decision.Admitted {
-			t.Fatalf("engineering confirm_premise is no exit at all: %v", decision.Failure)
-		}
-	})
-
-	t.Run("ordinary records remain subject-specific off-step", func(t *testing.T) {
-		t.Parallel()
-		available := WorkflowAdmissionState{Step: "delivery", CurrentRecords: map[string]bool{"record_review": true}}
-		for name, definition := range map[string]WorkflowDefinition{"implementation": mustBuiltinDefinition(t, "workflow.implementation").Definition} {
-			decision := workflowAdmit(definition, available, "record_review")
-			if !decision.Admitted {
-				t.Fatalf("%s current-record write refused: %v", name, decision.Failure)
-			}
-			unavailable := workflowAdmit(definition, WorkflowAdmissionState{Step: "delivery"}, "record_review")
-			var failure *Failure
-			if unavailable.Admitted || !failureAs(unavailable.Failure, &failure) {
-				t.Fatalf("%s missing record folded %v, want the typed availability refusal", name, unavailable.Failure)
-			}
-		}
-	})
-
-	t.Run("a revised contract keeps the coordinator exit and its preserved proof", func(t *testing.T) {
-		t.Parallel()
-		const workID = "approval-liveness-revision"
-		s, registry, definition, owner := seedApprovalItemAtAcceptance(t, workID, []string{})
-		conformanceCheckpoint(t, s, workID, definition, rAcceptanceModel(), "before the revision")
-		// The revision changes no criterion, so the judged artifact stays
-		// current (CD-0242 D7).
-		rReviseContract(t, s, workID, ownerRefForTest(t, owner), []string{})
-		conformanceCheckpoint(t, s, workID, definition, rAcceptanceModel(), "successor after the revision")
-		// The judged artifact stays current through the revision, so the
-		// coordinator confirms the successor with no repeated production
-		// (CD-0242 D7).
-		if err := runCoordinatorActionTx(t, s, registry, workID, "confirm_premise", owner, `{}`); err != nil {
-			t.Fatalf("the successor's confirmation: %v", err)
-		}
-		// The confirmed successor reaches its terminal on the preserved proof.
-		if err := runCoordinatorActionTx(t, s, registry, workID, "complete", owner, `{"impact_verdict":"non-breaking"}`); err != nil {
-			t.Fatalf("the confirmed successor's completion: %v", err)
-		}
-		if lifecycle, instanceState := approvalWorkAndInstanceState(t, s, workID); lifecycle != "completed" || instanceState != "completed" {
-			t.Fatalf("the confirmed successor ended lifecycle %q instance %q, want completed", lifecycle, instanceState)
-		}
-		assertNoFoldGuardRows(t, s)
-	})
-
-	t.Run("continuity projects no open decision at either level", func(t *testing.T) {
-		t.Parallel()
-		const engineeringID = "approval-continuity-engineering"
-		s, registry, _, _ := seedApprovalItemAtAcceptance(t, engineeringID, []string{})
-		// The continuity snapshot projects neither a question nor a
-		// withholding at the top level or on the seated work pin.
-		engineeringSnapshot := approvalContinuitySnapshot(t, s, registry, engineeringID)
-		if engineeringSnapshot.WorkPin == nil {
-			t.Fatal("continuity omitted the work pin")
-		}
-		missingRegistry := NewWorkflowDefinitionRegistry()
-		if err := approvalContinuityProjectionError(t, s, missingRegistry, engineeringID); err == nil {
-			t.Fatal("the continuity projection accepted a registry missing the pinned definition")
-		}
-	})
-
-	t.Run("the absent historical fact keeps its carried pin resolvable", func(t *testing.T) {
-		t.Parallel()
-		const workID = "approval-liveness-absent-fact"
-		s, registry, _ := seedApprovalAbsentFactAtAcceptance(t, workID)
-		// The carry forward kept the historical NULL-fact contract
-		// authoritative. The caller registry resolves the actual carried
-		// registered definition and digest, never a freshly made definition
-		// shape.
-		var carriedRef, carriedDigest string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&carriedRef, &carriedDigest); err != nil {
-			t.Fatal(err)
-		}
-		definitionEntry, ok := registry.Current(carriedRef)
-		if !ok || definitionEntry.Digest != carriedDigest {
-			t.Fatalf("the carried pin %s %s does not resolve in the caller registry", carriedRef, carriedDigest)
-		}
-	})
-
+func TestWorkflowPlanRevisedContractKeepsConfirmationRoute(t *testing.T) {
+	const workID = "plan-confirmation-revision"
+	f := rAcceptance(t, workID, []string{}, true)
+	before, err := loadWorkflowReviewState(t.Context(), f.store.db, workID)
+	if err != nil || before.Accepted == nil || before.Candidate == nil {
+		t.Fatalf("initial Review=%+v err=%v", before, err)
+	}
+	rReviseContract(t, f.store, workID, mustActorRef(t, f.owner), []string{})
+	after, err := loadWorkflowReviewState(t.Context(), f.store.db, workID)
+	if err != nil || after.Accepted == nil || after.Candidate == nil || *after.Candidate != *before.Candidate || after.Accepted.ReportDigest != before.Accepted.ReportDigest {
+		t.Fatalf("unchanged candidate or Review was lost: %+v err=%v", after, err)
+	}
+	missing, err := workflowMissingCriterionAssociations(t.Context(), f.store.db, workID)
+	if err != nil || len(missing) != 0 {
+		t.Fatalf("unchanged criterion proof after revision: missing=%v err=%v", missing, err)
+	}
+	if err := approvalPlanAction(t, f, "confirm_premise", json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("confirm revised contract: %v", err)
+	}
+	if actor, ok := approvalPremiseConfirmationRow(t, f.store, workID, 2); !ok || actor != mustActorRef(t, f.owner) {
+		t.Fatalf("revised contract confirmation actor=%q present=%v", actor, ok)
+	}
+	completeWorkflowPlanFixture(t, f.store, workID)
+	if err := approvalPlanAction(t, f, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`)); err != nil {
+		t.Fatalf("complete revised contract: %v", err)
+	}
 }
 
-// approvalContinuitySnapshot seats one continuity snapshot through the
-// registry-threaded continuity core; the nil registry rides the builtin
-// convenience and its refusal.
-func approvalContinuitySnapshot(t *testing.T, s *Store, registry DefinitionRegistry, workID string) ContinuitySnapshot {
-	t.Helper()
-	snapshot, err := readWorkflowContinuityForRegistry(context.Background(), s, ContinuityRequest{Work: workID}, registry)
-	if err != nil {
-		t.Fatalf("the continuity snapshot refused: %v", err)
+func TestWorkflowPlanConfirmationRequiresDeclaredApprovalEvidence(t *testing.T) {
+	const workID = "plan-confirmation-approval-evidence"
+	f := qCurrentAcceptance(t, workID, "approval")
+	version, events := readWorkVersion(t, f.store, workID), approvalEventCount(t, f.store, workID)
+	if approvalKindEvidenceCount(t, f.store, workID) != 0 {
+		t.Fatal("fixture unexpectedly bound approval evidence")
 	}
-	return snapshot
+	planAdmissionFailure(t, approvalPlanAction(t, f, "confirm_premise", json.RawMessage(`{}`)), KindMissingEvidence)
+	assertApprovalRefusalUnchanged(t, f, version, events)
+
+	// This isolated producer is synthetic; it proves the binding's exact
+	// producer tuple, not an operator approval outside this fixture.
+	const ref, producer, run, watermark = "approval:fixture", "principal:approver", "approval-producer", "request:approval"
+	seedWorkflowAuthority(t, f.store, run, workID, producer, watermark, []string{ref})
+	payload := mustJSONValue(map[string]any{"evidence_kind": "approval", "immutable_subject_ref": ref, "producer_id": producer, "producer_run_ref": run, "producer_watermark": watermark})
+	if err := approvalPlanAction(t, f, "bind_evidence", payload); err != nil {
+		t.Fatalf("bind declared approval evidence: %v", err)
+	}
+	if approvalKindEvidenceCount(t, f.store, workID) != 1 {
+		t.Fatal("explicit approval evidence was not recorded")
+	}
+	if err := approvalPlanAction(t, f, "confirm_premise", json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("confirmation after declared evidence: %v", err)
+	}
+}
+
+func TestWorkflowPlanConfirmationRefusesOperatorActor(t *testing.T) {
+	const workID = "plan-confirmation-operator"
+	f := qCurrentAcceptance(t, workID)
+	version, events := readWorkVersion(t, f.store, workID), approvalEventCount(t, f.store, workID)
+	request := planAdmissionRequest(workID, "confirm_premise", version, f.operator, json.RawMessage(`{}`))
+	planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindInvalidOperation)
+	assertApprovalRefusalUnchanged(t, f, version, events)
+	if err := approvalPlanAction(t, f, "confirm_premise", json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("authenticated coordinator confirmation: %v", err)
+	}
+}
+
+func TestWorkflowPlanConfirmationRefusesStaleReview(t *testing.T) {
+	const workID = "plan-confirmation-stale-review"
+	f := qCurrentAcceptance(t, workID)
+	successor := pContractSuccessor(t, f.store, workID, "deliver the revised criterion")
+	predicates := successor["outcome_predicates"].([]any)
+	predicate := predicates[0].(map[string]any)
+	predicate["outcome_payload"].(map[string]any)["check_ref"] = "check:changed-after-review"
+	if err := reviseContractRecord(t, f.store, workID, f.owner, successor, readWorkVersion(t, f.store, workID)); err != nil {
+		t.Fatalf("revise criterion: %v", err)
+	}
+	state, err := loadWorkflowReviewState(t.Context(), f.store.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planAdmissionFailure(t, workflowAdmitReview(state), KindStaleRequiresReview)
+	version, events := readWorkVersion(t, f.store, workID), approvalEventCount(t, f.store, workID)
+	planAdmissionFailure(t, approvalPlanAction(t, f, "confirm_premise", json.RawMessage(`{}`)), KindMissingEvidence)
+	assertApprovalRefusalUnchanged(t, f, version, events)
+}
+
+func TestWorkflowPlanConfirmationContinuity(t *testing.T) {
+	const workID = "plan-confirmation-continuity"
+	f := qCurrentAcceptance(t, workID)
+	snapshot, err := ReadWorkflowContinuity(t.Context(), f.store, ContinuityRequest{Work: workID})
+	if err != nil || snapshot.WorkPin == nil {
+		t.Fatalf("continuity pin=%+v err=%v", snapshot.WorkPin, err)
+	}
+	if snapshot.WorkPin.WorkflowType != string(WorkflowStepPlanChange) || snapshot.WorkPin.Step != "review" || !workPinContainsAction(snapshot.WorkPin.NextValidIntents, "confirm_premise") {
+		t.Fatalf("continuity pin=%+v", snapshot.WorkPin)
+	}
 }

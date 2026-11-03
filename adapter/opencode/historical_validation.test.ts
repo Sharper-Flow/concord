@@ -9,8 +9,8 @@ function repro(name: string, message: string): never {
 }
 
 test("historical Unicode character bounds", () => {
-  if (!validateGeneratedPayload("proposal_text", "plain")) throw new Error("fixture schema unavailable")
-  if (!validateGeneratedPayload("proposal_text", "😀".repeat(512))) repro("historical Unicode character bounds", "UTF-16 units replaced Unicode character bounds")
+  if (!validateGeneratedPayload("workflow_premise", "plain")) throw new Error("fixture schema unavailable")
+  if (!validateGeneratedPayload("workflow_premise", "😀".repeat(4096))) repro("historical Unicode character bounds", "UTF-16 units replaced Unicode character bounds")
 })
 
 test("historical date-time calendar validation", () => {
@@ -23,7 +23,7 @@ test("historical date-time calendar validation", () => {
 })
 
 test("historical reference sibling validation", () => {
-  Object.assign(payloadSchemas, { historical_ref_probe: { $ref: "#/$defs/proposal_text", maxLength: 2 } })
+  Object.assign(payloadSchemas, { historical_ref_probe: { $ref: "#/$defs/workflow_premise", maxLength: 2 } })
   try {
     if (!validateGeneratedPayload("historical_ref_probe", "ab")) throw new Error("fixture schema unavailable")
     if (validateGeneratedPayload("historical_ref_probe", "abc")) repro("historical reference sibling validation", "reference discarded its sibling constraint")

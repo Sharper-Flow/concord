@@ -105,16 +105,24 @@ func lawChangeConstructorFields(t *testing.T, s *Store, version int, laws, domai
 	return lawChangeFields(t, values)
 }
 
-func constructLawChangeContract(t *testing.T, s *Store, definition WorkflowDefinition, registry DefinitionRegistry, workID, ownerRef string, fields map[string]json.RawMessage) {
+func constructLawChangeContract(t *testing.T, s *Store, planType WorkflowStepPlanType, workID, ownerRef string, fields map[string]json.RawMessage) {
 	t.Helper()
+	plan, err := readWorkflowPlanTx(t.Context(), s.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan == nil {
+		seedWorkflowPlanFrontier(t, s, workID, planType, firstCallApprovalFrontier(t, planType))
+	} else if plan.Type != planType {
+		t.Fatalf("workflow plan type = %s, want %s", plan.Type, planType)
+	}
 	expected := readWorkVersion(t, s, workID)
-	var err error
 	if workflowFieldInt(fields, "contract_version", 1) > 1 {
 		contract := make(map[string]any, len(fields))
 		for name, value := range fields {
 			contract[name] = value
 		}
-		err = reviseContractRecord(t, s, workID, workflowActorForRef(t, s, ownerRef), contract, expected, registry)
+		err = reviseContractRecord(t, s, workID, workflowActorForRef(t, s, ownerRef), contract, expected, nil)
 	} else {
 		ctx, proofErr := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
 		if proofErr != nil {
@@ -124,10 +132,10 @@ func constructLawChangeContract(t *testing.T, s *Store, definition WorkflowDefin
 		eventID := fmt.Sprintf("law-change-contract-%s-%d", workID, expected)
 		r := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: expected, OperationID: eventID, ActionID: "approve_contract", Now: time.Unix(12, 0).UTC()}
 		var events []Event
-		events, err = workflowApproveContractEvents(ctx, tx, WorkflowStepPlanChange, r, ownerRef, fields, eventID, expected)
+		events, err = workflowApproveContractEvents(ctx, tx, planType, r, ownerRef, fields, eventID, expected)
 		_ = tx.Rollback()
 		if err == nil {
-			err = tryAppendWorkflowEventsWithRegistry(s, registry, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}})
+			err = applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected}})
 		}
 	}
 	if err != nil {

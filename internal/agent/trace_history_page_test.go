@@ -85,11 +85,40 @@ func TestTraceHistoryPageAcceptsStoredProducerReferences(t *testing.T) {
 
 // A history page for work with a workflow instance carries the published
 // workflow_read subset and no projection field the contract does not declare.
+func TestWorkflowPlanRead(t *testing.T) {
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
+	seedAgentWorkflowAt(t, s, grant, store.WorkflowStepPlanFix, "implement")
+	scope, _, err := s.ScopeVersion(t.Context(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: json.RawMessage(`{"work_id":"work-1"}`)}, mutationEnvelope(grant, scope))
+	if response.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("history: %+v", response.Error)
+	}
+	var page struct {
+		Workflow *struct {
+			Plan *store.WorkflowStepPlan `json:"plan"`
+		} `json:"workflow"`
+	}
+	if err := json.Unmarshal(response.Result, &page); err != nil || page.Workflow == nil || page.Workflow.Plan == nil {
+		t.Fatalf("workflow plan missing: %s, %v", response.Result, err)
+	}
+	frontier := store.WorkflowStepPlanFrontier(*page.Workflow.Plan)
+	if page.Workflow.Plan.Type != store.WorkflowStepPlanFix || len(frontier) != 1 || frontier[0].ID != "implement" || !frontier[0].Reviewed {
+		t.Fatalf("workflow plan frontier = %+v, plan=%+v", frontier, page.Workflow.Plan)
+	}
+}
+
 func TestTraceHistoryPageCarriesPublishedWorkflowRead(t *testing.T) {
 	t.Parallel()
+	plan, err := store.WorkflowStepPlanTemplate(store.WorkflowStepPlanChange)
+	if err != nil {
+		t.Fatal(err)
+	}
 	workflow := store.WorkflowReadProjection{
 		WorkID: "work-1", State: "completed", CurrentStep: "acceptance",
-		Definition: store.WorkflowReadDefinition{Ref: "workflow.task", Digest: "sha256:" + strings.Repeat("a", 64)},
+		Plan: &plan,
 		DeliveryAssertion: &store.WorkflowReadDeliveryAssertion{
 			EventID: "assertion-1", Seq: 7,
 			Artifact: "file:internal/store/impl.go", State: "asserted",

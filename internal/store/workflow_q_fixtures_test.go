@@ -25,11 +25,7 @@ func qBuildAcceptance(t *testing.T, workID, artifact string, associate bool, ext
 
 func qBuildAcceptancePredicates(t *testing.T, workID, artifact string, associate bool, extraRequiredKinds []string, predicates ...map[string]any) acceptanceRecoveryFixture {
 	t.Helper()
-	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
-	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, "execution", append([]string{"verification"}, extraRequiredKinds...), []string{"verification", "review", "artifact"}, predicates...)
+	route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", append([]string{"verification"}, extraRequiredKinds...), []string{"verification", "review", "artifact"}, predicates...)
 	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
 	return qAssociateCurrentProof(t, f, artifact, associate)
 }
@@ -39,7 +35,7 @@ func qBuildAcceptancePredicates(t *testing.T, workID, artifact string, associate
 // clean candidate repository before capturing the command receipt.
 func qAssociateCurrentProof(t *testing.T, f workContextFixture, artifact string, associate bool) acceptanceRecoveryFixture {
 	t.Helper()
-	return qAssociateCurrentProofAt(t, f, "acceptance", artifact, associate)
+	return qAssociateCurrentProofAt(t, f, "review", artifact, associate)
 }
 
 // qAssociateCurrentProofAt associates the proof at the family's named
@@ -57,22 +53,12 @@ func qAssociateCurrentProofAt(t *testing.T, f workContextFixture, verdictStep, a
 	run := j.observeRun(t, "q-proof")
 	j.bindVerification(t, run)
 	qAcceptCriterionReview(t, f, run.OperationRef)
+	moveWorkflowPlanFixtureFrontier(t, f.store, workID, verdictStep)
 	if artifact != "" {
 		j.bindVerification(t, j.observeRun(t, "q-delivery"))
 		if err := j.action(t, "record_delivery", map[string]any{"delivery_artifact": artifact, "delivery_state": "asserted"}, f.owner); err != nil {
 			t.Fatalf("record candidate delivery: %v", err)
 		}
-	}
-	actor, err := WorkflowActorRef(f.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, err := f.store.EstablishKnowledgeSourceSetProof(t.Context(), workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := advanceWorkflowTestInstanceToStep(ctx, f.store, workID, verdictStep, actor); err != nil {
-		t.Fatal(err)
 	}
 	fixture := acceptanceRecoveryFixture{store: f.store, workID: workID, owner: f.owner, operator: f.operator, repo: repo, receipt: run.OperationRef}
 	if associate {
@@ -110,11 +96,7 @@ func qAcceptCriterionReview(t *testing.T, f workContextFixture, receipt string) 
 func TestQAssociateCurrentProofKeepsSeededContract(t *testing.T) {
 	t.Parallel()
 	const workID = "q-seeded-association"
-	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
-	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, "execution", []string{"verification"}, []string{"verification", "review", "artifact"})
+	route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", []string{"verification"}, []string{"verification", "review", "artifact"})
 	s := route.store
 	var before string
 	if err := s.db.QueryRow(`SELECT payload_digest FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowContractApproved).Scan(&before); err != nil {
@@ -146,10 +128,6 @@ func TestQAssociateCurrentProofKeepsSeededContract(t *testing.T) {
 // Contract-notice folds do not evaluate or complete a candidate.
 func qContractRevisionFixture(t *testing.T, workID string) (*Store, string) {
 	t.Helper()
-	s, owner, version := issue31ActorSetup(t, workID)
-	seedWorkflowLaw(t, s)
-	for _, action := range []string{"record_proposal", "record_discovery", "record_design", "approve_contract"} {
-		version = issue31WorkflowAction(t, s, workID, version, action, workID+":"+action, owner)
-	}
-	return s, mustActorRef(t, owner)
+	route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "plan", []string{}, []string{})
+	return route.store, mustActorRef(t, route.owner)
 }

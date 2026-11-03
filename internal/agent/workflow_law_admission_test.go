@@ -15,7 +15,8 @@ import (
 func TestReviseInitializesProductWorkflow(t *testing.T) {
 	ctx := t.Context()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define"})
-	if _, err := store.VerifyWorkflowInstanceDefinition(ctx, s, store.BuiltinWorkflowRegistry(), "work-1"); err == nil {
+	var instances int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_instances WHERE work_id='work-1'`).Scan(&instances); err != nil || instances != 0 {
 		t.Fatal("fixture must have no workflow instance")
 	}
 	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
@@ -27,7 +28,7 @@ func TestReviseInitializesProductWorkflow(t *testing.T) {
 	if err := os.Rename(filepath.Join(home.RepoPath, ".git"), filepath.Join(home.RepoPath, "unavailable-git")); err != nil {
 		t.Fatal(err)
 	}
-	input, err := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "kind": "task", "title": "Verified revised start", "value_statement": "Initialize from accepted Product law", "workflow_type_ref": "workflow.implementation", "reason": "Initialize the existing item", "idempotency_key": "revise-verified-start"})
+	input, err := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "kind": "task", "title": "Verified revised start", "value_statement": "Initialize from accepted Product law", "reason": "Initialize the existing item", "idempotency_key": "revise-verified-start"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,8 +36,8 @@ func TestReviseInitializesProductWorkflow(t *testing.T) {
 	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("revise initialization: %+v error=%v", response.Error, err)
 	}
-	if _, err := store.VerifyWorkflowInstanceDefinition(ctx, s, store.BuiltinWorkflowRegistry(), "work-1"); err != nil {
-		t.Fatalf("revise omitted workflow initialization: %v", err)
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_instances WHERE work_id='work-1' AND instance_state='intake' AND workflow_type IS NULL AND step_plan IS NULL`).Scan(&instances); err != nil || instances != 1 {
+		t.Fatalf("revise omitted workflow intake: count=%d err=%v", instances, err)
 	}
 }
 
@@ -61,7 +62,7 @@ func TestCaptureProductWorkflowReplaysWithoutKnowledge(t *testing.T) {
 	if err != nil || replayed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("exact capture replay re-probed unavailable knowledge: %+v error=%v", replayed, err)
 	}
-	reviseInput, err := json.Marshal(map[string]any{"work_id": id, "expected_version": 4, "kind": "task", "title": "Retained current pin", "value_statement": "Keep the existing workflow identity", "workflow_type_ref": "workflow.implementation", "reason": "Update the task without replacing its workflow identity", "idempotency_key": "revise-retained-start"})
+	reviseInput, err := json.Marshal(map[string]any{"work_id": id, "expected_version": workVersion(t, s, id), "kind": "task", "title": "Retained intake", "value_statement": "Keep the existing workflow", "reason": "Update the task", "idempotency_key": "revise-retained-start"})
 	if err != nil {
 		t.Fatal(err)
 	}

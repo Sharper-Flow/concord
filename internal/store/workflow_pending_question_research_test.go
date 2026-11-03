@@ -83,10 +83,8 @@ func TestApproveContractResearchBindingTakesEffectBeforeItsGate(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	version := int64(4)
-	for _, action := range []string{"record_proposal", "record_alignment"} {
-		version = issue31WorkflowAction(t, s, workID, version, action, "same-action-"+action, actor)
-	}
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
+	version := readWorkVersion(t, s, workID)
 	version, err = continuityAction(t, s, workID, version, "checkpoint_context", "same-action-checkpoint", map[string]any{
 		"active_unit":       "unit:implementation",
 		"hypothesis":        "hypothesis:one",
@@ -112,8 +110,8 @@ func TestApproveContractResearchBindingTakesEffectBeforeItsGate(t *testing.T) {
 		if failure.Detail != "contract approval requires a research pack revision for recorded pending questions" || !strings.Contains(failure.RecoveryAction, "add research_bindings to the approving action") {
 			t.Fatalf("planning exit did not name its missing requirement and admitted recovery: %+v", failure)
 		}
-		if readWorkVersion(t, s, workID) != version || readInstanceStep(t, s, workID) != "planning" {
-			t.Fatal("missing research advanced the planning exit")
+		if readWorkVersion(t, s, workID) != version || workflowPlanFixtureFrontier(t, s, workID) != "plan" {
+			t.Fatal("missing research changed the plan frontier or work version")
 		}
 	}
 	if err := applyPendingQuestionApproval(t, s, workID, version, "same-action-approval", actor, approval, []ResearchBindingDeclaration{{PackID: pack.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true}}); err != nil {
@@ -126,8 +124,8 @@ func TestApproveContractResearchBindingTakesEffectBeforeItsGate(t *testing.T) {
 	if consumers != 1 {
 		t.Fatalf("same-action research binding count=%d, want 1", consumers)
 	}
-	if readInstanceStep(t, s, workID) != "design" {
-		t.Fatal("the refusal's same-action research recovery did not admit the planning exit")
+	if workflowPlanFixtureFrontier(t, s, workID) != "plan" {
+		t.Fatal("contract approval changed the plan frontier")
 	}
 }
 
@@ -142,7 +140,7 @@ func applyPendingQuestionApproval(t *testing.T, s *Store, workID string, version
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, actionErr := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, actionErr := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:pending-question-research", IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,

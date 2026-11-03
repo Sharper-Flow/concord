@@ -1,10 +1,10 @@
 package store
 
 import (
-	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -28,97 +28,6 @@ func admissionReviewViewOf(state *WorkflowReviewState) admissionReviewView {
 	return view
 }
 
-type admissionConformanceView struct {
-	Step, Lifecycle, InstanceState                             string
-	RefinementWorkflow                                         bool
-	ActiveContracts                                            int64
-	LateCriterionAssociation, DesignStale                      bool
-	Review                                                     admissionReviewView
-	AcceptanceDeliverablesMissing                              bool
-	DeliveryStarted, DeliveryProofRequired, DeliveryProofReady bool
-	DeliveryFailure, DeliveryProofFailure                      bool
-	MandatePresent, MandateMissing                             bool
-	MandateBindingStep                                         string
-	MandateAddedByContract                                     bool
-	MandateFailure                                             bool
-}
-
-func admissionConformanceViewOf(state WorkflowAdmissionState) admissionConformanceView {
-	view := admissionConformanceView{
-		Step: state.Step, Lifecycle: state.Lifecycle, InstanceState: state.InstanceState,
-		RefinementWorkflow: state.RefinementWorkflow, ActiveContracts: state.ActiveContracts,
-		DesignStale:                   state.DesignStale,
-		LateCriterionAssociation:      state.LateCriterionAssociation,
-		Review:                        admissionReviewViewOf(state.Review),
-		AcceptanceDeliverablesMissing: state.AcceptanceDeliverablesMissing != nil,
-		DeliveryStarted:               state.Delivery.Started, DeliveryProofRequired: state.Delivery.ProofRequired,
-		DeliveryFailure: state.Delivery.Failure != nil, MandateFailure: state.Mandate.Failure != nil,
-		MandatePresent: state.Mandate.Present, MandateMissing: state.Mandate.LawID != "", MandateBindingStep: state.Mandate.BindingStep,
-		MandateAddedByContract: state.Mandate.AddedByContract,
-	}
-	if state.Delivery.ProofRequired {
-		view.DeliveryProofReady, view.DeliveryProofFailure = state.Delivery.ProofReady, state.Delivery.ProofFailure != nil
-	}
-	return view
-}
-
-func conformanceCheckpoint(t *testing.T, s *Store, workID string, definition WorkflowDefinition, want admissionModelState, label string) {
-	t.Helper()
-	loaded := conformanceFold(t, s, workID, definition, label)
-	lifted := admissionWorkflowState(definition, want)
-	got, model := admissionConformanceViewOf(loaded), admissionConformanceViewOf(lifted)
-	if got != model {
-		t.Fatalf("%s: loaded fold %+v != abstract successor %s lifted to %+v", label, got, want, model)
-	}
-	if !reflect.DeepEqual(loaded.CurrentRecords, lifted.CurrentRecords) {
-		t.Fatalf("%s: loaded current records %v != abstract successor %s records %v", label, loaded.CurrentRecords, want, lifted.CurrentRecords)
-	}
-}
-
-func conformanceFold(t *testing.T, s *Store, workID string, definition WorkflowDefinition, label string) WorkflowAdmissionState {
-	t.Helper()
-	// The fold reads the work's law and registry state; production prepares
-	// that proof before the read transaction opens (PrepareWorkLawProof).
-	ctx, err := s.PrepareWorkLawProof(context.Background(), workID)
-	if err != nil {
-		t.Fatalf("%s: prepare law proof: %v", label, err)
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatalf("%s: begin: %v", label, err)
-	}
-	defer tx.Rollback()
-	var step string
-	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
-		t.Fatal(err)
-	}
-	loaded, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, step, "workflow_admission_conformance_test")
-	if err != nil {
-		t.Fatalf("%s: load: %v", label, err)
-	}
-	return loaded
-}
-
-func TestAdmissionConformanceQualifiedEditsNeedReview(t *testing.T) {
-	f := seedWorkContextFixture(t, "admission-conformance-edits")
-	t.Cleanup(func() { f.store.Close() })
-	repo, _ := reviewSubjectClaim(t, f.store, f.workID)
-	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID, repo: repo}
-	definition := pinnedWorkflowDefinitionForTest(t, f.store, f.workID)
-	for round := 1; round <= 2; round++ {
-		conformanceImplementChange(t, j, "change-"+itoa(round))
-		loaded := conformanceFold(t, f.store, f.workID, definition, "qualified ordinary edit")
-		if loaded.Step != "repair" || loaded.Review == nil || loaded.Review.Accepted != nil {
-			t.Fatalf("ordinary edit advanced or manufactured Review: %+v", loaded)
-		}
-		before := readWorkVersion(t, f.store, f.workID)
-		err := j.action(t, "record_delivery", map[string]any{"delivery_artifact": "artifact:conformance", "delivery_state": "asserted"}, f.owner)
-		if !hasFailureKind(err, KindMissingEvidence) || readWorkVersion(t, f.store, f.workID) != before || currentStep(t, f.store, f.workID) != "repair" {
-			t.Fatalf("delivery without recorded Review = %v; ordinary edits cannot authorize exit", err)
-		}
-	}
-}
-
 func conformanceImplementChange(t *testing.T, j *candidateJourney, label string) {
 	t.Helper()
 	path := filepath.Join(j.repo, "internal", "store", "value.go")
@@ -130,4 +39,91 @@ func conformanceImplementChange(t *testing.T, j *candidateJourney, label string)
 	}
 	j.commit(t, "author@example.invalid", "produce bounded implementation")
 	j.observe(t, label)
+}
+
+func TestWorkflowPlanAdmissionReviewAndMandate(t *testing.T) {
+	const workID = "plan-admission-review-mandate"
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", []string{}, nil)
+	j := pReturnClaim(t, f, workID)
+	for _, label := range []string{"first-change", "second-change"} {
+		conformanceImplementChange(t, j, label)
+		state, err := loadWorkflowReviewState(t.Context(), f.store.db, workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state.Accepted != nil {
+			t.Fatalf("ordinary implementation manufactured a Review: %+v", state.Accepted)
+		}
+		planAdmissionFailure(t, workflowAdmitReview(state), KindMissingEvidence)
+		if got := workflowPlanFixtureFrontier(t, f.store, workID); got != "implement" {
+			t.Fatalf("ordinary implementation advanced to %q", got)
+		}
+	}
+	if _, err := f.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contracts SET spec_mandate='["law:required"]' WHERE work_id=? AND superseded_by IS NULL; DELETE FROM write_guard`, workID); err != nil {
+		t.Fatal(err)
+	}
+	report := currentReviewBlockForTest(t, f.store, workID, "ready_for_final_proof")
+	payload := mustJSONValue(map[string]any{"review": report})
+	version := readWorkVersion(t, f.store, workID)
+	request := planAdmissionRequest(workID, "record_review", version, f.owner, payload)
+	pin, err := ReadWorkPin(t.Context(), f.store, workID)
+	if err != nil || !workPinContainsAction(pin.NextValidIntents, "record_review") || !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
+		t.Fatalf("plan intents = %+v, err=%v", pin.NextValidIntents, err)
+	}
+	first := planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindMissingEvidence)
+	second := planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindMissingEvidence)
+	if first.Detail != second.Detail || !strings.Contains(first.Detail, "law:required") || readWorkVersion(t, f.store, workID) != version {
+		t.Fatalf("mandate refusal or rollback: preflight=%v dispatch=%v", first, second)
+	}
+	bind := planAdmissionRequest(workID, "bind_evidence", version, f.owner, json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"law:required"}`))
+	if err := planAdmissionPreflight(t, f.store, bind); err != nil {
+		t.Fatalf("binding preflight: %v", err)
+	}
+	if err := planAdmissionDispatch(t, f.store, bind); err != nil {
+		t.Fatalf("binding dispatch: %v", err)
+	}
+	request = planAdmissionRequest(workID, "record_review", readWorkVersion(t, f.store, workID), f.owner, payload)
+	if err := planAdmissionPreflight(t, f.store, request); err != nil {
+		t.Fatalf("bound review preflight: %v", err)
+	}
+	if err := planAdmissionDispatch(t, f.store, request); err != nil {
+		t.Fatalf("bound review dispatch: %v", err)
+	}
+	state, err := loadWorkflowReviewState(t.Context(), f.store.db, workID)
+	if err != nil || state.Accepted == nil || state.Accepted.ReportDigest != reviewDigest(report) {
+		t.Fatalf("recorded Review = %+v, err=%v", state.Accepted, err)
+	}
+	if got := workflowPlanFixtureFrontier(t, f.store, workID); got != "implement" {
+		t.Fatalf("recording Review advanced to %q", got)
+	}
+}
+
+func TestWorkflowPlanAdmissionVerdictContractAndEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name, predicate string
+		removeContract  bool
+		kind            FailureKind
+	}{
+		{"missing-contract", "predicate:return-route", true, KindInvariantViolation},
+		{"unapproved-predicate", "predicate:unapproved", false, KindInvalidPayload},
+		{"missing-candidate", "predicate:return-route", false, KindMissingEvidence},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workID := "plan-verdict-" + tc.name
+			f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", []string{}, nil)
+			if tc.removeContract {
+				if _, err := f.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contracts SET superseded_by=1 WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			version := readWorkVersion(t, f.store, workID)
+			payload := mustJSONValue(map[string]any{"verdicts": []map[string]any{{"predicate_id": tc.predicate, "receipt_refs": []string{"evidence:unbound"}}}})
+			request := planAdmissionRequest(workID, "record_verdict", version, f.owner, payload)
+			preflight := planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), tc.kind)
+			dispatch := planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), tc.kind)
+			if preflight.Detail != dispatch.Detail || readWorkVersion(t, f.store, workID) != version {
+				t.Fatalf("verdict refusal or rollback: preflight=%v dispatch=%v", preflight, dispatch)
+			}
+		})
+	}
 }

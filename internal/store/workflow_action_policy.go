@@ -1,47 +1,10 @@
 package store
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
-	"sort"
-	"sync"
 	"unicode"
-)
-
-// WorkKind identifies a work class in the code-owned v1 workflow-definition
-// manifest. They deliberately contain no executable code or file path: a
-// registered definition is data compiled into the binary.
-type WorkKind string
-
-const (
-	WorkKindImplementation    WorkKind = "implementation"
-	WorkKindBreakFix          WorkKind = "break_fix"
-	WorkKindResearch          WorkKind = "research"
-	WorkKindArchitectureSpike WorkKind = "architecture_spike"
-	WorkKindOpsRunbook        WorkKind = "ops_runbook"
-	WorkKindStaticAnalysis    WorkKind = "static_analysis"
-	WorkKindGenericOneOff     WorkKind = "generic_one_off"
-)
-
-type WorkflowStepKind string
-
-const (
-	WorkflowStepInternalSQLite WorkflowStepKind = "internal_sqlite"
-	WorkflowStepCrossAuthority WorkflowStepKind = "cross_authority"
-	WorkflowStepExternalEffect WorkflowStepKind = "external_effect"
-)
-
-type WorkflowEdgeKind string
-
-const (
-	WorkflowEdgeForward  WorkflowEdgeKind = "forward"
-	WorkflowEdgeRetry    WorkflowEdgeKind = "retry"
-	WorkflowEdgeOptional WorkflowEdgeKind = "optional"
-	WorkflowEdgeFailure  WorkflowEdgeKind = "failure"
 )
 
 type EvidenceKind string
@@ -199,269 +162,14 @@ type WorkflowActionDefinition struct {
 	PublicPayload *WorkflowPayloadDefinition `json:"public_payload,omitempty"`
 }
 
-type WorkflowStep struct {
-	ID                    string           `json:"id"`
-	Kind                  WorkflowStepKind `json:"kind"`
-	Actions               []string         `json:"actions"`
-	RequiredEvidenceKinds []EvidenceKind   `json:"required_evidence_kinds,omitempty"`
-}
-
-type WorkflowEdge struct {
-	From string           `json:"from"`
-	To   string           `json:"to"`
-	Kind WorkflowEdgeKind `json:"kind"`
-}
-
-type WorkflowStepGraph struct {
-	StartStep     string         `json:"start_step"`
-	TerminalSteps []string       `json:"terminal_steps"`
-	Steps         []WorkflowStep `json:"steps"`
-	Edges         []WorkflowEdge `json:"edges"`
-}
-
-type WorkflowOutcomeSchema struct {
-	DefaultKind            PredicateKind   `json:"default_kind"`
-	AllowedKinds           []PredicateKind `json:"allowed_kinds"`
-	AllowedOutcomeTokens   []string        `json:"allowed_outcome_tokens"`
-	DecisionRecordRequired bool            `json:"decision_record_required"`
-}
-
-type WorkflowRigorRule struct {
-	Maturity              string         `json:"maturity"`
-	AudienceBand          string         `json:"audience_band"`
-	RequiredEvidenceKinds []EvidenceKind `json:"required_evidence_kinds"`
-}
-
-type WorkflowStalenessRule struct {
-	ID       string `json:"id"`
-	InputRef string `json:"input_ref"`
-	Severity string `json:"severity"`
-}
-
-type WorkflowForbiddenComposition struct {
-	SuccessorWorkKind WorkKind `json:"successor_work_kind"`
-	Reason            string   `json:"reason"`
-}
-
-type WorkflowCompositionRules struct {
-	ForwardLinkOnly           bool                           `json:"forward_link_only"`
-	AllowedSuccessorWorkKinds []WorkKind                     `json:"allowed_successor_work_kinds"`
-	ForbiddenCompositions     []WorkflowForbiddenComposition `json:"forbidden_compositions"`
-}
-
-// WorkflowEvaluatorIndependence carries the dimensions of evaluator
-// independence a workflow declares. CD-0017 D6 makes model distinctness
-// structurally available to every workflow and mandatory for none; a globally
-// mandatory rule awaits the R6 section 5 measured basis.
-type WorkflowEvaluatorIndependence struct {
-	// ModelDistinct requires the implementation and review runs to resolve to
-	// different readback model identities. Evaluated against actual readback
-	// identity so a fallback-induced collision is caught.
-	ModelDistinct bool `json:"model_distinct"`
-}
-
-type WorkflowDefinition struct {
-	Ref                 string   `json:"ref"`
-	WorkKind            WorkKind `json:"work_kind"`
-	ChangesProductTruth *bool    `json:"changes_product_truth,omitempty"`
-	// Capabilities is the canonical sorted set of behaviors the definition enables.
-	Capabilities          []WorkflowCapability          `json:"capabilities"`
-	StepGraph             WorkflowStepGraph             `json:"step_graph"`
-	AvailableActions      []string                      `json:"available_actions"`
-	ActionDefinitions     []WorkflowActionDefinition    `json:"action_definitions"`
-	RequiredEvidenceKinds []EvidenceKind                `json:"required_evidence_kinds"`
-	OutcomeSchema         WorkflowOutcomeSchema         `json:"outcome_schema"`
-	RigorRules            []WorkflowRigorRule           `json:"rigor_rules"`
-	StalenessRules        []WorkflowStalenessRule       `json:"staleness_rules"`
-	CompositionRules      WorkflowCompositionRules      `json:"composition_rules"`
-	EvaluatorIndependence WorkflowEvaluatorIndependence `json:"evaluator_independence"`
-}
-
-type RegisteredDefinition struct {
-	Definition WorkflowDefinition `json:"definition"`
-	Digest     string             `json:"digest"`
-}
-
-// DefinitionRegistry holds one current definition per family. Identity is
-// the family ref plus the content digest of its canonical manifest.
-type DefinitionRegistry interface {
-	Register(WorkflowDefinition) (RegisteredDefinition, error)
-	Current(ref string) (RegisteredDefinition, bool)
-	Verify(ref string, digest string) error
-}
-
-type workflowDefinitionRegistry struct {
-	mu      sync.RWMutex
-	entries map[string]RegisteredDefinition
-}
-
-func NewWorkflowDefinitionRegistry() DefinitionRegistry {
-	return &workflowDefinitionRegistry{entries: make(map[string]RegisteredDefinition)}
-}
-
-func (r *workflowDefinitionRegistry) Register(definition WorkflowDefinition) (RegisteredDefinition, error) {
-	registered, err := r.register(definition)
-	if err != nil {
-		return RegisteredDefinition{}, err
-	}
-	return cloneRegisteredDefinition(registered), nil
-}
-
-// register stores a frozen copy of definition and returns the stored entry
-// itself, so only callers that discard the result may skip Register's clone.
-func (r *workflowDefinitionRegistry) register(definition WorkflowDefinition) (RegisteredDefinition, error) {
-	if err := ValidateWorkflowDefinition(definition); err != nil {
-		return RegisteredDefinition{}, err
-	}
-	for _, action := range definition.ActionDefinitions {
-		if !validActionExecutionMode(action.ExecutionMode) {
-			return RegisteredDefinition{}, definitionFailure(KindInvalidDefinition, "registered action execution mode is not declared")
-		}
-	}
-	digest, err := WorkflowDefinitionDigest(definition)
-	if err != nil {
-		return RegisteredDefinition{}, err
-	}
-	frozen := cloneWorkflowDefinition(definition)
-	registered := RegisteredDefinition{Definition: frozen, Digest: digest}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.entries[definition.Ref] = registered
-	return registered, nil
-}
-
-func (r *workflowDefinitionRegistry) Current(ref string) (RegisteredDefinition, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	entry, ok := r.entries[ref]
-	if !ok {
-		return RegisteredDefinition{}, false
-	}
-	return cloneRegisteredDefinition(entry), true
-}
-
-func (r *workflowDefinitionRegistry) Verify(ref string, digest string) error {
-	entry, ok := r.Current(ref)
-	if !ok {
-		return definitionFailure(KindDefinitionDigestMismatch, "current workflow definition is not registered")
-	}
-	computed, err := WorkflowDefinitionDigest(entry.Definition)
-	if err != nil {
-		return err
-	}
-	if computed != entry.Digest || digest != entry.Digest || digest != computed {
-		return definitionFailure(KindDefinitionDigestMismatch, "registered or requested workflow definition digest drifted")
-	}
-	return nil
-}
-
 func definitionFailure(kind FailureKind, detail string) error {
 	return newFailure(kind, "workflow_definition", detail, false, "reread_entities")
 }
 
 var workflowIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_.-]{1,63}$`)
-var workflowRefPattern = regexp.MustCompile(`^workflow\.[a-z][a-z0-9_.-]{1,62}$`)
 var workflowDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
-func validWorkflowID(value string) bool  { return workflowIDPattern.MatchString(value) }
-func validWorkflowRef(value string) bool { return workflowRefPattern.MatchString(value) }
-
-func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
-	if err := validateWorkflowDefinitionIdentity(definition); err != nil {
-		return err
-	}
-	graph := definition.StepGraph
-	if len(graph.Steps) < 2 || len(graph.Steps) > 32 || len(graph.Edges) < 1 || len(graph.Edges) > 64 || !validWorkflowID(graph.StartStep) || len(graph.TerminalSteps) < 1 || len(graph.TerminalSteps) > 16 {
-		return definitionFailure(KindInvalidDefinition, "definition graph bounds are invalid")
-	}
-	steps := make(map[string]WorkflowStep, len(graph.Steps))
-	for _, step := range graph.Steps {
-		if !validWorkflowID(step.ID) || !validWorkflowStepKind(step.Kind) || len(step.Actions) < 1 || len(step.Actions) > 16 || len(step.RequiredEvidenceKinds) > 7 || !uniqueStrings(evidenceStrings(step.RequiredEvidenceKinds)) || !allEvidenceKindsValid(step.RequiredEvidenceKinds) {
-			return definitionFailure(KindInvalidDefinition, "definition step is invalid")
-		}
-		if _, exists := steps[step.ID]; exists {
-			return definitionFailure(KindInvalidDefinition, "definition contains duplicate step IDs")
-		}
-		steps[step.ID] = step
-	}
-	if err := validateWorkflowGraphEndpoints(graph, steps); err != nil {
-		return err
-	}
-	if !uniqueStrings(definition.AvailableActions) || len(definition.AvailableActions) < 1 || len(definition.AvailableActions) > 64 {
-		return definitionFailure(KindInvalidDefinition, "available actions are invalid")
-	}
-	actions := make(map[string]WorkflowActionDefinition, len(definition.ActionDefinitions))
-	for _, action := range definition.ActionDefinitions {
-		if !validWorkflowID(action.ID) || !validActionConsequence(action.Consequence) || !validActionExecutionMode(action.ExecutionMode) || len(action.Payload.Fields) > 32 {
-			return definitionFailure(KindInvalidDefinition, "action definition is invalid")
-		}
-		if _, exists := actions[action.ID]; exists {
-			return definitionFailure(KindInvalidDefinition, "definition contains duplicate action IDs")
-		}
-		if err := validateWorkflowActionPayloadDeclaration(action); err != nil {
-			return err
-		}
-		actions[action.ID] = action
-	}
-	if err := validateWorkflowActionReferences(definition, actions); err != nil {
-		return err
-	}
-	if err := validateWorkflowGraphEdges(graph, steps); err != nil {
-		return err
-	}
-	if err := validateWorkflowDefinitionRules(definition); err != nil {
-		return err
-	}
-	return nil
-}
-
-func validateWorkflowDefinitionIdentity(definition WorkflowDefinition) error {
-	if !validWorkflowRef(definition.Ref) || !validWorkKind(definition.WorkKind) {
-		return definitionFailure(KindInvalidDefinition, "definition identity or work kind is invalid")
-	}
-	if !validWorkflowCapabilities(definition.Capabilities) {
-		return definitionFailure(KindInvalidDefinition, "definition capabilities are not a canonical subset of the capability vocabulary")
-	}
-	if definition.ChangesProductTruth == nil {
-		return definitionFailure(KindInvalidDefinition, "definition product-truth classification is required")
-	}
-	if *definition.ChangesProductTruth != workKindMayChangeProductTruth(definition.WorkKind) {
-		return definitionFailure(KindInvalidDefinition, "definition product-truth classification does not match its work-kind matrix")
-	}
-	return nil
-}
-
-func validateWorkflowDefinitionRules(definition WorkflowDefinition) error {
-	if len(definition.RequiredEvidenceKinds) > 7 || !uniqueStrings(evidenceStrings(definition.RequiredEvidenceKinds)) || !allEvidenceKindsValid(definition.RequiredEvidenceKinds) || !validateOutcomeSchema(definition.WorkKind, definition.OutcomeSchema) || len(definition.RigorRules) < 1 || len(definition.RigorRules) > 16 || len(definition.StalenessRules) > 16 || !validateRigorRules(definition.RigorRules) || !validateComposition(definition.CompositionRules) {
-		return definitionFailure(KindInvalidDefinition, "definition evidence, outcome, rigor, staleness, or composition rules are invalid")
-	}
-	for _, rule := range definition.StalenessRules {
-		if !validWorkflowID(rule.ID) || !validWorkflowRef(rule.InputRef) && !ValidReference(rule.InputRef) || (rule.Severity != "warning" && rule.Severity != "block") {
-			return definitionFailure(KindInvalidDefinition, "staleness rule is invalid")
-		}
-	}
-	return nil
-}
-
-func validateWorkflowGraphEndpoints(graph WorkflowStepGraph, steps map[string]WorkflowStep) error {
-	if _, ok := steps[graph.StartStep]; !ok {
-		return definitionFailure(KindInvalidDefinition, "graph start endpoint is not declared")
-	}
-	terminals := make(map[string]bool, len(graph.TerminalSteps))
-	for _, terminal := range graph.TerminalSteps {
-		if !validWorkflowID(terminal) {
-			return definitionFailure(KindInvalidDefinition, "graph terminal endpoint is invalid")
-		}
-		if _, ok := steps[terminal]; !ok {
-			return definitionFailure(KindInvalidDefinition, "graph terminal endpoint is not declared")
-		}
-		if terminals[terminal] {
-			return definitionFailure(KindInvalidDefinition, "definition contains duplicate terminal steps")
-		}
-		terminals[terminal] = true
-	}
-	return nil
-}
+func validWorkflowID(value string) bool { return workflowIDPattern.MatchString(value) }
 
 func validateWorkflowActionPayloadDeclaration(action WorkflowActionDefinition) error {
 	if !validatePayloadFields(action.Payload.Fields) {
@@ -473,210 +181,6 @@ func validateWorkflowActionPayloadDeclaration(action WorkflowActionDefinition) e
 	return nil
 }
 
-func validateWorkflowActionReferences(definition WorkflowDefinition, actions map[string]WorkflowActionDefinition) error {
-	if len(actions) != len(definition.AvailableActions) {
-		return definitionFailure(KindInvalidDefinition, "action definitions do not match available actions")
-	}
-	for _, actionID := range definition.AvailableActions {
-		if !validWorkflowID(actionID) {
-			return definitionFailure(KindInvalidDefinition, "available action ID is invalid")
-		}
-		if _, ok := actions[actionID]; !ok {
-			return definitionFailure(KindDefinitionActionOrStepUnknown, "root action definitions do not match available actions")
-		}
-	}
-	for _, step := range definition.StepGraph.Steps {
-		for _, actionID := range step.Actions {
-			if !slices.Contains(definition.AvailableActions, actionID) {
-				return definitionFailure(KindDefinitionActionOrStepUnknown, "step action not declared at root")
-			}
-		}
-	}
-	return nil
-}
-
-func validateWorkflowGraphEdges(graph WorkflowStepGraph, steps map[string]WorkflowStep) error {
-	adjacency := make(map[string][]string, len(steps))
-	for _, edge := range graph.Edges {
-		if !validWorkflowID(edge.From) || !validWorkflowID(edge.To) || !validEdgeKind(edge.Kind) {
-			return definitionFailure(KindInvalidDefinition, "graph edge is invalid")
-		}
-		if _, ok := steps[edge.From]; !ok {
-			return definitionFailure(KindInvalidDefinition, "graph edge endpoint is not declared")
-		}
-		if _, ok := steps[edge.To]; !ok {
-			return definitionFailure(KindInvalidDefinition, "graph edge endpoint is not declared")
-		}
-		if edge.Kind != WorkflowEdgeRetry && edge.Kind != WorkflowEdgeFailure {
-			adjacency[edge.From] = append(adjacency[edge.From], edge.To)
-		}
-	}
-	if graphHasCycle(adjacency) {
-		return definitionFailure(KindInvalidDefinition, "non-retry graph cycle is not allowed")
-	}
-	return nil
-}
-
-// workflowDefinitionSchemaVersion is the single manifest shape Concord emits.
-// It is the schema_version enumerated by contracts/workflow-definition.schema.json.
-const workflowDefinitionSchemaVersion = "1.3"
-
-func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) {
-	if err := ValidateWorkflowDefinition(definition); err != nil {
-		return nil, err
-	}
-	// json.Marshal follows the field order below. The digest is deliberately not
-	// part of this manifest, and nil arrays are normalized to schema arrays.
-	// The manifest hashes the definition's actual content with no carve-out:
-	// cross-field rules are engine-registry declarations and never appear
-	// here, so a released definition cannot change behavior without its
-	// digest detecting it.
-	definition = normalizeWorkflowDefinition(definition)
-	manifest := struct {
-		SchemaVersion         string                        `json:"schema_version"`
-		Ref                   string                        `json:"ref"`
-		WorkKind              WorkKind                      `json:"work_kind"`
-		ChangesProductTruth   *bool                         `json:"changes_product_truth"`
-		Capabilities          []WorkflowCapability          `json:"capabilities"`
-		StepGraph             WorkflowStepGraph             `json:"step_graph"`
-		AvailableActions      []string                      `json:"available_actions"`
-		ActionDefinitions     []WorkflowActionDefinition    `json:"action_definitions"`
-		RequiredEvidenceKinds []EvidenceKind                `json:"required_evidence_kinds"`
-		OutcomeSchema         WorkflowOutcomeSchema         `json:"outcome_schema"`
-		RigorRules            []WorkflowRigorRule           `json:"rigor_rules"`
-		StalenessRules        []WorkflowStalenessRule       `json:"staleness_rules"`
-		CompositionRules      WorkflowCompositionRules      `json:"composition_rules"`
-		EvaluatorIndependence WorkflowEvaluatorIndependence `json:"evaluator_independence"`
-	}{
-		SchemaVersion: workflowDefinitionSchemaVersion, Ref: definition.Ref, WorkKind: definition.WorkKind,
-		ChangesProductTruth: definition.ChangesProductTruth, Capabilities: definition.Capabilities,
-		StepGraph: definition.StepGraph, AvailableActions: definition.AvailableActions, ActionDefinitions: definition.ActionDefinitions,
-		RequiredEvidenceKinds: definition.RequiredEvidenceKinds, OutcomeSchema: definition.OutcomeSchema, RigorRules: definition.RigorRules,
-		StalenessRules: definition.StalenessRules, CompositionRules: definition.CompositionRules, EvaluatorIndependence: definition.EvaluatorIndependence,
-	}
-	return json.Marshal(manifest)
-}
-
-// workflowDefinitionDigest hashes one canonical manifest. Every digest path
-// shares this helper so the hash never forks.
-func workflowDefinitionDigest(canonical []byte) string {
-	sum := sha256.Sum256(canonical)
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
-func WorkflowDefinitionDigest(definition WorkflowDefinition) (string, error) {
-	canonical, err := CanonicalWorkflowDefinition(definition)
-	if err != nil {
-		return "", err
-	}
-	return workflowDefinitionDigest(canonical), nil
-}
-
-func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefinition {
-	definition = cloneWorkflowDefinition(definition)
-	if definition.Capabilities == nil {
-		definition.Capabilities = []WorkflowCapability{}
-	}
-	if definition.StepGraph.TerminalSteps == nil {
-		definition.StepGraph.TerminalSteps = []string{}
-	}
-	if definition.StepGraph.Steps == nil {
-		definition.StepGraph.Steps = []WorkflowStep{}
-	}
-	if definition.StepGraph.Edges == nil {
-		definition.StepGraph.Edges = []WorkflowEdge{}
-	}
-	if definition.AvailableActions == nil {
-		definition.AvailableActions = []string{}
-	}
-	if definition.ActionDefinitions == nil {
-		definition.ActionDefinitions = []WorkflowActionDefinition{}
-	}
-	if definition.RequiredEvidenceKinds == nil {
-		definition.RequiredEvidenceKinds = []EvidenceKind{}
-	}
-	if definition.OutcomeSchema.AllowedKinds == nil {
-		definition.OutcomeSchema.AllowedKinds = []PredicateKind{}
-	}
-	if definition.OutcomeSchema.AllowedOutcomeTokens == nil {
-		definition.OutcomeSchema.AllowedOutcomeTokens = []string{}
-	}
-	if definition.RigorRules == nil {
-		definition.RigorRules = []WorkflowRigorRule{}
-	}
-	if definition.StalenessRules == nil {
-		definition.StalenessRules = []WorkflowStalenessRule{}
-	}
-	if definition.CompositionRules.AllowedSuccessorWorkKinds == nil {
-		definition.CompositionRules.AllowedSuccessorWorkKinds = []WorkKind{}
-	}
-	if definition.CompositionRules.ForbiddenCompositions == nil {
-		definition.CompositionRules.ForbiddenCompositions = []WorkflowForbiddenComposition{}
-	}
-	for i := range definition.StepGraph.Steps {
-		if definition.StepGraph.Steps[i].RequiredEvidenceKinds == nil {
-			definition.StepGraph.Steps[i].RequiredEvidenceKinds = []EvidenceKind{}
-		}
-	}
-	for i := range definition.ActionDefinitions {
-		if definition.ActionDefinitions[i].Payload.Fields == nil {
-			definition.ActionDefinitions[i].Payload.Fields = []WorkflowPayloadField{}
-		}
-		if definition.ActionDefinitions[i].PublicPayload != nil && definition.ActionDefinitions[i].PublicPayload.Fields == nil {
-			definition.ActionDefinitions[i].PublicPayload.Fields = []WorkflowPayloadField{}
-		}
-	}
-	return definition
-}
-
-func NewBuiltinWorkflowRegistry() DefinitionRegistry {
-	registry := NewWorkflowDefinitionRegistry().(*workflowDefinitionRegistry)
-	definitions := BuiltinWorkflowDefinitions()
-	if err := validateEngineCrossFieldDeclarations(); err != nil {
-		panic(err)
-	}
-	for _, definition := range definitions {
-		if _, err := registry.register(definition); err != nil {
-			panic(err)
-		}
-	}
-	return registry
-}
-
-var builtinWorkflowRegistry = sync.OnceValue(NewBuiltinWorkflowRegistry)
-
-func BuiltinWorkflowRegistry() DefinitionRegistry { return builtinWorkflowRegistry() }
-
-// BuiltinWorkflowDefinitionForRef resolves the current definition of one family.
-func BuiltinWorkflowDefinitionForRef(ref string) (RegisteredDefinition, error) {
-	if !validWorkflowRef(ref) {
-		return RegisteredDefinition{}, definitionFailure(KindInvalidDefinition, "workflow type reference is invalid")
-	}
-	registered, ok := BuiltinWorkflowRegistry().Current(ref)
-	if !ok {
-		return RegisteredDefinition{}, definitionFailure(KindDefinitionDigestMismatch, "workflow type reference is not registered")
-	}
-	return registered, nil
-}
-
-func validWorkKind(kind WorkKind) bool {
-	switch kind {
-	case WorkKindImplementation, WorkKindBreakFix, WorkKindResearch, WorkKindArchitectureSpike, WorkKindOpsRunbook, WorkKindStaticAnalysis, WorkKindGenericOneOff:
-		return true
-	}
-	return false
-}
-
-func workKindMayChangeProductTruth(kind WorkKind) bool {
-	return kind == WorkKindImplementation || kind == WorkKindBreakFix || kind == WorkKindOpsRunbook
-}
-
-func validWorkflowStepKind(kind WorkflowStepKind) bool {
-	return kind == WorkflowStepInternalSQLite || kind == WorkflowStepCrossAuthority || kind == WorkflowStepExternalEffect
-}
-func validEdgeKind(kind WorkflowEdgeKind) bool {
-	return kind == WorkflowEdgeForward || kind == WorkflowEdgeRetry || kind == WorkflowEdgeOptional || kind == WorkflowEdgeFailure
-}
 func validActionConsequence(value ActionConsequence) bool {
 	return value == ActionInternalSQLite || value == ActionCrossAuthority || value == ActionExternalEffect
 }
@@ -729,14 +233,6 @@ func validEvidence(value EvidenceKind) bool {
 func allEvidenceKindsValid(values []EvidenceKind) bool {
 	for _, value := range values {
 		if !validEvidence(value) {
-			return false
-		}
-	}
-	return true
-}
-func validateRigorRules(values []WorkflowRigorRule) bool {
-	for _, value := range values {
-		if !slices.Contains([]string{"prototype", "production", "critical"}, value.Maturity) || !slices.Contains([]string{"internal", "trusted", "public", "safety_critical"}, value.AudienceBand) || len(value.RequiredEvidenceKinds) < 1 || len(value.RequiredEvidenceKinds) > 7 || !uniqueStrings(evidenceStrings(value.RequiredEvidenceKinds)) || !allEvidenceKindsValid(value.RequiredEvidenceKinds) {
 			return false
 		}
 	}
@@ -907,14 +403,6 @@ func validateEngineCrossFieldDeclarations() error {
 		if policy.CrossField == nil {
 			continue
 		}
-		// The declaration is validated against the payload shape the
-		// current definitions pin and publication projects. record_verdict
-		// restates its payload through withCurrentVerdictBatch, so the
-		// batched field list — which declares verdicts — is the shape the
-		// declaration binds; the released single-form payload never
-		// reaches the rule because its own closed field list refuses the
-		// batch before cross-field validation runs. Every other action
-		// binds the shape the current action catalog declares.
 		fields := policy.Payload.Fields
 		if id == "record_verdict" {
 			fields = verdictBatchActionFields()
@@ -935,45 +423,6 @@ func validateEngineCrossFieldDeclarations() error {
 	return nil
 }
 
-func validateOutcomeSchema(kind WorkKind, schema WorkflowOutcomeSchema) bool {
-	if !validPredicateKind(schema.DefaultKind) || len(schema.AllowedKinds) < 1 || len(schema.AllowedKinds) > 4 || !uniquePredicateKinds(schema.AllowedKinds) || len(schema.AllowedOutcomeTokens) > 8 || !uniqueStrings(schema.AllowedOutcomeTokens) {
-		return false
-	}
-	for _, allowed := range schema.AllowedKinds {
-		if !validPredicateKind(allowed) {
-			return false
-		}
-	}
-	for _, token := range schema.AllowedOutcomeTokens {
-		if !validOutcomeToken(token) {
-			return false
-		}
-	}
-	wantKinds := map[WorkKind][]PredicateKind{WorkKindImplementation: {PredicateExists, PredicateAbsent, PredicateCheck}, WorkKindBreakFix: {PredicateExists, PredicateAbsent, PredicateCheck}, WorkKindResearch: {PredicateOutcome}, WorkKindArchitectureSpike: {PredicateOutcome}, WorkKindOpsRunbook: {PredicateExists, PredicateAbsent, PredicateCheck}, WorkKindStaticAnalysis: {PredicateExists, PredicateAbsent, PredicateCheck}, WorkKindGenericOneOff: {PredicateExists, PredicateAbsent, PredicateOutcome, PredicateCheck}}
-	wantTokens := map[WorkKind][]string{WorkKindImplementation: {}, WorkKindBreakFix: {}, WorkKindResearch: {"no_change", "resolved", "report_recorded"}, WorkKindArchitectureSpike: {"accepted_decision", "insufficient_evidence"}, WorkKindOpsRunbook: {}, WorkKindStaticAnalysis: {}, WorkKindGenericOneOff: {"no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"}}
-	return samePredicateKinds(schema.AllowedKinds, wantKinds[kind]) && sameStrings(schema.AllowedOutcomeTokens, wantTokens[kind]) && schema.DefaultKind == defaultPredicateKind(kind) && schema.DecisionRecordRequired == (kind == WorkKindArchitectureSpike)
-}
-func uniquePredicateKinds(values []PredicateKind) bool {
-	seen := map[PredicateKind]bool{}
-	for _, value := range values {
-		if seen[value] {
-			return false
-		}
-		seen[value] = true
-	}
-	return true
-}
-func samePredicateKinds(a, b []PredicateKind) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for _, x := range b {
-		if !slices.Contains(a, x) {
-			return false
-		}
-	}
-	return true
-}
 func sameStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -987,42 +436,6 @@ func sameStrings(a, b []string) bool {
 }
 func validOutcomeToken(value string) bool {
 	return slices.Contains([]string{"no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"}, value)
-}
-func defaultPredicateKind(kind WorkKind) PredicateKind {
-	switch kind {
-	case WorkKindImplementation, WorkKindOpsRunbook, WorkKindStaticAnalysis:
-		return PredicateCheck
-	case WorkKindBreakFix:
-		return PredicateAbsent
-	default:
-		return PredicateOutcome
-	}
-}
-func validateComposition(rules WorkflowCompositionRules) bool {
-	if !rules.ForwardLinkOnly || len(rules.AllowedSuccessorWorkKinds) > 7 || !uniqueWorkKinds(rules.AllowedSuccessorWorkKinds) {
-		return false
-	}
-	for _, kind := range rules.AllowedSuccessorWorkKinds {
-		if !validWorkKind(kind) {
-			return false
-		}
-	}
-	for _, forbidden := range rules.ForbiddenCompositions {
-		if !validWorkKind(forbidden.SuccessorWorkKind) || len(forbidden.Reason) < 1 || len(forbidden.Reason) > 256 {
-			return false
-		}
-	}
-	return true
-}
-func uniqueWorkKinds(values []WorkKind) bool {
-	seen := map[WorkKind]bool{}
-	for _, value := range values {
-		if seen[value] {
-			return false
-		}
-		seen[value] = true
-	}
-	return true
 }
 
 // ActionEventShape names which event a completed action appends. The shape is a
@@ -1104,6 +517,84 @@ func workflowActionCrossField(actionID string) WorkflowActionCrossField {
 // engine declaration the guards enforce.
 func WorkflowActionCrossFieldRules(actionID string) WorkflowActionCrossField {
 	return workflowActionCrossField(actionID)
+}
+
+// WorkflowActionCanonicalCrossFieldRules projects the enforcing declaration
+// onto one closed action payload. Partial rules refuse; vacuous forbids drop.
+func WorkflowActionCanonicalCrossFieldRules(actionID string, fields []WorkflowPayloadField) (WorkflowActionCrossField, error) {
+	declared := make(map[string]bool, len(fields))
+	for _, field := range fields {
+		declared[field.Name] = true
+	}
+	cross := WorkflowActionCrossFieldRules(actionID)
+	projected := WorkflowActionCrossField{}
+	if len(cross.Combinations) != 0 && len(cross.Alternatives) != 0 {
+		return WorkflowActionCrossField{}, fmt.Errorf("action %s declares both cross-field rule families", actionID)
+	}
+	for _, combination := range cross.Combinations {
+		if !declared[combination.Field] {
+			continue
+		}
+		projectedCombination, err := workflowCanonicalCombination(actionID, declared, combination)
+		if err != nil {
+			return WorkflowActionCrossField{}, err
+		}
+		projected.Combinations = append(projected.Combinations, projectedCombination)
+	}
+	for _, group := range cross.Alternatives {
+		switch workflowDeclaredFieldCount(declared, group.Fields) {
+		case 0:
+			continue
+		case len(group.Fields):
+			projectedGroup := WorkflowPayloadAlternative{Fields: group.Fields, Remedy: group.Remedy}
+			for _, name := range group.Forbids {
+				if declared[name] {
+					projectedGroup.Forbids = append(projectedGroup.Forbids, name)
+				}
+			}
+			projected.Alternatives = append(projected.Alternatives, projectedGroup)
+		default:
+			return WorkflowActionCrossField{}, fmt.Errorf("canonical cross-field projection for %s: alternative group %v partially overlaps the declared fields", actionID, group.Fields)
+		}
+	}
+	for _, match := range cross.KindMatches {
+		fieldDeclared, objectDeclared := declared[match.Field], declared[match.Object]
+		switch {
+		case !fieldDeclared && !objectDeclared:
+			continue
+		case !fieldDeclared || !objectDeclared || match.Discriminator == "":
+			return WorkflowActionCrossField{}, fmt.Errorf("canonical cross-field projection for %s: kind match %s/%s partially overlaps the declared fields", actionID, match.Field, match.Object)
+		default:
+			projected.KindMatches = append(projected.KindMatches, match)
+		}
+	}
+	return projected, nil
+}
+
+func workflowDeclaredFieldCount(declared map[string]bool, names []string) int {
+	count := 0
+	for _, name := range names {
+		if declared[name] {
+			count++
+		}
+	}
+	return count
+}
+
+func workflowCanonicalCombination(actionID string, declared map[string]bool, combination WorkflowPayloadCombination) (WorkflowPayloadCombination, error) {
+	projected := WorkflowPayloadCombination{Field: combination.Field, Value: combination.Value, Remedy: combination.Remedy}
+	for _, name := range combination.Requires {
+		if !declared[name] {
+			return WorkflowPayloadCombination{}, fmt.Errorf("canonical cross-field projection for %s: combination on %s requires undeclared field %s", actionID, combination.Field, name)
+		}
+		projected.Requires = append(projected.Requires, name)
+	}
+	for _, name := range combination.Forbids {
+		if declared[name] {
+			projected.Forbids = append(projected.Forbids, name)
+		}
+	}
+	return projected, nil
 }
 
 func actionStringField(name string, required bool, upper int64) WorkflowPayloadField {
@@ -1212,20 +703,7 @@ func nativeRunActionFields(statuses ...string) []WorkflowPayloadField {
 const workflowAlignmentCombinationTeaching = "record_alignment couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination."
 
 var builtinActionPolicies = map[string]builtinActionPolicy{
-	"record_proposal": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
-		actionStringField("problem", true, 4096),
-		actionProseListField("affected", true, 1, 16, "proposal_affected_text"),
-		actionStringField("stakes", true, 2048),
-		actionProseListField("user_outcomes", true, 1, 16, "proposal_text"),
-		actionProseListField("constraints", false, 0, 16, "proposal_text"),
-		actionProseListField("open_questions", false, 0, 16, "proposal_text"),
-	),
 	"record_discovery": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric),
-	"record_design": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
-		WorkflowPayloadField{Name: "approach", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
-		actionArrayField("decisions", true, 16, "workflow_design_decision"),
-		actionListField("touched_refs", true, 1, 64),
-	),
 	"approve_contract": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
 		actionEnumListField("decision_domains", true, 0, 6, workflowDecisionDomainSet...),
 		actionEnumField("route_convention", false, "workflow_action"),
@@ -1233,7 +711,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionListField("proposed_route_conventions", false, 0, 16),
 		actionListField("required_route_conventions", false, 0, 16),
 		actionIntegerField("contract_version", false),
-		 actionPremiseField(),
+		actionPremiseField(),
 		actionArrayField("outcome_predicates", true, 8, "workflow_action_outcome_predicates"),
 		actionEnumListField("required_evidence", false, 0, 7, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"),
 		actionLawListField("spec_mandate", false),
@@ -1247,16 +725,6 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"link_successor": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
 		actionEnumField("relation", false, "forward_link"), actionObjectField("relation_data", false, "workflow_forward_relation"), actionRefField("successor_work_id", true),
 	),
-	// record_verdict's two wire shapes (CD-0198 D1) are one engine
-	// declaration: exactly one of predicate_id or the verdicts array, and
-	// the entry-level fields cannot ride beside the batch where their
-	// value would silently apply to every entry. Core payload validation,
-	// replay, and the published closed variant branches derive from this
-	// declaration; normalizeWorkflowVerdictEntries only decodes the wire
-	// shapes into entries (CON-412). The declaration names verdicts, which
-	// the single-form policy payload released before the batch does not
-	// declare, so its registry validation reads the restated batched
-	// payload the current definitions pin and publication projects.
 	"record_verdict": actionPolicyWithAlternatives(actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
 		actionIntegerField("contract_version", false), actionRefField("predicate_id", true),
 		actionEnumField("verdict_kind", false, "ok", "outcome_mismatch", "insufficient_evidence"),
@@ -1280,30 +748,10 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	),
 	"record_reproduction": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric),
 	"record_root_cause":   actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric),
-	// CD-0156: the mandatory backlog-alignment search. outcome is a required
-	// closed enum so a later reader can tell checked-and-found-nothing from
-	// never-checked. The outcome/related_ids legal input combinations are
-	// declared on this engine policy as typed data: core payload validation
-	// and the generated published variant branches derive from the same
-	// declaration, so the advertised shape and admission refuse one
-	// identical set (CON-412). workflowAlignmentCombinationTeaching
-	// publishes the same rule as text.
-	"record_alignment": actionPolicyWithCombinations(actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
-		// The shared actionStringField helper declares a minimum of one, but
-		// every fold bounds a workflow string at two bytes through
-		// workflowString. searched declares the floor it is actually held to,
-		// so a schema-valid payload cannot be refused by the fold.
-		WorkflowPayloadField{Name: "searched", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
-		actionEnumField("outcome", true, "related_found", "none_found"),
-		actionIDListField("related_ids", false, 1, 64),
-	),
-		WorkflowPayloadCombination{Field: "outcome", Value: "related_found", Requires: []string{"related_ids"}, Remedy: "name the related work items the search found"},
-		WorkflowPayloadCombination{Field: "outcome", Value: "none_found", Forbids: []string{"related_ids"}, Remedy: "drop related_ids or record outcome related_found"},
-	),
-	"start_repair":      actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
-	"checkpoint_repair": actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
-	"start_refine":      actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
-	"checkpoint_refine": actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
+	"start_repair":        actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
+	"checkpoint_repair":   actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
+	"start_refine":        actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
+	"checkpoint_refine":   actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
 	// CD-0198 D2: the typed diagnosis record. The payload carries one
 	// required section per merged source action: the reproduction record,
 	// the CD-0156 alignment search whose searched/outcome/related_ids
@@ -1465,45 +913,6 @@ func workflowEvidenceKindsProducedBy(actionID string) []EvidenceKind {
 	return nil
 }
 
-// workflowReachableEvidenceKinds walks the definition's forward and optional
-// edges from the start step and returns the sorted evidence kinds the actions
-// on those steps can produce. Retry and failure edges stay outside the walk:
-// a retry re-enters the step it left, and a failure exit is not the route a
-// completion requirement is served on. This answers producibility only —
-// whether an action can bind a kind — never whether one binding of that kind
-// was truthful.
-func workflowReachableEvidenceKinds(definition WorkflowDefinition) []EvidenceKind {
-	produced := map[EvidenceKind]bool{}
-	visited := map[string]bool{}
-	queue := []string{definition.StepGraph.StartStep}
-	for len(queue) != 0 {
-		stepID := queue[0]
-		queue = queue[1:]
-		if visited[stepID] {
-			continue
-		}
-		visited[stepID] = true
-		if step := workflowStep(definition, stepID); step != nil {
-			for _, actionID := range step.Actions {
-				for _, kind := range workflowEvidenceKindsProducedBy(actionID) {
-					produced[kind] = true
-				}
-			}
-		}
-		for _, edge := range definition.StepGraph.Edges {
-			if edge.From == stepID && (edge.Kind == WorkflowEdgeForward || edge.Kind == WorkflowEdgeOptional) {
-				queue = append(queue, edge.To)
-			}
-		}
-	}
-	kinds := make([]EvidenceKind, 0, len(produced))
-	for kind := range produced {
-		kinds = append(kinds, kind)
-	}
-	sort.Slice(kinds, func(i, j int) bool { return kinds[i] < kinds[j] })
-	return kinds
-}
-
 func currentActionDefinition(id string, payloadContracts bool) WorkflowActionDefinition {
 	policy, ok := builtinActionPolicies[id]
 	if !ok {
@@ -1516,71 +925,6 @@ func currentActionDefinition(id string, payloadContracts bool) WorkflowActionDef
 		publicPayload = policy.PublicPayload
 	}
 	return WorkflowActionDefinition{ID: id, Consequence: policy.Consequence, ExecutionMode: policy.ExecutionMode, Payload: payload, PublicPayload: publicPayload}
-}
-
-// workflowDecisionFactPayloadFields selects the copied consequence_v1 fact
-// declarations onto one contract payload: a consequence_v1 definition copies
-// the supplied fields, appends each CD-0230 D4 law-change field it does not
-// already declare, and replaces a declared decision_domains field with the
-// one canonical fact at its position or appends the fact last, so the
-// selection never duplicates a field; a legacy definition keeps the supplied fields
-// byte-identical. The copy leaves every builtin policy slice, pinned
-// declaration, and released field list unmutated.
-func workflowDecisionFactPayloadFields(definition WorkflowDefinition, fields []WorkflowPayloadField) []WorkflowPayloadField {
-	if !workflowDeclaresDecisionDomains(definition) {
-		return fields
-	}
-	selected := slices.Clone(fields)
-	declared := false
-	for index := range selected {
-		if selected[index].Name == "decision_domains" {
-			selected[index] = workflowDecisionFactField()
-			declared = true
-		}
-	}
-	if !declared {
-		selected = append(selected, workflowDecisionFactField())
-	}
-	return selected
-}
-
-// workflowDecisionFactInitialActionDefinition selects the initial
-// approve_contract declaration the pinned definition itself carries, never a
-// synthesized one: a consequence_v1 pin answers from a clone of its declared
-// closed action with the fact on the payload and nonnil public payload
-// storage, an open initial payload refuses as a definition failure, and the
-// lookup's bare ID-only answer (no declared action) returns the zero action
-// with no error.
-func workflowDecisionFactInitialActionDefinition(definition WorkflowDefinition) (WorkflowActionDefinition, error) {
-	pinned := workflowActionDefinitionByID(definition, "approve_contract")
-	if pinned.Consequence == "" {
-		return WorkflowActionDefinition{}, nil
-	}
-	if !workflowDeclaresDecisionDomains(definition) {
-		return pinned, nil
-	}
-	if !pinned.Payload.Closed {
-		return WorkflowActionDefinition{}, definitionFailure(KindInvalidDefinition, "consequence_v1 approve_contract initial payload is open; pin a closed initial payload declaration")
-	}
-	selected := workflowActionDefinitionByID(cloneWorkflowDefinition(definition), "approve_contract")
-	selected.Payload.Fields = workflowDecisionFactPayloadFields(definition, selected.Payload.Fields)
-	if selected.PublicPayload != nil {
-		selected.PublicPayload.Fields = workflowDecisionFactPayloadFields(definition, selected.PublicPayload.Fields)
-	}
-	return selected, nil
-}
-
-func workflowActionExecutionMode(definition WorkflowDefinition, actionID string) (ActionExecutionMode, bool) {
-	for _, action := range definition.ActionDefinitions {
-		if action.ID != actionID {
-			continue
-		}
-		if validActionExecutionMode(action.ExecutionMode) {
-			return action.ExecutionMode, true
-		}
-		break
-	}
-	return "", false
 }
 
 func workflowInt(value int64) *int64 { return &value }

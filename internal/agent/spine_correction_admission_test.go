@@ -32,9 +32,9 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 		t.Helper()
 		before := f.read(t)
 		effects := premiseConsentSnapshot(t, f.s)
-		err := store.WorkflowActionPreflightWithRegistry(t.Context(), f.s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{
+		err := store.AuthorizeWorkflowActionAtBoundaryTx(t.Context(), f.s, store.WorkflowActionPreflightRequest{
 			WorkID: f.work, ExpectedVersion: before.Pinned.Pin.Version, ActionID: action, Payload: retryJSON(payload), Actor: actor,
-		})
+		}, nil, func(*store.Transaction) error { return nil })
 		var failure *store.Failure
 		if !errors.As(err, &failure) || failure.RecoveryAction == "" {
 			t.Fatalf("preflight did not name the required recovery: %v", err)

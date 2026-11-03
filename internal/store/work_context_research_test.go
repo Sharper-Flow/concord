@@ -1610,11 +1610,7 @@ func TestWorkContextResearchAdmission(t *testing.T) {
 	t.Parallel()
 
 	t.Run("the current action declares and retains the research selection field", func(t *testing.T) {
-		registered, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
-		if !ok {
-			t.Fatal("current workflow.break_fix is not registered")
-		}
-		fixture := seedWorkContextFixtureWithDefinition(t, "ctx-research-public-current", registered)
+		fixture := seedWorkContextFixtureWithPlan(t, "ctx-research-public-current", WorkflowStepPlanFix, "implement")
 		defer fixture.store.Close()
 		pack := seedResearchContextPack(t, fixture, "public")
 		bindResearchPack(t, fixture, pack.PackID, 1, true)

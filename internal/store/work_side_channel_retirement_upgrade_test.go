@@ -4,19 +4,21 @@ import (
 	"database/sql"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
+
+func cutoverRetainedContractRows(t *testing.T, db *sql.DB) [][]any {
+	t.Helper()
+	return retirementUpgradeRows(t, db, `SELECT work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,superseded_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json,supersession_seq,last_healthy_seq,decision_domains FROM workflow_contracts ORDER BY rowid`)
+}
 
 func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 	useStampedBuild(t)
 	db, path := retirementUpgradeFixture(t)
 	advanceHistoricalPrefix(t, db, 178)
-	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
 	retirementUpgradeExec(t, db, `INSERT INTO write_guard(active) VALUES(1)`)
-	retirementUpgradeExec(t, db, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state) VALUES('work-upgrade-from',?,?,'proposal','planned')`, definition.Definition.Ref, definition.Digest)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state) VALUES('work-upgrade-from','workflow.implementation',?,'proposal','planned')`, "sha256:"+strings.Repeat("a", 64))
 	retirementUpgradeExec(t, db, `INSERT INTO workflow_premise_confirmations(work_id,contract_version,confirmed_by,confirmed_at) SELECT work_id,contract_version,approved_by,approved_at FROM workflow_contracts WHERE work_id='work-upgrade-from'`)
 	retirementUpgradeExec(t, db, `INSERT INTO work_messages(message_id,sender_work_id,recipient_work_id,body,state,sent_at) VALUES('msg:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','work-upgrade-from','work-upgrade-to','Retain the live message in the snapshot','sent',?)`, retirementUpgradeTime)
 	retirementUpgradeExec(t, db, `INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at,recorded_seq) VALUES('obs:aaaaaaaaaaaaaaaa','work-upgrade-from','Retain the observation','[]','[]',?,4)`, retirementUpgradeTime)
@@ -45,7 +47,9 @@ func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 	if err != nil || verified.DBChecksum != manifest.DBChecksum || verified.SchemaVersion != 178 {
 		t.Fatalf("verified predecessor = %+v, %v", verified, err)
 	}
-	contracts := retainedWorkflowContractRows(t, db)
+	contracts := cutoverRetainedContractRows(t, db)
+	const retainedInstanceColumns = `SELECT work_id,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY work_id`
+	instances := retirementUpgradeRows(t, db, retainedInstanceColumns)
 	if _, err := Upgrade(t.Context(), path, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -60,15 +64,18 @@ func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 		if table == "schema" || table == "schema_migrations" || table == "store_revision" {
 			continue
 		}
-		if table == "workflow_contracts" {
+		if table == "workflow_contracts" || table == "workflow_instances" {
 			continue
 		}
 		if got := retirementUpgradeRows(t, db, `SELECT * FROM "`+table+`" ORDER BY rowid`); !reflect.DeepEqual(got, want) {
 			t.Errorf("unrelated current authority %s changed", table)
 		}
 	}
-	if got := retainedWorkflowContractRows(t, db); !reflect.DeepEqual(got, contracts) {
+	if got := cutoverRetainedContractRows(t, db); !reflect.DeepEqual(got, contracts) {
 		t.Errorf("unrelated current authority workflow_contracts changed")
+	}
+	if got := retirementUpgradeRows(t, db, retainedInstanceColumns); !reflect.DeepEqual(got, instances) {
+		t.Errorf("retained workflow instance fields changed: before=%v after=%v", instances, got)
 	}
 	backup, err := sql.Open(driverName, readOnlyDataSource(snapshot))
 	if err != nil {
@@ -88,7 +95,7 @@ func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("current work pin after retirement: %v", err)
 	}
-	if pin.WorkflowType != definition.Definition.Ref || pin.Step != "proposal" || len(pin.NextValidIntents) == 0 {
-		t.Fatalf("current workflow did not survive: %+v", pin)
+	if pin.Step != "intake" || len(pin.NextValidIntents) == 0 {
+		t.Fatalf("undelivered work did not return to intake: %+v", pin)
 	}
 }

@@ -81,10 +81,6 @@ func beforeMigrationSQL(ctx context.Context, q migrationRunner, m migration) err
 		return retireInitiativeWork(ctx, q)
 	case "repository_verification_retirement":
 		return checkVerificationRetirement(ctx, q)
-	case "workflow_law_pin_retirement":
-		// Earlier steps can materialize retained Review facts. Check again at
-		// the destructive boundary, after those steps have run.
-		return preflightWorkflowLawPinRetirementUpgrade(ctx, q)
 	case "ordinary_workflow_records":
 		return preflightOrdinaryWorkflowRecords(ctx, q)
 	}
@@ -8680,15 +8676,62 @@ ALTER TABLE workflow_contracts DROP COLUMN definition_ref;
 ALTER TABLE workflow_contracts DROP COLUMN definition_digest;
 DELETE FROM workflow_step_epochs;
 DELETE FROM workflow_coordinator_actions WHERE work_id IN (SELECT work_id FROM workflow_instances WHERE instance_state='intake');
-DELETE FROM workflow_phase_exits WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
-DELETE FROM workflow_completed_exits WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
-DELETE FROM workflow_checkpoints WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
-DELETE FROM workflow_context_checkpoints WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
-DELETE FROM workflow_context_boundaries WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
+DELETE FROM workflow_phase_exits;
+DELETE FROM workflow_completed_exits;
+DELETE FROM workflow_checkpoints;
+CREATE TABLE workflow_context_checkpoints_v183 (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    work_version INTEGER NOT NULL, checkpoint_sequence INTEGER NOT NULL,
+    checkpoint_id TEXT NOT NULL, step_id TEXT NOT NULL, attempt_epoch INTEGER NOT NULL,
+    active_unit TEXT NOT NULL, hypothesis TEXT NOT NULL, diagnosis TEXT NOT NULL, strategy TEXT NOT NULL,
+    touched_refs TEXT NOT NULL CHECK(json_valid(touched_refs) AND json_type(touched_refs)='array'),
+    evidence_refs TEXT NOT NULL CHECK(json_valid(evidence_refs) AND json_type(evidence_refs)='array'),
+    pending_questions TEXT NOT NULL CHECK(json_valid(pending_questions) AND json_type(pending_questions)='array'),
+    pending_decisions TEXT NOT NULL CHECK(json_valid(pending_decisions) AND json_type(pending_decisions)='array'),
+    workflow_ref TEXT NOT NULL, actor_ref TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    request_id TEXT NOT NULL, recorded_at TEXT NOT NULL,
+    PRIMARY KEY(work_id, work_version, checkpoint_sequence), UNIQUE(work_id, checkpoint_id),
+    CHECK(work_version > 0), CHECK(checkpoint_sequence > 0), CHECK(attempt_epoch > 0),
+    CHECK(length(checkpoint_id) BETWEEN 2 AND 128), CHECK(length(step_id) BETWEEN 2 AND 128),
+    CHECK(length(active_unit) BETWEEN 2 AND 256), CHECK(length(hypothesis) BETWEEN 2 AND 4096),
+    CHECK(length(diagnosis) BETWEEN 2 AND 4096), CHECK(length(strategy) BETWEEN 2 AND 4096),
+    CHECK(json_array_length(touched_refs) BETWEEN 1 AND 64), CHECK(json_array_length(evidence_refs) BETWEEN 1 AND 64),
+    CHECK(json_array_length(pending_questions) BETWEEN 0 AND 16), CHECK(json_array_length(pending_decisions) BETWEEN 0 AND 16),
+    CHECK(length(workflow_ref) BETWEEN 2 AND 128), CHECK(length(request_id) > 0)
+);
+INSERT INTO workflow_context_checkpoints_v183 SELECT work_id,work_version,checkpoint_sequence,checkpoint_id,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions,workflow_ref,actor_ref,request_id,recorded_at FROM workflow_context_checkpoints;
+DROP TABLE workflow_context_checkpoints;
+ALTER TABLE workflow_context_checkpoints_v183 RENAME TO workflow_context_checkpoints;
+CREATE INDEX workflow_context_checkpoints_latest ON workflow_context_checkpoints(work_id,checkpoint_sequence DESC);
+CREATE TRIGGER workflow_context_checkpoints_guard_insert BEFORE INSERT ON workflow_context_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_checkpoints is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_context_checkpoints_guard_update BEFORE UPDATE ON workflow_context_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_checkpoints is immutable'); END;
+CREATE TRIGGER workflow_context_checkpoints_guard_delete BEFORE DELETE ON workflow_context_checkpoints FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_checkpoints is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TABLE workflow_context_boundaries_v183 (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    work_version INTEGER NOT NULL, boundary_sequence INTEGER NOT NULL, boundary_count INTEGER NOT NULL,
+    boundary_id TEXT NOT NULL, boundary_kind TEXT NOT NULL CHECK(boundary_kind='summary'),
+    checkpoint_id TEXT NOT NULL, checkpoint_sequence INTEGER NOT NULL, attempt_epoch INTEGER NOT NULL,
+    summary TEXT NOT NULL, workflow_ref TEXT NOT NULL,
+    actor_ref TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    request_id TEXT NOT NULL, recorded_at TEXT NOT NULL,
+    PRIMARY KEY(work_id, boundary_sequence), UNIQUE(work_id, boundary_id),
+    CHECK(work_version > 0), CHECK(boundary_sequence > 0 AND boundary_count = boundary_sequence),
+    CHECK(length(boundary_id) BETWEEN 2 AND 128), CHECK(boundary_kind='summary' AND length(summary) BETWEEN 1 AND 16384),
+    CHECK(attempt_epoch > 0), CHECK(length(checkpoint_id) BETWEEN 2 AND 128), CHECK(checkpoint_sequence > 0),
+    CHECK(length(workflow_ref) BETWEEN 2 AND 128), CHECK(length(request_id) > 0)
+);
+INSERT INTO workflow_context_boundaries_v183 SELECT work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,actor_ref,request_id,recorded_at FROM workflow_context_boundaries;
+DROP TABLE workflow_context_boundaries;
+ALTER TABLE workflow_context_boundaries_v183 RENAME TO workflow_context_boundaries;
+CREATE INDEX workflow_context_boundaries_history ON workflow_context_boundaries(work_id,boundary_sequence DESC);
+CREATE TRIGGER workflow_context_boundaries_guard_insert BEFORE INSERT ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_context_boundaries_guard_update BEFORE UPDATE ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is immutable'); END;
+CREATE TRIGGER workflow_context_boundaries_guard_delete BEFORE DELETE ON workflow_context_boundaries FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_context_boundaries is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 DELETE FROM workflow_coordinator_actions WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
 DELETE FROM work_context_findings WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
 DELETE FROM work_context_state WHERE work_id IN (SELECT id FROM work_items WHERE lifecycle IN ('completed','cancelled','superseded'));
- DROP TABLE workflow_step_completions;
+DROP TABLE workflow_step_completions;
+DELETE FROM runtime_state_writers WHERE surface='workflow';
 CREATE TABLE workflow_plan_records (
     work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
     work_version INTEGER NOT NULL CHECK(work_version > 0),
@@ -8711,7 +8754,7 @@ CREATE TRIGGER workflow_plan_records_guard_delete BEFORE DELETE ON workflow_plan
 CREATE TRIGGER workflow_removal_scopes_guard_insert BEFORE INSERT ON workflow_removal_scopes BEGIN SELECT RAISE(ABORT, 'workflow_removal_scopes is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 CREATE TRIGGER workflow_removal_scopes_guard_update BEFORE UPDATE ON workflow_removal_scopes BEGIN SELECT RAISE(ABORT, 'workflow_removal_scopes is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 CREATE TRIGGER workflow_removal_scopes_guard_delete BEFORE DELETE ON workflow_removal_scopes BEGIN SELECT RAISE(ABORT, 'workflow_removal_scopes is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
- DELETE FROM write_guard;
+DELETE FROM write_guard;
 `,
 	},
 }
@@ -9101,9 +9144,6 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, lawIndex
 			return rollback(err)
 		}
 		if err := preflightRemoteLocatorUpgrade(ctx, tx); err != nil {
-			return rollback(err)
-		}
-		if err := preflightWorkflowLawPinRetirementUpgrade(ctx, tx); err != nil {
 			return rollback(err)
 		}
 	}

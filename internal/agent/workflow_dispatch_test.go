@@ -18,19 +18,11 @@ import (
 
 func seedAgentWorkflow(t *testing.T, s *store.Store, grant Authority) int64 {
 	t.Helper()
-	// Seed the live authoring head, not a frozen version: the boundary's
-	// closed action union admits only the current heads' declared shapes, so
-	// every seeded workflow walks the canonical graph (CD-0218 D4 keeps the
-	// frozen pins registered for decode, never for new public authoring).
-	registered, err := store.LiveWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return seedAgentWorkflowAt(t, s, grant, registered)
+	return seedAgentWorkflowAt(t, s, grant, store.WorkflowStepPlanChange, "plan")
 }
 
-// seedAgentWorkflowAt seeds work-1 under the given registered pin.
-func seedAgentWorkflowAt(t *testing.T, s *store.Store, grant Authority, registered store.RegisteredDefinition) int64 {
+// seedAgentWorkflowAt opens intake and installs a type's requested frontier.
+func seedAgentWorkflowAt(t *testing.T, s *store.Store, grant Authority, planType store.WorkflowStepPlanType, step string) int64 {
 	t.Helper()
 	ctx := context.Background()
 	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
@@ -45,6 +37,7 @@ func seedAgentWorkflowAt(t *testing.T, s *store.Store, grant Authority, register
 	}); err != nil {
 		t.Fatal(err)
 	}
+	seedAgentPlanFrontier(t, s, "work-1", planType, step)
 	version, err := workVersionForWorkflow(t, s)
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +62,7 @@ func TestWorkflowReplayTransactionUsesCommittedResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"tx-replay-owner"}`)
+	input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_plan","fields":{"outcomes":"Working outcome","approach":"Bounded change","decisions":[{"id":"decision:one","question":"Which approach?","choice":"One approach","rationale":"It fits","rejected":[]}],"touches":["file:one"],"merge_split":"One item","risks":"Bounded risk"},"idempotency_key":"tx-replay-owner"}`)
 	first, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 	if err != nil || first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("initial workflow response=%+v err=%v", first, err)
@@ -85,7 +78,7 @@ func TestWorkflowReplayTransactionUsesCommittedResponse(t *testing.T) {
 	r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_transition", Operation: "workflow_action"}
 	var response agentcontract.Envelope
 	var rejected, mutated bool
-	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, s, nil, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID}, r.workflowActionReplayPreflight(ctx, agentcontract.NewBase(env.RequestID, r.Tool, r.Operation), mutationDigest(r.Tool, r.Operation, env, input), grant, in, &response, &rejected), nil, func(*store.Transaction) error {
+	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, s, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID}, r.workflowActionReplayPreflight(ctx, agentcontract.NewBase(env.RequestID, r.Tool, r.Operation), mutationDigest(r.Tool, r.Operation, env, input), grant, in, &response, &rejected), nil, func(*store.Transaction) error {
 		mutated = true
 		return nil
 	})
@@ -114,8 +107,8 @@ func TestWorkflowReplaySurvivesMissingSessionWorktree(t *testing.T) {
 	env := mutationEnvelope(grant, scope)
 	env.Worktree = t.TempDir()
 	env.Directory = env.Worktree
-	raw := retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_proposal", "idempotency_key": "replay-missing-worktree", "fields": map[string]any{
-		"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."},
+	raw := retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_plan", "idempotency_key": "replay-missing-worktree", "fields": map[string]any{
+		"outcomes": "Working outcome", "approach": "Bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "Which approach?", "choice": "One approach", "rationale": "It fits", "rejected": []string{}}}, "touches": []string{"file:one"}, "merge_split": "One item", "risks": "Bounded risk",
 	}})
 	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
 	if first.Outcome != agentcontract.OutcomeOK {
@@ -168,7 +161,7 @@ func TestWorkflowReplayStoresCommittedResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"no-response-copy"}`)
+	input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_plan","fields":{"outcomes":"Working outcome","approach":"Bounded change","decisions":[{"id":"decision:one","question":"Which approach?","choice":"One approach","rationale":"It fits","rejected":[]}],"touches":["file:one"],"merge_split":"One item","risks":"Bounded risk"},"idempotency_key":"no-response-copy"}`)
 	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("workflow response=%+v err=%v", response, err)
@@ -229,7 +222,7 @@ func TestWorkflowReplayOwnerClassifications(t *testing.T) {
 				t.Fatal(err)
 			}
 			env := mutationEnvelope(grant, scopeVersion)
-			raw := json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"owner-classification"}`)
+			raw := retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_plan", "fields": agentPlanFields(), "idempotency_key": "owner-classification"})
 			opID := seedCurrentWorkflowActionReplay(t, s, env, raw, vector.kind)
 			changed := agentcontract.ChangedRef{EntityKind: "work_item", ID: "work-1", Version: strconv.FormatInt(version, 10)}
 			refs, _ := json.Marshal([]string{`{"entity_kind":"work_item","id":"work-1","version":` + strconv.FormatInt(version, 10) + `}`})
@@ -311,7 +304,7 @@ func workflowTransactionReplay(t *testing.T, r runtime, grant Authority, raw jso
 	base := agentcontract.NewBase(r.Envelope.RequestID, r.Tool, r.Operation)
 	var response agentcontract.Envelope
 	var rejected, mutated bool
-	err := store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(context.Background(), r.Store, nil, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID}, r.workflowActionReplayPreflight(context.Background(), base, mutationDigest(r.Tool, r.Operation, r.Envelope, raw), grant, in, &response, &rejected), nil, func(*store.Transaction) error {
+	err := store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(context.Background(), r.Store, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID}, r.workflowActionReplayPreflight(context.Background(), base, mutationDigest(r.Tool, r.Operation, r.Envelope, raw), grant, in, &response, &rejected), nil, func(*store.Transaction) error {
 		mutated = true
 		return nil
 	})
@@ -418,7 +411,7 @@ func committedWorkflowReplay(t *testing.T) (runtime, Authority, json.RawMessage,
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	raw := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"retained-replay"}`)
+	raw := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_intake","fields":{"outcome":"proceed","open_questions_found":false,"note":"The bounded stakes statement."},"idempotency_key":"retained-replay"}`)
 	first, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
 	if err != nil || first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("initial committed action=%+v err=%v", first, err)
@@ -461,9 +454,6 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
 	version := seedAgentWorkflow(t, s, grant)
-	if version != 4 {
-		t.Fatalf("workflow seed version=%d, want 4", version)
-	}
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -491,13 +481,14 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 		t.Fatalf("duplicate JSON response=%+v err=%v", duplicateResponse, err)
 	}
 
-	request := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"wf-record-proposal"}`)}
+	request := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_plan", "fields": agentPlanFields(), "idempotency_key": "wf-record-plan"})}
 	first, err := Dispatch(context.Background(), s, service, request, env)
 	if err != nil || first.Outcome != agentcontract.OutcomeOK || first.Error != nil || len(*first.ChangedRefs) != 1 {
 		t.Fatalf("workflow action response=%+v err=%v", first, err)
 	}
-	if (*first.ChangedRefs)[0].Version != "6" {
-		t.Fatalf("workflow action changed version=%s, want 6", (*first.ChangedRefs)[0].Version)
+	after := workVersion(t, s, "work-1")
+	if after <= version || (*first.ChangedRefs)[0].Version != strconv.FormatInt(after, 10) {
+		t.Fatalf("workflow action changed version=%s, actual=%d initial=%d", (*first.ChangedRefs)[0].Version, after, version)
 	}
 	var mutationPayload struct {
 		WorkPins []store.WorkPin `json:"work_pins"`
@@ -505,10 +496,10 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 	if err := json.Unmarshal(first.Result, &mutationPayload); err != nil {
 		t.Fatal(err)
 	}
-	if len(mutationPayload.WorkPins) != 1 || mutationPayload.WorkPins[0].Version != 6 || mutationPayload.WorkPins[0].WorkID != "work-1" {
+	if len(mutationPayload.WorkPins) != 1 || mutationPayload.WorkPins[0].Version != after || mutationPayload.WorkPins[0].WorkID != "work-1" {
 		t.Fatalf("mutation work pins=%+v, want post-state pin", mutationPayload.WorkPins)
 	}
-	if len(*first.NextValidIntents) == 0 || (*first.NextValidIntents)[0].ActionID == "" || (*first.NextValidIntents)[0].ExpectedVersion != 6 {
+	if len(*first.NextValidIntents) == 0 || (*first.NextValidIntents)[0].ActionID == "" || (*first.NextValidIntents)[0].ExpectedVersion != after {
 		t.Fatalf("mutation intents=%+v, want derived action intents", *first.NextValidIntents)
 	}
 	var operations, records int
@@ -576,15 +567,13 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 	} {
 		t.Run(vector.name, func(t *testing.T) {
 			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
-			if got := seedAgentWorkflow(t, s, grant); got != 4 {
-				t.Fatalf("workflow seed version=%d, want 4", got)
-			}
+			version := seedAgentWorkflow(t, s, grant)
 			scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 			if err != nil {
 				t.Fatal(err)
 			}
 			env := mutationEnvelope(grant, scopeVersion)
-			input := json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"legacy-replay-` + strings.ReplaceAll(vector.name, " ", "-") + `"}`)
+			input := retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_plan", "fields": agentPlanFields(), "idempotency_key": "legacy-replay-" + strings.ReplaceAll(vector.name, " ", "-")})
 			opID := seedCurrentWorkflowActionReplay(t, s, env, input, vector.resultKind)
 			beforeEvents := countWorkflowEvents(t, s)
 			beforeVersion := workOneVersion(t, s)
@@ -635,16 +624,14 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 func TestWorkflowActionRejectsLegacyEventReplay(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
-	if got := seedAgentWorkflow(t, s, grant); got != 4 {
-		t.Fatalf("workflow seed version=%d, want 4", got)
-	}
+	version := seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	response, err := Dispatch(context.Background(), s, service, InvokeRequest{
 		Tool: "concord_work_transition", Operation: "workflow_action",
-		Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"replay","fields":{},"idempotency_key":"legacy-event-replay"}`),
+		Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "replay", "fields": map[string]any{}, "idempotency_key": "legacy-event-replay"}),
 	}, mutationEnvelope(grant, scopeVersion))
 	if err != nil {
 		t.Fatal(err)
@@ -661,15 +648,13 @@ func TestWorkflowActionRejectsLegacyEventReplay(t *testing.T) {
 func TestWorkflowActionReplayRejectsOldSurfaceResultShapeAndDigest(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
-	if got := seedAgentWorkflow(t, s, grant); got != 4 {
-		t.Fatalf("workflow seed version=%d, want 4", got)
-	}
+	version := seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	input := json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"current-replay-shape"}`)
+	input := retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_plan", "fields": agentPlanFields(), "idempotency_key": "current-replay-shape"})
 	opID := seedCurrentWorkflowActionReplay(t, s, env, input, "completed")
 	if _, err := s.DatabaseForTesting().Exec(`UPDATE durable_operations SET result_payload=? WHERE op_id=?`, `{"changed_refs":["work-1"],"next_valid_intents":[],"operation_id":"`+opID+`"}`, opID); err != nil {
 		t.Fatal(err)
@@ -701,11 +686,7 @@ func seedCurrentWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvel
 	resultPayload := `{"changed_refs":[` + changedRef + `],"next_valid_intents":[],"operation_id":"` + opID + `"}`
 	changedRefs := `[` + strconv.Quote(changedRef) + `]`
 	scope := `{"product_id":"product-1","project_ids":["project-1"],"work_ids":["work-1"],"scope_version":"` + env.ScopeVersion + `"}`
-	definition, defErr := store.LiveWorkflowDefinitionForRef("workflow.implementation")
-	if defErr != nil {
-		t.Fatal(defErr)
-	}
-	_, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, opID, 1, "work-1", definition.Definition.Ref, definition.Digest, "proposal", "internal_sqlite", "sha256:legacy-input", scope, "completed", resultPayload, "[]", changedRefs, env.PrincipalRef, env.RequestID, fixedTime().Format(time.RFC3339Nano), fixedTime().Format(time.RFC3339Nano), agentcontract.ManifestDigest)
+	_, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, opID, 1, "work-1", "change", "", "plan", "internal_sqlite", "sha256:legacy-input", scope, "completed", resultPayload, "[]", changedRefs, env.PrincipalRef, env.RequestID, fixedTime().Format(time.RFC3339Nano), fixedTime().Format(time.RFC3339Nano), agentcontract.ManifestDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -783,61 +764,30 @@ func countWorkflowEvents(t *testing.T, s *store.Store) int {
 func TestWorkflowActionDispatchPersistsDefinitionContract(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
-	if got := seedAgentWorkflow(t, s, grant); got != 4 {
-		t.Fatalf("workflow seed version=%d, want 4", got)
-	}
+	version := seedAgentWorkflow(t, s, grant)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	// Proposal and alignment establish the criteria approval context.
-	for i, action := range []string{"record_proposal", "record_alignment"} {
-		fields := ""
-		if action == "record_proposal" {
-			fields = `,"fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`
-		}
-		if action == "record_alignment" {
-			fields = `,"fields":{"searched":"The bounded backlog search statement.","outcome":"none_found"}`
-		}
-		// Cumulative expected versions: proposal and alignment each
-		// consume two events over the version-4 capture.
-		expectedVersion := []int{4, 6}[i]
-		input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.Itoa(expectedVersion) + `,"action_id":"` + action + `"` + fields + `,"idempotency_key":"wf-advance-` + action + `"}`)
-		response, dispatchErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
-		if dispatchErr != nil || response.Outcome != agentcontract.OutcomeOK {
-			t.Fatalf("advance action=%s response=%+v err=%v", action, response, dispatchErr)
-		}
-	}
-	input := workflowContractActionInput(t, s, "wf-approve-contract")
-	var durableBefore int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations WHERE workflow_type_ref LIKE 'workflow.%'`).Scan(&durableBefore); err != nil {
-		t.Fatal(err)
-	}
-	if durableBefore != 2 {
-		t.Fatalf("workflow action durable operation count=%d, want 2 prior actions", durableBefore)
-	}
+	fields := workflowDecisionContractFieldsFixture()
+	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
+	input := retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "approve_contract", "fields": fields, "idempotency_key": "wf-approve-contract"})
 	approved, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 	if err != nil || approved.Outcome != agentcontract.OutcomeOK {
-		if approved.Error != nil {
-			t.Fatalf("approved workflow action response=%+v error=%+v err=%v", approved, *approved.Error, err)
-		}
-		t.Fatalf("approved workflow action response=%+v err=%v", approved, err)
-	}
-	var step string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&step); err != nil {
-		t.Fatal(err)
-	}
-	if step != "design" {
-		t.Fatalf("approved action current step=%s, want design", step)
+		t.Fatalf("approved workflow action response=%+v err=%v", approved.Error, err)
 	}
 	workflowRead, err := s.QueryQ7(context.Background(), store.Q7Request{Work: "work-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	projection := workflowRead.Workflow
-	if projection == nil {
-		t.Fatal("Q7 omitted the recorded workflow")
+	if projection == nil || projection.Plan == nil {
+		t.Fatal("Q7 omitted the recorded workflow plan")
+	}
+	frontier := store.WorkflowStepPlanFrontier(*projection.Plan)
+	if projection.Plan.Type != store.WorkflowStepPlanChange || len(frontier) != 1 || frontier[0].ID != "plan" {
+		t.Fatalf("unexpected plan frontier: %+v", frontier)
 	}
 	wantBinding := workflowArchitectureBindingForSeededRegistry(t, s)
 	if projection.ArchitectureBinding == nil || projection.ArchitectureBinding.HomeDomainID != wantBinding["home_domain_id"] {

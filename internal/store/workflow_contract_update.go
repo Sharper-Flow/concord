@@ -24,10 +24,6 @@ func BuiltinWorkflowContractUpdateFields() []WorkflowPayloadField {
 	}
 }
 
-func WorkflowContractUpdatePayload(definition WorkflowDefinition) WorkflowPayloadDefinition {
-	return WorkflowPayloadDefinition{Closed: true, Fields: workflowDecisionFactPayloadFields(definition, BuiltinWorkflowContractUpdateFields())}
-}
-
 func reviseWorkflowContractTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, raw json.RawMessage) error {
 	plan, err := readWorkflowPlanTx(ctx, tx, event.SubjectID)
 	if err != nil {

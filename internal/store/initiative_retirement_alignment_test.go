@@ -22,11 +22,7 @@ func initiativeRetirementAlignmentFixture(t *testing.T, lifecycle, instance stri
 		}
 	}
 	if instance != "" {
-		registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-		if err != nil {
-			t.Fatal(err)
-		}
-		retirementUpgradeExec(t, db, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state) VALUES('work-live','workflow.implementation',?,'acceptance',?)`, registered.Digest, instance)
+		retirementUpgradeExec(t, db, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state) VALUES('work-live','workflow.implementation',?,'acceptance',?)`, testDigest("predecessor-definition"), instance)
 	}
 	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
 	return db, path

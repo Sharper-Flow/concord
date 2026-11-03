@@ -98,16 +98,16 @@ func ReadWorkPin(ctx context.Context, s *Store, workID string) (WorkPin, error) 
 	return ReadWorkPinTx(ctx, tx, workID)
 }
 
-// ReadMutationWorkPinTxForRegistry derives a mutation pin in the caller's transaction.
-func ReadMutationWorkPinTxForRegistry(ctx context.Context, transaction *Transaction, registry DefinitionRegistry, workID string, ownEventIDs []string) (WorkPin, bool, error) {
+// ReadMutationWorkPinTx derives a mutation pin in the caller's transaction.
+func ReadMutationWorkPinTx(ctx context.Context, transaction *Transaction, workID string, ownEventIDs []string) (WorkPin, bool, error) {
 	tx, err := transactionSQL(transaction, "work_pin")
 	if err != nil {
 		return WorkPin{}, false, err
 	}
-	return readMutationWorkPinForRegistryTx(ctx, tx, registry, workID, ownEventIDs)
+	return readMutationWorkPinTx(ctx, tx, workID, ownEventIDs)
 }
 
-func readMutationWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string, ownEventIDs []string) (WorkPin, bool, error) {
+func readMutationWorkPinTx(ctx context.Context, tx *sql.Tx, workID string, ownEventIDs []string) (WorkPin, bool, error) {
 	if err := publishedWorkAbsenceQ(ctx, tx, workID, "work_pin"); err != nil {
 		return WorkPin{}, false, err
 	}
@@ -143,16 +143,12 @@ func readMutationWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, registry 
 	if !instance {
 		return identity, false, nil
 	}
-	pin, err := readWorkPinForRegistryTx(ctx, tx, workID, registry)
+	pin, err := ReadWorkPinTx(ctx, tx, workID)
 	return pin, true, err
 }
 
 // ReadWorkPinTx derives a pin from the transaction supplied by its caller.
 func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, error) {
-	return readWorkPinForRegistryTx(ctx, tx, workID, nil)
-}
-
-func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, _ DefinitionRegistry) (WorkPin, error) {
 	var pin WorkPin
 	if tx == nil {
 		return pin, newFailure(KindUnavailable, "work_pin", "transaction is not open", false, "supply an active read transaction")
@@ -316,18 +312,6 @@ func workPinAddCatalogIntents(pin *WorkPin, ids []string) error {
 		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(action, pin.Version, "declared_step_action"))
 	}
 	return nil
-}
-
-// verifyReadWorkflowDefinitionForRegistry is still used by continuity reads.
-func verifyReadWorkflowDefinition(definition WorkflowReadDefinition) (RegisteredDefinition, error) {
-	return resolveCurrentWorkflowDefinition(BuiltinWorkflowRegistry(), definition.Ref)
-}
-
-func verifyReadWorkflowDefinitionForRegistry(definition WorkflowReadDefinition, registry DefinitionRegistry) (RegisteredDefinition, error) {
-	if registry == nil {
-		registry = BuiltinWorkflowRegistry()
-	}
-	return resolveCurrentWorkflowDefinition(registry, definition.Ref)
 }
 
 // workPinReadContractTx reads the one active contract and every enrichment
@@ -494,47 +478,6 @@ func decodeWorkflowPinContract(contract *WorkflowReadContract, required, routes,
 	return nil
 }
 
-// workPinIntents lists the actions the current step offers, the pure shape
-// read. The per-intent workflowAdmit decision in workPinStepIntentsTx drops
-// what the folded state refuses — a dispatched worker's hold hides every
-// advancing exit except accept_worker_result (CD-0133 D4) — so the hold is
-// the shared admission's answer, never a per-site predicate here.
-func workPinIntents(definition WorkflowDefinition, stepID string, version int64) []WorkPinIntent {
-	step := workflowStep(definition, stepID)
-	if step == nil {
-		return []WorkPinIntent{}
-	}
-	actions := make(map[string]WorkflowActionDefinition, len(definition.ActionDefinitions))
-	for _, action := range definition.ActionDefinitions {
-		actions[action.ID] = action
-	}
-	intents := make([]WorkPinIntent, 0, len(step.Actions))
-	for _, actionID := range step.Actions {
-		action, ok := actions[actionID]
-		if !ok {
-			continue
-		}
-		// The approve intent advertises the pinned declaration's selected
-		// shape; an unusable pinned initial declaration is never advertised.
-		if actionID == "approve_contract" && workflowDeclaresDecisionDomains(definition) {
-			selected, err := workflowDecisionFactInitialActionDefinition(definition)
-			if err != nil {
-				continue
-			}
-			action = selected
-		}
-		payload := publicWorkflowActionPayload(action)
-		fields := make([]string, 0, len(payload.Fields))
-		for _, field := range payload.Fields {
-			if field.Required {
-				fields = append(fields, field.Name)
-			}
-		}
-		intents = append(intents, WorkPinIntent{Tool: "concord_work_transition", Operation: "workflow_action", ReasonCode: "declared_step_action", ActionID: action.ID, RequiredFields: fields, ExpectedVersion: version})
-	}
-	return intents
-}
-
 func workPinContainsAction(intents []WorkPinIntent, actionID string) bool {
 	for _, intent := range intents {
 		if intent.ActionID == actionID {
@@ -563,17 +506,6 @@ func publicWorkflowActionPayload(action WorkflowActionDefinition) WorkflowPayloa
 		return *policy.PublicPayload
 	}
 	return action.Payload
-}
-
-// workflowActionDefinitionByID returns the pinned definition's action, or a bare
-// action carrying the ID when the definition omits it.
-func workflowActionDefinitionByID(definition WorkflowDefinition, actionID string) WorkflowActionDefinition {
-	for _, action := range definition.ActionDefinitions {
-		if action.ID == actionID {
-			return action
-		}
-	}
-	return WorkflowActionDefinition{ID: actionID}
 }
 
 func workPinUnverdictedCheckRequirements(ctx context.Context, q queryer, workID string, contractVersion int64) ([]workflowEvidenceRequirement, bool, error) {

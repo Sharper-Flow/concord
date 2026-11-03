@@ -14,15 +14,15 @@ import (
 
 func TestTraceHistoryReadsBacklogAlignment(t *testing.T) {
 	t.Parallel()
-	for _, workflow := range []string{"workflow.implementation", "workflow.break_fix"} {
+	for _, workflow := range []store.WorkflowStepPlanType{store.WorkflowStepPlanChange, store.WorkflowStepPlanFix} {
 		for _, matches := range []int{0, 1, 2, 64} {
 			t.Run(fmt.Sprintf("%s/%d", workflow, matches), func(t *testing.T) {
 				s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
-				registered, err := store.LiveWorkflowDefinitionForRef(workflow)
-				if err != nil {
-					t.Fatal(err)
+				step := "plan"
+				if workflow == store.WorkflowStepPlanFix {
+					step = "diagnose"
 				}
-				version := seedAgentWorkflowAt(t, s, grant, registered)
+				version := seedAgentWorkflowAt(t, s, grant, workflow, step)
 				scopeVersion, _, err := s.ScopeVersion(t.Context(), "project-1")
 				if err != nil {
 					t.Fatal(err)
@@ -46,7 +46,7 @@ func TestTraceHistoryReadsBacklogAlignment(t *testing.T) {
 					t.Fatal("never-checked work carries backlog_alignment")
 				}
 				action := "record_diagnosis"
-				if workflow == "workflow.implementation" {
+				if workflow == store.WorkflowStepPlanChange {
 					invokeWorkflowIssue31Action(t, s, service, env, "record_proposal", version, "alignment-read-proposal")
 					version = workOneVersion(t, s)
 					action = "record_alignment"

@@ -8,8 +8,8 @@ import (
 func TestDeliveryRequiresRecordedReadyDisposition(t *testing.T) {
 	for _, family := range acceptDeliveryFamilies {
 		for _, disposition := range []string{"continue", "correction_required", "revision_required"} {
-			t.Run(family.ref+"/"+disposition, func(t *testing.T) {
-				c := acceptDeliveryCandidateAt(t, "combined-review-disposition", family.ref, "refine", false)
+			t.Run(string(family)+"/"+disposition, func(t *testing.T) {
+				c := acceptDeliveryCandidateAt(t, "combined-review-disposition", family, "review")
 				acceptCurrentReviewForTest(t, c.f, "ready_for_final_proof")
 				completeCurrentReviewForTest(t, c.f, disposition)
 				state, err := loadWorkflowReviewState(t.Context(), c.f.store.db, c.f.workID)

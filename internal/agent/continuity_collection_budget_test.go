@@ -749,11 +749,11 @@ func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) 
 	// so the proof is established before the boundary tx opens and rides the
 	// context into it.
 	ctx = agentWorkflowSourceProof(t, ctx, s, "work-1")
-	if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{
+	if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.WorkflowActionPreflightRequest{
 		WorkID: "work-1", ExpectedVersion: declarationVersion, ActionID: "record_work_context", Payload: declarationRaw,
 		Actor: store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-session-exec-aaaa", AgentRef: "agent-exec", SessionRef: "session-exec-aaaa", ActorClass: store.ActorAgent},
 	}, nil, func(tx *store.Transaction) error {
-		_, err := store.ApplyWorkflowActionTx(ctx, tx, store.BuiltinWorkflowRegistry(), store.WorkflowActionExecutionRequest{
+		_, err := store.ApplyWorkflowActionTx(ctx, tx, store.WorkflowActionExecutionRequest{
 			WorkID: "work-1", ExpectedVersion: declarationVersion, ActionID: "record_work_context", Payload: declarationRaw,
 			Actor:                store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-session-exec-aaaa", AgentRef: "agent-exec", SessionRef: "session-exec-aaaa", ActorClass: store.ActorAgent},
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("3", 64), IdempotencyIdentity: "continuation-research-declaration",

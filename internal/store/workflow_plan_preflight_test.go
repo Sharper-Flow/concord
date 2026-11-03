@@ -24,11 +24,11 @@ func TestWorkflowPlanPreflightIntakeSnapshot(t *testing.T) {
 	}
 	defer tx.Rollback()
 	request := WorkflowActionPreflightRequest{WorkID: "work", ExpectedVersion: 1, StepID: "intake", ActionID: "record_intake", Payload: json.RawMessage(`{"outcome":"proceed","open_questions_found":false}`), Actor: stepFixtureActor()}
-	if _, err := workflowActionPreflightTx(ctx, tx, nil, request); err != nil {
+	if _, err := workflowActionPreflightTx(ctx, tx, request); err != nil {
 		t.Fatal(err)
 	}
 	request.StepID = "other"
-	if _, err := workflowActionPreflightTx(ctx, tx, nil, request); err == nil {
+	if _, err := workflowActionPreflightTx(ctx, tx, request); err == nil {
 		t.Fatal("preflight accepted a non-current step")
 	}
 	var version int

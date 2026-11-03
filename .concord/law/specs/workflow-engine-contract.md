@@ -159,7 +159,7 @@ the new type's missing required steps; it never removes a step.
 ## 3. Workflow instance state machine
 
 `instance_state` is closed:
-`intake`, `planned`, `ready`, `running`, `blocked`, `verifying`,
+`intake`, `running`, `blocked`, `verifying`,
 `completed`, `cancelled`, `superseded`.
 
 | From | To | Operation | Authority/fence |
@@ -173,9 +173,8 @@ the new type's missing required steps; it never removes a step.
 | `running`, `blocked`, `verifying` | `cancelled` | explicit authorized cancellation | one expected-version-checked transaction |
 
 An action failure records its typed failure result; it does not invent a state.
-Recoverable failures leave the instance in `running` or `blocked`. The states
-`planned` and `ready` remain in the closed enum for rows written before the
-step-plan cutover; no new transition produces them. A completed, cancelled, or superseded instance is immutable.
+Recoverable failures leave the instance in `running` or `blocked`.
+A completed, cancelled, or superseded instance is immutable.
 Each action is one expected-version-checked, idempotent domain
 transaction with its operation result and effect receipts. There is no separate
 step claim, takeover or claim/settle protocol. Native authorities own external

@@ -45,7 +45,7 @@ func newTakeoverFixture(t *testing.T) takeoverFixture {
 func (f takeoverFixture) action(t *testing.T, env CallEnvelope, actionID, key string) agentcontract.Envelope {
 	t.Helper()
 	input := map[string]any{"work_id": "work-1", "expected_version": workVersion(t, f.s, "work-1"), "action_id": actionID, "fields": map[string]any{}, "idempotency_key": key}
-	return invokeWorkflowBoundary(t, f.s, f.service, env, input, store.BuiltinWorkflowRegistry())
+	return invokeWorkflowBoundary(t, f.s, f.service, env, input)
 }
 
 func latestExecutionStart(t *testing.T, s *store.Store) (int64, string) {
@@ -108,7 +108,7 @@ func TestStartExecutionTakeoverFencesHeldAttemptChangeInsideTransaction(t *testi
 		}
 		return originalProbe(ctx, directory, worktree)
 	}
-	response := invokeWorkflowBoundary(t, f.s, f.service, f.other, input, store.BuiltinWorkflowRegistry())
+	response := invokeWorkflowBoundary(t, f.s, f.service, f.other, input)
 	f.service.ProjectHostProber = originalProbe
 	if probes < 3 {
 		t.Fatalf("the mutation probed the host %d times, want the third probe to change the held epoch", probes)

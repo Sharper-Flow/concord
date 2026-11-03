@@ -19,15 +19,6 @@ func workflowRecordAction(action string) bool {
 	return false
 }
 
-func workflowRefinementStepID(definition WorkflowDefinition) string {
-	for _, step := range definition.StepGraph.Steps {
-		if stepDeclaresAction(definition, step.ID, "checkpoint_refine") {
-			return step.ID
-		}
-	}
-	return ""
-}
-
 func workflowCurrentRecords(ctx context.Context, q queryer, work string) (map[string]bool, error) {
 	rows, err := q.QueryContext(ctx, `SELECT action_id FROM workflow_completed_exits WHERE work_id=? UNION SELECT 'record_delivery' FROM workflow_delivery_state WHERE work_id=? UNION SELECT 'record_review' FROM workflow_review_state WHERE work_id=? AND json_type(state,'$.accepted')='object'`, work, work, work)
 	if err != nil {

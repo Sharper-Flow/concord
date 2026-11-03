@@ -50,7 +50,7 @@ func TestWorkflowPlanStepStart(t *testing.T) {
 			}
 			defer tx.Rollback()
 			at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-			err = startWorkflowInstanceStepTx(ctx, tx, nil, "work", tc.step, "actor", "model", at)
+			err = startWorkflowInstanceStepTx(ctx, tx, "work", tc.step, "actor", "model", at)
 			if (err != nil) != tc.wantError {
 				t.Fatalf("start error = %v, want error %v", err, tc.wantError)
 			}

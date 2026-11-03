@@ -143,7 +143,7 @@ func TestGeneratedContractDeclarations(t *testing.T) {
 		{
 			ID: "concord_work_transition.workflow_action", Tool: "concord_work_transition", Operation: "workflow_action",
 			Kind: agentcontract.OperationMutation, Capability: "work_transition",
-			Consequence: "workflow_action", Availability: agentcontract.AvailabilityWorkflowDefinition,
+			Consequence: "workflow_action", Availability: agentcontract.AvailabilityAlways,
 			SupportedBudgetSeconds: 30, InputSchema: "work_transition_action_input", ResultSchema: "projectable_mutation_result",
 		},
 	} {

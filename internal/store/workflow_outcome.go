@@ -182,26 +182,6 @@ func validateWorkflowCheckPredicate(predicate OutcomePredicate) error {
 	return nil
 }
 
-func ValidateWorkflowPredicateForDefinition(definition WorkflowDefinition, predicate OutcomePredicate) error {
-	if err := ValidateWorkflowPredicate(predicate); err != nil {
-		return err
-	}
-	if !slices.Contains(definition.OutcomeSchema.AllowedKinds, predicate.Kind) {
-		return definitionFailure(KindInvalidDefinition, "predicate kind not allowed by the pinned workflow definition")
-	}
-	if predicate.Kind == PredicateOutcome {
-		for _, token := range predicate.Allowed {
-			if !slices.Contains(definition.OutcomeSchema.AllowedOutcomeTokens, token) {
-				return definitionFailure(KindInvalidDefinition, "outcome token not allowed by the pinned workflow definition")
-			}
-		}
-		if predicate.DecisionRecord != nil && !slices.Contains(predicate.Allowed, predicate.DecisionRecord.Decision) {
-			return definitionFailure(KindInvalidDefinition, "decision record token is not allowed by the pinned workflow definition")
-		}
-	}
-	return nil
-}
-
 func validateDecisionRecord(record WorkflowDecisionRecord) error {
 	if len(record.Question) < 1 || len(record.Question) > 4096 || len(record.OptionsConsidered) < 1 || len(record.OptionsConsidered) > 16 || !uniqueStrings(record.OptionsConsidered) || (record.Decision != "accepted_decision" && record.Decision != "insufficient_evidence") || len(record.Rationale) < 1 || len(record.Rationale) > 4096 || len(record.Consequences) < 1 || len(record.Consequences) > 16 || len(record.Inputs) < 1 || len(record.Inputs) > 32 || len(record.POCFindings) < 1 || len(record.POCFindings) > 4096 || len(record.Unknowns) > 16 || len(record.RequiredToDecide) > 16 || !workflowActorRefPattern.MatchString(record.ReviewerActorRef) {
 		return workflowOutcomeFailure("decision record is incomplete or invalid")

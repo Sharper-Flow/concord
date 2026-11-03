@@ -20,10 +20,10 @@ import (
 type WorkflowStepPlanType string
 
 const (
-	WorkflowStepPlanChange  WorkflowStepPlanType = "change"
-	WorkflowStepPlanFix     WorkflowStepPlanType = "fix"
+	WorkflowStepPlanChange   WorkflowStepPlanType = "change"
+	WorkflowStepPlanFix      WorkflowStepPlanType = "fix"
 	WorkflowStepPlanResearch WorkflowStepPlanType = "research"
-	WorkflowStepPlanRemoval WorkflowStepPlanType = "removal"
+	WorkflowStepPlanRemoval  WorkflowStepPlanType = "removal"
 )
 
 // WorkflowStepPlanTypes is the closed type set in template-contract order.
@@ -34,11 +34,11 @@ var WorkflowStepPlanTypes = []WorkflowStepPlanType{WorkflowStepPlanChange, Workf
 type WorkflowIntakeOutcome string
 
 const (
-	WorkflowIntakeProceed       WorkflowIntakeOutcome = "proceed"
-	WorkflowIntakeClarify       WorkflowIntakeOutcome = "clarify"
+	WorkflowIntakeProceed        WorkflowIntakeOutcome = "proceed"
+	WorkflowIntakeClarify        WorkflowIntakeOutcome = "clarify"
 	WorkflowIntakeAlreadyHandled WorkflowIntakeOutcome = "already_handled"
-	WorkflowIntakeDecline       WorkflowIntakeOutcome = "decline"
-	WorkflowIntakeSplitOrMerge  WorkflowIntakeOutcome = "split_or_merge"
+	WorkflowIntakeDecline        WorkflowIntakeOutcome = "decline"
+	WorkflowIntakeSplitOrMerge   WorkflowIntakeOutcome = "split_or_merge"
 )
 
 // WorkflowIntakeChecks are the fourteen decided intake checks in decided
@@ -52,9 +52,10 @@ var WorkflowIntakeChecks = []string{
 // WorkflowPlanAttempt is one completion of one step. A repeated step appends
 // another attempt; completed attempts are never altered.
 type WorkflowPlanAttempt struct {
-	Note        string `json:"note"`
-	CompletedAt string `json:"completed_at"`
-	Actor       string `json:"actor,omitempty"`
+	Note          string `json:"note"`
+	CompletedAt   string `json:"completed_at"`
+	Actor         string `json:"actor,omitempty"`
+	CompletionSeq int64  `json:"completion_seq,omitempty"`
 	// Reviewer, Result, Commit and Link carry the concord-review record a
 	// reviewed step completes with; they are required on a reviewed step's
 	// attempt and absent otherwise.
@@ -66,20 +67,20 @@ type WorkflowPlanAttempt struct {
 
 // WorkflowPlanStep is one step of a stored plan.
 type WorkflowPlanStep struct {
-	ID       string               `json:"id"`
-	Required bool                 `json:"required"`
-	After    []string             `json:"after"`
-	Skill    *string              `json:"skill,omitempty"`
-	Helper   *string              `json:"helper,omitempty"`
-	Reviewed bool                 `json:"reviewed"`
+	ID       string                `json:"id"`
+	Required bool                  `json:"required"`
+	After    []string              `json:"after"`
+	Skill    *string               `json:"skill,omitempty"`
+	Helper   *string               `json:"helper,omitempty"`
+	Reviewed bool                  `json:"reviewed"`
 	Attempts []WorkflowPlanAttempt `json:"attempts,omitempty"`
 }
 
 // WorkflowStepPlan is the stored plan document.
 type WorkflowStepPlan struct {
-	SchemaVersion string             `json:"schema_version"`
+	SchemaVersion string               `json:"schema_version"`
 	Type          WorkflowStepPlanType `json:"type"`
-	Steps         []WorkflowPlanStep `json:"steps"`
+	Steps         []WorkflowPlanStep   `json:"steps"`
 }
 
 // workflowStepPlanSchemaVersion is the stored plan's manifest shape, enumerated
@@ -96,12 +97,12 @@ type workflowTemplateStep struct {
 }
 
 type workflowTemplateType struct {
-	ID    string                `json:"id"`
+	ID    string                 `json:"id"`
 	Steps []workflowTemplateStep `json:"steps"`
 }
 
 type workflowTemplatesContract struct {
-	SchemaVersion string                `json:"schema_version"`
+	SchemaVersion string                 `json:"schema_version"`
 	Types         []workflowTemplateType `json:"types"`
 }
 
@@ -215,14 +216,19 @@ func validateStepPlanShape(plan WorkflowStepPlan) error {
 	}
 	ids := make(map[string]bool, len(plan.Steps))
 	for _, step := range plan.Steps {
-		if !validWorkflowID(step.ID) || ids[step.ID] {
+		if len(step.ID) < 2 || len(step.ID) > 64 || !validWorkflowID(step.ID) || ids[step.ID] {
 			return refuse("plan step id is invalid or duplicated")
 		}
 		ids[step.ID] = true
 		if len(step.After) > 64 {
 			return refuse("plan step declares too many after edges")
 		}
+		edges := make(map[string]bool, len(step.After))
 		for _, after := range step.After {
+			if edges[after] {
+				return refuse("plan step after edge is duplicated")
+			}
+			edges[after] = true
 			if after == step.ID || !ids[after] && !stepIDExists(plan.Steps, after) {
 				return refuse("plan step after edge names a step the plan does not hold")
 			}
@@ -231,7 +237,7 @@ func validateStepPlanShape(plan WorkflowStepPlan) error {
 			return refuse("plan step holds too many attempts")
 		}
 		for _, attempt := range step.Attempts {
-			if len(attempt.Note) < 2 || len(attempt.Note) > 4096 || attempt.CompletedAt == "" {
+			if len(attempt.Note) < 2 || len(attempt.Note) > 4096 || attempt.CompletedAt == "" || attempt.CompletionSeq < 0 {
 				return refuse("plan step attempt is invalid")
 			}
 			if step.Reviewed && (attempt.Reviewer == "" || (attempt.Result != "pass" && attempt.Result != "fixed") || attempt.Commit == "" || attempt.Link == "") {
@@ -305,7 +311,7 @@ func validateStepPlanInitialCopy(plan WorkflowStepPlan) error {
 // their after edges; the plan step type holds slices, so == cannot compare it.
 func workflowPlanStepEqual(left, right WorkflowPlanStep) bool {
 	if left.ID != right.ID || left.Required != right.Required || left.Reviewed != right.Reviewed ||
-		stringDeref(left.Skill) != stringDeref(right.Skill) || stringDeref(left.Helper) != stringDeref(right.Helper) ||
+		!equalOptionalString(left.Skill, right.Skill) || !equalOptionalString(left.Helper, right.Helper) ||
 		len(left.After) != len(right.After) || len(left.Attempts) != len(right.Attempts) {
 		return false
 	}
@@ -322,13 +328,6 @@ func workflowPlanStepEqual(left, right WorkflowPlanStep) bool {
 	return true
 }
 
-func stringDeref(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
 // validateStepPlanContinuation holds the step-insert and step-completion
 // writes, and the type switch that adds the new type's missing required
 // steps while keeping completed steps.
@@ -336,7 +335,8 @@ func validateStepPlanContinuation(old, new WorkflowStepPlan) error {
 	refuse := func(detail string) error {
 		return newFailure(KindInvalidOperation, "workflow_step_plan", detail, false, "reread the plan and resend the write")
 	}
-	if new.Type != old.Type {
+	switching := new.Type != old.Type
+	if switching {
 		// A type switch adds the new type's missing required steps and keeps
 		// every existing step; it never removes or rewrites one.
 		template, err := WorkflowStepPlanTemplate(new.Type)
@@ -344,8 +344,12 @@ func validateStepPlanContinuation(old, new WorkflowStepPlan) error {
 			return err
 		}
 		for _, step := range old.Steps {
-			if !stepIDExists(new.Steps, step.ID) {
+			current, found := stepByID(new.Steps, step.ID)
+			if !found {
 				return refuse("a type switch never removes a step")
+			}
+			if !workflowPlanStepEqual(step, current) {
+				return refuse("a type switch never changes an existing step")
 			}
 		}
 		for _, templateStep := range template.Steps {
@@ -358,19 +362,29 @@ func validateStepPlanContinuation(old, new WorkflowStepPlan) error {
 	for _, step := range old.Steps {
 		oldSteps[step.ID] = step
 	}
+	appended := 0
 	for _, step := range new.Steps {
 		previous, existed := oldSteps[step.ID]
 		if !existed {
 			// An added step is either an inserted step or, on a type switch,
 			// a required step of the new type's template.
+			if len(step.Attempts) != 0 {
+				return refuse("a new step must be incomplete")
+			}
 			if step.Required {
+				if !switching {
+					return refuse("a required step is added only on a type switch")
+				}
 				template, err := WorkflowStepPlanTemplate(new.Type)
 				if err != nil {
 					return err
 				}
-				if !slices.ContainsFunc(template.Steps, func(templateStep WorkflowPlanStep) bool { return templateStep.ID == step.ID }) {
+				templateStep, found := stepByID(template.Steps, step.ID)
+				if !found || step.Reviewed != templateStep.Reviewed || !equalOptionalString(step.Skill, templateStep.Skill) || !equalOptionalString(step.Helper, templateStep.Helper) {
 					return refuse("an added required step must come from the picked type's template")
 				}
+			} else if switching {
+				return refuse("a type switch adds only missing required template steps")
 			}
 			continue
 		}
@@ -385,19 +399,23 @@ func validateStepPlanContinuation(old, new WorkflowStepPlan) error {
 		if !slices.Equal(previous.After, step.After) {
 			return refuse("an existing step's after edges never change")
 		}
-		if previous.Required != step.Required || previous.Reviewed != step.Reviewed {
-			return refuse("an existing step's required and reviewed flags never change")
+		if previous.Required != step.Required || previous.Reviewed != step.Reviewed || !equalOptionalString(previous.Skill, step.Skill) || !equalOptionalString(previous.Helper, step.Helper) {
+			return refuse("an existing step's metadata never changes")
 		}
 		if len(step.Attempts) > len(previous.Attempts) {
+			appended += len(step.Attempts) - len(previous.Attempts)
 			// A new attempt completes the step only when every step it comes
 			// after is already completed in the written plan.
 			for _, after := range step.After {
-				afterStep, found := stepByID(new.Steps, after)
+				afterStep, found := stepByID(old.Steps, after)
 				if !found || len(afterStep.Attempts) == 0 {
 					return refuse("a step completes only after every step it comes after")
 				}
 			}
 		}
+	}
+	if appended > 1 {
+		return refuse("a plan write appends at most one attempt")
 	}
 	for _, step := range old.Steps {
 		if step.Required && !stepIDExists(new.Steps, step.ID) {
@@ -408,6 +426,10 @@ func validateStepPlanContinuation(old, new WorkflowStepPlan) error {
 		}
 	}
 	return nil
+}
+
+func equalOptionalString(a, b *string) bool {
+	return a == nil && b == nil || a != nil && b != nil && *a == *b
 }
 
 func stepByID(steps []WorkflowPlanStep, id string) (WorkflowPlanStep, bool) {

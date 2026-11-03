@@ -307,20 +307,13 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 		version = issue31WorkflowAction(t, s, workID, version, action, "first-call-"+action, actor)
 	}
 
-	// Pinned-context read: the WorkPin publishes the exact obligation
-	// membership the pinned definition declares, and its definition identity
-	// verifies against the registry. The verification obligation below is
-	// taken from that exact verified list, and the obligation mutant is
-	// refused against the same collector's membership rule.
+	// Take the obligation from the WorkPin's published list.
 	pin, err := ReadWorkPin(context.Background(), s, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if pin.Obligations == nil || len(*pin.Obligations) == 0 {
 		t.Fatal("pinned definition declares no obligations; the fixture cannot prove declared-obligation membership")
-	}
-	if err := BuiltinWorkflowRegistry().Verify(definition.Ref, *pin.WorkflowDefinitionDigest); err != nil {
-		t.Fatalf("pinned definition identity does not verify: %v", err)
 	}
 	pinnedObligation := (*pin.Obligations)[0]
 
@@ -482,9 +475,6 @@ func firstCallBreakFixSeed(t *testing.T, workID string) (*Store, WorkflowActor) 
 	if pin.Obligations == nil || len(*pin.Obligations) == 0 {
 		t.Fatal("pinned break-fix definition declares no obligations")
 	}
-	if err := BuiltinWorkflowRegistry().Verify(registered.Definition.Ref, *pin.WorkflowDefinitionDigest); err != nil {
-		t.Fatalf("pinned break-fix definition identity does not verify: %v", err)
-	}
 	defs := firstCallPublishedDefs(t)
 	binding := func() map[string]any {
 		return map[string]any{
@@ -512,19 +502,10 @@ func TestFirstCallContractUpdateAdmitsFromPublishedInput(t *testing.T) {
 	const workID = "work-first-call-update"
 	s, owner := firstCallBreakFixSeed(t, workID)
 	defer s.Close()
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Pinned-context read: the successor's required evidence and obligation
-	// come from the exact verified WorkPin the continuity read publishes,
-	// never from the collector the pin derives from.
+	// Take required evidence and obligations from the WorkPin.
 	pin, err := ReadWorkPin(context.Background(), s, workID)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if err := BuiltinWorkflowRegistry().Verify(registered.Definition.Ref, *pin.WorkflowDefinitionDigest); err != nil {
-		t.Fatalf("pinned break-fix definition identity does not verify: %v", err)
 	}
 	defs := firstCallPublishedDefs(t)
 	var workKind string

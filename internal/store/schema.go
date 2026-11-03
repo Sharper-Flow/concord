@@ -8640,6 +8640,49 @@ BEGIN
 END;
 `,
 	},
+	{
+		Version: 183, Name: "workflow_step_plan_cutover", Breaking: true,
+		SQL: `
+INSERT INTO write_guard(active) VALUES(1);
+UPDATE work_items SET lifecycle='completed'
+ WHERE lifecycle NOT IN ('completed','cancelled','superseded')
+ AND EXISTS (SELECT 1 FROM workflow_delivery_state d WHERE d.work_id=work_items.id);
+CREATE TABLE workflow_instances_v183 (
+    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    workflow_type TEXT CHECK(workflow_type IS NULL OR workflow_type IN ('change','fix','research','removal')),
+    step_plan TEXT CHECK(step_plan IS NULL OR (json_valid(step_plan) AND json_type(step_plan)='object')),
+    prelude_state TEXT CHECK(prelude_state IS NULL OR (json_valid(prelude_state) AND json_type(prelude_state)='object')),
+    instance_state TEXT NOT NULL CHECK(instance_state IN ('intake','running','blocked','verifying','completed','cancelled','superseded')),
+    execution_actor_ref TEXT REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    execution_model TEXT NOT NULL DEFAULT '' CHECK(length(execution_model)<=128),
+    started_at TEXT,
+    completed_at TEXT,
+    last_checkpoint_at TEXT,
+    execution_started_at TEXT,
+    completion_payload TEXT CHECK(completion_payload IS NULL OR json_valid(completion_payload)),
+    completion_occurred_at TEXT
+);
+INSERT INTO workflow_instances_v183
+ SELECT i.work_id,NULL,NULL,NULL,
+ CASE WHEN w.lifecycle IN ('completed','cancelled','superseded') THEN w.lifecycle ELSE 'intake' END,
+  CASE WHEN w.lifecycle IN ('completed','cancelled','superseded') THEN i.execution_actor_ref ELSE NULL END,
+  CASE WHEN w.lifecycle IN ('completed','cancelled','superseded') THEN i.execution_model ELSE '' END,
+  i.started_at,i.completed_at,i.last_checkpoint_at,i.execution_started_at,i.completion_payload,i.completion_occurred_at
+ FROM workflow_instances i JOIN work_items w ON w.id=i.work_id;
+DROP TABLE workflow_instances;
+ALTER TABLE workflow_instances_v183 RENAME TO workflow_instances;
+CREATE INDEX workflow_instances_state ON workflow_instances(instance_state,work_id);
+CREATE TRIGGER workflow_instances_guard_insert BEFORE INSERT ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_update BEFORE UPDATE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+ALTER TABLE workflow_contracts DROP COLUMN definition_ref;
+ALTER TABLE workflow_contracts DROP COLUMN definition_digest;
+DELETE FROM workflow_step_epochs;
+DELETE FROM workflow_coordinator_actions WHERE work_id IN (SELECT work_id FROM workflow_instances WHERE instance_state='intake');
+DROP TABLE workflow_step_completions;
+DELETE FROM write_guard;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

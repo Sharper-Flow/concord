@@ -61,13 +61,10 @@ func TestCallerRegistryWorkPinKeepsVerifiedIdentity(t *testing.T) {
 	defer s.Close()
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	registry, registered := seedRegistryWorkPin(t, s, workID)
+	registry, _ := seedRegistryWorkPin(t, s, workID)
 	pin, err := readRegistryThreadedPin(t, s, registry, workID)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if pin.WorkflowDefinitionDigest == nil || *pin.WorkflowDefinitionDigest != registered.Digest {
-		t.Fatalf("caller registry pin lost its verified definition identity: %+v", pin)
 	}
 	if pin.Obligations == nil || len(pin.NextValidIntents) == 0 {
 		t.Fatalf("caller registry pin lost obligations or declared intents: %+v", pin)

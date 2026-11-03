@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func assertWorkPinIntentsAdmitted(t *testing.T, s *Store, workID string) int {
+func assertWorkPinIntentsAdmitted(t *testing.T, s *Store, workID string, definition WorkflowDefinition) int {
 	t.Helper()
 	ctx := context.Background()
 	count := 0
@@ -20,18 +20,12 @@ func assertWorkPinIntentsAdmitted(t *testing.T, s *Store, workID string) int {
 		if err != nil {
 			return err
 		}
-		// nil registry keeps the builtin convenience verification, matching
-		// the builtin-definition intent sweep below.
-		registered, _, err := workPinReadInstanceForRegistryTx(ctx, tx, workID, &WorkPin{}, nil)
-		if err != nil {
-			return err
-		}
-		state, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, registered.Definition, pin.Step, "work_pin")
+		state, err := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, pin.Step, "work_pin")
 		if err != nil {
 			return err
 		}
 		for _, intent := range pin.NextValidIntents {
-			decision := workflowAdmit(registered.Definition, state, intent.ActionID)
+			decision := workflowAdmit(definition, state, intent.ActionID)
 			if !decision.Admitted {
 				return fmt.Errorf("%s step %s advertises unadmitted action %s: %+v", pin.WorkflowType, pin.Step, intent.ActionID, decision)
 			}
@@ -68,7 +62,7 @@ func TestWorkPinIntentsAreAdmittedAtEveryBuiltinStep(t *testing.T) {
 					if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET current_step=? WHERE work_id=?; DELETE FROM write_guard`, step.ID, workID); err != nil {
 						t.Fatal(err)
 					}
-					count += assertWorkPinIntentsAdmitted(t, s, workID)
+					count += assertWorkPinIntentsAdmitted(t, s, workID, definition)
 				})
 			}
 		})

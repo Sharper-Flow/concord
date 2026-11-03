@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -117,6 +119,10 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 	if scope == nil {
 		return result, newFailure(KindInvalidOperation, "workflow_action", "write scope is required", false, "open the write scope with beginWrite")
 	}
+	switch request.ActionID {
+	case "record_intake", "record_clarify", "pick_type", "insert_step", "complete_step":
+		return applyWorkflowPlanActionTx(ctx, tx, scope, request)
+	}
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
 	}
@@ -197,6 +203,11 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 	if err := checkWorkContextDeclarationTx(ctx, tx, request.WorkID, assembly.events); err != nil {
 		return result, err
 	}
+	return finishWorkflowActionTx(ctx, tx, request, operationResult)
+}
+
+func finishWorkflowActionTx(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, operationResult ApplyOperationResult) (WorkflowActionExecutionResult, error) {
+	var result WorkflowActionExecutionResult
 	result.EventIDs = operationResult.EventIDs
 	result.ChangedRefs = []string{request.WorkID}
 	result.OperationID = request.OperationID
@@ -209,6 +220,104 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 		return result, wrapFailure(KindUnavailable, "workflow_action", "cannot complete durable workflow operation", true, "retry once the database is writable", err)
 	}
 	return result, nil
+}
+
+func validateWorkflowPlanActionPayload(actionID string, raw json.RawMessage) (map[string]json.RawMessage, error) {
+	if len(raw) == 0 {
+		raw = json.RawMessage(`{}`)
+	}
+	var fields map[string]json.RawMessage
+	if err := decodeWorkflowActionPayloadStrict(raw, &fields); err != nil {
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "workflow action payload is not one strict JSON object", false, "supply the registered action payload")
+	}
+	definitionFields := builtinActionPolicies[actionID].Payload.Fields
+	allowed := make(map[string]WorkflowPayloadField, len(definitionFields))
+	for _, field := range definitionFields {
+		allowed[field.Name] = field
+	}
+	if err := validateWorkflowPayloadStructure(actionID, definitionFields, allowed, fields); err != nil {
+		return nil, err
+	}
+	document := workflowLivePayloadSchemaDocument()
+	for _, name := range slices.Sorted(maps.Keys(fields)) {
+		field := allowed[name]
+		if !validateWorkflowPayloadValue(field, fields[name]) {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("workflow action payload field %q has the wrong registered type or bounds", name), false, "supply the declared action field type and bounds")
+		}
+		if err := validateWorkflowPayloadSchema(document, field, fields[name]); err != nil {
+			return nil, err
+		}
+	}
+	if err := validateWorkflowPayloadCrossFieldRules(actionID, fields); err != nil {
+		return nil, err
+	}
+	return fields, nil
+}
+
+func applyWorkflowPlanActionTx(ctx context.Context, tx *sql.Tx, scope *writeScope, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
+	var result WorkflowActionExecutionResult
+	fields, err := validateWorkflowPlanActionPayload(request.ActionID, request.Payload)
+	if err != nil {
+		return result, err
+	}
+	currentStep, _, err := readWorkflowActionStateTx(ctx, tx, request.WorkID, request.ExpectedVersion)
+	if err != nil {
+		return result, err
+	}
+	if _, err := readWorkflowPreludeTx(ctx, tx, request.WorkID); err != nil {
+		return result, err
+	}
+	plan, err := readWorkflowPlanTx(ctx, tx, request.WorkID)
+	if err != nil {
+		return result, err
+	}
+	if err := normalizeWorkflowActionRequest(&request); err != nil {
+		return result, err
+	}
+	actor, err := WorkflowActorRef(request.Actor)
+	if err != nil {
+		return result, err
+	}
+	if request.PrincipalRef != request.Actor.PrincipalRef {
+		return result, newFailure(KindUnauthorized, "workflow_action", "operation principal must match the authenticated actor", false, "use the authenticated principal")
+	}
+	prefix, err := workflowActorRecordPrefixTx(ctx, tx, request.Actor)
+	if err != nil {
+		return result, err
+	}
+	typeName := ""
+	if plan != nil {
+		typeName = string(plan.Type)
+	}
+	if request.ActionID == "complete_step" {
+		currentStep, _ = workflowFieldString(fields, "step_id")
+	}
+	if _, err := recordWorkflowOperationTx(ctx, tx, request, typeName, "", currentStep); err != nil {
+		return result, err
+	}
+	if err := BindResearchRelianceTx(ctx, tx, request.WorkID, request.ResearchBindings, request.Now); err != nil {
+		return result, err
+	}
+	version := request.ExpectedVersion
+	var events []Event
+	if prefix != nil {
+		events = append(events, prefix.event(request.OperationID+":actor", request.WorkID, request.Now, version))
+		version++
+	}
+	kind := map[string]string{"record_intake": WorkflowIntakeRecorded, "record_clarify": WorkflowClarifyRecorded, "pick_type": WorkflowTypePicked, "insert_step": WorkflowStepInserted, "complete_step": WorkflowStepCompleted}[request.ActionID]
+	values := make(map[string]any, len(fields)+1)
+	for name, value := range fields {
+		values[name] = value
+	}
+	if request.ActionID == "complete_step" {
+		values["actor"] = actor
+	}
+	events = append(events, workflowTypedEvent(request.OperationID+":semantic", kind, request.WorkID, actor, request.Now, version, values))
+	operationResult, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}}, scope)
+	if err != nil {
+		return result, err
+	}
+	return finishWorkflowActionTx(ctx, tx, request, operationResult)
 }
 
 // One admission derivation for the fold: the tx-scoped loader folds the
@@ -237,7 +346,7 @@ func prepareWorkflowExecutionAdmission(g *workflowActionGuardContext) error {
 func readWorkflowActionStateTx(ctx context.Context, tx *sql.Tx, workID string, expectedVersion int64) (string, string, error) {
 	var currentStep, state, lifecycle string
 	var version int64
-	if err := tx.QueryRowContext(ctx, `SELECT current_step,instance_state,(SELECT lifecycle FROM work_items WHERE id=workflow_instances.work_id),(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep, &state, &lifecycle, &version); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT instance_state,(SELECT lifecycle FROM work_items WHERE id=workflow_instances.work_id),(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, workID).Scan(&state, &lifecycle, &version); err != nil {
 		return "", "", wrapFailure(KindUnavailable, "workflow_action", "cannot read workflow state", true, "retry once the database is readable", err)
 	}
 	if expectedVersion != version {
@@ -246,6 +355,18 @@ func readWorkflowActionStateTx(ctx context.Context, tx *sql.Tx, workID string, e
 			return "", "", err
 		}
 		return "", "", conflict
+	}
+	plan, err := readWorkflowPlanTx(ctx, tx, workID)
+	if err != nil {
+		return "", "", err
+	}
+	currentStep = "intake"
+	if plan != nil {
+		currentStep = ""
+		frontier := WorkflowStepPlanFrontier(*plan)
+		if len(frontier) > 0 {
+			currentStep = frontier[0].ID
+		}
 	}
 	return currentStep, state, nil
 }

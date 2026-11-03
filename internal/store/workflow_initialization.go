@@ -7,9 +7,7 @@ import (
 	"time"
 )
 
-// WorkflowInitializationRequest contains only authenticated identity and the
-// registry-selected definition. The caller cannot supply an actor reference or
-// a definition digest independently of the immutable registry entry.
+// WorkflowInitializationRequest contains the work and authenticated actor.
 type WorkflowInitializationRequest struct {
 	WorkID     string
 	Definition RegisteredDefinition
@@ -20,11 +18,6 @@ type WorkflowInitializationRequest struct {
 	Registry DefinitionRegistry
 	Now      time.Time
 }
-
-// InitializeWorkflowTx records the initial actor tuple and immutable
-// definition pin for an already-created work item. It is intentionally a
-// workflow-specific transaction seam, not a generic event append operation.
-// Capture and revise call it before their owning transaction commits.
 
 // DefaultWorkflowRefForKind names the workflow a captured work item pins when
 // the capture names none. Session-prepare reads C19 continuity
@@ -130,6 +123,7 @@ func repinWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowRepinRe
 	return err
 }
 
+// InitializeWorkflowTx records the actor and opens intake in the caller's transaction.
 func InitializeWorkflowTx(ctx context.Context, transaction *Transaction, request WorkflowInitializationRequest) error {
 	tx, err := transactionSQL(transaction, "workflow_initialize")
 	if err != nil {
@@ -145,18 +139,11 @@ func initializeWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowIn
 	if tx == nil {
 		return newFailure(KindInvalidOperation, "workflow_initialize", "transaction is not open", false, "supply an active store transaction")
 	}
-	if request.WorkID == "" || request.Definition.Definition.Ref == "" {
-		return newFailure(KindInvalidOperation, "workflow_initialize", "work ID and registered definition are required", false, "resolve the workflow definition before initialization")
+	if request.WorkID == "" {
+		return newFailure(KindInvalidOperation, "workflow_initialize", "work ID is required", false, "supply the work item to initialize")
 	}
 	if request.Now.IsZero() {
 		request.Now = nowFromClock(nil)
-	}
-	registry := request.Registry
-	if registry == nil {
-		registry = BuiltinWorkflowRegistry()
-	}
-	if _, err := VerifyWorkflowDefinitionPin(registry, WorkflowDefinitionPin{Ref: request.Definition.Definition.Ref, Digest: request.Definition.Digest}); err != nil {
-		return err
 	}
 	actorRef, err := WorkflowActorRef(request.Actor)
 	if err != nil {
@@ -179,20 +166,20 @@ func initializeWorkflowRawTx(ctx context.Context, tx *sql.Tx, request WorkflowIn
 		"actor_ref": actorRef, "principal_ref": request.Actor.PrincipalRef, "client_ref": request.Actor.ClientRef,
 		"agent_ref": request.Actor.AgentRef, "session_ref": request.Actor.SessionRef, "actor_class": request.Actor.ActorClass,
 	})
-	definitionPayload, _ := json.Marshal(map[string]any{
-		"work_id": request.WorkID, "expected_version": version + 1, "resulting_version": version + 2,
-		"ref": request.Definition.Definition.Ref, "digest": request.Definition.Digest, "work_kind": request.Definition.Definition.WorkKind,
-	})
 	scope := newWriteScope(tx)
-	if err := scope.bindRegistry(tx, registry); err != nil {
+	if err := scope.enter(ctx); err != nil {
 		return err
 	}
+	defer func() { _ = scope.close(ctx) }()
 	_, err = applyWorkflowOperationTx(ctx, tx, Operation{
 		Events: []Event{
 			{EventID: "workflow-init:" + request.WorkID + ":actor:" + actorRef, Kind: WorkflowActorRecorded, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actorRef, OccurredAt: request.Now.UTC(), PayloadVersion: 1, Payload: actorPayload},
-			{EventID: "workflow-init:" + request.WorkID + ":definition:" + request.Definition.Definition.Ref, Kind: WorkflowDefinitionSelected, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actorRef, OccurredAt: request.Now.UTC(), PayloadVersion: 1, Payload: definitionPayload},
 		},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): version},
 	}, scope)
-	return err
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,instance_state,execution_actor_ref) VALUES(?,'intake',?)`, request.WorkID, actorRef)
+	return workflowProjectionError(err, "cannot initialize workflow intake")
 }

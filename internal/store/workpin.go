@@ -22,25 +22,7 @@ type WorkPin struct {
 	WorkflowType            string               `json:"workflow_type"`
 	Step                    string               `json:"step"`
 	Watermark               string               `json:"watermark"`
-	// WorkflowType and WorkflowDefinitionDigest carry the identity of the
-	// pinned definition the registry verified for this pin.
-	// They come from the same instance-row read and the same
-	// verifyReadWorkflowDefinition call the pin's intents derive from, so a
-	// caller can cite the exact definition the admission collector used.
-	// The pointer is the typed absence CD-0210 holds open: nil means the
-	// pin's reader verified no definition — the outside-repair hold reads raw
-	// identity only and grants no managed pin authority — so the key stays
-	// absent on the wire instead of carrying a zero-value or fabricated
-	// definition identity. Only workPinReadInstanceForRegistryTx sets it.
-	WorkflowDefinitionDigest *string `json:"workflow_definition_digest,omitempty"`
-	// Obligations lists the sorted exact evidence obligation IDs the pinned
-	// definition declares, collected from the same root, step, and rigor
-	// declarations the architecture-binding admission collector reads
-	// (workflowDefinitionObligations). The pin teaches what the enforcing
-	// collector admits instead of a hand-copied list. The pointer keeps the
-	// same typed absence as the definition identity above, while a managed
-	// pin still emits the key even for a definition that declares no
-	// obligations.
+	// Obligations lists verification obligations from the active contract.
 	Obligations *[]string `json:"obligations,omitempty"`
 	// OutstandingEvidenceKinds is known kind-debt, not proof that reference
 	// obligations are satisfied. Nil omits an unknown or partial view; a
@@ -113,11 +95,7 @@ func ReadWorkPin(ctx context.Context, s *Store, workID string) (WorkPin, error) 
 	return ReadWorkPinTx(ctx, tx, workID)
 }
 
-// ReadMutationWorkPinTxForRegistry is the registry-threaded opaque-Tx pin: a
-// caller registry verifies the stored pin through itself with no builtin
-// fallback, and a nil registry keeps the builtin convenience default. The
-// absent/present distinction precedes the definition verification, so it
-// answers identically under either registry.
+// ReadMutationWorkPinTxForRegistry derives a mutation pin in the caller's transaction.
 func ReadMutationWorkPinTxForRegistry(ctx context.Context, transaction *Transaction, registry DefinitionRegistry, workID string, ownEventIDs []string) (WorkPin, bool, error) {
 	tx, err := transactionSQL(transaction, "work_pin")
 	if err != nil {
@@ -167,21 +145,11 @@ func readMutationWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, registry 
 }
 
 // ReadWorkPinTx derives a pin from the transaction supplied by its caller.
-// Callers that hold a mutation transaction must use this function. The read
-// runs in named phases — identity, instance, step intents, contract,
-// attempt, recovery intents — each of which owns its own refusals; this
-// function owns their order and the two early exits the phases cannot
-// express (the contract-ambiguity escape hatch and the terminal-state
-// intent selection). It is the builtin convenience: the instance's stored
-// pin verifies against the builtin registry.
 func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, error) {
 	return readWorkPinForRegistryTx(ctx, tx, workID, nil)
 }
 
-// readWorkPinForRegistryTx is the registry-threaded pin core: a caller
-// registry verifies the actual stored pin through itself with no builtin
-// fallback, and every phase below resolves the same verified definition.
-func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, registry DefinitionRegistry) (WorkPin, error) {
+func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, _ DefinitionRegistry) (WorkPin, error) {
 	var pin WorkPin
 	if tx == nil {
 		return pin, newFailure(KindUnavailable, "work_pin", "transaction is not open", false, "supply an active read transaction")
@@ -192,7 +160,7 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 	if err := workPinReadIdentityTx(ctx, tx, workID, &pin); err != nil {
 		return pin, err
 	}
-	registered, instanceState, err := workPinReadInstanceForRegistryTx(ctx, tx, workID, &pin, registry)
+	instanceState, err := workPinReadPlanTx(ctx, tx, workID, &pin)
 	if err != nil {
 		return pin, err
 	}
@@ -215,14 +183,14 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 	if len(activeContractVersions) == 1 {
 		activeContractVersion = activeContractVersions[0]
 	}
-	state, err := workPinStepIntentsTx(ctx, tx, workID, &pin, registered.Definition)
+	if err := workPinReadContractTx(ctx, tx, workID, &pin, instanceState, activeContractVersion); err != nil {
+		return pin, err
+	}
+	review, err := loadWorkflowReviewState(ctx, tx, workID)
 	if err != nil {
 		return pin, err
 	}
-	if err := workPinReadContractTx(ctx, tx, workID, &pin, registered.Definition, instanceState, activeContractVersion, state); err != nil {
-		return pin, err
-	}
-	workPinTerminalIntents(&pin, registered.Definition, instanceState, state)
+	pin.Review = &review
 	if err := workPinReadWorkContextTx(ctx, tx, workID, &pin); err != nil {
 		return pin, err
 	}
@@ -268,90 +236,88 @@ func workPinReadIdentityTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 	return nil
 }
 
-// workPinReadInstanceForRegistryTx is the registry-threaded instance phase:
-// a nil registry keeps the builtin convenience verification, and a caller
-// registry verifies the actual stored pin through itself with no builtin
-// fallback.
-func workPinReadInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, registry DefinitionRegistry) (RegisteredDefinition, string, error) {
-	var definition WorkflowReadDefinition
-	var instanceState string
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest,current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.Ref, &definition.Digest, &pin.Step, &instanceState); err != nil {
+// workPinReadPlanTx derives the next actions from the current stored plan.
+func workPinReadPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin) (string, error) {
+	var state string
+	if err := tx.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state); err != nil {
 		if err == sql.ErrNoRows {
-			return RegisteredDefinition{}, "", newFailure(KindProjectionNotFound, "work_pin", "workflow instance is not recorded", false, "reread_entities")
+			return "", newFailure(KindProjectionNotFound, "work_pin", "workflow instance is not recorded", false, "reread_entities")
 		}
-		return RegisteredDefinition{}, "", wrapFailure(KindUnavailable, "work_pin", "cannot read workflow instance", true, "retry once the database is readable", err)
+		return "", wrapFailure(KindUnavailable, "work_pin", "cannot read workflow instance", true, "retry once the database is readable", err)
 	}
-	registered, err := verifyReadWorkflowDefinitionForRegistry(definition, registry)
+	plan, err := readWorkflowPlanTx(ctx, tx, workID)
 	if err != nil {
-		return RegisteredDefinition{}, "", err
+		return "", err
 	}
-	definition = WorkflowReadDefinition{Ref: registered.Definition.Ref, Digest: registered.Digest}
-	pin.WorkflowType = definition.Ref
-	pin.WorkflowDefinitionDigest = &definition.Digest
-	// The obligation list uses the verified registered definition — the same
-	// verification and the same collector the architecture-binding admission
-	// reads — so the pin and admission cannot disagree on declared membership.
-	// The pointer stays non-nil even for an empty membership, so a managed pin
-	// always carries the obligations key.
-	obligations := workflowDefinitionObligationIDs(registered.Definition)
-	pin.Obligations = &obligations
-	return registered, instanceState, nil
+	pin.NextValidIntents = []WorkPinIntent{}
+	if plan != nil {
+		pin.WorkflowType = string(plan.Type)
+		frontier := WorkflowStepPlanFrontier(*plan)
+		if len(frontier) > 0 {
+			pin.Step = frontier[0].ID
+		}
+		if isTerminalLifecycle(state) || isTerminalLifecycle(pin.Lifecycle) {
+			return state, nil
+		}
+		ids := []string{"insert_step", "pick_type"}
+		if WorkflowStepPlanComplete(*plan) {
+			ids = append(ids, "complete")
+		}
+		for _, step := range frontier {
+			actions := WorkflowStepPlanTemplateActions(plan.Type, step.ID)
+			if actions == nil {
+				actions = []string{"complete_step", "record_review", "record_delivery", "link_successor", "bind_evidence"}
+			}
+			for _, action := range actions {
+				if action != "complete" {
+					ids = append(ids, action)
+				}
+			}
+		}
+		return state, workPinAddCatalogIntents(pin, ids)
+	}
+	pin.Step = "intake"
+	if isTerminalLifecycle(state) || isTerminalLifecycle(pin.Lifecycle) {
+		return state, nil
+	}
+	prelude, err := readWorkflowPreludeTx(ctx, tx, workID)
+	if err != nil {
+		return "", err
+	}
+	var ids []string
+	switch {
+	case prelude == nil:
+		ids = []string{"record_intake"}
+	case prelude.Intake.Outcome == WorkflowIntakeClarify && prelude.Intake.OpenQuestionsFound && prelude.Clarify == nil:
+		pin.Step = "clarify"
+		ids = []string{"record_clarify"}
+	case prelude.Intake.Outcome == WorkflowIntakeProceed && !prelude.Intake.OpenQuestionsFound,
+		prelude.Intake.Outcome == WorkflowIntakeClarify && prelude.Intake.OpenQuestionsFound && prelude.Clarify != nil:
+		ids = []string{"pick_type"}
+	}
+	return state, workPinAddCatalogIntents(pin, ids)
 }
 
-// verifyReadWorkflowDefinitionForRegistry verifies one read definition
-// through the existing pin verifier: a nil registry keeps the builtin
-// convenience and its historical refusal shapes, and an explicit registry
-// gets VerifyWorkflowDefinitionPin's complete digest verification with no
-// builtin fallback. There is no second resolver.
+func workPinAddCatalogIntents(pin *WorkPin, ids []string) error {
+	for _, id := range ids {
+		if workPinContainsAction(pin.NextValidIntents, id) {
+			continue
+		}
+		action, err := catalogAction(id)
+		if err != nil {
+			return err
+		}
+		pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(action, pin.Version, "declared_step_action"))
+	}
+	return nil
+}
+
+// verifyReadWorkflowDefinitionForRegistry is still used by continuity reads.
 func verifyReadWorkflowDefinitionForRegistry(definition WorkflowReadDefinition, registry DefinitionRegistry) (RegisteredDefinition, error) {
 	if registry == nil {
 		return verifyReadWorkflowDefinition(definition)
 	}
 	return resolveCurrentWorkflowDefinition(registry, definition.Ref)
-}
-
-// workPinStepIntentsTx fills the pin's step intents and returns the folded
-// admission state the later intent phases consume. The whole admission is
-// the shared derivation — the tx-scoped loader folds the instance history
-// once, and workflowAdmit decides each advance — so the pin and the delivery
-// guard answer identically for the same state instead of re-deriving the
-// conditions per site. The pin never offers an advance the shared admission
-// refuses.
-func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition) (WorkflowAdmissionState, error) {
-	state, stateErr := loadWorkflowAdmissionStateTx(ctx, tx, workID, definition, pin.Step, "work_pin")
-	if stateErr != nil {
-		return WorkflowAdmissionState{}, stateErr
-	}
-	pin.Review = state.Review
-	pin.NextValidIntents = workPinIntents(definition, pin.Step, pin.Version)
-	kept := pin.NextValidIntents[:0:0]
-	for _, intent := range pin.NextValidIntents {
-		decision := workflowAdmit(definition, state, intent.ActionID)
-		if !decision.Admitted {
-			continue
-		}
-		kept = append(kept, intent)
-	}
-	pin.NextValidIntents = kept
-	for _, action := range definition.ActionDefinitions {
-		if !state.CurrentRecords[action.ID] || workPinContainsAction(pin.NextValidIntents, action.ID) {
-			continue
-		}
-		if workflowAdmit(definition, state, action.ID).Admitted {
-			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(action, pin.Version, "current_record"))
-		}
-	}
-	if state.LateCriterionAssociation && !workPinContainsAction(pin.NextValidIntents, "record_verdict") {
-		if decision := workflowAdmit(definition, state, "record_verdict"); decision.Admitted {
-			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "record_verdict"), pin.Version, "late_criterion_association"))
-		}
-	}
-	if !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
-		if decision := workflowAdmit(definition, state, "bind_evidence"); decision.Admitted {
-			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "bind_evidence"), pin.Version, "ordinary_evidence_binding"))
-		}
-	}
-	return state, nil
 }
 
 // workPinReadContractTx reads the one active contract and every enrichment
@@ -360,18 +326,28 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 // the verdict evidence. A work item with no contract row skips the block.
 // The late-verdict recovery's availability is the folded admission state's
 // answer, not a per-site re-derivation.
-func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition, instanceState string, activeContractVersion int64, state WorkflowAdmissionState) error {
+func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, instanceState string, activeContractVersion int64) error {
 	var contract WorkflowReadContract
 	var required, routes, mandate, modifies string
 	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandate, &modifies, &contract.RigorClass); err == nil {
 		if jsonErr := decodeWorkflowPinContract(&contract, required, routes, mandate, modifies); jsonErr != nil {
 			return jsonErr
 		}
-		kinds, evidenceErr := workPinOutstandingEvidenceKindsTx(ctx, tx, workID, definition, pin.Step, activeContractVersion)
+		kinds, evidenceErr := workPinOutstandingEvidenceKindsTx(ctx, tx, workID, activeContractVersion)
 		if evidenceErr != nil {
 			return evidenceErr
 		}
 		pin.OutstandingEvidenceKinds = kinds
+		_, _, obligations, obligationErr := workflowEvidenceRequirementInputs(ctx, tx, workID)
+		if obligationErr != nil {
+			return obligationErr
+		}
+		ids := make([]string, 0, len(obligations))
+		for _, obligation := range obligations {
+			ids = append(ids, obligation.ObligationID)
+		}
+		ids = uniqueSorted(ids)
+		pin.Obligations = &ids
 		predicates, predicateErr := readWorkflowContractPredicates(ctx, tx, workID, contract.Version)
 		if predicateErr != nil {
 			return predicateErr
@@ -384,7 +360,7 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 			}
 			pin.VerifiedCriteria = criteria
 		}
-		if stepDeclaresAction(definition, pin.Step, "record_verdict") || state.LateCriterionAssociation {
+		if workPinContainsAction(pin.NextValidIntents, "record_verdict") {
 			verdictEvidence, evidenceErr := workPinVerdictEvidenceTx(ctx, tx, workID)
 			if evidenceErr != nil {
 				return evidenceErr
@@ -395,20 +371,6 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 		return wrapFailure(KindUnavailable, "work_pin", "cannot read workflow contract", true, "retry once the database is readable", err)
 	}
 	return nil
-}
-
-// workPinTerminalIntents keeps only the intents a terminal instance still admits.
-func workPinTerminalIntents(pin *WorkPin, definition WorkflowDefinition, instanceState string, state WorkflowAdmissionState) {
-	if !isTerminalLifecycle(instanceState) {
-		return
-	}
-	kept := []WorkPinIntent{}
-	for _, intent := range pin.NextValidIntents {
-		if workflowAdmit(definition, state, intent.ActionID).Admitted {
-			kept = append(kept, intent)
-		}
-	}
-	pin.NextValidIntents = kept
 }
 
 func workPinVerifiedCriteriaTx(ctx context.Context, tx *sql.Tx, workID string, contract WorkflowReadContract) ([]WorkPinVerifiedCriterion, error) {
@@ -604,20 +566,6 @@ func workflowActionDefinitionByID(definition WorkflowDefinition, actionID string
 	return WorkflowActionDefinition{ID: actionID}
 }
 
-// workPinReportsCheckDebt holds on a step after the first evidence-binding
-// step. A completion step that declares binding still reports it.
-func workPinReportsCheckDebt(definition WorkflowDefinition, step string) bool {
-	if stepDeclaresAction(definition, step, "bind_evidence") && !stepDeclaresAction(definition, step, "complete") {
-		return false
-	}
-	for _, candidate := range definition.StepGraph.Steps {
-		if stepDeclaresAction(definition, candidate.ID, "bind_evidence") {
-			return workflowStepFollows(definition, candidate.ID, step)
-		}
-	}
-	return false
-}
-
 func workPinUnverdictedCheckRequirements(ctx context.Context, q queryer, workID string, contractVersion int64) ([]workflowEvidenceRequirement, bool, error) {
 	predicates, err := readWorkflowContractPredicates(ctx, q, workID, contractVersion)
 	if err != nil {
@@ -651,24 +599,31 @@ func workPinUnverdictedCheckRequirements(ctx context.Context, q queryer, workID 
 // kinds. Past the evidence-binding step it also reports verification for each
 // unverdicted active check predicate whose subject is unbound; a malformed
 // predicate leaves the debt unknown.
-func workPinOutstandingEvidenceKindsTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, step string, contractVersion int64) (*[]string, error) {
+func workPinOutstandingEvidenceKindsTx(ctx context.Context, q queryer, workID string, contractVersion int64) (*[]string, error) {
 	required, mandates, obligations, err := workflowEvidenceRequirementInputs(ctx, q, workID)
 	if err != nil {
 		return nil, err
 	}
-	requirements := workflowEvidenceRequirementDefinitions(required, mandates, definition, obligations)
-	if workPinReportsCheckDebt(definition, step) {
-		checks, known, checkErr := workPinUnverdictedCheckRequirements(ctx, q, workID, contractVersion)
-		if checkErr != nil || !known {
-			return nil, checkErr
-		}
-		requirements = append(requirements, checks...)
+	var requirements []workflowEvidenceRequirement
+	for _, kind := range required {
+		requirements = append(requirements, workflowEvidenceRequirement{Kind: kind})
 	}
+	for _, mandate := range mandates {
+		requirements = append(requirements, workflowEvidenceRequirement{Reference: mandate})
+	}
+	for _, obligation := range obligations {
+		requirements = append(requirements, workflowEvidenceRequirement{Kind: obligation.ObligationID, Reference: obligation.LawID})
+	}
+	checks, known, checkErr := workPinUnverdictedCheckRequirements(ctx, q, workID, contractVersion)
+	if checkErr != nil || !known {
+		return nil, checkErr
+	}
+	requirements = append(requirements, checks...)
 	requirements, err = unboundWorkflowEvidenceRequirements(ctx, q, workID, requirements, 0)
 	if err != nil {
 		return nil, err
 	}
-	var kinds []string
+	kinds := make([]string, 0, len(requirements))
 	for _, requirement := range requirements {
 		kinds = append(kinds, requirement.Kind)
 	}

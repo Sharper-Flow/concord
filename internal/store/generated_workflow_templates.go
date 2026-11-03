@@ -369,6 +369,10 @@ const GeneratedWorkflowStepTemplatesDocument = `{
           "completed_at": {
             "type": "string"
           },
+          "completion_seq": {
+            "type": "integer",
+            "minimum": 0
+          },
           "actor": {
             "type": "string"
           },

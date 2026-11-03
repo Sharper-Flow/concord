@@ -95,6 +95,13 @@ func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, event Event, sco
 	if err := workflowCompletionVersion(ctx, tx, event.SubjectID, payload.ExpectedVersion); err != nil {
 		return err
 	}
+	plan, err := readWorkflowPlanTx(ctx, tx, event.SubjectID)
+	if err != nil {
+		return err
+	}
+	if plan == nil || !WorkflowStepPlanComplete(*plan) {
+		return newFailure(KindIllegalLifecycleTransition, "complete_workflow", "workflow plan is not complete", false, "complete every plan step before completing the workflow")
+	}
 	// The contract read stays a structural existence check: completion still
 	// refuses without exactly one well-formed approved contract.
 	if _, err := workflowCompletionContractRows(ctx, tx, event.SubjectID); err != nil {

@@ -1,10 +1,129 @@
 package store
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestWorkflowStepPlanWriteRegression(t *testing.T) {
+	base := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
+	attempt := WorkflowPlanAttempt{Note: "done", CompletedAt: "2026-01-01T00:00:00Z"}
+	tests := map[string]func(*WorkflowStepPlan){
+		"precompleted insertion": func(p *WorkflowStepPlan) {
+			p.Steps = append(p.Steps, WorkflowPlanStep{ID: "extra", After: []string{"plan"}, Attempts: []WorkflowPlanAttempt{attempt}})
+		},
+		"batch prerequisites": func(p *WorkflowStepPlan) {
+			p.Steps[0].Attempts = []WorkflowPlanAttempt{attempt}
+			p.Steps[1].Attempts = []WorkflowPlanAttempt{reviewedAttempt("done")}
+		},
+		"multiple attempts": func(p *WorkflowStepPlan) { p.Steps[0].Attempts = []WorkflowPlanAttempt{attempt, attempt} },
+		"multiple independent completions": func(p *WorkflowStepPlan) {
+			p.Steps[0].Attempts = []WorkflowPlanAttempt{attempt}
+			p.Steps = append(p.Steps, WorkflowPlanStep{ID: "extra", After: []string{}, Attempts: []WorkflowPlanAttempt{attempt}})
+		},
+		"required addition without switch": func(p *WorkflowStepPlan) { p.Steps = append(p.Steps, WorkflowPlanStep{ID: "diagnose", Required: true}) },
+		"duplicate edge": func(p *WorkflowStepPlan) {
+			p.Steps = append(p.Steps, WorkflowPlanStep{ID: "extra", After: []string{"plan", "plan"}})
+		},
+		"one character id": func(p *WorkflowStepPlan) { p.Steps = append(p.Steps, WorkflowPlanStep{ID: "x"}) },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			next := stepPlanCopy(base)
+			mutate(&next)
+			if err := ValidateStepPlanWrite(&base, next); err == nil {
+				t.Fatal("invalid write accepted")
+			}
+		})
+	}
+	completed := stepPlanCopy(base)
+	completed.Steps[0].Attempts = []WorkflowPlanAttempt{attempt}
+	for _, field := range []string{"skill", "helper"} {
+		t.Run("completed "+field, func(t *testing.T) {
+			next := stepPlanCopy(completed)
+			changed := "changed"
+			if field == "skill" {
+				next.Steps[0].Skill = &changed
+			} else {
+				next.Steps[0].Helper = &changed
+			}
+			if err := ValidateStepPlanWrite(&completed, next); err == nil {
+				t.Fatal("metadata change accepted")
+			}
+		})
+	}
+	t.Run("negative completion sequence", func(t *testing.T) {
+		var a WorkflowPlanAttempt
+		if err := json.Unmarshal([]byte(`{"note":"done","completed_at":"2026-01-01","completion_seq":-1}`), &a); err != nil {
+			t.Fatal(err)
+		}
+		next := stepPlanCopy(base)
+		next.Steps[0].Attempts = []WorkflowPlanAttempt{a}
+		if err := ValidateStepPlanWrite(&base, next); err == nil {
+			t.Fatal("negative sequence accepted")
+		}
+	})
+	t.Run("two existing independent completions", func(t *testing.T) {
+		old := stepPlanCopy(base)
+		old.Steps = append(old.Steps, WorkflowPlanStep{ID: "extra", After: []string{}})
+		next := stepPlanCopy(old)
+		next.Steps[0].Attempts = []WorkflowPlanAttempt{attempt}
+		next.Steps[len(next.Steps)-1].Attempts = []WorkflowPlanAttempt{attempt}
+		if err := ValidateStepPlanWrite(&old, next); err == nil {
+			t.Fatal("multiple step completions accepted")
+		}
+	})
+	t.Run("completion sequence round trip", func(t *testing.T) {
+		for _, seq := range []int64{0, 42} {
+			a := WorkflowPlanAttempt{Note: "done", CompletedAt: "2026-01-01", CompletionSeq: seq}
+			encoded, err := json.Marshal(a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded WorkflowPlanAttempt
+			if err := json.Unmarshal(encoded, &decoded); err != nil || decoded != a {
+				t.Fatalf("round trip %d: %+v, %v", seq, decoded, err)
+			}
+			next := stepPlanCopy(base)
+			next.Steps[0].Attempts = []WorkflowPlanAttempt{decoded}
+			if err := ValidateStepPlanWrite(&base, next); err != nil {
+				t.Fatalf("sequence %d refused: %v", seq, err)
+			}
+		}
+	})
+	for _, change := range []string{"optional", "skill", "helper", "reviewed"} {
+		t.Run("switch missing template "+change, func(t *testing.T) {
+			next := stepPlanCopy(base)
+			next.Type = WorkflowStepPlanFix
+			fix := stepPlanTemplateOrFatal(t, WorkflowStepPlanFix)
+			added := fix.Steps[0]
+			switch change {
+			case "optional":
+				added.Required = false
+			case "skill":
+				added.Skill = nil
+			case "helper":
+				added.Helper = nil
+			case "reviewed":
+				added.Reviewed = true
+			}
+			next.Steps = append(next.Steps, added)
+			if err := ValidateStepPlanWrite(&base, next); err == nil {
+				t.Fatal("malformed template addition accepted")
+			}
+		})
+	}
+	t.Run("switch adds unrelated step", func(t *testing.T) {
+		next := stepPlanCopy(base)
+		next.Type = WorkflowStepPlanFix
+		next.Steps = append(next.Steps, stepPlanTemplateOrFatal(t, WorkflowStepPlanFix).Steps[0], WorkflowPlanStep{ID: "extra"})
+		if err := ValidateStepPlanWrite(&base, next); err == nil {
+			t.Fatal("unrelated addition accepted during switch")
+		}
+	})
+}
 
 func stepPlanTemplateOrFatal(t *testing.T, planType WorkflowStepPlanType) WorkflowStepPlan {
 	t.Helper()
@@ -233,8 +352,9 @@ func TestWorkflowStepPlanTypeSwitchAddsOnly(t *testing.T) {
 	withPlanDone := stepPlanCopy(change)
 	withPlanDone.Steps[0].Attempts = []WorkflowPlanAttempt{{Note: "six-part plan", CompletedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 
+	diagnose := stepPlanTemplateOrFatal(t, WorkflowStepPlanFix).Steps[0]
 	switched := WorkflowStepPlan{SchemaVersion: workflowStepPlanSchemaVersion, Type: WorkflowStepPlanFix, Steps: []WorkflowPlanStep{
-		{ID: "diagnose", Required: true, After: []string{}, Skill: withPlanDone.Steps[0].Skill, Reviewed: false},
+		diagnose,
 		{ID: "plan", Required: true, After: []string{}, Skill: withPlanDone.Steps[0].Skill, Attempts: withPlanDone.Steps[0].Attempts},
 		{ID: "implement", Required: true, After: []string{"plan"}, Skill: withPlanDone.Steps[1].Skill, Helper: withPlanDone.Steps[1].Helper, Reviewed: true},
 		{ID: "review", Required: true, After: []string{"implement"}, Skill: withPlanDone.Steps[2].Skill, Helper: withPlanDone.Steps[2].Helper, Reviewed: true},
@@ -255,14 +375,15 @@ func TestWorkflowStepPlanCompletionGate(t *testing.T) {
 	plan := stepPlanTemplateOrFatal(t, WorkflowStepPlanResearch)
 	done := stepPlanCopy(plan)
 	for index := range done.Steps {
+		previous := stepPlanCopy(done)
 		attempt := WorkflowPlanAttempt{Note: "done", CompletedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 		if done.Steps[index].Reviewed {
 			attempt.Reviewer, attempt.Result, attempt.Commit, attempt.Link = "concord-review", "pass", "f4b78e3c14275a9fae58a964bc24e303ebdf02ad", "https://example.com/review"
 		}
 		done.Steps[index].Attempts = []WorkflowPlanAttempt{attempt}
-	}
-	if err := ValidateStepPlanWrite(&plan, done); err != nil {
-		t.Fatalf("completing every step in order refused: %v", err)
+		if err := ValidateStepPlanWrite(&previous, done); err != nil {
+			t.Fatalf("completing step %d in order refused: %v", index, err)
+		}
 	}
 	if !WorkflowStepPlanComplete(done) {
 		t.Fatal("plan with every step completed reports incomplete")

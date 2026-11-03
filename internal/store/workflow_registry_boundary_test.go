@@ -138,8 +138,8 @@ func TestWorkflowRegistryBoundary(t *testing.T) {
 		if err != nil || !available {
 			t.Fatalf("caller-registry mutation pin = available %v, %v, want the readable pin", available, err)
 		}
-		if pin.WorkflowType != registered.Definition.Ref || pin.WorkflowDefinitionDigest == nil || *pin.WorkflowDefinitionDigest != registered.Digest {
-			t.Fatalf("caller-registry pin identity = %s %v, want the verified registered entry", pin.WorkflowType, pin.WorkflowDefinitionDigest)
+		if pin.WorkflowType != registered.Definition.Ref {
+			t.Fatalf("caller-registry pin type = %s, want %s", pin.WorkflowType, registered.Definition.Ref)
 		}
 		parity, _, err := readRoutePin(registry)
 		if err != nil {
@@ -170,7 +170,7 @@ func TestWorkflowRegistryBoundary(t *testing.T) {
 		if err := initialize(t, s, builtin, builtinEntry, nil); err != nil {
 			t.Fatalf("nil-registry builtin initialization refused: %v", err)
 		}
-		builtinPin, available, err := func() (WorkPin, bool, error) {
+		_, available, err = func() (WorkPin, bool, error) {
 			var pin WorkPin
 			var ready bool
 			txErr := s.Transact(ctx, func(tx *Transaction) error {
@@ -182,9 +182,6 @@ func TestWorkflowRegistryBoundary(t *testing.T) {
 		}()
 		if err != nil || !available {
 			t.Fatalf("builtin mutation pin = available %v, %v, want the readable pin", available, err)
-		}
-		if builtinPin.WorkflowDefinitionDigest == nil || *builtinPin.WorkflowDefinitionDigest != builtinEntry.Digest {
-			t.Fatalf("builtin pin digest = %v, want the builtin entry %s", builtinPin.WorkflowDefinitionDigest, builtinEntry.Digest)
 		}
 	})
 	t.Run("duplicate-active state keeps the pin typed", func(t *testing.T) {

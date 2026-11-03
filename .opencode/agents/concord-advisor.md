@@ -79,9 +79,9 @@ Keep source-text observations separate from the caller's resolved law context.
 
 1. Restate the problem in your own words before you reason about it.
 2. Reach your own answer before you consider what the parent might want.
-3. Read the repository when the problem touches it: search connected tools
-   through `execute` first, then use `glob` or `grep` when needed. Read only
-   what the problem needs.
+3. Read the repository when the problem touches it: discover connected tools
+   by need and search through `execute` first, then use `glob` or `grep` when
+   needed. Read only what the problem needs.
 4. For history, status, or the current diff, use only these commands:
    `git diff`, `git log`, `git show`, `git status`, `git ls-files`, `git rev-parse`.
    Write each as a bare `git <subcommand> ...` call and set the bash `workdir`

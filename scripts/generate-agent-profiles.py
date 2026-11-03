@@ -169,9 +169,9 @@ supplied answer anchors to it, and the parent asked for an independent one.
 
 1. Restate the problem in your own words before you reason about it.
 2. Reach your own answer before you consider what the parent might want.
-3. Read the repository when the problem touches it: search connected tools
-   through `execute` first, then use `glob` or `grep` when needed. Read only
-   what the problem needs.
+3. Read the repository when the problem touches it: discover connected tools
+   by need and search through `execute` first, then use `glob` or `grep` when
+   needed. Read only what the problem needs.
 4. For history, status, or the current diff, use only these commands:
    {git_commands}.
    Write each as a bare `git <subcommand> ...` call and set the bash `workdir`

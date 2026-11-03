@@ -47,6 +47,19 @@ class ProfileTests(unittest.TestCase):
             for line in generator.STASH_DENIALS:
                 self.assertIn(line, text)
 
+    def test_utilities_can_discover_connected_tools_by_need(self):
+        guidance = {
+            "explore": "discover them by need",
+            "lookup": "discover them, and the exact callable signature, by need",
+            "advisor": "discover connected tools by need",
+        }
+        for utility in self.manifest["utilities"]:
+            with self.subTest(utility=utility["id"]):
+                text = generator.utility_projection(utility)
+                self.assertIn("  execute: true\n", text)
+                self.assertIn("`execute`", text)
+                self.assertIn(guidance[utility["id"]], " ".join(text.split()))
+
     def test_agent_inventory_refuses_unprojected_definition(self):
         with tempfile.TemporaryDirectory() as directory:
             agents = Path(directory)

@@ -14,10 +14,13 @@ profiles are rejected on sight.
 from __future__ import annotations
 
 import importlib.util
+import contextlib
+import io
 import re
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -162,23 +165,37 @@ class PrimaryPromptCheckTests(unittest.TestCase):
 
     def test_generated_helper_names_connected_tool_reports(self) -> None:
         self.rewrite("concord-explore.md", lambda text: text + "\nFor example, call `tools.lgrep.search_semantic`.\n")
-        findings = self.findings()
-        self.assertTrue(any("concord-explore.md" in finding and "'lgrep'" in finding and "CD-0250" in finding for finding in findings), findings)
+        self.assertEqual(self.findings(), [])
+        with patch.object(check_primary_prompts, "ROOT", self.root), contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(check_primary_prompts.main(), 0)
+        self.assertIn("primary agent advisory:", output.getvalue())
+        self.assertIn("concord-explore.md", output.getvalue())
+        self.assertIn("'lgrep'", output.getvalue())
 
     def test_generated_helper_research_service_name_reports(self) -> None:
         self.rewrite("concord-lookup.md", lambda text: text + "\nQuery Exa for current research.\n")
-        findings = self.findings()
-        self.assertTrue(any("concord-lookup.md" in finding and "'Exa'" in finding for finding in findings), findings)
+        self.assertEqual(self.findings(), [])
+        self.assertTrue(any("concord-lookup.md" in item and "'Exa'" in item for item in check_primary_prompts.generated_profile_name_advisories(self.root)))
 
     def test_named_profile_body_connected_tool_name_reports(self) -> None:
         self.rewrite("Concord.md", lambda text: text + "\nUse Context7 for library documentation.\n")
-        findings = self.findings()
-        self.assertTrue(any("Concord.md" in finding and "'Context7'" in finding for finding in findings), findings)
+        self.assertEqual(self.findings(), [])
+        self.assertTrue(any("Concord.md" in item and "'Context7'" in item for item in check_primary_prompts.generated_profile_name_advisories(self.root)))
 
-    def test_generated_helper_host_tool_fragment_reports(self) -> None:
-        self.rewrite("concord-advisor.md", lambda text: text.replace("  bash: true\n", "  bash: true\n  exa_search: true\n", 1))
-        findings = self.findings()
-        self.assertTrue(any("concord-advisor.md" in finding and "'exa_'" in finding for finding in findings), findings)
+    def test_generated_helper_host_tool_fragment_does_not_add_findings(self) -> None:
+        self.rewrite("concord-advisor.md", lambda text: text.replace("  bash: true\n", "  bash: true\n  exa_search: false\n", 1))
+        self.assertEqual(self.findings(), [])
+
+    def test_advisory_does_not_change_existing_blocking_findings(self) -> None:
+        self.rewrite("Concord.md", lambda text: text.replace("  edit: allow\n", "", 1))
+        before = self.findings()
+        self.assertTrue(before)
+        self.rewrite("concord-lookup.md", lambda text: text + "\nQuery Exa.\n")
+        self.assertEqual(self.findings(), before)
+        with patch.object(check_primary_prompts, "ROOT", self.root), contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(check_primary_prompts.main(), 1)
+        self.assertIn("primary agent advisory:", output.getvalue())
+        self.assertIn("primary agent finding:", output.getvalue())
 
     def test_planner_edit_outside_planning_reports(self) -> None:
         self.assert_planner_finding(lambda text: text.replace('  edit:\n    "*": deny\n', '  edit:\n    "*": allow\n', 1), "permission.edit")

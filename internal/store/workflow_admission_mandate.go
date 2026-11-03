@@ -16,7 +16,7 @@ type workflowMandateAdmission struct {
 	Failure         error
 }
 
-func loadWorkflowMandateAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, step, subject string, state WorkflowAdmissionState) (workflowMandateAdmission, error) {
+func loadWorkflowMandateAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, step, subject string) (workflowMandateAdmission, error) {
 	var result workflowMandateAdmission
 	mandates, version, err := workflowSpecMandate(ctx, q, workID, subject)
 	if err != nil {

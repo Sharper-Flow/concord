@@ -20,7 +20,7 @@ FROM workflow_delivery_state d LEFT JOIN effect_receipts r ON r.event_id=d.corre
 		if err := rows.Scan(&payload, &assertionID, &id, &occurred, &correction, &seq, &actor, &version, &receiptDigest); err != nil {
 			return err
 		}
-		valid := true
+		var valid bool
 		if id.Valid {
 			valid = id.String != "" && occurred.Valid && occurred.String != "" && correction.Valid && seq.Valid && seq.Int64 > 0 && actor.Valid && actor.String != "" && version.Valid && version.Int64 > 0
 			payload = correction.String

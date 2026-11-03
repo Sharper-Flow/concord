@@ -33,14 +33,6 @@ func workflowDuplicateContractProjection(err error) bool {
 	return workflowProjectionInvariant(err, "workflow contract projection has multiple active contracts")
 }
 
-// workflowMissingContractProjection reports the singular active-contract
-// reader's missing-contract invariant, so an admission read over a workflow
-// that runs without an approved contract degrades to its empty answer instead
-// of refusing.
-func workflowMissingContractProjection(err error) bool {
-	return workflowProjectionInvariant(err, "approved workflow contract is missing")
-}
-
 func workflowProjectionInvariant(err error, detail string) bool {
 	for err != nil {
 		var failure *Failure

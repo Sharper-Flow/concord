@@ -80,7 +80,7 @@ func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, wor
 	// Keep corrupt duplicate projections readable without choosing a contract
 	// or authorizing contract-dependent actions. Recovery requires a verified restore.
 	l := workflowAdmissionLoad{ctx: ctx, q: q, workID: workID, definition: definition, currentStep: currentStep, subject: subject, duplicated: state.ActiveContracts > 1, registry: registry}
-	if err := l.staleness(&state); err != nil {
+	if err := l.staleness(); err != nil {
 		return WorkflowAdmissionState{}, err
 	}
 	records, recordsErr := workflowCurrentRecords(ctx, q, workID)
@@ -113,7 +113,7 @@ func loadWorkflowAdmissionStateTxForRegistry(ctx context.Context, q queryer, wor
 		return WorkflowAdmissionState{}, deliveryErr
 	}
 	state.Delivery = delivery
-	mandate, mandateErr := loadWorkflowMandateAdmission(ctx, q, workID, definition, currentStep, subject, state)
+	mandate, mandateErr := loadWorkflowMandateAdmission(ctx, q, workID, definition, currentStep, subject)
 	if mandateErr != nil {
 		return WorkflowAdmissionState{}, mandateErr
 	}
@@ -138,8 +138,8 @@ type workflowAdmissionLoad struct {
 	registry DefinitionRegistry
 }
 
-// staleness folds design and artifact staleness.
-func (l workflowAdmissionLoad) staleness(state *WorkflowAdmissionState) error {
+// staleness refuses admission when the current design cannot be read.
+func (l workflowAdmissionLoad) staleness() error {
 	_, err := readCurrentWorkflowDesign(l.ctx, l.q, l.workID)
 	return err
 }
@@ -242,7 +242,7 @@ func workflowAdmitInstanceRefused(definition WorkflowDefinition, state WorkflowA
 		return true
 	}
 	// A nonterminal instance under an archived family refuses every public
-	// action here — the recovery routes included — before any write. Terminal
+	// action here before any write. Terminal
 	// instances keep the terminal-immutability answer above.
 	if workflowFamilyArchived(definition.Ref) {
 		decision.Failure = newFailure(KindInvalidOperation, "workflow_action",
@@ -279,7 +279,7 @@ func workflowAdmitDeliveryRefused(definition WorkflowDefinition, state WorkflowA
 	return false
 }
 
-// workflowAdmitConfirmationRefused answers premise confirmation and the correction request route.
+// workflowAdmitConfirmationRefused answers premise confirmation admission.
 func workflowAdmitConfirmationRefused(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
 	// Confirmation records against the one active contract; without exactly
 	// one, the confirmation write refuses, so admission and the pin refuse too.
@@ -300,8 +300,7 @@ func workflowAdmitConfirmationRefused(definition WorkflowDefinition, state Workf
 	return false
 }
 
-// workflowAdmitStepRefused answers step advancement: the contract step, the
-// dispatch hold, the unconsumed rejection, and step legality.
+// workflowAdmitStepRefused answers the contract-step fence and step legality.
 func workflowAdmitStepRefused(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string, decision *WorkflowAdmissionDecision) bool {
 	// The contract step is left only through the approval it hosts. An
 	// advancing action there with no active contract would move the instance

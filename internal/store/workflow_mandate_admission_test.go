@@ -11,8 +11,7 @@ import (
 // same gate facts and exercise the pure mandate owner with those facts.
 func mandateFixtureAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, step, actionID string) error {
 	const subject = "workflow_action"
-	state := WorkflowAdmissionState{}
-	mandate, err := loadWorkflowMandateAdmission(ctx, q, workID, definition, step, subject, state)
+	mandate, err := loadWorkflowMandateAdmission(ctx, q, workID, definition, step, subject)
 	if err != nil {
 		return err
 	}
@@ -187,7 +186,7 @@ DELETE FROM write_guard`, workID); err != nil {
 						t.Fatal(err)
 					}
 				}
-				mandate, err := loadWorkflowMandateAdmission(t.Context(), s.db, workID, definition, "execution", "workflow_action", WorkflowAdmissionState{})
+				mandate, err := loadWorkflowMandateAdmission(t.Context(), s.db, workID, definition, "execution", "workflow_action")
 				if err != nil {
 					t.Fatal(err)
 				}

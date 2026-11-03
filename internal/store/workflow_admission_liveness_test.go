@@ -1149,7 +1149,7 @@ func TestContractStepAdvancesOnlyThroughItsApproval(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, action := range workflowStep(definition, contractStep).Actions {
-				if action != "approve_contract" && workflowActionAdvancesStep(definition, action) {
+				if action != "approve_contract" && workflowCompletedActionAdvances(definition, workflowActionCompletedPayload{StepID: contractStep, ActionID: action}) {
 					t.Fatalf("%s declares another contract-step advance: %s", ref, action)
 				}
 			}
@@ -1163,7 +1163,7 @@ func TestContractStepAdvancesOnlyThroughItsApproval(t *testing.T) {
 			// also refuse; the guarantee is only that no contractless advance
 			// is admitted.
 			for _, action := range definition.ActionDefinitions {
-				if action.ID == "approve_contract" || !workflowActionAdvancesStep(definition, action.ID) {
+				if action.ID == "approve_contract" {
 					continue
 				}
 				probe := definition
@@ -1173,6 +1173,9 @@ func TestContractStepAdvancesOnlyThroughItsApproval(t *testing.T) {
 					if step.ID == contractStep {
 						step.Actions = append(slices.Clone(step.Actions), action.ID)
 					}
+				}
+				if !workflowCompletedActionAdvances(probe, workflowActionCompletedPayload{StepID: contractStep, ActionID: action.ID}) {
+					continue
 				}
 				if decision := workflowAdmit(probe, state, action.ID); decision.Admitted {
 					t.Fatalf("contractless %s advance at %s admitted: %+v", action.ID, contractStep, decision)

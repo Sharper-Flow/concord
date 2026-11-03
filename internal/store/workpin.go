@@ -222,9 +222,7 @@ func readWorkPinForRegistryTx(ctx context.Context, tx *sql.Tx, workID string, re
 	if err := workPinReadContractTx(ctx, tx, workID, &pin, registered.Definition, instanceState, activeContractVersion, state); err != nil {
 		return pin, err
 	}
-	if err := workPinRecoveryIntentsTx(ctx, tx, workID, &pin, registered.Definition, instanceState, state); err != nil {
-		return pin, err
-	}
+	workPinTerminalIntents(&pin, registered.Definition, instanceState, state)
 	if err := workPinReadWorkContextTx(ctx, tx, workID, &pin); err != nil {
 		return pin, err
 	}
@@ -369,7 +367,7 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 		if jsonErr := decodeWorkflowPinContract(&contract, required, routes, mandate, modifies); jsonErr != nil {
 			return jsonErr
 		}
-		kinds, evidenceErr := workPinOutstandingEvidenceKindsTx(ctx, tx, workID, definition)
+		kinds, evidenceErr := workPinOutstandingEvidenceKindsTx(ctx, tx, workID, definition, pin.Step, activeContractVersion)
 		if evidenceErr != nil {
 			return evidenceErr
 		}
@@ -399,17 +397,18 @@ func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 	return nil
 }
 
-func workPinRecoveryIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, definition WorkflowDefinition, instanceState string, state WorkflowAdmissionState) error {
-	if isTerminalLifecycle(instanceState) {
-		kept := []WorkPinIntent{}
-		for _, intent := range pin.NextValidIntents {
-			if workflowAdmit(definition, state, intent.ActionID).Admitted {
-				kept = append(kept, intent)
-			}
-		}
-		pin.NextValidIntents = kept
+// workPinTerminalIntents keeps only the intents a terminal instance still admits.
+func workPinTerminalIntents(pin *WorkPin, definition WorkflowDefinition, instanceState string, state WorkflowAdmissionState) {
+	if !isTerminalLifecycle(instanceState) {
+		return
 	}
-	return nil
+	kept := []WorkPinIntent{}
+	for _, intent := range pin.NextValidIntents {
+		if workflowAdmit(definition, state, intent.ActionID).Admitted {
+			kept = append(kept, intent)
+		}
+	}
+	pin.NextValidIntents = kept
 }
 
 func workPinVerifiedCriteriaTx(ctx context.Context, tx *sql.Tx, workID string, contract WorkflowReadContract) ([]WorkPinVerifiedCriterion, error) {
@@ -573,16 +572,6 @@ func workPinContainsAction(intents []WorkPinIntent, actionID string) bool {
 	return false
 }
 
-func workPinWithoutAction(intents []WorkPinIntent, actionID string) []WorkPinIntent {
-	filtered := make([]WorkPinIntent, 0, len(intents))
-	for _, intent := range intents {
-		if intent.ActionID != actionID {
-			filtered = append(filtered, intent)
-		}
-	}
-	return filtered
-}
-
 func workPinIntentForAction(action WorkflowActionDefinition, version int64, reason string) WorkPinIntent {
 	payload := publicWorkflowActionPayload(action)
 	fields := make([]string, 0, len(payload.Fields))
@@ -615,12 +604,67 @@ func workflowActionDefinitionByID(definition WorkflowDefinition, actionID string
 	return WorkflowActionDefinition{ID: actionID}
 }
 
-func workPinOutstandingEvidenceKindsTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition) (*[]string, error) {
+// workPinReportsCheckDebt holds on a step after the first evidence-binding
+// step. A completion step that declares binding still reports it.
+func workPinReportsCheckDebt(definition WorkflowDefinition, step string) bool {
+	if stepDeclaresAction(definition, step, "bind_evidence") && !stepDeclaresAction(definition, step, "complete") {
+		return false
+	}
+	for _, candidate := range definition.StepGraph.Steps {
+		if stepDeclaresAction(definition, candidate.ID, "bind_evidence") {
+			return workflowStepFollows(definition, candidate.ID, step)
+		}
+	}
+	return false
+}
+
+func workPinUnverdictedCheckRequirements(ctx context.Context, q queryer, workID string, contractVersion int64) ([]workflowEvidenceRequirement, bool, error) {
+	predicates, err := readWorkflowContractPredicates(ctx, q, workID, contractVersion)
+	if err != nil {
+		return nil, false, err
+	}
+	verdicts, err := latestWorkflowVerdictsBefore(ctx, q, workID, contractVersion, 0)
+	if err != nil {
+		return nil, false, err
+	}
+	verdicted := make(map[string]bool, len(verdicts))
+	for _, verdict := range verdicts {
+		verdicted[verdict.PredicateID] = true
+	}
+	var requirements []workflowEvidenceRequirement
+	for _, predicate := range predicates {
+		if verdicted[predicate.PredicateID] {
+			continue
+		}
+		approved, decodeErr := DecodeWorkflowPredicate([]byte(predicate.OutcomePayload))
+		if decodeErr != nil || string(approved.Kind) != predicate.OutcomeKind {
+			return nil, false, nil
+		}
+		if approved.Kind == PredicateCheck {
+			requirements = append(requirements, workflowEvidenceRequirement{Kind: string(EvidenceVerification), Reference: approved.ImmutableSubjectRef})
+		}
+	}
+	return requirements, true, nil
+}
+
+// workPinOutstandingEvidenceKindsTx reports the contract's unbound evidence
+// kinds. Past the evidence-binding step it also reports verification for each
+// unverdicted active check predicate whose subject is unbound; a malformed
+// predicate leaves the debt unknown.
+func workPinOutstandingEvidenceKindsTx(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, step string, contractVersion int64) (*[]string, error) {
 	required, mandates, obligations, err := workflowEvidenceRequirementInputs(ctx, q, workID)
 	if err != nil {
 		return nil, err
 	}
-	requirements, err := outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations)
+	requirements := workflowEvidenceRequirementDefinitions(required, mandates, definition, obligations)
+	if workPinReportsCheckDebt(definition, step) {
+		checks, known, checkErr := workPinUnverdictedCheckRequirements(ctx, q, workID, contractVersion)
+		if checkErr != nil || !known {
+			return nil, checkErr
+		}
+		requirements = append(requirements, checks...)
+	}
+	requirements, err = unboundWorkflowEvidenceRequirements(ctx, q, workID, requirements, 0)
 	if err != nil {
 		return nil, err
 	}

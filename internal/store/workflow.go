@@ -1648,16 +1648,9 @@ func validateWorkflowCompletionResultFields(p workflowActionCompletedPayload) er
 	return nil
 }
 
-// workflowCorrectionID reports whether one correction predicate id fits the
-// generated id schema the correction pin serializes.
-func workflowCorrectionID(value string) bool {
-	raw, err := json.Marshal(value)
-	return err == nil && payloadschema.Validate("id", raw) == nil
-}
-
 // admitWorkflowActionOffStep admits an ordinary write to its current record,
-// or a subject-bound evidence or confirmation action.
-func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, entry RegisteredDefinition, currentStep string, registry DefinitionRegistry, scope *writeScope) error {
+// or a subject-bound evidence action.
+func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload, entry RegisteredDefinition, currentStep string, scope *writeScope) error {
 	currentRecord := false
 	if workflowRecordAction(p.ActionID) {
 		records, err := workflowCurrentRecords(ctx, tx, event.SubjectID)
@@ -1766,7 +1759,7 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on the pinned current step", false, "reread_entities")
 	}
 	if !definitionStepAllows(entry.Definition, currentStep, p.ActionID) {
-		if err := admitWorkflowActionOffStep(ctx, tx, event, p, entry, currentStep, scopeDefinitionRegistry(scope), scope); err != nil {
+		if err := admitWorkflowActionOffStep(ctx, tx, event, p, entry, currentStep, scope); err != nil {
 			return err
 		}
 	}
@@ -1822,7 +1815,7 @@ func persistWorkflowActionCompletionTx(ctx context.Context, tx *sql.Tx, event Ev
 }
 
 func writeWorkflowDeliveryRecordTx(ctx context.Context, tx *sql.Tx, event Event) error {
-	_, asserted, err := workflowEventDeliveryAssertion(event)
+	asserted, err := workflowEventDeliveryAssertion(event)
 	if err != nil {
 		return workflowProjectionError(err, "cannot classify the current delivery assertion")
 	}

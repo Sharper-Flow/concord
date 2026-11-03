@@ -2,21 +2,8 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 )
-
-func TestCorrectionOpenFindingIDsAreValidated(t *testing.T) {
-	if !validWorkflowOpenFindings([]string{"finding:a", "finding:b"}) {
-		t.Fatal("valid open finding set refused")
-	}
-	for _, raw := range []string{`null`, `[]`, `["finding:a","finding:a"]`, `["finding/a"]`, `[1]`} {
-		var ids []string
-		if err := json.Unmarshal([]byte(raw), &ids); err == nil && validWorkflowOpenFindings(ids) {
-			t.Fatalf("invalid open finding set accepted: %s", raw)
-		}
-	}
-}
 
 // An operator stop cancels the workflow despite a standing correction.
 func TestCorrectionResolvesThroughOperatorStop(t *testing.T) {

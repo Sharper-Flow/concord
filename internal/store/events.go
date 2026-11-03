@@ -133,7 +133,7 @@ func appendPreparedEvent(ctx context.Context, tx *sql.Tx, e Event) (Sequence, er
 	if err != nil {
 		return 0, wrapFailure(KindInvalidPayload, "append_event", "cannot digest the event payload", false, "supply a valid JSON payload", err)
 	}
-	_, asserted, err := workflowEventDeliveryAssertion(e)
+	asserted, err := workflowEventDeliveryAssertion(e)
 	if err != nil {
 		return 0, wrapFailure(KindInvalidPayload, "append_event", "cannot classify the delivery assertion", false, "supply a valid completed-action payload", err)
 	}

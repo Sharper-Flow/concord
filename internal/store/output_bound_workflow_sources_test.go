@@ -1289,10 +1289,10 @@ func workPinIntentItemsBound() outputBoundSource {
 			goInlineBound("internal/store/workflow_registry.go", "ValidateWorkflowDefinition", "len(step.Actions)", boundItems),
 			goInlineBound("internal/store/workflow_registry.go", "ValidateWorkflowDefinition", "len(definition.AvailableActions)", boundItems),
 		),
-		[]string{"workPinIntents", "workPinWithoutAction", "workPinEscalatedRetryIntents"},
+		[]string{"workPinIntents", "workPinEscalatedRetryIntents"},
 		workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinIntents", target: "intents", loopSource: "step.Actions"},
 		workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinStepIntentsTx", target: "pin.NextValidIntents", loopSource: "definition.ActionDefinitions"},
-		workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinRecoveryIntentsTx", target: "pin.NextValidIntents"},
+		workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinTerminalIntents", target: "pin.NextValidIntents"},
 	)
 }
 

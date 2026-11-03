@@ -131,17 +131,18 @@ neither advances the gate nor supplies the missing Review.
   item reads as unreconciled.
 - `TestWorkflowCompletionRefusedAtDeliveryGate` proves the completed
   transition refuses at the gate and names the unreconciled delivery.
-- `TestDeliveryRequiresReviewOfCurrentCandidate` proves the rejected
-  review holds every advance toward delivery and a fresh accepted review
-  clears it.
 - `TestReviewOfReplacedCandidateCannotAuthorizeDelivery` and
   `TestReviewApplicabilityFollowsCandidateNotDispatchOrder` prove that
-  a Review of an earlier candidate cannot authorize delivery of a changed
-  candidate, and that a later launch or Review's corrective output leaves an
-  applicable Review standing; dispatch order alone does not decide
-  applicability.
-- Ordinary-write tests prove a parked gate accepts replacement records without
-  a producer return or step advance, while changed depended-on criteria require
-  applicable Review.
+  a rejected Review or a Review of an earlier candidate holds delivery of a
+  changed candidate until a fresh accepted Review clears it, and that a later
+  launch or Review's corrective output leaves an applicable Review standing;
+  dispatch order alone does not decide applicability.
+- `TestDeliveryGateTakesOrdinaryReviewUpdate` and
+  `TestAdmissionModelGateKeepsProgressDuringReviewUpdate` prove a parked gate
+  whose depended-on criterion changed refuses its crossing without effect,
+  takes `record_review` without a producer return or step advance, stays held
+  after a non-ready update, and opens its exit after a fresh ready Review.
+- `TestDeliveryGateRetainsStaleReviewThroughAgent` proves the tool surface
+  refuses delivery of a changed candidate under a stale Review with no effect.
 - `TestReviewCurrentAdmissionNegativeCases` proves an open in-scope blocking
   finding refuses progression.

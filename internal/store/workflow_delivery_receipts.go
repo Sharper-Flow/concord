@@ -5,18 +5,18 @@ import (
 	"encoding/json"
 )
 
-func workflowEventDeliveryAssertion(event Event) (string, bool, error) {
+func workflowEventDeliveryAssertion(event Event) (bool, error) {
 	if event.SubjectType != SubjectWorkItem || event.Kind != WorkflowActionCompleted {
-		return "", false, nil
+		return false, nil
 	}
 	var fields struct {
 		Artifact string `json:"delivery_artifact"`
 		State    string `json:"delivery_state"`
 	}
 	if err := json.Unmarshal(event.Payload, &fields); err != nil {
-		return "", false, err
+		return false, err
 	}
-	return fields.Artifact, fields.Artifact != "" && fields.State == "asserted", nil
+	return fields.Artifact != "" && fields.State == "asserted", nil
 }
 
 func backfillWorkflowDeliveryAssertionReceipts(ctx context.Context, q migrationRunner) error {
@@ -31,7 +31,7 @@ func backfillWorkflowDeliveryAssertionReceipts(ctx context.Context, q migrationR
 			rows.Close()
 			return err
 		}
-		_, asserted, err := workflowEventDeliveryAssertion(event)
+		asserted, err := workflowEventDeliveryAssertion(event)
 		if err != nil {
 			rows.Close()
 			return wrapFailure(KindInvariantViolation, "migrate", "recorded delivery assertion payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap", err)

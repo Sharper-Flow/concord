@@ -121,7 +121,7 @@ func TestWorkflowDeliveryAssertionClassification(t *testing.T) {
 		{name: "malformed fields", subject: SubjectWorkItem, kind: WorkflowActionCompleted, payload: `{"delivery_artifact":42,"delivery_state":"asserted"}`, malformed: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, got, err := workflowEventDeliveryAssertion(Event{Kind: test.kind, SubjectType: test.subject, Payload: json.RawMessage(test.payload)})
+			got, err := workflowEventDeliveryAssertion(Event{Kind: test.kind, SubjectType: test.subject, Payload: json.RawMessage(test.payload)})
 			if got != test.want || (err != nil) != test.malformed {
 				t.Fatalf("assertion = %v,%v; want %v, malformed %v", got, err, test.want, test.malformed)
 			}

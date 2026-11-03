@@ -146,6 +146,50 @@ func TestReviewOfReplacedCandidateCannotAuthorizeDelivery(t *testing.T) {
 	reviewGateExitWithCurrentReview(t, j)
 }
 
+func TestDeliveryGateTakesOrdinaryReviewUpdate(t *testing.T) {
+	for _, family := range []string{"workflow.break_fix", "workflow.implementation"} {
+		t.Run(family, func(t *testing.T) {
+			j := reviewGateRefineFixture(t, "review-gate-parked-update", family)
+			reviewGateCompleteReview(t, j, "ready_for_final_proof")
+			j.bindVerification(t, j.observeRun(t, "parked-refine"))
+			if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); err != nil {
+				t.Fatalf("refine delivery: %v", err)
+			}
+			reviewGateRequireStep(t, j.s, j.workID, "delivery")
+			reviewGateChangeRecordedCriterion(t, j)
+			reviewGateRequireStep(t, j.s, j.workID, "delivery")
+			pin := issue1013Pin(t, j.s, j.workID)
+			if pin.Review == nil || pin.Review.DependenciesCurrent || workPinContainsAction(pin.NextValidIntents, "record_delivery") || !workPinContainsAction(pin.NextValidIntents, "record_review") {
+				t.Fatalf("stale gate intents=%+v review=%+v", pin.NextValidIntents, pin.Review)
+			}
+			refuse := func(label string, kind FailureKind) {
+				t.Helper()
+				before := j.effects(t)
+				deliveries := reviewGateCountDeliveries(t, j.s, j.workID)
+				if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); !hasFailureKind(err, kind) {
+					t.Fatalf("%s: gate crossing=%v, want %s", label, err, kind)
+				}
+				if j.effects(t) != before || reviewGateCountDeliveries(t, j.s, j.workID) != deliveries {
+					t.Fatalf("%s: refused crossing changed durable state", label)
+				}
+				reviewGateRequireStep(t, j.s, j.workID, "delivery")
+			}
+			refuse("stale Review", KindStaleRequiresReview)
+			reviewGateCompleteReview(t, j, "continue")
+			reviewGateRequireStep(t, j.s, j.workID, "delivery")
+			refuse("non-ready Review update", KindMissingEvidence)
+			reviewGateCompleteReview(t, j, "ready_for_final_proof")
+			reviewGateRequireStep(t, j.s, j.workID, "delivery")
+			if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); err != nil {
+				t.Fatalf("gate crossing after fresh Review: %v", err)
+			}
+			if got := currentStep(t, j.s, j.workID); got == "delivery" {
+				t.Fatal("fresh Review did not restore the gate exit")
+			}
+		})
+	}
+}
+
 func TestReviewApplicabilityFollowsCandidateNotDispatchOrder(t *testing.T) {
 	t.Run("recorded correction blocks changed subject", func(t *testing.T) {
 		j := reviewGateRefineFixture(t, "review-gate-before-repair", "workflow.break_fix")

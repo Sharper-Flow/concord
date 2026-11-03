@@ -36,7 +36,7 @@ func recoveryBindPayload() json.RawMessage {
 func outstandingWorkflowEvidenceRequirementsForWork(ctx context.Context, q queryer, workID string, definition WorkflowDefinition) ([]workflowEvidenceRequirement, error) {
 	required, mandates, obligations, err := workflowEvidenceRequirementInputs(ctx, q, workID)
 	if err != nil {
-		if workflowMissingContractProjection(err) {
+		if workflowProjectionInvariant(err, "approved workflow contract is missing") {
 			return nil, nil
 		}
 		return nil, err

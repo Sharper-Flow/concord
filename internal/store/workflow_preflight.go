@@ -320,10 +320,10 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	}
 	// Apply step legality after the payload checks whose specific refusals
 	// precede the generic off-step refusal.
-	if err := preflightWorkflowActionStepTx(ctx, tx, entry.Definition, currentStep, request, decision); err != nil {
+	if err := preflightWorkflowActionStepTx(ctx, tx, entry.Definition, request, decision); err != nil {
 		return RegisteredDefinition{}, err
 	}
-	if err := preflightWorkflowActionGuardsTx(ctx, tx, entry.Definition, currentStep, request, admission); err != nil {
+	if err := preflightWorkflowActionGuardsTx(ctx, tx, entry.Definition, currentStep, request); err != nil {
 		return RegisteredDefinition{}, err
 	}
 	// See the note in the non-transactional preflight: recording a new actor is
@@ -331,7 +331,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	return entry, nil
 }
 
-func preflightWorkflowActionStepTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest, decision WorkflowAdmissionDecision) error {
+func preflightWorkflowActionStepTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionPreflightRequest, decision WorkflowAdmissionDecision) error {
 	if decision.OffStep {
 		return workflowPreflightFailure(decision.Failure)
 	}
@@ -341,9 +341,8 @@ func preflightWorkflowActionStepTx(ctx context.Context, tx *sql.Tx, definition W
 	return nil
 }
 
-func preflightWorkflowActionGuardsTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest, admission WorkflowAdmissionState) error {
-	switch request.ActionID {
-	case "record_verdict":
+func preflightWorkflowActionGuardsTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest) error {
+	if request.ActionID == "record_verdict" {
 		return preflightWorkflowVerdictTx(ctx, tx, definition, currentStep, request)
 	}
 	return nil

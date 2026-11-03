@@ -190,9 +190,10 @@ or validator is added.
 
 - `python3 scripts/check-domain-registry.py` proves this record's law homing,
   applicability and relation endpoints on the changed tree.
-- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py` and
-  `python3 scripts/check-durable-tier.py` prove corpus shape, link validity
-  and authority tier; required CI runs each as its own step.
+- `python3 scripts/check-json.py` and `python3 scripts/check-doc-links.py`
+  prove corpus shape and link validity; `python3 scripts/check-durable-tier.py`
+  enforces the CD-0002 durable-tier rules for the decisions folders.
+  Required CI runs each as its own step.
 - Required CI on the pull request, and default-branch CI after merge, prove
   the law corpus still validates.
 - Independent exact-head review compares the enacted clauses against the

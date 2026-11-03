@@ -122,7 +122,8 @@ The store keeps current state and finite verified snapshots; retired planning ki
 - `python3 scripts/check-pr-linear-link.py` enforces D5 on each pull request.
 - `internal/agent.TestDispatchIssueLinkRecordStoresReportedIdentity` exercises
   D3's record-only issue identity through the public dispatch boundary.
-- The implementing change binds the current-state anchor: retired planning
-  records carry no Initiative behavior (CD-0242 D2). Until that change lands,
-  the committed law-folder read is the executable anchor for this
-  record's law registration.
+- `internal/store.TestInitiativeRetirementUpgrade` exercises D8's removal of
+  retired Initiative records and their owned projections while preserving
+  actionable work, idempotency records and a verified predecessor snapshot.
+- The Initiative retirement rollback tests exercise atomic refusal when
+  research or foreign-owned dependencies remain or a deletion fails.

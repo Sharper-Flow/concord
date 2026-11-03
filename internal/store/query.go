@@ -575,9 +575,9 @@ func (s *Store) QueryQ2(ctx context.Context, req Q2Request) (Q2Result, error) {
 		COALESCE(SUM(CASE WHEN w.lifecycle='completed' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN w.lifecycle='cancelled' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN w.lifecycle='superseded' THEN 1 ELSE 0 END),0),
-		COALESCE(SUM(CASE WHEN w.` + actionableWorkKindSQL + ` AND EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress') AND b.` + actionableWorkKindSQL + `) THEN 1 ELSE 0 END),0),
-		COALESCE(SUM(CASE WHEN w.` + actionableWorkKindSQL + ` AND w.lifecycle='needed' AND NOT EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress') AND b.` + actionableWorkKindSQL + `) THEN 1 ELSE 0 END),0),
-		COALESCE(SUM(CASE WHEN w.` + actionableWorkKindSQL + ` AND w.lifecycle='in_progress' THEN 1 ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress')) THEN 1 ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN w.lifecycle='needed' AND NOT EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress')) THEN 1 ELSE 0 END),0),
+		COALESCE(SUM(CASE WHEN w.lifecycle='in_progress' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN w.lifecycle IN ('completed','cancelled','superseded') THEN 1 ELSE 0 END),0)
 		FROM work_items w JOIN scoped s ON s.work_id=w.id`
 	if err := tx.QueryRowContext(ctx, countQuery, scopeArgs(req.Product, projectArgsToIDs(projectArgs))...).Scan(&counts[0], &counts[1], &counts[2], &counts[3], &counts[4], &counts[5], &counts[6], &counts[7], &counts[8]); err != nil {
@@ -907,21 +907,21 @@ func attachDerivedFlags(ctx context.Context, tx *sql.Tx, items []WorkItem) ([]Wo
 		args[i] = items[i].ID
 		byID[items[i].ID] = i
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT w.id, w.`+actionableWorkKindSQL+`, EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress') AND b.`+actionableWorkKindSQL+`) FROM work_items w WHERE w.id IN (`+strings.Join(ph, ",")+`)`, args...) //nolint:gosec // eligibility fragments are constants; placeholders and every work ID stay parameter-bound.
+	rows, err := tx.QueryContext(ctx, `SELECT w.id, EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress')) FROM work_items w WHERE w.id IN (`+strings.Join(ph, ",")+`)`, args...) //nolint:gosec // placeholders and every work ID stay parameter-bound.
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "query", "cannot derive work readiness", true, "retry once the database is readable", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var id string
-		var actionable, blocked bool
-		if err := rows.Scan(&id, &actionable, &blocked); err != nil {
+		var blocked bool
+		if err := rows.Scan(&id, &blocked); err != nil {
 			return nil, err
 		}
 		if i, ok := byID[id]; ok {
-			items[i].Blocked = actionable && blocked
-			items[i].Ready = actionable && items[i].Lifecycle == "needed" && !blocked
-			items[i].Active = actionable && items[i].Lifecycle == "in_progress"
+			items[i].Blocked = blocked
+			items[i].Ready = items[i].Lifecycle == "needed" && !blocked
+			items[i].Active = items[i].Lifecycle == "in_progress"
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -1019,8 +1019,8 @@ func (s *Store) QueryQ4(ctx context.Context, req Q4Request) (Q4Result, error) {
 		FROM scoped s
 		JOIN work_items w ON w.id=s.work_id
 		JOIN relations r ON r.work_id_to=w.id AND r.kind='blocks'
-		JOIN work_items b ON b.id=r.work_id_from AND b.lifecycle IN ('needed','in_progress') AND b.` + actionableWorkKindSQL + `
-		WHERE w.` + actionableWorkKindSQL + workFilter + `
+		JOIN work_items b ON b.id=r.work_id_from AND b.lifecycle IN ('needed','in_progress')
+		WHERE 1=1` + workFilter + `
 		GROUP BY w.id,w.kind,w.title,w.lifecycle,w.version,w.priority,w.urgency,w.created_at,w.updated_at,w.terminal_time
 	)
 	SELECT id,kind,title,lifecycle,version,priority,urgency,created_at,updated_at,terminal_time
@@ -1116,12 +1116,12 @@ func readQ4BlockerGraph(ctx context.Context, tx *sql.Tx, selected []WorkItem, de
 		SELECT s.id,s.id,r.work_id_from,1
 		FROM selected s
 		JOIN relations r ON r.work_id_to=s.id AND r.kind='blocks'
-		JOIN work_items b ON b.id=r.work_id_from AND b.lifecycle IN ('needed','in_progress') AND b.` + actionableWorkKindSQL + `
+		JOIN work_items b ON b.id=r.work_id_from AND b.lifecycle IN ('needed','in_progress')
 		UNION
 		SELECT g.root_id,g.blocker_id,r.work_id_from,g.depth+1
 		FROM graph g
 		JOIN relations r ON r.work_id_to=g.blocker_id AND r.kind='blocks'
-		JOIN work_items b ON b.id=r.work_id_from AND b.lifecycle IN ('needed','in_progress') AND b.` + actionableWorkKindSQL + `
+		JOIN work_items b ON b.id=r.work_id_from AND b.lifecycle IN ('needed','in_progress')
 		WHERE g.depth < ?
 	)
 	SELECT g.root_id,g.parent_id,g.blocker_id,g.depth,b.kind,b.title,b.lifecycle,b.priority,b.urgency,b.created_at,b.updated_at,coalesce(b.terminal_time,''),b.version
@@ -1222,7 +1222,7 @@ func (s *Store) QueryQ5(ctx context.Context, req Q5Request) (Q5Result, error) {
 		workFilter += " AND w.kind=?"
 		queryArgs = append(queryArgs, req.Kind)
 	}
-	q := `WITH scoped AS (SELECT DISTINCT wp.work_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE pp.product_id=?` + scopeFilter + `) SELECT w.id,w.kind,w.title,w.lifecycle,w.version,w.priority,w.urgency,w.created_at,w.updated_at,coalesce(w.terminal_time,'') FROM work_items w JOIN scoped s ON s.work_id=w.id WHERE w.lifecycle='needed' AND w.` + actionableWorkKindSQL + workFilter + ` AND NOT EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress') AND b.` + actionableWorkKindSQL + `) ORDER BY w.urgency ASC,w.priority,w.created_at DESC,w.id LIMIT ? OFFSET ?`
+	q := `WITH scoped AS (SELECT DISTINCT wp.work_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE pp.product_id=?` + scopeFilter + `) SELECT w.id,w.kind,w.title,w.lifecycle,w.version,w.priority,w.urgency,w.created_at,w.updated_at,coalesce(w.terminal_time,'') FROM work_items w JOIN scoped s ON s.work_id=w.id WHERE w.lifecycle='needed'` + workFilter + ` AND NOT EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress')) ORDER BY w.urgency ASC,w.priority,w.created_at DESC,w.id LIMIT ? OFFSET ?`
 	queryArgs = append(queryArgs, limit+1, req.Offset)
 	out.Items, err = scanWorkItems(ctx, tx, q, queryArgs...)
 	if err != nil {

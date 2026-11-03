@@ -4292,18 +4292,6 @@ const GeneratedPayloadSchemaDocument = `{
       "minLength": 1,
       "type": "string"
     },
-    "stored_work_kind": {
-      "description": "Every kind a stored work item may carry, as contracts/work-kinds.v1.json declares stored=true. Wider than work_kind: initiative is stored but never agent-captured, so a result surface admits it while a capture input refuses it.",
-      "enum": [
-        "task",
-        "bug",
-        "decision",
-        "research",
-        "other",
-        "initiative"
-      ],
-      "type": "string"
-    },
     "urgency": {
       "enum": [
         "standard",
@@ -6861,7 +6849,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/retained_work_id"
         },
         "kind": {
-          "$ref": "#/$defs/stored_work_kind"
+          "$ref": "#/$defs/work_kind"
         },
         "lifecycle": {
           "$ref": "#/$defs/lifecycle"

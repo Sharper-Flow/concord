@@ -97,12 +97,8 @@ func appendEvent(ctx context.Context, tx *sql.Tx, e Event, allowCompletion bool)
 // derive a typed effect use it without recursively resolving the registry
 // that binds those writers during package initialization.
 func appendPreparedEvent(ctx context.Context, tx *sql.Tx, e Event) (Sequence, error) {
-	// The retirement can also be a property of the payload or the subject
-	// rather than of the event kind: a generic work.created whose
-	// payload classifies as initiative, or any new event on an existing
-	// initiative work item, refuses here before the receipt exists (CD-0213
-	// D4).
-	if err := refuseRetiredPlanningAppend(ctx, tx, e); err != nil {
+	// Refuse an initiative work.created payload before the receipt exists (CD-0213 D4).
+	if err := refuseRetiredPlanningAppend(e); err != nil {
 		return 0, err
 	}
 	if err := validateLiveProjectLocator(e); err != nil {

@@ -10,7 +10,7 @@ import (
 
 func pContractCriterionFixture(t *testing.T, id string) workflowReturnRouteFixture {
 	t.Helper()
-	f, ref := seedCriterionAssociationAtStep(t, id)
+	f, ref := seedCriterionAssociationAtStep(t, id, "conclude")
 	if err := runVerdictActionAs(t, f.store, id, "record_verdict", criterionAssociationPayload(ref, "predicate:first", "predicate:second"), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
@@ -161,9 +161,7 @@ func TestWorkflowActionPreflightRefusesUndeclaredActionAtCheckpoint(t *testing.T
 func TestVerdictOmittingContractVersionResolvesActiveContract(t *testing.T) {
 	t.Parallel()
 	const id = "verdict-version-default-supersede"
-	f, ref := seedCriterionAssociationAtStep(t, id)
-	route := seedWorkflowReturnRouteFixtureWithPlan(t, id, WorkflowStepPlanResearch, "investigate", []string{}, []string{"artifact"})
-	_ = route
+	f, ref := seedCriterionAssociationAtStep(t, id, "investigate")
 	successor := pContractSuccessor(t, f.store, id, "corrected premise")
 	predicates := successor["outcome_predicates"].([]any)
 	successor["outcome_predicates"] = append(predicates, map[string]any{"predicate_id": "predicate:added", "ordinal": 2, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}})

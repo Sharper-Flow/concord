@@ -4,7 +4,7 @@ import "testing"
 
 func TestResearchPlanRecordsReview(t *testing.T) {
 	const workID = "research-review-current"
-	fixture, _ := seedCriterionAssociationAtStep(t, workID)
+	fixture, _ := seedCriterionAssociationAtStep(t, workID, "conclude")
 	s := fixture.store
 	reviewSubjectClaim(t, s, workID)
 	report := currentReviewBlockForTest(t, s, workID, "ready_for_final_proof")

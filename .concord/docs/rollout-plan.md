@@ -54,10 +54,9 @@ research, or clarification work.
 
 ## 3. First-usable floor and release evidence
 
-The alpha maturity condition requires the first-usable floor to stay met; this
-does not make predecessor replacement current Product direction.
+The alpha maturity condition requires the first-usable floor to stay met.
 
-The six **usability-floor** conditions are defined in
+The five **usability-floor** conditions are defined in
 [`floor-readiness.md`](./floor-readiness.md) under *First-usable floor*. The
 **release-evidence bar** is defined below. Their conditions are linked rather than
 restated here.

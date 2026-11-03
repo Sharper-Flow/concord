@@ -1,7 +1,7 @@
 # Concord first-usable floor
 
 The first-usable floor is defined in two places: the *First-usable floor* section
-below (the six usability-floor conditions) and
+below (the five usability-floor conditions) and
 [`rollout-plan.md`](./rollout-plan.md) under *Release-evidence bar* (the
 release, install, privacy, and Linux amd64 bar).
 
@@ -17,13 +17,17 @@ Concord's current direction is in [`goals.md`](./goals.md) and
 3. Every supported workflow family (implementation, break-fix, research) has a defined workflow type and completion evidence.
 4. Required authority/freshness is explicit and CD-0006 R3's accepted cross-workflow impact policy is enforced.
 5. Concord-owned data and workflow boundaries preserve data safety ([concurrent-writer correctness](../law/decisions/CD-0045-writer-admission-invariant.md), no hand-repair, safe evolution).
-6. The Advance surfaces that Concord consumes are stable enough to serve as evidence, and Concord can replace them without losing operational coverage.
+
+Assess a candidate against each condition's source and the release-evidence bar,
+using evidence specific to that candidate. Independent review examines the
+evidence and any gaps; no condition is presumed met. This assessment creates no
+manifest or second authority.
 
 ## What this is not
 
 It is a definition, not a plan. It does not sequence work, assign effort, set
-dates, or authorize implementation. A replacement-readiness claim requires every
-condition met, judged against each condition's source section.
+dates, authorize implementation, or promote a Product by itself. A first-usable
+claim requires every condition met, judged against each condition's source section.
 
 It does not change the development-authority model in
 [`../law/specs/managed-development-authority.md`](../law/specs/managed-development-authority.md): Linear

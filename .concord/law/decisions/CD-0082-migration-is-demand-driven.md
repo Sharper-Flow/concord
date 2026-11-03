@@ -62,8 +62,8 @@ rewrite. The predecessor lessons and CD-0019/CD-0053 strength obligations remain
 ### D2. Readiness follows current Product law
 
 CD-0006 D1 owns Product direction, without a full-successor requirement.
-The recorded first-usable assessment remains in
-[`floor-readiness.md`](../../docs/floor-readiness.md) and its manifest. Accepted release,
+The first-usable floor is defined in
+[`floor-readiness.md`](../../docs/floor-readiness.md). Accepted release,
 maturity, and development-authority requirements keep their owning records;
 migration activity does not prove them or create an adoption gate.
 

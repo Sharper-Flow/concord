@@ -5,6 +5,10 @@ import (
 	"testing"
 )
 
+// TestUnusedCoordinationTablesAbsent stays although it is absence-only: no
+// law clause retires the eleven zero-use coordination tables (#2163 removed
+// them together with their law), and CON-1641 requires every deletion to
+// cite a retiring clause.
 func TestUnusedCoordinationTablesAbsent(t *testing.T) {
 	s := openTemp(t)
 	for _, table := range []string{"work_conflict_applications", "work_size_overrides", "resource_claims", "workflow_action_obligations", "domain_project_attachment_edges", "domain_project_attachment_sets", "product_knowledge_sources", "law_cross_source_relations", "workflow_impact_notices", "workflow_external_conditions", "workflow_staleness_observations"} {

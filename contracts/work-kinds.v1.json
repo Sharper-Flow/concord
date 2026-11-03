@@ -39,7 +39,7 @@
       "fold_revise": "refused",
       "agent_capture": "refused",
       "refusal": {
-        "message": "initiative work kind is read-only under CD-0213",
+        "message": "initiative work kind is retired under CD-0213",
         "recovery": "group the work in Linear through the Linear MCP server"
       }
     },

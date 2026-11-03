@@ -24,7 +24,9 @@ func retireInitiativeWork(ctx context.Context, q migrationRunner) error {
 		if err != nil {
 			return fmt.Errorf("initiative retirement: inspect %s: %w", check.table, err)
 		}
-		return fmt.Errorf("initiative retirement: %s contains a research or foreign-owned dependency for initiative %s, owner work %s", check.table, initiative, owner)
+		return newFailure(KindUpgradeBlocked, "migrate",
+			fmt.Sprintf("initiative retirement: %s contains a research or foreign-owned dependency for initiative %s, owner work %s; no migration was applied", check.table, initiative, owner), false,
+			"keep the installed release and report the named dependency to the Concord maintainer before retrying concord upgrade")
 	}
 	rows, err := q.QueryContext(ctx, `SELECT id FROM work_items WHERE kind='initiative' ORDER BY id`)
 	if err != nil {

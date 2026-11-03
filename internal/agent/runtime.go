@@ -1260,7 +1260,7 @@ func summary(w store.WorkItem) workSummary {
 		ids = append(ids, p.ID)
 	}
 	kind := w.Kind
-	if kind != "task" && kind != "bug" && kind != "decision" && kind != "research" && kind != "initiative" && kind != "other" {
+	if kind != "task" && kind != "bug" && kind != "decision" && kind != "research" && kind != "other" {
 		kind = "other"
 	}
 	var terminal *string

@@ -58,13 +58,6 @@ func TestSessionPrepareRefusesWrongDirectoryBeforeIdentity(t *testing.T) {
 	}
 }
 
-func modelCLIHistoricalInitiative(t *testing.T, s *store.Store, workID string) {
-	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`DROP TRIGGER work_items_kind_registry_update; INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET kind='initiative' WHERE id=?; DELETE FROM write_guard; CREATE TRIGGER work_items_kind_registry_update BEFORE UPDATE OF kind ON work_items FOR EACH ROW WHEN NOT EXISTS (SELECT 1 FROM work_kinds WHERE kind=NEW.kind AND stored=1) BEGIN SELECT RAISE(ABORT, 'work_items kind is not a stored work kind'); END`, workID); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestSessionPrepareRefusesForeignScopeBeforeCallbacks(t *testing.T) {
 	for _, foreignProject := range []bool{false, true} {
 		name := "wrong Product"
@@ -114,42 +107,6 @@ func TestSessionPrepareRefusesForeignScopeBeforeCallbacks(t *testing.T) {
 				t.Fatalf("code=%d callbacks=%d stdout=%q stderr=%q want=%q", code, calls, out.String(), errOut.String(), want)
 			}
 		})
-	}
-}
-
-func TestSessionPrepareRefusesRetiredInitiativeBeforeCallbacks(t *testing.T) {
-	repo := initLocatorRepo(t)
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	s := mustOpenStore(t, dbPath)
-	seedLocatorAuthority(t, s, repo)
-	result := seedCLISessionWorktree(t, s, repo)
-	t.Setenv(dbOverrideEnv, dbPath)
-	t.Chdir(result.Entry.Path)
-	modelCLIHistoricalInitiative(t, s, result.WorkID)
-	var before, after int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&before); err != nil {
-		t.Fatal(err)
-	}
-	calls := 0
-	var out, errOut bytes.Buffer
-	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
-		func(context.Context, string) (hostCommandResolution, error) {
-			calls++
-			return defaultHostResolution(), nil
-		},
-		func(context.Context, string, hostCommandResolution, string) (string, error) {
-			calls++
-			return "orchestrator", nil
-		},
-		func(context.Context, string, string, string, string) ([]byte, error) {
-			calls++
-			return []byte(`{}`), nil
-		})
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&after); err != nil {
-		t.Fatal(err)
-	}
-	if code != sessionPrepareRefusalExit || calls != 0 || after != before || out.Len() != 0 || !strings.Contains(errOut.String(), "CD-0213") {
-		t.Fatalf("code=%d callbacks=%d events=%d->%d stdout=%q stderr=%q", code, calls, before, after, out.String(), errOut.String())
 	}
 }
 

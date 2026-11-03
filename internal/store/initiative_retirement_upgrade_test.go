@@ -121,8 +121,8 @@ func TestInitiativeRetirementUpgrade(t *testing.T) {
 	if scope, err := s.QueryQ6(t.Context(), Q6Request{Product: "product-upgrade", Work: "initiative-old"}); err == nil {
 		t.Errorf("retired initiative remains in scope: %#v", scope)
 	}
-	if _, err := db.Exec(`INSERT INTO write_guard VALUES(1); UPDATE work_items SET kind='initiative' WHERE id='work-live'`); err == nil {
-		t.Fatal("retired kind accepted by registry")
+	if _, err := db.Exec(`INSERT INTO write_guard VALUES(1); UPDATE work_items SET kind='initiative' WHERE id='work-live'`); err == nil || !strings.Contains(err.Error(), "work_items kind is not a stored work kind") {
+		t.Fatalf("retired kind registry error = %v", err)
 	}
 }
 
@@ -150,6 +150,7 @@ func TestInitiativeRetirementDependencyRollback(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "active_research_packs") || !strings.Contains(err.Error(), "initiative-old") {
 		t.Fatalf("upgrade error = %v, want named research dependency", err)
 	}
+	assertFailureKind(t, err, KindUpgradeBlocked)
 	if got := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(got, before) {
 		t.Fatal("refused retirement changed the predecessor database")
 	}
@@ -163,6 +164,7 @@ func TestInitiativeRetirementForeignOwnerRollback(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "workflow_overlap_resolutions") || !strings.Contains(err.Error(), "work-upgrade-to") || !strings.Contains(err.Error(), "work-upgrade-from") {
 		t.Fatalf("upgrade error = %v, want named foreign-owned dependency", err)
 	}
+	assertFailureKind(t, err, KindUpgradeBlocked)
 	if got := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(got, before) {
 		t.Fatal("foreign-owned dependency refusal changed the predecessor database")
 	}

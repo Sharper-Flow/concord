@@ -6,26 +6,13 @@ import (
 	"errors"
 )
 
-// Retired Initiative work is never selectable or an operative blocker.
-// Queries qualify this constant predicate with their fixed table alias.
 const retiredInitiativeWorkKind = "initiative"
-const actionableWorkKindSQL = "kind <> '" + retiredInitiativeWorkKind + "'"
 
 func actionableWorkKind(kind string) bool {
 	return kind != retiredInitiativeWorkKind
 }
 
-func requireActionableWorkKind(kind, operation string) error {
-	if !actionableWorkKind(kind) {
-		return newFailure(KindInvalidOperation, operation,
-			"initiative work kind is read-only under CD-0213 D4/D8 and cannot enter execution", false,
-			"group the work in Linear through the Linear MCP server")
-	}
-	return nil
-}
-
-// RequireActionableWork refuses execution of a retired kind before a caller
-// probes or changes native state.
+// RequireActionableWork checks existence and publication before execution.
 func (s *Store) RequireActionableWork(ctx context.Context, workID, operation string) error {
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, operation, "store is not open", false, "open the authority database")
@@ -37,14 +24,14 @@ func requireActionableWork(ctx context.Context, q queryer, workID, operation str
 	if err := publishedWorkAbsenceQ(ctx, q, workID, operation); err != nil {
 		return err
 	}
-	var kind string
-	if err := q.QueryRowContext(ctx, `SELECT kind FROM work_items WHERE id=?`, workID).Scan(&kind); err != nil {
+	var exists int
+	if err := q.QueryRowContext(ctx, `SELECT 1 FROM work_items WHERE id=?`, workID).Scan(&exists); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return newFailure(KindUnknownScope, operation, "work item does not exist", false, "check the work identity before execution")
 		}
-		return wrapFailure(KindUnavailable, operation, "cannot read the work item kind", true, "retry once the database is readable", err)
+		return wrapFailure(KindUnavailable, operation, "cannot read the work item", true, "retry once the database is readable", err)
 	}
-	return requireActionableWorkKind(kind, operation)
+	return nil
 }
 
 func planningRetiredEventAppendRefused(kind string) error {
@@ -60,36 +47,16 @@ func retiredInitiativeWriteRefused(kind string) error {
 }
 
 // refuseRetiredPlanningAppend owns the CD-0213 D4 control for the generic
-// work-event kinds whose retirement is a property of their payload or subject,
-// not of the event kind. A capture classifies by its validated payload.
-// Every other work-item event classifies by a kind lookup through the
-// caller's transaction, never through the store pool:
-// while this transaction holds the pooled connection, a nested s.db call
-// parks forever.
-func refuseRetiredPlanningAppend(ctx context.Context, tx *sql.Tx, event Event) error {
-	if event.SubjectType != SubjectWorkItem {
+// work-event kinds whose retirement is a property of their payload.
+func refuseRetiredPlanningAppend(event Event) error {
+	if event.SubjectType != SubjectWorkItem || event.Kind != "work.created" {
 		return nil
 	}
-	if event.Kind == "work.created" {
-		var payload workCreatedPayload
-		if err := decodePayload(event, &payload); err != nil {
-			return err
-		}
-		if !actionableWorkKind(payload.WorkKind) {
-			return retiredInitiativeWriteRefused(event.Kind)
-		}
-		return nil
+	var payload workCreatedPayload
+	if err := decodePayload(event, &payload); err != nil {
+		return err
 	}
-	var kind string
-	err := tx.QueryRowContext(ctx, `SELECT kind FROM work_items WHERE id=?`, event.SubjectID).Scan(&kind)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return wrapFailure(KindUnavailable, "append_event", "cannot read the subject work kind", true,
-			"retry once the database is readable", err)
-	}
-	if !actionableWorkKind(kind) {
+	if !actionableWorkKind(payload.WorkKind) {
 		return retiredInitiativeWriteRefused(event.Kind)
 	}
 	return nil

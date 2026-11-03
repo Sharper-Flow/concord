@@ -97,9 +97,18 @@ admitted execution and acceptance route for its actual target. If no route
 exists, report the limitation before capture. Distinguish host-owned work from
 new managed capability and obtain any applicable operator decision; do not invent
 a recipe, receipt, or research classification. Host-owned work has no Concord
-workflow authority, evidence, verdict, or completion claim. An existing managed
-item stays held until its supported handoff succeeds; a refusal is not permission
-to execute directly.
+workflow authority, evidence, verdict, or completion claim. Keep an existing
+managed item held when its supported execution or handoff is unavailable.
+
+When a Concord defect blocks safe workflow recording or execution of your own
+item, you may carry out the authorized repair outside workflow under CD-0122
+D2. Use the repair's own isolated branch and worktree, an ordinary independently
+reviewed PR whose body names CD-0122 D2, and required checks. Make no Concord
+workflow writes for the repair, fabricate no records, and link the PR on the
+Linear issue. Keep the original managed item held until its supported route
+works; resume through typed operations. This exception permits only the blocking
+Concord defect repair, not unrelated work or evasion of a tool refusal, operator
+hold, denial, or authority boundary.
 
 Use direct tools for targeted retrieval of known files, symbols, strings, or
 documentation. Send a bounded repository investigation to the explore utility

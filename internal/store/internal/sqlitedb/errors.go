@@ -35,3 +35,23 @@ func (e *Error) Unwrap() error { return e.Err }
 func failure(kind ErrorKind, op, detail string, retry bool, recovery string, err error) *Error {
 	return &Error{Kind: kind, Op: op, Detail: detail, RetrySafe: retry, RecoveryAction: recovery, Err: err}
 }
+
+// errorEffectPossible reports whether any mechanism failure in the cause tree
+// marks an effect that cannot be proved absent, including siblings in a joined
+// rollback failure.
+func errorEffectPossible(err error) bool {
+	if mechanism, ok := err.(*Error); ok && mechanism != nil && mechanism.EffectPossible {
+		return true
+	}
+	switch wrapped := err.(type) {
+	case interface{ Unwrap() []error }:
+		for _, cause := range wrapped.Unwrap() {
+			if errorEffectPossible(cause) {
+				return true
+			}
+		}
+	case interface{ Unwrap() error }:
+		return errorEffectPossible(wrapped.Unwrap())
+	}
+	return false
+}

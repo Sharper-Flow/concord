@@ -2045,21 +2045,6 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
     def validate(self, value, name):
         generator.schema_validate(value, self.projected["$defs"][name], self.projected)
 
-    def test_judged_cases_are_closed_and_native_bundles_stay_executable_only(self):
-        defs = self.projected["$defs"]
-        executable = {"case_id": "case:one", "owner_id": "owner:one", "entry_point": "source/main.go",
-                      "input_class": "valid input", "expected_state": "accepted", "control_ids": ["control:one"]}
-        judged = {key: value for key, value in executable.items() if key != "control_ids"} | {"judge": "review"}
-        for case in (executable, judged):
-            self.validate(case, "worker_oracle_case")
-        for invalid in (executable | {"judge": "review"}, judged | {"control_ids": []},
-                        judged | {"judge": "implement"}, judged | {"judge": None},
-                        {key: value for key, value in judged.items() if key != "judge"},
-                        executable | {"control_ids": []}, judged | {"citation": "not-a-proof-kind"}):
-            for schema, root in ((defs["worker_oracle_case"], self.projected),):
-                with self.assertRaises(ValueError, msg=invalid):
-                    generator.schema_validate(invalid, schema, root)
-
     def test_resolution_proof_kinds_are_bounded_and_nonempty(self):
         schemas = ((self.projected["$defs"]["lane_report_resolved_finding"], self.projected),)
         native = {"finding_id": "finding:19:0", "evidence_refs": ["verification:reported"]}

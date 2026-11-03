@@ -6,42 +6,6 @@ import (
 	"testing"
 )
 
-func TestOracleCaseJudgeUnion(t *testing.T) {
-	base := map[string]any{
-		"case_id": "case:one", "owner_id": "owner:one", "entry_point": "source/main.go",
-		"input_class": "valid input", "expected_state": "accepted",
-	}
-	for _, tc := range []struct {
-		name   string
-		fields map[string]any
-		valid  bool
-	}{
-		{"executable", map[string]any{"control_ids": []string{"control:one"}}, true},
-		{"judged", map[string]any{"judge": "review"}, true},
-		{"both", map[string]any{"judge": "review", "control_ids": []string{"control:one"}}, false},
-		{"empty controls with judge", map[string]any{"judge": "review", "control_ids": []string{}}, false},
-		{"neither", nil, false},
-		{"empty executable", map[string]any{"control_ids": []string{}}, false},
-		{"unknown judge", map[string]any{"judge": "implement"}, false},
-		{"null judge", map[string]any{"judge": nil}, false},
-		{"unknown field", map[string]any{"judge": "review", "citation": "source/main.go"}, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			value := corpusCopy(base).(map[string]any)
-			for key, field := range tc.fields {
-				value[key] = field
-			}
-			raw, err := json.Marshal(value)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := Validate("worker_oracle_case", raw); (err == nil) != tc.valid {
-				t.Errorf("worker_oracle_case valid=%v want %v: %v", err == nil, tc.valid, err)
-			}
-		})
-	}
-}
-
 func TestOracleResolutionProofUnion(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

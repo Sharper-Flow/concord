@@ -1353,8 +1353,8 @@ def prune_payload_definitions(payload: dict, manifest: dict, public_variants: li
     defs = payload["$defs"]
     roots = {schema["ref"].rsplit("/", 1)[-1] for schema in manifest["schemas"].values()
              if schema["ref"].partition("#")[0] in {"", "contracts/agent-tool-surface-payloads.schema.json"}}
-    roots.update(("worker_oracle_control", "worker_oracle_case", "workflow_review_report",
-                  "work_transition_action_public_input", "workflow_action_outcome"))
+    roots.update(("workflow_review_report", "work_transition_action_public_input",
+                  "workflow_action_outcome"))
     roots.update(RETAINED_OUTPUT_TWINS)
     roots.update(variant["schema"] for variant in public_variants)
     roots.update(schema_roots or [])

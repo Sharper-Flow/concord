@@ -33,8 +33,8 @@
 # to run one.
 #
 # Host admission control is provided by `oc-test-gate` when it is installed.
-# Smoke uses smoke admission; targeted uses ungated targeted admission; broad
-# and conformance use full admission; the pre-push gates use smoke admission
+# Smoke uses smoke admission; targeted uses ungated targeted admission; broad,
+# store-shard, and conformance use full admission; the pre-push gates use smoke admission
 # through the preflight-gate tier, because they vet, build, lint, and compile
 # every package, which is heavy on a shared host when several worktrees push
 # at once. Each admitted gate rejoins the queue per gate, so a contended slot
@@ -212,9 +212,11 @@ case "$tier" in
     # CI's shard selection with discovery inside admission: go-test-shard.py
     # runs `go test -list` under the same admission as the test run. The shard
     # numbers travel as bash -c positional parameters, so the command string
-    # is fixed and no caller text is interpolated into it.
+    # is fixed and no caller text is interpolated into it. The selector's
+    # pattern is assigned first: an empty pattern would select the whole
+    # package, and under `set -e` a failed assignment stops the run instead.
     run_tier store-shard full bash -euo pipefail -c \
-      'go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store "$1" "$2")" ./internal/store' \
+      'pattern="$(python3 scripts/go-test-shard.py ./internal/store "$1" "$2")"; go test -timeout=15m -run "$pattern" ./internal/store' \
       store-shard "$1" "$2"
     ;;
   plan)

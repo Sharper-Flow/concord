@@ -210,10 +210,10 @@ class TierRoutingTest(unittest.TestCase):
                        PATH=str(root / "bin") + os.pathsep + "/usr/bin:/bin",
                        FAIL_COMMAND=failure,
                        GATE_CLASS_RECORD=str(gate_record),
-                        COMMAND_RECORD=str(command_record),
-                        GO_LIST_OUTPUT=GO_LIST_OUTPUT,
-                        GO_TEST_LIST_OUTPUT=GO_TEST_LIST_OUTPUT,
-                        CONCORD_SELECTED_PRODUCT_ID="poison-product")
+                       COMMAND_RECORD=str(command_record),
+                       GO_LIST_OUTPUT=GO_LIST_OUTPUT,
+                       GO_TEST_LIST_OUTPUT=GO_TEST_LIST_OUTPUT,
+                       CONCORD_SELECTED_PRODUCT_ID="poison-product")
             for key in ("CONCORD_REQUIRE_BUN", "CONCORD_CONFORMANCE_LONG", "OC_TEST_MAX_FILE_MIB"):
                 env.pop(key, None)
             env.update(env_extra or {}, SCRATCH=str(root))
@@ -671,6 +671,21 @@ class StoreShardTierTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stderr)
         self.assertIn("FAIL store-shard", result.stderr)
         self.assertNotIn("PASS store-shard", result.stdout)
+
+    def test_store_shard_stops_when_the_selector_refuses(self):
+        # A selector that cannot build a shard must stop the run before any
+        # `go test` executes: an empty -run pattern would select the whole
+        # package, the exact unsharded hold this tier exists to prevent.
+        # 8 of 8 asks for a shard the synthetic inventory cannot fill; the
+        # huge index passes bash's 64-bit check only by wrapping.
+        for index in ("8", "18446744073709551617"):
+            with self.subTest(index=index):
+                result = self.run_wrapper("store-shard", index, "8")
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertEqual([(call["command"], call["args"]) for call in result.calls],
+                                 [("go", ["test", "-list", ".", "./internal/store"])])
+                self.assertIn("FAIL store-shard", result.stderr)
+                self.assertNotIn("PASS store-shard", result.stdout)
 
     def test_store_shard_without_gate_refuses_heavy_work(self):
         result = self.run_wrapper("store-shard", "1", "7", with_gate=False)

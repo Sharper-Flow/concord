@@ -629,7 +629,7 @@ func TestResearchRetireReplayAfterOwnerRemovalFailsClosed(t *testing.T) {
 		"execution_relinquished": true, "writes_reconciled": true, "effects_reconciled": true,
 		"dependencies_resolved": true, "artifacts_verified": true,
 		"handoff": ownerHandoff,
-		"linear": store.LinearHandoffConfirmation{ProductID: "product-1", RemoteIssueUUID: "remote-retire-owner-0", Destination: "linear", HandoffDigest: fmt.Sprintf("sha256:%x", ownerHandoffHash)},
+		"linear":  store.LinearHandoffConfirmation{ProductID: "product-1", RemoteIssueUUID: "remote-retire-owner-0", Destination: "linear", HandoffDigest: fmt.Sprintf("sha256:%x", ownerHandoffHash)},
 	}
 	raw, err := json.Marshal(removal)
 	if err != nil {

@@ -37,6 +37,9 @@ func TestWorkRemovalRefusesCompletedWork(t *testing.T) {
 	confirmRemovalHandoff(t, s, &producer)
 	err := removeWorkForTest(t.Context(), s, producer)
 	assertFailureKind(t, err, KindInvalidOperation)
+	if err == nil || !strings.Contains(err.Error(), "completed and superseded work cannot be removed") {
+		t.Fatalf("completed work refusal=%v", err)
+	}
 }
 
 func removalTestRequest() WorkRemovalRequest {

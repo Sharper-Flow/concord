@@ -69,7 +69,7 @@ func TestDispatchWorkRemovalRefusesUnlinkedWorkWithoutLinearHandoff(t *testing.T
 	input := map[string]any{
 		"operation_id": "remove-unlinked-op", "idempotency_key": "remove-unlinked-key", "work_id": "work-1",
 		"expected_version": version, "reason": "shelved", "actor": "human-1", "product_id": "product-1",
-		"handoff":          handoff,
+		"handoff":                handoff,
 		"execution_relinquished": true, "writes_reconciled": true, "effects_reconciled": true,
 		"dependencies_resolved": true, "artifacts_verified": true,
 	}

@@ -13,37 +13,36 @@ import (
 // invokeRequestWireBytes composes the whole invoke request's wire figure
 // from one derived action input: the call envelope under the bounds its
 // current owners enforce plus the derivation's population scope for the
-// members no owner bounds, then the four-member request wrapper. Both
-// request derivations share it.
+// members no owner bounds, then the four-member request wrapper. All
+// three request derivations share it.
 func invokeRequestWireBytes(t *testing.T, input int) int {
 	t.Helper()
 	// The call envelope's members, each under the bound a current owner
-	// enforces: client_ref and principal_ref must match the trusted
-	// client record (agent_clients CHECKs cap both at 128 characters),
-	// agent_ref must sit inside the client's agent scope (each member
-	// held to 1..128 bytes at registration), session_ref lands in the
-	// workflow_actors admission on mutations (CHECK 2..128), and the
-	// ambient and selected identifiers must equal the registry-resolved
-	// Project and Product identifiers. The digests are owner-fixed:
-	// manifest_digest must equal the agentcontract.ManifestDigest
-	// constant, and scope_version is the store-minted "sha256:"+64-hex
-	// watermark. The adapter writer omits host_assertion_digest; a
-	// mutation defaults an empty one to the AgentMutationDigest of that
-	// same 71-scalar shape.
+	// enforces: client_ref must resolve to a trusted client record and
+	// principal_ref must be empty or equal that record's principal (the
+	// agent_clients CHECKs cap both at 128 characters); agent_ref,
+	// ambient_project_id, and selected_product_id must sit inside the
+	// client's agent, Project, and Product scopes, whose members
+	// registration holds to 1..128 bytes; session_ref lands in the
+	// workflow_actors admission on mutations (CHECK 2..128). Two digests
+	// are owner-fixed at "sha256:" plus 64 lowercase hex: manifest_digest
+	// must equal the agentcontract.ManifestDigest constant, and
+	// scope_version is the store-minted scope watermark.
 	//
-	// Population scope, not declared maxima (CON-1590): no owner bounds
-	// the length of directory, worktree, request_id, or the registry
-	// identifiers, and session_ref rides this scope on reads. The adapter
-	// copies both path values from the host session readback — its only
-	// writer-side check is non-empty — and composes request_id from the
-	// host session and message IDs; DecodeInvokeRequest enforces no
-	// per-field envelope bound. PR #2209 retired the output definition
-	// that was the last declared owner of a 4096-code-point session-path
-	// figure. This derivation instead scopes its envelope population at 4096 code
-	// points per path value — the release platform's PATH_MAX order —
-	// and 128 per identity-bearing member, at the six-byte worst case
-	// per scalar the figures below carry. A member past this scope stays
-	// transport-admitted today; the one bound it faces is the
+	// Population scope, not declared maxima: nothing bounds the length of
+	// directory, worktree, request_id, host_assertion_digest, or
+	// session_ref on reads. The adapter copies both path values from the
+	// host session readback — its only writer-side check is non-empty —
+	// composes request_id from the host session and message IDs, and
+	// omits host_assertion_digest, which a mutation defaults to a digest
+	// of the same 71-scalar shape only when empty. DecodeInvokeRequest
+	// enforces no per-field envelope bound, and the output definition
+	// that last declared a 4096-code-point session-path figure is
+	// retired. This derivation instead scopes its envelope population at
+	// 4096 code points per path value — the release platform's PATH_MAX
+	// order — and 128 per identity-bearing member, at the six-byte worst
+	// case per scalar the figures below carry. A member past this scope
+	// stays transport-admitted; the one bound it faces is the
 	// whole-request refusal TestDecodeInvokeRequestRefusesTypedAndWhole
 	// pins, unchanged.
 	envelope := map[string]int{
@@ -57,12 +56,14 @@ func invokeRequestWireBytes(t *testing.T, input int) int {
 		"worktree":            schemawire.JSONStringWireBytes(4096),
 		"ambient_project_id":  schemawire.JSONStringWireBytes(128),
 		"selected_product_id": schemawire.JSONStringWireBytes(128),
-		// The three digests are this derivation's only one-byte population:
-		// their owners above fix each at "sha256:" plus 64 lowercase hex
-		// — fixed-ASCII, no escapable scalar — so the encoder's cost is
-		// exactly one byte per code point, quotes included; the 130-byte
-		// figure keeps headroom over that 71-scalar shape. Every other
-		// string here keeps the six-byte figure.
+		// The three digests are this derivation's only one-byte population.
+		// Two are owner-fixed at "sha256:" plus 64 lowercase hex; the
+		// adapter omits host_assertion_digest and a mutation defaults an
+		// empty one to that same 71-scalar shape, so the population scope
+		// takes it at one byte per scalar too. Fixed-ASCII, no escapable
+		// scalar: the encoder's cost is exactly one byte per code point,
+		// quotes included, and the 130-byte figure keeps headroom. Every
+		// other string here keeps the six-byte figure.
 		"scope_version":         2 + 128,
 		"manifest_digest":       2 + 128,
 		"host_assertion_digest": 2 + 128,

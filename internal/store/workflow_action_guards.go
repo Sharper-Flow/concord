@@ -843,7 +843,7 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *write
 	if err := extendCompletionEvidenceAuthorityTx(ctx, tx, request); err != nil {
 		return result, err
 	}
-	completion, completionErr := workflowCompletionEventForDefinition(ctx, tx, registry, request, actor, payload)
+	completion, completionErr := workflowCompletionEventForDefinition(ctx, tx, request, actor, payload)
 	if completionErr != nil {
 		return result, completionErr
 	}

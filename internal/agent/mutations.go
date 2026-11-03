@@ -396,7 +396,7 @@ func evidenceBindingFamily(actionID string) bool {
 // payload of the evidence-binding action family when the fields omit it. The
 // store derives the durable event's evidence_kind from the payload alone, so
 // without this mapping a commit-kind evidence array silently records as
-// verification and the completion gate reads the kind as unbound. The default
+// verification and premise confirmation reads the kind as unbound. The default
 // applies only when the array states one kind: an array carrying several
 // kinds threads them per entry into the store, and stamping the first kind
 // into the fields would contradict the rest and refuse the binding.

@@ -50,7 +50,6 @@ law-boundary marker: for those contracts, `spec_mandate` is the bounded
 referenced-law set and `law_modifies` is an optional bounded subset. Planning
 checks the laws committed in the law folder and their declared relations;
 an explicit conflict may pass planning only when the endpoint whose record
-<<<<<<< HEAD
 declares it is in `law_modifies`.
 
 CD-0036 binds contracts to law IDs without law or Domain registry freshness
@@ -476,11 +475,8 @@ Mandated-law presence is not a completion condition.
 Verification, Review, delivery-stage admission and premise confirmation keep
 their own requirements. The active contract, legal terminal action and state,
 expected version, authenticated actor, and durable operation remain required.
-For a law-boundary contract, the law-change enactment check of
-[CD-0230](../decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
-D4 also remains: every law or registry change lies inside the active contract,
-each enacted revision is present with the `derived` tier, and each declared
-removal is absent from the verified inventory.
+Completion runs no law-attribution or enactment check
+([CD-0230 D4](../decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md#d4-law-changes-follow-the-operators-approval-boundary)).
 
 | Clause | Exact refusal | Recovery action |
 |---|---|---|

@@ -85,10 +85,10 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		return err
 	}
 	defer func() { _ = scope.close(ctx) }()
-	return completeWorkflowInScopeTx(ctx, tx, registry, event, scope, payload)
+	return completeWorkflowInScopeTx(ctx, tx, event, scope, payload)
 }
 
-func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, event Event, scope *writeScope, payload workflowCompletedPayload) error {
+func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, payload workflowCompletedPayload) error {
 	// The expected version is checked before any other read.  This is the lock/fence
 	// boundary described by the contract; every subsequent mutation uses the
 	// same transaction and therefore sees one consistent projection.
@@ -201,24 +201,24 @@ func workflowCompletionVersion(ctx context.Context, tx *sql.Tx, workID string, e
 	return nil
 }
 
-func workflowCompletionContract(ctx context.Context, tx queryer, registry DefinitionRegistry, workID string) (workflowCompletionContractData, WorkflowDefinition, error) {
+func workflowCompletionContract(ctx context.Context, tx queryer, registry DefinitionRegistry, workID string) (workflowCompletionContractData, error) {
 	result, err := workflowCompletionContractRows(ctx, tx, workID)
 	if err != nil {
-		return workflowCompletionContractData{}, WorkflowDefinition{}, err
+		return workflowCompletionContractData{}, err
 	}
 	definition, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, workID)
 	if err != nil {
-		return workflowCompletionContractData{}, WorkflowDefinition{}, err
+		return workflowCompletionContractData{}, err
 	}
 	if err := validateWorkflowCompletionContractPredicates(result, definition.Definition); err != nil {
-		return workflowCompletionContractData{}, WorkflowDefinition{}, err
+		return workflowCompletionContractData{}, err
 	}
-	return result, definition.Definition, nil
+	return result, nil
 }
 
 // validateWorkflowCompletionContractPredicates validates the stored contract's
 // approved predicates against one already-verified definition: decode, kind
-// match, and pinned-definition membership. The completion gate and the
+// match, and pinned-definition membership. The contract reader and the
 // acceptance deliverables check share it, so no owner re-derives the rule.
 func validateWorkflowCompletionContractPredicates(contract workflowCompletionContractData, definition WorkflowDefinition) error {
 	for _, item := range contract.Predicates {

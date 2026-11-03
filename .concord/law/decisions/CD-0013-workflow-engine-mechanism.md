@@ -177,8 +177,7 @@ modifications to the outcome fail authorship fencing under CD-0012 D7.
 Completion records reported delivery links and commits terminal metadata and
 the lifecycle transition in one transaction (PM4 invariant 7 extension).
 The legal terminal action and state, active contract, expected version,
-authenticated actor, idempotency, atomic rollback and the law-change enactment
-check remain required under
+authenticated actor, idempotency and atomic rollback remain required under
 [workflow-engine contract §7](../specs/workflow-engine-contract.md#7-ordered-completion-gate).
 Completion does not re-evaluate evidence, candidate scope or mandates, criterion proof,
 verdicts, current Review, premise confirmation, staleness or commit drift.

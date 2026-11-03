@@ -558,7 +558,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 	}
 }
 
-func workflowCompletionEventForDefinition(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage) (Event, error) {
+func workflowCompletionEventForDefinition(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage) (Event, error) {
 	fields, err := workflowActionObject(raw)
 	if err != nil {
 		return Event{}, err

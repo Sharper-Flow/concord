@@ -343,8 +343,8 @@ CD-0243 replaces seriousness, Domain count, crucial size, and unclassified
 approval points as independent consent triggers. Neither replacement makes
 an unproved retained rule satisfied or permits bypassing a current gate.
 
-- `internal/store.TestRetiredMandateModifiedAbsenceCompletes` proves completion
-  admits verified absence of a declared modification without a separate removal
-  carrier. It does not prove who deleted the law, whether a declared revision
+- `internal/store.TestWorkflowCompletionIgnoresRetiredContractClauses` proves
+  completion does not check mandated-law presence, so an absent mandated law
+  cannot refuse it. It does not prove who deleted the law, whether a declared revision
   became a deletion, or whether the published tier is correct; D4's review owns
   those judgments.

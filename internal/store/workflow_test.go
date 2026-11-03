@@ -254,7 +254,7 @@ func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowAc
 	if err != nil {
 		return Event{}, err
 	}
-	return workflowCompletionEventForDefinition(ctx, tx, BuiltinWorkflowRegistry(), request, actor, raw)
+	return workflowCompletionEventForDefinition(ctx, tx, request, actor, raw)
 }
 
 type completionGateCase struct {

@@ -2215,7 +2215,7 @@ func workflowNextStepForAction(ctx context.Context, tx *sql.Tx, workID string, d
 	if contractCount == 0 {
 		return workflowNextStep(definition, current), nil
 	}
-	contract, _, err := workflowCompletionContract(ctx, tx, registry, workID)
+	contract, err := workflowCompletionContract(ctx, tx, registry, workID)
 	if err != nil {
 		return "", err
 	}

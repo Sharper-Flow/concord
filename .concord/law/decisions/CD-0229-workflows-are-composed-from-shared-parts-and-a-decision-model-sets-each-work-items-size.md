@@ -88,6 +88,6 @@ Plain definitions require complete canonical-manifest and digest equivalence
 when removing assembly, plus registration and generated-contract parity checks.
 Size retirement requires refusal of retired events, preserved review blockers
 and snapshot-backed migration of existing stores, and public contracts that
-carry no size fields because they derive from the size-free input structs,
-pinned by the generated-contract parity checks. Presence of a migration or a
-declaration alone does not prove those outcomes.
+carry no size fields. Runtime result-schema validation rejects undeclared fields
+in closed result contracts. Presence of a migration or a declaration alone does
+not prove those outcomes.

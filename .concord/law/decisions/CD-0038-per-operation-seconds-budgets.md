@@ -3,9 +3,7 @@
   "id": "CD-0038",
   "title": "Operation time budgets are explicit, per-operation, and never clamped",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "agent-contract",
   "applies_to_domain_ids": []
@@ -134,10 +132,10 @@ bounded only by the operation's `limit` and `page` pagination inputs. The
 store keeps the canonical envelope cap, and workflow action field
 constraints keep their own `max_items` bound; neither is a caller budget.
 
-The published contracts derive from the operation input structs, so no
-schema or decoder re-declares the retired fields; the generated-contract
-parity checks and the generic unknown-field admission refusals pin that
-surface.
+The published input schemas are authored JSON; generated contract rules derive
+from those schemas. Closed input objects and generic unknown-field admission
+refusals reject fields the schemas do not declare. Generated-contract parity
+checks verify that the derived artifacts match the authored contracts.
 D3 defines the ceiling refusal shape with typed `supported_budget_seconds`
 and `adjust_budget` recovery.
 The manifest, generated contracts, adapter, corpus, and digests move together.

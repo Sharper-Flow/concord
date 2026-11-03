@@ -1274,9 +1274,8 @@ esac''',
 
     def test_the_maintenance_lock_refuses_a_regular_file_data_root(self) -> None:
         """A data root that is a regular file is refused with the typed
-        installer diagnostic (CON-868): the refusal names the path and the
-        reason instead of surfacing the raw FileExistsError the creation
-        raised, and no lock is taken."""
+        installer diagnostic (CON-868): the open names the path and the
+        reason, and no lock is taken."""
         self.data_root.parent.mkdir(parents=True)
         self.data_root.write_text("not a directory\n", encoding="utf-8")
         with self.assertRaises(installer.InstallerError) as raised:
@@ -1286,11 +1285,10 @@ esac''',
         self.assertIn("it is not a directory", str(raised.exception))
 
     def test_the_maintenance_lock_refuses_a_symlink_with_a_missing_or_file_target(self) -> None:
-        """A data root that is a dangling symlink, or a symlink to a regular
-        file, is refused as a symlink (CON-868): Linux mkdir does not follow
-        a trailing symlink, so before the typed creation refusal both cases
-        surfaced as an untyped FileExistsError while the open's ELOOP branch
-        stayed unreachable for them."""
+        """A data root symlink is refused as a symlink wherever it fails
+        (CON-868): a dangling target fails the creation, because Linux
+        mkdir does not follow a trailing symlink, and a file target fails
+        the open; both refusals are typed and name the path."""
         self.data_root.parent.mkdir(parents=True)
         for label, target in (
             ("a missing target", self.root / "unseen"),
@@ -1313,7 +1311,7 @@ esac''',
         (CON-868): the Go acquisition creates missing levels with
         MkdirAll(dataRoot, 0o700) (internal/hostlease.AcquireMaintenance),
         and the installer leaves the same permissions behind whatever the
-        umask is, instead of a umask-dependent makedirs mode."""
+        umask is."""
         for umask in (0o022, 0o002):
             with self.subTest(umask=oct(umask)):
                 home = self.root / f"nested-{oct(umask)[2:]}" / "home"

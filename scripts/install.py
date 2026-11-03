@@ -602,12 +602,12 @@ def _refuse_maintenance_root(path: Path, error: OSError) -> None:
 
     The path is read with lstat only, so naming the reason never follows a
     planted symlink. A path that is a symlink refuses as one (Linux mkdir
-    does not follow a trailing symlink, so a dangling target fails the
-    creation with EEXIST; a symlink whose target exists never reaches the
-    creation and is refused by the open's ENOTDIR branch instead); a path
-    that is not a directory refuses as that; anything else keeps the
-    underlying reason and, when one was named, the level whose creation
-    failed.
+    does not follow a trailing symlink, so a dangling or looping target
+    fails the creation with EEXIST; a symlink whose target exists never
+    reaches the creation and is refused by the open's ENOTDIR branch
+    instead); a path that is not a directory refuses as that; anything
+    else keeps the underlying reason and, when one was named, the level
+    whose creation failed.
     """
     try:
         current = os.lstat(path)
@@ -637,8 +637,8 @@ def _create_maintenance_root(path: Path) -> None:
     the Go side. A level another participant created while this bootstrap
     walked to it is kept, not re-created. The creation refuses what it
     touches: a path whose ancestor is not a directory, and a data root that
-    is a dangling symlink, whose creation fails EEXIST because a trailing
-    symlink is not followed. A data root that already exists as a
+    is a dangling or looping symlink, whose creation fails EEXIST because a
+    trailing symlink is not followed. A data root that already exists as a
     non-directory never reaches the creation — the open in
     _acquire_maintenance_lock refuses it typed.
     """
@@ -670,10 +670,10 @@ def _acquire_maintenance_lock(path: Path) -> int:
     The creation is a plain mkdir of the missing levels at 0o700
     (_create_maintenance_root), and an invalid path is refused typed before
     the lock is taken: a path the creation touches (a non-directory
-    ancestor, or a dangling symlink) by the creation itself, and a path that
-    already exists as a non-directory — a regular file, or a symlink,
-    whatever its target — by the open below, whose branch stays reachable
-    for exactly those cases. What the creation made is
+    ancestor, or a dangling or looping symlink) by the creation itself, and
+    a path that already exists as a non-directory — a regular file, or a
+    symlink whose target exists — by the open below, whose branch stays
+    reachable for exactly those cases. What the creation made is
     retained at release (obs:1ca149d633e69626), so no creation-attribution
     machinery follows it — attribution existed only to authorize deletion,
     and no path-based deletion is safe against a replacement holder.
@@ -698,11 +698,13 @@ def _acquire_maintenance_lock(path: Path) -> int:
                 # The open itself refused, without following the path; the
                 # lstat only names the reason for the operator. This is the
                 # reachable refusal for a data root that already exists as
-                # a non-directory: a regular file or a symlink, whatever
-                # its target — O_DIRECTORY refuses a trailing symlink with
-                # ENOTDIR before O_NOFOLLOW's ELOOP applies — and the
-                # is_symlink lstat names which. ELOOP stays accepted for a
-                # path that became a loop only after the creation.
+                # a non-directory: a regular file, or a symlink whose
+                # target exists — O_DIRECTORY refuses a trailing symlink
+                # with ENOTDIR before O_NOFOLLOW's ELOOP applies — and the
+                # is_symlink lstat names which. A dangling or looping
+                # symlink never reaches this open; the creation refuses it.
+                # ELOOP comes only from an ancestor that became a symlink
+                # loop after the creation.
                 if path.is_symlink():
                     raise InstallerError(f"refusing symlinked data root {path}") from error
                 raise InstallerError(f"refusing data root {path}: it is not a directory") from error

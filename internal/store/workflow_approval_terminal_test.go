@@ -100,12 +100,8 @@ func TestWorkflowPlanCoordinatorConfirmationAndCompletion(t *testing.T) {
 		t.Fatalf("confirmation receipt=%q, want %q: %v", digest, wantDigest, err)
 	}
 	version = readWorkVersion(t, f.store, workID)
-	events := approvalEventCount(t, f.store, workID)
-	if err := approvalPlanAction(t, f, "complete_step", json.RawMessage(`{"step_id":"review","note":"reviewed"}`)); err == nil {
-		t.Fatal("reviewed step accepted an attempt without reviewer, result, commit, and link")
-	}
-	if readWorkVersion(t, f.store, workID) != version || approvalEventCount(t, f.store, workID) != events {
-		t.Fatal("refused reviewed attempt left effects")
+	if err := approvalPlanAction(t, f, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:terminal","delivery_state":"asserted"}`)); err != nil {
+		t.Fatalf("record delivery before completion: %v", err)
 	}
 	review, err := loadWorkflowReviewState(t.Context(), f.store.db, workID)
 	if err != nil || review.Accepted == nil || review.Candidate == nil {
@@ -138,24 +134,30 @@ func TestWorkflowPlanConfirmationRequiresCriterionProof(t *testing.T) {
 	assertApprovalRefusalUnchanged(t, f, version, events)
 }
 
-func TestWorkflowPlanCompletionRequiresPlanNotConfirmation(t *testing.T) {
-	const workID = "plan-completion-unconfirmed"
+func TestWorkflowPlanCompletionRequiresPlanAndRecordedFacts(t *testing.T) {
+	const workID = "plan-completion-facts"
 	f := qCurrentAcceptance(t, workID)
 	version, events := readWorkVersion(t, f.store, workID), approvalEventCount(t, f.store, workID)
+	confirmations := func() int {
+		t.Helper()
+		var count int
+		if err := f.store.db.QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=?`, workID).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	before := confirmations()
 	request := planAdmissionRequest(workID, "complete", version, f.owner, json.RawMessage(`{"impact_verdict":"non-breaking"}`))
 	_ = planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindIllegalLifecycleTransition)
 	_ = planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindIllegalLifecycleTransition)
-	assertApprovalRefusalUnchanged(t, f, version, events)
 	completeWorkflowPlanFixture(t, f.store, workID)
+	// The premise is confirmed; the delivery fact is missing, so completion
+	// still refuses (CD-0242 D9) without touching durable state.
 	request = planAdmissionRequest(workID, "complete", version, f.owner, json.RawMessage(`{"impact_verdict":"non-breaking"}`))
-	if err := planAdmissionPreflight(t, f.store, request); err != nil {
-		t.Fatalf("completed plan preflight: %v", err)
+	_ = planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindMissingEvidence)
+	_ = planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindMissingEvidence)
+	if got := readWorkVersion(t, f.store, workID); got != version || approvalEventCount(t, f.store, workID) != events || confirmations() != before {
+		t.Fatalf("refused completion changed state: version=%d events=%d confirmations=%d", got, approvalEventCount(t, f.store, workID), confirmations())
 	}
-	if err := planAdmissionDispatch(t, f.store, request); err != nil {
-		t.Fatalf("completed plan requires no confirmation recheck: %v", err)
-	}
-	var confirmations int
-	if err := f.store.db.QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=?`, workID).Scan(&confirmations); err != nil || confirmations != 0 {
-		t.Fatalf("completion fabricated confirmation: count=%d err=%v", confirmations, err)
-	}
+	assertNoFoldGuardRows(t, f.store)
 }

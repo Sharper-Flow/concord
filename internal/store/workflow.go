@@ -2113,6 +2113,13 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *
 		if plan == nil || !WorkflowStepPlanComplete(*plan) {
 			return newFailure(KindIllegalLifecycleTransition, "fold_event", "workflow plan is not complete", false, "complete every plan step")
 		}
+		contractVersion, contractErr := completionActiveContractVersion(ctx, tx, event.SubjectID)
+		if contractErr != nil {
+			return contractErr
+		}
+		if err := requireWorkflowCompletionFactsTx(ctx, tx, event.SubjectID, plan.Type, contractVersion); err != nil {
+			return err
+		}
 	}
 	if err := requireActor(ctx, tx, event.Actor); err != nil {
 		return err

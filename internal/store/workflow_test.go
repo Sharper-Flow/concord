@@ -377,7 +377,7 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 			extra = append(extra, kind)
 		}
 	}
-	f := qBuildAcceptance(t, workID, "", testCase.includeVerdict, extra...)
+	f := qBuildAcceptance(t, workID, "artifact:gate-case", testCase.includeVerdict, extra...)
 	s := f.store
 	executor, err := WorkflowActorRef(f.owner)
 	if err != nil {

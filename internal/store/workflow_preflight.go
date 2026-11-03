@@ -258,6 +258,13 @@ func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 		if plan == nil || !WorkflowStepPlanComplete(*plan) {
 			return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow plan is not complete", false, "complete every plan step")
 		}
+		contractVersion, contractErr := completionActiveContractVersion(ctx, tx, workID)
+		if contractErr != nil {
+			return step, contractErr
+		}
+		if err := requireWorkflowCompletionFactsTx(ctx, tx, workID, plan.Type, contractVersion); err != nil {
+			return step, err
+		}
 	default:
 		if !workflowPlanAllowsAction(plan, step, actionID) {
 			owner := ""

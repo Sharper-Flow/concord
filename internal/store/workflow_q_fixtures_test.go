@@ -65,6 +65,9 @@ func qAssociateCurrentProofAt(t *testing.T, f workContextFixture, verdictStep, a
 		if err := runVerdictActionAs(t, f.store, workID, "record_verdict", qAssociationPayload(t, fixture), 0, f.owner); err != nil {
 			t.Fatalf("associate captured current proof: %v", err)
 		}
+		if err := runVerdictActionAs(t, f.store, workID, "confirm_premise", json.RawMessage(`{}`), 0, f.owner); err != nil {
+			t.Fatalf("confirm the fixture premise: %v", err)
+		}
 	}
 	return fixture
 }

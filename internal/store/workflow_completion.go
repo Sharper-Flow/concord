@@ -107,6 +107,32 @@ func completionActiveContractVersion(ctx context.Context, q queryer, workID stri
 	return version, err
 }
 
+// requireWorkflowCompletionFactsTx enforces the two terminal facts CD-0013
+// and CD-0242 D9 keep at completion: the active contract's premise is
+// confirmed, and a delivery-producing workflow recorded its delivery. These
+// are recorded-fact checks; completion does not re-evaluate verdicts, proofs
+// or the Review.
+func requireWorkflowCompletionFactsTx(ctx context.Context, q queryer, workID string, planType WorkflowStepPlanType, contractVersion int64) error {
+	var confirmed int
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=?)`, workID, contractVersion).Scan(&confirmed); err != nil {
+		return wrapFailure(KindUnavailable, "complete_workflow", "cannot read the premise confirmation", true, "retry once the database is readable", err)
+	}
+	if confirmed == 0 {
+		return newFailure(KindMissingEvidence, "complete_workflow", "the active contract premise is not confirmed", false, "confirm the active contract premise")
+	}
+	if planType == WorkflowStepPlanResearch {
+		return nil
+	}
+	var delivered int
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_delivery_state WHERE work_id=?)`, workID).Scan(&delivered); err != nil {
+		return wrapFailure(KindUnavailable, "complete_workflow", "cannot read the delivery assertion", true, "retry once the database is readable", err)
+	}
+	if delivered == 0 {
+		return newFailure(KindMissingEvidence, "complete_workflow", "delivery assertion is missing", false, "record delivery")
+	}
+	return nil
+}
+
 func appendWorkflowCompletionTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, payload workflowCompletedPayload) error {
 	nextVersion := *payload.ExpectedVersion
 

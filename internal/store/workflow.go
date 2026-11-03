@@ -758,7 +758,7 @@ func normalizeWorkflowContractApproval(p *workflowContractApprovedPayload) error
 	return nil
 }
 
-func foldValidatedWorkflowContractApproval(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, p workflowContractApprovedPayload) error {
+func foldValidatedWorkflowContractApproval(ctx context.Context, tx *sql.Tx, event Event, _ *writeScope, p workflowContractApprovedPayload) error {
 	var activeCount int64
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, event.SubjectID).Scan(&activeCount); err != nil {
 		return workflowProjectionError(err, "cannot inspect active workflow contracts")
@@ -1287,7 +1287,7 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	return persistWorkflowCheckpointTx(ctx, tx, event, scope, p)
 }
 
-func persistWorkflowCheckpointTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, p workflowActionCheckpointedPayload) error {
+func persistWorkflowCheckpointTx(ctx context.Context, tx *sql.Tx, event Event, _ *writeScope, p workflowActionCheckpointedPayload) error {
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err
 	}

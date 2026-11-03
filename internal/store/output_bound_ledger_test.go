@@ -183,8 +183,8 @@ func inputBound(pointer string) outputBoundSource {
 // (repo-relative file plus JSON pointer). The node is read live from the
 // document. When the node carries both a character and a byte guard, both
 // apply: their intersection is the source, not the character bound alone.
-func schemaBound(file, pointer string) outputBoundSource {
-	return outputBoundSource{kind: "schema", file: file, pointer: pointer}
+func schemaBound(pointer string) outputBoundSource {
+	return outputBoundSource{kind: "schema", file: "contracts/agent-tool-surface-payloads.schema.json", pointer: pointer}
 }
 
 // goCallBound cites a numeric guard argument passed to callee inside function

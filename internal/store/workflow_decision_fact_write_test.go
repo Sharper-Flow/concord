@@ -190,7 +190,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 				t.Fatal(err)
 			}
 			s = s2
-			contractID, contractDigest, _ = decisionFactReceipt(t, s, id, WorkflowContractApproved)
+			_, contractDigest, _ = decisionFactReceipt(t, s, id, WorkflowContractApproved)
 			version = readWorkVersion(t, s, id)
 			contract := pContractSuccessor(t, s, id, "The revised decision fact.")
 			contract["decision_domains"] = set

@@ -187,7 +187,7 @@ func init() {
 	// display and stage fields, so the producer is the shape admitted by
 	// the shared id primitive on every operation input.
 	registerOutputBound("/$defs/domain_registry/properties/product_id/maxLength",
-		schemaBound("contracts/agent-tool-surface-payloads.schema.json", "/$defs/id/maxLength"))
+		schemaBound("/$defs/id/maxLength"))
 
 	// The registry product key is stored under CHECK length 1..256; the
 	// manifest parse guard validProductKey bounds it tighter at 64.
@@ -338,7 +338,7 @@ func init() {
 	// admission bounds candidates at 100 on research_retire's input
 	// (uniqueItems) and the store refuses outside 1..100.
 	registerOutputBound("/$defs/research_retire_result/properties/candidates/maxItems",
-		schemaBound("contracts/agent-tool-surface-payloads.schema.json", "/$defs/work_define_research_retire_input/properties/candidates/maxItems"))
+		schemaBound("/$defs/work_define_research_retire_input/properties/candidates/maxItems"))
 
 	// The research-retire result keeps its own evidence, separate from the
 	// audit-reclaim rows: RetireResearchPacksResult declares no members for

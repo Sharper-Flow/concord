@@ -37,8 +37,8 @@ func TestAgentWorkflowCompositionUsesSelectedSuccessorFamily(t *testing.T) {
 	compositionPrelude := func(workID, planType string) {
 		t.Helper()
 		for _, step := range []struct {
-			action  string
-			fields  map[string]any
+			action string
+			fields map[string]any
 		}{
 			{"record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false}},
 			{"pick_type", map[string]any{"type": planType, "reason": "Composition fixture"}},

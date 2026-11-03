@@ -18,6 +18,8 @@ boundaries:
   all                no host-specific research tool names in frontmatter, no
                      duplicated conduct obligation, and no routing by
                      generated agent id in the body
+  generated          warn-only diagnostic for known connected-tool names in
+                     profiles; independent review checks CD-0250
 
 The intake definition is a portable example. Concord does not package or
 install it. This check proves the example contract in CD-0154:
@@ -121,6 +123,9 @@ RETIRED_PRIMARY_EXAMPLES = ("concord-1.md", "concord-2.md")
 # Host-provided research providers. These arrive from the host configuration;
 # a shipped prompt that names one has stopped being portable.
 HOST_TOOL_FRAGMENTS = ("lgrep_", "context7_", "exa_", "github_")
+# Warn-only known-name diagnostic: names can occur in permitted safety denials,
+# and the list is incomplete. Word boundaries avoid matching "example".
+CONNECTED_TOOL_NAME = re.compile(r"(?i)\b(?:lgrep|context7|exa)\b")
 LOOKUP_OBLIGATION_MARKERS = (
     "Recall is not evidence",
     "source to fit the surface",
@@ -254,6 +259,20 @@ def check_planner_profile(name: str, frontmatter: str) -> list[str]:
     return findings
 
 
+def generated_profile_name_advisories(root: Path) -> list[str]:
+    """Report possible known-name mentions without deciding their compliance."""
+    advisories: list[str] = []
+    for path in sorted((root / PROFILE_DIR).glob("*.md")):
+        name = f"{PROFILE_DIR.name}/{path.name}"
+        text = path.read_text(encoding="utf-8")
+        match = CONNECTED_TOOL_NAME.search(text)
+        if match is not None:
+            advisories.append(
+                f"{name} mentions {match.group(0)!r}; review its context against CD-0250"
+            )
+    return advisories
+
+
 def check_named_profiles(root: Path) -> list[str]:
     findings: list[str] = []
     for retired in ("concord-coordinator.md", "concord-operator.md"):
@@ -371,6 +390,8 @@ def check_primary_prompts(root: Path) -> list[str]:
 
 def main() -> int:
     findings = check_primary_prompts(ROOT)
+    for advisory in generated_profile_name_advisories(ROOT):
+        print(f"primary agent advisory: {advisory}")
     for finding in findings:
         print(f"primary agent finding: {finding}")
     if findings:

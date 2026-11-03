@@ -62,10 +62,10 @@ parent can do directly, not a reason to start an investigation.
 
 1. Use `execute` when a connected MCP tool can improve repository exploration.
    Inspect available tools with `Object.keys(tools)` or search for a relevant
-   tool by namespace. Call the exact tool path returned by discovery. For
-   example, use `tools.lgrep.search_semantic` for a bounded concept search.
-   MCP access depends on host connections. Use read-only tools only, and
-   verify their results against repository sources.
+   tool by namespace, and call the exact tool path discovery returns. Which
+   tools are connected depends on host and Product configuration; discover
+   them by need rather than by name. Use read-only tools only, and verify
+   their results against repository sources.
 2. Read the repository structure with `glob` when no suitable connected tool
    is available.
 3. Search for relevant symbols or text with `grep` when needed.
@@ -125,9 +125,9 @@ question from the working directory or from prior context.
 1. Fetch each supplied source URL with `webfetch`. Fetching a supplied
    authoritative source is external research.
 2. Search connected services through `execute` as needed for external
-   evidence the supplied URLs do not settle: query Context7 for library
-   documentation or Exa for current research. Discover the exact callable
-   signature first and call that path.
+   evidence the supplied URLs do not settle. Which services are connected
+   depends on host and Product configuration; discover them, and the exact
+   callable signature, by need before calling that path.
 3. Prefer authoritative documentation, source code, or a primary publisher.
 4. Compare sources when they report different versions, dates, or behavior.
 5. Stop when the question has a source-backed answer, or after {duration} of
@@ -169,9 +169,9 @@ supplied answer anchors to it, and the parent asked for an independent one.
 
 1. Restate the problem in your own words before you reason about it.
 2. Reach your own answer before you consider what the parent might want.
-3. Read the repository when the problem touches it: search connected tools
-   through `execute` first, then use `glob` or `grep` when needed. Read only
-   what the problem needs.
+3. Read the repository when the problem touches it: discover connected tools
+   by need and search through `execute` first, then use `glob` or `grep` when
+   needed. Read only what the problem needs.
 4. For history, status, or the current diff, use only these commands:
    {git_commands}.
    Write each as a bare `git <subcommand> ...` call and set the bash `workdir`

@@ -292,7 +292,6 @@ respectively. The remaining model-internal open question is:
 | `design-constraints.md` §4 | The ownership record is Concord-owned state → lock-free, current rows with finite snapshots, no history to repair (CD-0242 D2). Stage transitions write current rows (§8.5). |
 | `self-documentation.md` §1 | The browse surface uses Product → Domain navigation. |
 | `workflows.md` §2.5 | Workflows are reached from Product → Domain. |
-| `vertical-integration.md` | Whether lgrep/vision become Product-scoped touches this model. |
 
 ---
 

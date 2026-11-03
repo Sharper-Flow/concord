@@ -371,8 +371,8 @@ are not silently represented by a work foreign key.
 JSON-encoded columns above are typed arrays or the referenced strict schema, not
 arbitrary JSON objects. SQLite `CHECK` constraints validate the closed scalar
 values; application validation validates the bounded array payload before the
-transaction. Contract rows retain the exact definition pin that authorized each
-approval, so a contract from another definition is never treated as compatible
+transaction. A contract binds to the item whose plan authorized its approval;
+contracts carry no definition pin
 ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 `workflow.evidence_bound` does not create a second evidence authority. Its

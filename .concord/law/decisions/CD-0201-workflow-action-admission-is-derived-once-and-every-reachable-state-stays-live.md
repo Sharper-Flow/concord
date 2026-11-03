@@ -174,8 +174,10 @@ Scenario: The loaded state matches the abstract successor
 
 ```
 
-- `go test ./internal/store/ -run 'TestWellFormedAdmissionStateHasNonContinuityExit|TestWellFormedExitCheckNamesSeededStrandedState'` proves the first and third scenarios.
-- `go test ./internal/store/ -run TestReachableAdmissionStateReachesTerminal` proves the second scenario.
-- `go test ./internal/store/ -run 'TestAdmissionConformanceLocalJobAcceptHolds|TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition'` proves the fourth scenario through current Main intake and all four Review dispositions.
-- `go test ./internal/store/ -run TestWorkflowAdmitDecisionTable` proves the pure function's total decision table.
-- `TestOwnerOracleRecovery` covers the open-set bound and declared recovery without truncation or a second admission owner.
+Verification-inventory update only; the obligations above are unchanged. Current
+plan admission and preflight/dispatch parity checks are in
+[`workflow_admission_conformance_test.go`](../../../internal/store/workflow_admission_conformance_test.go),
+[`workflow_plan_preflight_test.go`](../../../internal/store/workflow_plan_preflight_test.go), and
+[`workflow_plan_dispatch_test.go`](../../../internal/store/workflow_plan_dispatch_test.go).
+These pointers do not assert that the current checks prove the enumerated
+abstract-state liveness scenarios.

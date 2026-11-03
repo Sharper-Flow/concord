@@ -187,9 +187,9 @@ The store keeps current state and finite snapshots ([CD-0242 D2](../decisions/CD
 mutation writes current rows in one transaction checked by an expected version
 and recorded by its idempotency key. The names below identify the typed
 mutation records that the §12 action tables map actions to; omitted and unknown keys are
-refused. Only `CompleteWorkflowTxWithRegistry` records `workflow.completed`,
-after the ordered gate in §7; every other mutation route refuses it
-structurally.
+refused. Only the completion fold reached through `CompleteWorkflowTx` or the
+`complete` action records `workflow.completed`, after the ordered gate in §7;
+ordinary `ApplyOperationTx` refuses it structurally.
 
 Every mutating workflow payload also carries `expected_version` and
 `resulting_version`, consecutive positive integers checked by the mutation;
@@ -338,7 +338,7 @@ that uncertainty. Correction never bypasses an approval or effect boundary.
 
 The tables below are the workflow engine's current-state tables.
 Each mutation writes current rows in one transaction checked by an expected version and recorded by its idempotency key ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Direct writes are refused; only
-`ApplyOperationTx` and `CompleteWorkflowTxWithRegistry` mutate these tables.
+`ApplyOperationTx` and the completion fold mutate these tables.
 `work_id` references the
 existing `work_items(id)` key; actor references point to `workflow_actors`.
 
@@ -470,10 +470,11 @@ different recorded commit do not prove the candidate.
 item, checks that every step in the item's plan is completed and the expected
 version, and rolls back on refusal.
 
-Completion records the typed reported-delivery assertion and its links. It does
-not recheck evidence bindings, scope or mandate satisfaction, verification
+Completion requires the active contract's recorded premise confirmation and,
+for change, fix and removal, a recorded delivery assertion. It does not recheck
+evidence bindings, scope or mandate satisfaction, verification
 obligations, criterion proof, verdict health or association, current Review,
-premise confirmation, staleness rules, or evidence-to-candidate commit drift.
+staleness rules, or evidence-to-candidate commit drift.
 Mandated-law presence is not a completion condition.
 Verification, Review, delivery-stage admission and premise confirmation keep
 their own requirements. The active contract, legal terminal action and state,
@@ -491,8 +492,8 @@ returns success. A failed commit produces no terminal state mutation.
 ### 7.1 Acceptance recovery
 
 The engine admits `record_verdict` on the terminal workflow step before the
-instance reaches a terminal state. Admission requires a definition-backed
-verification step and an active-contract predicate whose latest eligible
+instance reaches a terminal state. Admission requires a plan verification step
+and an active-contract predicate whose latest eligible
 verdict is missing, non-`ok`, or incomparable. An `ok` comparable verdict cannot
 be replaced through that late-association admission; replacement of an existing
 record follows §4.2. The action holds the current step and lifecycle and preserves
@@ -682,43 +683,24 @@ step in its plan is completed.
 
 ### 12.1 Action-to-event mapping
 
-The table maps the declared action IDs below to their result records, including
-actions from archived definitions. It grants no new-execution permission:
-new execution picks one of the four workflow types. Section 11 and §4.2
-govern actions at and after their declared steps. Each
-`action_definitions` entry carries one closed `execution_mode`: `advance`,
-`hold`, `fenced`, or `checkpoint`. Each is a versioned current-state mutation;
-`fenced` names the action's guarded start, not a separate claim/settle operation
-([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-No result record is invented for a graph step.
+The current action catalog and plan admission govern availability. Except for
+plan writes, continuity actions, starts and checkpoints, semantic events are
+followed by `workflow.action_completed`; this records the action, not completion
+of a plan step. Only `complete_step` completes a step.
 
 | Action IDs | Semantic event mapping |
 |---|---|
-| `record_discovery`, `frame_research`, `record_finding`, `record_reproduction`, `record_root_cause`, `record_option`, `record_health`, `declare_scope`, `record_conclusion` | `workflow.action_completed`; immutable artifact/evidence is carried by `result_evidence_refs` and `changed_refs` |
-| `record_proposal` | `workflow.proposal_recorded` plus `workflow.action_completed` for a definition that declares the proposal document; otherwise `workflow.action_completed` alone (CD-0242 D14) |
-| `record_design` | `workflow.design_recorded` plus `workflow.action_completed`; the typed design record is the approved change's decision record, not lane methodology |
-| `record_alignment` | `workflow.backlog_alignment_recorded` plus `workflow.action_completed`; the payload records the search scope, the closed `related_found`/`none_found` outcome, and the related work ids exactly when the search found them (historical mapping for replay; the action is retired) |
-| `approve_contract` | `workflow.contract_approved` plus its required approval evidence binding |
-| `start_execution`, `start_repair`, `start_refine`, `start_run`, `start_poc`, `start_action` | fenced `workflow.action_started` → `workflow.action_completed`/`workflow.action_failed` |
-| `checkpoint_execution`, `checkpoint_repair`, `checkpoint_refine`, `checkpoint_run`, `checkpoint_poc`, `checkpoint_analysis`, `checkpoint_action` | `workflow.action_checkpointed`; the committed checkpoint fixes the attempt boundary, and the recorded current step is the resume point. `resume_cursor` may be empty, and no read depends on it. |
-| `bind_evidence` | `workflow.evidence_bound`; verification uses the attributed report defined in §5.1 |
-| `revise_candidates` | `workflow.candidate_set_revised` |
-| `link_successor` | `workflow.successor_linked` and the existing forward-link relation event |
-| `record_verdict` | `workflow.verdict_recorded`; the coordinator records the subject-bound verdict using qualifying reports, without attesting a subagent producer (CD-0242 D5/D8). |
-| `confirm_premise` | `workflow.premise_confirmed` |
-| `complete` | `workflow.completed`, only after the ordered gate in §7 |
-| `frame_question` | `workflow.action_completed`; the framed question is part of the action result and later decision-record evidence |
-| `record_research` | `workflow.action_completed` plus bound research evidence |
-| `record_decision` | `workflow.action_checkpointed` with the typed decision-record payload, then `workflow.action_completed`, which advances to `review`; the accepted record is bound in the outcome payload |
-| `accept_decision` | `workflow.evidence_bound` for operator acceptance plus `workflow.action_completed`, which advances `review` to `acceptance` |
-| `record_delivery` | `workflow.action_completed`, which advances the external-effect step after its recorded start and the complete delivery admission |
-| `discard_poc` | `workflow.action_completed` with a discard artifact reference; no POC bytes become workflow authority |
-| `approve_operation` | approval evidence binding plus `workflow.action_completed` |
-| `rollback_run` | fenced `workflow.action_started` → `workflow.action_completed`/`workflow.action_failed`, with rollback evidence |
-| `cleanup_run` | `workflow.action_completed` with cleanup evidence |
-| `run_analysis` | fenced `workflow.action_started` → `workflow.action_completed`/`workflow.action_failed`; report evidence follows in `record_report` |
-| `record_report` | `workflow.action_completed` plus `workflow.evidence_bound` for the report's immutable subject |
-| `record_review` | records `review`, the existing typed Review block, in the current Review state after subject, dependency, findings and disposition admission; no attempt, lane, job or report-envelope identity is required |
+| `record_intake`, `record_clarify`, `pick_type`, `insert_step`, `complete_step` | `workflow.intake_recorded`, `workflow.clarify_recorded`, `workflow.type_picked`, `workflow.step_inserted`, `workflow.step_completed`, respectively |
+| `record_plan`, `record_removal_scope` | `workflow.plan_recorded`, `workflow.removal_scope_recorded`, respectively, plus `workflow.action_completed` |
+| `checkpoint_context`, `cross_context_boundary`, `record_work_context` | `workflow.context_checkpointed`, `workflow.context_boundary_crossed`, `workflow.work_context_recorded`, respectively |
+| `approve_contract`, `revise_candidates`, `record_diagnosis` | `workflow.contract_approved`, `workflow.candidate_set_revised`, `workflow.diagnosis_recorded`, respectively, plus `workflow.action_completed` |
+| `record_review`, `bind_evidence`, `record_report` | `workflow.evidence_bound` plus `workflow.action_completed`; review also records its typed report in the action result |
+| `record_verdict` | One `workflow.verdict_recorded` per association plus `workflow.action_completed` |
+| `confirm_premise`, `link_successor` | `workflow.premise_confirmed`, `workflow.successor_linked`, respectively, plus `workflow.action_completed` |
+| `frame_research`, `record_finding`, `record_conclusion`, `record_delivery` | `workflow.action_completed`; delivery carries its assertion and links |
+| `start_execution` | `workflow.action_started` |
+| `checkpoint_execution`, `checkpoint_refine`, `checkpoint_repair` | `workflow.action_checkpointed` |
+| `complete` | `workflow.completed` and the terminal lifecycle transition, after the completion gate |
 
 Whole-work delivery still requires complete parent admission, integration
 evidence, independent Review and applicable approvals; a report supplies none
@@ -729,25 +711,19 @@ of those authorities by itself. Required CI remains external and mandatory.
 Native Task execution belongs to the host, not workflow action composition
 ([CD-0242 D6](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)).
 
-`action_definitions` carry closed payload field definitions and execution modes
-for each ID. Every registered definition declares an explicit `execution_mode`
-for every action; the registry infers no mode from an action ID, and an action
-the definition does not declare has no execution mode. The
-definition validator rejects duplicate action IDs, graph references not present
-in the root action list, action definitions missing from that list, undeclared
-step endpoints, undeclared start/terminal nodes, and non-retry cycles. The runtime
-also requires the action's current step and rejects a terminal transition unless
-the graph declares `complete` on that path.
+The action catalog carries closed payload fields and execution modes. The
+template contract declares actions available on required steps; admission uses
+the item's plan frontier. Plan writes pass the check in §2.3, and completion
+requires every plan step to be complete.
 
 The types' allowed predicate forms: `change`, `fix` and `removal` allow
 `exists`, `absent`, and `check`; `research` allows `outcome` with `no_change`,
-`resolved`, and `report_recorded`. Definitions derive from one
-canonical source, with no released definition version retained for history
-(CD-0242 D14).
+`resolved`, and `report_recorded`. Required steps derive from the single
+template contract and are copied into the item's plan.
 
 Composition across work items is forward-link only. An implementation change
 cannot nest under research. A successor retains independent authority and
-recovery; shared-stage composition within a definition follows CD-0242 D4.
+recovery; shared steps follow CD-0242 D4.
 
 ## 13. Remaining implementation-deferred items
 

@@ -209,10 +209,10 @@ set at the D5 boundary.
   content digest, and folder placement agree.
 - `python3 scripts/check-doc-links.py` proves document links hold; law
   placement is folder membership under `.concord/law/`.
-- Criterion 1 is covered by
-  `internal/agent.TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKinds`.
-  Authenticated capture of each retired family refuses with unchanged work,
-  contract, workflow-instance and event counts, and unchanged database write counts.
+- Verification-inventory update only; obligations are unchanged. Current type
+  selection and admission checks are in
+  [`workflow_plan_dispatch_test.go`](../../../internal/store/workflow_plan_dispatch_test.go)
+  and [`workflow_plan_preflight_test.go`](../../../internal/store/workflow_plan_preflight_test.go).
 - Criterion 2 keeps its diagnosis anchors:
   `go test ./internal/store/ -run TestRecordDiagnosisRefusalsLeaveZeroWrites`
   and `go test ./internal/store/ -run TestRecordDiagnosisRecordsAllSectionsAtomically`.
@@ -223,10 +223,9 @@ set at the D5 boundary.
   Retained definitions, digests, actors, subjects and evidence are read as recorded, without replay or relabeling.
   Collected execution state returns typed absence and its canonical outcome locator.
   `internal/store.TestPublishedExecutionAbsenceReaders` and `internal/store.TestDefectRetirementCollectedAbsenceReaders` bind the collected-state witnesses; retained-definition witnesses remain required.
-- Criterion 5 is covered by
-  `internal/store.TestCutoverRefusesNonterminalArchivedPinAtReadiness` and
-  `internal/store.TestCutoverAllowsTerminalHistoricalPinsAtReadiness`.
-  Readiness refuses the nonterminal archived pin without a live store mutation; terminal items return unchanged retained state or typed collected-state absence under CD-0242 D2.
+- For the current plan cutover, see
+  [`workflow_step_plan_migration_test.go`](../../../internal/store/workflow_step_plan_migration_test.go).
+  This pointer does not assert proof of the historical-pin readiness scenario.
 - Criterion 6 keeps its completion anchor:
   `go test ./internal/store/ -run TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict`.
 - Criterion 7 requires ordinary-update recovery coverage under

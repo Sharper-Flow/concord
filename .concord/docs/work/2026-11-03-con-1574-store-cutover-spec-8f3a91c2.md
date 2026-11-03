@@ -92,3 +92,10 @@ Verification floor for any implementation pass: go build ./internal/store/...,
 go vet ./internal/store/, bin/oc-test targeted -- go test ./internal/store/
 -run '...' (targeted tier requires -run), migration compatibility script,
 then the generator pass.
+
+## Closing note
+
+This is a historical work record. The cutover and restoration of the recorded
+premise-confirmation and delivery facts at completion are on
+[PR 2286](https://github.com/Sharper-Flow/concord/pull/2286). The pull request
+remains open; it has not landed on the default branch.

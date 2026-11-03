@@ -2,9 +2,10 @@ package agent
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/gittest"
 )
 
 func agentBindVerificationReport(t *testing.T, f *spineFixture, commit, result, runRef string) string {
@@ -24,7 +25,11 @@ func fixtureRepoWithOrigin(t *testing.T) string {
 	repo := t.TempDir()
 	run := func(args ...string) {
 		t.Helper()
-		out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput()
+		cmd, err := gittest.Command(repo, args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}

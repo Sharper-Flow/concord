@@ -6,12 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/gittest"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -50,32 +50,35 @@ func osWrite(dir, name, content string) error {
 func cleanHandoffRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()
-	if err := exec.Command("git", "init", "--quiet", "-b", "main", repo).Run(); err != nil {
-		t.Fatal(err)
+	run := func(dir string, args ...string) {
+		t.Helper()
+		cmd, err := gittest.Command(dir, args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
 	}
-	_ = exec.Command("git", "-C", repo, "config", "user.email", "test@example.invalid").Run()
-	_ = exec.Command("git", "-C", repo, "config", "user.name", "Concord Test").Run()
+	run(repo, "init", "--quiet", "-b", "main")
+	run(repo, "config", "user.email", "test@example.invalid")
+	run(repo, "config", "user.name", "Concord Test")
 	if err := osWrite(repo, "tracked.txt", "base\n"); err != nil {
 		t.Fatal(err)
 	}
-	_ = exec.Command("git", "-C", repo, "add", ".").Run()
-	if err := exec.Command("git", "-C", repo, "commit", "--quiet", "-m", "base").Run(); err != nil {
-		t.Fatal(err)
-	}
+	run(repo, "add", ".")
+	run(repo, "commit", "--quiet", "-m", "base")
 	// The claim preflight fetches origin's default branch, so the fixture
 	// seeds a real local bare origin the fetch can reach.
 	origin := repo + "-origin.git"
-	if err := exec.Command("git", "-C", repo, "init", "--quiet", "--bare", "-b", "main", origin).Run(); err != nil {
+	if err := os.Mkdir(origin, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_ = exec.Command("git", "-C", repo, "remote", "add", "origin", origin).Run()
-	if err := exec.Command("git", "-C", repo, "push", "--quiet", "origin", "main").Run(); err != nil {
-		t.Fatal(err)
-	}
-	if err := exec.Command("git", "-C", repo, "fetch", "--quiet", "origin").Run(); err != nil {
-		t.Fatal(err)
-	}
-	_ = exec.Command("git", "-C", repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main").Run()
+	run(origin, "init", "--quiet", "--bare", "-b", "main")
+	run(repo, "remote", "add", "origin", origin)
+	run(repo, "push", "--quiet", "origin", "main")
+	run(repo, "fetch", "--quiet", "origin")
+	run(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 	return repo
 }
 
@@ -168,7 +171,11 @@ func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, Cal
 	sourcePath := filepath.Join(t.TempDir(), "source")
 	receivePath := filepath.Join(t.TempDir(), "receive")
 	for _, pair := range [][2]string{{repoSource, sourcePath}, {repoReceive, receivePath}} {
-		if out, err := exec.Command("git", "-C", pair[0], "worktree", "add", "-b", "work/work-1", pair[1], "HEAD").CombinedOutput(); err != nil {
+		cmd, err := gittest.Command(pair[0], "worktree", "add", "-b", "work/work-1", pair[1], "HEAD")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("worktree add: %s: %v", out, err)
 		}
 	}
@@ -298,7 +305,11 @@ func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) 
 	if dirty.Outcome == agentcontract.OutcomeOK || dirty.Error == nil || !strings.Contains(dirty.Error.Message, "unpreserved changes") {
 		t.Fatalf("dirty record=%+v, want the unpreserved-changes refusal", dirty.Error)
 	}
-	if err := exec.Command("git", "-C", sourceEnv.Worktree, "checkout", "--", "tracked.txt").Run(); err != nil {
+	cmd, err := gittest.Command(sourceEnv.Worktree, "checkout", "--", "tracked.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
 	// The source session cannot consume its own handoff: the core binds the
@@ -407,7 +418,11 @@ func TestProjectHandoffRecordProbesTheSessionWorktree(t *testing.T) {
 	}
 	// A clean linked worktree of the same repository can record independently.
 	unrelated := filepath.Join(t.TempDir(), "unrelated-tree")
-	if out, err := exec.Command("git", "-C", repoSource, "worktree", "add", "-b", "handoff-unrelated", unrelated, "HEAD").CombinedOutput(); err != nil {
+	cmd, err := gittest.Command(repoSource, "worktree", "add", "-b", "handoff-unrelated", unrelated, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("worktree add: %s %v", out, err)
 	}
 	rogueService, rogueGrant := authorizedHandoffService(t, s, "client-source-rogue", []string{"project-1"}, unrelated)
@@ -433,7 +448,11 @@ func TestProjectHandoffRecordProbesTheSessionWorktree(t *testing.T) {
 	if honest.Outcome == agentcontract.OutcomeOK || honest.Error == nil || !strings.Contains(honest.Error.Message, "unpreserved changes") {
 		t.Fatalf("honest dirty record=%+v, want the unpreserved-changes refusal", honest.Error)
 	}
-	if err := exec.Command("git", "-C", sourceEnv.Worktree, "checkout", "--", "tracked.txt").Run(); err != nil {
+	cmd, err = gittest.Command(sourceEnv.Worktree, "checkout", "--", "tracked.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
 	honestClean := handoffInvoke(t, s, sourceService, sourceEnv, "project_handoff_record", map[string]any{

@@ -3,12 +3,12 @@ package agent
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/gittest"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -27,7 +27,10 @@ func TestLawFreshnessDisclosureThroughInvoke(t *testing.T) {
 			}
 			git := func(repo string, args ...string) string {
 				t.Helper()
-				cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", repo}, args...)...)
+				cmd, err := gittest.CommandContext(t.Context(), repo, args...)
+				if err != nil {
+					t.Fatal(err)
+				}
 				out, err := cmd.CombinedOutput()
 				if err != nil {
 					t.Fatalf("git %v: %v: %s", args, err, out)

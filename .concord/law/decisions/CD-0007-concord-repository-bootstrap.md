@@ -18,7 +18,7 @@
 **Date:** 2026-08-07
 **Decision owner:** Operator approval under the public bootstrap plan
 **Scope:** Repository ownership, public migration, release/install boundary,
-development governance, initial workflow/conformance floor, skills, privacy, and
+development governance, skills, privacy, and
 supported platform.
 
 ## Context
@@ -42,7 +42,7 @@ execution.
 - Public instructions use a generic clone destination; no personal checkout
   convention is part of the repository contract.
 - Default branch: `main`.
-- Concord is a standalone greenfield Product, not a predecessor subproject.
+- Concord is a standalone greenfield Product.
 - Current constitutional specs, decisions, research, workflow contracts, scenarios,
   and runbooks are authoritative in the public Concord repository after the
   `constitutional-bootstrap` tag.
@@ -55,7 +55,7 @@ The public repository begins from an **audited current constitutional snapshot**
 not filtered private source history.
 
 - Audit every current file for secrets, machine paths, private Product detail,
-  private-only repositories, and non-public predecessor history.
+  private-only repositories, and non-public prior-development history.
 - Publish current governing files in one constitutional starting commit.
 - Add `.concord/law/constitution/provenance.md` recording private design origin, preserved decision IDs/
   dates, and the public-authority start tag.
@@ -65,8 +65,8 @@ not filtered private source history.
 - Public shipped scenarios are invented synthetic cases. Private-derived cases are
   excluded rather than shipped or uploaded.
 
-**Visibility audit note:** Advance is the public predecessor source whose issue and
-pull-request citations may remain as public references. Private product examples,
+**Visibility audit note:** citations in this repository name only reachable
+public sources. Private product examples,
 private history, and local-only precedent are excluded from this snapshot.
 
 ### D3. Product version, distribution, and installation
@@ -93,41 +93,22 @@ private history, and local-only precedent are excluded from this snapshot.
   `CONTRIBUTING.md`, `SECURITY.md`, and Code of Conduct.
 - No CLA/DCO, Wiki, Discussions, or GitHub Projects initially.
 
-### D5. Platform, telemetry, and pre-readiness use
+### D5. Platform, telemetry, and conformance use
 
 - Linux amd64 is the only supported v1 platform. Other platforms require concrete
   demand and complete native acceptance evidence.
 - Telemetry/diagnostics are local-only. Nothing leaves the machine automatically;
   bounded diagnostic export requires explicit operator review/action.
 - No prompts, work IDs, paths, spec/evidence contents, or secrets in telemetry.
-- Before replacement readiness, Concord uses invented synthetic conformance cases
-  only. It does not observe or own live Concord development.
-- After full readiness, the Concord Product may migrate under CD-0006's normal
-  Product-at-a-time fix-forward policy.
+- Conformance cases are invented synthetic cases only.
 
-### D6. Replacement-ready workflow and conformance floor
+### D6. Retired: the readiness workflow catalog and conformance floor
 
-Required workflow catalog:
-
-1. implementation change;
-2. break-fix/RCA;
-3. research/investigation;
-4. architecture spike;
-5. ops runbook;
-6. static-analysis family; and
-7. generic one-off.
-
-Database/configuration/infrastructure map to implementation or ops until a distinct
-recurring progression/evidence/recovery shape proves another type necessary.
-
-Replacement readiness requires:
-
-- root-policy scenario families for spec mandates, workflow composition, workflow
-  succession, proportional rigor, human legislation, authority-by-fact-type,
-  Product migration, operator boundary, launcher boundary, and release evidence;
-- per-workflow normal completion, missing evidence/approval rejection,
-  interruption/resume, new-conflict routing, applicable successor linking, and
-  durable-knowledge authority.
+The pre-release readiness catalog and its scenario-family list are retired with
+the readiness claim that required them (CD-0006 D1). Workflow families and their
+composition are owned by [`workflows.md`](../../docs/workflows.md); conformance
+coverage is owned by
+[CD-0065](CD-0065-conformance-corpus-runs-what-production-runs.md).
 
 ### D7. Skill/methodology boundary
 

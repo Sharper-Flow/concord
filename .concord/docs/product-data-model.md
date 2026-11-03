@@ -54,7 +54,7 @@ through which law and work are organized.
 ### 2.1 Repositories
 - Git repos are locators on stable Project identities (e.g. `alpha-web`,
   `alpha-api`), not direct Product-membership keys.
-- **Recorded:** Project ID; path/remote and predecessor project identity as typed locators;
+- **Recorded:** Project ID; path/remote and external project identity as typed locators;
   optional PM6 `knowledge_locator`; Product role (`primary`/`secondary`) on accepted
   PM5 `product_projects` membership.
 - These are the *code* members — the units Concord orchestrates

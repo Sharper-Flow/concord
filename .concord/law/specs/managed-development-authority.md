@@ -55,7 +55,7 @@
     },
     {
       "criterion": 7,
-      "exemption": "Independent review checks the no-predecessor-runtime-dependency boundary; dedicated predecessor witnesses and their tests are retired."
+      "exemption": "Independent review checks the no-runtime-dependency-on-another-coordination-system's-state boundary; dedicated independence witnesses and their tests are retired."
     },
     {
       "criterion": 8,
@@ -128,11 +128,10 @@ participation remain host-owned. This contract does not change host roles.
 | Eligible phase-local integration under CD-0241 | Coordinating agent under the declared phase | Rapid-branch merge commit and recorded local gate evidence digests | An operator-declared CD-0241 phase, not main-branch delivery |
 | Implementation isolation | Git branches and worktrees | Branch ancestry, worktree boundaries, and commits | Implementation, including outside-workflow repair |
 | Product law | Accepted decisions, specifications, and constitutional documents | Files under `.concord/law/` on the default branch, their committed revisions, and law relations | Each Product's own accepted law |
-| Concord predecessor lessons | Public predecessor records | Reachable citations in [../../docs/advance-predecessor-lessons.md](../../docs/advance-predecessor-lessons.md) | Concord's predecessor evidence, not an adopting Product's law |
 
 ### Preserved boundaries
 
-Items 2 and 5 explicitly name Concord's public repository and predecessor state.
+Item 2 explicitly names Concord's public repository.
 The other boundaries retain their stated scope.
 
 1. Planning records do not silently amend accepted Product law.
@@ -145,13 +144,12 @@ The other boundaries retain their stated scope.
 3. Implementation uses an isolated branch and worktree, not the default checkout.
 4. Each pull request for managed work carries one non-closing
    `Related to <issue key>` line that names the recorded issue.
-5. Advance remains reference-only. Concord writes no predecessor state.
-6. Public repository content excludes private Product data, credentials, and
+5. Public repository content excludes private Product data, credentials, and
    inaccessible private-source citations.
-7. Concord workflow authority applies only to explicitly managed participation.
-8. A defect repair outside workflow retains repository isolation and public
+6. Concord workflow authority applies only to explicitly managed participation.
+7. A defect repair outside workflow retains repository isolation and public
    review evidence without changing host roles or Product law.
-9. No route commits a planning backlog entry into a repository.
+8. No route commits a planning backlog entry into a repository.
 
 ## Acceptance criteria
 
@@ -182,9 +180,9 @@ The other boundaries retain their stated scope.
   When the operation succeeds
   Then Concord records the operation in its durable authority.
 
-- Given Concord development work
-  When the workflow records its state
-  Then Concord writes no Advance state.
+- Given repository-owned agent surfaces
+  When review examines them
+  Then they hold no runtime dependency on another coordination system's state.
 
 - Given a session that serves one Product and finds work owned by another Product
   When the session records the work
@@ -222,7 +220,7 @@ The other boundaries retain their stated scope.
   generated contracts, and `internal/store.TestAppendEventRoundTripsEveryField`
   covers the event records.
 - Criterion 7: independent review checks that repository-owned agent surfaces
-  introduce no predecessor runtime dependency. The dedicated predecessor
+  hold no runtime dependency on another coordination system's state. The dedicated
   independence and operational-coverage witnesses, their tests, and their
   history-only runbooks are retired; they are not current readiness gates.
 - Criterion 8: CD-0213 D6 owns the foreign-Product route, and Concord has no

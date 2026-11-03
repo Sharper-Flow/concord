@@ -3,8 +3,8 @@
 
 CD-0002 binds the durable git tier: markdown only, distillation rather than
 state dumps, a note the size of a page. Until CD-0069 nothing checked those
-rules, and the predecessor system drifted into committing megabyte JSON state
-blobs into git history with nothing failing. This validator is the detective
+rules, and megabyte JSON state blobs could drift into git history with
+nothing failing. This validator is the detective
 layer of the CD-0069 enforcement stack: it binds every writer, including
 manual commits, at the merge chokepoint.
 

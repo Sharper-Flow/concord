@@ -25,8 +25,8 @@ pre-go-live evidence.
 
 ## Context
 
-Concord must give local agents a complete Product-memory surface without repeating
-Advance's command/tool sprawl, target-path plumbing, repair internals, false success,
+Concord must give local agents a complete Product-memory surface without
+command/tool sprawl, target-path plumbing, repair internals, false success,
 or unbounded context. Storage tables and Go CLI commands are internal boundaries; they
 do not automatically become agent tools.
 
@@ -172,7 +172,7 @@ operator-accepted when authority or consequence changes.
 
 - CRUD/table/CLI-command tool generation.
 - One mega `query`/`invoke` or generic JSON patch.
-- Advance command-for-command surface.
+- Command-for-command surface porting from any prior system.
 - Repeated `target_path`/trust arguments.
 - Generic plugin domain layer, MCP daemon, FFI, or TypeScript core.
 - Natural-language errors, silent truncation, bare async IDs, or success booleans.

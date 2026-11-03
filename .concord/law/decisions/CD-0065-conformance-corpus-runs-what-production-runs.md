@@ -22,7 +22,7 @@
   [issue #405 comment](https://github.com/Sharper-Flow/concord/issues/405#issuecomment-5387211188);
   direction to merge and the remaining resolutions are recorded in
   [issue #405 comment](https://github.com/Sharper-Flow/concord/issues/405#issuecomment-5388341229)
-- **Related:** CD-0012, CD-0013, CD-0222, CD-0053,
+- **Related:** CD-0012, CD-0013, CD-0222,
   [`workflow-engine-contract.md`](../specs/workflow-engine-contract.md)
 - **Preserves:** Stable IDs for current scenarios; obligations the corpus does
   not carry require their own current behavioral controls.

@@ -32,11 +32,9 @@ Concord development preserves these authority boundaries:
 - Git branches and worktrees are the authority for implementation isolation.
 - Concord decision records, specifications, and constitutional docs are the
   authority for Product law.
-- Advance is reference-only. Concord does not dual-write predecessor state.
 
 [How Concord's own development runs during the rebuild](../constitution/priorities.md#how-concords-own-development-runs-during-the-rebuild)
-in `priorities.md` owns Concord's development route. Replacement-readiness claims
-do not determine that route.
+in `priorities.md` owns Concord's development route.
 
 ## Rationale
 
@@ -47,5 +45,5 @@ preserving CD-0007's earlier 2026-08-06 contract-only boundary.
 
 ## Consequence
 
-Any change to this authority model requires a new accepted decision record, public
-issue/PR evidence, and an explicit replacement-readiness rationale.
+Any change to this authority model requires a new accepted decision record and public
+issue/PR evidence.

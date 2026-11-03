@@ -14,7 +14,7 @@
 
 > **Status:** Public constitutional planning authority.\
 > **Codename:** Concord (concordance: bringing scattered work into one view).\
-> **Created:** 2026-07-25, from predecessor-state analysis and product-design work.\
+> **Created:** 2026-07-25, from product-design work.\
 > **Authority:** The public [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord) repository is the authority for this document and its accepted companions. This file ranks first among Concord's law. It is the **sole canonical source** for the operating envelope, the constraints, the conflict rules (Appendix A), and the standing law that serves the operator's goals in [`../../docs/goals.md`](../../docs/goals.md). `goals.md` is guidance, not law. A decision record it cites stays the authority for what that record decides. Companion documents link here; they do not redefine them.
 
 ---

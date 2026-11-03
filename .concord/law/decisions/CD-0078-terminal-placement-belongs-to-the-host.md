@@ -31,7 +31,7 @@
 Concord ships no terminal and starts no operator session. An operator session
 runs in whatever surface the host provides, and the host starts and resumes it.
 
-The predecessor evidence cited by C14 is a host launcher built around a
+The evidence cited by C14 is a host launcher built around a
 terminal multiplexer. It discovers repositories by walking a filesystem root,
 keeps a pin store, names the tab, and then replaces itself with the target
 program. That tool answers a different question than Concord answers. It asks
@@ -80,7 +80,7 @@ from that projection, never from a terminal identifier.
 
 A host remains free to resume its own sessions by identifier outside Concord.
 Deriving workflow position from that identifier would be the split-authority
-shape the predecessor postmortem names as a recurring root cause.
+shape CD-0002 I1 removes.
 
 ## Consequences
 

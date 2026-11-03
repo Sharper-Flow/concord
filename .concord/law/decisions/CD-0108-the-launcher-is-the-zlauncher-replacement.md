@@ -76,8 +76,7 @@ the gap too wide, and issue 908 deleted the surface rather than iterating.
 and resume belong to the host (CD-0078), and a second launch entry keeps that
 responsibility in two owners.
 
-**Port ZLauncher as it stands.** Rejected: predecessor law forbids routing
-Concord work through predecessor paths. The replacement mapped features, not
+**Port ZLauncher as it stands.** Rejected: the replacement mapped features, not
 code.
 
 **A launch registry in the entry route.** Rejected: it duplicates store-owned

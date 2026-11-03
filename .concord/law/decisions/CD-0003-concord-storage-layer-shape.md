@@ -18,7 +18,7 @@
 > **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2 — the store keeps current state; no event log exists.
 > **Decided:** 2026-08-05.
 > **Resolves:** [`CD-0002-concord-state-authority.md`](CD-0002-concord-state-authority.md) §5 (invocation boundary, binding) and §7 (entity shape is the remaining fork inside the authority).
-> **Sourced basis:** CD-0002 (Accepted) + the measured ADV profile (§2a of CD-0002: <0.1 writes/sec, ~8 true concurrent writers, 3–6 KB artifacts, 50–300 entities) + documented library characteristics (modernc.org/sqlite, mattn/go-sqlite3, SQLite WAL).
+> **Sourced basis:** CD-0002 (Accepted) + the measured coordination-workload profile (§2a of CD-0002: <0.1 writes/sec, ~8 true concurrent writers, 3–6 KB artifacts, 50–300 entities) + documented library characteristics (modernc.org/sqlite, mattn/go-sqlite3, SQLite WAL).
 
 ## Decisions (summary)
 

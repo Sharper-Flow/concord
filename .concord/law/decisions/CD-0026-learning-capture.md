@@ -18,17 +18,17 @@
 - **Status:** Accepted
 - **Date:** 2026-08-15
 - **Scope:** Agent tool surface; lesson publication
-- **Related:** CD-0215 (D7 publication destinations), CD-0019 (wisdom question),
+- **Related:** CD-0215 (D7 publication destinations),
   PM6 and compaction-retention-policy compaction
 - **Issue:** #108 (fc6, learning-capture group)
 
 ## Context
 
-Two enumerated predecessor outcomes were not covered. Lessons were already a
+Two learning outcomes were previously uncovered. Lessons were already a
 first-class kind, but every
 lesson was human-authored JSON plus git: no agent operation could record one,
-and nothing captured post-completion learning. CD-0019 had left standalone wisdom
-capture open ("not rejected — may be absorbed"); CD-0215 D7 names the lesson
+and nothing captured post-completion learning. Standalone wisdom capture had
+been left open; CD-0215 D7 names the lesson
 as a publication destination without implementing it.
 
 ## Decision
@@ -52,8 +52,8 @@ separate artifact kind, promotion step, or aggregation job exists.
 
 ## Rejected alternatives
 
-**A separate reflection artifact** (new kind, table, event, op) preserves the
-predecessor's lesson/reflection distinction at the cost of a parallel
+**A separate reflection artifact** (new kind, table, event, op) preserves a
+lesson/reflection distinction at the cost of a parallel
 subsystem to keep aligned; the distinction is intent, not data shape.
 
 **Semantic drift detection** (parsing decisions and probing code for stated

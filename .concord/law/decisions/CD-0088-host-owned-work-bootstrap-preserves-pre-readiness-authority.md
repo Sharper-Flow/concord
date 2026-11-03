@@ -65,11 +65,11 @@ required under CD-0093.
 
 ### D5. Capability does not activate Concord self-hosting
 
-This decision does not claim replacement readiness and does not amend CD-0010.
+This decision does not amend CD-0010's development authority.
 Main-branch review and merge evidence remain GitHub-native. CD-0241 defines
 eligible rapid-phase local integration evidence without changing default-checkout
 isolation or installed workflow admission. Using Concord to coordinate Concord
-development requires both a proven replacement-readiness claim and a later
+development requires a later
 accepted decision that changes development authority.
 
 ## Reason

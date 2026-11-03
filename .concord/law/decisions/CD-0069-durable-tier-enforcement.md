@@ -22,7 +22,7 @@ exhaust — and a size intent: a page, not hundreds of kilobytes. Nothing
 checked any of them. Issue #181 asked whether those rules are executable law
 or documented intent.
 
-The predecessor system is the controlled trial. It held the same rules in
+The controlled trial that motivated this record held the same rules in
 prose, and drifted into committing 49.9 MB of JSON state blobs across 526
 archived bundles — median 80 KB, one bundle at 1.02 MB — into consuming
 repositories' git history. Nothing failed at any step. Remediation of that
@@ -68,7 +68,7 @@ embedded state dumps — those rules have no exceptions.
 The bound applies to the note roots CD-0002 names for that
 purpose: `<product-root>/.concord/docs/work/` and `<product-root>/.concord/docs/lessons/`. 16384 bytes is roughly eight
 times a real distilled page and three orders of magnitude under the
-predecessor's failure, so it rejects the disease without rationing the cure.
+drift that motivated this record, so it rejects the disease without rationing the cure.
 
 Decision records are out of the byte bound, deliberately. They are a
 different artifact class — CD-0013 is accepted law at 34.5 KB — and review,
@@ -85,7 +85,7 @@ inventory; both are legal or contract material, not state.
   CI from this record's merge.
 - Independently authored notes remain subject to the repository check.
 - Adding a non-markdown artifact to `.concord/law/decisions/` now requires a budget
-  entry with a reason, which is the decision the predecessor never forced.
+  entry with a reason, which is the decision the drift never forced.
 - The bound can be lowered as a ratchet without a new decision; raising it
   requires one, because raising a bound forgives debt nobody chose.
 

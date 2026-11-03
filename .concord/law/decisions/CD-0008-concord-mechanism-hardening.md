@@ -177,7 +177,7 @@ The cutover is one documented migration with a verified snapshot ([CD-0242 D13](
 ## D7. SQLite is confirmed; alternative engines are falsifier-only
 
 Ten active agents do not imply ten simultaneous Product-state commits. Concord's
-measured predecessor workload is below 0.1 writes/second system-wide; most agent time
+measured coordination workload is below 0.1 writes/second system-wide; most agent time
 is read/reason/edit/test/wait. SQLite WAL permits concurrent readers and one serialized
 writer with snapshot isolation, matching the desired one-current-truth semantics.
 

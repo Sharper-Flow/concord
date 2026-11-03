@@ -266,8 +266,7 @@ re-litigate them silently.
   unrelated to that tier and must be named **context continuity** to avoid collision.
 - **Predecessor evidence:** [Advance #422](https://github.com/Sharper-Flow/Advance/issues/422),
   [#423](https://github.com/Sharper-Flow/Advance/issues/423), and
-  [#424](https://github.com/Sharper-Flow/Advance/issues/424), recorded in
-  [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md). These identify
+  [#424](https://github.com/Sharper-Flow/Advance/issues/424). These identify
   mechanisms to prevent structurally; they are not work Concord must reproduce.
 - **Direction:** Durable checkpoints and
   boundary records own the working state; pinned continuity is re-derived from

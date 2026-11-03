@@ -23,8 +23,8 @@
 **Approval:** Operator-approved direction for GitHub issue #76.
 **Type:** Product-law reconciliation (floor definition against accepted contract).
 **Issue:** [#76](https://github.com/Sharper-Flow/concord/issues/76).
-**Refines:** [`priorities.md`](../constitution/priorities.md) first-usable floor condition 1.
-**Preserves:** The reach-versus-result-set boundary owned by `priorities.md`
+**Refines:** [`floor-readiness.md`](../../docs/floor-readiness.md) first-usable floor condition 1.
+**Preserves:** The reach-versus-result-set boundary stated by `floor-readiness.md`
 and `design-constraints.md`, and
 CD-0010.
 
@@ -81,7 +81,7 @@ progress. Available later on evidence of need.
 
 **A launcher planning affordance.** Amending C18 to permit a bounded capture
 action reopens the read-only boundary. That boundary exists because a second
-write authority was the predecessor's core failure, and the launcher is the
+write authority is the core failure this Product's authority model rejects, and the launcher is the
 surface most likely to grow one. Rejected on cost against a gap D1 shows is not
 a gap.
 
@@ -100,5 +100,5 @@ need; no such need is demonstrated.
 
 ## Verification
 
-- [`priorities.md`](../constitution/priorities.md) condition 1 states the reach-versus-result-set
+- [`floor-readiness.md`](../../docs/floor-readiness.md) condition 1 states the reach-versus-result-set
   distinction.

@@ -83,7 +83,7 @@ CURRENT_SCENARIO_IDS = [
     "WF01-capture-late-outcome", "WF02-planning-requires-outcome",
     "WF04-weaker-delivery", "WF05-stronger-delivery",
     "WF19-completion-one-transaction",
-    "WF37-action-availability-before-register", "WF47-evidence-commit-binding",
+    "WF37-action-availability-before-register",
     "WF50-one-conjunct-weaker",
 ]
 DIAGNOSTIC = re.compile(r"^(?P<path>[^(\n]+)\((?P<line>\d+),(?P<column>\d+)\): error (?P<code>TS\d+):")
@@ -317,6 +317,7 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
         "record_proposal": {"problem", "affected", "stakes", "user_outcomes"},
         "approve_contract": {"premise", "decision_domains"},
         "record_verdict": {"verdicts"},
+        "confirm_premise": set(),
         "complete": {"impact_verdict"},
     }
     def walk(item: dict) -> None:

@@ -556,7 +556,7 @@ func TestProductChangingApprovalMissingBindingIsAtomic(t *testing.T) {
 	}
 }
 
-func TestProductChangingCompletionRequiresVerificationObligation(t *testing.T) {
+func TestProductChangingCompletionDoesNotRecheckVerificationObligation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	workID := "architecture-obligation-completion"
@@ -607,8 +607,7 @@ func TestProductChangingCompletionRequiresVerificationObligation(t *testing.T) {
 	if err != nil || len(outstanding) != 1 || outstanding[0].Kind != "verification" || outstanding[0].Reference != "spec:one" {
 		t.Fatalf("outstanding requirements=%+v err=%v, want only (verification,spec:one)", outstanding, err)
 	}
-	// Seed the authorized engineering confirmation to isolate completion's
-	// obligation guard from the earlier acceptance-deliverables guard.
+	// Seed confirmation to exercise completion separately from verification.
 	ownerRef, _ := WorkflowActorRef(f.owner)
 	version := readWorkVersion(t, s, workID)
 	premise := workflowEventWithActor("architecture-obligation-premise", WorkflowPremiseConfirmed, workID, ownerRef, map[string]any{
@@ -622,12 +621,7 @@ func TestProductChangingCompletionRequiresVerificationObligation(t *testing.T) {
 		t.Fatal(err)
 	}
 	j := &candidateJourney{fixture: f, s: s, workID: workID, repo: repo}
-	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner); err == nil {
-		t.Fatal("completion accepted unsatisfied verification obligation")
-	} else {
-		var failure *Failure
-		if !failureAs(err, &failure) || failure.Kind != KindInvariantViolation || failure.Clause != 3 || failure.Detail != "declared verification obligation is not satisfied" || failure.RecoveryAction != "provide_evidence" {
-			t.Fatalf("completion failure=%+v err=%v, want clause 3 verification-obligation refusal", failure, err)
-		}
+	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner); err != nil {
+		t.Fatalf("completion rechecked verification obligation: %v", err)
 	}
 }

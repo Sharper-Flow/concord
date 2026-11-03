@@ -237,9 +237,6 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		if err := workflowPremiseConfirmedAuthorityTx(context.Background(), forgedTx, workID, 1, operatorRef, "operator"); err == nil {
 			t.Fatal("operator authority accepted")
 		}
-		if err := workflowPremiseConfirmationAuthority(context.Background(), forgedTx, operatorRef); err == nil {
-			t.Fatal("an operator-typed confirmation actor passed the completion authority owner")
-		}
 		if err := forgedTx.Rollback(); err != nil {
 			t.Fatal(err)
 		}

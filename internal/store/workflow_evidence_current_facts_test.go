@@ -25,11 +25,6 @@ func TestWorkflowEvidenceCurrentFactsWithoutLog(t *testing.T) {
 	if err != nil || !bound {
 		t.Fatalf("positive binding fixture: bound=%v err=%v", bound, err)
 	}
-	definition := cloneWorkflowDefinition(BuiltinWorkflowDefinitions()[0])
-	definition.StalenessRules = []WorkflowStalenessRule{
-		{ID: "staleness:missing", InputRef: "input:missing", Severity: "warning"},
-		{ID: "staleness:bound", InputRef: "evidence:gate-proof", Severity: "warning"},
-	}
 	inTx := func(read func(*sql.Tx) (any, error)) (any, error) {
 		tx, err := s.db.BeginTx(ctx, nil)
 		if err != nil {
@@ -39,19 +34,12 @@ func TestWorkflowEvidenceCurrentFactsWithoutLog(t *testing.T) {
 		return read(tx)
 	}
 	assertWorkerFactsLogBlind(t, s, map[string]func() (any, error){
-		"P38-blocking-staleness": func() (any, error) {
-			return inTx(func(tx *sql.Tx) (any, error) { return nil, verifyBlockingStaleness(ctx, tx, work, definition, nil) })
-		},
-		"P39-warning-staleness": func() (any, error) {
-			return inTx(func(tx *sql.Tx) (any, error) { return workflowStalenessWarnings(ctx, tx, work, definition, nil) })
-		},
 		"P53-evidence-inventory": func() (any, error) {
 			return inTx(func(tx *sql.Tx) (any, error) { return workPinVerdictEvidenceTx(ctx, tx, work) })
 		},
 		"G24-tuple": func() (any, error) {
 			return workflowEvidenceTupleBound(ctx, s.db, work, "verification", "evidence:gate-proof")
 		},
-		"G24-kind": func() (any, error) { return workflowEvidenceKindBound(ctx, s.db, work, "verification") },
 		"G24-reference": func() (any, error) {
 			return workflowEvidenceReferenceBound(ctx, s.db, work, "evidence:gate-proof", "workflow_action")
 		},

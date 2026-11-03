@@ -368,10 +368,6 @@ func TestAdmissionModelConsumedReviewCannotRegainForwardAuthority(t *testing.T) 
 		if got := workflowAdmit(definition, admissionWorkflowState(definition, state), "confirm_premise"); got.Admitted {
 			t.Errorf("%s: restored consumed report authorized forward confirmation", family)
 		}
-		state.step = definition.StepGraph.TerminalSteps[0]
-		if got := workflowAdmit(definition, admissionWorkflowState(definition, state), "complete"); got.Admitted {
-			t.Errorf("%s: restored consumed report authorized completion", family)
-		}
 	}
 }
 

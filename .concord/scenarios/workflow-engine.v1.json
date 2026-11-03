@@ -94,21 +94,21 @@
     },
     {
       "id": "WF04-weaker-delivery", "scenario_number": 4,
-      "mechanism": "an accepted mismatch Review supplies no passing criterion proof, so completion refuses without terminal effects",
-      "initial_state": {"work": "work-alpha", "assessment": "mismatch"}, "action": "complete",
+      "mechanism": "an accepted mismatch Review supplies no passing criterion proof, so premise confirmation refuses without advancing verification",
+      "initial_state": {"work": "work-alpha", "assessment": "mismatch"}, "action": "confirm_premise",
       "setup": {
         "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
-        "current_state": {"step": "release", "proof_case": "weaker_delivery"}, "faults": []
+        "current_state": {"step": "acceptance", "proof_case": "weaker_delivery"}, "faults": []
       },
       "request": {
-        "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "definition_ref": "workflow.implementation", "action_id": "complete", "fields": {"impact_verdict": "non-breaking"},
+        "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "definition_ref": "workflow.implementation", "action_id": "confirm_premise", "fields": {},
         "idempotency": {"key": "wf04-key", "request_id": "wf04-request", "operation_id": "wf04-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
         "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/owner", "session_ref": "session/work-alpha", "capability": "workflow_action", "scope": "project"},
         "operation": {"op_id": "wf04-operation"}
       },
       "expected": {"assertions": [
         {"target": "communication", "path": "error.kind", "op": "eq", "value": "missing_evidence"},
-        {"target": "communication", "path": "error.detail", "op": "eq", "value": "workflow verdict is missing for approved predicate predicate:return-route"},
+        {"target": "communication", "path": "error.detail", "op": "eq", "value": "premise confirmation requires a recorded workflow verdict"},
         {"target": "state", "path": "review.assessments.predicate:return-route", "op": "eq", "value": "mismatch"},
         {"target": "state", "path": "work.lifecycle", "op": "eq", "value": "in_progress"},
         {"target": "state", "path": "verdicts.predicate:return-route", "op": "absent"},
@@ -117,7 +117,7 @@
         {"target": "effects", "path": "workflow.completed", "op": "absent"},
         {"target": "effects", "path": "events.order", "op": "eq", "value": []}
       ]},
-      "observations": {"expected_reads": [{"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "release"}]}
+      "observations": {"expected_reads": [{"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "acceptance"}]}
     },
     {
       "id": "WF05-stronger-delivery", "scenario_number": 5,
@@ -195,48 +195,22 @@
       "observations": {"expected_reads": [{"target": "state", "path": "work.outcome_contract", "op": "absent"}]}
     },
     {
-      "id": "WF47-evidence-commit-binding", "scenario_number": 47,
-      "mechanism": "completion refuses evidence bound to a different commit even after supported Review, proof association and premise confirmation",
-      "initial_state": {"work": "work-alpha", "premise_confirmed": true}, "action": "complete",
-      "setup": {
-        "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
-        "current_state": {"step": "release", "proof_case": "evidence_commit_mismatch"}, "faults": []
-      },
-      "request": {
-        "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "definition_ref": "workflow.implementation", "action_id": "complete",
-        "fields": {"impact_verdict": "non-breaking", "evidence_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "current_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
-        "idempotency": {"key": "wf47-key", "request_id": "wf47-request", "operation_id": "wf47-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
-        "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/owner", "session_ref": "session/work-alpha", "capability": "workflow_action", "scope": "project"},
-        "operation": {"op_id": "wf47-operation"}
-      },
-      "expected": {"assertions": [
-        {"target": "communication", "path": "error.kind", "op": "eq", "value": "missing_evidence"},
-        {"target": "communication", "path": "error.detail", "op": "eq", "value": "immutable evidence commit does not match the current commit"},
-        {"target": "state", "path": "verdicts.predicate:return-route", "op": "nonempty"},
-        {"target": "state", "path": "work.terminal_metadata", "op": "absent"},
-        {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
-        {"target": "effects", "path": "workflow.completed", "op": "absent"},
-        {"target": "effects", "path": "events.order", "op": "eq", "value": []}
-      ]},
-      "observations": {"expected_reads": [{"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "release"}, {"target": "state", "path": "work.lifecycle", "op": "eq", "value": "in_progress"}]}
-    },
-    {
       "id": "WF50-one-conjunct-weaker", "scenario_number": 50,
-      "mechanism": "one supported conjunct cannot compensate for an accepted mismatch on another; completion refuses missing criterion proof",
-      "initial_state": {"work": "work-alpha", "supported": "predicate:present", "mismatch": "predicate:absent"}, "action": "complete",
+      "mechanism": "one supported conjunct cannot compensate for an accepted mismatch on another; premise confirmation refuses missing criterion proof",
+      "initial_state": {"work": "work-alpha", "supported": "predicate:present", "mismatch": "predicate:absent"}, "action": "confirm_premise",
       "setup": {
         "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7"], "definitions": ["workflow.implementation"], "evidence": [], "relations": []},
-        "current_state": {"step": "release", "proof_case": "one_conjunct_weaker"}, "faults": []
+        "current_state": {"step": "acceptance", "proof_case": "one_conjunct_weaker"}, "faults": []
       },
       "request": {
-        "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "definition_ref": "workflow.implementation", "action_id": "complete", "fields": {"impact_verdict": "non-breaking"},
+        "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "definition_ref": "workflow.implementation", "action_id": "confirm_premise", "fields": {},
         "idempotency": {"key": "wf50-key", "request_id": "wf50-request", "operation_id": "wf50-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
         "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/owner", "session_ref": "session/work-alpha", "capability": "workflow_action", "scope": "project"},
         "operation": {"op_id": "wf50-operation"}
       },
       "expected": {"assertions": [
         {"target": "communication", "path": "error.kind", "op": "eq", "value": "missing_evidence"},
-        {"target": "communication", "path": "error.detail", "op": "eq", "value": "workflow verdict is missing for approved predicate predicate:absent"},
+        {"target": "communication", "path": "error.detail", "op": "eq", "value": "premise confirmation requires a verdict for every approved predicate: missing predicate:absent"},
         {"target": "state", "path": "review.assessments.predicate:present", "op": "eq", "value": "supported"},
         {"target": "state", "path": "review.assessments.predicate:absent", "op": "eq", "value": "mismatch"},
         {"target": "state", "path": "work.lifecycle", "op": "eq", "value": "in_progress"},
@@ -247,7 +221,7 @@
         {"target": "effects", "path": "workflow.completed", "op": "absent"},
         {"target": "effects", "path": "events.order", "op": "eq", "value": []}
       ]},
-      "observations": {"expected_reads": [{"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "release"}]}
+      "observations": {"expected_reads": [{"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "acceptance"}]}
     }
   ]
 }

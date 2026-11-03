@@ -95,8 +95,8 @@ verdict. A late verdict does not move the step.
   Rejected: a second copy is the drift that CD-0201 D1 removes.
 - Defer every fresh-review refusal and give `record_delivery` a guard.
   Rejected: the refusal reads no payload, and a guard copy is a second owner.
-- Let confirmation pass without a verdict. Rejected: completion
-  requires the verdict, so the work strands one step later.
+- Let confirmation pass without a verdict. Rejected: confirmation requires
+  qualifying acceptance deliverables.
 
 ## Consequences
 

@@ -166,7 +166,7 @@ direction, UI/UX, production application data, security, increased spending,
 and legal obligations. Every applicable class counts. Decisions outside them
 belong to agents under CD-0243 D3.
 
-The UI/UX class includes approval of a development preview of the final candidate before it is pushed to a shared remote or merged ([CD-0242 D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)).
+The UI/UX class includes approval of a development preview of the final candidate before it is pushed to a shared remote or merged ([CD-0242 D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-verification-owns-proof-completion-records-delivery)).
 
 The agent asks the operator directly, with its recommendation and material
 risks. The release train engineer (RTE) coordinates dependencies; it does not decide operator choices.
@@ -343,8 +343,8 @@ CD-0243 replaces seriousness, Domain count, crucial size, and unclassified
 approval points as independent consent triggers. Neither replacement makes
 an unproved retained rule satisfied or permits bypassing a current gate.
 
-- `internal/store.TestRetiredMandateModifiedAbsenceCompletes` proves completion
-  admits verified absence of a declared modification without a separate removal
-  carrier. It does not prove who deleted the law, whether a declared revision
+- `internal/store.TestWorkflowCompletionIgnoresRetiredContractClauses` proves
+  completion does not check mandated-law presence, so an absent mandated law
+  cannot refuse it. It does not prove who deleted the law, whether a declared revision
   became a deletion, or whether the published tier is correct; D4's review owns
   those judgments.

@@ -189,13 +189,6 @@ func architectureBindingCurrentMandate(specMandate []string, additions []Workflo
 	return result, nil
 }
 
-func currentWorkflowLawMandate(specMandate []string, binding *WorkflowArchitectureBinding) ([]string, error) {
-	if binding == nil {
-		return append([]string{}, specMandate...), nil
-	}
-	return architectureBindingCurrentMandate(specMandate, binding.LawAdditions)
-}
-
 func workflowDefinitionObligations(definition WorkflowDefinition) map[string]struct{} {
 	result := map[string]struct{}{}
 	for _, kind := range definition.RequiredEvidenceKinds {

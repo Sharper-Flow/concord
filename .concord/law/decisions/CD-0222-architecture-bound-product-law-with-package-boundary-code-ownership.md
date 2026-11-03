@@ -39,8 +39,8 @@ governs D1, D4, and D5: law mandates and enactment require approval only under i
 ## Context
 
 Concord already treats accepted specifications as human-enacted law. Workflow
-contracts name governing law IDs, a spec mandate limits authorized amendments,
-and completion refuses unresolved law conflicts. Those controls protect work
+contracts name governing law IDs, and a spec mandate limits authorized amendments.
+Those controls protect work
 that names the right law.
 
 The Product model beneath them is inverted. `Product -> component` is documented

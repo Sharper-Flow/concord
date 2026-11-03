@@ -22,8 +22,8 @@
 
 Two acceptance-criteria systems exist with no structural bridge. Spec Gherkin
 criteria bind to scenario ids or exemption reasons through
-criterion_bindings in the spec law file's metadata. Work items carry outcome predicates, and completion
-evaluates each predicate through its own verdict. Nothing links a predicate to
+criterion_bindings in the spec law file's metadata. Work items carry outcome
+predicates, and verification evaluates each predicate through its own verdict. Nothing links a predicate to
 the criterion it discharges, so verify evidence cannot chain from a command
 result to a predicate to a criterion to law.
 

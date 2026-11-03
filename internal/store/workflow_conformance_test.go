@@ -126,7 +126,7 @@ func readWorkflowScenarioCorpus(t *testing.T) workflowScenarioCorpus {
 	if err := json.Unmarshal(raw, &corpus); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF19-completion-one-transaction", "WF37-action-availability-before-register", "WF47-evidence-commit-binding", "WF50-one-conjunct-weaker"}
+	want := []string{"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF19-completion-one-transaction", "WF37-action-availability-before-register", "WF50-one-conjunct-weaker"}
 	if len(corpus.Scenarios) != len(want) {
 		t.Fatalf("scenario count=%d, want %d", len(corpus.Scenarios), len(want))
 	}
@@ -172,7 +172,7 @@ func runWorkflowScenarioCase(t *testing.T, scenario workflowScenario) {
 func executeWorkflowScenario(t *testing.T, action string, setup workflowCorpusSetup, request workflowCorpusRequest) (workflowObservation, error) {
 	t.Helper()
 	switch action {
-	case "capture", "record_proposal", "approve_contract", "record_verdict", "complete":
+	case "capture", "record_proposal", "approve_contract", "record_verdict", "confirm_premise", "complete":
 	default:
 		return workflowObservation{}, fmt.Errorf("action %q is not in the current corpus action union", action)
 	}
@@ -266,7 +266,7 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 	t.Helper()
 	ctx := t.Context()
 	workID, proof := setup.FixtureRefs.WorkItem, setup.CurrentState.ProofCase
-	actions := map[string]string{"planning_without_outcome": "approve_contract", "weaker_delivery": "complete", "satisfied_delivery": "complete", "completion_rollback": "complete", "missing_definition": "record_proposal", "evidence_commit_mismatch": "complete", "one_conjunct_weaker": "complete"}
+	actions := map[string]string{"planning_without_outcome": "approve_contract", "weaker_delivery": "confirm_premise", "satisfied_delivery": "complete", "completion_rollback": "complete", "missing_definition": "record_proposal", "one_conjunct_weaker": "confirm_premise"}
 	if proof != "" {
 		if action, ok := actions[proof]; !ok || action != request.ActionID {
 			return nil, nil, fmt.Errorf("current fixture proof case %q does not prepare action %q", proof, request.ActionID)
@@ -296,7 +296,7 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 		if proof == "missing_definition" {
 			registry = NewWorkflowDefinitionRegistry()
 		}
-	case "satisfied_delivery", "completion_rollback", "evidence_commit_mismatch":
+	case "satisfied_delivery", "completion_rollback":
 		f := qCurrentAcceptance(t, workID, "review")
 		s, owner = f.store, f.owner
 		if err := f.run(ctx, "confirm_premise", "corpus-confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
@@ -339,13 +339,6 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 				return nil, nil, err
 			}
 		}
-		if proof == "weaker_delivery" || proof == "one_conjunct_weaker" {
-			// Exercise the ordered completion gate, not acceptance's earlier
-			// premise-deliverables refusal. Neither proof nor confirmation is seeded.
-			if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "release", mustActorRef(t, route.owner)); err != nil {
-				return nil, nil, err
-			}
-		}
 	default:
 		return nil, nil, fmt.Errorf("current fixture has unknown proof case %q", proof)
 	}
@@ -376,12 +369,11 @@ func TestCorpusCurrentProofPreparationProfiles(t *testing.T) {
 		proof, step, action, kind string
 	}{
 		{"planning_without_outcome", "planning", "approve_contract", "invalid_input"},
-		{"weaker_delivery", "release", "complete", "missing_evidence"},
+		{"weaker_delivery", "acceptance", "confirm_premise", "missing_evidence"},
 		{"satisfied_delivery", "release", "complete", ""},
 		{"completion_rollback", "release", "complete", "operation_conflict"},
 		{"missing_definition", "proposal", "record_proposal", "invariant_violation"},
-		{"evidence_commit_mismatch", "release", "complete", "missing_evidence"},
-		{"one_conjunct_weaker", "release", "complete", "missing_evidence"},
+		{"one_conjunct_weaker", "acceptance", "confirm_premise", "missing_evidence"},
 	} {
 		t.Run(tc.proof, func(t *testing.T) {
 			actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/work-alpha", ActorClass: ActorAgent}
@@ -393,9 +385,8 @@ func TestCorpusCurrentProofPreparationProfiles(t *testing.T) {
 				fields = map[string]any{"premise": "The bounded engineering result.", "decision_domains": []string{}}
 			case "record_proposal":
 				fields = map[string]any{"problem": "The bounded problem.", "affected": []string{"The fixture."}, "stakes": "The bounded stakes.", "user_outcomes": []string{"The checked result."}}
-			}
-			if tc.proof == "evidence_commit_mismatch" {
-				fields["evidence_commit"], fields["current_commit"] = strings.Repeat("a", 40), strings.Repeat("b", 40)
+			case "confirm_premise":
+				fields = map[string]any{}
 			}
 			request := workflowCorpusRequest{ActorRef: ref, DefinitionRef: "workflow.implementation", ActionID: tc.action, Fields: fields,
 				Grant:       workflowCorpusGrant{PrincipalRef: actor.PrincipalRef, ClientRef: actor.ClientRef, AgentRef: actor.AgentRef, SessionRef: actor.SessionRef, Capability: "workflow_action", Scope: "project"},
@@ -414,9 +405,8 @@ func TestCorpusCurrentProofPreparationProfiles(t *testing.T) {
 			detail := map[string]string{
 				"planning_without_outcome": `workflow action payload field "outcome_predicates" is required for action "approve_contract"`,
 				"missing_definition":       "current workflow definition is unavailable: workflow.implementation",
-				"evidence_commit_mismatch": "immutable evidence commit does not match the current commit",
-				"weaker_delivery":          "workflow verdict is missing for approved predicate predicate:return-route",
-				"one_conjunct_weaker":      "workflow verdict is missing for approved predicate predicate:absent",
+				"weaker_delivery":          "premise confirmation requires a recorded workflow verdict",
+				"one_conjunct_weaker":      "premise confirmation requires a verdict for every approved predicate: missing predicate:absent",
 			}[tc.proof]
 			if detail != "" {
 				if err := workflowObservationAssertionError(observation, workflowAssertion{Target: "communication", Path: "error.detail", Op: "eq", Value: detail}); err != nil {

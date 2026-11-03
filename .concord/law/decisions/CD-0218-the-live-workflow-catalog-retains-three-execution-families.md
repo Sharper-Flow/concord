@@ -163,12 +163,6 @@ than publish competing overrides.
 ```
 
 ```gherkin
-  Given a retained change lacks an independent current predicate verdict
-  When the coordinator requests whole-work completion
-  Then completion refuses and names the missing predicate
-```
-
-```gherkin
   Given a running retained-family item needs an ordinary contract update
   When the authenticated coordinator supplies its complete contract through revise_intent
   Then the update commits without moving the step or discarding retained evidence

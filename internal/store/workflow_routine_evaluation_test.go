@@ -3,9 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
-	"time"
 )
 
 // routinePolicyDefinition copies a registered fixture definition.
@@ -58,21 +56,6 @@ func seedRoutineActors(t *testing.T, s *Store, workID string) (reviewer Workflow
 	return reviewer, coordinator
 }
 
-// foldRoutineVerdict folds one ok verdict from the independent evaluator so
-// the completion clause 4 gate has its witness.
-func foldRoutineVerdict(t *testing.T, s *Store, workID string, reviewer WorkflowActor) {
-	t.Helper()
-	reviewerRef, err := WorkflowActorRef(reviewer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	version := readWorkVersion(t, s, workID)
-	event := workflowEventWithActor("routine-verdict-"+workID, WorkflowVerdictRecorded, workID, reviewerRef, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "predicate_id": "predicate:primary", "verdict_kind": "ok", "verdict_actor_ref": reviewerRef, "evaluation_evidence": []string{"evidence:operator-verdict"}, "incomparable_with_approved": false})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		t.Fatalf("fold independent verdict: %v", err)
-	}
-}
-
 func TestRoutineEvaluation(t *testing.T) {
 	t.Parallel()
 
@@ -103,33 +86,6 @@ func TestRoutineEvaluation(t *testing.T) {
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence {
 			t.Fatalf("unbound evaluation evidence returned %v, want the missing-evidence refusal", err)
-		}
-	})
-	t.Run("new policy keeps verdict gates for coordinator completion", func(t *testing.T) {
-		t.Parallel()
-		const workID = "routine-new-completion-gates"
-		f := qBuildAcceptance(t, workID, "", false)
-		s := f.store
-		_, coordinator := seedRoutineActors(t, s, workID)
-		setWorkflowStepForOperatorVerdictTest(t, s, workID, "release")
-		version := readWorkVersion(t, s, workID)
-		ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer tx.Rollback()
-		execution := WorkflowActionExecutionRequest{
-			WorkID: workID, ExpectedVersion: version, ActionID: "complete", Payload: json.RawMessage(`{"impact_verdict":"non-breaking"}`), Actor: coordinator,
-			OperationID: "routine-complete-" + workID, Now: time.Unix(11, 0).UTC(),
-		}
-		_, err = applyCompleteWorkflowActionTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), execution, ownerRefForTest(t, coordinator), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil)
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "verdict is missing") {
-			t.Fatalf("completion without a verdict returned %v, want the missing-verdict clause refusal", err)
 		}
 	})
 }

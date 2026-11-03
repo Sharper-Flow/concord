@@ -423,7 +423,7 @@ func missingPredicateVerdictsCtx(t *testing.T, s *Store, workID string) ([]strin
 }
 
 func missingPredicateVerdicts(ctx context.Context, tx queryer, workID string) ([]string, error) {
-	contract, _, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
+	contract, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
 	if err != nil {
 		return nil, err
 	}

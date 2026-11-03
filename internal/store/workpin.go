@@ -341,11 +341,6 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "record_verdict"), pin.Version, "late_criterion_association"))
 		}
 	}
-	if state.LatePremiseConfirmation && !workPinContainsAction(pin.NextValidIntents, "confirm_premise") {
-		if decision := workflowAdmit(definition, state, "confirm_premise"); decision.Admitted {
-			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "confirm_premise"), pin.Version, "late_premise_confirmation"))
-		}
-	}
 	// The evidence-binding recovery advertises only when the pure decision
 	// admits the binding: a staleness or terminal refusal keeps the route
 	// hidden instead of advertising a dead one.

@@ -3,9 +3,7 @@
   "id": "CD-0183",
   "title": "Workflow actions start the lifecycle and the completion closes it",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-4c428253aab7dc64d936e08b",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "workflow-engine",
   "applies_to_domain_ids": [],
@@ -57,8 +55,7 @@ wins. The value is a current row written in the starting transaction ([CD-0242 D
 
 The workflow complete action records `work.transitioned` and the workflow's
 terminal state in one transaction, so the lifecycle and the Linear status
-follow; these are current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). The completion gate admits only `ok`
-verdicts, so that terminal state is `completed`. A completion that names
+follow; these are current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). The terminal state for this action is `completed`. A completion that names
 `cancelled` or `superseded` refuses before any effect: cancellation keeps the
 lifecycle route, and supersession stays atomic with its relation. The instance keeps its completed
 state: the terminal-lifecycle close admits an item whose instance is already
@@ -88,7 +85,7 @@ items completable (CD-0094 D2). A `cancelled` target is unchanged. Recorded rows
   only items no workflow has started.
 - A workflow item reaches `completed` through the completion action, through a
   terminal-instance repair, or as an imported item with no instance; each path
-  keeps its own evidence gates. Operator decisions follow CD-0243 D2 in conversation.
+  keeps its own admission requirements. Operator decisions follow CD-0243 D2 in conversation.
 - Recorded rows are not rewritten; recovery restores them from verified
   snapshots (CD-0242 D2).
 

@@ -23,7 +23,3 @@ Before naming a `required_evidence` kind at contract approval, establish which r
 - `durable_note`, `artifact` — a durable note or an artifact reference that the work's evidence binding admits.
 
 A required kind no participant can produce is not a stricter contract. It is an unsatisfiable one.
-
-## At completion
-
-`complete` refuses when `evidence_commit` differs from the current commit (workflowCompletionBoundaryPreflight, internal/store/workflow_dispatch.go). After a squash merge the branch commit is no longer current, and `bind_evidence` is not a declared action at the `complete` step. Re-run verification on the merged commit and name that commit, rather than the branch commit the evidence was first taken on.

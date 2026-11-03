@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 )
 
@@ -14,23 +13,7 @@ const derivedRevisionConflictLaw = "---\n" +
 	`{"id":"spec:one","title":"Fixture folder law spec:one","authority":{"tier":"derived"},"home_domain_id":"root","applies_to_domain_ids":[],"law_relations":[{"kind":"conflicts_with","target_id":"spec:legislated"}]}` + "\n" +
 	"---\n\nSynthetic fixture law body.\n"
 
-// derivedRevisionLandedLaw is the committed spec:one revision after the
-// derived record came into conformance: the same stable ID and home, the
-// conflict withdrawn, and a new whole-file digest.
-const derivedRevisionLandedLaw = "---\n" +
-	`{"id":"spec:one","title":"Fixture folder law spec:one","authority":{"tier":"derived"},"home_domain_id":"root","applies_to_domain_ids":[]}` + "\n" +
-	"---\n\nSynthetic fixture law body, brought into conformance.\n"
-
-// TestDerivedRevisionCompletesOnlyAfterItLands holds CD-0159 D4 from the
-// contract approval through completion. A research contract mandates both
-// ends of a conflicts_with relation and revises the derived end, which the
-// tier admits as a revision line. Completion re-checks the conflict without
-// the amendment allowance, so it refuses while the committed law folder still
-// carries the conflict. The derived record declares the conflict on its
-// committed file, so the landing commit edits only derived law: a new content
-// digest for the derived law and no conflict relation, and the same contract
-// completes with no further approval.
-func TestDerivedRevisionCompletesOnlyAfterItLands(t *testing.T) {
+func TestCompletionDoesNotRecheckMandatedLaw(t *testing.T) {
 	t.Parallel()
 	const workID = "derived-revision-lands"
 	s := openTemp(t)
@@ -82,21 +65,10 @@ func TestDerivedRevisionCompletesOnlyAfterItLands(t *testing.T) {
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{premise, premiseCompleted}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): premiseVersion}}); err != nil {
 		t.Fatalf("premise confirmation: %v", err)
 	}
-	complete := func() error {
-		t.Helper()
-		return runVerdictActionAs(t, s, workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), 0, owner)
-	}
-	err = complete()
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindRelationConflict || failure.Clause != 3 || !strings.Contains(failure.Detail, "unresolved explicit conflict: spec:legislated and spec:one") {
-		t.Fatalf("completion before the revision landed did not meet the clause 3 conflict refusal: %v", err)
-	}
-
-	// The landing commit withdraws the conflict on the committed derived
-	// record: same stable ID and home, new whole-file digest.
-	commitFixtureLawFile(t, home, "spec:one", derivedRevisionLandedLaw)
-	if err := complete(); err != nil {
-		t.Fatalf("completion after the revision landed was refused: %v", err)
+	// Completion reads no law: an unreadable mandated law cannot refuse it.
+	commitFixtureLawFile(t, home, "spec:one", "---\nnot json\n---\n\nbroken\n")
+	if err := runVerdictActionAs(t, s, workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), 0, owner); err != nil {
+		t.Fatalf("completion rechecked mandated law: %v", err)
 	}
 	var state string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state); err != nil {

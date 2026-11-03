@@ -127,7 +127,7 @@ rules:
 | **Candidate set** | The specific instances the end-state ranges over. | The executing agent, during execution, by a recorded revision. |
 
 The required end-state is approved at planning beside CD-0006 D10's spec mandate,
-and verified at completion. A delivered end-state may only be stronger than the
+and verified before premise confirmation. A delivered end-state may only be stronger than the
 approved one, never weaker. Work discovered mid-execution that lies outside the
 approved end-state forward-links as successor work under CD-0006 R1; it never
 substitutes.

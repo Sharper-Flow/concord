@@ -15,7 +15,7 @@ func TestAcceptedCriteriaPrecedeArchitecture(t *testing.T) {
 	t.Fatal("accepted criteria have no forward architecture stage")
 }
 
-func TestArchitectureReviewGuardsDeliveryAndCompletion(t *testing.T) {
+func TestArchitectureReviewGuardsDelivery(t *testing.T) {
 	report := reviewBlockFixture()
 	report.Disposition = "ready_for_final_proof"
 	report.Findings = []ReviewFinding{}
@@ -38,7 +38,7 @@ func TestArchitectureReviewGuardsDeliveryAndCompletion(t *testing.T) {
 			if phase == "current" {
 				return
 			}
-			for _, action := range []string{"record_delivery", "complete"} {
+			for _, action := range []string{"record_delivery"} {
 				admission := WorkflowAdmissionState{Step: "execution", InstanceState: "running", Lifecycle: "in_progress", ActiveContracts: 1,
 					Review: &state, Delivery: workflowDeliveryAdmission{Started: true}}
 				decision := workflowAdmit(definition, admission, action)

@@ -78,13 +78,10 @@ func TestTerminalContractUpdateReturnsForCurrentReview(t *testing.T) {
 			}
 			reviewGateRequireStep(t, j.s, j.workID, terminal)
 			pin = issue1013Pin(t, j.s, j.workID)
-			if pin.Review.DependenciesCurrent || !reflect.DeepEqual(beforeReview, pin.Review.Accepted) || issue1013HasIntent(pin, "complete") || issue1013HasIntent(pin, "record_review") {
+			if pin.Review.DependenciesCurrent || !reflect.DeepEqual(beforeReview, pin.Review.Accepted) || issue1013HasIntent(pin, "record_review") {
 				t.Fatal("changed update erased old Review or certified stale proof")
 			}
 			before := outsideRepairDatabaseSnapshot(t, j.s)
-			if err := j.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}, j.fixture.owner); !hasFailureKind(err, KindStaleRequiresReview) {
-				t.Fatalf("stale Review completion=%v", err)
-			}
 			if err := runVerdictActionAs(t, j.s, j.workID, "record_verdict", criterionAssociationPayload(beforeReview.Report.Assessments[0].ReceiptRefs[0], "predicate:return-route"), 0, j.fixture.owner); !hasFailureKind(err, KindMissingEvidence) {
 				t.Fatalf("old proof certified changed criterion=%v", err)
 			}
@@ -183,8 +180,8 @@ func TestTerminalCandidateChangeReturnsForCurrentReview(t *testing.T) {
 			}
 			j.bindVerification(t, j.observeRun(t, "changed-final-proof"))
 			pin := issue1013Pin(t, j.s, j.workID)
-			if pin.Review.DependenciesCurrent || !issue1013HasIntent(pin, "request_correction") || issue1013HasIntent(pin, "complete") {
-				t.Fatal("changed candidate did not close completion and open the producer return")
+			if pin.Review.DependenciesCurrent || !issue1013HasIntent(pin, "request_correction") {
+				t.Fatal("changed candidate did not stale Review and open the producer return")
 			}
 			if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
 				t.Fatal(err)

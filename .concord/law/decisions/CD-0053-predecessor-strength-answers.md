@@ -80,24 +80,18 @@ The predecessor's agreement gate made work state its objectives, acceptance
 criteria, and constraints before execution, and held execution to them. The
 failure mode it prevented — work drifting from what was agreed because
 nothing structural compared delivery against intent — is exactly what
-Concord's outcome contract makes unrepresentable:
+Concord's outcome contract addresses:
 
 - **The typed outcome contract (CD-0012):** every work item carries premise,
   required end-state, and candidate set, each with its own revision
-  authority. A weaker delivered end-state fails completion
-  (`WF04-weaker-delivery`). A changed premise enters through an ordinary
+  authority. Review judges a weaker delivered end-state against the approved
+  criteria. A changed premise enters through an ordinary
   [contract update](../specs/workflow-engine-contract.md#41-ordinary-contract-updates),
   retaining prior content and evidence rather than silently re-scoping work.
 - **Governing requirements at capture (CD-0035):** law captured with work is
-  bound at capture time and governs completion, rather than being re-argued
-  at a gate.
+  bound at capture time.
 - **Planning requires the contract (`WF02-planning-requires-outcome`):**
   execution authority does not exist until the typed contract does.
-
-The shape is stronger than the predecessor's in the specific way Concord's
-law demands: the agreement is enforced at completion by the completion gate
-comparing delivery against contract, not only at a human checkpoint reading
-prose.
 
 ### D3. Standalone wisdom capture: **preserved-with-shape**
 
@@ -134,8 +128,8 @@ composes under real work.
   publication carrying durable wisdom — so imported work carries its
   contract, and imported learnings land as lessons.
 - Shadow exit criteria for Corded should include, explicitly: one
-  consequence-boundary completion refused for missing evidence, one
-  completion failed against a weaker delivered end-state, and one lesson
+  premise confirmation refused for missing evidence, one
+  weaker delivery without passing criterion proof, and one lesson
   published through the archive surface.
 
 ## Rejected alternatives

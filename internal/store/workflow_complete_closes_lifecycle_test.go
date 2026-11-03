@@ -48,8 +48,7 @@ func TestWorkflowCompleteClosesLifecycle(t *testing.T) {
 	}
 }
 
-// CD-0183 D3: the completion gate admits only ok verdicts, so the lifecycle it
-// closes is completed. A completion that names another terminal state refuses
+// CD-0183 D3: the workflow completion closes the lifecycle as completed. A completion that names another terminal state refuses
 // before any effect: supersession stays atomic with its relation, and
 // cancellation keeps its own lifecycle route.
 func TestWorkflowCompleteRefusesNonCompletedTerminalState(t *testing.T) {

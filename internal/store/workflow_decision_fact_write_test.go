@@ -1231,7 +1231,7 @@ func TestDecisionFactWriteBoundary(t *testing.T) {
 
 func assertFactWriteProjectedDomains(t *testing.T, s *Store, registry DefinitionRegistry, workID string, version int64, want []string) {
 	t.Helper()
-	contract, _, err := workflowCompletionContract(context.Background(), s.DatabaseForTesting(), registry, workID)
+	contract, err := workflowCompletionContract(context.Background(), s.DatabaseForTesting(), registry, workID)
 	if err != nil {
 		t.Fatalf("read the registered active contract: %v", err)
 	}

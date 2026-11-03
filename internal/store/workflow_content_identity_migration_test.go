@@ -82,6 +82,7 @@ ORDER BY CASE name WHEN 'projects' THEN 0 WHEN 'project_locators' THEN 1 ELSE 2 
 			"definition_version":            "26",
 			"result_disposition":            "''",
 			"latest_non_dispatch_start_seq": "0",
+			"unhealthy_verdict_seq":         "0",
 		},
 		"workflow_context_checkpoints": {"workflow_definition_version": "26"},
 		"workflow_context_boundaries":  {"workflow_definition_version": "26"},

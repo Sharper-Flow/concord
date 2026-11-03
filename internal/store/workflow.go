@@ -1797,6 +1797,9 @@ func persistWorkflowActionCompletionTx(ctx context.Context, tx *sql.Tx, event Ev
 		if state != "completed" || p.ActionID != "record_delivery" {
 			return newFailure(KindInvalidOperation, "fold_event", "terminal workflow instance is immutable", false, "start a successor workflow")
 		}
+		if err := recordWorkVersionActionTx(ctx, tx, event, p.ActionID, *p.ResultingVersion); err != nil {
+			return err
+		}
 		return writeWorkflowDeliveryRecordTx(ctx, tx, event)
 	}
 	if err := writeWorkflowCoordinatorActionTx(ctx, tx, event); err != nil {

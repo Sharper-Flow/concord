@@ -314,7 +314,7 @@ func assertEvidenceSupersession142(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := historicalFactCorpus{parents: func(t *testing.T, s *Store, guard string) {
-		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "result_disposition": "''", "latest_non_dispatch_start_seq": "0"}, "workflow_contracts": {"definition_version": "26", "law_change": "NULL"}}, guard)
+		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "result_disposition": "''", "latest_non_dispatch_start_seq": "0", "unhealthy_verdict_seq": "0"}, "workflow_contracts": {"definition_version": "26", "law_change": "NULL"}}, guard)
 	}}
 	e := corpusEvent("supersession-corpus:successor", WorkflowContractSuperseded, work, map[string]any{
 		"work_id": work, "expected_version": version, "resulting_version": version + 1,

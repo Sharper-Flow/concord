@@ -49,8 +49,10 @@ recurring one guard clause at a time.
 ### D1. One derivation owns action admission
 
 A tx-scoped loader derives one work item's admission state once from current
-rows into a comparable abstract admission state
+rows into a single determinate, subject-specific abstract admission state
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+State comparisons compare record sets by value; the representation need not
+support Go's built-in comparability.
 A pure function `workflowAdmit` decides one
 action's admission over that derived state and returns the decision, the
 ready review, and the typed refusal. Preflight, the guard table, the work

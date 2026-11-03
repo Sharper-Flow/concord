@@ -47,7 +47,7 @@ func TestTerminalStepsRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	db, path := terminalStepsMigrationFixture(t)
 	before := retirementUpgradeSnapshot(t, db)
 	retainedContracts := retainedWorkflowContractRows(t, db)
-	const instanceColumns = `SELECT work_id,definition_ref,definition_digest,current_step,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at,unhealthy_verdict_seq FROM workflow_instances ORDER BY work_id`
+	const instanceColumns = `SELECT work_id,definition_ref,definition_digest,current_step,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY work_id`
 	instances := retirementUpgradeRows(t, db, instanceColumns)
 	const deliveryColumns = `SELECT work_id,assertion_seq,assertion_id,actor,occurred_at,payload_version,payload FROM workflow_delivery_state ORDER BY work_id`
 	deliveries := retirementUpgradeRows(t, db, deliveryColumns)

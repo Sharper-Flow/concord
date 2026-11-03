@@ -88,10 +88,13 @@ The ordinary `record_verdict` action serves the terminal step and every step tha
 hosts the premise question for `confirm_premise` without declaring
 `record_verdict`. Admission requires an active contract, an
 earlier step that declares `record_verdict`, and a predicate without an `ok`
-comparable verdict. The action associates qualifying bound verification reports
-with the approved criterion and current candidate. No registered return route
-is required. A late association holds the step and lifecycle and supplies no
-missing verification evidence by itself.
+comparable verdict for a first late association. That association closes the
+predicate's missing-proof debt. Ordinary replacement of an existing verdict
+remains admitted and must join the qualifying effect and receipt of that write.
+The action associates qualifying bound verification reports with the approved
+criterion and current candidate. No registered return route is required. A late
+association holds the step and lifecycle and supplies no missing verification
+evidence by itself.
 
 ## Alternatives considered
 
@@ -135,4 +138,4 @@ Scenario: A premise-question step records missing criterion proof late
 
 - `go test ./internal/store/ -run 'TestPreflightRefusesConfirmationMissingMandatedDeliverables|TestWorkPinPublishesConfirmPremiseRequiredFields'` proves the first scenario.
 - `go test ./internal/store/ -run TestPreflightAndMutationRequireAcceptedReadyDisposition` proves preflight, mutation, and the work pin agree that delivery requires an accepted ready disposition under [CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls).
-- `go test ./internal/store/ -run 'TestCriterionAssociationAtPremiseQuestionWithoutDeclaration|TestIssue1013LateVerdictRecoveryPassesReadOnlyPreflight|TestLateVerdictReplacementHoldsStep'` proves late association holds its step, agrees across preflight and mutation, and closes after the missing criteria have proof.
+- `go test ./internal/store/ -run 'TestCriterionAssociationAtPremiseQuestionWithoutDeclaration|TestIssue1013LateVerdictRecoveryPassesReadOnlyPreflight|TestLateVerdictReplacementHoldsStep'` proves late association holds its step, agrees across preflight and mutation, closes missing-proof debt, and permits ordinary replacement.

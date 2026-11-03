@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func seedMandateRecoveryItem(t *testing.T, workID string) *Store {
@@ -30,6 +31,54 @@ func seedMandateRecoveryItem(t *testing.T, workID string) *Store {
 
 func recoveryBindPayload() json.RawMessage {
 	return json.RawMessage(`{"evidence_kind":"artifact","evidence_ref":"spec:one"}`)
+}
+
+func TestDeclaredStepBindsAllEvidenceKinds(t *testing.T) {
+	for _, kind := range workflowEvidenceKinds {
+		t.Run(string(kind), func(t *testing.T) {
+			workID := "declared-bind-" + string(kind)
+			fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, "workflow.research"), "investigate", []string{"artifact"}, nil)
+			ref := "evidence:" + string(kind)
+			if kind == EvidenceNativeRun {
+				ctx := t.Context()
+				event, err := buildNativeRunEvent("native:"+workID, workID, fixture.owner, time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC), readWorkVersion(t, fixture.store, workID), "start", "run-declared", "routing://synthetic", "started", "https://evidence.invalid/run", "sha256:"+repeatHex("a"), "2026-08-20T12:00:00Z")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := fixture.store.Transact(ctx, func(tx *Transaction) error {
+					_, err := applyWorkflowOperationTx(ctx, tx.tx, Operation{Events: []Event{event}}, newWriteScope(tx.tx))
+					return err
+				}); err != nil {
+					t.Fatal(err)
+				}
+				ref = readNativeRuns(t, fixture.store, workID)[0].ObservationID
+				if err := fixture.store.Transact(ctx, func(tx *Transaction) error {
+					return appendExternalObservationVerificationTx(ctx, tx, workID, fixture.owner.PrincipalRef, time.Date(2026, 8, 20, 12, 2, 0, 0, time.UTC), ExternalObservationVerification{ObservationID: ref, VerificationMethod: VerifyTrustedClientReport, VerifiedAt: "2026-08-20T12:02:00Z", VerifyingAuthorityRef: "client:verifier", Result: VerificationMatched})
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			payload := mustJSONValue(map[string]any{"evidence_kind": string(kind), "immutable_subject_ref": ref})
+			if err := issue1013Preflight(t, fixture.store, workID, "bind_evidence", payload, fixture.owner); err != nil {
+				t.Errorf("declared binding preflight: %v", err)
+			}
+			if err := runVerdictActionAs(t, fixture.store, workID, "bind_evidence", payload, 0, fixture.owner); err != nil {
+				t.Errorf("declared binding: %v", err)
+			}
+		})
+	}
+}
+
+func TestLateBindingRefusesUndeclaredEvidenceKind(t *testing.T) {
+	const workID = "late-bind-undeclared"
+	f := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+	payload := json.RawMessage(`{"evidence_kind":"approval","immutable_subject_ref":"evidence:unrelated"}`)
+	assertRecoveryRefusalWithoutEffect(t, f.store, workID, KindIllegalLifecycleTransition, func() error {
+		return issue1013Preflight(t, f.store, workID, "bind_evidence", payload, f.owner)
+	})
+	assertRecoveryRefusalWithoutEffect(t, f.store, workID, KindIllegalLifecycleTransition, func() error {
+		return runVerdictActionAs(t, f.store, workID, "bind_evidence", payload, 0, f.owner)
+	})
 }
 
 // Fixture assertions separate declared requirements from predicate recovery.

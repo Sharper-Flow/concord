@@ -168,7 +168,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *writeScope
 	if err != nil {
 		return result, err
 	}
-	if request.ActionID == "bind_evidence" {
+	if request.ActionID == "bind_evidence" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
 		for _, event := range assembly.events {
 			if event.Kind == WorkflowEvidenceBound {
 				if err := guardEvidenceBindingMembership(ctx, tx, request.WorkID, entry.Definition, event.Payload, "workflow_action"); err != nil {

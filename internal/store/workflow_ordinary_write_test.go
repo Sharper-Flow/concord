@@ -202,8 +202,16 @@ func TestOrdinaryDeliveryWritesHoldProgress(t *testing.T) {
 			}
 			for _, artifact := range []string{"https://github.com/Sharper-Flow/concord/pull/100", "https://github.com/Sharper-Flow/concord/pull/101"} {
 				payload, _ := json.Marshal(map[string]any{"delivery_artifact": artifact, "delivery_state": "asserted"})
-				if err := f.run(ctx, "record_delivery", artifact, readWorkVersion(t, s, work), payload, nil); err != nil {
+				version := readWorkVersion(t, s, work)
+				if err := f.run(ctx, "record_delivery", artifact, version, payload, nil); err != nil {
 					t.Fatalf("ordinary delivery write: %v", err)
+				}
+				if completed {
+					err := f.run(ctx, "record_delivery", "stale-"+artifact, version, payload, nil)
+					var failure *Failure
+					if !failureAs(err, &failure) || failure.Kind != KindVersionConflict || !reflect.DeepEqual(failure.InterveningActions, []InterveningAction{{ActionID: "record_delivery", SessionRef: f.owner.SessionRef}}) {
+						t.Errorf("stale delivery diagnostic: %v (%+v)", err, failure)
+					}
 				}
 				var gotStep, gotState, gotLifecycle string
 				if err := s.db.QueryRow(`SELECT current_step,instance_state,(SELECT lifecycle FROM work_items WHERE id=work_id) FROM workflow_instances WHERE work_id=?`, work).Scan(&gotStep, &gotState, &gotLifecycle); err != nil {

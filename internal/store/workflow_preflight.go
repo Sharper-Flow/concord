@@ -320,7 +320,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	}
 	// Apply step legality after the payload checks whose specific refusals
 	// precede the generic off-step refusal.
-	if err := preflightWorkflowActionStepTx(ctx, tx, entry.Definition, request, decision); err != nil {
+	if err := preflightWorkflowActionStepTx(ctx, tx, entry.Definition, currentStep, request, decision); err != nil {
 		return RegisteredDefinition{}, err
 	}
 	if err := preflightWorkflowActionGuardsTx(ctx, tx, entry.Definition, currentStep, request); err != nil {
@@ -331,11 +331,11 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 	return entry, nil
 }
 
-func preflightWorkflowActionStepTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionPreflightRequest, decision WorkflowAdmissionDecision) error {
+func preflightWorkflowActionStepTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest, decision WorkflowAdmissionDecision) error {
 	if decision.OffStep {
 		return workflowPreflightFailure(decision.Failure)
 	}
-	if request.ActionID == "bind_evidence" {
+	if request.ActionID == "bind_evidence" && !definitionStepAllows(definition, currentStep, request.ActionID) {
 		return guardEvidenceBindingMembership(ctx, tx, request.WorkID, definition, request.Payload, "workflow_action_preflight")
 	}
 	return nil

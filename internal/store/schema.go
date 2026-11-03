@@ -8620,6 +8620,7 @@ DELETE FROM workflow_completed_exits WHERE action_id='request_correction';
 DROP TABLE workflow_correction_state;
 DROP TABLE workflow_artifact_actions;
 ALTER TABLE workflow_predicate_verdicts DROP COLUMN prior_correction_seq;
+ALTER TABLE workflow_instances DROP COLUMN unhealthy_verdict_seq;
 DELETE FROM write_guard;
 `,
 	},

@@ -38,6 +38,28 @@ func ordinaryRecordsUpgradeExpectations(t *testing.T, db *sql.DB, before map[str
 	}
 	before["workflow_predicate_verdicts"] = retirementUpgradeRows(t, db, `SELECT `+strings.Join(names, ",")+` FROM workflow_predicate_verdicts ORDER BY rowid`)
 	before["workflow_review_state"] = retirementUpgradeRows(t, db, `SELECT work_id,json_remove(state,'$.correction_funding') FROM workflow_review_state ORDER BY rowid`)
+	before["workflow_instances"] = retirementUpgradeRows(t, db, `SELECT work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY rowid`)
+}
+
+func TestOrdinaryRecordsUpgradePreservesInstances(t *testing.T) {
+	useStampedBuild(t)
+	db, path := defectRetirementFixture(t)
+	seedDefectRetirementWork(t, db, "retained-instance", "bug", "needed", `{}`, "project-upgrade")
+	const columns = `work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at`
+	before := retirementUpgradeRows(t, db, `SELECT `+columns+` FROM workflow_instances ORDER BY work_id`)
+	if len(before) == 0 {
+		t.Fatal("fixture has no workflow instances")
+	}
+	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+		t.Fatal(err)
+	}
+	if after := retirementUpgradeRows(t, db, `SELECT `+columns+` FROM workflow_instances ORDER BY work_id`); !reflect.DeepEqual(after, before) {
+		t.Fatalf("instances changed: before=%v after=%v", before, after)
+	}
+	if rows := retirementUpgradeRows(t, db, `SELECT name FROM pragma_table_info('workflow_instances') WHERE name='unhealthy_verdict_seq'`); len(rows) != 0 {
+		t.Fatalf("retired sequence column remains: %v", rows)
+	}
+	retirementUpgradeHealthy(t, db)
 }
 
 func TestDefectRetirementVerifiedSnapshotUpgrade(t *testing.T) {
@@ -257,7 +279,7 @@ func TestDefectRetirementCollectedAbsenceReaders(t *testing.T) {
 func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 	useStampedBuild(t)
 	db, path := defectRetirementFixture(t)
-	const instanceColumns = `work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at,unhealthy_verdict_seq`
+	const instanceColumns = `work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at`
 	const operationColumns = `op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest`
 	classified := `{"task":"Preserve instructions","defect":{"failure_shape":"checksum-mismatch"}}`
 	tests := []struct {

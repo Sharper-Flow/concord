@@ -33,7 +33,7 @@ DELETE FROM write_guard`, work); err != nil {
 	var healthy int64
 	base := s
 	c := historicalFactCorpus{parents: func(t *testing.T, target *Store, guard string) {
-		copyFixtureDataToPrefix(t, base, target.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "result_disposition": "''"}, "workflow_contracts": {"definition_version": "26", "law_change": "NULL"}}, guard)
+		copyFixtureDataToPrefix(t, base, target.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "result_disposition": "''", "unhealthy_verdict_seq": "0"}, "workflow_contracts": {"definition_version": "26", "law_change": "NULL"}}, guard)
 	}}
 	for i, verdict := range []workflowVerdictRecordedPayload{
 		{ContractVersion: 1, PredicateID: primary, VerdictKind: "ok"},

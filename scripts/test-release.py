@@ -441,6 +441,121 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn('git rev-parse --verify --quiet "refs/tags/$VERSION"', workflow)
         self.assertIn("already points at", workflow)
 
+    def extract_python_heredoc(self, step_name: str) -> tuple[str, str, str]:
+        """Return the run command, Python body, and trailing shell of a step."""
+        document = parse_release_workflow(WORKFLOW_PATH.read_text(encoding="utf-8"))
+        steps = document["jobs"]["build-and-publish"]["steps"]
+        matches = [step for step in steps if step.get("name") == step_name]
+        self.assertEqual(len(matches), 1, f"expected exactly one {step_name!r} step")
+        command, separator, remainder = matches[0]["run"].partition(" <<'PY'\n")
+        self.assertTrue(separator, f"{step_name} Python heredoc is missing")
+        body, terminator, trailing = remainder.partition("\nPY\n")
+        self.assertTrue(terminator, f"{step_name} heredoc terminator is missing")
+        return command, body, trailing
+
+    def run_release_step_heredoc(
+        self, step_name: str, arguments: list[str]
+    ) -> subprocess.CompletedProcess[str]:
+        """Execute a workflow step's extracted heredoc with synthetic inputs."""
+        command, body, _trailing = self.extract_python_heredoc(step_name)
+        self.assertTrue(
+            command.splitlines()[-1].startswith("python3 - "),
+            f"{step_name} must invoke its heredoc with python3 -",
+        )
+        return subprocess.run(
+            [sys.executable, "-", *arguments],
+            input=body,
+            cwd=WORKFLOW_PATH.parents[2],
+            text=True,
+            capture_output=True,
+        )
+
+    def write_lines(self, lines: list[str]) -> Path:
+        handle = tempfile.TemporaryDirectory()
+        self.addCleanup(handle.cleanup)
+        path = Path(handle.name) / "input.txt"
+        path.write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
+        return path
+
+    def test_publish_step_passes_the_computed_make_latest(self) -> None:
+        """The publish action must never fall back to the API default.
+
+        Omitting make_latest lets GitHub force Latest onto every newly
+        published release, which is how v8.0.2 held Latest over v8.1.0 on
+        2026-09-09 while scripts/install.py follows /releases/latest.
+        """
+        document = parse_release_workflow(WORKFLOW_PATH.read_text(encoding="utf-8"))
+        steps = document["jobs"]["build-and-publish"]["steps"]
+
+        def index_of(name: str) -> int:
+            matches = [i for i, step in enumerate(steps) if step.get("name") == name]
+            self.assertEqual(len(matches), 1, f"expected exactly one {name!r} step")
+            return matches[0]
+
+        decide = steps[index_of("Decide whether this publish holds the Latest flag")]
+        self.assertEqual(decide.get("id"), "latest")
+        self.assertLess(
+            index_of("Reconcile an existing release for this version"),
+            index_of("Decide whether this publish holds the Latest flag"),
+        )
+        self.assertLess(
+            index_of("Decide whether this publish holds the Latest flag"),
+            index_of("Publish GitHub Release"),
+        )
+        publish = steps[index_of("Publish GitHub Release")]
+        with_mapping = publish.get("with")
+        self.assertIsInstance(with_mapping, dict)
+        self.assertEqual(
+            with_mapping.get("make_latest"), "${{ steps.latest.outputs.make_latest }}"
+        )
+        assertion = steps[index_of("Assert Latest names the highest published version")]
+        self.assertIn("!cancelled()", assertion.get("if", ""))
+        self.assertLess(index_of("Publish GitHub Release"), index_of(
+            "Assert Latest names the highest published version"
+        ))
+
+    def test_latest_decision_step_refuses_the_incident_shape(self) -> None:
+        """Publishing v8.0.2 while v8.1.0 is published must not hold Latest."""
+        with tempfile.TemporaryDirectory() as directory:
+            decision = Path(directory) / "make-latest.txt"
+            result = self.run_release_step_heredoc(
+                "Decide whether this publish holds the Latest flag",
+                ["v8.0.2", self.write_lines(["v8.0.1", "v8.1.0"]), decision],
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(decision.read_text(encoding="utf-8"), "false\n")
+
+    def test_latest_decision_step_allows_a_new_highest_version(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            decision = Path(directory) / "make-latest.txt"
+            for version, published in (
+                ("v8.1.0", ["v8.0.1", "v8.0.2"]),
+                ("v8.1.0", ["v8.1.0"]),
+            ):
+                with self.subTest(version=version, published=published):
+                    result = self.run_release_step_heredoc(
+                        "Decide whether this publish holds the Latest flag",
+                        [version, self.write_lines(published), decision],
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(decision.read_text(encoding="utf-8"), "true\n")
+
+    def test_latest_assertion_step_accepts_the_highest_holder(self) -> None:
+        result = self.run_release_step_heredoc(
+            "Assert Latest names the highest published version",
+            [self.write_lines(["v8.0.2", "v8.1.0"]), self.write_lines(["v8.1.0"])],
+        )
+        self.assertEqual(result.returncode, 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}")
+        self.assertIn("Latest names the highest published version: v8.1.0", result.stdout)
+
+    def test_latest_assertion_step_rejects_an_older_holder(self) -> None:
+        result = self.run_release_step_heredoc(
+            "Assert Latest names the highest published version",
+            [self.write_lines(["v8.0.2", "v8.1.0"]), self.write_lines(["v8.0.2"])],
+        )
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("highest published version is v8.1.0", result.stderr)
+
     def test_workflow_validator_rejects_missing_input(self) -> None:
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
         mutated = replace_once(workflow, "          fetch-depth: 0\n", "")
@@ -518,6 +633,27 @@ class ReleaseTests(unittest.TestCase):
         result = release.compute(self.repo)
         self.assertEqual(result["base_tag"], "v1.2.3")
         self.assertEqual(result["version"], "v1.3.0")
+
+    def test_publish_holds_latest_when_version_is_highest(self) -> None:
+        self.assertTrue(release.publish_holds_latest("v8.0.2", ["v8.0.1"]))
+        self.assertTrue(release.publish_holds_latest("v0.0.1", []))
+
+    def test_publish_of_an_older_version_after_a_newer_one_leaves_latest(self) -> None:
+        """The 2026-09-09 shape: v8.0.2 publishing after v8.1.0 (CON-64)."""
+        self.assertFalse(release.publish_holds_latest("v8.0.2", ["v8.0.1", "v8.1.0"]))
+
+    def test_equal_republish_of_the_highest_version_holds_latest(self) -> None:
+        """A retry that re-publishes the current highest must restore Latest."""
+        self.assertTrue(release.publish_holds_latest("v8.1.0", ["v8.1.0"]))
+
+    def test_highest_release_tag_orders_by_semver_not_text(self) -> None:
+        self.assertEqual(release.highest_release_tag(["v8.9.0", "v8.10.0"]), "v8.10.0")
+
+    def test_highest_release_tag_ignores_non_semver_names(self) -> None:
+        self.assertEqual(
+            release.highest_release_tag(["v1.2", "nightly-2026", "v1.2.3"]), "v1.2.3"
+        )
+        self.assertIsNone(release.highest_release_tag(["v1.2", "nightly-2026"]))
 
     def annotate(self, tag: str) -> None:
         self.git("tag", "--annotate", tag, "--message", f"Release {tag}")

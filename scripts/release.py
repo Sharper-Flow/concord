@@ -113,6 +113,32 @@ def latest_semver_tag(repo: Path) -> str | None:
     return max(reachable, key=lambda tag: (version_tuple(tag), tag))
 
 
+def highest_release_tag(tag_names: list[str]) -> str | None:
+    """Return the highest strict-semver name among published release tags.
+
+    Non-semver names are ignored deterministically, mirroring
+    latest_semver_tag's treatment of malformed tags.
+    """
+    tags = [tag for tag in tag_names if SEMVER_TAG.fullmatch(tag)]
+    if not tags:
+        return None
+    return max(tags, key=lambda tag: (version_tuple(tag), tag))
+
+
+def publish_holds_latest(version: str, published_tag_names: list[str]) -> bool:
+    """Decide whether publishing ``version`` may hold the Latest flag.
+
+    The GitHub API defaults ``make_latest`` to true, which forces Latest onto
+    every newly published release regardless of semver. A run publishing an
+    older version after a newer one must pass make_latest=false so Latest
+    keeps naming the highest published version. Publishing the highest
+    version — a first release, a new highest, or an equal re-publish of the
+    current highest — holds Latest.
+    """
+    highest = highest_release_tag(published_tag_names)
+    return highest is None or version_tuple(version) >= version_tuple(highest)
+
+
 def constitutional_tag(repo: Path) -> str:
     try:
         run_git(repo, "rev-parse", "--verify", "constitutional-bootstrap^{commit}")

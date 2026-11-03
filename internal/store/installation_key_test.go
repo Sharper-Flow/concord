@@ -3,9 +3,12 @@ package store
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"strings"
 	"testing"
+
+	"modernc.org/sqlite"
 
 	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
@@ -20,9 +23,63 @@ func cursorKeyCount(t *testing.T, q queryer) int64 {
 	return count
 }
 
+// containsUncertainRollbackFailure reports whether the store failure tree
+// carries the typed unproved-rollback mechanism cause, not just its text.
+func containsUncertainRollbackFailure(err error) bool {
+	switch wrapped := err.(type) {
+	case *Failure:
+		return wrapped.Op == "transaction_rollback" && wrapped.EffectPossible || containsUncertainRollbackFailure(wrapped.Err)
+	case interface{ Unwrap() []error }:
+		for _, cause := range wrapped.Unwrap() {
+			if containsUncertainRollbackFailure(cause) {
+				return true
+			}
+		}
+	case interface{ Unwrap() error }:
+		return containsUncertainRollbackFailure(wrapped.Unwrap())
+	}
+	return false
+}
+
+// cancelKeyInsertConnector cancels the test context while the installation-key
+// INSERT prepares, so the cancellation lands inside the write transaction and
+// database/sql settles it by automatic or deferred rollback.
+type cancelKeyInsertConnector struct {
+	dsn    string
+	cancel context.CancelFunc
+}
+
+func (c *cancelKeyInsertConnector) Driver() driver.Driver { return &sqlite.Driver{} }
+
+func (c *cancelKeyInsertConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	conn, err := c.Driver().Open(c.dsn)
+	if err != nil {
+		return nil, err
+	}
+	return &cancelKeyInsertConn{Conn: conn, owner: c}, nil
+}
+
+type cancelKeyInsertConn struct {
+	driver.Conn
+	owner *cancelKeyInsertConnector
+}
+
+func (c *cancelKeyInsertConn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
+	if strings.Contains(query, "INSERT") && strings.Contains(query, "agent_installation_keys") {
+		c.owner.cancel()
+	}
+	if prepare, ok := c.Conn.(driver.ConnPrepareContext); ok {
+		return prepare.PrepareContext(ctx, query)
+	}
+	return c.Conn.Prepare(query)
+}
+
 func TestInstallationKeyFailureFieldsAndCauses(t *testing.T) {
 	t.Parallel()
-	for _, mode := range []string{"missing row", "invalid length", "canceled inspection", "missing revision", "insert refusal", "refused insert with uncertain cleanup", "ignored insert", "ignored insert rollback failure"} {
+	for _, mode := range []string{"missing row", "invalid length", "canceled inspection", "canceled during insert", "missing revision", "missing revision with uncertain rollback", "insert refusal", "refused insert with uncertain cleanup", "ignored insert rollback failure"} {
 		t.Run(mode, func(t *testing.T) {
 			s := openTemp(t)
 			ctx := t.Context()
@@ -60,9 +117,52 @@ func TestInstallationKeyFailureFieldsAndCauses(t *testing.T) {
 					t.Fatalf("cancellation persisted a revision: %d -> %d", before, after)
 				}
 				want = Failure{Kind: KindUnavailable, Op: "open", Detail: "cannot inspect the installation cursor key", RetrySafe: true, RecoveryAction: "confirm the database is readable"}
-			case "missing revision":
+			case "canceled during insert":
+				if _, err := s.db.Exec(`DELETE FROM agent_installation_keys`); err != nil {
+					t.Fatal(err)
+				}
+				before := revisionValue(t, s.db)
+				cancelCtx, cancel := context.WithCancel(ctx)
+				connector := &cancelKeyInsertConnector{dsn: dataSourceName(s.Path()), cancel: cancel}
+				db := sql.OpenDB(connector)
+				db.SetMaxOpenConns(1)
+				defer db.Close()
+				err = ensureInstallationKey(cancelCtx, db)
+				// Either database/sql's automatic rollback or the deferred
+				// rollback settles the transaction first; both leave nothing
+				// persisted, and the cancellation cause is retained either way.
+				if !errors.Is(err, context.Canceled) && !errors.Is(err, sql.ErrTxDone) {
+					t.Fatalf("cancellation during insert cause: %v", err)
+				}
+				if after := revisionValue(t, s.db); after != before {
+					t.Fatalf("cancellation during insert persisted a revision: %d -> %d", before, after)
+				}
+				if count := cursorKeyCount(t, s.db); count != 0 {
+					t.Fatalf("cancellation during insert created %d keys", count)
+				}
+				want = Failure{Kind: KindUnavailable, Op: "open", Detail: "cannot persist the installation cursor key", RetrySafe: true, RecoveryAction: "retry once the database is writable"}
+			case "missing revision", "missing revision with uncertain rollback":
 				if _, err := s.db.Exec(`DELETE FROM agent_installation_keys; DELETE FROM store_revision`); err != nil {
 					t.Fatal(err)
+				}
+				if mode == "missing revision with uncertain rollback" {
+					// The revision table is gone, so AdvanceRevision fails and
+					// BeginWrite joins the fault connector's unproved rollback
+					// of an empty transaction: the fixture commits nothing, so
+					// the observable truth is the typed outcome and the
+					// envelope flags, not a revision value.
+					connector := &restoreFaultConnector{dsn: dataSourceName(s.Path())}
+					connector.failRollback.Store(true)
+					db := sql.OpenDB(connector)
+					db.SetMaxOpenConns(1)
+					defer db.Close()
+					err = ensureInstallationKey(ctx, db)
+					if !strings.Contains(err.Error(), "injected uncertain rollback outcome") || !containsUncertainRollbackFailure(err) {
+						t.Fatalf("uncertain begin rollback lost its typed outcome: %v", err)
+					}
+					want = Failure{Kind: KindUnavailable, Op: "open", Detail: "cannot begin installation cursor key creation", RecoveryAction: "reconcile database state before retrying"}
+					effectPossible = true
+					break
 				}
 				err = ensureInstallationKey(ctx, s.db)
 				var outer *Failure
@@ -101,7 +201,7 @@ func TestInstallationKeyFailureFieldsAndCauses(t *testing.T) {
 					if after != before+1 {
 						t.Fatalf("uncertain cleanup reported no possible effect but revision stayed %d -> %d", before, after)
 					}
-					if !strings.Contains(err.Error(), "injected uncertain rollback outcome") || !strings.Contains(err.Error(), "cannot prove the transaction rolled back") {
+					if !strings.Contains(err.Error(), "injected uncertain rollback outcome") || !containsUncertainRollbackFailure(err) {
 						t.Fatalf("uncertain cleanup lost its rollback outcome: %v", err)
 					}
 				} else if after != before {
@@ -110,21 +210,6 @@ func TestInstallationKeyFailureFieldsAndCauses(t *testing.T) {
 				if count := cursorKeyCount(t, s.db); count != 0 {
 					t.Fatalf("refused insert created %d keys", count)
 				}
-			case "ignored insert":
-				if _, err := s.db.Exec(`DELETE FROM agent_installation_keys; CREATE TRIGGER ignore_key BEFORE INSERT ON agent_installation_keys BEGIN SELECT RAISE(IGNORE); END`); err != nil {
-					t.Fatal(err)
-				}
-				before := revisionValue(t, s.db)
-				if err = ensureInstallationKey(ctx, s.db); err != nil {
-					t.Fatalf("ignored insert failed: %v", err)
-				}
-				if after := revisionValue(t, s.db); after != before {
-					t.Fatalf("ignored insert persisted a revision: %d -> %d", before, after)
-				}
-				if count := cursorKeyCount(t, s.db); count != 0 {
-					t.Fatalf("ignored insert created %d keys", count)
-				}
-				return
 			case "ignored insert rollback failure":
 				if _, err := s.db.Exec(`DELETE FROM agent_installation_keys; CREATE TRIGGER ignore_key BEFORE INSERT ON agent_installation_keys BEGIN SELECT RAISE(IGNORE); END`); err != nil {
 					t.Fatal(err)
@@ -141,7 +226,7 @@ func TestInstallationKeyFailureFieldsAndCauses(t *testing.T) {
 				if after := revisionValue(t, s.db); after != before+1 {
 					t.Fatalf("uncertain rollback reported no possible effect but revision stayed %d -> %d", before, after)
 				}
-				if !strings.Contains(err.Error(), "injected uncertain rollback outcome") || !strings.Contains(err.Error(), "cannot prove the transaction rolled back") {
+				if !strings.Contains(err.Error(), "injected uncertain rollback outcome") || !containsUncertainRollbackFailure(err) {
 					t.Fatalf("uncertain rollback lost its typed outcome: %v", err)
 				}
 				if count := cursorKeyCount(t, s.db); count != 0 {

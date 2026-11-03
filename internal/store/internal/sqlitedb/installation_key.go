@@ -30,6 +30,11 @@ func EnsureInstallationKey(ctx context.Context, db *sql.DB, createdAt time.Time)
 	}
 	write, err := BeginWrite(ctx, db, nil, StateWriteAdmission)
 	if err != nil {
+		// BeginWrite joins an unproved rollback of the revision admission.
+		if errorEffectPossible(err) {
+			return failure(Unavailable, "open", "cannot begin installation cursor key creation", false,
+				"reconcile database state before retrying", err)
+		}
 		return failure(Unavailable, "open", "cannot begin installation cursor key creation", true,
 			"retry once the database is writable", err)
 	}

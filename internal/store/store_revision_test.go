@@ -153,6 +153,9 @@ func TestStoreRevisionIgnoredKeyInsert(t *testing.T) {
 	if got := revisionValue(t, s.db); got != before {
 		t.Fatalf("ignored key insert revision=%d, want unchanged %d", got, before)
 	}
+	if count := cursorKeyCount(t, s.db); count != 0 {
+		t.Fatalf("ignored key insert created %d cursor keys", count)
+	}
 }
 
 func TestStoreRevisionReadTransactionLifecycle(t *testing.T) {

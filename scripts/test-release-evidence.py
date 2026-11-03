@@ -43,7 +43,7 @@ from pathlib import Path
 
 import git_environment
 
-git_environment.scrub_inherited()
+git_environment.scrub_inherited(fixture=True)
 
 import yaml
 

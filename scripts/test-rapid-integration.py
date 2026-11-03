@@ -13,7 +13,7 @@ import unittest
 
 import git_environment
 
-git_environment.scrub_inherited()
+git_environment.scrub_inherited(fixture=True)
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/rapid-integration.py"
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,9 +19,19 @@ func TestMain(m *testing.M) {
 		os.Exit(runLaunchRefusalChild())
 	}
 	dir := testenv.ScrubEnv()
+	if err := gittest.ScrubRepositoryEnvironment(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(testenv.Cleanup(dir, 1))
+	}
 	gittest.DisableBackgroundMaintenance()
 	code := m.Run()
 	os.Exit(testenv.Cleanup(dir, code))
+}
+
+func TestGitFixtureStartupIsolation(t *testing.T) {
+	gittest.TestStartupIsolation(t, func(t *testing.T) {
+		initLocatorRepo(t)
+	})
 }
 
 func TestDefaultDatabasePathIsIsolated(t *testing.T) {

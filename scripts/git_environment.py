@@ -12,9 +12,13 @@ not override an inherited GIT_DIR.
 The namespace is discovered from the installed Git rather than mirrored
 here, so a future Git reporting more local variables is covered unchanged.
 Discovery itself runs with every `GIT_*` key cleared, so an inherited
-poisoned configuration can neither break nor steer it. Only repository-local
-and config-injected keys are removed; transport and authentication keys
-(GIT_SSH_COMMAND, GIT_TERMINAL_PROMPT, ...) and unrelated keys survive.
+poisoned configuration can neither break nor steer it. Callers opting into
+fixture mode also discard GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM, and
+GIT_TEMPLATE_DIR, which can inject external hooks despite an isolated HOME.
+The default preserves these inputs for public tools. GIT_EXEC_PATH survives: Git
+exports its own executable directory to hooks, and wrapper installs can need it.
+Transport and authentication keys (GIT_SSH_COMMAND, GIT_TERMINAL_PROMPT, ...)
+and unrelated keys survive. This fixture policy is not a public Git-runner policy.
 
 Every entry point fails closed: if Git cannot be queried, reports nothing,
 or reports names that cannot be Git variables, the caller gets
@@ -32,6 +36,7 @@ QUARANTINE_VAR = "GIT_QUARANTINE_PATH"
 _DISCOVERY_TIMEOUT_SECONDS = 30
 _VARIABLE_NAME_RE = re.compile(r"GIT_[A-Z0-9_]+")
 _INDEXED_CONFIG_RE = re.compile(r"GIT_CONFIG_(KEY|VALUE)_[0-9]+")
+_FIXTURE_INPUTS = ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_TEMPLATE_DIR")
 
 
 class GitEnvironmentError(RuntimeError):
@@ -70,14 +75,16 @@ def local_environment_vars(environ: dict[str, str] | None = None) -> tuple[str, 
     return tuple(names)
 
 
-def sanitized_environment(environ: dict[str, str] | None = None) -> dict[str, str]:
-    """A child environment without the repository-local Git namespace.
+def sanitized_environment(environ: dict[str, str] | None = None, *, fixture: bool = False) -> dict[str, str]:
+    """Remove repository inputs and, in fixture mode, external fixture inputs.
 
     Indexed GIT_CONFIG_KEY_n/GIT_CONFIG_VALUE_n pairs are removed with their
     GIT_CONFIG_COUNT authority, so no injection survives a cleared count.
     """
     source = os.environ if environ is None else environ
     local = set(local_environment_vars(source))
+    if fixture:
+        local.update(_FIXTURE_INPUTS)
     return {
         key: value
         for key, value in source.items()
@@ -85,8 +92,8 @@ def sanitized_environment(environ: dict[str, str] | None = None) -> dict[str, st
     }
 
 
-def scrub_inherited(environ: dict[str, str] | None = None) -> tuple[str, ...]:
-    """Remove the inherited local Git namespace from `environ` in place.
+def scrub_inherited(environ: dict[str, str] | None = None, *, fixture: bool = False) -> tuple[str, ...]:
+    """Remove repository inputs and, in fixture mode, external fixture inputs in place.
 
     Suite startup calls this before any Git operation runs, so a hook that
     launched the suite cannot redirect the scratch repositories the suite
@@ -95,7 +102,7 @@ def scrub_inherited(environ: dict[str, str] | None = None) -> tuple[str, ...]:
     """
     target = os.environ if environ is None else environ
     removed: list[str] = []
-    for key in local_environment_vars(dict(target)):
+    for key in (*local_environment_vars(dict(target)), *(_FIXTURE_INPUTS if fixture else ())):
         if target.pop(key, None) is not None:
             removed.append(key)
     for key in list(target):

@@ -50,7 +50,7 @@ import git_environment
 
 # CON-896: this harness builds temporary Git repositories, so a hook that
 # launched it must not keep a redirecting Git namespace in place.
-git_environment.scrub_inherited()
+git_environment.scrub_inherited(fixture=True)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ADAPTER_SRC = REPO_ROOT / "adapter" / "opencode"

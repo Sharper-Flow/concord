@@ -22,7 +22,7 @@ import git_environment
 
 # This suite reads Git in the real checkout, so a hook that launched
 # it must not redirect those reads into another repository.
-git_environment.scrub_inherited()
+git_environment.scrub_inherited(fixture=True)
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE_REF = "v8.13.3"

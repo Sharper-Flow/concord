@@ -17,7 +17,7 @@ import git_environment
 # This suite builds temporary Git repositories, so a hook that
 # launched it must not keep a redirecting Git namespace in place. The scrub
 # runs before the in-process Git helpers below load.
-git_environment.scrub_inherited()
+git_environment.scrub_inherited(fixture=True)
 
 import install
 import release
@@ -756,7 +756,7 @@ class ReleaseTests(unittest.TestCase):
                     check=True,
                     capture_output=True,
                     text=True,
-                    env=git_environment.sanitized_environment(),
+                    env=git_environment.sanitized_environment(fixture=True),
                 )
 
             outer_git("init", "--quiet")
@@ -767,7 +767,7 @@ class ReleaseTests(unittest.TestCase):
             outer_git("commit", "--quiet", "--message", "outer baseline")
             outer_git("tag", "outer-tag")
             before = repository_snapshot(outer)
-            env = git_environment.sanitized_environment()
+            env = git_environment.sanitized_environment(fixture=True)
             env["GIT_DIR"] = str(outer / ".git")
             child = subprocess.run(
                 [sys.executable, str(Path(__file__)), "ReleaseTests.test_fix_is_patch"],

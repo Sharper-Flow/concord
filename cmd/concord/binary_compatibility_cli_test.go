@@ -1,9 +1,6 @@
 package main
 
-import (
-	"path/filepath"
-	"testing"
-)
+import "testing"
 
 // The workflow-surface binary-skew refusal retired with the definition
 // authority: migration 183 deletes the workflow rows of runtime_state_writers

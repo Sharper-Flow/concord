@@ -68,8 +68,6 @@ GENERATED = frozenset(
         "contracts/agent-lanes.digest",
         ".concord/docs/agent-lanes-contract.md",
         "internal/agentcontract/generated_contracts.go",
-        "internal/payloadschema/generated_schemas.go",
-        "internal/payloadschema/generated_envelope_schema.go",
         "internal/store/generated_agent_lanes.go",
         "internal/payloadschema/generated_typed_error_kinds.go",
     }

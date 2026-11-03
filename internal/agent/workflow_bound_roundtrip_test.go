@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord"
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
@@ -21,16 +22,16 @@ import (
 func schemaDef(t *testing.T, name string) map[string]any {
 	t.Helper()
 	var document map[string]any
-	if err := json.Unmarshal([]byte(payloadschema.GeneratedPayloadSchemaDocument), &document); err != nil {
-		t.Fatalf("generated schema does not parse: %v", err)
+	if err := json.Unmarshal([]byte(concord.PayloadSchemaDocument), &document); err != nil {
+		t.Fatalf("embedded payload schema does not parse: %v", err)
 	}
 	defs, ok := document["$defs"].(map[string]any)
 	if !ok {
-		t.Fatal("generated schema carries no $defs")
+		t.Fatal("embedded payload schema carries no $defs")
 	}
 	def, ok := defs[name].(map[string]any)
 	if !ok {
-		t.Fatalf("generated schema carries no $defs/%s", name)
+		t.Fatalf("embedded payload schema carries no $defs/%s", name)
 	}
 	return def
 }
@@ -56,7 +57,7 @@ func TestGeneratedReferenceDefMatchesStore(t *testing.T) {
 	definitions, _ := document["$defs"].(map[string]any)
 	reference, _ := definitions["reference"].(map[string]any)
 	if reference == nil {
-		t.Fatal("generated schema carries no $defs/reference")
+		t.Fatal("embedded payload schema carries no $defs/reference")
 	}
 	pattern, ok := schemaReference["pattern"].(string)
 	if !ok || pattern == "" {
@@ -133,7 +134,7 @@ func TestHistoryEvidenceBoundAdmitsEveryActionEvidenceList(t *testing.T) {
 		return
 	}
 	var document map[string]any
-	if err := json.Unmarshal([]byte(payloadschema.GeneratedPayloadSchemaDocument), &document); err != nil {
+	if err := json.Unmarshal([]byte(concord.PayloadSchemaDocument), &document); err != nil {
 		t.Fatal(err)
 	}
 	largest, owner := 0.0, ""

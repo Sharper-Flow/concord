@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:06a3cc509719f50e6154ab8e560380117e401041ef77346f8a61aa32aba4d421"
+const ManifestDigest = "sha256:cc62f0a700682ff3eb2753ab1235cf687bb7edc2a9ae9acdbd861a51f346965d"
 
 type OperationKind string
 

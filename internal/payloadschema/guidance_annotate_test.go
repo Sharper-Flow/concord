@@ -6,14 +6,16 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	concord "github.com/sharper-flow/concord"
 )
 
-// freshPayloadDocument parses the generated schema document the way Validate
+// freshPayloadDocument parses the embedded schema document the way Validate
 // does, so guidance tests mutate their own copy and never the shared
 // singleton another test reads.
 func freshPayloadDocument(t *testing.T) map[string]any {
 	t.Helper()
-	decoder := json.NewDecoder(strings.NewReader(GeneratedPayloadSchemaDocument))
+	decoder := json.NewDecoder(strings.NewReader(concord.PayloadSchemaDocument))
 	decoder.UseNumber()
 	var value map[string]any
 	if err := decoder.Decode(&value); err != nil {

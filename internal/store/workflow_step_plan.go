@@ -188,14 +188,14 @@ func WorkflowStepPlanTemplateActions(planType WorkflowStepPlanType, stepID strin
 // required step, changes an existing step's after edges, completes a step
 // before every step it comes after, or alters a completed step. A repeated
 // step appends another attempt instead of altering the completed one.
-func ValidateStepPlanWrite(old *WorkflowStepPlan, new WorkflowStepPlan) error {
-	if err := validateStepPlanShape(new); err != nil {
+func ValidateStepPlanWrite(old *WorkflowStepPlan, updated WorkflowStepPlan) error {
+	if err := validateStepPlanShape(updated); err != nil {
 		return err
 	}
 	if old == nil {
-		return validateStepPlanInitialCopy(new)
+		return validateStepPlanInitialCopy(updated)
 	}
-	return validateStepPlanContinuation(*old, new)
+	return validateStepPlanContinuation(*old, updated)
 }
 
 // validateStepPlanShape holds the plan schema in code, the way the engine
@@ -342,13 +342,13 @@ func workflowPlanStepEqual(left, right WorkflowPlanStep) bool {
 // validateStepPlanContinuation holds the step-insert and step-completion
 // writes, and the type switch that adds the new type's missing required
 // steps while keeping completed steps.
-func validateStepPlanContinuation(old, new WorkflowStepPlan) error {
+func validateStepPlanContinuation(old, updated WorkflowStepPlan) error {
 	refuse := func(detail string) error {
 		return newFailure(KindInvalidOperation, "workflow_step_plan", detail, false, "reread the plan and resend the write")
 	}
-	switching := new.Type != old.Type
+	switching := updated.Type != old.Type
 	if switching {
-		if err := validateStepPlanTypeSwitch(old, new, refuse); err != nil {
+		if err := validateStepPlanTypeSwitch(old, updated, refuse); err != nil {
 			return err
 		}
 	}
@@ -357,10 +357,10 @@ func validateStepPlanContinuation(old, new WorkflowStepPlan) error {
 		oldSteps[step.ID] = step
 	}
 	appended := 0
-	for _, step := range new.Steps {
+	for _, step := range updated.Steps {
 		previous, existed := oldSteps[step.ID]
 		if !existed {
-			if err := validateStepPlanAddedStep(new.Type, step, switching, refuse); err != nil {
+			if err := validateStepPlanAddedStep(updated.Type, step, switching, refuse); err != nil {
 				return err
 			}
 			continue
@@ -375,23 +375,23 @@ func validateStepPlanContinuation(old, new WorkflowStepPlan) error {
 		return refuse("a plan write appends at most one attempt")
 	}
 	for _, step := range old.Steps {
-		if step.Required && !stepIDExists(new.Steps, step.ID) {
+		if step.Required && !stepIDExists(updated.Steps, step.ID) {
 			return refuse("a required step is never removed")
 		}
-		if len(step.Attempts) > 0 && !stepIDExists(new.Steps, step.ID) {
+		if len(step.Attempts) > 0 && !stepIDExists(updated.Steps, step.ID) {
 			return refuse("a completed step is never removed")
 		}
 	}
 	return nil
 }
 
-func validateStepPlanTypeSwitch(old, new WorkflowStepPlan, refuse func(string) error) error {
-	template, err := WorkflowStepPlanTemplate(new.Type)
+func validateStepPlanTypeSwitch(old, updated WorkflowStepPlan, refuse func(string) error) error {
+	template, err := WorkflowStepPlanTemplate(updated.Type)
 	if err != nil {
 		return err
 	}
 	for _, step := range old.Steps {
-		current, found := stepByID(new.Steps, step.ID)
+		current, found := stepByID(updated.Steps, step.ID)
 		if !found {
 			return refuse("a type switch never removes a step")
 		}
@@ -400,7 +400,7 @@ func validateStepPlanTypeSwitch(old, new WorkflowStepPlan, refuse func(string) e
 		}
 	}
 	for _, templateStep := range template.Steps {
-		if !stepIDExists(old.Steps, templateStep.ID) && !stepIDExists(new.Steps, templateStep.ID) {
+		if !stepIDExists(old.Steps, templateStep.ID) && !stepIDExists(updated.Steps, templateStep.ID) {
 			return refuse("a type switch adds the new type's missing required steps")
 		}
 	}

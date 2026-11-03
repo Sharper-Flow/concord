@@ -55,7 +55,7 @@ func TestBindEvidenceRefusesLocatorPastReferenceBound(t *testing.T) {
 
 	// CD-0198 D2: one typed record_diagnosis carries the three sections the
 	// separate reproduction, alignment, and root-cause actions recorded.
-	response, after := ekbDispatch(t, s, service, env, workID, version, "record_diagnosis", map[string]any{
+	response, _ = ekbDispatch(t, s, service, env, workID, version, "record_diagnosis", map[string]any{
 		"reproduction": "The bounded defect reproduction statement.",
 		"searched":     "The bounded backlog search statement.",
 		"outcome":      "none_found",

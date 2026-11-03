@@ -76,7 +76,7 @@ func TestContractPremiseRejectsBlankAndFallbackText(t *testing.T) {
 	for _, premise := range []string{"", "   ", "workflow premise"} {
 		payload := strings.Replace(valid, "The operator stated this premise.", premise, 1)
 		_, err := validateWorkflowPlanActionPayload("approve_contract", json.RawMessage(payload))
-		requirePayloadFailure(t, err, "premise", "type or bounds")
+		_ = requirePayloadFailure(t, err, "premise", "type or bounds")
 	}
 }
 
@@ -87,10 +87,10 @@ func TestRecordPlanPayloadContractIsTyped(t *testing.T) {
 		t.Fatalf("record_plan refused its typed payload: %v", err)
 	}
 	_, err := validateWorkflowPlanActionPayload("record_plan", json.RawMessage(`{}`))
-	requirePayloadFailure(t, err, "decisions", "required")
+	_ = requirePayloadFailure(t, err, "decisions", "required")
 	invalid := strings.Replace(string(typed), `"decisions":[{`, `"decisions":[{"unexpected":true,`, 1)
 	_, err = validateWorkflowPlanActionPayload("record_plan", json.RawMessage(invalid))
-	requirePayloadFailure(t, err, "decisions", "schema")
+	_ = requirePayloadFailure(t, err, "decisions", "schema")
 }
 
 func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
@@ -118,7 +118,7 @@ func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "required-payload",
 		RequestID: "request:required-payload", ContractDigest: testManifestDigest, Now: time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC),
 	})
-	requirePayloadFailure(t, actionErr, "premise", "required")
+	_ = requirePayloadFailure(t, actionErr, "premise", "required")
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
@@ -146,5 +146,5 @@ func TestActionPayloadListItemSchemasMatchPreflight(t *testing.T) {
 	}
 	invalid := json.RawMessage(`{"premise":"The operator stated this premise.","outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:test","immutable_subject_ref":"commit:test","expected_result":"pass"}}],"spec_mandate":[" spec:one"],"decision_domains":[]}`)
 	_, err := validateWorkflowPlanActionPayload("approve_contract", invalid)
-	requirePayloadFailure(t, err, "spec_mandate", "type or bounds")
+	_ = requirePayloadFailure(t, err, "spec_mandate", "type or bounds")
 }

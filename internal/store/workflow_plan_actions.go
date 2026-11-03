@@ -295,7 +295,7 @@ func foldWorkflowStepCompleted(ctx context.Context, tx *sql.Tx, event Event) err
 					return err
 				}
 			}
-			plan.Steps[i].Attempts = append(plan.Steps[i].Attempts, WorkflowPlanAttempt{Note: p.Note, CompletedAt: event.OccurredAt.UTC().Format(time.RFC3339Nano), CompletionSeq: int64(event.Seq), Actor: p.Actor, Reviewer: p.Reviewer, Result: p.Result, Commit: p.Commit, Link: p.Link})
+			plan.Steps[i].Attempts = append(plan.Steps[i].Attempts, WorkflowPlanAttempt{Note: p.Note, CompletedAt: event.OccurredAt.UTC().Format(time.RFC3339Nano), CompletionSeq: event.Seq, Actor: p.Actor, Reviewer: p.Reviewer, Result: p.Result, Commit: p.Commit, Link: p.Link})
 			return writeWorkflowPlanTx(ctx, tx, event.SubjectID, *plan)
 		}
 	}

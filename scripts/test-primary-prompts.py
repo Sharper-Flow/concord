@@ -42,6 +42,8 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         profiles.mkdir(parents=True)
         for name in check_primary_prompts.NAMED_PROFILE_FILES:
             shutil.copy2(ROOT / check_primary_prompts.PROFILE_DIR / name, profiles / name)
+        for path in (ROOT / check_primary_prompts.PROFILE_DIR).glob("*.md"):
+            shutil.copy2(path, profiles / path.name)
 
     def tearDown(self) -> None:
         self.tempdir.cleanup()
@@ -50,7 +52,7 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         return check_primary_prompts.check_primary_prompts(self.root)
 
     def rewrite(self, name: str, transform) -> None:
-        directory = check_primary_prompts.PROFILE_DIR if name in check_primary_prompts.NAMED_PROFILE_FILES else check_primary_prompts.PROMPT_DIR
+        directory = check_primary_prompts.PROFILE_DIR if (self.root / check_primary_prompts.PROFILE_DIR / name).is_file() else check_primary_prompts.PROMPT_DIR
         path = self.root / directory / name
         before = path.read_text(encoding="utf-8")
         after = transform(before)
@@ -147,6 +149,36 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         self.assertEqual(check_primary_prompts.evaluate(rules, "gh pr view 1"), "allow")
         self.assertEqual(check_primary_prompts.evaluate(rules, "gh pr merge 1"), "deny")
         self.assertEqual(check_primary_prompts.evaluate([], "anything"), "ask")
+
+    def test_connected_tool_name_boundaries(self) -> None:
+        match = check_primary_prompts.CONNECTED_TOOL_NAME.search
+        for naming in ("lgrep", "tools.lgrep.search_semantic", "Context7", "context7", "Exa", "query Exa for research"):
+            with self.subTest(naming=naming):
+                self.assertIsNotNone(match(naming))
+        # Word boundaries: ordinary prose must not trip the rule.
+        for prose in ("For example, use glob first", "execute the plan", "examples"):
+            with self.subTest(prose=prose):
+                self.assertIsNone(match(prose))
+
+    def test_generated_helper_names_connected_tool_reports(self) -> None:
+        self.rewrite("concord-explore.md", lambda text: text + "\nFor example, call `tools.lgrep.search_semantic`.\n")
+        findings = self.findings()
+        self.assertTrue(any("concord-explore.md" in finding and "'lgrep'" in finding and "CD-0250" in finding for finding in findings), findings)
+
+    def test_generated_helper_research_service_name_reports(self) -> None:
+        self.rewrite("concord-lookup.md", lambda text: text + "\nQuery Exa for current research.\n")
+        findings = self.findings()
+        self.assertTrue(any("concord-lookup.md" in finding and "'Exa'" in finding for finding in findings), findings)
+
+    def test_named_profile_body_connected_tool_name_reports(self) -> None:
+        self.rewrite("Concord.md", lambda text: text + "\nUse Context7 for library documentation.\n")
+        findings = self.findings()
+        self.assertTrue(any("Concord.md" in finding and "'Context7'" in finding for finding in findings), findings)
+
+    def test_generated_helper_host_tool_fragment_reports(self) -> None:
+        self.rewrite("concord-advisor.md", lambda text: text.replace("  bash: true\n", "  bash: true\n  exa_search: true\n", 1))
+        findings = self.findings()
+        self.assertTrue(any("concord-advisor.md" in finding and "'exa_'" in finding for finding in findings), findings)
 
     def test_planner_edit_outside_planning_reports(self) -> None:
         self.assert_planner_finding(lambda text: text.replace('  edit:\n    "*": deny\n', '  edit:\n    "*": allow\n', 1), "permission.edit")

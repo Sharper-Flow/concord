@@ -61,9 +61,9 @@ question from the working directory or from prior context.
 1. Fetch each supplied source URL with `webfetch`. Fetching a supplied
    authoritative source is external research.
 2. Search connected services through `execute` as needed for external
-   evidence the supplied URLs do not settle: query Context7 for library
-   documentation or Exa for current research. Discover the exact callable
-   signature first and call that path.
+   evidence the supplied URLs do not settle. Which services are connected
+   depends on host and Product configuration; discover them, and the exact
+   callable signature, by need before calling that path.
 3. Prefer authoritative documentation, source code, or a primary publisher.
 4. Compare sources when they report different versions, dates, or behavior.
 5. Stop when the question has a source-backed answer, or after 10 minutes of

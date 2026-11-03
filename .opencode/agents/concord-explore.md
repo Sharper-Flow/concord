@@ -80,10 +80,10 @@ Keep source-text observations separate from the caller's resolved law context.
 
 1. Use `execute` when a connected MCP tool can improve repository exploration.
    Inspect available tools with `Object.keys(tools)` or search for a relevant
-   tool by namespace. Call the exact tool path returned by discovery. For
-   example, use `tools.lgrep.search_semantic` for a bounded concept search.
-   MCP access depends on host connections. Use read-only tools only, and
-   verify their results against repository sources.
+   tool by namespace, and call the exact tool path discovery returns. Which
+   tools are connected depends on host and Product configuration; discover
+   them by need rather than by name. Use read-only tools only, and verify
+   their results against repository sources.
 2. Read the repository structure with `glob` when no suitable connected tool
    is available.
 3. Search for relevant symbols or text with `grep` when needed.

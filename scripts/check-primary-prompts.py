@@ -16,8 +16,12 @@ boundaries:
                      probes are evaluated with OpenCode's last-match wildcard
                      rules, not read as text
   all                no host-specific research tool names in frontmatter, no
-                     duplicated conduct obligation, and no routing by
-                     generated agent id in the body
+                      duplicated conduct obligation, and no routing by
+                      generated agent id in the body
+  generated          every .opencode/agents profile (named or helper) names
+                      no connected tool anywhere: helpers discover connected
+                      tools by need, so a shipped profile never depends on
+                      one host's configuration (CD-0250)
 
 The intake definition is a portable example. Concord does not package or
 install it. This check proves the example contract in CD-0154:
@@ -121,6 +125,11 @@ RETIRED_PRIMARY_EXAMPLES = ("concord-1.md", "concord-2.md")
 # Host-provided research providers. These arrive from the host configuration;
 # a shipped prompt that names one has stopped being portable.
 HOST_TOOL_FRAGMENTS = ("lgrep_", "context7_", "exa_", "github_")
+# Connected tool names (CD-0250). Which tools are connected depends on host
+# and Product configuration, so a generated profile names none of them and
+# tells agents to discover by need. Word boundaries keep ordinary prose such
+# as "example" from matching.
+CONNECTED_TOOL_NAME = re.compile(r"(?i)\b(?:lgrep|context7|exa)\b")
 LOOKUP_OBLIGATION_MARKERS = (
     "Recall is not evidence",
     "source to fit the surface",
@@ -254,6 +263,31 @@ def check_planner_profile(name: str, frontmatter: str) -> list[str]:
     return findings
 
 
+def check_generated_agent_profiles(root: Path) -> list[str]:
+    """Every projected profile under .opencode/agents stays tool-agnostic.
+
+    The generator owns which files exist (its --check proves byte equality
+    and rejects unprojected definitions); this check proves their content:
+    no connected-tool name and no host tool fragment anywhere in a generated
+    profile (CD-0250 D2).
+    """
+    findings: list[str] = []
+    for path in sorted((root / PROFILE_DIR).glob("*.md")):
+        name = f"{PROFILE_DIR.name}/{path.name}"
+        text = path.read_text(encoding="utf-8")
+        match = CONNECTED_TOOL_NAME.search(text)
+        if match is not None:
+            findings.append(
+                f"{name} names connected tool {match.group(0)!r}; generated profiles discover connected tools by need (CD-0250)"
+            )
+        findings.extend(
+            f"{name} names host tool fragment {fragment!r}"
+            for fragment in HOST_TOOL_FRAGMENTS
+            if fragment in text
+        )
+    return findings
+
+
 def check_named_profiles(root: Path) -> list[str]:
     findings: list[str] = []
     for retired in ("concord-coordinator.md", "concord-operator.md"):
@@ -294,6 +328,7 @@ def check_named_profiles(root: Path) -> list[str]:
 
 def check_primary_prompts(root: Path) -> list[str]:
     findings: list[str] = check_named_profiles(root)
+    findings.extend(check_generated_agent_profiles(root))
     for retired in RETIRED_PRIMARY_EXAMPLES:
         if (root / PROMPT_DIR / retired).exists():
             findings.append(f"retired primary agent example {retired} is present")

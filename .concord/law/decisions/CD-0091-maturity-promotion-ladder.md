@@ -21,14 +21,14 @@
 - **Related:** CD-0007, CD-0010, CD-0089, `priorities.md` First-usable floor,
   `rollout-plan.md` §3 and §4, `product-data-model.md`, and
   `floor-readiness.md`
-- **Preserves:** The first-usable floor as the replacement-readiness bar; the
+- **Preserves:** The first-usable floor; the
   demand-driven correction model of `rollout-plan.md` §4; and the maturity and
   audience vocabulary of `product-data-model.md`
 
 ## Context
 
 Concord documents the floor it has reached but not the ground above it.
-`floor-readiness.md` defines replacement readiness for one operator and many
+`floor-readiness.md` defines first usability for one operator and many
 agents on one machine. No document defines what promotes a Product past that
 floor.
 
@@ -49,7 +49,7 @@ bounded need." This decision accepts that need and defines the ladder.
 A Product may set `maturity` or `audience_commitment` above its current rung only
 when the change that sets the field cites evidence meeting the target rung's bar
 in D3 or D4. A field set without that evidence is drift, in the same sense that a
-replacement-ready claim without floor evidence is drift.
+first-usable claim without floor evidence is drift.
 
 ### D2. Retired: the per-rung readiness manifest
 
@@ -57,8 +57,11 @@ replacement-ready claim without floor evidence is drift.
 
 Each rung adds to the rung below it.
 
-- **alpha**: the replacement-ready floor is met, and the core mutation and
-  migration path carries no open defect classified as bootstrap-blocking.
+- **alpha**: the first-usable floor is met, including the five usability
+  conditions in [`floor-readiness.md`](../../docs/floor-readiness.md) and the
+  [release-evidence bar](../../docs/rollout-plan.md#release-evidence-bar), and
+  the core mutation and migration path carries no open
+  defect classified as bootstrap-blocking.
 - **beta**: alpha, and migration is forward-verified across at least one
   released schema change, and a documented crash-recovery procedure has a
   passing test.

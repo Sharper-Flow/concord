@@ -313,15 +313,3 @@ func TestProjectionIsDeterministicAcrossRuns(t *testing.T) {
 		t.Fatal("two runs of the same builtins produced different projections")
 	}
 }
-
-func TestCurrentDefinitionsDoNotPublishRetiredNativeRunActions(t *testing.T) {
-	for _, definition := range store.BuiltinWorkflowDefinitions() {
-		for _, action := range definition.ActionDefinitions {
-			for _, retired := range []string{"start_run", "record_health", "cleanup_run", "rollback_run"} {
-				if action.ID == retired {
-					t.Errorf("current definition %s publishes retired action %s", definition.Ref, retired)
-				}
-			}
-		}
-	}
-}

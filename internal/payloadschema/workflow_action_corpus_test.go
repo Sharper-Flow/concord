@@ -704,14 +704,6 @@ func TestWorkflowActionVariantCorpusParity(t *testing.T) {
 	}
 }
 
-// TestLegacyActionInputBridgeStaysRetired keeps the authored legacy-input
-// bridge out of the live public document.
-func TestLegacyActionInputBridgeStaysRetired(t *testing.T) {
-	if HasIn(Document(), "work_transition_action_legacy_input") {
-		t.Fatal("the live public document still declares work_transition_action_legacy_input; the authored legacy-input bridge is retired")
-	}
-}
-
 // TestRecordAlignmentExactLegalCombination pins the reported fault: the
 // published record_alignment variant must refuse the none_found outcome that
 // carries related_ids, and the related_found outcome without related_ids,

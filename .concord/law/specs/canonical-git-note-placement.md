@@ -14,7 +14,7 @@
     },
     {
       "criterion": 2,
-      "exemption": "Historical locator verification is a read property. Integrated evidence must cover exact home, path, commit, content hash and lesson-tag preservation."
+      "exemption": "Historical locator preservation is a read property. Integrated evidence must cover exact home, path, commit, content hash and lesson-tag preservation."
     },
     {
       "criterion": 3,
@@ -93,7 +93,7 @@ content_hash
 
 Project and locator IDs identify the logical repository across path, remote,
 clone and archive changes. The path identifies the file in the recorded commit;
-`content_hash` verifies the note bytes. Mutable paths and remotes resolve at read
+`content_hash` identifies the note bytes. Mutable paths and remotes resolve at read
 time and never replace these identity fields. A historical note hash is not a
 workflow closure hash.
 
@@ -103,18 +103,21 @@ readable without a new publication or backfill requirement. Legacy
 `component_ids` maps to `domain_ids` with the retained IDs.
 
 One work ID resolves to at most one canonical historical note.
-Historical readers verify the recorded commit, path, work identity and note hash.
-They never infer a different note or silently choose between two valid notes
-claiming one work ID. Read inspection does not publish, reconcile, prune, change
-membership or mutate research. Verified PM10 recovery may reconstruct the
-existing Git-derived historical projection; it creates no law catalog or public
-rebuild surface.
+Historical readers return the stored locator without probing Git; the stored
+commit, path, work identity and note hash identify the note. A returned locator
+proves what the retained record stores, not a current Git check. They never
+infer a different note or silently choose between two valid notes claiming one
+work ID. Verifying the recorded commit and note hash against Git belongs to the
+consumer or to PM10 recovery, never to the read. Read inspection does not
+publish, reconcile, prune, change membership or mutate research. Verified PM10
+recovery may reconstruct the existing Git-derived historical projection; it
+creates no law catalog or public rebuild surface.
 
 ## 4. Read outcomes and authority
 
 | Outcome | Meaning |
 |---|---|
-| canonical locator | the recorded commit contains the path, work identity and bytes matching the recorded content hash |
+| canonical locator | the reader returned the single retained canonical locator; its stored commit, path, work identity and note hash identify the note, and no Git object was checked |
 | `not_compacted` | no verified historical canonical note is available; this does not prevent completion |
 | `ambiguous` | multiple valid notes claim the work ID |
 | `missing` | the recorded object is absent after complete authority coverage |

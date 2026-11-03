@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -25,12 +26,23 @@ func TestWorkPinRemainsReadableWithoutAuthorizingAmbiguousContracts(t *testing.T
 	if len(pin.VerifiedCriteria) != 0 {
 		t.Fatalf("ambiguous pin carries verified criteria = %v", pin.VerifiedCriteria)
 	}
-	for _, action := range []string{"confirm_premise", "complete"} {
-		if workPinContainsAction(pin.NextValidIntents, action) {
-			t.Fatalf("ambiguous pin authorizes %s", action)
-		}
+	if pin.Obligations != nil || pin.OutstandingEvidenceKinds != nil {
+		t.Fatalf("ambiguous pin selected contract facts: %+v", pin)
 	}
 	effects := contractRecordEffectSnapshot(t, f.store, f.workID)
+	version := readWorkVersion(t, f.store, f.workID)
+	snapshot := outsideRepairDatabaseSnapshot(t, f.store)
+	_, err = WorkflowActionDefinitionFor(ctx, f.store, WorkflowActionPreflightRequest{WorkID: f.workID, ExpectedVersion: version, ActionID: "confirm_premise", Payload: json.RawMessage(`{}`), Actor: f.owner})
+	if !hasFailureKind(err, KindInvariantViolation) || !strings.Contains(err.Error(), "multiple active contracts") {
+		t.Fatalf("ambiguous premise preflight = %v", err)
+	}
+	err = runVerdictActionAs(t, f.store, f.workID, "confirm_premise", json.RawMessage(`{}`), version, f.owner)
+	if !hasFailureKind(err, KindInvariantViolation) || !strings.Contains(err.Error(), "multiple active contracts") {
+		t.Fatalf("ambiguous premise mutation = %v", err)
+	}
+	if outsideRepairDatabaseSnapshot(t, f.store) != snapshot || readWorkVersion(t, f.store, f.workID) != version {
+		t.Fatal("refused ambiguous premise changed durable state")
+	}
 	err = reviseContractRecord(t, f.store, f.workID, f.owner, contract, readWorkVersion(t, f.store, f.workID))
 	if !hasFailureKind(err, KindInvariantViolation) || !strings.Contains(err.Error(), "multiple active contracts") {
 		t.Fatalf("ambiguous contract revision = %v", err)
@@ -79,11 +91,25 @@ func TestContractlessInvestigatedCheckpointAdmitsNoContractRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if workPinContainsAction(pin.NextValidIntents, "confirm_premise") {
-		t.Error("pin advertises confirm_premise with no active contract")
+	if pin.Obligations != nil || pin.OutstandingEvidenceKinds != nil || len(pin.VerifiedCriteria) != 0 {
+		t.Fatalf("contractless pin selected contract facts: %+v", pin)
 	}
 	effects := contractRecordEffectSnapshot(t, s, workID)
 	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/recovery", SessionRef: "session/contractless", ActorClass: ActorAgent}
+	version := readWorkVersion(t, s, workID)
+	before := outsideRepairDatabaseSnapshot(t, s)
+	_, err = WorkflowActionDefinitionFor(ctx, s, WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise", Payload: json.RawMessage(`{}`), Actor: actor})
+	if err == nil {
+		t.Error("contractless premise preflight succeeded")
+	}
+	if err := runVerdictActionAs(t, s, workID, "confirm_premise", json.RawMessage(`{}`), version, actor); err == nil {
+		t.Error("contractless premise mutation succeeded")
+	} else {
+		t.Logf("contractless premise mutation refused: %v", err)
+	}
+	if outsideRepairDatabaseSnapshot(t, s) != before || readWorkVersion(t, s, workID) != version {
+		t.Fatal("refused contractless premise changed durable state")
+	}
 	err = reviseContractRecord(t, s, workID, actor, map[string]any{}, readWorkVersion(t, s, workID))
 	if !hasFailureKind(err, KindInvalidOperation) || !strings.Contains(err.Error(), "requires an existing contract") {
 		t.Fatalf("contractless revision = %v", err)

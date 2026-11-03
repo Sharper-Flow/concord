@@ -305,7 +305,7 @@ def validate_persisted_manifest(manifest, ir):
     schema_validate(manifest, ir, ir, "manifest")
 
 
-def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict, list[dict]]:
+def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict, list[dict], int]:
     result = subprocess.run(
         ["go", "run", "./scripts/workflow-action-contracts"],
         cwd=ROOT,
@@ -315,7 +315,7 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict
         check=True,
     )
     projection = json.loads(result.stdout)
-    if set(projection) != {"schema_version", "actions", "workflows", "teaching", "schema_refs", "contract_updates"} or projection["schema_version"] != "2.0":
+    if set(projection) != {"schema_version", "actions", "workflows", "teaching", "schema_refs", "contract_updates", "catalog_action_count"} or projection["schema_version"] != "2.0":
         fail("workflow action contract projection is invalid")
     schema_refs = projection["schema_refs"]
     if set(schema_refs) != {"current"}:
@@ -333,6 +333,9 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict
     actions = projection["actions"]
     if not actions or len({action.get("id") for action in actions}) != len(actions):
         fail("workflow action contract projection has no unique actions")
+    catalog_count = projection["catalog_action_count"]
+    if type(catalog_count) is not int or catalog_count < len(actions):
+        fail("workflow action catalog count cannot bound projected actions")
     for action in actions:
         if set(action) != {"id", "variants", "cross_field"}:
             fail("workflow action contract projection contains an open record")
@@ -353,7 +356,7 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict
     for workflow in workflows:
         if set(workflow) != {"ref", "allowed_kinds", "allowed_outcome_tokens", "decision_record_required"} or not workflow["allowed_kinds"] or not isinstance(workflow["allowed_outcome_tokens"], list):
             fail("workflow outcome contract projection is invalid")
-    return actions, workflows, teaching, schema_refs, projection["contract_updates"]
+    return actions, workflows, teaching, schema_refs, projection["contract_updates"], catalog_count
 
 
 def validate_workflow_cross_field(action: dict, payload: dict) -> None:
@@ -1147,6 +1150,10 @@ def project_workflow_plan_read_schemas(defs: dict, actions: list[dict]) -> None:
                 "event_ref": {"type": "string"},
             },
         }
+
+
+def project_continuity_action_bound(defs: dict, catalog_count: int) -> None:
+    defs["continuity_snapshot"]["properties"]["pinned"]["properties"]["step_actions"]["maxItems"] = catalog_count
 
 
 def project_workflow_action_schema(document: dict, actions: list[dict], workflows: list[dict], teaching: dict, contract_updates: list[dict]) -> tuple[dict, list[dict]]:
@@ -1965,12 +1972,13 @@ def main() -> int:
         manifest = json.loads(MANIFEST.read_text())
         ir = json.loads(IR.read_text())
         payload = json.loads(PAYLOAD.read_text())
-        actions, workflows, teaching, schema_refs, contract_updates = load_workflow_action_contracts()
+        actions, workflows, teaching, schema_refs, contract_updates, catalog_count = load_workflow_action_contracts()
         bun = shutil.which("bun")
         if bun is None and (not check or os.environ.get("CONCORD_REQUIRE_BUN") == "1"):
             fail("Bun is not installed: the publication measurement requires Bun, so write mode and strict check refuse rather than skip it")
         validate_current_schema_refs(schema_refs, payload.get("$defs", {}))
         projected_payload, public_variants = project_workflow_action_schema(payload, actions, workflows, teaching, contract_updates)
+        project_continuity_action_bound(projected_payload["$defs"], catalog_count)
         prune_payload_definitions(projected_payload, manifest, public_variants, schema_refs["current"])
         input_names = [operation["input_schema"].rsplit("/", 1)[-1] for operation in manifest["operations"]
                        if operation["id"] != "concord_work_transition.workflow_action"]

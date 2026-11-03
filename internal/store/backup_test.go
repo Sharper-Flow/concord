@@ -663,10 +663,17 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	terminalizeResearchOwner(t, restored, "evidence-required-consumer")
 	terminalizeResearchOwner(t, restored, "evidence-optional-consumer")
 	contextVersion := readWorkVersion(t, restored, contextWork)
+	var contextLifecycle string
+	if err := restored.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, contextWork).Scan(&contextLifecycle); err != nil {
+		t.Fatal(err)
+	}
+	if contextLifecycle != "in_progress" {
+		t.Fatalf("context consumer lifecycle=%s, want in_progress", contextLifecycle)
+	}
 	if err := ApplyOperation(ctx, restored, Operation{Events: []Event{{
 		EventID: "evidence-context-consumer-terminal", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: contextWork,
 		Actor: "operator", OccurredAt: time.Unix(60, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.transitioned"),
-		Payload: mustJSONValue(map[string]any{"from": "needed", "to": "cancelled", "reason": "consumer terminal", "expected_version": contextVersion, "resulting_version": contextVersion + 1}),
+		Payload: mustJSONValue(map[string]any{"from": "in_progress", "to": "cancelled", "reason": "consumer terminal", "expected_version": contextVersion, "resulting_version": contextVersion + 1}),
 	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, contextWork): contextVersion}}); err != nil {
 		t.Fatal(err)
 	}

@@ -183,12 +183,10 @@ func TestOrdinaryDeliveryWritesHoldProgress(t *testing.T) {
 				if err := f.run(ctx, "record_delivery", artifact, version, payload, nil); err != nil {
 					t.Fatalf("ordinary delivery write: %v", err)
 				}
-				if completed {
-					err := f.run(ctx, "record_delivery", "stale-"+artifact, version, payload, nil)
-					var failure *Failure
-					if !failureAs(err, &failure) || failure.Kind != KindVersionConflict || !reflect.DeepEqual(failure.InterveningActions, []InterveningAction{{ActionID: "record_delivery", SessionRef: f.owner.SessionRef}}) {
-						t.Errorf("stale delivery diagnostic: %v (%+v)", err, failure)
-					}
+				err := f.run(ctx, "record_delivery", "stale-"+artifact, version, payload, nil)
+				var failure *Failure
+				if !failureAs(err, &failure) || failure.Kind != KindVersionConflict || !reflect.DeepEqual(failure.InterveningActions, []InterveningAction{{ActionID: "record_delivery", SessionRef: f.owner.SessionRef}}) {
+					t.Errorf("stale delivery diagnostic: %v (%+v)", err, failure)
 				}
 				var gotPlan, gotState, gotLifecycle string
 				if err := s.db.QueryRow(`SELECT step_plan,instance_state,(SELECT lifecycle FROM work_items WHERE id=work_id) FROM workflow_instances WHERE work_id=?`, work).Scan(&gotPlan, &gotState, &gotLifecycle); err != nil {

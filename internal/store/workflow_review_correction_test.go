@@ -116,13 +116,18 @@ func TestDeliveryGateTakesOrdinaryReviewUpdate(t *testing.T) {
 			reviewGateChangeRecordedCriterion(t, j)
 			reviewGateRequireStep(t, j.s, j.workID, "review")
 			pin := issue1013Pin(t, j.s, j.workID)
-			if pin.Review == nil || pin.Review.DependenciesCurrent || workPinContainsAction(pin.NextValidIntents, "record_delivery") || !workPinContainsAction(pin.NextValidIntents, "record_review") {
+			if pin.Review == nil || pin.Review.DependenciesCurrent || !workPinContainsAction(pin.NextValidIntents, "record_delivery") || !workPinContainsAction(pin.NextValidIntents, "record_review") {
 				t.Fatalf("stale gate intents=%+v review=%+v", pin.NextValidIntents, pin.Review)
 			}
 			refuse := func(label string, kind FailureKind) {
 				t.Helper()
 				before := j.effects(t)
 				deliveries := reviewGateCountDeliveries(t, j.s, j.workID)
+				payload := json.RawMessage(`{"delivery_artifact":"artifact:review-gate-` + j.workID + `","delivery_state":"asserted"}`)
+				_, preflightErr := WorkflowActionDefinitionFor(t.Context(), j.s, WorkflowActionPreflightRequest{WorkID: j.workID, ExpectedVersion: readWorkVersion(t, j.s, j.workID), ActionID: "record_delivery", Payload: payload, Actor: j.fixture.owner})
+				if !hasFailureKind(preflightErr, kind) {
+					t.Fatalf("%s: preflight=%v, want %s", label, preflightErr, kind)
+				}
 				if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); !hasFailureKind(err, kind) {
 					t.Fatalf("%s: gate crossing=%v, want %s", label, err, kind)
 				}

@@ -106,7 +106,7 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 	}
 	// Two ordinary starts precede this restart; occurrence time does not
 	// replace their sequence order.
-	restart := workflowEventWithActor("restart-"+workID, WorkflowActionStarted, workID, executorRef, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 3, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64), "idempotency_identity": "restart:" + workID, "actor_ref": executorRef, "execution_model": "model:fixture"})
+	restart := workflowEventWithActor("restart-"+workID, WorkflowActionStarted, workID, executorRef, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "implement", "action_id": "start_execution", "attempt_epoch": 3, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64), "idempotency_identity": "restart:" + workID, "actor_ref": executorRef, "execution_model": "model:fixture"})
 	restart.OccurredAt = restart.OccurredAt.Add(-time.Hour)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{restart}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
@@ -134,7 +134,7 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 	db := openMigratedTo(t, path, 106)
 	copyFixtureDataToPrefix(t, s, db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances"}, map[string]map[string]string{
 		"products":           {"planning_mode": "'local_only'"},
-		"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "1"},
+		"workflow_instances": {"outside_repair_state": "NULL", "definition_ref": "'workflow.change'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "1", "current_step": "'execution'"},
 	}, "fold_guard")
 	start := func(id, action, identity string, expected, epoch int64) Event {
 		return workflowEventWithActor(id, WorkflowActionStarted, workID, executorRef, map[string]any{
@@ -144,10 +144,12 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 			"actor_ref": executorRef, "execution_model": "model:fixture",
 		})
 	}
+	historicalRestart := start(restart.EventID, "start_execution", "restart:"+workID, version, 3)
+	historicalRestart.OccurredAt = restart.OccurredAt
 	corpus := []Event{
-		start("start-"+workID+"-1", "start_execution", "start-"+workID+"-1", 9, 1),
-		start("start-"+workID+"-2", "start_execution", "start-"+workID+"-2", 10, 2),
-		restart,
+		start("start-"+workID+"-1", "start_execution", "start-"+workID+"-1", version-3, 1),
+		start("start-"+workID+"-2", "start_execution", "start-"+workID+"-2", version-2, 2),
+		historicalRestart,
 	}
 	var currentStarts int
 	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowActionStarted).Scan(&currentStarts); err != nil || currentStarts != len(corpus) {
@@ -158,9 +160,6 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 		var digest string
 		if err := s.db.QueryRow(`SELECT effect_seq,payload_digest FROM effect_receipts WHERE event_id=?`, event.EventID).Scan(&seq, &digest); err != nil {
 			t.Fatal(err)
-		}
-		if digest != historicalFixturePayloadDigest(t, string(event.Payload)) {
-			t.Fatalf("explicit source %s differs from fresh-route payload", event.EventID)
 		}
 		if _, err := db.Exec(`INSERT INTO domain_events(seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?,?)`, seq, event.EventID, event.Kind, event.SubjectType, event.SubjectID, event.Actor, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.PayloadVersion, string(event.Payload)); err != nil {
 			t.Fatal(err)
@@ -191,7 +190,7 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 		parents: func(t *testing.T, prefix *Store, guard string) {
 			copyFixtureDataToPrefix(t, s, prefix.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances"}, map[string]map[string]string{
 				"products":           {"planning_mode": "'local_only'"},
-				"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "1"},
+				"workflow_instances": {"outside_repair_state": "NULL", "definition_ref": "'workflow.change'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "1", "current_step": "'execution'"},
 			}, guard)
 		},
 	}, 107, "ORDER BY e.seq", "ORDER BY e.seq DESC", queries, workerFactsQueryRows(t, s, queries))

@@ -18,7 +18,12 @@ func TestDeliveryRequiresRecordedReadyDisposition(t *testing.T) {
 				}
 				acceptDeliveryBindFresh(t, c, "combined-review-disposition")
 				before := c.j.effects(t)
-				err = runDeliveryAdmissionAction(t, c.f.store, c.f.workID, mustJSONValue(map[string]any{"delivery_artifact": "artifact:review-disposition", "delivery_state": "asserted"}), reviewGateAcceptor(c.f.workID))
+				payload := mustJSONValue(map[string]any{"delivery_artifact": "artifact:review-disposition", "delivery_state": "asserted"})
+				_, err = WorkflowActionDefinitionFor(t.Context(), c.f.store, WorkflowActionPreflightRequest{WorkID: c.f.workID, ExpectedVersion: readWorkVersion(t, c.f.store, c.f.workID), ActionID: "record_delivery", Payload: payload, Actor: reviewGateAcceptor(c.f.workID)})
+				if !hasFailureKind(err, KindMissingEvidence) || !strings.Contains(err.Error(), "Review has not reached ready_for_final_proof") {
+					t.Fatalf("delivery preflight under %s = %v", disposition, err)
+				}
+				err = runDeliveryAdmissionAction(t, c.f.store, c.f.workID, payload, reviewGateAcceptor(c.f.workID))
 				var failure *Failure
 				if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "Review has not reached ready_for_final_proof without remaining obligations") {
 					t.Fatalf("delivery under %s = %v, want the ready-Review refusal", disposition, err)
@@ -26,12 +31,12 @@ func TestDeliveryRequiresRecordedReadyDisposition(t *testing.T) {
 				if c.j.effects(t) != before {
 					t.Fatal("refused combined delivery changed durable state")
 				}
-				reviewGateRequireStep(t, c.f.store, c.f.workID, "refine")
+				reviewGateRequireStep(t, c.f.store, c.f.workID, "review")
 				acceptCurrentReviewForTest(t, c.f, "ready_for_final_proof")
 				if err := reviewGateRecordDelivery(t, c.f.store, c.f.workID, reviewGateAcceptor(c.f.workID)); err != nil {
 					t.Fatalf("delivery after recorded ready Review: %v", err)
 				}
-				reviewGateRequireStep(t, c.f.store, c.f.workID, "delivery")
+				reviewGateRequireStep(t, c.f.store, c.f.workID, "review")
 			})
 		}
 	}

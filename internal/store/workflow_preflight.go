@@ -138,7 +138,9 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, reques
 			return nil
 		}
 	}
-	action, err := workflowActionPreflightTx(ctx, tx.Tx, request)
+	// Confirmation is admitted by its event constructor in this transaction;
+	// evaluating it here too would check the same facts twice per write.
+	action, err := workflowActionPreflightCoreTx(ctx, tx.Tx, request, false)
 	if err != nil {
 		return err
 	}
@@ -227,6 +229,10 @@ func workflowPlanActionAdmissionTx(ctx context.Context, tx *sql.Tx, workID strin
 }
 
 func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, request WorkflowActionPreflightRequest) (WorkflowActionDefinition, error) {
+	return workflowActionPreflightCoreTx(ctx, tx, request, true)
+}
+
+func workflowActionPreflightCoreTx(ctx context.Context, tx *sql.Tx, request WorkflowActionPreflightRequest, checkConfirmation bool) (WorkflowActionDefinition, error) {
 	action, plan, currentStep, err := workflowPlanActionAdmissionTx(ctx, tx, request.WorkID, request.ExpectedVersion, request.ActionID, request.Payload)
 	if err != nil {
 		return action, err
@@ -242,6 +248,19 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, request Workflow
 	}
 	if _, err := WorkflowActorRef(request.Actor); err != nil {
 		return action, err
+	}
+	if checkConfirmation && request.ActionID == "confirm_premise" {
+		fields, err := workflowActionObject(request.Payload)
+		if err != nil {
+			return action, err
+		}
+		actor, err := WorkflowActorRef(request.Actor)
+		if err != nil {
+			return action, err
+		}
+		if _, err := workflowConfirmationAdmissionTx(ctx, tx, plan.Type, request.WorkID, actor, fields); err != nil {
+			return action, err
+		}
 	}
 	if request.ActionID == "record_verdict" {
 		fields, err := workflowActionObject(request.Payload)

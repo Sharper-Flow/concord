@@ -129,15 +129,17 @@ func TestNativeTaskPopulatedUpgradePreservesCurrentData(t *testing.T) {
 		"agent_clients":              `SELECT * FROM agent_clients ORDER BY rowid`,
 		"agent_client_keys":          `SELECT * FROM agent_client_keys ORDER BY rowid`,
 		"workflow_actors":            `SELECT * FROM workflow_actors ORDER BY rowid`,
-		"workflow_contracts":         `SELECT ` + retainedWorkflowContractColumns + ` FROM workflow_contracts ORDER BY rowid`,
+		"workflow_contracts":         `SELECT ` + cutoverContractColumns + ` FROM workflow_contracts ORDER BY rowid`,
 		"workflow_evidence_bindings": `SELECT * FROM workflow_evidence_bindings ORDER BY rowid`,
 		"durable_operations":         `SELECT op_id,work_id,workflow_type_ref,workflow_type_digest,step_id,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest FROM durable_operations ORDER BY op_id`,
 		"idempotency_records":        `SELECT * FROM idempotency_records ORDER BY rowid`,
 		"effect_receipts":            `SELECT * FROM effect_receipts ORDER BY rowid`,
 		"store_sequences":            `SELECT * FROM store_sequences ORDER BY rowid`,
 		"work_context_findings":      `SELECT * FROM work_context_findings ORDER BY rowid`,
-		"workflow_instances":         `SELECT work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at FROM workflow_instances`,
-		"workflow_step_epochs":       `SELECT work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload FROM workflow_step_epochs`,
+	}
+	instances := cutoverInstanceExpectations(t, db, "")
+	if len(instances) == 0 || len(before["workflow_step_epochs"]) == 0 {
+		t.Fatal("predecessor lacks workflow instance or step epoch witnesses")
 	}
 	want := map[string][][]any{}
 	for table, query := range retained {
@@ -165,6 +167,12 @@ func TestNativeTaskPopulatedUpgradePreservesCurrentData(t *testing.T) {
 		if got := retirementUpgradeRows(t, db, query); !reflect.DeepEqual(got, want[table]) {
 			t.Errorf("native cutover changed retained %s: before=%#v after=%#v", table, want[table], got)
 		}
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT * FROM workflow_instances ORDER BY rowid`); !reflect.DeepEqual(got, instances) {
+		t.Errorf("cutover changed retained instance facts: before=%v after=%v", instances, got)
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT * FROM workflow_step_epochs`); len(got) != 0 {
+		t.Errorf("retired step epochs survive: %v", got)
 	}
 	for _, table := range []string{"worker_attempts", "worker_authorizations", "worker_attempt_dispositions", "worker_job_revisions", "worker_oracle_finding_facts", "workflow_worker_actors", "workflow_member_groups", "workflow_group_members", "workflow_member_callers", "worktree_verify_leases"} {
 		if len(before[table]) == 0 {

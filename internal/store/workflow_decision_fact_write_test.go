@@ -291,7 +291,7 @@ func TestDecisionFactRevisionPreservesConfirmation(t *testing.T) {
 			}
 			confirmation := workflowTypedEvent("confirm-"+id, WorkflowPremiseConfirmed, id, actorRef, time.Unix(42, 0).UTC(), version, map[string]any{"contract_version": 1, "confirming_actor_ref": actorRef, "confirmation_authority": "coordinator"})
 			confirmation.PayloadVersion = CurrentEventPayloadVersion(WorkflowPremiseConfirmed)
-			if err := ApplyOperation(ctx, s, Operation{Events: []Event{confirmation}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, id): version}}); err != nil {
+			if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{confirmation}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, id): version}}); err != nil {
 				t.Fatal(err)
 			}
 			confirmID, confirmDigest, confirmActor := decisionFactReceipt(t, s, id, WorkflowPremiseConfirmed)

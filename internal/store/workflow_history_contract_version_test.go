@@ -83,16 +83,22 @@ func TestHistoryContractVersionRefusals(t *testing.T) {
 	ctx := context.Background()
 	_, err := s.QueryQ7(ctx, Q7Request{Work: workID, ContractVersion: 9})
 	assertFailureKind(t, err, KindUnknownScope)
+	seedWork(t, s, "history-cursor-related")
+	version := readWorkVersion(t, s, workID)
+	if err := applyWorkEvent(t, s, relationAddedEvent("history-cursor-relation", "depends_on", workID, "history-cursor-related", version, version+1), workVersion(workID, version)); err != nil {
+		t.Fatal(err)
+	}
+	kinds := []string{"lifecycle", "phase_exit", "relation"}
 
-	page, err := s.QueryQ7(ctx, Q7Request{Work: workID, RecordKinds: historyRecordKinds, ContractVersion: 1, Limit: 1})
+	page, err := s.QueryQ7(ctx, Q7Request{Work: workID, RecordKinds: kinds, ContractVersion: 1, Limit: 1})
 	if err != nil || page.NextCursor == nil {
 		t.Fatalf("first selected page = %+v, %v; want a next cursor", page.NextCursor, err)
 	}
-	if _, err := s.QueryQ7(ctx, Q7Request{Work: workID, RecordKinds: historyRecordKinds, ContractVersion: 1, Limit: 1, Cursor: *page.NextCursor}); err != nil {
+	if _, err := s.QueryQ7(ctx, Q7Request{Work: workID, RecordKinds: kinds, ContractVersion: 1, Limit: 1, Cursor: *page.NextCursor}); err != nil {
 		t.Fatalf("the cursor must continue its own selector: %v", err)
 	}
 	for _, other := range []int64{0, 2} {
-		_, err := s.QueryQ7(ctx, Q7Request{Work: workID, RecordKinds: historyRecordKinds, ContractVersion: other, Limit: 1, Cursor: *page.NextCursor})
+		_, err := s.QueryQ7(ctx, Q7Request{Work: workID, RecordKinds: kinds, ContractVersion: other, Limit: 1, Cursor: *page.NextCursor})
 		assertFailureKind(t, err, KindInvalidCursor)
 	}
 

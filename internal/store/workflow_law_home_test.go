@@ -114,11 +114,14 @@ func TestCrossProductWorkRecordsContractApproval(t *testing.T) {
 	workID := "cross-product-approval"
 	actor := seedWorkflowLawFixture(t, s, workID)
 	seedSecondaryProductMembership(t, s, workID)
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
+	version := readWorkVersion(t, s, workID)
 
-	event := workflowEventWithActor("cross-product-approval-event", WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), map[string]any{
-		"work_id": workID, "expected_version": int64(4), "resulting_version": int64(5), "contract_version": int64(1), "premise": "record across Products", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:cross-product", "immutable_subject_ref": "commit:cross-product", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:one"}, "law_modifies": []string{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-	})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, 4)}); err != nil {
+	event := withPlanDecisionFact(t, WorkflowStepPlanChange, workflowEventWithActor("cross-product-approval-event", WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "premise": "record across Products", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:cross-product", "immutable_subject_ref": "commit:cross-product", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:one"}, "law_modifies": []string{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+		"architecture_binding": WorkflowArchitectureBinding{HomeDomainID: "product-root:product", AffectedDomainIDs: []string{"product-root:product"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}},
+	}))
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, version)}); err != nil {
 		t.Fatalf("cross-Product contract approval refused: %v", err)
 	}
 	var boundaryVersion int64

@@ -96,6 +96,11 @@ func catalogAction(actionID string) (WorkflowActionDefinition, error) {
 	return builtinWorkflowActionCatalog().action(actionID)
 }
 
+// WorkflowActionCatalogSize bounds distinct actions emitted by the catalog.
+func WorkflowActionCatalogSize() int {
+	return len(builtinWorkflowActionCatalog())
+}
+
 // builtinWorkflowActionCatalog is the current catalog for built-in workflows.
 func builtinWorkflowActionCatalog() workflowActionCatalog {
 	return workflowActionCatalog{

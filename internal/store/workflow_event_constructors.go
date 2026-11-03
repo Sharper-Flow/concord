@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -541,45 +542,50 @@ func associateWorkflowVerdictReceiptsTx(ctx context.Context, tx queryer, workID,
 }
 
 func workflowConfirmPremiseEvents(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	contractVersion := workflowFieldInt(fields, "contract_version", 0)
-	if contractVersion == 0 {
-		activeVersion, err := activeWorkflowContractVersion(ctx, tx, request.WorkID, "workflow_action")
-		if err != nil {
-			if err == sql.ErrNoRows {
-				return nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract is missing", false, "reread_entities")
-			}
-			return nil, err
-		}
-		contractVersion = activeVersion
-	}
-	activeVersion, err := activeWorkflowContractVersion(ctx, tx, request.WorkID, "workflow_action")
+	contractVersion, err := workflowConfirmationAdmissionTx(ctx, tx, planType, request.WorkID, actor, fields)
 	if err != nil {
-		return nil, err
-	}
-	if contractVersion != activeVersion {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("premise confirmation names contract version %d, which supersession invalidated; the active version is %d", contractVersion, activeVersion), false, "confirm the active contract version")
-	}
-	if err := validateWorkflowCoordinatorConfirmationTx(ctx, tx, planType, request, actor); err != nil {
 		return nil, err
 	}
 	return []Event{workflowTypedEvent(eventID, WorkflowPremiseConfirmed, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": contractVersion, "confirming_actor_ref": actor, "confirmation_authority": "coordinator"})}, nil
 }
 
-func validateWorkflowCoordinatorConfirmationTx(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, request WorkflowActionExecutionRequest, actor string) error {
+func workflowConfirmationAdmissionTx(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, workID, actor string, fields map[string]json.RawMessage) (int64, error) {
+	contractVersion := workflowFieldInt(fields, "contract_version", 0)
+	activeVersion, err := activeWorkflowContractVersion(ctx, tx, workID, "workflow_action")
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract is missing", false, "reread_entities")
+		}
+		return 0, err
+	}
+	if contractVersion == 0 {
+		contractVersion = activeVersion
+	}
+	if contractVersion != activeVersion {
+		return 0, newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("premise confirmation names contract version %d, which supersession invalidated; the active version is %d", contractVersion, activeVersion), false, "confirm the active contract version")
+	}
+	if err := validateWorkflowCoordinatorConfirmationTx(ctx, tx, planType, workID, actor); err != nil {
+		return 0, err
+	}
+	return contractVersion, nil
+}
+
+func validateWorkflowCoordinatorConfirmationTx(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, workID, actor string) error {
 	var invokerClass string
 	if tx.QueryRowContext(ctx, `SELECT actor_class FROM workflow_actors WHERE actor_ref=?`, actor).Scan(&invokerClass) != nil || invokerClass != "agent" {
 		return newFailure(KindInvalidOperation, "workflow_action", "an engineering premise confirmation records the authenticated coordinator actor", false, "confirm under an agent-class coordinator identity")
 	}
-	contract, err := workflowCompletionContractRows(ctx, tx, request.WorkID)
+	contract, err := workflowCompletionContractRows(ctx, tx, workID)
 	if err != nil {
 		return err
 	}
-	missing, err := workflowMissingCriterionAssociations(ctx, tx, request.WorkID)
+	missing, err := workflowMissingCriterionAssociations(ctx, tx, workID)
 	if err != nil {
 		return err
 	}
 	if len(missing) != 0 {
-		return newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires proof for every approved predicate", false, "record_verdict for each approved predicate")
+		ids := slices.Sorted(maps.Keys(missing))
+		return newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires proof for every approved predicate: missing "+strings.Join(ids, ", "), false, "record_verdict for each approved predicate")
 	}
 	var requirements []workflowEvidenceRequirement
 	for _, kind := range contract.RequiredEvidence {
@@ -591,15 +597,15 @@ func validateWorkflowCoordinatorConfirmationTx(ctx context.Context, tx *sql.Tx, 
 	for _, obligation := range contract.VerificationObligations {
 		requirements = append(requirements, workflowEvidenceRequirement{Kind: obligation.ObligationID, Reference: obligation.LawID})
 	}
-	outstanding, err := unboundWorkflowEvidenceRequirements(ctx, tx, request.WorkID, requirements, 0)
+	outstanding, err := unboundWorkflowEvidenceRequirements(ctx, tx, workID, requirements, 0)
 	if err != nil {
 		return err
 	}
 	if len(outstanding) != 0 {
-		return newFailure(KindMissingEvidence, "workflow_action", "contract evidence requirements are not bound", false, "bind required evidence")
+		return newFailure(KindMissingEvidence, "workflow_action", fmt.Sprintf("contract evidence requirements are not bound: kind %q reference %q", outstanding[0].Kind, outstanding[0].Reference), false, "bind required evidence")
 	}
 	if planType != WorkflowStepPlanResearch {
-		review, err := loadWorkflowReviewState(ctx, tx, request.WorkID)
+		review, err := loadWorkflowReviewState(ctx, tx, workID)
 		if err != nil {
 			return err
 		}

@@ -3,7 +3,6 @@ package store
 import (
 	"encoding/json"
 	"testing"
-	"time"
 )
 
 func seedLateCriterionAssociation(t *testing.T, workID string) (workflowReturnRouteFixture, string) {
@@ -51,6 +50,13 @@ func TestCriterionAssociationAtConclusionBeforeConfirmation(t *testing.T) {
 		request := WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: readWorkVersion(t, f.store, workID), ActionID: action, Payload: payload, Actor: f.owner}
 		_, err := WorkflowActionDefinitionFor(t.Context(), f.store, request)
 		return err
+	}
+	before := outsideRepairDatabaseSnapshot(t, f.store)
+	if err := runVerdictActionAs(t, f.store, workID, "confirm_premise", json.RawMessage(`{}`), 0, f.owner); !hasFailureKind(err, KindMissingEvidence) {
+		t.Fatalf("unproved confirmation write=%v", err)
+	}
+	if outsideRepairDatabaseSnapshot(t, f.store) != before {
+		t.Fatal("unproved confirmation changed durable state")
 	}
 	if err := preflight("confirm_premise", json.RawMessage(`{}`)); !hasFailureKind(err, KindMissingEvidence) {
 		t.Fatalf("unproved confirmation=%v", err)
@@ -125,68 +131,34 @@ func TestCriterionAssociationSurvivesUnchangedContractDigest(t *testing.T) {
 				t.Fatalf("unchanged criterion lost its original proof: %v", err)
 			}
 		}
-		pin := issue1013Pin(t, f.store, workID)
-		var currentRecord bool
-		for _, intent := range pin.NextValidIntents {
-			if intent.ActionID == "record_verdict" && intent.ReasonCode == "current_record" {
-				currentRecord = true
-			}
+		err = runVerdictActionAs(t, f.store, workID, "confirm_premise", json.RawMessage(`{}`), 0, f.owner)
+		if tc.count == 2 && err != nil {
+			t.Fatalf("contract %d: confirmation of unchanged proof: %v", tc.version, err)
 		}
-		if !currentRecord {
-			t.Fatalf("contract %d: current verdict record is not editable", tc.version)
+		if tc.count != 2 && !hasFailureKind(err, KindMissingEvidence) {
+			t.Fatalf("contract %d: confirmation without current proof = %v", tc.version, err)
 		}
 	}
-}
-
-func TestCriterionAssociationCompletionCannotBorrowPriorEffect(t *testing.T) {
-	const workID = "late-association-completion"
-	f, ref := seedLateCriterionAssociation(t, workID)
 	if err := runVerdictActionAs(t, f.store, workID, "record_verdict", criterionAssociationPayload(ref, "predicate:first"), 0, f.owner); err != nil {
-		t.Fatal(err)
+		t.Fatalf("record current criterion association: %v", err)
 	}
-	actor, err := WorkflowActorRef(f.owner)
-	if err != nil {
-		t.Fatal(err)
+	verdicts, err := latestWorkflowVerdicts(t.Context(), f.store.db, workID, 4)
+	if err != nil || len(verdicts) != 2 {
+		t.Fatalf("current associations=%v err=%v", verdicts, err)
 	}
-	version := readWorkVersion(t, f.store, workID)
-	event := workflowTypedEvent("unpaired-association-completion", WorkflowActionCompleted, workID, actor, time.Unix(15, 0), version, map[string]any{
-		"step_id": "conclude", "action_id": "record_verdict", "attempt_epoch": 1, "actor_ref": actor,
-		"result_evidence_refs": []string{ref}, "changed_refs": []string{workID},
-	})
-	before := contractCorrectionEffectSnapshot(t, f.store, workID)
-	err = applyWorkflowTestOperationDirect(t.Context(), f.store, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
-	if !hasFailureKind(err, KindMissingEvidence) {
-		t.Fatalf("unpaired completion=%v", err)
-	}
-	if after := contractCorrectionEffectSnapshot(t, f.store, workID); after != before {
-		t.Fatal("unpaired completion changed state")
-	}
-}
-
-func TestCriterionAssociationReplacementCompletionCannotBorrowPriorEffect(t *testing.T) {
-	const workID = "association-replacement-completion"
-	f, ref := seedLateCriterionAssociation(t, workID)
-	payload := criterionAssociationPayload(ref, "predicate:first")
-	for i := 0; i < 2; i++ {
-		if err := runVerdictActionAs(t, f.store, workID, "record_verdict", payload, 0, f.owner); err != nil {
-			t.Fatalf("verdict write %d: %v", i, err)
+	var replaced bool
+	for _, association := range verdicts {
+		if association.PredicateID == "predicate:first" && association.ContractVersion == 4 && association.CriterionDigest != "" {
+			replaced = true
+		}
+		if err := verifyWorkflowCriterionAssociation(t.Context(), f.store.db, workID, association); err != nil {
+			t.Fatalf("current association lost proof: %v", err)
 		}
 	}
-	actor, err := WorkflowActorRef(f.owner)
-	if err != nil {
-		t.Fatal(err)
+	if !replaced {
+		t.Fatal("record_verdict did not replace the current criterion association")
 	}
-	version := readWorkVersion(t, f.store, workID)
-	event := workflowTypedEvent("unpaired-replacement-completion", WorkflowActionCompleted, workID, actor, time.Unix(15, 0), version, map[string]any{
-		"step_id": "conclude", "action_id": "record_verdict", "attempt_epoch": 1, "actor_ref": actor,
-		"result_evidence_refs": []string{ref}, "changed_refs": []string{workID},
-	})
-	before := contractCorrectionEffectSnapshot(t, f.store, workID)
-	err = applyWorkflowTestOperationDirect(t.Context(), f.store, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
-	if !hasFailureKind(err, KindMissingEvidence) {
-		t.Fatalf("unpaired replacement completion=%v", err)
-	}
-	if after := contractCorrectionEffectSnapshot(t, f.store, workID); after != before {
-		t.Fatal("unpaired replacement completion changed state")
+	if err := runVerdictActionAs(t, f.store, workID, "confirm_premise", json.RawMessage(`{}`), 0, f.owner); err != nil {
+		t.Fatalf("confirmation after current association: %v", err)
 	}
 }

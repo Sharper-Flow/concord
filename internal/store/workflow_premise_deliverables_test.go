@@ -41,6 +41,11 @@ func TestPreflightRefusesConfirmationMissingMandatedDeliverables(t *testing.T) {
 	if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "every approved predicate") {
 		t.Fatalf("preflight without criterion association = %v, want missing_evidence naming the predicates", err)
 	}
+	writeErr := missing.run(ctx, "confirm_premise", "preflight-parity", missing.version(ctx, t), nil, nil)
+	var writeFailure *Failure
+	if !failureAs(writeErr, &writeFailure) || writeFailure.Kind != failure.Kind || writeFailure.Detail != failure.Detail {
+		t.Fatalf("preflight=%v write=%v, want matching refusals", err, writeErr)
+	}
 	full := qCurrentAcceptance(t, "preflight-full-proof")
 	if err := preflight(full); err != nil {
 		t.Fatalf("preflight with current criterion proof refused: %v", err)

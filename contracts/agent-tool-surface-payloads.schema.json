@@ -3187,7 +3187,7 @@
             },
             "step_actions": {
               "type": "array",
-              "maxItems": 16,
+              "maxItems": 28,
               "uniqueItems": true,
               "items": {
                 "$ref": "#/$defs/id"

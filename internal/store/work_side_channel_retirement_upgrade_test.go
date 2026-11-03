@@ -10,7 +10,7 @@ import (
 
 func cutoverRetainedContractRows(t *testing.T, db *sql.DB) [][]any {
 	t.Helper()
-	return retirementUpgradeRows(t, db, `SELECT work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,superseded_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json,supersession_seq,last_healthy_seq,decision_domains FROM workflow_contracts ORDER BY rowid`)
+	return cutoverContractRows(t, db)
 }
 
 func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
@@ -47,13 +47,12 @@ func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 	if err != nil || verified.DBChecksum != manifest.DBChecksum || verified.SchemaVersion != 178 {
 		t.Fatalf("verified predecessor = %+v, %v", verified, err)
 	}
-	contracts := cutoverRetainedContractRows(t, db)
-	const retainedInstanceColumns = `SELECT work_id,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY work_id`
-	instances := retirementUpgradeRows(t, db, retainedInstanceColumns)
+	contracts := cutoverContractRows(t, db)
+	instances := cutoverInstanceExpectations(t, db, "")
 	if _, err := Upgrade(t.Context(), path, nil); err != nil {
 		t.Fatal(err)
 	}
-	retired := map[string]bool{"work_messages": true, "work_observations": true, "workflow_law_baselines": true, "workflow_artifact_actions": true, "workflow_correction_state": true}
+	retired := map[string]bool{"work_messages": true, "work_observations": true, "workflow_law_baselines": true, "workflow_artifact_actions": true, "workflow_correction_state": true, "workflow_step_completions": true}
 	for table, want := range retained {
 		if retired[table] {
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name=? OR tbl_name=?`, table, table); len(rows) != 0 {
@@ -71,10 +70,10 @@ func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 			t.Errorf("unrelated current authority %s changed", table)
 		}
 	}
-	if got := cutoverRetainedContractRows(t, db); !reflect.DeepEqual(got, contracts) {
+	if got := cutoverContractRows(t, db); !reflect.DeepEqual(got, contracts) {
 		t.Errorf("unrelated current authority workflow_contracts changed")
 	}
-	if got := retirementUpgradeRows(t, db, retainedInstanceColumns); !reflect.DeepEqual(got, instances) {
+	if got := retirementUpgradeRows(t, db, `SELECT * FROM workflow_instances ORDER BY rowid`); !reflect.DeepEqual(got, instances) {
 		t.Errorf("retained workflow instance fields changed: before=%v after=%v", instances, got)
 	}
 	backup, err := sql.Open(driverName, readOnlyDataSource(snapshot))

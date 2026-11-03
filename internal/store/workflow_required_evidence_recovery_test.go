@@ -195,6 +195,10 @@ func TestAcceptanceRecoversMissingRequiredEvidenceKind(t *testing.T) {
 	if !strings.Contains(detail, wf04OutstandingKind) {
 		t.Fatalf("confirmation refusal = %q, want it to name the missing %s kind", detail, wf04OutstandingKind)
 	}
+	_, preflightErr := WorkflowActionDefinitionFor(ctx, f.store, WorkflowActionPreflightRequest{WorkID: f.workID, ExpectedVersion: f.version(ctx, t), ActionID: "confirm_premise", Payload: json.RawMessage(`{}`), Actor: f.owner})
+	if got := requireRecoveryFailure(t, preflightErr, KindMissingEvidence, "preflight with an unbound required kind"); got != detail {
+		t.Fatalf("preflight detail = %q, want %q", got, detail)
+	}
 
 	if err := f.bind(ctx, "recover-outstanding", f.version(ctx, t), wf04OutstandingKind, wf04RecoveryRef); err != nil {
 		t.Fatalf("recovery binding for the outstanding kind refused: %v", err)

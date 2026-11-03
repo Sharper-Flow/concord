@@ -37,12 +37,13 @@ type schemaRefProjection struct {
 }
 
 type contractProjection struct {
-	SchemaVersion   string                            `json:"schema_version"`
-	Actions         []actionContract                  `json:"actions"`
-	Workflows       []workflowOutcomeContract         `json:"workflows"`
-	Teaching        store.WorkflowContractTeaching    `json:"teaching"`
-	SchemaRefs      schemaRefProjection               `json:"schema_refs"`
-	ContractUpdates []store.WorkflowPayloadDefinition `json:"contract_updates"`
+	SchemaVersion      string                            `json:"schema_version"`
+	Actions            []actionContract                  `json:"actions"`
+	CatalogActionCount int                               `json:"catalog_action_count"`
+	Workflows          []workflowOutcomeContract         `json:"workflows"`
+	Teaching           store.WorkflowContractTeaching    `json:"teaching"`
+	SchemaRefs         schemaRefProjection               `json:"schema_refs"`
+	ContractUpdates    []store.WorkflowPayloadDefinition `json:"contract_updates"`
 }
 
 // canonicalPayload normalizes nil and empty field lists to the same contract.
@@ -166,7 +167,7 @@ func main() {
 	for _, ref := range payloadSchemaRefs(update) {
 		refs[ref] = true
 	}
-	projection := contractProjection{SchemaVersion: "2.0", Actions: make([]actionContract, 0, len(ids)), Teaching: store.WorkflowContractTeachingRules(), SchemaRefs: schemaRefProjection{Current: sortedRefNames(refs)}, ContractUpdates: []store.WorkflowPayloadDefinition{update}}
+	projection := contractProjection{SchemaVersion: "2.0", Actions: make([]actionContract, 0, len(ids)), CatalogActionCount: store.WorkflowActionCatalogSize(), Teaching: store.WorkflowContractTeachingRules(), SchemaRefs: schemaRefProjection{Current: sortedRefNames(refs)}, ContractUpdates: []store.WorkflowPayloadDefinition{update}}
 	for _, template := range templates.Types {
 		kinds, tokens := store.WorkflowPlanAllowedPredicates(store.WorkflowStepPlanType(template.ID))
 		kindNames := make([]string, 0, len(kinds))

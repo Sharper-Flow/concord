@@ -72,12 +72,12 @@ func TestWorkflowPremiseConfirmationReentryUpdatesProjectionRow(t *testing.T) {
 	const workID = "workflow-premise-reentry"
 	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, "conclude", []string{}, []string{})
 	s := f.store
-	operator := mustActorRef(t, f.operator)
+	coordinator := mustActorRef(t, f.owner)
 	base := readWorkVersion(t, s, workID)
 	confirmation := func(id string, expected int64, occurredAt time.Time) Event {
-		event := workflowEventWithActor(id, WorkflowPremiseConfirmed, workID, operator, map[string]any{
+		event := workflowEventWithActor(id, WorkflowPremiseConfirmed, workID, coordinator, map[string]any{
 			"work_id": workID, "expected_version": expected, "resulting_version": expected + 1,
-			"contract_version": 1, "confirming_actor_ref": operator, "confirmation_authority": "coordinator",
+			"contract_version": 1, "confirming_actor_ref": coordinator, "confirmation_authority": "coordinator",
 		})
 		event.OccurredAt = occurredAt
 		return event
@@ -92,7 +92,7 @@ func TestWorkflowPremiseConfirmationReentryUpdatesProjectionRow(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*), max(confirmed_by), max(confirmed_at) FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=1`, workID).Scan(&rows, &confirmedBy, &confirmedAt); err != nil {
 		t.Fatal(err)
 	}
-	if rows != 1 || confirmedBy != operator || confirmedAt != "1970-01-01T00:00:20Z" {
+	if rows != 1 || confirmedBy != coordinator || confirmedAt != "1970-01-01T00:00:20Z" {
 		t.Fatalf("premise projection rows=%d confirmed_by=%q confirmed_at=%q", rows, confirmedBy, confirmedAt)
 	}
 }

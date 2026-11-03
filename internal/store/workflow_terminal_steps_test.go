@@ -20,6 +20,35 @@ func TestReportedCompletionDiscardsStepsAndPreservesDelivery(t *testing.T) {
 		t.Fatalf("reported delivery = %+v, %v", before, err)
 	}
 	bindings := retirementUpgradeRows(t, s.db, `SELECT * FROM workflow_evidence_bindings ORDER BY rowid`)
+	actor := workflowActorForRef(t, s, completion.Actor)
+	initialVersion := readWorkVersion(t, s, workID)
+	for {
+		plan, err := readWorkflowPlanTx(t.Context(), s.db, workID)
+		if err != nil || plan == nil {
+			t.Fatalf("read plan: %v", err)
+		}
+		frontier := WorkflowStepPlanFrontier(*plan)
+		if len(frontier) == 0 {
+			break
+		}
+		step := frontier[0]
+		payload := map[string]any{"step_id": step.ID, "note": "completed for delivery"}
+		if step.Reviewed {
+			state, err := loadWorkflowReviewState(t.Context(), s.db, workID)
+			if err != nil || state.Accepted == nil || state.Candidate == nil {
+				t.Fatalf("read accepted review: %+v, %v", state, err)
+			}
+			payload["reviewer"], payload["result"], payload["commit"], payload["link"] = "concord-review", "pass", state.Candidate.Commit, state.Accepted.ReportRef
+		}
+		if err := runVerdictActionAs(t, s, workID, "complete_step", mustJSONValue(payload), 0, actor); err != nil {
+			t.Fatalf("complete step %s: %v", step.ID, err)
+		}
+	}
+	completedPlan, err := readWorkflowPlanTx(t.Context(), s.db, workID)
+	if err != nil || completedPlan == nil {
+		t.Fatalf("read completed plan: %v", err)
+	}
+	completion = shiftWorkflowTestEventVersions(completion, readWorkVersion(t, s, workID)-initialVersion)
 	if err := CompleteWorkflow(t.Context(), s, completion); err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +63,11 @@ func TestReportedCompletionDiscardsStepsAndPreservesDelivery(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(before, projection.DeliveryAssertion) {
 		t.Fatalf("terminal projection lost reported delivery: %+v, %v", projection.DeliveryAssertion, err)
 	}
-	for _, table := range []string{"workflow_step_epochs", "workflow_step_completions", "workflow_phase_exits", "workflow_completed_exits", "workflow_checkpoints", "workflow_context_checkpoints", "workflow_context_boundaries", "workflow_coordinator_actions"} {
+	plan, err := readWorkflowPlanTx(t.Context(), s.db, workID)
+	if err != nil || plan == nil || len(WorkflowStepPlanFrontier(*plan)) != 0 || !reflect.DeepEqual(plan, completedPlan) {
+		t.Fatalf("completed plan = %+v, %v", plan, err)
+	}
+	for _, table := range []string{"workflow_step_epochs", "workflow_phase_exits", "workflow_completed_exits", "workflow_checkpoints", "workflow_context_checkpoints", "workflow_context_boundaries", "workflow_coordinator_actions"} {
 		var count int
 		if err := s.db.QueryRow("SELECT count(*) FROM "+table+" WHERE work_id=?", workID).Scan(&count); err != nil || count != 0 {
 			t.Errorf("retained %s rows=%d err=%v", table, count, err)

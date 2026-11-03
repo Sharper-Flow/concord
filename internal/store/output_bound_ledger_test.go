@@ -2291,10 +2291,10 @@ func TestLedgerRefTraversal(t *testing.T) {
 	rt.docs[surfaceManifestFile] = manifest
 	rt.docs[payloadSchemaFile] = payload()
 	census, _ = buildCensus(rt, nil, nil)
-	if _, err := rt.evaluateSource(schemaBound(payloadSchemaFile, "/$defs/out/properties/items/maxItems"), census); err == nil {
+	if _, err := rt.evaluateSource(schemaBound("/$defs/out/properties/items/maxItems"), census); err == nil {
 		t.Fatal("an output-only payload node was accepted as a producer source")
 	}
-	if _, err := rt.evaluateSource(schemaBound(payloadSchemaFile, "/$defs/in/properties/note/maxLength"), census); err != nil {
+	if _, err := rt.evaluateSource(schemaBound("/$defs/in/properties/note/maxLength"), census); err != nil {
 		t.Fatalf("an input-reachable payload node was refused: %v", err)
 	}
 	external := payload()

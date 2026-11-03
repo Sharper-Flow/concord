@@ -92,5 +92,6 @@ write authority beside the typed mutation surface.
   'TestRemovedLaunchEntriesRefuseWithoutExecuting|TestRemovedLaunchArgvZeroDoesNotForward'`
   proves the removed entry verbs reach no launch and start no process.
 - [The Domain registry checker](../../../scripts/check-domain-registry.py) checks
-  law and Domain references; [the document link checker](../../../scripts/check-doc-links.py)
+  that law-record Domain fields and Domain registry entries resolve to declared
+  Domains and current law; [the document link checker](../../../scripts/check-doc-links.py)
   checks bounded relative Markdown paths and heading anchors.

@@ -3,9 +3,7 @@
   "id": "CD-0156",
   "title": "Mandatory backlog alignment step in planned and defect work",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "workflow-engine",
   "applies_to_domain_ids": [],
@@ -71,6 +69,21 @@ its scope), `outcome` (required enum `related_found` or `none_found`), and
 nothing from never-checked; passing the step is the proof the search happened,
 and the enum records what it returned.
 
+Ordinary work removal drops the removed item's match rows from surviving
+alignments ([CD-0142 D4](CD-0142-operator-directed-execution-removal.md#d4-absence-survives-reads-recovery-and-renewal)).
+It preserves each surviving declaration's search, original outcome, author and
+time, other matches, and applicable effect and idempotency evidence.
+The read reports `all_matches_removed` as true exactly when the original outcome
+is `related_found` and no match remains. It reports false for `none_found` and
+for `related_found` with surviving matches. This field derives from current rows;
+it stores no removal history and exposes no removed ID. An absent declaration
+still means no recorded search, not a search whose matches were removed.
+
+The recording guard remains unchanged. The initiative cutover still refuses
+sole-initiative matches under
+[CD-0213 D8](CD-0213-linear-mcp-is-the-only-planning-authority.md#d8-retired-planning-kinds-keep-no-history);
+the ordinary removal read state does not relax that upgrade gate.
+
 ### D4. A dedicated alignment table
 
 The mutation writes a dedicated `workflow_backlog_alignment` table,
@@ -105,5 +118,10 @@ collision refusal, or the other five workflow types.
 - `TestWorkRemovalClearsBacklogAlignmentAtBothEnds` proves work removal clears
   rows naming the removed item in either column. Both foreign keys are
   `RESTRICT`, so a projection delete covering only `work_id` would strand the
-  related-item row and fail the final work-item delete.
+  related-item row and fail the final work-item delete. A surviving declaration
+  retains its metadata and reads `all_matches_removed` after sole-match removal.
+- `TestBacklogAlignmentPartialRemoval` proves other matches and the declaration
+  remain unchanged when one of several matches is removed.
+- `TestTraceHistoryReadsBacklogAlignment` proves the agent read exposes fresh
+  results and the all-removed state while preserving effect and idempotency evidence.
 - The workflow contract documents the new action, table, and graphs.

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -234,6 +235,7 @@ func TestWorkRemovalClearsBacklogAlignmentAtBothEnds(t *testing.T) {
 			seedWork(t, s, "align-searcher")
 			seedWork(t, s, "align-related")
 			seedBacklogAlignmentRows(t, s, "align-searcher", "align-related")
+			before := retirementUpgradeRows(t, s.DatabaseForTesting(), `SELECT searched,outcome,recorded_at,recorded_by FROM workflow_backlog_alignment WHERE work_id='align-searcher' AND related_work_id IS NULL`)
 			request := removalTestRequest()
 			request.WorkID = testCase.removed
 			request.OperationID = "remove-align-" + testCase.removed
@@ -256,14 +258,52 @@ func TestWorkRemovalClearsBacklogAlignmentAtBothEnds(t *testing.T) {
 			if survivors != 1 {
 				t.Fatalf("removal dropped the surviving item %s", testCase.survivor)
 			}
+			alignment, err := readWorkflowBacklogAlignment(ctx, s.DatabaseForTesting(), testCase.survivor)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if testCase.removed == "align-related" && (alignment == nil || alignment.Outcome != "related_found" || len(alignment.RelatedIDs) != 0 || !alignment.AllMatchesRemoved) {
+				t.Fatalf("surviving alignment does not mark removed matches: %+v", alignment)
+			}
+			if testCase.removed == "align-related" {
+				after := retirementUpgradeRows(t, s.DatabaseForTesting(), `SELECT searched,outcome,recorded_at,recorded_by FROM workflow_backlog_alignment WHERE work_id='align-searcher' AND related_work_id IS NULL`)
+				if !reflect.DeepEqual(before, after) || alignment.Searched != "Searched open work for items covering the same surface." {
+					t.Fatalf("declaration changed: before=%v after=%v read=%+v", before, after, alignment)
+				}
+			}
+			if testCase.removed == "align-searcher" && alignment != nil {
+				t.Fatalf("unrecorded alignment is present: %+v", alignment)
+			}
 		})
+	}
+}
+
+func TestBacklogAlignmentPartialRemoval(t *testing.T) {
+	s := openTemp(t)
+	for _, id := range []string{"align-searcher", "align-related", "align-keep"} {
+		seedWork(t, s, id)
+	}
+	seedBacklogAlignmentRows(t, s, "align-searcher", "align-related", "align-keep")
+	before := retirementUpgradeRows(t, s.DatabaseForTesting(), `SELECT * FROM workflow_backlog_alignment WHERE related_work_id IS NULL OR related_work_id='align-keep' ORDER BY related_work_id`)
+	request := removalTestRequest()
+	request.WorkID = "align-related"
+	if err := removeWorkForTest(t.Context(), s, request); err != nil {
+		t.Fatal(err)
+	}
+	after := retirementUpgradeRows(t, s.DatabaseForTesting(), `SELECT * FROM workflow_backlog_alignment ORDER BY related_work_id`)
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("surviving rows changed: before=%v after=%v", before, after)
+	}
+	alignment, err := readWorkflowBacklogAlignment(t.Context(), s.DatabaseForTesting(), "align-searcher")
+	if err != nil || alignment == nil || alignment.Outcome != "related_found" || alignment.AllMatchesRemoved || !reflect.DeepEqual(alignment.RelatedIDs, []string{"align-keep"}) {
+		t.Fatalf("partial removal alignment=%+v err=%v", alignment, err)
 	}
 }
 
 // seedBacklogAlignmentRows writes the declaration row and one related-item row
 // a related_found search produces, so a removal test holds a row at each end of
 // the foreign-key pair.
-func seedBacklogAlignmentRows(t *testing.T, s *Store, workID, relatedID string) {
+func seedBacklogAlignmentRows(t *testing.T, s *Store, workID string, relatedIDs ...string) {
 	t.Helper()
 	ctx := context.Background()
 	const actorRef = "actor:0000000000000000000000000000000000000000000000000000000000000001"
@@ -280,7 +320,11 @@ func seedBacklogAlignmentRows(t *testing.T, s *Store, workID, relatedID string) 
 		t.Fatal(err)
 	}
 	searched := "Searched open work for items covering the same surface."
-	for _, related := range []any{nil, relatedID} {
+	relatedRows := []any{nil}
+	for _, id := range relatedIDs {
+		relatedRows = append(relatedRows, id)
+	}
+	for _, related := range relatedRows {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_backlog_alignment(work_id,related_work_id,searched,outcome,recorded_at,recorded_by) VALUES(?,?,?,'related_found','2026-09-19T00:00:00Z',?)`, workID, related, searched, actorRef); err != nil {
 			tx.Rollback()
 			t.Fatal(err)

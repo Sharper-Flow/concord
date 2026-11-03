@@ -67,7 +67,7 @@ func TestOrdinaryAlignmentReplacement(t *testing.T) {
 					t.Fatalf("rows=%v want=%v", got, want)
 				}
 				read, err := readWorkflowBacklogAlignment(context.Background(), s.db, work)
-				if err != nil || read == nil || read.Searched != search || read.Outcome != outcome || !reflect.DeepEqual(read.RelatedIDs, append([]string{}, ids...)) {
+				if err != nil || read == nil || read.Searched != search || read.Outcome != outcome || read.AllMatchesRemoved || !reflect.DeepEqual(read.RelatedIDs, append([]string{}, ids...)) {
 					t.Fatalf("alignment read=%+v err=%v", read, err)
 				}
 			}

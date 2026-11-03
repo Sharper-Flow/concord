@@ -1788,7 +1788,8 @@
       "required": [
         "searched",
         "outcome",
-        "related_ids"
+        "related_ids",
+        "all_matches_removed"
       ],
       "properties": {
         "searched": {
@@ -1809,6 +1810,9 @@
           "items": {
             "$ref": "#/$defs/id"
           }
+        },
+        "all_matches_removed": {
+          "type": "boolean"
         }
       }
     },

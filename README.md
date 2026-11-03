@@ -264,11 +264,13 @@ bin/oc-test broad -- env -u CONCORD_SELECTED_PRODUCT_ID bun test adapter/opencod
 
 - **Smoke tier (`bin/oc-test smoke`)**: Runs adapter tests, JSON schema validators, and unsharded Go package tests. It omits `cmd/concord`, `internal/agent`, and `internal/store`, which CI splits into shard jobs.
 - **Conformance tier (`bin/oc-test conformance`)**: Runs the ten-process SQLite harness to verify concurrency and transaction-locking invariants.
-- **Deterministic store sharding**: To test heavy packages locally without running the entire suite, run individual CI shards. For example, to run shard 1 of the 7 `internal/store` shards:
+- **Deterministic store sharding (`bin/oc-test store-shard`)**: The declared local store route, because the unsharded store suite cannot finish inside one 15-minute alarm on a loaded host. Each invocation runs one CI shard under full admission and releases the shared slot before the next. For example, to run shard 1 of the 7 `internal/store` shards:
 
 ```sh
-bin/oc-test broad -- bash -euo pipefail -c 'go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 7)" ./internal/store'
+bin/oc-test store-shard 1 7
 ```
+
+The tier uses CI's `scripts/go-test-shard.py` selection with discovery inside admission. Run every shard index for a whole-suite local pass; a shard is a CI-placement tool, not a default local coverage choice.
 
 Heavy tiers refuse to start without the host test gate. Every tier caps each file a test writes at 1024 MiB; a writer that reaches the cap is normally killed by SIGXFSZ. `PASS` reports the command's exit status, not proof that a named test matched. To see admission and selection without running tests, use `bin/oc-test plan targeted -- <command>`. [`bin/oc-test`](bin/oc-test) documents the per-run override and host admission; the [CI workflow](.github/workflows/ci.yml) defines the required repository checks.
 

@@ -11,17 +11,41 @@ import (
 )
 
 // invokeRequestWireBytes composes the whole invoke request's wire figure
-// from one derived action input: the call envelope's host-owned identities
-// under their downstream owners' bounds, then the four-member request
-// wrapper. Both request derivations share it.
+// from one derived action input: the call envelope under the bounds its
+// current owners enforce plus the derivation's population scope for the
+// members no owner bounds, then the four-member request wrapper. Both
+// request derivations share it.
 func invokeRequestWireBytes(t *testing.T, input int) int {
 	t.Helper()
-	// The call envelope's host-owned identities, each with its downstream
-	// owner: the reference grammar bounds the request and actor identities
-	// at 128 bytes (768 escaped bytes worst case in quotes), the contract's
-	// absolute_path def bounds the session paths at 4096 code points, the
-	// digest def's ASCII-proven sha256 grammar bounds the three digests at
-	// one byte per scalar.
+	// The call envelope's members, each under the bound a current owner
+	// enforces: client_ref and principal_ref must match the trusted
+	// client record (agent_clients CHECKs cap both at 128 characters),
+	// agent_ref must sit inside the client's agent scope (each member
+	// held to 1..128 bytes at registration), session_ref lands in the
+	// workflow_actors admission on mutations (CHECK 2..128), and the
+	// ambient and selected identifiers must equal the registry-resolved
+	// Project and Product identifiers. The digests are owner-fixed:
+	// manifest_digest must equal the agentcontract.ManifestDigest
+	// constant, and scope_version is the store-minted "sha256:"+64-hex
+	// watermark. The adapter writer omits host_assertion_digest; a
+	// mutation defaults an empty one to the AgentMutationDigest of that
+	// same 71-scalar shape.
+	//
+	// Population scope, not declared maxima (CON-1590): no owner bounds
+	// the length of directory, worktree, request_id, or the registry
+	// identifiers, and session_ref rides this scope on reads. The adapter
+	// copies both path values from the host session readback — its only
+	// writer-side check is non-empty — and composes request_id from the
+	// host session and message IDs; DecodeInvokeRequest enforces no
+	// per-field envelope bound. PR #2209 retired the output definition
+	// that was the last declared owner of a 4096-code-point session-path
+	// figure. This derivation instead scopes its envelope population at 4096 code
+	// points per path value — the release platform's PATH_MAX order —
+	// and 128 per identity-bearing member, at the six-byte worst case
+	// per scalar the figures below carry. A member past this scope stays
+	// transport-admitted today; the one bound it faces is the
+	// whole-request refusal TestDecodeInvokeRequestRefusesTypedAndWhole
+	// pins, unchanged.
 	envelope := map[string]int{
 		"schema_version":      len(`"1.0"`),
 		"request_id":          schemawire.JSONStringWireBytes(128),
@@ -34,10 +58,11 @@ func invokeRequestWireBytes(t *testing.T, input int) int {
 		"ambient_project_id":  schemawire.JSONStringWireBytes(128),
 		"selected_product_id": schemawire.JSONStringWireBytes(128),
 		// The three digests are this derivation's only one-byte population:
-		// their owner $defs/digest anchors an alphabet of hex digits and
-		// colon — fixed-ASCII, fixed-syntax, no escapable scalar — so the
-		// encoder's cost is exactly one byte per code point, quotes
-		// included. Every other string here keeps the six-byte figure.
+		// their owners above fix each at "sha256:" plus 64 lowercase hex
+		// — fixed-ASCII, no escapable scalar — so the encoder's cost is
+		// exactly one byte per code point, quotes included; the 130-byte
+		// figure keeps headroom over that 71-scalar shape. Every other
+		// string here keeps the six-byte figure.
 		"scope_version":         2 + 128,
 		"manifest_digest":       2 + 128,
 		"host_assertion_digest": 2 + 128,
@@ -97,9 +122,9 @@ func TestRequestBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the request derivation hit an unbudgeted member: %v", err)
 	}
-	// The call envelope's host-owned identities wrap the derived Review
-	// input; the shared builder keeps this per-shape proof and the
-	// widest-shape derivation on one construction.
+	// The call envelope wraps the derived Review input; the shared
+	// builder keeps this per-shape proof and the widest-shape derivation
+	// on one construction.
 	request := invokeRequestWireBytes(t, input)
 	if request > MaxRequestBytes {
 		t.Fatalf("the composed declared maxima need %d bytes, above the %d-byte request budget; derive the budget again", request, MaxRequestBytes)

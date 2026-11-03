@@ -604,10 +604,10 @@ def _refuse_maintenance_root(path: Path, error: OSError) -> None:
     planted symlink. A path that is a symlink refuses as one (Linux mkdir
     does not follow a trailing symlink, so a dangling target fails the
     creation with EEXIST; a symlink whose target exists never reaches the
-    creation and is refused by the open's ELOOP branch instead); a path
+    creation and is refused by the open's ENOTDIR branch instead); a path
     that is not a directory refuses as that; anything else keeps the
-    underlying reason and, when the failure named one, the entry the
-    kernel refused.
+    underlying reason and, when one was named, the level whose creation
+    failed.
     """
     try:
         current = os.lstat(path)
@@ -639,8 +639,8 @@ def _create_maintenance_root(path: Path) -> None:
     touches: a path whose ancestor is not a directory, and a data root that
     is a dangling symlink, whose creation fails EEXIST because a trailing
     symlink is not followed. A data root that already exists as a
-    non-directory never reaches the creation — the open's ELOOP/ENOTDIR
-    refusals in _acquire_maintenance_lock name it.
+    non-directory never reaches the creation — the open in
+    _acquire_maintenance_lock refuses it typed.
     """
     missing: list[Path] = []
     current = path
@@ -671,9 +671,9 @@ def _acquire_maintenance_lock(path: Path) -> int:
     (_create_maintenance_root), and an invalid path is refused typed before
     the lock is taken: a path the creation touches (a non-directory
     ancestor, or a dangling symlink) by the creation itself, and a path that
-    already exists as a non-directory — a regular file, or a symlink to an
-    existing entry — by the open below, whose ELOOP/ENOTDIR branches are
-    exactly those cases and stay reachable. What the creation made is
+    already exists as a non-directory — a regular file, or a symlink,
+    whatever its target — by the open below, whose branch stays reachable
+    for exactly those cases. What the creation made is
     retained at release (obs:1ca149d633e69626), so no creation-attribution
     machinery follows it — attribution existed only to authorize deletion,
     and no path-based deletion is safe against a replacement holder.
@@ -696,10 +696,13 @@ def _acquire_maintenance_lock(path: Path) -> int:
         except OSError as error:
             if error.errno in (errno.ELOOP, errno.ENOTDIR):
                 # The open itself refused, without following the path; the
-                # lstat only names the reason for the operator. These
-                # branches are the reachable refusal for a data root that
-                # already exists as a non-directory: a regular file
-                # (ENOTDIR) or a symlink to an existing entry (ELOOP).
+                # lstat only names the reason for the operator. This is the
+                # reachable refusal for a data root that already exists as
+                # a non-directory: a regular file or a symlink, whatever
+                # its target — O_DIRECTORY refuses a trailing symlink with
+                # ENOTDIR before O_NOFOLLOW's ELOOP applies — and the
+                # is_symlink lstat names which. ELOOP stays accepted for a
+                # path that became a loop only after the creation.
                 if path.is_symlink():
                     raise InstallerError(f"refusing symlinked data root {path}") from error
                 raise InstallerError(f"refusing data root {path}: it is not a directory") from error

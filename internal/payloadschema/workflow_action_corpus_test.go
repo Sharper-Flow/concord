@@ -705,7 +705,9 @@ func TestWorkflowActionVariantCorpusParity(t *testing.T) {
 }
 
 // TestLegacyActionInputBridgeStaysRetired keeps the authored legacy-input
-// bridge out of the live public document.
+// bridge out of the live public document. No law clause retires the bridge
+// (the simplified-core cutover #1672 never carried it in), so CON-1641
+// retains this absence test: a deletion there must cite a retiring clause.
 func TestLegacyActionInputBridgeStaysRetired(t *testing.T) {
 	if HasIn(Document(), "work_transition_action_legacy_input") {
 		t.Fatal("the live public document still declares work_transition_action_legacy_input; the authored legacy-input bridge is retired")

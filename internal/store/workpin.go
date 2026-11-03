@@ -618,7 +618,7 @@ func workPinOutstandingEvidenceKindsTx(ctx context.Context, q queryer, workID st
 		return nil, checkErr
 	}
 	requirements = append(requirements, checks...)
-	requirements, err = unboundWorkflowEvidenceRequirements(ctx, q, workID, requirements, 0)
+	requirements, err = unboundWorkflowEvidenceRequirements(ctx, q, workID, requirements)
 	if err != nil {
 		return nil, err
 	}

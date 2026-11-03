@@ -57,7 +57,7 @@ func seedRoutineReviewersForSelection(t *testing.T, s *Store, workID string) (re
 // reads revalidate is prepared before the transaction opens, the same
 // pre-transaction preparation the owning boundary runs
 // (PrepareWorkflowActionProof).
-func runEngineeringConfirmation(t *testing.T, s *Store, planType WorkflowStepPlanType, workID, invokerRef string, fields map[string]json.RawMessage) ([]Event, error) {
+func runEngineeringConfirmation(t *testing.T, s *Store, workID, invokerRef string, fields map[string]json.RawMessage) ([]Event, error) {
 	t.Helper()
 	ctx, err := s.PrepareWorkflowActionProof(context.Background(), "confirm_premise", workID)
 	if err != nil {
@@ -69,7 +69,7 @@ func runEngineeringConfirmation(t *testing.T, s *Store, planType WorkflowStepPla
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	return workflowConfirmPremiseEvents(ctx, tx, planType, WorkflowActionExecutionRequest{
+	return workflowConfirmPremiseEvents(ctx, tx, WorkflowStepPlanChange, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise", OperationID: "confirm-" + workID,
 	}, invokerRef, fields, "confirm-"+workID, version)
 }
@@ -81,7 +81,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-coordinator"
 		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID)
-		events, err := runEngineeringConfirmation(t, s, WorkflowStepPlanChange, workID, ownerRefForTest(t, coordinator), nil)
+		events, err := runEngineeringConfirmation(t, s, workID, ownerRefForTest(t, coordinator), nil)
 		if err != nil {
 			t.Fatalf("engineering coordinator confirmation refused: %v", err)
 		}
@@ -115,7 +115,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		s, _, _, _, coordinator := engineeringConfirmationFixture(t, workID, false)
 		// Main has not associated the accepted Review with the criteria, so
 		// the acceptance deliverables the confirmation requires are absent.
-		_, err := runEngineeringConfirmation(t, s, WorkflowStepPlanChange, workID, ownerRefForTest(t, coordinator), nil)
+		_, err := runEngineeringConfirmation(t, s, workID, ownerRefForTest(t, coordinator), nil)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence {
 			t.Fatalf("engineering confirmation without deliverables returned %v, want the missing-evidence refusal", err)
@@ -126,7 +126,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-agent-class"
 		s, _, _, operator, _ := engineeringConfirmationSeed(t, workID)
-		_, err := runEngineeringConfirmation(t, s, WorkflowStepPlanChange, workID, ownerRefForTest(t, operator), nil)
+		_, err := runEngineeringConfirmation(t, s, workID, ownerRefForTest(t, operator), nil)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation {
 			t.Fatalf("operator-class invoker confirmation returned %v, want the coordinator-typed refusal", err)
@@ -205,7 +205,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		}
 		staleFields := map[string]json.RawMessage{}
 		staleFields["contract_version"] = json.RawMessage(`1`)
-		_, constructorErr := runEngineeringConfirmation(t, s, WorkflowStepPlanChange, workID, coordinatorRef, staleFields)
+		_, constructorErr := runEngineeringConfirmation(t, s, workID, coordinatorRef, staleFields)
 		var constructorFailure *Failure
 		if constructorErr == nil || !failureAs(constructorErr, &constructorFailure) || constructorFailure.Kind != KindInvalidPayload || !strings.Contains(constructorFailure.Detail, "supersession invalidated") {
 			t.Fatalf("constructor stale v1 confirmation returned %v, want the supersession-invalidated refusal", constructorErr)

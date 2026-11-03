@@ -594,8 +594,8 @@ func actionIDListField(name string, required bool, lower, upper int64) WorkflowP
 	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(lower), MaxItems: workflowInt(upper), ItemRef: "id"}
 }
 
-func actionEnumListField(name string, required bool, lower, upper int64, values ...string) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(lower), MaxItems: workflowInt(upper), Enum: values}
+func actionEnumListField(name string, required bool, upper int64, values ...string) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MaxItems: workflowInt(upper), Enum: values}
 }
 
 // workflowDecisionFactField declares the copied decision-fact field a
@@ -604,7 +604,7 @@ func actionEnumListField(name string, required bool, lower, upper int64, values 
 // list records engineering and absence has no declared shape. The enum storage
 // is copied, so the field never aliases the canonical set.
 func workflowDecisionFactField() WorkflowPayloadField {
-	return actionEnumListField("decision_domains", true, 0, int64(len(workflowDecisionDomainSet)), slices.Clone(workflowDecisionDomainSet)...)
+	return actionEnumListField("decision_domains", true, int64(len(workflowDecisionDomainSet)), slices.Clone(workflowDecisionDomainSet)...)
 }
 
 func actionProseListField(name string, required bool, lower, upper int64, itemRef string) WorkflowPayloadField {
@@ -683,7 +683,7 @@ const workflowAlignmentCombinationTeaching = "record_alignment couples outcome a
 var builtinActionPolicies = map[string]builtinActionPolicy{
 	"record_discovery": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric),
 	"approve_contract": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
-		actionEnumListField("decision_domains", true, 0, 6, workflowDecisionDomainSet...),
+		actionEnumListField("decision_domains", true, 6, workflowDecisionDomainSet...),
 		actionEnumField("route_convention", false, "workflow_action"),
 		actionListField("route_conventions", false, 0, 16),
 		actionListField("proposed_route_conventions", false, 0, 16),
@@ -691,7 +691,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionIntegerField("contract_version", false),
 		actionPremiseField(),
 		actionArrayField("outcome_predicates", true, 8, "workflow_action_outcome_predicates"),
-		actionEnumListField("required_evidence", false, 0, 7, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"),
+		actionEnumListField("required_evidence", false, 7, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"),
 		actionLawListField("spec_mandate", false),
 		actionLawListField("law_modifies", false),
 		actionEnumField("rigor_class", false, "prototype_internal", "prototype_trusted", "prototype_public", "prototype_safety_critical", "production_internal", "production_trusted", "production_public", "production_safety_critical", "critical_internal", "critical_trusted", "critical_public", "critical_safety_critical"),

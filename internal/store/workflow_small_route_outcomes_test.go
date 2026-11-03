@@ -8,7 +8,7 @@ import (
 // This fixture uses the change plan with a current accepted Review and proof.
 func smallImplementationCompletePlan(t *testing.T) acceptDeliveryCandidate {
 	t.Helper()
-	c := acceptDeliveryCandidateAt(t, "small-route-outcomes", WorkflowStepPlanChange, "review")
+	c := acceptDeliveryCandidateAt(t, "small-route-outcomes", WorkflowStepPlanChange)
 	review, err := loadWorkflowReviewState(t.Context(), c.f.store.db, c.f.workID)
 	if err != nil || review.Dependencies == nil || !review.Dependencies.ArchitectureNotApplicable || review.Accepted == nil || review.Accepted.Report.Disposition != "ready_for_final_proof" {
 		t.Fatalf("shallow preparation lost its accepted Review: %+v, %v", review, err)

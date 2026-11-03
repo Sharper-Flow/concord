@@ -607,7 +607,7 @@ func workflowConfirmationDeliverablesTx(ctx context.Context, tx *sql.Tx, planTyp
 	for _, obligation := range contract.VerificationObligations {
 		requirements = append(requirements, workflowEvidenceRequirement{Kind: obligation.ObligationID, Reference: obligation.LawID})
 	}
-	outstanding, err := unboundWorkflowEvidenceRequirements(ctx, tx, workID, requirements, 0)
+	outstanding, err := unboundWorkflowEvidenceRequirements(ctx, tx, workID, requirements)
 	if err != nil {
 		return err
 	}

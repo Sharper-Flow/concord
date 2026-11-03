@@ -153,7 +153,7 @@ func TestManagedCandidateSubjectFreshIndependentEvidenceAcceptsB(t *testing.T) {
 }
 
 func TestManagedCandidateSubjectCorrectiveReviewOnB(t *testing.T) {
-	c := acceptDeliveryCandidateAt(t, "candidate-corrective-report", WorkflowStepPlanFix, "review")
+	c := acceptDeliveryCandidateAt(t, "candidate-corrective-report", WorkflowStepPlanFix)
 	acceptCurrentReviewForTest(t, c.f, "correction_required")
 	run := c.j.observeRun(t, "correction")
 	c.j.bindVerification(t, run)

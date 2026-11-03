@@ -15,7 +15,7 @@ func BuiltinWorkflowContractUpdateFields() []WorkflowPayloadField {
 		actionIntegerField("contract_version", true),
 		actionPremiseField(),
 		actionArrayField("outcome_predicates", true, 8, "workflow_action_outcome_predicates"),
-		actionEnumListField("required_evidence", true, 0, 7, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"),
+		actionEnumListField("required_evidence", true, 7, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"),
 		actionListField("route_conventions", true, 0, 16),
 		actionLawListField("spec_mandate", true),
 		actionLawListField("law_modifies", true),
@@ -24,7 +24,7 @@ func BuiltinWorkflowContractUpdateFields() []WorkflowPayloadField {
 	}
 }
 
-func reviseWorkflowContractTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, raw json.RawMessage) error {
+func reviseWorkflowContractTx(ctx context.Context, tx *sql.Tx, event Event, _ *writeScope, raw json.RawMessage) error {
 	plan, err := readWorkflowPlanTx(ctx, tx, event.SubjectID)
 	if err != nil {
 		return err

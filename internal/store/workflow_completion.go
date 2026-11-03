@@ -368,16 +368,16 @@ func workflowEvidenceRequirementInputs(ctx context.Context, q queryer, workID st
 // outstandingWorkflowEvidenceRequirements returns every declared requirement
 // the evidence history does not satisfy.
 func outstandingWorkflowEvidenceRequirements(ctx context.Context, q queryer, workID string, required, mandates []string, obligations []WorkflowVerificationObligation) ([]workflowEvidenceRequirement, error) {
-	return unboundWorkflowEvidenceRequirements(ctx, q, workID, workflowEvidenceRequirementDefinitions(required, mandates, obligations), 0)
+	return unboundWorkflowEvidenceRequirements(ctx, q, workID, workflowEvidenceRequirementDefinitions(required, mandates, obligations))
 }
 
 // beforeSeq excludes a binding whose completion event is being validated.
 // Zero reads the current history.
-func unboundWorkflowEvidenceRequirements(ctx context.Context, q queryer, workID string, requirements []workflowEvidenceRequirement, beforeSeq int64) ([]workflowEvidenceRequirement, error) {
+func unboundWorkflowEvidenceRequirements(ctx context.Context, q queryer, workID string, requirements []workflowEvidenceRequirement) ([]workflowEvidenceRequirement, error) {
 	outstanding := make([]workflowEvidenceRequirement, 0, len(requirements))
 	for _, requirement := range requirements {
 		var found int
-		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_evidence_bindings e WHERE e.work_id=? AND (?=0 OR e.binding_seq<?) AND (?='' OR json_extract(e.payload,'$.evidence_kind')=?) AND (?='' OR json_extract(e.payload,'$.immutable_subject_ref')=?) AND (?<>'' OR (SELECT count(*) FROM durable_operations d WHERE d.op_id=json_extract(e.payload,'$.producer_run_ref') AND d.work_id=e.work_id AND d.principal_ref=json_extract(e.payload,'$.producer_id') AND d.request_id=json_extract(e.payload,'$.producer_watermark') AND d.result_kind='completed' AND EXISTS(SELECT 1 FROM json_each(d.evidence_refs) WHERE value=json_extract(e.payload,'$.immutable_subject_ref')))=1))`, workID, beforeSeq, beforeSeq, requirement.Kind, requirement.Kind, requirement.Reference, requirement.Reference, requirement.Reference).Scan(&found); err != nil {
+		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_evidence_bindings e WHERE e.work_id=? AND (?='' OR json_extract(e.payload,'$.evidence_kind')=?) AND (?='' OR json_extract(e.payload,'$.immutable_subject_ref')=?) AND (?<>'' OR (SELECT count(*) FROM durable_operations d WHERE d.op_id=json_extract(e.payload,'$.producer_run_ref') AND d.work_id=e.work_id AND d.principal_ref=json_extract(e.payload,'$.producer_id') AND d.request_id=json_extract(e.payload,'$.producer_watermark') AND d.result_kind='completed' AND EXISTS(SELECT 1 FROM json_each(d.evidence_refs) WHERE value=json_extract(e.payload,'$.immutable_subject_ref')))=1))`, workID, requirement.Kind, requirement.Kind, requirement.Reference, requirement.Reference, requirement.Reference).Scan(&found); err != nil {
 			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow evidence requirement", true, "retry once the database is readable", err)
 		}
 		if found == 0 {

@@ -51,9 +51,9 @@ type acceptDeliveryCandidate struct {
 	early candidateReport
 }
 
-func acceptDeliveryCandidateAt(t *testing.T, workID string, planType WorkflowStepPlanType, step string) acceptDeliveryCandidate {
+func acceptDeliveryCandidateAt(t *testing.T, workID string, planType WorkflowStepPlanType) acceptDeliveryCandidate {
 	t.Helper()
-	route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, planType, step, []string{"verification"}, []string{"review", "artifact"})
+	route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, planType, "review", []string{"verification"}, []string{"review", "artifact"})
 	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
 	repo, _ := reviewSubjectClaim(t, f.store, workID)
 	c := acceptDeliveryCandidate{f: f, j: &candidateJourney{fixture: f, s: f.store, workID: workID, repo: repo, acceptor: f.owner}}
@@ -72,7 +72,7 @@ func acceptDeliveryBindFresh(t *testing.T, c acceptDeliveryCandidate, id string)
 // needs a manifest to distinguish candidate observation from a declared check.
 func acceptDeliveryCorrectedCandidateAt(t *testing.T, workID string, planType WorkflowStepPlanType) acceptDeliveryCandidate {
 	t.Helper()
-	c := acceptDeliveryCandidateAt(t, workID, planType, "review")
+	c := acceptDeliveryCandidateAt(t, workID, planType)
 	input := currentReviewBlockForTest(t, c.f.store, workID, "ready_for_final_proof").OutputCandidate
 	path := filepath.Join(c.j.repo, "review.txt")
 	if err := os.WriteFile(path, []byte("corrected candidate awaiting verification\n"), 0o600); err != nil {
@@ -154,7 +154,7 @@ func TestDeliveryAdmissionRefusals(t *testing.T) {
 					case tc.unproved:
 						c = acceptDeliveryCorrectedCandidateAt(t, workID, planType)
 					default:
-						c = acceptDeliveryCandidateAt(t, workID, planType, "review")
+						c = acceptDeliveryCandidateAt(t, workID, planType)
 					}
 					tc.seed(t, c)
 					before := outsideRepairDatabaseSnapshot(t, c.f.store)
@@ -181,7 +181,7 @@ func TestDeliveryAdmissionRefusals(t *testing.T) {
 func TestDeliveryReusesReviewReceipt(t *testing.T) {
 	for _, planType := range acceptDeliveryFamilies {
 		t.Run(string(planType), func(t *testing.T) {
-			c := acceptDeliveryCandidateAt(t, "delivery-reuse", planType, "review")
+			c := acceptDeliveryCandidateAt(t, "delivery-reuse", planType)
 			if err := runDeliveryAdmissionAction(t, c.f.store, c.f.workID, mustJSONValue(map[string]any{"delivery_artifact": "artifact:reused-proof", "delivery_state": "asserted"}), reviewGateAcceptor(c.f.workID)); err != nil {
 				t.Fatal(err)
 			}
@@ -194,7 +194,7 @@ func TestDeliveryReusesReviewReceipt(t *testing.T) {
 
 func TestDeliveryAssertionReaders(t *testing.T) {
 	const workID = "delivery-assertion-readers"
-	c := acceptDeliveryCandidateAt(t, workID, WorkflowStepPlanChange, "review")
+	c := acceptDeliveryCandidateAt(t, workID, WorkflowStepPlanChange)
 	s := c.f.store
 	acceptDeliveryBindFresh(t, c, "readers")
 	if err := runDeliveryAdmissionAction(t, s, workID, mustJSONValue(map[string]any{"delivery_artifact": "artifact:delivery", "delivery_state": "asserted"}), reviewGateAcceptor(workID)); err != nil {
@@ -239,7 +239,7 @@ func TestDeliveryAssertionReaders(t *testing.T) {
 // The earlier Review and its report cannot then authorize delivery.
 func TestDeliveryRefusesReviewAfterReportMovesCandidate(t *testing.T) {
 	const workID = "delivery-moved-candidate"
-	c := acceptDeliveryCandidateAt(t, workID, WorkflowStepPlanChange, "review")
+	c := acceptDeliveryCandidateAt(t, workID, WorkflowStepPlanChange)
 	if err := os.WriteFile(filepath.Join(c.j.repo, "moved.txt"), []byte("moved candidate\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func TestDeliveryRefusesReviewAfterReportMovesCandidate(t *testing.T) {
 
 func TestDeliveryRefusesDistinctFailedReportAfterReview(t *testing.T) {
 	const workID = "delivery-distinct-failed"
-	c := acceptDeliveryCandidateAt(t, workID, WorkflowStepPlanChange, "review")
+	c := acceptDeliveryCandidateAt(t, workID, WorkflowStepPlanChange)
 	failed := c.j.observeRun(t, "distinct-failed")
 	failed.Report.Result = "fail"
 	failed.SubjectRef = "report:distinct-failed"

@@ -108,7 +108,6 @@
         "internal/store.WorkflowPlanActionContract",
         "internal/store.WorkflowPlanContractUpdatePayload",
         "internal/store.beginOrdinaryTx",
-        "internal/store.compatibilityReadFailure",
         "internal/store.containsPredicateID",
         "internal/store.guardWorkflowActionStepMatch",
         "internal/store.latestWorkflowVerdict",
@@ -137,8 +136,6 @@
       "id": "plan-cutover-test-only-store-helpers",
       "state": "out_of_scope",
       "functions": [
-        "internal/store.binaryCompatibilityFailure",
-        "internal/store.recordRuntimeStateWriter",
         "internal/store.requireAcceptanceDeliverables",
         "internal/store.sameStrings",
         "internal/store.validActionExecutionMode"

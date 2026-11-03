@@ -26,14 +26,15 @@
 - **Date:** 2026-11-03
 - **Scope:** Concord's code, store, CLI, contracts, generated profiles, shipped
   skills and helper integrations.
-- **Related:** CD-0084 D5, CD-0245 D3, CD-0213, CD-0243
+- **Related:** CD-0084 D5, CD-0245 D3, CD-0213, CD-0243, CD-0106
 
 ## Context
 
 Agents need separately supplied connected tools without making those tools
 Concord mechanisms. The host or Product supplies them, and availability varies
 with configuration. The host API and Concord's runtime dependencies are not
-outside tools under this decision.
+outside tools under this decision. This decision closes clarification C8, the
+lgrep and vision lean that CD-0106 left open.
 
 ## Decision
 
@@ -56,9 +57,10 @@ shipped skills.
 
 - CD-0213 retains Linear MCP planning and the Linear identity on work units;
   profiles may name Linear for that purpose.
-- Host-tool safety denials, including `*herdr*` and `ci_watch` in
-  `contracts/agent-primary-profiles.v1.json`, remain; profiles may name tools
-  for safety denials.
+- Host-tool permission rules remain, including the `*herdr*` and `ci_watch`
+  denials and the read-only `gh` allowances in
+  `contracts/agent-primary-profiles.v1.json`. Profiles may name a tool in such
+  a rule and where their text states that rule's boundary.
 - `.concord/tooling.v1.json` retains Product-declared check commands. Concord
   reads the declaration without integrating those tools; profiles may name
   Product tooling where needed to use the declaration.
@@ -67,9 +69,11 @@ shipped skills.
 
 - Generator schema and grant checks validate utility tool boundaries;
   `scripts/generate-agent-profiles.py --check` verifies generated profile parity.
+- `scripts/test-generate-agent-profiles.py` checks that every utility keeps
+  `execute` and its discover-by-need guidance.
 - `scripts/check-primary-prompts.py` reports known connected-tool name mentions
   as warn-only advisories. The list is incomplete and permitted denials can match.
   `scripts/test-primary-prompts.py` checks the advisory and blocking boundaries.
 - Independent review checks D1 and D2 across affected surfaces and verifies D3's
-  planning, safety and Product-tooling exceptions. Diagnostics do not enforce the
-  normative rule.
+  planning, permission and Product-tooling exceptions. Diagnostics do not enforce
+  the normative rule.

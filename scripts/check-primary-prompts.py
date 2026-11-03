@@ -16,10 +16,10 @@ boundaries:
                      probes are evaluated with OpenCode's last-match wildcard
                      rules, not read as text
   all                no host-specific research tool names in frontmatter, no
-                      duplicated conduct obligation, and no routing by
-                      generated agent id in the body
+                     duplicated conduct obligation, and no routing by
+                     generated agent id in the body
   generated          warn-only diagnostic for known connected-tool names in
-                       profiles; independent review checks CD-0250
+                     profiles; independent review checks CD-0250
 
 The intake definition is a portable example. Concord does not package or
 install it. This check proves the example contract in CD-0154:

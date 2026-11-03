@@ -43,8 +43,6 @@ class PrimaryPromptCheckTests(unittest.TestCase):
             shutil.copy2(ROOT / check_primary_prompts.PROMPT_DIR / name, prompts / name)
         profiles = self.root / check_primary_prompts.PROFILE_DIR
         profiles.mkdir(parents=True)
-        for name in check_primary_prompts.NAMED_PROFILE_FILES:
-            shutil.copy2(ROOT / check_primary_prompts.PROFILE_DIR / name, profiles / name)
         for path in (ROOT / check_primary_prompts.PROFILE_DIR).glob("*.md"):
             shutil.copy2(path, profiles / path.name)
 

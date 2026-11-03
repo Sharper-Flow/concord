@@ -114,12 +114,13 @@ func TestWorkPinOutstandingEvidenceKindsContinuity(t *testing.T) {
 	s := openTemp(t)
 	const workID = "workpin-outstanding-continuity"
 	seedLawContextFixture(t, s, workID)
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, currentWorkflowPlanFixture(t, WorkflowStepPlanChange).Steps[0].ID)
 	binding := WorkflowArchitectureBinding{
 		HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
 		DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 		VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}},
 	}
-	approveLawContextContract(t, s, workID, []string{"spec:one"}, []string{}, binding)
+	approveCurrentLawContextContract(t, s, workID, []string{"spec:one"}, []string{}, binding)
 	pin, err := ReadWorkPin(ctx, s, workID)
 	if err != nil {
 		t.Fatal(err)
@@ -238,10 +239,7 @@ func TestWorkPinOutstandingEvidenceKindsRecoveryIntentAcrossPlans(t *testing.T) 
 					t.Fatal(err)
 				}
 				want := []string{"commit"}
-				allowedKinds, err := WorkflowPlanAllowedPredicates(planType)
-				if err != nil {
-					t.Fatal(err)
-				}
+				allowedKinds, _ := WorkflowPlanAllowedPredicates(planType)
 				for _, kind := range allowedKinds {
 					if kind == PredicateCheck {
 						want = append(want, "verification")

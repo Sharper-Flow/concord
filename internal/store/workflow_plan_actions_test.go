@@ -12,16 +12,26 @@ import (
 
 func TestWorkflowPlanActionFolds(t *testing.T) {
 	ctx := t.Context()
-	db, err := sqlitedb.Open(":memory:")
-	if err != nil {
+	s := openTemp(t)
+	defer s.Close()
+	seedStepWork(t, s, "work")
+	db := s.db
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		scope := newWriteScope(tx.tx)
+		if err := scope.enter(ctx); err != nil {
+			return err
+		}
+		if _, err := tx.tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,instance_state) VALUES('work','intake')`); err != nil {
+			return err
+		}
+		return scope.close(ctx)
+	}); err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-	_, err = db.ExecContext(ctx, `CREATE TABLE work_items(id TEXT PRIMARY KEY, version INTEGER, updated_at TEXT, lifecycle TEXT); CREATE TABLE workflow_instances(work_id TEXT PRIMARY KEY, workflow_type TEXT, step_plan TEXT, prelude_state TEXT, instance_state TEXT); CREATE TABLE workflow_review_state(work_id TEXT, state TEXT); CREATE TABLE workflow_contracts(work_id TEXT); INSERT INTO work_items VALUES('work',1,'','needed'); INSERT INTO workflow_instances(work_id,instance_state) VALUES('work','intake')`)
-	if err != nil {
+	var version int64
+	if err := db.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id='work'`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	version := int64(1)
 	fields := func() WorkflowVersionFields {
 		next := version + 1
 		current := version
@@ -37,6 +47,9 @@ func TestWorkflowPlanActionFolds(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard VALUES(1)`); err != nil {
+			t.Fatal(err)
+		}
 		event := Event{SubjectType: SubjectWorkItem, SubjectID: "work", Payload: raw, Seq: 42, OccurredAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
 		err = fold(ctx, tx, event)
 		if wantError {
@@ -49,6 +62,9 @@ func TestWorkflowPlanActionFolds(t *testing.T) {
 		} else {
 			if err != nil {
 				tx.Rollback()
+				t.Fatal(err)
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
 				t.Fatal(err)
 			}
 			if err := tx.Commit(); err != nil {
@@ -74,6 +90,16 @@ func TestWorkflowPlanActionFolds(t *testing.T) {
 	plan := read()
 	apply(foldWorkflowStepCompleted, workflowStepCompletedPayload{WorkflowVersionFields: fields(), StepID: plan.Steps[1].ID, Note: "too early"}, true)
 	apply(foldWorkflowStepInserted, workflowStepInsertedPayload{WorkflowVersionFields: fields(), ID: "extra", After: []string{plan.Steps[0].ID}, Reviewed: true, Reason: "review needed"}, false)
+	request := WorkflowActionExecutionRequest{WorkID: "work", ExpectedVersion: version, ActionID: "record_plan", Payload: json.RawMessage(testWorkflowPlanDocument), Actor: stepFixtureActor(), OperationID: "fold-plan-op", IdempotencyIdentity: "fold-plan-key", PrincipalRef: "principal-1", RequestID: "fold-plan-request", AcceptedInputsDigest: testDigest("inputs"), ContractDigest: testManifestDigest, Now: time.Unix(100, 0).UTC()}
+	var result WorkflowActionExecutionResult
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		var err error
+		result, err = ApplyWorkflowActionTx(ctx, tx, request)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	version = result.ResultingVersion
 	apply(foldWorkflowStepCompleted, workflowStepCompletedPayload{WorkflowVersionFields: fields(), StepID: plan.Steps[0].ID, Note: "done"}, false)
 	apply(foldWorkflowStepCompleted, workflowStepCompletedPayload{WorkflowVersionFields: fields(), StepID: "extra", Note: "reviewed"}, true)
 	apply(foldWorkflowStepCompleted, workflowStepCompletedPayload{WorkflowVersionFields: fields(), StepID: "extra", Note: "reviewed", Reviewer: "concord-review", Result: "pass", Commit: "commit", Link: "link"}, true)

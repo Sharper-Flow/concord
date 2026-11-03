@@ -260,7 +260,7 @@ func seedWorkContextFixtureWithPlan(t *testing.T, workID string, planType Workfl
 		"agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": string(owner.ActorClass),
 	})}
 	version++
-	events = append(events, withPlanDecisionFact(t, planType, workflowTypedEvent("ctx-contract-"+workID, WorkflowContractApproved, workID, ownerRef, time.Unix(5, 0).UTC(), version, map[string]any{
+	contract := map[string]any{
 		"contract_version": 1, "premise": "deliver the checked change", "decision_domains": []string{},
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:work-context", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:work-context", "immutable_subject_ref": "commit:" + workContextTestCommit(), "expected_result": "pass"}}},
 		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
@@ -269,7 +269,12 @@ func seedWorkContextFixtureWithPlan(t *testing.T, workID string, planType Workfl
 			HomeDomainID: workContextTestRoot, AffectedDomainIDs: []string{workContextTestRoot, workContextTestChild},
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
 		},
-	})))
+	}
+	if planType == WorkflowStepPlanResearch {
+		delete(contract, "architecture_binding")
+		contract["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:work-context", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"resolved"}}}}
+	}
+	events = append(events, withPlanDecisionFact(t, planType, workflowTypedEvent("ctx-contract-"+workID, WorkflowContractApproved, workID, ownerRef, time.Unix(5, 0).UTC(), version, contract)))
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): initialVersion}}); err != nil {
 		t.Fatal(err)
 	}

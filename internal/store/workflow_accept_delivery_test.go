@@ -135,11 +135,11 @@ func TestDeliveryAdmissionRefusals(t *testing.T) {
 				kind     FailureKind
 				detail   string
 			}{
-				{"no-verification-run", true, func(*testing.T, acceptDeliveryCandidate) {}, KindMissingEvidence, "no passing verification report covers the recorded Review candidate"},
-				{"stale-run", true, func(*testing.T, acceptDeliveryCandidate) {}, KindMissingEvidence, "verification does not cover the current integrated candidate"},
+				{"no-verification-run", true, func(*testing.T, acceptDeliveryCandidate) {}, KindMissingEvidence, "record_delivery requires a passing verification report on the current reviewed candidate"},
+				{"stale-run", true, func(*testing.T, acceptDeliveryCandidate) {}, KindMissingEvidence, "record_delivery requires a passing verification report on the current reviewed candidate"},
 				{"failed-run", true, func(t *testing.T, c acceptDeliveryCandidate) {
 					acceptDeliveryFailedReport(t, c)
-				}, KindMissingEvidence, "verification does not cover the current integrated candidate"},
+				}, KindMissingEvidence, "record_delivery requires a passing verification report on the current reviewed candidate"},
 				{"corrective-review", false, func(t *testing.T, c acceptDeliveryCandidate) {
 					completeCurrentReviewForTest(t, c.f, "correction_required")
 					acceptDeliveryBindFresh(t, c, "corrective")

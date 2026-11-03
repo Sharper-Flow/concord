@@ -490,7 +490,7 @@ func TestFirstCallContractUpdateAdmitsFromPublishedInput(t *testing.T) {
 	}
 	applyUpdate := func(input map[string]any) error {
 		before := contractRecordEffectSnapshot(t, s, workID)
-		err := reviseContractRecord(t, s, workID, owner, input["contract"].(map[string]any), readWorkVersion(t, s, workID), nil)
+		err := reviseContractRecord(t, s, workID, owner, input["contract"].(map[string]any), readWorkVersion(t, s, workID))
 		if err != nil && contractRecordEffectSnapshot(t, s, workID) != before {
 			t.Fatal("refused first-call update changed durable state")
 		}

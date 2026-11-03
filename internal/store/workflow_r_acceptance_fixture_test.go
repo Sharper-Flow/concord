@@ -43,7 +43,7 @@ func rReviseContract(t *testing.T, s *Store, workID, actorRef string, domains []
 		DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 		VerificationObligations: []WorkflowVerificationObligation{},
 	}
-	if err := reviseContractRecord(t, s, workID, actor, successor, version, nil); err != nil {
+	if err := reviseContractRecord(t, s, workID, actor, successor, version); err != nil {
 		t.Fatal(err)
 	}
 }

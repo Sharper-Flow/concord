@@ -327,13 +327,26 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
         association["request"]["fields"] = {"verdicts": [{"predicate_id": "predicate:return-route", "receipt_refs": ["verification:reported"]}]}
         original["scenarios"].append(association)
         self.assertEqual(lane_checker._structured_scenario_check(original), [])
-        for action, field in (("approve_contract", "premise"), ("record_proposal", "problem"), ("record_verdict", "verdicts"), ("complete", "impact_verdict")):
+        for action, field in (("approve_contract", "premise"), ("record_verdict", "verdicts"), ("complete", "impact_verdict")):
             with self.subTest(action=action, field=field):
                 corpus = copy.deepcopy(original)
                 scenario = next(item for item in corpus["scenarios"] if item["action"] == action)
                 del scenario["request"]["fields"][field]
                 findings = lane_checker._structured_scenario_check(corpus)
                 self.assertTrue(any("mandatory structured request field" in finding and field in finding for finding in findings), findings)
+        corpus = copy.deepcopy(original)
+        corpus["fixtures"]["workflow_types"].remove("removal")
+        findings = lane_checker._structured_scenario_check(corpus)
+        self.assertIn("scenario workflow types differ from the template contract", findings)
+        corpus = copy.deepcopy(original)
+        corpus["scenarios"][0]["setup"]["fixture_refs"]["workflow_types"] = ["change"]
+        findings = lane_checker._structured_scenario_check(corpus)
+        self.assertTrue(any("unpicked workflow type has type references" in finding for finding in findings), findings)
+        corpus = copy.deepcopy(original)
+        scenario = next(item for item in corpus["scenarios"] if item["request"]["workflow_type"] == "change")
+        scenario["setup"]["current_state"]["step"] = "diagnose"
+        findings = lane_checker._structured_scenario_check(corpus)
+        self.assertTrue(any("current step is not in the selected workflow template" in finding for finding in findings), findings)
 
     def test_checker_mutations_reach_current_safeguards(self):
         corpus_path = ROOT / ".concord/scenarios/workflow-engine.v1.json"
@@ -341,7 +354,7 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
         for mutation, expected in (
             ("actor", "actor-ID derivation mismatch"),
             ("scope", "request scope mismatch"),
-            ("definition", "dangling fixture reference definition"),
+            ("workflow_type", "dangling fixture reference workflow type"),
             ("error", "undeclared scenario error kind"),
         ):
             with self.subTest(mutation=mutation):
@@ -351,8 +364,8 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
                     scenario["request"]["grant"]["agent_ref"] = "agent:other"
                 elif mutation == "scope":
                     scenario["request"]["grant"]["scope"] = "project:other"
-                elif mutation == "definition":
-                    scenario["request"]["definition_ref"] = "workflow.missing"
+                elif mutation == "workflow_type":
+                    scenario["request"]["workflow_type"] = "missing"
                 else:
                     refused = next(item for item in corpus["scenarios"] if item["id"] == "WF02-planning-requires-outcome")
                     refused["expected"]["assertions"][0]["value"] = "not_a_real_error_kind"

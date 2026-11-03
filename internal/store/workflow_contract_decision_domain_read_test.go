@@ -26,7 +26,7 @@ func TestHistoricalReadCarriesContractDecisionDomains(t *testing.T) {
 		successor := pContractSuccessor(t, s, "decision-historical-read", "the corrected decision-bearing premise")
 		successor["decision_domains"] = []string{"ui_ux"}
 		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/decision-historical-read", ActorClass: ActorAgent}
-		if err := reviseContractRecord(t, s, "decision-historical-read", owner, successor, version, nil); err != nil {
+		if err := reviseContractRecord(t, s, "decision-historical-read", owner, successor, version); err != nil {
 			t.Fatalf("successor correction refused: %v", err)
 		}
 		// Current authoring excludes preference; historical readers still decode it.

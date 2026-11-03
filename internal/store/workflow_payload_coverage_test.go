@@ -11,7 +11,7 @@ import (
 )
 
 // This test derives the action-to-field reads from dispatcher control flow and
-// compares them with the current registry contracts. It contains no duplicate
+// compares them with the current catalog contracts. It contains no duplicate
 // expected field inventory. The only exclusions are the singular approval
 // compatibility fields.
 func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
@@ -106,14 +106,14 @@ func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
 	}
 
 	declared := map[string]map[string]bool{}
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		for _, action := range definition.ActionDefinitions {
-			if declared[action.ID] == nil {
-				declared[action.ID] = map[string]bool{}
-			}
-			for _, field := range action.Payload.Fields {
-				declared[action.ID][field.Name] = true
-			}
+	for id := range builtinWorkflowActionCatalog() {
+		action, err := catalogAction(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		declared[action.ID] = map[string]bool{}
+		for _, field := range action.Payload.Fields {
+			declared[action.ID][field.Name] = true
 		}
 	}
 	var missing []string

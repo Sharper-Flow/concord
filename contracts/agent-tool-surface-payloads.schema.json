@@ -3772,7 +3772,6 @@
           "additionalProperties": false,
           "required": [
             "terminal_state",
-            "final_verdict_kind",
             "verdict_actor_ref",
             "impact_verdict",
             "completed_at"

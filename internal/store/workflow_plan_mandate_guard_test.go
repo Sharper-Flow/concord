@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -12,7 +13,7 @@ func TestWorkflowPlanMandateGuardNamesLawAndPreservesBinding(t *testing.T) {
 			plan := currentWorkflowPlanFixture(t, planType)
 			step := ""
 			for _, candidate := range plan.Steps {
-				if workflowPlanAllowsAction(&plan, candidate.ID, "bind_evidence") {
+				if slices.Contains(WorkflowStepPlanTemplateActions(planType, candidate.ID), "bind_evidence") {
 					step = candidate.ID
 					break
 				}
@@ -34,11 +35,15 @@ func TestWorkflowPlanMandateGuardNamesLawAndPreservesBinding(t *testing.T) {
 			if _, err := tx.ExecContext(ctx, `UPDATE workflow_contracts SET spec_mandate='["law:required"]' WHERE work_id=? AND superseded_by IS NULL`, workID); err != nil {
 				t.Fatal(err)
 			}
+			current, err := readWorkflowPlanTx(ctx, tx, workID)
+			if err != nil {
+				t.Fatal(err)
+			}
 			bind := currentActionDefinition("bind_evidence", false)
-			if err := guardPlanMandate(ctx, tx, workID, &plan, step, bind); err != nil {
+			if err := guardPlanMandate(ctx, tx, workID, current, step, bind); err != nil {
 				t.Fatalf("binding refused: %v", err)
 			}
-			err = guardPlanMandate(ctx, tx, workID, &plan, step, currentActionDefinition("record_review", false))
+			err = guardPlanMandate(ctx, tx, workID, current, step, currentActionDefinition("record_review", false))
 			var failure *Failure
 			if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "law:required") || !strings.Contains(failure.RecoveryAction, "bind_evidence") {
 				t.Fatalf("unbound mandate refusal=%v", err)

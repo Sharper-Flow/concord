@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const testWorkflowPlanDocument = `{"outcomes":"working outcome","approach":"bounded change","decisions":[{"id":"decision:one","question":"which?","choice":"one","rationale":"fits","rejected":[]}],"touches":["file:one"],"merge_split":"one item","risks":"bounded risk"}`
+
 func TestWorkflowPlanActionDispatch(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
@@ -89,6 +91,14 @@ func TestWorkflowPlanActionDispatch(t *testing.T) {
 		t.Fatal("missing initial frontier")
 	}
 	step := frontier[0].ID
+	if _, err := apply("complete_step", fmt.Sprintf(`{"step_id":%q,"note":"missing plan"}`, step), version); err == nil {
+		t.Fatal("completed plan step without its document")
+	}
+	result, err = apply("record_plan", testWorkflowPlanDocument, version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version = result.ResultingVersion
 	payload, _ := json.Marshal(map[string]string{"step_id": step, "note": "completed step"})
 	result, err = apply("complete_step", string(payload), version)
 	if err != nil {

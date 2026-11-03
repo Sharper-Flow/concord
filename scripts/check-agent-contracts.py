@@ -317,12 +317,16 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
     fixture = corpus["fixtures"]
     work_ids = {item["id"] for item in fixture["work_items"]}
     actor_refs = {item["actor_ref"] for item in fixture["actors"]}
-    definition_refs = {item["ref"] for item in fixture["definitions"]}
     evidence_ids = {item["id"] for item in fixture["evidence"]}
     relation_ids = {item["id"] for item in fixture["relations"]}
+    workflow_types = set(fixture["workflow_types"])
+    templates = _load_json(ROOT / "contracts/workflow-step-templates.v1.json")
+    template_types = {item["id"] for item in templates["types"]}
+    template_steps = {item["id"]: {step["id"] for step in item["steps"]} for item in templates["types"]}
+    if workflow_types != template_types:
+        findings.append("scenario workflow types differ from the template contract")
     required = {
         "capture": {"payload", "title", "value_statement", "project_ids"},
-        "record_proposal": {"problem", "affected", "stakes", "user_outcomes"},
         "approve_contract": {"premise", "decision_domains"},
         "record_verdict": {"verdicts"},
         "confirm_premise": set(),
@@ -340,13 +344,12 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
             findings.append(f"{item.get('id')}: mandatory structured request field(s) missing: {sorted(missing)}")
         if request.get("actor_ref") not in actor_refs:
             findings.append(f"{item.get('id')}: dangling fixture reference actor {request.get('actor_ref')}")
-        definition_ref = request.get("definition_ref")
-        if definition_ref not in definition_refs:
-            findings.append(f"{item.get('id')}: dangling fixture reference definition")
-        if "current_state" in setup and "definition_ref" not in request:
-            findings.append(f"{item.get('id')}: current setup requires a current family selector")
-        if "definition_ref" in request and "current_state" not in setup:
-            findings.append(f"{item.get('id')}: current family selector requires current-state setup")
+        workflow_type = request.get("workflow_type")
+        step = (setup.get("current_state") or {}).get("step")
+        if workflow_type in template_steps and step not in template_steps[workflow_type] and step != "":
+            findings.append(f"{item.get('id')}: current step is not in the selected workflow template")
+        if workflow_type is None and step not in {"intake", "clarify"}:
+            findings.append(f"{item.get('id')}: unpicked workflow type requires an intake or clarify step")
         refs = setup.get("fixture_refs") or {}
         if not set(refs.get("actors", [])) <= actor_refs or request.get("actor_ref") not in refs.get("actors", []):
             findings.append(f"{item.get('id')}: dangling fixture reference setup actor")
@@ -358,14 +361,22 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
             findings.append(f"{item.get('id')}: request scope mismatch")
         if refs.get("work_item") not in work_ids:
             findings.append(f"{item.get('id')}: dangling fixture reference work {refs.get('work_item')}")
-        if not set(refs.get("definitions", [])) <= definition_refs:
-            findings.append(f"{item.get('id')}: dangling fixture reference definition")
-        if definition_ref not in refs.get("definitions", []):
-            findings.append(f"{item.get('id')}: dangling fixture reference definition selector")
+        if not set(refs.get("workflow_types", [])) <= workflow_types:
+            findings.append(f"{item.get('id')}: dangling fixture reference workflow type")
+        if workflow_type is not None and workflow_type not in refs.get("workflow_types", []):
+            findings.append(f"{item.get('id')}: dangling fixture reference workflow type selector")
+        if workflow_type is None and refs.get("workflow_types"):
+            findings.append(f"{item.get('id')}: unpicked workflow type has type references")
         if not set(refs.get("evidence", [])) <= evidence_ids:
             findings.append(f"{item.get('id')}: dangling fixture reference evidence")
         if not set(refs.get("relations", [])) <= relation_ids:
             findings.append(f"{item.get('id')}: dangling fixture reference relation")
+        if workflow_type is not None and workflow_type not in workflow_types:
+            findings.append(f"{item.get('id')}: dangling fixture reference workflow type")
+        if "current_state" in setup and "workflow_type" not in request:
+            findings.append(f"{item.get('id')}: current setup requires a workflow type selector")
+        if "workflow_type" in request and "current_state" not in setup:
+            findings.append(f"{item.get('id')}: workflow type selector requires current-state setup")
         findings.extend(
             f"{item.get('id')}: unknown structured fault kind {fault.get('kind')}"
             for fault in setup.get("faults", [])
@@ -430,7 +441,7 @@ def _current_scenario_carrier_check(corpus: dict) -> list[str]:
             }
             item["setup"]["event_history"] = [event]
         elif mutation == "pin":
-            pin = {"ref": item["request"]["definition_ref"], "version": 1, "digest": "sha256:" + "0" * 64}
+            pin = {"ref": "workflow.implementation", "version": 1, "digest": "sha256:" + "0" * 64}
             item["request"]["definition_pin"] = pin
         elif mutation == "missing_step":
             del item["setup"]["current_state"]["step"]

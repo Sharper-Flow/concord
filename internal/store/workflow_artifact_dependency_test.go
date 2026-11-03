@@ -30,7 +30,7 @@ func TestArtifactContractRevisionUsesRecordedProofDependencies(t *testing.T) {
 				predicate := successor["outcome_predicates"].([]any)[0].(map[string]any)
 				predicate["outcome_payload"].(map[string]any)["check_ref"] = "check:reassessed"
 			}
-			if err := reviseContractRecord(t, s, f.workID, f.owner, successor, readWorkVersion(t, s, f.workID), nil); err != nil {
+			if err := reviseContractRecord(t, s, f.workID, f.owner, successor, readWorkVersion(t, s, f.workID)); err != nil {
 				t.Fatal(err)
 			}
 			after, err := loadWorkflowReviewState(t.Context(), s.db, f.workID)
@@ -45,9 +45,10 @@ func TestArtifactContractRevisionUsesRecordedProofDependencies(t *testing.T) {
 				assertRecoveryRefusalWithoutEffect(t, s, f.workID, KindMissingEvidence, func() error {
 					return runVerdictActionAs(t, s, f.workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner)
 				})
+				frontier := currentStep(t, s, f.workID)
 				pAcceptReceiptReview(t, f, refs)
-				if step := currentStep(t, s, f.workID); step != "acceptance" {
-					t.Fatalf("reassessment Review advanced acceptance to %s", step)
+				if step := currentStep(t, s, f.workID); step != frontier {
+					t.Fatalf("reassessment Review changed frontier from %s to %s", frontier, step)
 				}
 			} else if err != nil {
 				t.Fatalf("unchanged criterion lost its proof: %v", err)

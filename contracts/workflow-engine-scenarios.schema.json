@@ -29,7 +29,7 @@
     "actorRef": {"type": "string", "pattern": "^actor:[0-9a-f]{64}$", "minLength": 70, "maxLength": 70},
     "actorIdentityRef": {"type": "string", "pattern": "^[^\\x09-\\x0d \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]+$", "minLength": 1, "maxLength": 128, "x-minBytes": 2, "x-maxBytes": 128},
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-    "currentAction": {"type": "string", "enum": ["capture", "record_proposal", "approve_contract", "record_verdict", "confirm_premise", "complete"]},
+    "currentAction": {"type": "string", "enum": ["capture", "approve_contract", "record_verdict", "confirm_premise", "complete"]},
     "jsonValue": {"oneOf": [
       {"type": "null"}, {"type": "boolean"},
       {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
@@ -42,12 +42,12 @@
       "properties": {"work": {"$ref": "#/$defs/jsonValue"}, "outcome": {"$ref": "#/$defs/jsonValue"}}
     },
     "workItem": {
-      "type": "object", "additionalProperties": false, "required": ["id", "kind", "state", "definition_ref"],
+      "type": "object", "additionalProperties": false, "required": ["id", "kind", "state", "workflow_type"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
-        "kind": {"type": "string", "enum": ["implementation", "break_fix", "research"]},
-        "state": {"type": "string", "enum": ["planned", "ready", "running", "blocked", "verifying", "completed", "cancelled", "superseded"]},
-        "definition_ref": {"$ref": "#/$defs/id"}
+        "kind": {"type": "string", "enum": ["task", "bug", "decision", "research", "other"]},
+        "state": {"type": "string", "enum": ["needed", "in_progress", "completed", "cancelled", "superseded"]},
+        "workflow_type": {"$ref": "#/$defs/nullableWorkflowType"}
       }
     },
     "actor": {
@@ -57,7 +57,8 @@
         "agent_ref": {"$ref": "#/$defs/actorIdentityRef"}, "session_ref": {"$ref": "#/$defs/actorIdentityRef"}, "actor_class": {"type": "string", "enum": ["agent", "operator"]}
       }
     },
-    "definitionRef": {"type": "object", "additionalProperties": false, "required": ["ref"], "properties": {"ref": {"$ref": "#/$defs/id"}}},
+    "workflowType": {"type": "string", "enum": ["change", "fix", "research", "removal"]},
+    "nullableWorkflowType": {"oneOf": [{"$ref": "#/$defs/workflowType"}, {"type": "null"}]},
     "evidence": {
       "type": "object", "additionalProperties": false, "required": ["id", "kind", "subject", "producer", "run"],
       "properties": {
@@ -66,21 +67,21 @@
       }
     },
     "fixtures": {
-      "type": "object", "additionalProperties": false, "required": ["work_items", "actors", "definitions", "evidence", "relations"],
+      "type": "object", "additionalProperties": false, "required": ["work_items", "actors", "workflow_types", "evidence", "relations"],
       "properties": {
         "work_items": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"$ref": "#/$defs/workItem"}},
         "actors": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/actor"}},
-        "definitions": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/definitionRef"}},
+        "workflow_types": {"type": "array", "minItems": 4, "maxItems": 4, "uniqueItems": true, "items": {"$ref": "#/$defs/workflowType"}},
         "evidence": {"type": "array", "minItems": 0, "maxItems": 32, "items": {"$ref": "#/$defs/evidence"}},
         "relations": {"type": "array", "minItems": 0, "maxItems": 0, "items": false}
       }
     },
     "fixtureRefs": {
-      "type": "object", "additionalProperties": false, "required": ["work_item", "actors", "definitions", "evidence", "relations"],
+      "type": "object", "additionalProperties": false, "required": ["work_item", "actors", "workflow_types", "evidence", "relations"],
       "properties": {
         "work_item": {"$ref": "#/$defs/id"},
         "actors": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"$ref": "#/$defs/actorRef"}},
-        "definitions": {"type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "workflow_types": {"type": "array", "minItems": 0, "maxItems": 4, "uniqueItems": true, "items": {"$ref": "#/$defs/workflowType"}},
         "evidence": {"type": "array", "minItems": 0, "maxItems": 16, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
         "relations": {"type": "array", "minItems": 0, "maxItems": 0, "items": false}
       }
@@ -92,8 +93,8 @@
         "current_state": {
           "type": "object", "additionalProperties": false, "required": ["step"],
           "properties": {
-            "step": {"$ref": "#/$defs/id"},
-            "proof_case": {"type": "string", "enum": ["planning_without_outcome", "weaker_delivery", "satisfied_delivery", "completion_rollback", "missing_definition", "one_conjunct_weaker"]}
+            "step": {"oneOf": [{"$ref": "#/$defs/id"}, {"const": ""}]},
+            "proof_case": {"type": "string", "enum": ["planning_without_outcome", "weaker_delivery", "satisfied_delivery", "completion_rollback", "unpicked_plan", "one_conjunct_weaker"]}
           }
         },
         "faults": {"type": "array", "minItems": 0, "maxItems": 0, "items": false}
@@ -120,10 +121,6 @@
         "payload": {"$ref": "#/$defs/jsonObject"}, "title": {"$ref": "#/$defs/short"}, "value_statement": {"$ref": "#/$defs/short"},
         "project_ids": {"type": "array", "minItems": 0, "maxItems": 32, "items": {"$ref": "#/$defs/id"}},
         "premise": {"$ref": "#/$defs/short"},
-        "problem": {"$ref": "#/$defs/short"},
-        "affected": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"$ref": "#/$defs/short"}},
-        "stakes": {"$ref": "#/$defs/short"},
-        "user_outcomes": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"$ref": "#/$defs/short"}},
         "current_commit": {"type": "string", "minLength": 40, "maxLength": 64, "pattern": "^[0-9a-f]+$"},
         "evidence_commit": {"type": "string", "minLength": 40, "maxLength": 64, "pattern": "^[0-9a-f]+$"},
         "decision_domains": {"type": "array", "minItems": 0, "maxItems": 6, "uniqueItems": true, "items": {"type": "string", "enum": ["increased_spending", "legal", "product", "production_data", "security", "ui_ux"]}},
@@ -138,11 +135,11 @@
       }
     },
     "scenarioRequest": {
-      "type": "object", "additionalProperties": false, "required": ["actor_ref", "definition_ref", "action_id", "fields", "idempotency", "grant", "operation"],
+      "type": "object", "additionalProperties": false, "required": ["actor_ref", "workflow_type", "action_id", "fields", "idempotency", "grant", "operation"],
       "if": {"properties": {"action_id": {"type": "string", "enum": ["capture"]}}},
       "then": {"properties": {"fields": {"required": ["payload"]}}},
       "properties": {
-        "actor_ref": {"$ref": "#/$defs/actorRef"}, "definition_ref": {"$ref": "#/$defs/id"}, "expected_version": {"type": "integer", "minimum": 1},
+        "actor_ref": {"$ref": "#/$defs/actorRef"}, "workflow_type": {"$ref": "#/$defs/nullableWorkflowType"}, "expected_version": {"type": "integer", "minimum": 1},
         "action_id": {"$ref": "#/$defs/currentAction"}, "fields": {"$ref": "#/$defs/requestFields"}, "idempotency": {"$ref": "#/$defs/idempotencyInput"},
         "grant": {"$ref": "#/$defs/grantInput"}, "operation": {"$ref": "#/$defs/operationInput"}
       }

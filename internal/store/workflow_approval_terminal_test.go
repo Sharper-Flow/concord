@@ -107,7 +107,12 @@ func TestWorkflowPlanCoordinatorConfirmationAndCompletion(t *testing.T) {
 	if readWorkVersion(t, f.store, workID) != version || approvalEventCount(t, f.store, workID) != events {
 		t.Fatal("refused reviewed attempt left effects")
 	}
-	if err := approvalPlanAction(t, f, "complete_step", json.RawMessage(`{"step_id":"review","note":"reviewed","reviewer":"concord-review","result":"pass","commit":"commit:reviewed","link":"https://example.com/review"}`)); err != nil {
+	review, err := loadWorkflowReviewState(t.Context(), f.store.db, workID)
+	if err != nil || review.Accepted == nil || review.Candidate == nil {
+		t.Fatalf("read accepted Review: %+v, %v", review, err)
+	}
+	attempt := mustJSONValue(map[string]any{"step_id": "review", "note": "reviewed", "reviewer": "concord-review", "result": "pass", "commit": review.Candidate.Commit, "link": review.Accepted.ReportRef})
+	if err := approvalPlanAction(t, f, "complete_step", attempt); err != nil {
 		t.Fatalf("reviewed plan step: %v", err)
 	}
 	if err := approvalPlanAction(t, f, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`)); err != nil {
@@ -135,7 +140,7 @@ func TestWorkflowPlanConfirmationRequiresCriterionProof(t *testing.T) {
 	assertApprovalRefusalUnchanged(t, f, version, events)
 }
 
-func TestWorkflowPlanCompletionRequiresPlanAndConfirmation(t *testing.T) {
+func TestWorkflowPlanCompletionRequiresPlanNotConfirmation(t *testing.T) {
 	const workID = "plan-completion-unconfirmed"
 	f := qCurrentAcceptance(t, workID)
 	version, events := readWorkVersion(t, f.store, workID), approvalEventCount(t, f.store, workID)
@@ -148,6 +153,11 @@ func TestWorkflowPlanCompletionRequiresPlanAndConfirmation(t *testing.T) {
 	if err := planAdmissionPreflight(t, f.store, request); err != nil {
 		t.Fatalf("completed plan preflight: %v", err)
 	}
-	planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindMissingEvidence)
-	assertApprovalRefusalUnchanged(t, f, version, events)
+	if err := planAdmissionDispatch(t, f.store, request); err != nil {
+		t.Fatalf("completed plan requires no confirmation recheck: %v", err)
+	}
+	var confirmations int
+	if err := f.store.db.QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=?`, workID).Scan(&confirmations); err != nil || confirmations != 0 {
+		t.Fatalf("completion fabricated confirmation: count=%d err=%v", confirmations, err)
+	}
 }

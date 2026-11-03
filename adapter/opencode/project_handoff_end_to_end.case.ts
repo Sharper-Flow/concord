@@ -290,7 +290,6 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
     },
   })
   await walk("complete_step", { step_id: "plan", note: "Plan and contract recorded." }, "complete-plan")
-  await walk("start_execution", {})
   const artifactPath = join(sourceWorktree, "README.md")
   const artifactRef = `sha256:${createHash("sha256").update(new Uint8Array(await Bun.file(artifactPath).arrayBuffer())).digest("hex")}:${artifactPath}`
   const recorded = await invoke("concord_work_transition", "project_handoff_record", {

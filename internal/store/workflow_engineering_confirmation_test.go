@@ -28,12 +28,6 @@ func engineeringConfirmationFixture(t *testing.T, workID string, associate bool)
 	return f.store, f.owner, actors.reviewer, actors.operator, actors.coordinator
 }
 
-// engineeringConfirmationDefinition is the live definition the seeds pin.
-func engineeringConfirmationDefinition(t *testing.T) WorkflowDefinition {
-	t.Helper()
-	return mustBuiltinDefinition(t, "workflow.implementation").Definition
-}
-
 // seedRoutineReviewersForSelection records the reviewer/operator/coordinator
 // triple on a delivered seed (selection variants use their own store shape).
 func seedRoutineReviewersForSelection(t *testing.T, s *Store, workID string) (reviewer, operator, coordinator WorkflowActor) {
@@ -59,12 +53,11 @@ func seedRoutineReviewersForSelection(t *testing.T, s *Store, workID string) (re
 }
 
 // runEngineeringConfirmation invokes the confirm_premise constructor directly
-// on the seeded store: the sanctioned transactional seam for a definition the
-// builtin registry does not carry. The proof the constructor's law and Domain
+// on the seeded store. The proof the constructor's law and Domain
 // reads revalidate is prepared before the transaction opens, the same
 // pre-transaction preparation the owning boundary runs
 // (PrepareWorkflowActionProof).
-func runEngineeringConfirmation(t *testing.T, s *Store, definition WorkflowDefinition, workID, invokerRef string, fields map[string]json.RawMessage) ([]Event, error) {
+func runEngineeringConfirmation(t *testing.T, s *Store, planType WorkflowStepPlanType, workID, invokerRef string, fields map[string]json.RawMessage) ([]Event, error) {
 	t.Helper()
 	ctx, err := s.PrepareWorkflowActionProof(context.Background(), "confirm_premise", workID)
 	if err != nil {
@@ -76,7 +69,7 @@ func runEngineeringConfirmation(t *testing.T, s *Store, definition WorkflowDefin
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	return workflowConfirmPremiseEvents(ctx, tx, WorkflowStepPlanChange, WorkflowActionExecutionRequest{
+	return workflowConfirmPremiseEvents(ctx, tx, planType, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "confirm_premise", OperationID: "confirm-" + workID,
 	}, invokerRef, fields, "confirm-"+workID, version)
 }
@@ -88,7 +81,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-coordinator"
 		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID)
-		events, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), nil)
+		events, err := runEngineeringConfirmation(t, s, WorkflowStepPlanChange, workID, ownerRefForTest(t, coordinator), nil)
 		if err != nil {
 			t.Fatalf("engineering coordinator confirmation refused: %v", err)
 		}
@@ -122,7 +115,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		s, _, _, _, coordinator := engineeringConfirmationFixture(t, workID, false)
 		// Main has not associated the accepted Review with the criteria, so
 		// the acceptance deliverables the confirmation requires are absent.
-		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, coordinator), nil)
+		_, err := runEngineeringConfirmation(t, s, WorkflowStepPlanChange, workID, ownerRefForTest(t, coordinator), nil)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence {
 			t.Fatalf("engineering confirmation without deliverables returned %v, want the missing-evidence refusal", err)
@@ -133,7 +126,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-agent-class"
 		s, _, _, operator, _ := engineeringConfirmationSeed(t, workID)
-		_, err := runEngineeringConfirmation(t, s, engineeringConfirmationDefinition(t), workID, ownerRefForTest(t, operator), nil)
+		_, err := runEngineeringConfirmation(t, s, WorkflowStepPlanChange, workID, ownerRefForTest(t, operator), nil)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation {
 			t.Fatalf("operator-class invoker confirmation returned %v, want the coordinator-typed refusal", err)
@@ -147,14 +140,13 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 	t.Run("class upgrade invalidates the engineering confirmation", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-upgrade-lifecycle"
-		s := openTemp(t)
+		route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", []string{}, []string{})
+		s := route.store
 		defer s.Close()
-		seedDecisionDomainsItemFatal(t, s, workID, []string{})
 		coordinator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/coordinator", SessionRef: "session/" + workID + "-coordinator", ActorClass: ActorAgent}
 		coordinatorRef := ownerRefForTest(t, coordinator)
 		operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
 		operatorRef := ownerRefForTest(t, operator)
-		definition := routineDefinitionOnPin(t, s, workID)
 		version := readWorkVersion(t, s, workID)
 		recorded := workflowEventWithActor("engineering-coordinator-"+workID, WorkflowActorRecorded, workID, coordinatorRef, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": coordinatorRef, "principal_ref": coordinator.PrincipalRef, "client_ref": coordinator.ClientRef, "agent_ref": coordinator.AgentRef, "session_ref": coordinator.SessionRef, "actor_class": "agent"})
 		operatorRecorded := workflowEventWithActor("engineering-operator-"+workID, WorkflowActorRecorded, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": version + 1, "resulting_version": version + 2, "actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"})
@@ -163,8 +155,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		}
 		version = readWorkVersion(t, s, workID)
 		expectedV, resultingV := version, version+1
-		// The factored fold body receives the verified synthetic definition
-		// and genuinely writes the engineering confirmation row for v1.
+		// Write the engineering confirmation row for v1 through the fold body.
 		confirmed := workflowEventWithActor("engineering-confirm-v1-"+workID, WorkflowPremiseConfirmed, workID, coordinatorRef, map[string]any{"work_id": workID, "expected_version": expectedV, "resulting_version": resultingV, "contract_version": 1, "confirming_actor_ref": coordinatorRef, "confirmation_authority": "coordinator"})
 		confirmed.PayloadVersion = 2
 		writeTx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -191,7 +182,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		successor := pContractSuccessor(t, s, workID, "the decision-bearing successor premise")
 		successor["decision_domains"] = []string{"product"}
 		currentVersion := readWorkVersion(t, s, workID)
-		if err := reviseContractRecord(t, s, workID, coordinator, successor, currentVersion, nil); err != nil {
+		if err := reviseContractRecord(t, s, workID, coordinator, successor, currentVersion); err != nil {
 			t.Fatalf("class upgrade revision refused: %v", err)
 		}
 		// The v1 confirmation row survives as history, but the active
@@ -214,7 +205,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		}
 		staleFields := map[string]json.RawMessage{}
 		staleFields["contract_version"] = json.RawMessage(`1`)
-		_, constructorErr := runEngineeringConfirmation(t, s, definition, workID, coordinatorRef, staleFields)
+		_, constructorErr := runEngineeringConfirmation(t, s, WorkflowStepPlanChange, workID, coordinatorRef, staleFields)
 		var constructorFailure *Failure
 		if constructorErr == nil || !failureAs(constructorErr, &constructorFailure) || constructorFailure.Kind != KindInvalidPayload || !strings.Contains(constructorFailure.Detail, "supersession invalidated") {
 			t.Fatalf("constructor stale v1 confirmation returned %v, want the supersession-invalidated refusal", constructorErr)

@@ -12,12 +12,6 @@ import (
 	"time"
 )
 
-// Typed diagnosis on workflow.break_fix and the derived repair/refine step
-// start (CD-0198 D2/D3). The tests run against the current definition
-// heads; each expectation that names the derived behavior is the suite's
-// acceptance clause, and each released-pin expectation is the frozen
-// boundary the suite must not move.
-
 func diagnosisS1Actor(workID, name string) WorkflowActor {
 	return WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/" + name, SessionRef: "session/" + workID + "-" + name, ActorClass: ActorAgent}
 }
@@ -135,150 +129,44 @@ func diagnosisAlignmentRows(t *testing.T, s *Store, workID string) []struct {
 	return found
 }
 
-// TestBreakFixDiagnosisStepShapeIsTheMergedTypedStep proves the CD-0198 D2
-// graph: the current break_fix definition folds reproduce, alignment, and
-// diagnose into one diagnosis step whose only advance exit is
-// record_diagnosis, and the derived-start rule removes the callable
-// start_repair/start_refine entries from both current heads while
-// implementation keeps its alignment step.
-func TestBreakFixDiagnosisStepShapeIsTheMergedTypedStep(t *testing.T) {
-	t.Parallel()
-	breakFix, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition := breakFix.Definition
-	if definition.StepGraph.StartStep != "diagnosis" {
-		t.Fatalf("break_fix start step = %q, want diagnosis", definition.StepGraph.StartStep)
-	}
-	for _, retired := range []string{"reproduce", "alignment", "diagnose"} {
-		if workflowStep(definition, retired) != nil {
-			t.Fatalf("break_fix still declares the %q step; CD-0198 D2 folds it into diagnosis", retired)
-		}
-	}
-	if workflowStep(definition, "planning") == nil || workflowStep(definition, "repair") == nil || workflowStep(definition, "verify") == nil {
-		t.Fatal("break_fix diagnosis graph lost planning, repair, or verify")
-	}
-	exits := alignmentAdvanceExits(t, definition, "diagnosis")
-	if len(exits) != 1 || exits[0] != "record_diagnosis" {
-		t.Fatalf("break_fix diagnosis advance exits are %v, want exactly [record_diagnosis]", exits)
-	}
-	for _, withheld := range []string{"record_reproduction", "record_alignment", "record_root_cause", "dispatch_worker", "record_worker_failure", "accept_worker_result"} {
-		if definitionStepAllows(definition, "diagnosis", withheld) {
-			t.Fatalf("break_fix diagnosis admits %s", withheld)
-		}
-	}
-	if !definitionStepAllows(definition, "diagnosis", "checkpoint_context") || !definitionStepAllows(definition, "diagnosis", "cross_context_boundary") {
-		t.Fatal("break_fix diagnosis lost the continuity holds")
-	}
-	for _, step := range definition.StepGraph.Steps {
-		if slices.Contains(step.Actions, "start_repair") || slices.Contains(step.Actions, "start_refine") {
-			t.Fatalf("break_fix step %q still declares a callable start; CD-0198 D3 derives it", step.ID)
-		}
-	}
-	if !slices.Contains(definition.AvailableActions, "record_diagnosis") {
-		t.Fatal("break_fix diagnosis does not advertise record_diagnosis")
-	}
-	for _, retired := range []string{"record_reproduction", "record_alignment", "record_root_cause", "start_repair", "start_refine"} {
-		if slices.Contains(definition.AvailableActions, retired) {
-			t.Fatalf("break_fix still advertises %s", retired)
-		}
-	}
-
-	implementation, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
-	implDefinition := implementation.Definition
-	if got := workflowNextStep(implDefinition, "proposal"); got != "alignment" {
-		t.Fatalf("implementation routes proposal to %q, want alignment (record_alignment survives on implementation)", got)
-	}
-	if exits := alignmentAdvanceExits(t, implDefinition, "alignment"); len(exits) != 1 || exits[0] != "record_alignment" {
-		t.Fatalf("implementation alignment advance exits are %v, want exactly [record_alignment]", exits)
-	}
-	if slices.Contains(implDefinition.AvailableActions, "start_refine") {
-		t.Fatal("implementation still advertises start_refine; CD-0198 D3 derives the refine start")
-	}
-	for _, step := range implDefinition.StepGraph.Steps {
-		if slices.Contains(step.Actions, "start_refine") {
-			t.Fatalf("implementation step %q still declares start_refine", step.ID)
-		}
-	}
-	if !slices.Contains(implDefinition.AvailableActions, "start_execution") {
-		t.Fatal("implementation lost start_execution; CD-0198 D3 keeps it callable")
-	}
-}
-
-// TestRecordDiagnosisRecordsAllSectionsAtomically proves the merged record:
-// one valid call advances diagnosis with every obligation recorded — the
-// alignment projection rows the CD-0156 projection fold writes, and no
-// automatic relation — while a partial section leaves zero writes.
 func TestRecordDiagnosisRecordsAllSectionsAtomically(t *testing.T) {
 	t.Parallel()
-	s := openTemp(t)
 	const workID = "diagnosis-recorded-atomic"
 	const relatedID = "diagnosis-related-work"
-	seedWork(t, s, workID)
+	fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanFix, "diagnose")
+	s := fixture.store
 	seedWork(t, s, relatedID)
-	seedWorkflowLaw(t, s)
-	actor := diagnosisS1Actor(workID, "owner")
-	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
-	if err != nil {
-		t.Fatal(err)
+	before := readWorkVersion(t, s, workID)
+	if err := runVerdictActionAs(t, s, workID, "record_diagnosis", diagnosisPayload("the defect reproduces from a clean store", "the backlog search covered the tracker", "related_found", []string{relatedID}, "the defect is the fold's pool"), 0, fixture.owner); err != nil {
+		t.Fatalf("record diagnosis: %v", err)
 	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)}); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-
-	version := issue31WorkflowActionWithPayload(t, s, workID, readWorkVersion(t, s, workID), "record_diagnosis", "diagnosis-record-"+workID, actor,
-		diagnosisPayload("the defect reproduces from a clean store", "the backlog search covered the tracker", "related_found", []string{relatedID}, "the defect is the fold's pool"))
-
-	if step := currentStep(t, s, workID); step != "planning" {
-		t.Fatalf("step after record_diagnosis = %q, want planning", step)
+	if got := currentStep(t, s, workID); got != "diagnose" {
+		t.Fatalf("record_diagnosis changed frontier to %q", got)
 	}
 	rows := diagnosisAlignmentRows(t, s, workID)
-	if len(rows) != 2 {
-		t.Fatalf("alignment rows after record_diagnosis = %d, want the declaration row plus the related row", len(rows))
+	if len(rows) != 2 || rows[0].Related != "" || rows[1].Related != relatedID {
+		t.Fatalf("diagnosis alignment rows = %+v", rows)
 	}
 	for _, row := range rows {
 		if row.Searched != "the backlog search covered the tracker" || row.Outcome != "related_found" {
-			t.Fatalf("alignment row = %+v, want the recorded search and outcome", row)
+			t.Fatalf("diagnosis alignment row = %+v", row)
 		}
 	}
-	declaration, related := rows[0], rows[1]
-	if declaration.Related != "" {
-		t.Fatalf("declaration row names related %q, want the NULL related declaration row", declaration.Related)
-	}
-	if related.Related != relatedID {
-		t.Fatalf("related row names %q, want %q", related.Related, relatedID)
-	}
-	var diagnosisEvents int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, "workflow.diagnosis_recorded").Scan(&diagnosisEvents); err != nil {
+	var events, relations int
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowDiagnosisRecorded).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
-	if diagnosisEvents != 1 {
-		t.Fatalf("workflow.diagnosis_recorded events = %d, want 1", diagnosisEvents)
-	}
-	if version <= readWorkVersion(t, s, workID)-1 {
-		t.Fatal("record_diagnosis recorded no work version")
-	}
-
-	// The corrected projection is a record, not a relation: the merged
-	// action creates no relation rows (CD-0198 D2 keeps CD-0156 D5).
-	var relations int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from=? OR work_id_to=?`, workID, workID).Scan(&relations); err != nil {
+	if err := s.db.QueryRow(`SELECT count(*) FROM relations WHERE work_id_from=? OR work_id_to=?`, workID, workID).Scan(&relations); err != nil {
 		t.Fatal(err)
 	}
-	if relations != 0 {
-		t.Fatalf("record_diagnosis created %d relation rows, want none", relations)
+	if events != 1 || relations != 0 || readWorkVersion(t, s, workID) <= before {
+		t.Fatalf("diagnosis effects: events=%d relations=%d version=%d", events, relations, readWorkVersion(t, s, workID))
+	}
+	if err := runVerdictActionAs(t, s, workID, "complete_step", json.RawMessage(`{"step_id":"diagnose","note":"diagnosis recorded"}`), 0, fixture.owner); err != nil {
+		t.Fatalf("complete diagnosis: %v", err)
+	}
+	if got := currentStep(t, s, workID); got != "plan" {
+		t.Fatalf("frontier after complete_step = %q, want plan", got)
 	}
 }
 
@@ -287,28 +175,10 @@ func TestRecordDiagnosisRecordsAllSectionsAtomically(t *testing.T) {
 // row, no step advance.
 func TestRecordDiagnosisRefusalsLeaveZeroWrites(t *testing.T) {
 	t.Parallel()
-	s := openTemp(t)
 	const workID = "diagnosis-refusal-zero-writes"
-	seedWork(t, s, workID)
-	seedWorkflowLaw(t, s)
-	actor := diagnosisS1Actor(workID, "owner")
-	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)}); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
+	fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanFix, "diagnose")
+	s := fixture.store
 	version := readWorkVersion(t, s, workID)
-
 	cases := []struct {
 		name    string
 		payload json.RawMessage
@@ -322,293 +192,116 @@ func TestRecordDiagnosisRefusalsLeaveZeroWrites(t *testing.T) {
 		{"unknown related id", json.RawMessage(`{"reproduction":"the reproduction","searched":"the search","outcome":"related_found","related_ids":["work:not-a-real-work-item"],"root_cause":"the cause"}`)},
 		{"unknown field", json.RawMessage(`{"reproduction":"the reproduction","searched":"the search","outcome":"none_found","root_cause":"the cause","severity":"high"}`)},
 	}
-	for _, testCase := range cases {
-		if err := runVerdictActionAs(t, s, workID, "record_diagnosis", testCase.payload, 0, actor); err == nil {
-			t.Fatalf("%s: record_diagnosis admitted a malformed payload", testCase.name)
+	for _, tc := range cases {
+		if err := runVerdictActionAs(t, s, workID, "record_diagnosis", tc.payload, 0, fixture.owner); err == nil {
+			t.Fatalf("%s: malformed diagnosis admitted", tc.name)
 		}
 	}
-	if got := readWorkVersion(t, s, workID); got != version {
-		t.Fatalf("refused record_diagnosis calls moved the work version %d -> %d", version, got)
-	}
-	if rows := diagnosisAlignmentRows(t, s, workID); len(rows) != 0 {
-		t.Fatalf("refused record_diagnosis calls wrote %d alignment rows", len(rows))
-	}
-	var diagnosisEvents int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, "workflow.diagnosis_recorded").Scan(&diagnosisEvents); err != nil {
+	var events int
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowDiagnosisRecorded).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
-	if diagnosisEvents != 0 {
-		t.Fatalf("refused record_diagnosis calls wrote %d events", diagnosisEvents)
+	if got := readWorkVersion(t, s, workID); got != version || events != 0 || len(diagnosisAlignmentRows(t, s, workID)) != 0 || currentStep(t, s, workID) != "diagnose" {
+		t.Fatalf("refused diagnosis changed state: version=%d events=%d", got, events)
 	}
-	if step := currentStep(t, s, workID); step != "diagnosis" {
-		t.Fatalf("step after refusals = %q, want diagnosis", step)
+	if err := runVerdictActionAs(t, s, workID, "record_diagnosis", diagnosisPayload("the reproduction", "the search", "none_found", nil, "the cause"), 0, fixture.owner); err != nil {
+		t.Fatalf("valid diagnosis after refusals: %v", err)
 	}
-
-	// The valid call still admits after the refusals, which proves the
-	// refusals left nothing partial behind.
-	if err := runVerdictActionAs(t, s, workID, "record_diagnosis", diagnosisPayload("the reproduction", "the search", "none_found", nil, "the cause"), 0, actor); err != nil {
-		t.Fatalf("valid record_diagnosis after refusals: %v", err)
-	}
-	if step := currentStep(t, s, workID); step != "planning" {
-		t.Fatalf("step after the valid record_diagnosis = %q, want planning", step)
+	if got := currentStep(t, s, workID); got != "diagnose" {
+		t.Fatalf("record_diagnosis changed frontier to %q", got)
 	}
 }
 
-// TestDerivedRepairStartClaimsEpochFromFirstQualifyingCheckpoint proves the
-// CD-0198 D3 derivation on the repair step: the first admitted qualifying
-// action fences the step from its own actor, opens epoch 1, and the step's
-// direct-work route stays live behind it.
-func TestDerivedRepairStartClaimsEpochFromFirstQualifyingCheckpoint(t *testing.T) {
+func TestNativeExecutionStartFenceAndAtomicRefusals(t *testing.T) {
 	t.Parallel()
-	const workID = "derived-repair-start"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	const workID = "native-execution-start"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanFix, "implement")
 	s := fixture.store
-	if startedAt, _ := instanceExecutionStart(t, s, workID); startedAt != "" {
-		t.Fatalf("repair step pre-start execution_started_at = %q, want empty", startedAt)
-	}
-	checkpointer := diagnosisS1Actor(workID, "checkpointer")
-	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, checkpointer); err != nil {
-		t.Fatalf("the first qualifying checkpoint derives the repair start: %v", err)
-	}
-	start := workflowCurrentStartAtStep(t, s, workID, "repair")
-	if start == nil || len(workflowStartReceiptIDs(t, s, workID)) != 1 {
-		t.Fatalf("repair current start = %+v, want one receipted derived start", start)
-	}
-	if start.ActionID != "checkpoint_repair" || start.Epoch != 1 {
-		t.Fatalf("derived start = action %q epoch %d, want checkpoint_repair epoch 1", start.ActionID, start.Epoch)
-	}
-	checkpointerRef, err := WorkflowActorRef(checkpointer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if start.ActorRef != checkpointerRef {
-		t.Fatalf("derived start actor = %q, want the first qualifying action's own actor %q", start.ActorRef, checkpointerRef)
-	}
-	startedAt, executionActor := instanceExecutionStart(t, s, workID)
-	if startedAt == "" {
-		t.Fatal("the derived start recorded no execution_started_at")
-	}
-	if executionActor != checkpointerRef {
-		t.Fatalf("execution actor fence = %q, want %q", executionActor, checkpointerRef)
-	}
-	// The derived start admits the step's ordinary route: the repair
-	// step's delivery advances toward the refinement pass, which owns the
-	// refine proof behind its own derived start.
-	proveDerivedCheckpointDelivery(t, fixture, workID)
-	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:derived-repair-`+workID+`","delivery_state":"asserted"}`), 0, fixture.owner); err != nil {
-		t.Fatalf("record_delivery behind the derived start: %v", err)
-	}
-	if step := currentStep(t, s, workID); step != "refine" {
-		t.Fatalf("step after repair delivery = %q, want refine", step)
-	}
-}
-
-// TestDerivedRefineStartClaimsEpochFromCheckpointRefine proves the same
-// derivation on the refine step: a passing report on the Reviewed candidate
-// satisfies the proof, and the delivery exits through the declared route.
-func TestDerivedRefineStartClaimsEpochFromCheckpointRefine(t *testing.T) {
-	t.Parallel()
-	for _, family := range []struct{ ref string }{
-		{"workflow.implementation"}, {"workflow.break_fix"},
-	} {
-		const workID = "derived-refine-start"
-		fixture := seedWorkflowReturnRouteFixture(t, workID, family.ref, "refine")
-		s := fixture.store
-		entry, err := VerifyWorkflowInstanceDefinition(context.Background(), s, BuiltinWorkflowRegistry(), workID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !workflowRefineProofGateActive(entry.Definition, "refine") {
-			t.Fatalf("%s does not gate the refine proof at refine", family.ref)
-		}
-		checkpointer := diagnosisS1Actor(workID, "checkpointer")
-		if err := runVerdictActionAs(t, s, workID, "checkpoint_refine", json.RawMessage(`{}`), 0, checkpointer); err != nil {
-			t.Fatalf("%s: checkpoint_refine derives the refine start: %v", family.ref, err)
-		}
-		start := workflowCurrentStartAtStep(t, s, workID, "refine")
-		if start == nil || len(workflowStartReceiptIDs(t, s, workID)) != 1 || start.ActionID != "checkpoint_refine" || start.Epoch != 1 {
-			t.Fatalf("%s: refine current start = %+v, want one checkpoint_refine start at epoch 1", family.ref, start)
-		}
-		proveDerivedCheckpointDelivery(t, fixture, workID)
-		if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:derived-refine-`+workID+`","delivery_state":"asserted"}`), 0, fixture.owner); err != nil {
-			t.Fatalf("%s: record_delivery behind the derived refine start: %v", family.ref, err)
-		}
-		if step := currentStep(t, s, workID); step != "delivery" {
-			t.Fatalf("%s: step after refine delivery = %q, want delivery", family.ref, step)
-		}
-	}
-}
-
-// TestNonQualifyingActionsCannotStartTheRepairStep proves the qualifying
-// boundary: context, evidence, and job records neither manufacture nor reset
-// the start, and delivery without any qualifying start refuses.
-func TestNonQualifyingActionsCannotStartTheRepairStep(t *testing.T) {
-	t.Parallel()
-	const workID = "derived-start-non-qualifying"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "refine")
-	s := fixture.store
-	actor := fixture.owner
-	j := pReturnClaim(t, fixture, workID)
-	acceptCurrentReviewForTest(t, j.fixture, "ready_for_final_proof")
-	setWorkflowStepForOperatorVerdictTest(t, s, workID, "repair")
-	receiptsBefore := workflowStartReceiptIDs(t, s, workID)
-
+	first := fixture.owner
+	second := diagnosisS1Actor(workID, "second")
 	contextPayload, err := json.Marshal(map[string]any{
-		// The committed registry's Product root carries the product-wide
-		// rationale; "root" is its child.
 		"required_reading": []map[string]any{workContextRepoReading("product-root:product", "the reading is product-wide")},
-		"finding_refs":     []string{},
-		"context_findings": []map[string]any{},
+		"finding_refs":     []string{}, "context_findings": []map[string]any{},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "record_work_context", contextPayload, 0, actor); err != nil {
-		t.Fatalf("record_work_context at the unstarted repair step: %v", err)
+	if err := runVerdictActionAs(t, s, workID, "record_work_context", contextPayload, 0, first); err != nil {
+		t.Fatalf("record context before start: %v", err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "record_work_context", contextPayload, 0, actor); err != nil {
-		t.Fatalf("record_work_context at the unstarted repair step: %v", err)
+	if start := workflowCurrentStartAtStep(t, s, workID, "implement"); start != nil || len(workflowStartReceiptIDs(t, s, workID)) != 0 {
+		t.Fatalf("context created a start: %+v", start)
 	}
-	err = runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:no-start-`+workID+`","delivery_state":"asserted"}`), 0, actor)
-	var failure *Failure
-	if !errors.As(err, &failure) || !strings.Contains(failure.Detail, "fenced start") {
-		t.Fatalf("record_delivery without any start = %v, want the missing-start refusal", err)
-	}
-	// The continuity hold stays behind the start at the fenced step, so no
-	// checkpoint-shaped side door starts the step either.
-	if err := runVerdictActionAs(t, s, workID, "checkpoint_context", json.RawMessage(`{}`), 0, actor); err == nil {
-		t.Fatal("checkpoint_context admitted at an unstarted fenced repair step")
-	}
-	if start := workflowCurrentStartAtStep(t, s, workID, "repair"); start != nil || !slices.Equal(receiptsBefore, workflowStartReceiptIDs(t, s, workID)) {
-		t.Fatalf("a refused repair-step action left a current start or new receipt: %+v", start)
-	}
-
-	// The qualifying checkpoint still derives cleanly afterwards.
-	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, actor); err != nil {
-		t.Fatalf("checkpoint_repair after the non-qualifying actions: %v", err)
-	}
-	start := workflowCurrentStartAtStep(t, s, workID, "repair")
-	receiptsAfter := workflowStartReceiptIDs(t, s, workID)
-	if start == nil || start.Epoch != 1 || len(receiptsAfter) != len(receiptsBefore)+1 || !slices.Equal(receiptsAfter[:len(receiptsBefore)], receiptsBefore) || receiptsAfter[len(receiptsAfter)-1] != start.EventID {
-		t.Fatalf("repair current start after the non-qualifying actions = %+v, want epoch 1 and exactly its receipt", start)
-	}
-}
-
-// TestRepeatedQualifyingActionsDoNotResetTheStartCutoff proves the epoch and
-// cutoff stay fixed: the store admits one checkpoint identity per step epoch,
-// so the repeat shape is further activity at the started step — a context
-// checkpoint, a fresh qualifying read — and delivery still exits afterwards.
-func TestRepeatedQualifyingActionsDoNotResetTheStartCutoff(t *testing.T) {
-	t.Parallel()
-	const workID = "derived-start-repeat"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "refine")
-	s := fixture.store
-	actor := fixture.owner
-	if err := runVerdictActionAs(t, s, workID, "checkpoint_refine", json.RawMessage(`{}`), 0, actor); err != nil {
-		t.Fatalf("first checkpoint_refine: %v", err)
-	}
-	firstStart := workflowCurrentStartAtStep(t, s, workID, "refine")
-	firstReceipts := workflowStartReceiptIDs(t, s, workID)
-	firstStartedAt, firstActor := instanceExecutionStart(t, s, workID)
-	contextCheckpoint := json.RawMessage(`{"active_unit":"the refine unit","hypothesis":"the refined subject holds","diagnosis":"the review found no defect","strategy":"deliver the refined work","touched_refs":["internal/store/workflow.go"],"evidence_refs":["evidence:repeat-context"],"pending_questions":[],"pending_decisions":[]}`)
-	if err := runWorkflowActionWithIdentity(t, s, workID, "checkpoint_context", contextCheckpoint, 0, actor, "repeat-context"); err != nil {
-		t.Fatalf("context checkpoint behind the derived start: %v", err)
-	}
-	if start := workflowCurrentStartAtStep(t, s, workID, "refine"); start == nil || firstStart == nil || *start != *firstStart || !slices.Equal(firstReceipts, workflowStartReceiptIDs(t, s, workID)) {
-		t.Fatalf("step activity changed the current start or its receipts: %+v -> %+v", firstStart, start)
-	}
-	startedAt, actorRef := instanceExecutionStart(t, s, workID)
-	if startedAt == "" || actorRef == "" || startedAt != firstStartedAt || actorRef != firstActor {
-		t.Fatal("step activity changed or lost the instance's execution time/actor fence")
-	}
-	proveDerivedCheckpointDelivery(t, fixture, workID)
-	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:repeat-`+workID+`","delivery_state":"asserted"}`), 0, actor); err != nil {
-		t.Fatalf("record_delivery after the further step activity: %v", err)
-	}
-}
-
-// TestRefusedQualifyingActionLeavesNoStart proves the derivation is atomic
-// with the action: a refused qualifying checkpoint opens no start, and the
-// next admitted one derives from clean state.
-func TestRefusedQualifyingActionLeavesNoStart(t *testing.T) {
-	t.Parallel()
-	const workID = "derived-start-refused"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
-	s := fixture.store
-	actor := fixture.owner
 	version := readWorkVersion(t, s, workID)
-	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{"unknown_field":true}`), 0, actor); err == nil {
-		t.Fatal("checkpoint_repair admitted an unknown payload field")
+	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:not-yet","delivery_state":"asserted"}`), 0, first); err == nil {
+		t.Fatal("delivery admitted at implement")
+	}
+	if err := runVerdictActionAs(t, s, workID, "checkpoint_context", json.RawMessage(`{}`), 0, first); err == nil {
+		t.Fatal("invalid context checkpoint admitted")
+	}
+	if err := runVerdictActionAs(t, s, workID, "start_execution", json.RawMessage(`{"unknown_field":true}`), 0, first); err == nil {
+		t.Fatal("start_execution admitted an unknown field")
 	}
 	if got := readWorkVersion(t, s, workID); got != version {
-		t.Fatalf("refused checkpoint_repair moved the work version %d -> %d", version, got)
+		t.Fatalf("refused start changed version %d -> %d", version, got)
 	}
-	if start := workflowCurrentStartAtStep(t, s, workID, "repair"); start != nil || len(workflowStartReceiptIDs(t, s, workID)) != 0 {
-		t.Fatalf("the refused qualifying action left a current start or receipt: %+v", start)
+	if start := workflowCurrentStartAtStep(t, s, workID, "implement"); start != nil || len(workflowStartReceiptIDs(t, s, workID)) != 0 {
+		t.Fatalf("refused start left a start or receipt: %+v", start)
 	}
 	if startedAt, _ := instanceExecutionStart(t, s, workID); startedAt != "" {
-		t.Fatalf("the refused qualifying action set execution_started_at = %q", startedAt)
+		t.Fatalf("refused start set execution_started_at = %q", startedAt)
 	}
-	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, actor); err != nil {
-		t.Fatalf("checkpoint_repair after the refusal: %v", err)
+	if err := runVerdictActionAtVersion(t, s, workID, "start_execution", json.RawMessage(`{}`), version, first); err != nil {
+		t.Fatalf("start execution: %v", err)
 	}
-	if start := workflowCurrentStartAtStep(t, s, workID, "repair"); start == nil || start.Epoch != 1 || len(workflowStartReceiptIDs(t, s, workID)) != 1 {
-		t.Fatalf("repair current start after the refusal = %+v, want one receipt at epoch 1", start)
-	}
-}
-
-// TestConcurrentFirstQualifyingActionsYieldOneFence proves the first-start
-// rule under contention: two qualifying checkpoints at one step yield one
-// actor fence and one epoch, and the loser refuses without writing.
-func TestConcurrentFirstQualifyingActionsYieldOneFence(t *testing.T) {
-	t.Parallel()
-	const workID = "derived-start-concurrent"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
-	s := fixture.store
-	first := diagnosisS1Actor(workID, "first")
-	second := diagnosisS1Actor(workID, "second")
-	version := readWorkVersion(t, s, workID)
-	if err := runVerdictActionAtVersion(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), version, first); err != nil {
-		t.Fatalf("first concurrent checkpoint_repair: %v", err)
-	}
-	if err := runVerdictActionAtVersion(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), version, second); err == nil {
-		t.Fatal("the second concurrent checkpoint_repair admitted at the same expected version")
-	}
-	start := workflowCurrentStartAtStep(t, s, workID, "repair")
-	if start == nil || len(workflowStartReceiptIDs(t, s, workID)) != 1 {
-		t.Fatalf("concurrent first qualifying actions left current start %+v, want one receipt", start)
-	}
+	start := workflowCurrentStartAtStep(t, s, workID, "implement")
 	firstRef, err := WorkflowActorRef(first)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondRef, err := WorkflowActorRef(second)
-	if err != nil {
-		t.Fatal(err)
+	if start == nil || start.ActionID != "start_execution" || start.Epoch != 1 || start.ActorRef != firstRef || len(workflowStartReceiptIDs(t, s, workID)) != 1 {
+		t.Fatalf("native start = %+v", start)
 	}
-	if start.ActorRef != firstRef {
-		t.Fatalf("the fence names %q, want the first actor %q", start.ActorRef, firstRef)
+	startedAt, actorRef := instanceExecutionStart(t, s, workID)
+	if startedAt == "" || actorRef != firstRef {
+		t.Fatalf("instance execution fence = %q %q", startedAt, actorRef)
 	}
-	if _, executionActor := instanceExecutionStart(t, s, workID); executionActor != firstRef || executionActor == secondRef {
-		t.Fatalf("execution actor fence = %q, want the first actor only", executionActor)
+	receipts := workflowStartReceiptIDs(t, s, workID)
+	if err := runWorkflowActionWithIdentity(t, s, workID, "record_work_context", contextPayload, 0, first, "after-start"); err != nil {
+		t.Fatalf("record context after start: %v", err)
+	}
+	if got := workflowCurrentStartAtStep(t, s, workID, "implement"); got == nil || *got != *start || !slices.Equal(receipts, workflowStartReceiptIDs(t, s, workID)) {
+		t.Fatalf("context changed the start watermark: %+v -> %+v", start, got)
+	}
+	if gotTime, gotActor := instanceExecutionStart(t, s, workID); gotTime != startedAt || gotActor != actorRef {
+		t.Fatalf("context changed execution fence: %q %q", gotTime, gotActor)
+	}
+	if err := runVerdictActionAtVersion(t, s, workID, "start_execution", json.RawMessage(`{}`), version, second); err == nil {
+		t.Fatal("stale competing start was admitted")
+	}
+	if err := runVerdictActionAs(t, s, workID, "start_execution", json.RawMessage(`{}`), 0, second); err == nil {
+		t.Fatal("another actor took over a held start without a snapshot")
+	}
+	if got := workflowCurrentStartAtStep(t, s, workID, "implement"); got == nil || *got != *start || len(workflowStartReceiptIDs(t, s, workID)) != 1 {
+		t.Fatalf("refused starts changed fence: %+v -> %+v", start, got)
 	}
 }
 
-// A revised contract remains live through source-qualified context, a derived
-// repair start, current evidence, independent verdict and completion.
+// A revised contract remains live through source-qualified context, a native
+// execution start, current evidence, independent verdict and completion.
 func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 	t.Parallel()
 	const workID = "corrected-contract-liveness"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanFix, "implement")
 	s := fixture.store
 	journey := pReturnClaim(t, fixture, workID)
 	journey.acceptor = fixture.owner
 	current := journey.fixture
-	if err := reviseContractRecord(t, s, workID, fixture.owner, pContractSuccessor(t, s, workID, "The repaired subject has current proof."), readWorkVersion(t, s, workID), nil); err != nil {
+	if err := reviseContractRecord(t, s, workID, fixture.owner, pContractSuccessor(t, s, workID, "The repaired subject has current proof."), readWorkVersion(t, s, workID)); err != nil {
 		t.Fatalf("revise the contract at the producer step: %v", err)
 	}
-	if step := currentStep(t, s, workID); step != "repair" {
-		t.Fatalf("instance after the contract revision = %q, want repair", step)
+	if step := currentStep(t, s, workID); step != "implement" {
+		t.Fatalf("instance after the contract revision = %q, want implement", step)
 	}
 
 	// Source-qualified context binds an immutable source commit.
@@ -643,10 +336,10 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := runVerdictActionAs(t, s, workID, "record_work_context", contextPayload, 0, fixture.owner); err != nil {
-		t.Fatalf("source-qualified work context at the repair step: %v", err)
+		t.Fatalf("source-qualified work context at implement: %v", err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, fixture.owner); err != nil {
-		t.Fatalf("the derived repair start after the contract revision: %v", err)
+	if err := runVerdictActionAs(t, s, workID, "start_execution", json.RawMessage(`{}`), 0, fixture.owner); err != nil {
+		t.Fatalf("start execution after contract revision: %v", err)
 	}
 	bindKind := func(kind, ref string) {
 		t.Helper()
@@ -661,25 +354,25 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 	bindKind("artifact", "artifact:liveness-"+workID)
 	proof := journey.observeRun(t, "liveness-current")
 	journey.bindVerification(t, proof)
+	acceptCurrentReviewForTest(t, current, "continue")
+	completeReviewedStep := func(step string) {
+		t.Helper()
+		state, err := loadWorkflowReviewState(t.Context(), s.db, workID)
+		if err != nil || state.Accepted == nil || state.Candidate == nil {
+			t.Fatalf("read accepted review: %+v, %v", state, err)
+		}
+		payload := mustJSONValue(map[string]any{"step_id": step, "note": "review completed", "reviewer": "concord-review", "result": "pass", "commit": state.Candidate.Commit, "link": state.Accepted.ReportRef})
+		if err := runVerdictActionAs(t, s, workID, "complete_step", payload, 0, fixture.owner); err != nil {
+			t.Fatalf("complete %s: %v", step, err)
+		}
+	}
+	completeReviewedStep("implement")
+	if step := currentStep(t, s, workID); step != "review" {
+		t.Fatalf("frontier after implement = %q, want review", step)
+	}
 	qAcceptCriterionReview(t, current, proof.OperationRef)
-	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:liveness-repair-`+workID+`","delivery_state":"asserted"}`), 0, fixture.owner); err != nil {
-		t.Fatalf("record_delivery on the corrected contract: %v", err)
-	}
-	if step := currentStep(t, s, workID); step != "refine" {
-		t.Fatalf("step after the repaired delivery = %q, want refine", step)
-	}
-	// The unchanged candidate keeps its verification through the refine pass.
-	if err := runVerdictActionAs(t, s, workID, "checkpoint_refine", json.RawMessage(`{}`), 0, fixture.owner); err != nil {
-		t.Fatalf("the derived refine start on the corrected contract: %v", err)
-	}
-	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:liveness-refine-`+workID+`","delivery_state":"asserted"}`), 0, fixture.owner); err != nil {
-		t.Fatalf("record_delivery at the refine step on the corrected contract: %v", err)
-	}
-	if step := currentStep(t, s, workID); step != "delivery" {
-		t.Fatalf("step after the refine delivery = %q, want the delivery gate", step)
-	}
 	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:liveness-gate-`+workID+`","delivery_state":"asserted"}`), 0, fixture.owner); err != nil {
-		t.Fatalf("record_delivery through the delivery gate on the corrected contract: %v", err)
+		t.Fatalf("record delivery on the corrected contract: %v", err)
 	}
 	reviewer := diagnosisS1Actor(workID, "liveness-reviewer")
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", criterionAssociationPayload(proof.OperationRef, "predicate:return-route"), 0, reviewer); err != nil {
@@ -688,9 +381,10 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 	if err := pConfirmReceiptPremise(t, current); err != nil {
 		t.Fatalf("confirm the corrected premise: %v", err)
 	}
-	if step := currentStep(t, s, workID); step != "complete" {
-		t.Fatalf("step after the corrected premise = %q, want complete", step)
+	if step := currentStep(t, s, workID); step != "review" {
+		t.Fatalf("frontier after the corrected premise = %q, want review", step)
 	}
+	completeReviewedStep("review")
 	// The completing coordinator is neither the step's fenced executor nor
 	// the verdict actor (CD-0013 D5).
 	completer := diagnosisS1Actor(workID, "completer")
@@ -707,44 +401,38 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 	}
 }
 
-func TestDiagnosisRecordAdvancesWithoutExecutionStart(t *testing.T) {
+func TestDiagnosisRecordDoesNotStartExecution(t *testing.T) {
 	t.Parallel()
 	const workID = "diagnosis-lane-cannot-strand"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "diagnosis")
+	fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanFix, "diagnose")
 	s := fixture.store
 	actor := fixture.owner
-	if start := workflowCurrentStartAtStep(t, s, workID, "diagnosis"); start != nil || len(workflowStartReceiptIDs(t, s, workID)) != 0 {
-		t.Fatalf("diagnosis has an execution start or receipt: %+v", start)
+	if start := workflowCurrentStartAtStep(t, s, workID, "diagnose"); start != nil || len(workflowStartReceiptIDs(t, s, workID)) != 0 {
+		t.Fatalf("diagnose has an execution start or receipt: %+v", start)
 	}
-	if rows := diagnosisAlignmentRows(t, s, workID); len(rows) != 0 {
-		t.Fatalf("the refused lane actions wrote %d alignment rows", len(rows))
-	}
-
 	if err := runVerdictActionAs(t, s, workID, "record_diagnosis", diagnosisPayload("the reproduction", "the search", "none_found", nil, "the cause"), 0, actor); err != nil {
-		t.Fatalf("the valid merged record behind the refused lane: %v", err)
+		t.Fatalf("record diagnosis without a start: %v", err)
 	}
-	if step := currentStep(t, s, workID); step != "planning" {
-		t.Fatalf("step after the valid record = %q, want planning", step)
+	if step := currentStep(t, s, workID); step != "diagnose" {
+		t.Fatalf("frontier after diagnosis = %q, want diagnose", step)
 	}
-}
-
-func proveDerivedCheckpointDelivery(t *testing.T, f workflowReturnRouteFixture, workID string) {
-	t.Helper()
-	j := pReturnClaim(t, f, workID)
-	j.acceptor = f.owner
-	proof := j.observeRun(t, "derived-checkpoint")
-	j.bindVerification(t, proof)
-	qAcceptCriterionReview(t, j.fixture, proof.OperationRef)
+	if start := workflowCurrentStartAtStep(t, s, workID, "diagnose"); start != nil || len(workflowStartReceiptIDs(t, s, workID)) != 0 {
+		t.Fatalf("diagnosis created an execution start: %+v", start)
+	}
 }
 
 func runVerdictActionAtVersion(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64, owner WorkflowActor) error {
 	t.Helper()
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	ctx, err := prepareTerminalTestContext(context.Background(), s, workID, action)
+	if err != nil {
+		return err
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	if _, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), WorkflowActionExecutionRequest{
 		EvidenceRefs: actionEvidenceRefs(action, payload), WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64) + fmt.Sprint(version), IdempotencyIdentity: action + "-" + workID + "-" + fmt.Sprint(version), OperationID: action + "-" + workID + "-" + fmt.Sprint(version),
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: action + "-" + workID + "-" + fmt.Sprint(version), RequestID: "request:" + action + "-" + workID + "-" + fmt.Sprint(version), ContractDigest: testManifestDigest, Now: time.Unix(11, 0).UTC(),
@@ -763,12 +451,16 @@ func runWorkflowActionWithIdentity(t *testing.T, s *Store, workID, action string
 		version = readWorkVersion(t, s, workID)
 	}
 	operation := action + "-" + suffix + "-" + workID + "-" + fmt.Sprint(version)
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	ctx, err := prepareTerminalTestContext(context.Background(), s, workID, action)
+	if err != nil {
+		return err
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	if _, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), WorkflowActionExecutionRequest{
 		EvidenceRefs: actionEvidenceRefs(action, payload), WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64) + operation, IdempotencyIdentity: operation, OperationID: operation,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operation, RequestID: "request:" + operation, ContractDigest: testManifestDigest, Now: time.Unix(13, 0).UTC(),

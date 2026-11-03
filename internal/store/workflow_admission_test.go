@@ -119,7 +119,7 @@ func TestWorkflowPlanAdmissionRefusalParity(t *testing.T) {
 		kind FailureKind
 	}{
 		{"stale", func(r *WorkflowActionExecutionRequest) { r.ExpectedVersion-- }, KindVersionConflict},
-		{"invalid-payload", func(r *WorkflowActionExecutionRequest) { r.Payload = json.RawMessage(`{}`) }, KindInvalidPayload},
+		{"invalid-payload", func(r *WorkflowActionExecutionRequest) { r.Payload = json.RawMessage(`{"undeclared":true}`) }, KindInvalidPayload},
 		{"missing-actor", func(r *WorkflowActionExecutionRequest) { r.Actor = WorkflowActor{} }, KindUnauthorized},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

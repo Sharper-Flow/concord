@@ -459,7 +459,7 @@ type workflowSuccessorLinkedPayload struct {
 type workflowCompletedPayload struct {
 	WorkflowVersionFields
 	TerminalState     string   `json:"terminal_state"`
-	FinalVerdictKind  string   `json:"final_verdict_kind"`
+	FinalVerdictKind  string   `json:"final_verdict_kind,omitempty"`
 	VerdictActorRef   string   `json:"verdict_actor_ref"`
 	PremiseConfirmed  bool     `json:"premise_confirmed"`
 	EvidenceCount     int64    `json:"evidence_count"`
@@ -2078,7 +2078,7 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *
 	}
 	// evidence_count derives from the item's total workflow.evidence_bound
 	// history, so any non-negative count the constructor produces is valid.
-	if p.TerminalState != "completed" && p.TerminalState != "cancelled" && p.TerminalState != "superseded" || !slices.Contains([]string{"ok", "outcome_mismatch", "insufficient_evidence"}, p.FinalVerdictKind) || !workflowString(p.VerdictActorRef, 70) || p.EvidenceCount < 0 || !workflowDigest(p.ChangedRefsDigest) || !slices.Contains([]string{"breaking", "non-breaking"}, p.ImpactVerdict) || !workflowList(p.Warnings, 16, 0) {
+	if p.TerminalState != "completed" && p.TerminalState != "cancelled" && p.TerminalState != "superseded" || p.FinalVerdictKind != "" && !slices.Contains([]string{"ok", "outcome_mismatch", "insufficient_evidence"}, p.FinalVerdictKind) || !workflowString(p.VerdictActorRef, 70) || p.EvidenceCount < 0 || !workflowDigest(p.ChangedRefsDigest) || !slices.Contains([]string{"breaking", "non-breaking"}, p.ImpactVerdict) || !workflowList(p.Warnings, 16, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "completed has invalid terminal metadata", false, "supply closed terminal metadata including impact_verdict")
 	}
 	plan, err := readWorkflowPlanTx(ctx, tx, event.SubjectID)
@@ -2088,9 +2088,6 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *
 	if p.TerminalState == "completed" {
 		if plan == nil || !WorkflowStepPlanComplete(*plan) {
 			return newFailure(KindIllegalLifecycleTransition, "fold_event", "workflow plan is not complete", false, "complete every plan step")
-		}
-		if err := validatePlanCompletionFactsTx(ctx, tx, event.SubjectID, plan); err != nil {
-			return err
 		}
 	}
 	if err := requireActor(ctx, tx, event.Actor); err != nil {
@@ -2108,75 +2105,6 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *
 	}
 	if n, _ := result.RowsAffected(); n != 1 {
 		return newFailure(KindInvalidOperation, "fold_event", "workflow is already terminal or missing", false, "complete an active workflow once")
-	}
-	return nil
-}
-
-func validatePlanCompletionFactsTx(ctx context.Context, tx *sql.Tx, workID string, plan *WorkflowStepPlan) error {
-	contract, err := workflowCompletionContractRows(ctx, tx, workID)
-	if err != nil {
-		return err
-	}
-	missing, err := missingPredicateVerdictsForContract(ctx, tx, workID, contract)
-	if err != nil {
-		return err
-	}
-	if len(missing) != 0 {
-		return newFailure(KindMissingEvidence, "fold_event", "approved predicates lack verdicts", false, "record verdicts for every approved predicate")
-	}
-	verdicts, err := latestWorkflowVerdicts(ctx, tx, workID, contract.Version)
-	if err != nil {
-		return err
-	}
-	for _, verdict := range verdicts {
-		if containsPredicateID(contract.Predicates, verdict.PredicateID) {
-			if verdict.VerdictKind != "ok" || verdict.IncomparableWithApproved {
-				return newFailure(KindMissingEvidence, "fold_event", "approved predicate does not have an accepted verdict", false, "resolve the verdict")
-			}
-			if err := verifyWorkflowCriterionAssociation(ctx, tx, workID, verdict); err != nil {
-				return err
-			}
-		}
-	}
-	var requirements []workflowEvidenceRequirement
-	for _, kind := range contract.RequiredEvidence {
-		requirements = append(requirements, workflowEvidenceRequirement{Kind: kind})
-	}
-	for _, ref := range contract.SpecMandate {
-		requirements = append(requirements, workflowEvidenceRequirement{Reference: ref})
-	}
-	for _, obligation := range contract.VerificationObligations {
-		requirements = append(requirements, workflowEvidenceRequirement{Kind: obligation.ObligationID, Reference: obligation.LawID})
-	}
-	outstanding, err := unboundWorkflowEvidenceRequirements(ctx, tx, workID, requirements, 0)
-	if err != nil {
-		return err
-	}
-	if len(outstanding) != 0 {
-		return newFailure(KindMissingEvidence, "fold_event", "contract evidence requirements are not bound", false, "bind required evidence")
-	}
-	review, err := loadWorkflowReviewState(ctx, tx, workID)
-	if err != nil {
-		return err
-	}
-	if err := workflowAdmitReview(review); err != nil {
-		return err
-	}
-	if plan.Type != WorkflowStepPlanResearch {
-		report, _, err := latestVerificationReport(ctx, tx, workID, "")
-		if err != nil {
-			return err
-		}
-		if report == nil || !reportCovers(*report, review.Candidate) {
-			return newFailure(KindMissingEvidence, "fold_event", "current candidate lacks passing verification", false, "bind passing verification for the reviewed candidate")
-		}
-	}
-	var delivered bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_delivery_state WHERE work_id=?)`, workID).Scan(&delivered); err != nil {
-		return workflowProjectionError(err, "cannot read delivery assertion")
-	}
-	if !delivered {
-		return newFailure(KindMissingEvidence, "fold_event", "delivery assertion is missing", false, "record delivery")
 	}
 	return nil
 }

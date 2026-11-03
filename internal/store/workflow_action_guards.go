@@ -57,10 +57,10 @@ func workflowEvidenceReferenceBound(ctx context.Context, q queryer, workID, refe
 }
 
 func guardPlanMandate(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, step string, action WorkflowActionDefinition) error {
-	if action.ID == "bind_evidence" {
+	if action.ID == "bind_evidence" || action.ID == "complete" {
 		return nil
 	}
-	terminal := action.ID == "record_review" || action.ID == "record_verdict" || action.ID == "confirm_premise" || action.ID == "complete"
+	terminal := action.ID == "record_review" || action.ID == "record_verdict" || action.ID == "confirm_premise"
 	if !terminal && (action.ExecutionMode != ActionAdvance || !workflowPlanAllowsAction(plan, step, "bind_evidence")) {
 		return nil
 	}
@@ -335,35 +335,6 @@ func assemblePlanWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, request
 	return events, nil
 }
 
-// Completion carries receipt references in its operation record. It neither
-// creates receipts nor reclassifies them under a missing required evidence kind.
-func extendCompletionEvidenceAuthorityTx(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest) error {
-	refs := append([]string(nil), request.EvidenceRefs...)
-	contractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, request.WorkID, "complete_workflow")
-	if contractErr == nil {
-		verdicts, verdictErr := latestWorkflowVerdicts(ctx, tx, request.WorkID, contractVersion)
-		if verdictErr != nil {
-			return verdictErr
-		}
-		for _, verdict := range verdicts {
-			for _, ref := range verdict.EvaluationEvidence {
-				if !slices.Contains(refs, ref) {
-					refs = append(refs, ref)
-				}
-			}
-		}
-	} else if contractErr != sql.ErrNoRows {
-		return contractErr
-	}
-	if len(refs) == 0 {
-		return nil
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE durable_operations SET evidence_refs=? WHERE op_id=? AND attempt_epoch=?`, workflowJSON(refs), request.OperationID, 1); err != nil {
-		return wrapFailure(KindUnavailable, "complete_workflow", "cannot extend completion evidence authority", true, "retry once the database is writable", err)
-	}
-	return nil
-}
-
 // applyCompleteWorkflowActionTx completes the workflow in this transaction:
 // the ordered completion gate runs and workflow.completed is appended here.
 // The caller's write scope guards the whole action region.
@@ -400,9 +371,6 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *write
 		}
 	}
 	request.ExpectedVersion += int64(len(prefixEvents))
-	if err := extendCompletionEvidenceAuthorityTx(ctx, tx, request); err != nil {
-		return result, err
-	}
 	completion, completionErr := workflowCompletionEventForDefinition(ctx, tx, request, actor, payload)
 	if completionErr != nil {
 		return result, completionErr

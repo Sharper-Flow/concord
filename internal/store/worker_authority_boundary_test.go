@@ -66,7 +66,7 @@ func TestOffStepRecordCompletionRequiresOwnEffect(t *testing.T) {
 			case "record_proposal", "record_design":
 				s, actor, _ = seedOrdinaryExecutorAtExecution(t, workID)
 			case "revise_candidates":
-				f := seedCurrentWorkflowReturnRouteFixture(t, workID, "workflow.research", "investigate")
+				f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, "investigate", []string{}, []string{})
 				s = f.store
 				issue31WorkflowActionWithPayload(t, s, workID, readWorkVersion(t, s, workID), action, workID+"-first", f.owner, json.RawMessage(`{"added":["candidate:one"]}`))
 				actor, _ = WorkflowActorRef(f.owner)

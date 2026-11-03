@@ -5,12 +5,12 @@ export function largeMutationPayload() {
     work_id: `work-projection-${i}`, title: `Lossless result 😀 ${i}`, linear_issue_key: "",
     project_id: "project-test", project_display_name: "Fixture", version: 3,
     lifecycle: "in_progress", cancelled_instance_closes: 0,
-    workflow_type: "workflow.implementation", step: "execution",
+    workflow_type: "change", step: "execution",
     driving_sessions: Array.from({ length: 16 }, (_, n) => ({
       session_ref: `session-${n}-`.padEnd(128, "x"), last_action_id: "action-".padEnd(128, "y"), last_acted_at: "2026-10-28T00:00:00Z",
     })),
     watermark: "seq:3", next_valid_intents: [],
-    workflow_definition_digest: "sha256:" + "a".repeat(64), obligations: [],
+    obligations: [],
   }))
   return {
     changed_refs: work_pins.map(pin => ({ entity_kind: "work_item", id: pin.work_id, version: pin.version })),

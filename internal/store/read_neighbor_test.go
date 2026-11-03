@@ -373,7 +373,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		}},
 
 		// Snapshot and launcher reads.
-		{name: "readAppliedFromDB", run: func() error { _, _, err := readAppliedFromDB(ctx, s.db, s.Path(), nil); return err }},
+		{name: "readAppliedFromDB", run: func() error { _, _, err := readAppliedFromDB(ctx, s.db, s.Path()); return err }},
 		{name: "Backup", scratch: true, run: func() error {
 			// The destination persists across modes; each run needs a clean
 			// scratch path, which the entry point refuses to overwrite.

@@ -389,11 +389,6 @@ func workflowCompletionEventForDefinition(ctx context.Context, tx *sql.Tx, reque
 		return Event{}, err
 	}
 	verdictActor := actor
-	if verdict, verdictErr := latestWorkflowVerdict(ctx, tx, request.WorkID); verdictErr != nil {
-		return Event{}, verdictErr
-	} else if verdict != nil {
-		verdictActor = verdict.VerdictActorRef
-	}
 	verdictActor, err = workflowAuthenticatedActorField(fields, "verdict_actor_ref", verdictActor)
 	if err != nil {
 		return Event{}, err
@@ -403,20 +398,9 @@ func workflowCompletionEventForDefinition(ctx context.Context, tx *sql.Tx, reque
 		return Event{}, newFailure(KindInvalidPayload, "complete_workflow", "completion requires impact_verdict breaking or non-breaking", false, "supply the delivered change impact verdict")
 	}
 	// Completion reports recorded facts without re-evaluating acceptance.
-	contractData, contractErr := workflowCompletionContractRows(ctx, tx, request.WorkID)
+	contractVersion, contractErr := completionActiveContractVersion(ctx, tx, request.WorkID)
 	if contractErr != nil {
 		return Event{}, contractErr
-	}
-	verdicts, verdictsErr := latestWorkflowVerdicts(ctx, tx, request.WorkID, contractData.Version)
-	if verdictsErr != nil {
-		return Event{}, verdictsErr
-	}
-	finalVerdictKind := "ok"
-	for _, verdict := range verdicts {
-		if verdict.VerdictKind != "ok" {
-			finalVerdictKind = verdict.VerdictKind
-			break
-		}
 	}
 	var boundEvidence int64
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=?`, request.WorkID).Scan(&boundEvidence); err != nil {
@@ -424,10 +408,10 @@ func workflowCompletionEventForDefinition(ctx context.Context, tx *sql.Tx, reque
 	}
 	premiseConfirmed := false
 	var premiseRow int
-	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=?`, request.WorkID, contractData.Version).Scan(&premiseRow); err == nil {
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=?`, request.WorkID, contractVersion).Scan(&premiseRow); err == nil {
 		premiseConfirmed = true
 	}
-	payload := map[string]any{"terminal_state": "completed", "final_verdict_kind": finalVerdictKind, "verdict_actor_ref": verdictActor, "premise_confirmed": premiseConfirmed, "evidence_count": boundEvidence, "changed_refs_digest": WorkflowChangedRefsDigest([]string{request.WorkID}), "impact_verdict": impactVerdict}
+	payload := map[string]any{"terminal_state": "completed", "verdict_actor_ref": verdictActor, "premise_confirmed": premiseConfirmed, "evidence_count": boundEvidence, "changed_refs_digest": WorkflowChangedRefsDigest([]string{request.WorkID}), "impact_verdict": impactVerdict}
 	return workflowTypedEvent(request.OperationID+":completed", WorkflowCompleted, request.WorkID, actor, request.Now, request.ExpectedVersion, payload), nil
 }
 

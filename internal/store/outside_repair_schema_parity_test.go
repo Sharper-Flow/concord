@@ -394,14 +394,14 @@ func TestOutsideRepairOutcomeKindParity(t *testing.T) {
 	}
 	for _, input := range []map[string]any{mismatch, unknown} {
 		before := contractRecordEffectSnapshot(t, f.store, f.workID)
-		if err := reviseContractRecord(t, f.store, f.workID, f.owner, input["contract"].(map[string]any), readWorkVersion(t, f.store, f.workID), nil); !hasFailureKind(err, KindInvalidPayload) {
+		if err := reviseContractRecord(t, f.store, f.workID, f.owner, input["contract"].(map[string]any), readWorkVersion(t, f.store, f.workID)); !hasFailureKind(err, KindInvalidPayload) {
 			t.Fatalf("invalid update returned %v, want invalid_payload", err)
 		}
 		if after := contractRecordEffectSnapshot(t, f.store, f.workID); after != before {
 			t.Fatal("refused update changed durable state")
 		}
 	}
-	if err := reviseContractRecord(t, f.store, f.workID, f.owner, control["contract"].(map[string]any), readWorkVersion(t, f.store, f.workID), nil); err != nil {
+	if err := reviseContractRecord(t, f.store, f.workID, f.owner, control["contract"].(map[string]any), readWorkVersion(t, f.store, f.workID)); err != nil {
 		t.Fatalf("matching-kind control update refused: %v", err)
 	}
 }

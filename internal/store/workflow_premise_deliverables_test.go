@@ -16,8 +16,8 @@ func TestConfirmPremiseRequiresVerdictAndRequiredEvidence(t *testing.T) {
 	missing := qBuildAcceptance(t, "premise-missing-proof", "", false)
 	err := missing.run(ctx, "confirm_premise", "missing", missing.version(ctx, t), nil, nil)
 	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "verdict") {
-		t.Fatalf("confirmation without criterion association = %v, want missing_evidence naming the verdict", err)
+	if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "every approved predicate") {
+		t.Fatalf("confirmation without criterion association = %v, want missing_evidence naming the predicates", err)
 	}
 	full := qCurrentAcceptance(t, "premise-full-proof")
 	if err := full.run(ctx, "confirm_premise", "full", full.version(ctx, t), nil, nil); err != nil {
@@ -29,16 +29,17 @@ func TestPreflightRefusesConfirmationMissingMandatedDeliverables(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	preflight := func(f acceptanceRecoveryFixture) error {
-		return WorkflowActionPreflightWithRegistry(ctx, f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
+		_, err := WorkflowActionDefinitionFor(ctx, f.store, WorkflowActionPreflightRequest{
 			WorkID: f.workID, ExpectedVersion: f.version(ctx, t), ActionID: "confirm_premise", Actor: f.owner,
 			Payload: json.RawMessage(`{}`),
 		})
+		return err
 	}
 	missing := qBuildAcceptance(t, "preflight-missing-proof", "", false)
 	err := preflight(missing)
 	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "verdict") {
-		t.Fatalf("preflight without criterion association = %v, want missing_evidence naming the verdict", err)
+	if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "every approved predicate") {
+		t.Fatalf("preflight without criterion association = %v, want missing_evidence naming the predicates", err)
 	}
 	full := qCurrentAcceptance(t, "preflight-full-proof")
 	if err := preflight(full); err != nil {

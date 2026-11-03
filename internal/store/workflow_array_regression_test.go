@@ -6,12 +6,8 @@ import (
 )
 
 func TestHistoricalReproArrayItemContract(t *testing.T) {
-	d, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw := json.RawMessage(`{"approach":"shared validation","decisions":[{"id":"choice-one","question":"which approach","choice":"shared validator","rationale":"one declared contract","rejected":[]}],"touched_refs":["internal/store/workflow.go"]}`)
-	if err := validateWorkflowActionPayload(d.Definition, "record_design", raw); err != nil {
+	raw := json.RawMessage(`{"outcomes":"deliver change","approach":"shared validation","decisions":[{"id":"choice-one","question":"which approach","choice":"shared validator","rationale":"one declared contract","rejected":[]},{"id":"choice-two","question":"which boundary","choice":"typed payload","rationale":"preserve validation","rejected":[]}],"touches":["internal/store/workflow.go"],"merge_split":"one change","risks":"check boundaries"}`)
+	if _, err := validateWorkflowPlanActionPayload("record_plan", raw); err != nil {
 		t.Errorf("REPRO: a valid decision array was checked as one element: %v", err)
 	}
 }

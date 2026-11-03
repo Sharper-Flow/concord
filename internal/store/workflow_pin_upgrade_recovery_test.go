@@ -1,10 +1,8 @@
 package store
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -46,7 +44,8 @@ func lawPinUpgradeFixtureAt(t *testing.T, schema int) (*sql.DB, string, []lawPin
 	lawHash := "sha256:" + strings.Repeat("c", 64)
 	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
 	for i, tc := range cases {
-		registered := mustBuiltinDefinition(t, tc.family)
+		definitionRef := tc.family
+		definitionDigest := "sha256:" + strings.Repeat("b", 64)
 		for _, pinned := range []bool{false, true} {
 			id := fmt.Sprintf("upgrade-review-%d-%t", i, pinned)
 			if tc.lifecycle == "" && !tc.stale {
@@ -62,14 +61,14 @@ func lawPinUpgradeFixtureAt(t *testing.T, schema int) (*sql.DB, string, []lawPin
 			if pinned {
 				mandate = `["spec:one"]`
 			}
-			retirementUpgradeExec(t, db, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_digest) VALUES(?,1,'Re-review the unchanged candidate','internal_sqlite','[]','[]',?, ?,?,'[]',1,'prototype_internal',?,?)`, id, retirementUpgradeTime, actorRef, mandate, registered.Definition.Ref, registered.Digest)
+			retirementUpgradeExec(t, db, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_digest) VALUES(?,1,'Re-review the unchanged candidate','internal_sqlite','[]','[]',?, ?,?,'[]',1,'prototype_internal',?,?)`, id, retirementUpgradeTime, actorRef, mandate, definitionRef, definitionDigest)
 			kind, payload := "check", `{"kind":"check","check_ref":"check:unchanged","immutable_subject_ref":"commit:unchanged","expected_result":"pass"}`
 			if tc.family == "workflow.research" {
 				kind, payload = "outcome", `{"kind":"outcome","allowed":["resolved"]}`
 			}
 			retirementUpgradeExec(t, db, `INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,?,?)`, id, kind, payload)
-			retirementUpgradeExec(t, db, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,started_at,execution_started_at) VALUES(?,?,?,?,'running',?,?,?)`, id, registered.Definition.Ref, registered.Digest, tc.step, actorRef, retirementUpgradeTime, retirementUpgradeTime)
-			if workflowDefinitionProducesDelivery(registered.Definition) {
+			retirementUpgradeExec(t, db, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,started_at,execution_started_at) VALUES(?,?,?,?,'running',?,?,?)`, id, definitionRef, definitionDigest, tc.step, actorRef, retirementUpgradeTime, retirementUpgradeTime)
+			if tc.family != "workflow.research" {
 				binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 				retirementUpgradeExec(t, db, `INSERT INTO workflow_architecture_bindings VALUES(?,1,'product-upgrade',?,'root',?)`, id, lawHash, architectureBindingProjectionHash(binding))
 				retirementUpgradeExec(t, db, `INSERT INTO workflow_contract_affected_domains VALUES(?,1,'root')`, id)
@@ -132,278 +131,151 @@ func lawPinUpgradeFixtureAt(t *testing.T, schema int) (*sql.DB, string, []lawPin
 	return db, path, cases[:6], workIDs
 }
 
-func cancelLawPinUpgradeBlockers(t *testing.T, path string) {
-	t.Helper()
-	s, err := openUnmigrated(t.Context(), path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.db.Close()
-	for _, id := range []string{"upgrade-review-1-true", "upgrade-review-3-true"} {
-		event := workTransitionEvent("cancel-"+id, id, "in_progress", "cancelled", 1, 2)
-		if err := ApplyOperation(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, id): 1}}); err != nil {
-			t.Fatalf("cancel blocker through lifecycle operation: %v", err)
-		}
-	}
-}
-
-func completeLawPinUpgradeBlockerInstances(t *testing.T, db *sql.DB) {
-	t.Helper()
-	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1); UPDATE workflow_instances SET instance_state='completed',completed_at=? WHERE work_id IN ('upgrade-review-1-true','upgrade-review-3-true'); DELETE FROM write_guard`, retirementUpgradeTime)
-}
-
-func TestLawPinUpgradeOrdinaryReview(t *testing.T) {
-	for _, schema := range []int{174, 175} {
-		t.Run(fmt.Sprint(schema), func(t *testing.T) { testLawPinUpgradeProducerReturnAt(t, schema) })
-	}
-}
-
-func testLawPinUpgradeProducerReturnAt(t *testing.T, schema int) {
-	t.Helper()
-	useStampedBuild(t)
-	ctx := t.Context()
-	db, path, _, _ := lawPinUpgradeFixtureAt(t, schema)
-	ids := []string{"upgrade-review-1-true", "upgrade-review-3-true"}
-	for _, id := range ids {
-		review, err := loadWorkflowReviewState(ctx, db, id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		before, err := workflowReviewDependenciesBeforePinRetirement(ctx, db, id, *review.Dependencies)
-		if err != nil || review.DependenciesCurrent || !sameReviewDependencies(review.Accepted.Report.Dependencies, before) || review.Accepted.Report.OutputCandidate != *review.Candidate {
-			t.Fatalf("fixture must be unchanged and stale only under pin-free encoding: %+v %v", review, err)
-		}
-	}
-	beforeReports := retirementUpgradeRows(t, db, `SELECT * FROM workflow_review_state ORDER BY work_id`)
-	beforeReceipts := retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts ORDER BY effect_seq`)
-	var receiptFrontier int64
-	if err := db.QueryRowContext(ctx, `SELECT MAX(effect_seq) FROM effect_receipts`).Scan(&receiptFrontier); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Upgrade(ctx, path, nil); err != nil {
-		t.Fatalf("upgrade stranded an admitted producer return: %v", err)
-	}
-	if !reflect.DeepEqual(beforeReports, retirementUpgradeRows(t, db, `SELECT * FROM workflow_review_state ORDER BY work_id`)) || !reflect.DeepEqual(beforeReceipts, retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts ORDER BY effect_seq`)) {
-		t.Fatal("upgrade changed retained reports or receipts")
-	}
-	s, err := Open(ctx, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	for _, id := range ids {
-		t.Run(id, func(t *testing.T) {
-			review, err := loadWorkflowReviewState(ctx, db, id)
+func TestLawPinUpgradeRetainsReviewAndRecovers(t *testing.T) {
+	for _, schema := range []int{166, 174, 175} {
+		t.Run(fmt.Sprint(schema), func(t *testing.T) {
+			useStampedBuild(t)
+			ctx := t.Context()
+			db, path, cases, workIDs := lawPinUpgradeFixtureAt(t, schema)
+			beforeReviews := retirementUpgradeRows(t, db, `SELECT work_id,json_extract(state,'$.accepted') FROM workflow_review_state ORDER BY work_id`)
+			beforeReceipts := retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts ORDER BY effect_seq`)
+			beforeActors := retirementUpgradeRows(t, db, `SELECT * FROM workflow_actors ORDER BY actor_ref`)
+			var receiptFrontier int64
+			if err := db.QueryRowContext(ctx, `SELECT MAX(effect_seq) FROM effect_receipts`).Scan(&receiptFrontier); err != nil {
+				t.Fatal(err)
+			}
+			snapshot := filepath.Join(t.TempDir(), "predecessor.db")
+			manifest, err := BackupDatabase(ctx, path, snapshot)
+			if err != nil {
+				t.Fatalf("snapshot predecessor: %v", err)
+			}
+			report, err := Upgrade(ctx, path, nil)
+			if err != nil || report.SchemaVersion != 183 {
+				t.Fatalf("upgrade to 183: %+v %v", report, err)
+			}
+			if len(report.Applied) != 183-schema {
+				t.Fatalf("migration count=%v, predecessor=%d", report.Applied, schema)
+			}
+			for i, version := range report.Applied {
+				if version != schema+i+1 {
+					t.Fatalf("migration order=%v, predecessor=%d", report.Applied, schema)
+				}
+			}
+			if got := retirementUpgradeRows(t, db, `SELECT work_id,json_extract(state,'$.accepted') FROM workflow_review_state ORDER BY work_id`); !reflect.DeepEqual(got, beforeReviews) {
+				t.Fatal("upgrade changed native Review payloads")
+			}
+			if got := retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts ORDER BY effect_seq`); !reflect.DeepEqual(got, beforeReceipts) {
+				t.Fatal("upgrade changed predecessor effect receipts")
+			}
+			if got := retirementUpgradeRows(t, db, `SELECT * FROM workflow_actors ORDER BY actor_ref`); !reflect.DeepEqual(got, beforeActors) {
+				t.Fatal("upgrade changed source actor attribution")
+			}
+			for _, tc := range cases {
+				for _, pinned := range []bool{false, true} {
+					id := workIDs[tc.family+"/"+tc.step+fmt.Sprint(pinned)]
+					var state string
+					var planType, plan, owner sql.NullString
+					if err := db.QueryRowContext(ctx, `SELECT instance_state,workflow_type,step_plan,execution_actor_ref FROM workflow_instances WHERE work_id=?`, id).Scan(&state, &planType, &plan, &owner); err != nil {
+						t.Fatal(err)
+					}
+					if state != "intake" || planType.Valid || plan.Valid || owner.Valid {
+						t.Fatalf("%s: state=%q type=%v plan=%v owner=%v", id, state, planType, plan, owner)
+					}
+					review, err := loadWorkflowReviewState(ctx, db, id)
+					if err != nil || review.Accepted == nil || review.Accepted.ActorRef != "actor:"+strings.Repeat("a", 64) || review.Accepted.ReportRef != "accepted-"+id {
+						t.Fatalf("%s: retained attributed Review=%+v err=%v", id, review, err)
+					}
+					if review.DependenciesCurrent == pinned {
+						t.Fatalf("%s: current=%t, pinned=%t", id, review.DependenciesCurrent, pinned)
+					}
+				}
+			}
+			for _, id := range []string{"upgrade-review-9-false", "upgrade-review-9-true"} {
+				review, err := loadWorkflowReviewState(ctx, db, id)
+				if err != nil || review.DependenciesCurrent {
+					t.Fatalf("%s: stale Review became current: %+v %v", id, review, err)
+				}
+			}
+			restored := filepath.Join(t.TempDir(), "restored.db")
+			restore, err := RestoreBackup(ctx, snapshot, restored)
+			if err != nil || restore.SourceSnapshot.SchemaVersion != schema {
+				t.Fatalf("restore predecessor: %+v %v", restore, err)
+			}
+			restoredDB, err := sql.Open(driverName, dataSourceName(restored))
 			if err != nil {
 				t.Fatal(err)
 			}
+			defer restoredDB.Close()
+			if got := retirementUpgradeRows(t, restoredDB, `SELECT work_id,json_extract(state,'$.accepted') FROM workflow_review_state ORDER BY work_id`); !reflect.DeepEqual(got, beforeReviews) {
+				t.Fatal("restore changed Review payloads")
+			}
+			if got := retirementUpgradeRows(t, restoredDB, `SELECT * FROM effect_receipts ORDER BY effect_seq`); !reflect.DeepEqual(got, beforeReceipts) {
+				t.Fatal("restore changed predecessor receipts")
+			}
+			verified, err := VerifyBackup(ctx, snapshot)
+			if err != nil || verified.DBChecksum != manifest.DBChecksum {
+				t.Fatalf("source snapshot changed: %+v %v", verified, err)
+			}
+			s, err := Open(ctx, path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			id := "upgrade-review-1-true"
 			actor := WorkflowActor{PrincipalRef: "operator-upgrade", ClientRef: "client-upgrade", AgentRef: "agent-producer", SessionRef: "session-producer", ActorClass: ActorAgent}
-			apply := func(action string, payload any, actor WorkflowActor) error {
+			apply := func(action string, payload any, who WorkflowActor) error {
 				version := readWorkVersion(t, s, id)
 				key := fmt.Sprintf("%s-%s-%d", id, action, version)
 				return s.Transact(ctx, func(tx *Transaction) error {
-					_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-						WorkID: id, ExpectedVersion: version, ActionID: action, Payload: mustJSONValue(payload), Actor: actor,
-						AcceptedInputsDigest: testManifestDigest, IdempotencyIdentity: key, OperationID: key, PrincipalRef: actor.PrincipalRef,
+					_, err := ApplyWorkflowActionTx(ctx, tx, WorkflowActionExecutionRequest{
+						WorkID: id, ExpectedVersion: version, ActionID: action, Payload: mustJSONValue(payload), Actor: who,
+						AcceptedInputsDigest: testManifestDigest, IdempotencyIdentity: key, OperationID: key, PrincipalRef: who.PrincipalRef,
 						Tool: "concord_work_transition", IdempotencyKey: key, RequestID: key, ContractDigest: testManifestDigest, Now: time.Unix(100, 0).UTC(),
 					})
 					return err
 				})
 			}
+			for _, action := range []struct {
+				id      string
+				payload any
+			}{
+				{"record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false}},
+				{"pick_type", map[string]any{"type": "change", "reason": "Resume the unchanged candidate"}},
+				{"complete_step", map[string]any{"step_id": "plan", "note": "Resume the retained contract"}},
+			} {
+				if err := apply(action.id, action.payload, actor); err != nil {
+					t.Fatalf("%s after upgrade: %v", action.id, err)
+				}
+			}
+			plan, err := readWorkflowPlanTx(ctx, db, id)
+			if err != nil || plan == nil || plan.Type != WorkflowStepPlanChange {
+				t.Fatalf("chosen plan=%+v err=%v", plan, err)
+			}
+			frontier := WorkflowStepPlanFrontier(*plan)
+			if len(frontier) != 1 || frontier[0].ID != "implement" {
+				t.Fatalf("Review recovery frontier=%+v", frontier)
+			}
+			review, err := loadWorkflowReviewState(ctx, db, id)
+			if err != nil || review.Accepted == nil || review.Candidate == nil || review.Dependencies == nil || review.DependenciesCurrent {
+				t.Fatalf("retained stale Review=%+v err=%v", review, err)
+			}
 			fresh := review.Accepted.Report
-			fresh.InputCandidate = *review.Candidate
-			fresh.Dependencies = *review.Dependencies
+			fresh.InputCandidate, fresh.Dependencies = *review.Candidate, *review.Dependencies
 			reviewer := actor
 			reviewer.AgentRef, reviewer.SessionRef = "agent-independent-review", "session-independent-review"
 			if err := apply("record_review", map[string]any{"review": fresh}, reviewer); err != nil {
-				t.Fatalf("fresh independent Review at producer: %v", err)
+				t.Fatalf("independent fresh Review: %v", err)
 			}
 			after, err := loadWorkflowReviewState(ctx, db, id)
-			if err != nil || !after.DependenciesCurrent || !reflect.DeepEqual(after.Candidate, review.Candidate) || after.Accepted.ReportRef == review.Accepted.ReportRef {
+			if err != nil || after.Accepted == nil || !after.DependenciesCurrent || !reflect.DeepEqual(after.Candidate, review.Candidate) || after.Accepted.ReportRef == review.Accepted.ReportRef {
 				t.Fatalf("same-candidate fresh Review did not recover: %+v %v", after, err)
 			}
-			if !reflect.DeepEqual(beforeReceipts, retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts WHERE effect_seq<=? ORDER BY effect_seq`, receiptFrontier)) {
-				t.Fatal("producer return or re-review changed predecessor receipts")
+			reviewerRef, err := WorkflowActorRef(reviewer)
+			if err != nil || after.Accepted.ActorRef != reviewerRef {
+				t.Fatalf("fresh Review attribution=%+v, reviewer=%q err=%v", after.Accepted, reviewerRef, err)
 			}
-		})
-	}
-}
-
-func TestLawPinUpgradeSafety(t *testing.T) {
-	testLawPinUpgradeSafetyAt(t, 174)
-}
-
-func TestLawPinUpgradeSafetyFromInstalledPredecessor(t *testing.T) {
-	testLawPinUpgradeSafetyAt(t, 175)
-}
-
-func testLawPinUpgradeSafetyAt(t *testing.T, schema int) {
-	t.Helper()
-	useStampedBuild(t)
-	ctx := t.Context()
-	db, path, cases, workIDs := lawPinUpgradeFixtureAt(t, schema)
-	completeLawPinUpgradeBlockerInstances(t, db)
-	before := retirementUpgradeSnapshot(t, db)
-	_, err := Upgrade(ctx, path, nil)
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindUpgradeBlocked {
-		t.Fatalf("unsafe pin retirement = %v, want upgrade_blocked", err)
-	}
-	if want := "law-pin retirement would invalidate accepted Review without an admitted re-review route for work: upgrade-review-1-true, upgrade-review-3-true; no migration was applied"; failure.Detail != want {
-		t.Fatalf("blocker census = %q, want %q", failure.Detail, want)
-	}
-	for _, id := range []string{"upgrade-review-1-true", "upgrade-review-3-true"} {
-		if !strings.Contains(failure.Detail, id) {
-			t.Errorf("missing blocker %s: %s", id, failure.Detail)
-		}
-	}
-	for _, id := range []string{"upgrade-review-0-true", "upgrade-review-1-false", "upgrade-review-2-true", "upgrade-review-3-false", "upgrade-review-4-true", "upgrade-review-5-true", "upgrade-review-6-true", "upgrade-review-7-true", "upgrade-review-8-true", "upgrade-review-9-true"} {
-		if strings.Contains(failure.Detail, id) {
-			t.Errorf("charged unaffected control %s: %s", id, failure.Detail)
-		}
-	}
-	if !failure.RetrySafe || !strings.Contains(failure.RecoveryAction, "complete or cancel") || !strings.Contains(failure.RecoveryAction, "installed release") {
-		t.Fatalf("unsafe recovery: %+v", failure)
-	}
-	if got := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(got, before) {
-		t.Fatal("refusal changed schema, state, proofs, receipts, guards or sequences")
-	}
-	refusedSnapshot := filepath.Join(t.TempDir(), "unsafe.db")
-	if _, err := BackupDatabase(ctx, path, refusedSnapshot); !hasFailureKind(err, KindUpgradeBlocked) {
-		t.Fatalf("unsafe snapshot restore verification = %v", err)
-	}
-	for _, file := range []string{refusedSnapshot, manifestPath(refusedSnapshot)} {
-		if _, err := os.Stat(file); !os.IsNotExist(err) {
-			t.Fatalf("refused snapshot left %s: %v", file, err)
-		}
-	}
-	if got := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(got, before) {
-		t.Fatal("refused backup changed predecessor")
-	}
-	cancelLawPinUpgradeBlockers(t, path)
-	beforeReports := retirementUpgradeRows(t, db, `SELECT * FROM workflow_review_state ORDER BY work_id`)
-	beforeReceipts := retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts ORDER BY effect_seq`)
-	snapshot := filepath.Join(t.TempDir(), "before-pin-retirement.db")
-	manifest, err := BackupDatabase(ctx, path, snapshot)
-	if err != nil {
-		t.Fatalf("verified predecessor snapshot: %v", err)
-	}
-	if _, err := Upgrade(ctx, path, nil); err != nil {
-		t.Fatal(err)
-	}
-	if got := retirementUpgradeRows(t, db, `SELECT * FROM workflow_review_state ORDER BY work_id`); !reflect.DeepEqual(got, beforeReports) {
-		t.Fatal("upgrade changed attributed Review facts")
-	}
-	if got := retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts ORDER BY effect_seq`); !reflect.DeepEqual(got, beforeReceipts) {
-		t.Fatal("upgrade changed effect receipt bindings")
-	}
-	restored := filepath.Join(t.TempDir(), "restored.db")
-	restore, err := RestoreBackup(ctx, snapshot, restored)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if restore.SourceSnapshot.SchemaVersion != schema {
-		t.Fatalf("source snapshot schema=%d, want %d", restore.SourceSnapshot.SchemaVersion, schema)
-	}
-	restoredDB, err := sql.Open(driverName, dataSourceName(restored))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer restoredDB.Close()
-	if got := retirementUpgradeRows(t, restoredDB, `SELECT * FROM workflow_review_state ORDER BY work_id`); !reflect.DeepEqual(got, beforeReports) {
-		t.Fatal("restore changed attributed Review facts")
-	}
-	if got := retirementUpgradeRows(t, restoredDB, `SELECT * FROM effect_receipts ORDER BY effect_seq`); !reflect.DeepEqual(got, beforeReceipts) {
-		t.Fatal("restore changed receipts")
-	}
-	if got := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name='workflow_contract_law_revisions'`); len(got) != 0 {
-		t.Fatal("pin table remains")
-	}
-	if got := retirementUpgradeRows(t, restoredDB, `SELECT name FROM pragma_table_info('workflow_architecture_bindings') WHERE name='domain_registry_content_hash'`); len(got) != 0 {
-		t.Fatal("retired registry column restored")
-	}
-	verified, err := VerifyBackup(ctx, snapshot)
-	if err != nil || verified.DBChecksum != manifest.DBChecksum {
-		t.Fatalf("source snapshot changed: %+v %v", verified, err)
-	}
-	for _, id := range []string{"upgrade-review-9-false", "upgrade-review-9-true"} {
-		stale, err := loadWorkflowReviewState(ctx, db, id)
-		if err != nil || stale.DependenciesCurrent {
-			t.Fatalf("already stale Review became current: %+v %v", stale, err)
-		}
-	}
-	s, err := Open(ctx, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	for _, tc := range cases {
-		t.Run(tc.family+"/"+tc.step, func(t *testing.T) {
-			registered := mustBuiltinDefinition(t, tc.family)
-			for _, pinned := range []bool{false, true} {
-				id := workIDs[tc.family+"/"+tc.step+fmt.Sprint(pinned)]
-				review, err := loadWorkflowReviewState(ctx, db, id)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if review.DependenciesCurrent == pinned {
-					t.Fatalf("pinned=%t current=%t, want only the pin encoding to change", pinned, review.DependenciesCurrent)
-				}
-				if !pinned {
-					continue
-				}
-				if tc.step == "release" || (tc.family == "workflow.break_fix" && tc.step == "complete") {
-					continue
-				}
-				tx, err := db.BeginTx(ctx, nil)
-				if err != nil {
-					t.Fatal(err)
-				}
-				state, err := loadWorkflowAdmissionStateTx(ctx, tx, id, registered.Definition, tc.step, "workflow_action")
-				_ = tx.Rollback()
-				if err != nil {
-					t.Fatal(err)
-				}
-				for _, action := range []string{"record_review", "supersede_contract", "complete"} {
-					decision := workflowAdmit(registered.Definition, state, action)
-					t.Logf("%s: admitted=%t off_step=%t failure=%v", action, decision.Admitted, decision.OffStep, decision.Failure)
-				}
-				if !workflowAdmit(registered.Definition, state, "record_review").Admitted {
-					if tc.family != "workflow.research" || tc.step != "complete" || !workflowAdmit(registered.Definition, state, "complete").Admitted {
-						t.Error("unexpected missing re-review route")
-					}
-					continue
-				}
-				fresh := review.Accepted.Report
-				fresh.Dependencies = *review.Dependencies
-				var receiptBefore string
-				if err := db.QueryRowContext(ctx, `SELECT payload_digest FROM effect_receipts WHERE event_id=?`, review.Accepted.ReportRef).Scan(&receiptBefore); err != nil {
-					t.Fatal(err)
-				}
-				actor := WorkflowActor{PrincipalRef: "operator-upgrade", ClientRef: "client-upgrade", AgentRef: "agent-rereview", SessionRef: "session-rereview", ActorClass: ActorAgent}
-				err = s.Transact(ctx, func(tx *Transaction) error {
-					_, applyErr := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-						WorkID: id, ExpectedVersion: 1, ActionID: "record_review", Payload: mustJSONValue(map[string]any{"review": fresh}), Actor: actor,
-						AcceptedInputsDigest: testManifestDigest, IdempotencyIdentity: "fresh-" + id, OperationID: "fresh-" + id, PrincipalRef: actor.PrincipalRef,
-						Tool: "concord_work_transition", IdempotencyKey: "fresh-" + id, RequestID: "fresh-" + id, ContractDigest: testManifestDigest, Now: time.Unix(100, 0).UTC(),
-					})
-					return applyErr
-				})
-				if err != nil {
-					t.Fatalf("record independent re-review of unchanged candidate: %v", err)
-				}
-				after, err := loadWorkflowReviewState(context.Background(), db, id)
-				if err != nil || !after.DependenciesCurrent || !reflect.DeepEqual(after.Candidate, review.Candidate) {
-					t.Fatalf("unchanged candidate did not recover: %+v err=%v", after, err)
-				}
-				var originalDigest string
-				if err := db.QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=?`, review.Accepted.ReportRef).Scan(&originalDigest); err != nil {
-					t.Fatal(err)
-				}
-				if originalDigest != receiptBefore {
-					t.Fatal("re-review changed predecessor receipt binding")
-				}
-				t.Logf("unchanged candidate re-reviewed; predecessor receipt retained: %s", originalDigest)
+			if got := retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts WHERE effect_seq<=? ORDER BY effect_seq`, receiptFrontier); !reflect.DeepEqual(got, beforeReceipts) {
+				t.Fatal("recovery changed predecessor receipts")
 			}
 		})
 	}
@@ -420,20 +292,5 @@ func TestLawPinUpgradeMalformedReviewRefuses(t *testing.T) {
 	}
 	if got := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(got, before) {
 		t.Fatal("malformed-state refusal changed predecessor")
-	}
-}
-
-func TestLawPinUpgradeSafetyFromOlderPrefix(t *testing.T) {
-	useStampedBuild(t)
-	db, path, _, _ := lawPinUpgradeFixtureAt(t, 166)
-	completeLawPinUpgradeBlockerInstances(t, db)
-	before := retirementUpgradeSnapshot(t, db)
-	_, err := Upgrade(t.Context(), path, nil)
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindUpgradeBlocked || !strings.Contains(failure.Detail, "upgrade-review-1-true, upgrade-review-3-true") {
-		t.Fatalf("unsafe older-prefix upgrade=%v", err)
-	}
-	if got := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(got, before) {
-		t.Fatal("cutover refusal committed preceding migrations")
 	}
 }

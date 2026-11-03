@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -137,13 +138,14 @@ func TestCoordinatorReviewCandidatesRequireConsistentRecordedInputAndOutput(t *t
 }
 
 func TestCoordinatorReviewRecordsCandidateWithoutGitObservation(t *testing.T) {
-	j, _ := retainedReviewFixture(t, "review-preflight-observation")
+	j := pReturnReviewFixture(t, "review-preflight-observation", WorkflowStepPlanFix, "continue")
 	report := currentReviewBlockForTest(t, j.s, j.workID, "continue")
 	preflight := func() error {
-		return WorkflowActionPreflightWithRegistry(t.Context(), j.s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
+		_, err := WorkflowActionDefinitionFor(t.Context(), j.s, WorkflowActionPreflightRequest{
 			WorkID: j.workID, ExpectedVersion: readWorkVersion(t, j.s, j.workID), ActionID: "record_review",
 			Payload: mustJSONValue(map[string]any{"review": report}), Actor: j.fixture.owner,
 		})
+		return err
 	}
 	before := j.effects(t)
 	if err := preflight(); err != nil {
@@ -184,9 +186,9 @@ func TestCoordinatorCorrectionFactsHaveNoWorkerConsumer(t *testing.T) {
 }
 
 func TestCoordinatorReviewActionExists(t *testing.T) {
-	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
-	for _, action := range definition.ActionDefinitions {
-		if action.ID == "record_review" {
+	plan := currentWorkflowPlanFixture(t, WorkflowStepPlanFix)
+	for _, step := range plan.Steps {
+		if slices.Contains(WorkflowStepPlanTemplateActions(plan.Type, step.ID), "record_review") {
 			return
 		}
 	}
@@ -247,19 +249,17 @@ func TestCoordinatorReviewResolutionShapeAndAggregateBound(t *testing.T) {
 	}
 }
 
-// CD-0112 D2 and CD-0198 keep record_delivery the only producing-step exit:
-// recording Review holds the step under every disposition.
+// Recording Review does not complete a plan step under any disposition.
 func TestCoordinatorReviewHoldsUnderEveryDisposition(t *testing.T) {
-	if mode := builtinActionPolicies["record_review"].ExecutionMode; mode != ActionHold {
-		t.Fatalf("record_review execution mode=%q, want %q", mode, ActionHold)
-	}
-	definition := WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{{ID: "record_review", ExecutionMode: ActionHold}},
-		StepGraph: WorkflowStepGraph{Steps: []WorkflowStep{{ID: "execution", Kind: WorkflowStepExternalEffect, Actions: []string{"record_review"}}}}}
 	for _, disposition := range []string{"continue", "correction_required", "revision_required", "ready_for_final_proof"} {
-		completion := workflowActionCompletedPayload{StepID: "execution", ActionID: "record_review", Review: &ReviewBlock{Disposition: disposition}}
-		if workflowCompletedActionAdvances(definition, completion) {
-			t.Fatalf("disposition %s advanced the step", disposition)
-		}
+		t.Run(disposition, func(t *testing.T) {
+			j := pReturnReviewFixture(t, "review-hold-"+disposition, WorkflowStepPlanFix, "")
+			before := workflowPlanFixtureFrontier(t, j.s, j.workID)
+			acceptCurrentReviewForTest(t, j.fixture, disposition)
+			if got := workflowPlanFixtureFrontier(t, j.s, j.workID); got != before {
+				t.Fatalf("disposition %s moved frontier from %s to %s", disposition, before, got)
+			}
+		})
 	}
 }
 

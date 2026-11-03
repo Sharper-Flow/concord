@@ -1552,19 +1552,13 @@ func buildCensus(rt *ledgerRuntime, extraRoots, inputRoots []censusRootRequest) 
 	return census, failures
 }
 
-// ledgerPayloadInputRoots are the payload schema definitions every registered
-// workflow definition version and the canonical recovery actions declare.
-// Action payload admission validates every declared field against its schema
-// in the published document (workflow_preflight.go), so each is an input root
-// exactly like a manifest input, though the manifest does not list it. A live
-// call validates against the published document whatever the pin's age
-// (workflowLivePayloadSchemaDocument), so retained versions count too. A
-// declared name the published document no longer carries refuses every live
-// call (validateWorkflowPayloadSchema), so it admits nothing and roots nothing.
+// ledgerPayloadInputRoots collects the live action catalog's schema references.
+// Admission validates these against the published payload document. Missing
+// references admit nothing because validation refuses them.
 func ledgerPayloadInputRoots() []censusRootRequest {
 	names := map[string]bool{}
-	add := func(action WorkflowActionDefinition) {
-		for _, field := range action.Payload.Fields {
+	add := func(payload WorkflowPayloadDefinition) {
+		for _, field := range payload.Fields {
 			for _, ref := range []string{field.SchemaRef, field.ItemRef} {
 				if ref != "" {
 					names[ref] = true
@@ -1572,11 +1566,17 @@ func ledgerPayloadInputRoots() []censusRootRequest {
 			}
 		}
 	}
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		for _, action := range definition.ActionDefinitions {
-			add(action)
+	for id := range builtinWorkflowActionCatalog() {
+		action, err := WorkflowPlanActionContract(id)
+		if err != nil {
+			panic(err)
+		}
+		add(action.Payload)
+		if action.PublicPayload != nil {
+			add(*action.PublicPayload)
 		}
 	}
+	add(WorkflowPlanContractUpdatePayload())
 	sorted := make([]string, 0, len(names))
 	document := workflowLivePayloadSchemaDocument()
 	for name := range names {

@@ -6,23 +6,19 @@ import (
 	"testing"
 )
 
-func contractReviewAcceptance(t *testing.T, id, family string) *candidateJourney {
+func contractReviewAcceptance(t *testing.T, id string, planType WorkflowStepPlanType) *candidateJourney {
 	t.Helper()
-	producer, evaluator := "execution", "acceptance"
-	if family == "workflow.break_fix" {
-		producer, evaluator = "repair", "verify"
-	}
-	f := seedCurrentWorkflowReturnRouteFixture(t, id, family, producer)
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, id, planType, "implement", []string{"verification"}, []string{"verification", "review", "artifact"})
 	t.Cleanup(func() { _ = f.store.Close() })
 	w := workContextFixture{store: f.store, workID: id, owner: f.owner, operator: f.operator}
-	a := qAssociateCurrentProofAt(t, w, evaluator, "", true)
+	a := qAssociateCurrentProofAt(t, w, "review", "", true)
 	return &candidateJourney{fixture: w, s: f.store, workID: id, repo: a.repo, acceptor: f.owner}
 }
 
-func TestForwardConfirmationRequiresReadyReview(t *testing.T) {
-	for _, family := range []string{"workflow.implementation", "workflow.break_fix"} {
+func TestDeliveryRequiresReadyReviewAfterProofAssociation(t *testing.T) {
+	for _, family := range []WorkflowStepPlanType{WorkflowStepPlanChange, WorkflowStepPlanFix} {
 		for _, disposition := range []string{"continue", "revision_required", "correction_required"} {
-			t.Run(family+"/"+disposition, func(t *testing.T) {
+			t.Run(string(family)+"/"+disposition, func(t *testing.T) {
 				j := contractReviewAcceptance(t, "forward-review-"+disposition, family)
 				report := issue1013Pin(t, j.s, j.workID).Review.Accepted.Report
 				report.Disposition = disposition
@@ -30,24 +26,19 @@ func TestForwardConfirmationRequiresReadyReview(t *testing.T) {
 					t.Fatal(err)
 				}
 				before := outsideRepairDatabaseSnapshot(t, j.s)
-				if issue1013HasIntent(issue1013Pin(t, j.s, j.workID), "confirm_premise") {
-					t.Error("pin advertised non-ready forward confirmation")
+				if !issue1013HasIntent(issue1013Pin(t, j.s, j.workID), "record_delivery") {
+					t.Error("pin omitted declared delivery route")
 				}
-				if err := issue1013Preflight(t, j.s, j.workID, "confirm_premise", json.RawMessage(`{}`), j.fixture.owner); !hasFailureKind(err, KindMissingEvidence) {
-					t.Errorf("non-ready forward confirmation preflight=%v, want missing_evidence", err)
+				payload := json.RawMessage(`{"delivery_artifact":"artifact:review-recovery","delivery_state":"asserted"}`)
+				_, err := WorkflowActionDefinitionFor(t.Context(), j.s, WorkflowActionPreflightRequest{WorkID: j.workID, ExpectedVersion: readWorkVersion(t, j.s, j.workID), ActionID: "record_delivery", Payload: payload, Actor: j.fixture.owner})
+				if !hasFailureKind(err, KindMissingEvidence) {
+					t.Errorf("non-ready delivery preflight=%v, want missing_evidence", err)
 				}
-				if err := pConfirmReceiptPremise(t, j.fixture); !hasFailureKind(err, KindMissingEvidence) {
-					t.Errorf("non-ready forward confirmation=%v, want missing_evidence", err)
+				if err := j.action(t, "record_delivery", payload, j.fixture.owner); !hasFailureKind(err, KindMissingEvidence) {
+					t.Errorf("non-ready delivery=%v, want missing_evidence", err)
 				}
 				if before != outsideRepairDatabaseSnapshot(t, j.s) {
 					t.Error("refused confirmation changed durable state")
-				}
-				if issue1013HasIntent(issue1013Pin(t, j.s, j.workID), "confirm_premise") {
-					t.Error("pin advertised non-ready forward confirmation")
-				}
-				entry := mustBuiltinDefinition(t, family)
-				if _, err := runEngineeringConfirmation(t, j.s, entry.Definition, j.workID, ownerRefForTest(t, j.fixture.owner), nil); !hasFailureKind(err, KindMissingEvidence) {
-					t.Errorf("constructor admitted non-ready forward confirmation: %v", err)
 				}
 			})
 		}
@@ -55,8 +46,8 @@ func TestForwardConfirmationRequiresReadyReview(t *testing.T) {
 }
 
 func TestTerminalContractUpdateKeepsProgressForCurrentReview(t *testing.T) {
-	for _, family := range []string{"workflow.implementation", "workflow.break_fix"} {
-		t.Run(family, func(t *testing.T) {
+	for _, family := range []WorkflowStepPlanType{WorkflowStepPlanChange, WorkflowStepPlanFix} {
+		t.Run(string(family), func(t *testing.T) {
 			j := contractReviewAcceptance(t, "terminal-review-update", family)
 			if err := pConfirmReceiptPremise(t, j.fixture); err != nil {
 				t.Fatal(err)
@@ -64,7 +55,7 @@ func TestTerminalContractUpdateKeepsProgressForCurrentReview(t *testing.T) {
 			terminal := currentStep(t, j.s, j.workID)
 			beforeReview := issue1013Pin(t, j.s, j.workID).Review.Accepted
 			unchanged := pContractSuccessor(t, j.s, j.workID, "same proof, clarified premise")
-			if err := reviseContractRecord(t, j.s, j.workID, j.fixture.owner, unchanged, readWorkVersion(t, j.s, j.workID), nil); err != nil {
+			if err := reviseContractRecord(t, j.s, j.workID, j.fixture.owner, unchanged, readWorkVersion(t, j.s, j.workID)); err != nil {
 				t.Fatal(err)
 			}
 			pin := issue1013Pin(t, j.s, j.workID)
@@ -73,7 +64,7 @@ func TestTerminalContractUpdateKeepsProgressForCurrentReview(t *testing.T) {
 			}
 			changed := pContractSuccessor(t, j.s, j.workID, "changed proof obligation")
 			changed["outcome_predicates"].([]any)[0].(map[string]any)["outcome_payload"].(map[string]any)["check_ref"] = "check:changed-obligation"
-			if err := reviseContractRecord(t, j.s, j.workID, j.fixture.owner, changed, readWorkVersion(t, j.s, j.workID), nil); err != nil {
+			if err := reviseContractRecord(t, j.s, j.workID, j.fixture.owner, changed, readWorkVersion(t, j.s, j.workID)); err != nil {
 				t.Fatal(err)
 			}
 			reviewGateRequireStep(t, j.s, j.workID, terminal)
@@ -144,14 +135,15 @@ func contractReviewFinish(t *testing.T, j *candidateJourney, step string) {
 	if err := runVerdictActionAs(t, j.s, j.workID, "record_verdict", criterionAssociationPayload(proof.OperationRef, "predicate:return-route"), 0, j.fixture.owner); err != nil {
 		t.Fatal(err)
 	}
+	completeWorkflowPlanFixture(t, j.s, j.workID)
 	if err := runVerdictActionAs(t, j.s, j.workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), 0, diagnosisS1Actor(j.workID, "fresh-completer")); err != nil {
 		t.Fatalf("completion after ordinary writes and fresh current proof: %v", err)
 	}
 }
 
 func TestTerminalCandidateChangeKeepsProgressForCurrentReview(t *testing.T) {
-	for _, family := range []string{"workflow.implementation", "workflow.break_fix"} {
-		t.Run(family, func(t *testing.T) {
+	for _, family := range []WorkflowStepPlanType{WorkflowStepPlanChange, WorkflowStepPlanFix} {
+		t.Run(string(family), func(t *testing.T) {
 			j := contractReviewAcceptance(t, "terminal-candidate-change", family)
 			if err := pConfirmReceiptPremise(t, j.fixture); err != nil {
 				t.Fatal(err)
@@ -159,7 +151,7 @@ func TestTerminalCandidateChangeKeepsProgressForCurrentReview(t *testing.T) {
 			descendantCommit(t, j, "changed-final-candidate")
 			contract := pContractSuccessor(t, j.s, j.workID, "verify the changed candidate")
 			contract["outcome_predicates"].([]any)[0].(map[string]any)["outcome_payload"].(map[string]any)["immutable_subject_ref"] = "commit:" + j.head(t)
-			if err := reviseContractRecord(t, j.s, j.workID, j.fixture.owner, contract, readWorkVersion(t, j.s, j.workID), nil); err != nil {
+			if err := reviseContractRecord(t, j.s, j.workID, j.fixture.owner, contract, readWorkVersion(t, j.s, j.workID)); err != nil {
 				t.Fatal(err)
 			}
 			proof := j.observeRun(t, "changed-final-proof")
@@ -171,44 +163,6 @@ func TestTerminalCandidateChangeKeepsProgressForCurrentReview(t *testing.T) {
 				t.Fatal("changed candidate did not stale Review and retain the ordinary Review write")
 			}
 			contractReviewFinish(t, j, pin.Step)
-		})
-	}
-}
-
-func TestForwardReviewReadinessPreservesUnhealthyFailureReturn(t *testing.T) {
-	for _, family := range []string{"workflow.implementation", "workflow.break_fix"} {
-		t.Run(family, func(t *testing.T) {
-			step := "acceptance"
-			if family == "workflow.break_fix" {
-				step = "verify"
-			}
-			const id = "unhealthy-forward-review"
-			fixture := seedCurrentWorkflowReturnRouteFixture(t, id, family, step)
-			s := fixture.store
-			t.Cleanup(func() { _ = s.Close() })
-			var bad map[string]any
-			if err := json.Unmarshal([]byte(stalenessVerdictPayload("bad")), &bad); err != nil {
-				t.Fatal(err)
-			}
-			bad["predicate_id"] = "predicate:return-route"
-			stalenessEvent(t, s, id, WorkflowVerdictRecorded, string(mustJSONValue(bad)))
-			definition := mustBuiltinDefinition(t, family).Definition
-			before := outsideRepairDatabaseSnapshot(t, s)
-			if err := workflowForwardConfirmationReview(t.Context(), s.db, id, definition, step, &WorkflowReviewState{}); err != nil {
-				t.Fatalf("forward Review readiness blocked an unhealthy failure return: %v", err)
-			}
-			tx, err := s.db.BeginTx(t.Context(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			target, err := workflowNextStepForAction(t.Context(), tx, id, definition, step, "confirm_premise", BuiltinWorkflowRegistry(), 0)
-			_ = tx.Rollback()
-			if err != nil || target != "refine" {
-				t.Fatalf("unhealthy confirmation target=%q, %v", target, err)
-			}
-			if before != outsideRepairDatabaseSnapshot(t, s) {
-				t.Fatal("readiness check changed durable state")
-			}
 		})
 	}
 }

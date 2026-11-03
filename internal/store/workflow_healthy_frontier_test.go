@@ -85,7 +85,7 @@ func TestWorkflowHealthyFrontierWrittenByCurrentVerdict(t *testing.T) {
 		if changed {
 			contract["outcome_predicates"].([]any)[0].(map[string]any)["outcome_payload"].(map[string]any)["check_ref"] = "check:changed-frontier"
 		}
-		if err := reviseContractRecord(t, f.store, work, f.owner, contract, readWorkVersion(t, f.store, work), nil); err != nil {
+		if err := reviseContractRecord(t, f.store, work, f.owner, contract, readWorkVersion(t, f.store, work)); err != nil {
 			t.Fatal(err)
 		}
 		version, err := activeWorkflowContractVersion(t.Context(), f.store.db, work, "test")
@@ -124,19 +124,11 @@ func TestWorkflowHealthyBasisRequiresEveryComparablePredicate(t *testing.T) {
 			p.OutcomePayload = `{"kind":"exists","surface":"repo","subjects":["changed"]}`
 			b.history[2][p.PredicateID] = p
 		}},
-		{name: "changed definition", mutate: func(b *workflowHealthBasis, _ []workflowHealthVerdict) {
-			pin := b.pins[2]
-			pin.definitionRef = "workflow.changed"
-			b.pins[2] = pin
-		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			basis := workflowHealthBasis{version: 2, history: workflowContractPredicateHistoryData{
 				1: {predicate.PredicateID: predicate, other.PredicateID: other},
 				2: {predicate.PredicateID: predicate, other.PredicateID: other},
-			}, pins: workflowContractDefinitionPinsData{
-				1: {definitionRef: "workflow.test", definitionDigest: testManifestDigest},
-				2: {definitionRef: "workflow.test", definitionDigest: testManifestDigest},
 			}}
 			candidates := []workflowHealthVerdict{
 				{seq: 11, verdict: workflowVerdictRecordedPayload{ContractVersion: 2, PredicateID: predicate.PredicateID, VerdictKind: "ok"}},

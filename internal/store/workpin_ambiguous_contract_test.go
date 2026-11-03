@@ -31,7 +31,7 @@ func TestWorkPinRemainsReadableWithoutAuthorizingAmbiguousContracts(t *testing.T
 		}
 	}
 	effects := contractRecordEffectSnapshot(t, f.store, f.workID)
-	err = reviseContractRecord(t, f.store, f.workID, f.owner, contract, readWorkVersion(t, f.store, f.workID), nil)
+	err = reviseContractRecord(t, f.store, f.workID, f.owner, contract, readWorkVersion(t, f.store, f.workID))
 	if !hasFailureKind(err, KindInvariantViolation) || !strings.Contains(err.Error(), "multiple active contracts") {
 		t.Fatalf("ambiguous contract revision = %v", err)
 	}
@@ -84,7 +84,7 @@ func TestContractlessInvestigatedCheckpointAdmitsNoContractRoute(t *testing.T) {
 	}
 	effects := contractRecordEffectSnapshot(t, s, workID)
 	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/recovery", SessionRef: "session/contractless", ActorClass: ActorAgent}
-	err = reviseContractRecord(t, s, workID, actor, map[string]any{}, readWorkVersion(t, s, workID), nil)
+	err = reviseContractRecord(t, s, workID, actor, map[string]any{}, readWorkVersion(t, s, workID))
 	if !hasFailureKind(err, KindInvalidOperation) || !strings.Contains(err.Error(), "requires an existing contract") {
 		t.Fatalf("contractless revision = %v", err)
 	}

@@ -15,7 +15,7 @@ func historyContractFixture(t *testing.T, name string) (*Store, string) {
 	fixture := seedWorkContextFixture(t, name)
 	t.Cleanup(func() { fixture.store.Close() })
 	successor := pContractSuccessor(t, fixture.store, fixture.workID, "retain a successor contract for historical reads")
-	if err := reviseContractRecord(t, fixture.store, fixture.workID, fixture.owner, successor, readWorkVersion(t, fixture.store, fixture.workID), nil); err != nil {
+	if err := reviseContractRecord(t, fixture.store, fixture.workID, fixture.owner, successor, readWorkVersion(t, fixture.store, fixture.workID)); err != nil {
 		t.Fatal(err)
 	}
 	return fixture.store, fixture.workID

@@ -106,6 +106,12 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if beforeVersion != 127 {
+		t.Fatalf("remote fixture schema=%d, want predecessor 127", beforeVersion)
+	}
+	if got := retirementUpgradeRows(t, s.db, `SELECT normalized_value FROM project_locators WHERE locator_id='remote'`); !reflect.DeepEqual(got, [][]any{{"ssh://https/host/o/r"}}) {
+		t.Fatalf("remote fixture did not retain v1 identity: %v", got)
+	}
 	const parked = "remote-upgrade-inflight-work"
 	const delivered = "remote-upgrade-delivered-work"
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -138,16 +144,15 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if _, err := tx.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES('delivery:retained','workflow.action_completed','work_item',?,'actor:historical','2026-01-01T00:00:00Z',1,'{"step_id":"legacy","action_id":"record_delivery","delivery_artifact":"https://example.com/change/1","delivery_state":"asserted"}')`, delivered); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	advanceHistoricalPrefix(t, s.db, 182)
-	retirementUpgradeExec(t, s.db, `INSERT INTO write_guard(active) VALUES(1);
-INSERT INTO workflow_delivery_state(work_id,assertion_seq,assertion_id,actor,occurred_at,payload_version,payload) VALUES(?,1,'delivery:retained','actor:historical','2026-01-01T00:00:00Z',1,'{"delivery_artifact":"https://example.com/change/1","delivery_state":"asserted"}');
-DELETE FROM write_guard`, delivered)
 	if err := Migrate(ctx, s.db); err != nil {
 		t.Fatal(err)
 	}
@@ -161,6 +166,9 @@ DELETE FROM write_guard`, delivered)
 	locators, err := s.ProjectLocators(ctx, "project")
 	if err != nil || len(locators) != 1 || locators[0].NormalizedValue != "https://host/o/r" {
 		t.Fatalf("remote not corrected: %+v err=%v", locators, err)
+	}
+	if got := retirementUpgradeRows(t, s.db, `SELECT kind,subject_type,subject_id FROM effect_receipts WHERE event_id=?`, remoteLocatorUpgradeName+":remote"); !reflect.DeepEqual(got, [][]any{{"project.locator_updated", "project", "project"}}) {
+		t.Fatalf("remote correction receipt=%v", got)
 	}
 	got := retirementUpgradeRows(t, s.db, `SELECT w.id,w.lifecycle,i.instance_state,i.workflow_type,i.step_plan FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id IN (?,?) ORDER BY w.id`, parked, delivered)
 	want := [][]any{{delivered, "completed", "completed", nil, nil}, {parked, "in_progress", "intake", nil, nil}}

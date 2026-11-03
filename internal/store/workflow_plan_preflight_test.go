@@ -40,27 +40,3 @@ func TestWorkflowPlanPreflightIntakeSnapshot(t *testing.T) {
 		t.Fatalf("preflight changed state: version=%d prelude=%v", version, prelude)
 	}
 }
-
-func TestWorkflowPlanCompletionCurrentPremise(t *testing.T) {
-	ctx := t.Context()
-	db, err := sqlitedb.Open(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if _, err := db.ExecContext(ctx, `CREATE TABLE workflow_premise_confirmations(work_id TEXT, contract_version INTEGER); INSERT INTO workflow_premise_confirmations VALUES('work',1)`); err != nil {
-		t.Fatal(err)
-	}
-	if err := requireWorkflowCompletionPremise(ctx, db, "work", 2, true); err == nil {
-		t.Fatal("superseded confirmation accepted")
-	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO workflow_premise_confirmations VALUES('work',2)`); err != nil {
-		t.Fatal(err)
-	}
-	if err := requireWorkflowCompletionPremise(ctx, db, "work", 2, false); err == nil {
-		t.Fatal("false premise assertion accepted")
-	}
-	if err := requireWorkflowCompletionPremise(ctx, db, "work", 2, true); err != nil {
-		t.Fatal(err)
-	}
-}

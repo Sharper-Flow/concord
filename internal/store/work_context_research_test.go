@@ -147,9 +147,16 @@ func recordResearchDeclarationTxReceipt(t *testing.T, f workContextFixture, fiel
 		if err := BindResearchRelianceTx(ctx, rawTx, f.workID, bindings, time.Unix(9, 0).UTC()); err != nil {
 			return err
 		}
+		plan, err := readWorkflowPlanTx(ctx, rawTx, f.workID)
+		if err != nil {
+			return err
+		}
+		if plan == nil || workflowPlanCurrentStep(plan) == "" {
+			return fmt.Errorf("research declaration fixture has no current workflow step")
+		}
 		events, err := workflowRecordWorkContextEvents(ctx, rawTx, WorkflowActionExecutionRequest{
 			WorkID: f.workID, RequestID: "request:ctx-research-" + f.workID, Now: time.Unix(9, 0).UTC(),
-		}, "repair", ownerRef, fieldRaw, "ctx-research-declare-"+f.workID+"-"+fmt.Sprint(version), version)
+		}, workflowPlanCurrentStep(plan), ownerRef, fieldRaw, "ctx-research-declare-"+f.workID+"-"+fmt.Sprint(version), version)
 		if err != nil {
 			return err
 		}
@@ -160,6 +167,31 @@ func recordResearchDeclarationTxReceipt(t *testing.T, f workContextFixture, fiel
 		// live action route invokes it.
 		return checkWorkContextDeclarationTx(ctx, rawTx, f.workID, events)
 	})
+}
+
+func TestWorkContextResearchDeclarationCurrentPlan(t *testing.T) {
+	for _, planType := range []WorkflowStepPlanType{WorkflowStepPlanChange, WorkflowStepPlanFix, WorkflowStepPlanResearch, WorkflowStepPlanRemoval} {
+		t.Run(string(planType), func(t *testing.T) {
+			plan := currentWorkflowPlanFixture(t, planType)
+			fixture := seedWorkContextFixtureWithPlan(t, "ctx-research-plan-"+string(planType), planType, plan.Steps[0].ID)
+			defer fixture.store.Close()
+			pack := seedResearchContextPack(t, fixture, "plan-"+string(planType))
+			before := readWorkVersion(t, fixture.store, fixture.workID)
+			err := recordResearchDeclarationTx(t, fixture, map[string]any{
+				"research_finding_refs": []map[string]any{researchSelectionEntry(pack.PackID, 1, "f1", workContextTestChild)},
+			}, []ResearchBindingDeclaration{{PackID: pack.PackID, Revision: 1, UseRole: UseContext, Required: true}})
+			if err != nil {
+				t.Fatalf("current plan declaration refused: %v", err)
+			}
+			if got := readWorkVersion(t, fixture.store, fixture.workID); got != before+1 {
+				t.Fatalf("version = %d, want %d", got, before+1)
+			}
+			view, err := readWorkContextView(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID)
+			if err != nil || view == nil || len(view.ResearchFindings) != 1 || view.ResearchFindings[0].State != WorkContextResearchStateResolved {
+				t.Fatalf("research selection = %+v, err = %v", view, err)
+			}
+		})
+	}
 }
 
 // researchViewDocument reads the current view and returns it decoded at the

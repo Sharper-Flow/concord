@@ -20,9 +20,7 @@ func TestWorkflowCompletionIgnoresRetiredContractClauses(t *testing.T) {
 			id := "retired-completion-" + fault.name
 			f := qCurrentAcceptanceWithDelivery(t, id, "https://example.com/delivery/retired")
 			s := f.store
-			if err := f.run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, id), nil, nil); err != nil {
-				t.Fatal(err)
-			}
+			completeWorkflowPlanFixture(t, s, id)
 			if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 				t.Fatal(err)
 			}
@@ -43,32 +41,9 @@ func TestWorkflowCompletionIgnoresRetiredContractClauses(t *testing.T) {
 	}
 }
 
-func TestWorkflowCompletionIgnoresRetiredStaleness(t *testing.T) {
-	s, completion := seedCompletionGateCase(t, "completion-retired-staleness", completionGateCase{includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
-	definition := cloneWorkflowDefinition(mustBuiltinDefinition(t, "workflow.implementation").Definition)
-	definition.StalenessRules = []WorkflowStalenessRule{{ID: "staleness.block", InputRef: "input:missing", Severity: "block"}, {ID: "staleness.warn", InputRef: "input:missing", Severity: "warning"}}
-	registry := NewWorkflowDefinitionRegistry()
-	if _, err := registry.Register(definition); err != nil {
-		t.Fatal(err)
-	}
-	if err := CompleteWorkflowWithRegistry(t.Context(), s, registry, completion); err != nil {
-		t.Fatalf("completion rechecked retired staleness: %v", err)
-	}
-	var payload workflowCompletedPayload
-	var raw []byte
-	if err := s.db.QueryRow(`SELECT completion_payload FROM workflow_instances WHERE work_id=?`, completion.SubjectID).Scan(&raw); err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(raw, &payload); err != nil || len(payload.Warnings) != 0 {
-		t.Fatalf("completion still derived staleness warnings: %+v err=%v", payload, err)
-	}
-}
-
 func TestWorkflowCompletionIgnoresRetiredPayloadDrift(t *testing.T) {
 	f := qCurrentAcceptanceWithDelivery(t, "completion-payload-drift", "https://example.com/delivery/drift")
-	if err := f.run(t.Context(), "confirm_premise", "confirm", f.version(t.Context(), t), nil, nil); err != nil {
-		t.Fatal(err)
-	}
+	completeWorkflowPlanFixture(t, f.store, f.workID)
 	if err := f.run(t.Context(), "complete", "complete", f.version(t.Context(), t), json.RawMessage(`{"impact_verdict":"non-breaking","evidence_commit":"commit:before","current_commit":"commit:after","payload":{"evidence_commit":"commit:before","current_commit":"commit:after","staleness":{"drifted":true,"severity":"block"}}}`), nil); err != nil {
 		t.Fatalf("completion rechecked retired payload drift: %v", err)
 	}
@@ -79,9 +54,7 @@ func TestWorkflowCompletionIgnoresRetiredModifyingScope(t *testing.T) {
 	const target = "completion-outside-candidates"
 	f := qCurrentAcceptanceWithDelivery(t, id, "https://example.com/delivery/scope")
 	s := f.store
-	if err := f.run(t.Context(), "confirm_premise", "confirm", f.version(t.Context(), t), nil, nil); err != nil {
-		t.Fatal(err)
-	}
+	completeWorkflowPlanFixture(t, s, id)
 	seedWork(t, s, target)
 	var candidates int
 	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_candidate_sets WHERE work_id=? AND candidate_kind='work_item' AND candidate_ref=?`, id, target).Scan(&candidates); err != nil || candidates != 0 {

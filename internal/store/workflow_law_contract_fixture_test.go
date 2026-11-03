@@ -122,7 +122,7 @@ func constructLawChangeContract(t *testing.T, s *Store, planType WorkflowStepPla
 		for name, value := range fields {
 			contract[name] = value
 		}
-		err = reviseContractRecord(t, s, workID, workflowActorForRef(t, s, ownerRef), contract, expected, nil)
+		err = reviseContractRecord(t, s, workID, workflowActorForRef(t, s, ownerRef), contract, expected)
 	} else {
 		ctx, proofErr := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
 		if proofErr != nil {

@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"encoding/json"
 	"reflect"
 	"testing"
@@ -9,32 +8,10 @@ import (
 
 func reviewGateStartStep(t *testing.T, s *Store, workID, stepID, startAction string, actor WorkflowActor) {
 	t.Helper()
-	entry, err := VerifyWorkflowInstanceDefinition(context.Background(), s, BuiltinWorkflowRegistry(), workID)
-	if err != nil {
-		t.Fatal(err)
+	reviewGateRequireStep(t, s, workID, stepID)
+	if err := runVerdictActionAs(t, s, workID, startAction, json.RawMessage(`{}`), 0, actor); err != nil {
+		t.Fatalf("start %s at %s: %v", startAction, stepID, err)
 	}
-	action := startAction
-	if !definitionStepAllows(entry.Definition, stepID, startAction) {
-		for candidate, step := range workflowDerivedStartCheckpoints {
-			if step == stepID && definitionStepAllows(entry.Definition, stepID, candidate) {
-				action = candidate
-				break
-			}
-		}
-	}
-	if err := runVerdictActionAs(t, s, workID, action, json.RawMessage(`{}`), 0, actor); err != nil {
-		t.Fatalf("start %s at %s: %v", action, stepID, err)
-	}
-	reviewGateStartedEpoch(t, s, workID, action)
-}
-
-func reviewGateStartedEpoch(t *testing.T, s *Store, workID, action string) int64 {
-	t.Helper()
-	var epoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT attempt_epoch FROM workflow_step_epochs WHERE work_id=? AND json_extract(latest_start_payload,'$.action_id')=? ORDER BY latest_start_seq DESC LIMIT 1`, workID, action).Scan(&epoch); err != nil {
-		t.Fatal(err)
-	}
-	return epoch
 }
 
 func reviewGateRequireStep(t *testing.T, s *Store, workID, want string) {
@@ -50,22 +27,11 @@ func reviewGateRecordDelivery(t *testing.T, s *Store, workID string, actor Workf
 	return runVerdictActionAs(t, s, workID, "record_delivery", payload, 0, actor)
 }
 
-func reviewGateRefineFixture(t *testing.T, workID, family string) *candidateJourney {
+func reviewGateRefineFixture(t *testing.T, workID string, planType WorkflowStepPlanType) *candidateJourney {
 	t.Helper()
-	j := pReturnReviewFixture(t, workID, family, "ready_for_final_proof")
+	j := pReturnReviewFixture(t, workID, planType, "ready_for_final_proof")
 	j.acceptor = j.fixture.owner
-	step := currentStep(t, j.s, workID)
-	if step == "execution" {
-		reviewGateStartStep(t, j.s, workID, step, "start_execution", j.fixture.owner)
-	} else {
-		reviewGateStartStep(t, j.s, workID, step, "checkpoint_repair", j.fixture.owner)
-	}
-	j.bindVerification(t, j.observeRun(t, "execution-integration"))
-	if err := reviewGateRecordDelivery(t, j.s, workID, j.fixture.owner); err != nil {
-		t.Fatalf("deliver reviewed execution: %v", err)
-	}
-	reviewGateRequireStep(t, j.s, workID, "refine")
-	reviewGateStartStep(t, j.s, workID, "refine", "start_refine", j.fixture.owner)
+	moveWorkflowPlanFixtureFrontier(t, j.s, workID, "review")
 	return j
 }
 
@@ -85,26 +51,17 @@ func reviewGateDeliveryRefusal(t *testing.T, j *candidateJourney) {
 	if j.effects(t) != before || reviewGateCountDeliveries(t, j.s, j.workID) != deliveries {
 		t.Fatal("refused delivery changed durable state")
 	}
-	reviewGateRequireStep(t, j.s, j.workID, "refine")
+	reviewGateRequireStep(t, j.s, j.workID, "review")
 }
 
 func reviewGateExitWithCurrentReview(t *testing.T, j *candidateJourney) {
 	t.Helper()
 	reviewGateCompleteReview(t, j, "ready_for_final_proof")
-	reviewGateRequireStep(t, j.s, j.workID, "refine")
-	j.bindVerification(t, j.observeRun(t, "refine-integration"))
+	j.bindVerification(t, j.observeRun(t, "review-integration"))
 	if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); err != nil {
 		t.Fatalf("delivery after current Review: %v", err)
 	}
-	reviewGateRequireStep(t, j.s, j.workID, "delivery")
-	pin := issue1013Pin(t, j.s, j.workID)
-	if !workPinContainsAction(pin.NextValidIntents, "record_delivery") {
-		t.Fatalf("current Review did not restore gate exit: %+v", pin.NextValidIntents)
-	}
-	if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); err != nil {
-		t.Fatalf("gate crossing after current Review: %v", err)
-	}
-	reviewGateRequireStep(t, j.s, j.workID, "verify")
+	reviewGateRequireStep(t, j.s, j.workID, "review")
 }
 
 func reviewGateAcceptor(workID string) WorkflowActor {
@@ -115,13 +72,13 @@ func reviewGateChangeRecordedCriterion(t *testing.T, j *candidateJourney) {
 	t.Helper()
 	successor := pContractSuccessor(t, j.s, j.workID, "changed criterion")
 	successor["outcome_predicates"].([]any)[0].(map[string]any)["outcome_payload"].(map[string]any)["expected_result"] = "fail"
-	if err := reviseContractRecord(t, j.s, j.workID, j.fixture.owner, successor, readWorkVersion(t, j.s, j.workID), nil); err != nil {
+	if err := reviseContractRecord(t, j.s, j.workID, j.fixture.owner, successor, readWorkVersion(t, j.s, j.workID)); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestReviewOfReplacedCandidateCannotAuthorizeDelivery(t *testing.T) {
-	j := reviewGateRefineFixture(t, "review-gate-stale-review", "workflow.break_fix")
+	j := reviewGateRefineFixture(t, "review-gate-stale-review", WorkflowStepPlanFix)
 	input := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof").InputCandidate
 	oldRef := j.observeRun(t, "old-candidate").OperationRef
 	pReturnProduce(t, j, "repair")
@@ -147,17 +104,17 @@ func TestReviewOfReplacedCandidateCannotAuthorizeDelivery(t *testing.T) {
 }
 
 func TestDeliveryGateTakesOrdinaryReviewUpdate(t *testing.T) {
-	for _, family := range []string{"workflow.break_fix", "workflow.implementation"} {
-		t.Run(family, func(t *testing.T) {
+	for _, family := range []WorkflowStepPlanType{WorkflowStepPlanFix, WorkflowStepPlanChange} {
+		t.Run(string(family), func(t *testing.T) {
 			j := reviewGateRefineFixture(t, "review-gate-parked-update", family)
 			reviewGateCompleteReview(t, j, "ready_for_final_proof")
-			j.bindVerification(t, j.observeRun(t, "parked-refine"))
+			j.bindVerification(t, j.observeRun(t, "parked-review"))
 			if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); err != nil {
-				t.Fatalf("refine delivery: %v", err)
+				t.Fatalf("review delivery: %v", err)
 			}
-			reviewGateRequireStep(t, j.s, j.workID, "delivery")
+			reviewGateRequireStep(t, j.s, j.workID, "review")
 			reviewGateChangeRecordedCriterion(t, j)
-			reviewGateRequireStep(t, j.s, j.workID, "delivery")
+			reviewGateRequireStep(t, j.s, j.workID, "review")
 			pin := issue1013Pin(t, j.s, j.workID)
 			if pin.Review == nil || pin.Review.DependenciesCurrent || workPinContainsAction(pin.NextValidIntents, "record_delivery") || !workPinContainsAction(pin.NextValidIntents, "record_review") {
 				t.Fatalf("stale gate intents=%+v review=%+v", pin.NextValidIntents, pin.Review)
@@ -172,27 +129,25 @@ func TestDeliveryGateTakesOrdinaryReviewUpdate(t *testing.T) {
 				if j.effects(t) != before || reviewGateCountDeliveries(t, j.s, j.workID) != deliveries {
 					t.Fatalf("%s: refused crossing changed durable state", label)
 				}
-				reviewGateRequireStep(t, j.s, j.workID, "delivery")
+				reviewGateRequireStep(t, j.s, j.workID, "review")
 			}
 			refuse("stale Review", KindStaleRequiresReview)
 			reviewGateCompleteReview(t, j, "continue")
-			reviewGateRequireStep(t, j.s, j.workID, "delivery")
+			reviewGateRequireStep(t, j.s, j.workID, "review")
 			refuse("non-ready Review update", KindMissingEvidence)
 			reviewGateCompleteReview(t, j, "ready_for_final_proof")
-			reviewGateRequireStep(t, j.s, j.workID, "delivery")
+			reviewGateRequireStep(t, j.s, j.workID, "review")
 			if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); err != nil {
-				t.Fatalf("gate crossing after fresh Review: %v", err)
+				t.Fatalf("delivery after fresh Review: %v", err)
 			}
-			if got := currentStep(t, j.s, j.workID); got == "delivery" {
-				t.Fatal("fresh Review did not restore the gate exit")
-			}
+			reviewGateRequireStep(t, j.s, j.workID, "review")
 		})
 	}
 }
 
 func TestReviewApplicabilityFollowsCandidateNotDispatchOrder(t *testing.T) {
 	t.Run("recorded correction blocks changed subject", func(t *testing.T) {
-		j := reviewGateRefineFixture(t, "review-gate-before-repair", "workflow.break_fix")
+		j := reviewGateRefineFixture(t, "review-gate-before-repair", WorkflowStepPlanFix)
 		reviewGateCompleteReview(t, j, "continue")
 		reviewGateCompleteReview(t, j, "ready_for_final_proof")
 		pReturnProduce(t, j, "repair")
@@ -201,7 +156,7 @@ func TestReviewApplicabilityFollowsCandidateNotDispatchOrder(t *testing.T) {
 		reviewGateExitWithCurrentReview(t, j)
 	})
 	t.Run("unchanged qualification and draft keep Review applicable", func(t *testing.T) {
-		j := reviewGateRefineFixture(t, "review-gate-unchanged", "workflow.break_fix")
+		j := reviewGateRefineFixture(t, "review-gate-unchanged", WorkflowStepPlanFix)
 		before := issue1013Pin(t, j.s, j.workID).Review
 		draft := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
 		j.observeRun(t, "unchanged-subject")
@@ -216,10 +171,10 @@ func TestReviewApplicabilityFollowsCandidateNotDispatchOrder(t *testing.T) {
 		if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); err != nil {
 			t.Fatalf("unchanged recorded Review did not authorize delivery: %v", err)
 		}
-		reviewGateRequireStep(t, j.s, j.workID, "delivery")
+		reviewGateRequireStep(t, j.s, j.workID, "review")
 	})
 	t.Run("Review corrective output needs no further Review", func(t *testing.T) {
-		j := reviewGateRefineFixture(t, "review-gate-corrective-output", "workflow.break_fix")
+		j := reviewGateRefineFixture(t, "review-gate-corrective-output", WorkflowStepPlanFix)
 		input := currentReviewBlockForTest(t, j.s, j.workID, "continue").InputCandidate
 		output := descendantCommit(t, j, "correct-the-candidate")
 		completeCurrentReviewForTest(t, j.fixture, "ready_for_final_proof", func(report *ReviewBlock) { report.InputCandidate = input })
@@ -231,6 +186,6 @@ func TestReviewApplicabilityFollowsCandidateNotDispatchOrder(t *testing.T) {
 		if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); err != nil {
 			t.Fatalf("corrective output required another Review: %v", err)
 		}
-		reviewGateRequireStep(t, j.s, j.workID, "delivery")
+		reviewGateRequireStep(t, j.s, j.workID, "review")
 	})
 }

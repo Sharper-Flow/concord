@@ -87,11 +87,7 @@ func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, event Event, sco
 	if err := workflowCompletionVersion(ctx, tx, event.SubjectID, payload.ExpectedVersion); err != nil {
 		return err
 	}
-	contract, err := workflowCompletionContractRows(ctx, tx, event.SubjectID)
-	if err != nil {
-		return err
-	}
-	if err := requireWorkflowCompletionPremise(ctx, tx, event.SubjectID, contract.Version, payload.PremiseConfirmed); err != nil {
+	if _, err := completionActiveContractVersion(ctx, tx, event.SubjectID); err != nil {
 		return err
 	}
 	if err := requireActor(ctx, tx, event.Actor); err != nil {
@@ -103,15 +99,12 @@ func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, event Event, sco
 	return nil
 }
 
-func requireWorkflowCompletionPremise(ctx context.Context, q queryer, workID string, contractVersion int64, asserted bool) error {
-	var confirmed bool
-	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=?)`, workID, contractVersion).Scan(&confirmed); err != nil {
-		return wrapFailure(KindUnavailable, "complete_workflow", "cannot read current premise confirmation", true, "retry once the database is readable", err)
+func completionActiveContractVersion(ctx context.Context, q queryer, workID string) (int64, error) {
+	version, err := activeWorkflowContractVersion(ctx, q, workID, "complete_workflow")
+	if err == sql.ErrNoRows {
+		return 0, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract is missing or ambiguous", false, "reread_entities")
 	}
-	if !confirmed || !asserted {
-		return newFailure(KindMissingEvidence, "complete_workflow", "active contract premise is not confirmed", false, "confirm the active contract premise")
-	}
-	return nil
+	return version, err
 }
 
 func appendWorkflowCompletionTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, payload workflowCompletedPayload) error {

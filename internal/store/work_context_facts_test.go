@@ -75,7 +75,12 @@ func TestWorkContextFactsAnchorSelectionBackfillAndLogBlind(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		events, err := workflowRecordWorkContextEvents(ctx, tx, WorkflowActionExecutionRequest{WorkID: f.workID, RequestID: "request:" + identity, Now: time.Unix(9, 0).UTC()}, "repair", actor, fields, identity+":semantic", version)
+		plan, err := readWorkflowPlanTx(ctx, tx, f.workID)
+		if err != nil || plan == nil || workflowPlanCurrentStep(plan) == "" {
+			_ = tx.Rollback()
+			t.Fatalf("current plan = %+v, err = %v", plan, err)
+		}
+		events, err := workflowRecordWorkContextEvents(ctx, tx, WorkflowActionExecutionRequest{WorkID: f.workID, RequestID: "request:" + identity, Now: time.Unix(9, 0).UTC()}, workflowPlanCurrentStep(plan), actor, fields, identity+":semantic", version)
 		if rollbackErr := tx.Rollback(); rollbackErr != nil {
 			t.Fatal(rollbackErr)
 		}
@@ -148,9 +153,16 @@ func TestWorkContextFactsAnchorSelectionBackfillAndLogBlind(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "context-selection-144.db")
 		db := openMigratedTo(t, path, 144)
 		copyFixtureDataToPrefix(t, f.store, db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_contracts", "workflow_architecture_bindings", "workflow_contract_affected_domains"}, map[string]map[string]string{
-			"workflow_contracts":             {"definition_version": "26", "law_change": "NULL"},
+			"workflow_contracts":             {"definition_ref": "'workflow.break_fix'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "law_change": "NULL"},
 			"workflow_architecture_bindings": {"domain_registry_content_hash": "'sha256:" + strings.Repeat("a", 64) + "'"},
 		}, "fold_guard")
+		var definitionRef, definitionDigest string
+		if err := db.QueryRow(`SELECT definition_ref,definition_digest FROM workflow_contracts WHERE work_id=?`, f.workID).Scan(&definitionRef, &definitionDigest); err != nil {
+			t.Fatal(err)
+		}
+		if definitionRef != "workflow.break_fix" || definitionDigest != testManifestDigest {
+			t.Fatalf("historical contract identity = %q %q, want %q %q", definitionRef, definitionDigest, "workflow.break_fix", testManifestDigest)
+		}
 		for _, event := range corpus {
 			var seq int64
 			var digest string

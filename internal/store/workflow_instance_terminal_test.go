@@ -41,20 +41,18 @@ func TestTerminalLifecycleClosesTheWorkflowInstance(t *testing.T) {
 			s := openTemp(t)
 			seedWork(t, s, workID)
 			seedWorkflowLaw(t, s)
-			registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-			if err != nil {
-				t.Fatal(err)
-			}
-			selected := workflowEvent(workID+"-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "ref": registered.Definition.Ref, "digest": registered.Digest, "work_kind": string(registered.Definition.WorkKind)})
-			if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{selected}, ExpectedVersions: workVersion(workID, 2)}); err != nil {
+			owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/terminal", AgentRef: "agent/terminal", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+			if err := s.Transact(ctx, func(tx *Transaction) error {
+				return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: owner})
+			}); err != nil {
 				t.Fatal(err)
 			}
 			var before string
 			if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&before); err != nil {
 				t.Fatal(err)
 			}
-			if before != "planned" {
-				t.Fatalf("instance_state before the terminal fold = %q, want planned", before)
+			if before != "intake" {
+				t.Fatalf("instance_state before the terminal fold = %q, want intake", before)
 			}
 
 			tc.terminal(t, s, workID)
@@ -87,15 +85,13 @@ func TestTerminalLifecycleRefusesCompletedWhileWorkflowLive(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
+	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/terminal", AgentRef: "agent/terminal", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: owner})
+	}); err != nil {
 		t.Fatal(err)
 	}
-	selected := workflowEvent(workID+"-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "ref": registered.Definition.Ref, "digest": registered.Digest, "work_kind": string(registered.Definition.WorkKind)})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{selected}, ExpectedVersions: workVersion(workID, 2)}); err != nil {
-		t.Fatal(err)
-	}
-	err = applyWorkEvent(t, s, workTransitionEvent(workID+"-complete", workID, "needed", "completed", 3, 4), workVersion(workID, 3))
+	err := applyWorkEvent(t, s, workTransitionEvent(workID+"-complete", workID, "needed", "completed", 3, 4), workVersion(workID, 3))
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindNotTerminal {
 		t.Fatalf("completed on external evidence error=%v, want %s", err, KindNotTerminal)
@@ -107,8 +103,8 @@ func TestTerminalLifecycleRefusesCompletedWhileWorkflowLive(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT w.lifecycle, i.instance_state FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&lifecycle, &state); err != nil {
 		t.Fatal(err)
 	}
-	if lifecycle != "needed" || state != "planned" {
-		t.Fatalf("refused transition changed state: lifecycle=%q instance=%q, want needed/planned", lifecycle, state)
+	if lifecycle != "needed" || state != "intake" {
+		t.Fatalf("refused transition changed state: lifecycle=%q instance=%q, want needed/intake", lifecycle, state)
 	}
 }
 
@@ -143,11 +139,6 @@ func TestTerminalLifecycleLeavesACompletedInstanceAlone(t *testing.T) {
 func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	orphans := map[string]string{"orphan-cancelled": "cancelled", "orphan-completed": "completed", "orphan-superseded": "superseded"}
 	const terminalAt = "2026-09-06T01:00:00Z"
 
@@ -188,7 +179,7 @@ func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
 			t.Fatalf("seed %s: %v", workID, err)
 		}
 		if _, err := db.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_model) VALUES(?,?,?,?,?,'running','single_actor')`,
-			workID, definition.Definition.Ref, 1, definition.Digest, "proposal"); err != nil {
+			workID, "workflow.implementation", 1, testManifestDigest, "proposal"); err != nil {
 			t.Fatalf("seed instance %s: %v", workID, err)
 		}
 	}
@@ -217,6 +208,8 @@ func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
 			want := "cancelled"
 			if lifecycle == "superseded" {
 				want = "superseded"
+			} else if lifecycle == "completed" {
+				want = "completed"
 			}
 			if state != want {
 				t.Errorf("%s: %s instance_state = %q, want %q for lifecycle %q", phase, workID, state, want, lifecycle)

@@ -12,7 +12,14 @@ func retireInitiativeWork(ctx context.Context, q migrationRunner) error {
 		{"active_research_packs", `SELECT owner_work_id,owner_work_id FROM active_research_packs WHERE owner_work_id IN (SELECT id FROM work_items WHERE kind='initiative') ORDER BY owner_work_id LIMIT 1`},
 		{"active_research_consumers", `SELECT consumer_work_id,consumer_work_id FROM active_research_consumers WHERE consumer_work_id IN (SELECT id FROM work_items WHERE kind='initiative') ORDER BY consumer_work_id LIMIT 1`},
 		{"workflow_impact_edges", `SELECT target_work_id,work_id FROM workflow_impact_edges WHERE target_work_id IN (SELECT id FROM work_items WHERE kind='initiative') AND work_id NOT IN (SELECT id FROM work_items WHERE kind='initiative') ORDER BY target_work_id,work_id LIMIT 1`},
-		{"workflow_backlog_alignment", `SELECT related_work_id,work_id FROM workflow_backlog_alignment WHERE related_work_id IN (SELECT id FROM work_items WHERE kind='initiative') AND work_id NOT IN (SELECT id FROM work_items WHERE kind='initiative') ORDER BY related_work_id,work_id LIMIT 1`},
+		{"workflow_backlog_alignment", `SELECT alignment.related_work_id,alignment.work_id
+FROM workflow_backlog_alignment alignment JOIN work_items owner ON owner.id=alignment.work_id
+WHERE alignment.related_work_id IN (SELECT id FROM work_items WHERE kind='initiative')
+  AND owner.kind<>'initiative'
+  AND (owner.lifecycle NOT IN ('completed','cancelled','superseded')
+    OR EXISTS (SELECT 1 FROM workflow_instances instance WHERE instance.work_id=owner.id AND instance.instance_state NOT IN ('completed','cancelled','superseded'))
+    OR NOT EXISTS (SELECT 1 FROM workflow_backlog_alignment remaining JOIN work_items related ON related.id=remaining.related_work_id WHERE remaining.work_id=owner.id AND related.kind<>'initiative'))
+ORDER BY alignment.related_work_id,alignment.work_id LIMIT 1`},
 		{"workflow_overlap_resolutions", `SELECT to_work_id,from_work_id FROM workflow_overlap_resolutions WHERE to_work_id IN (SELECT id FROM work_items WHERE kind='initiative') AND from_work_id NOT IN (SELECT id FROM work_items WHERE kind='initiative') ORDER BY to_work_id,from_work_id LIMIT 1`},
 	}
 	for _, check := range checks {

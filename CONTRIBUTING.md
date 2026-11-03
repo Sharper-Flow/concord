@@ -90,19 +90,23 @@ hook. `assert_lefthook_installed: true` makes an installed hook fail when it can
 find Lefthook; it cannot detect a missing hook.
 
 Push normally and let the installed hook run the selected gates. Each gate
-enters the host admission route (`oc-test-gate`'s shared heavy slot) through
-`bin/oc-test preflight-gate`, so concurrent pushes from linked worktrees queue
-their gate work instead of overlapping it; on a host without `oc-test-gate`
-the gate still runs, with a warning. Under contention a gate can also be
-refused admission (exit 75): the host does not let some callers wait on a
-busy shared slot, and the push fails closed with the host's remediation —
-never with a skipped gate. Recovery is to rerun the push itself through the
-host's long-running command route, which waits for admission within its
-budget; each gate rejoins the queue per gate, so a heavily contended slot
-lengthens a push by about one full queue wait per matched gate. Fix a failing
-gate before retrying a push; do not bypass the hook. CI remains the
-verification owner. To diagnose a failure before retrying a push, run the
-same gates manually:
+enters the host admission route (`oc-test-gate`'s smoke admission lane)
+through `bin/oc-test preflight-gate`, so concurrent pushes from linked
+worktrees queue their gate work instead of overlapping it; on a host without
+`oc-test-gate` the gate still runs, with a warning. The smoke lane is
+separate from the heavy lane that full-tier suites use, so full-tier local
+work does not block a push's gates; another smoke-class run — another
+push's gates or a `bin/oc-test smoke` run — still shares that lane. A gate
+can still be refused admission (exit 75): inside a synchronous tool call
+the host waits up to its default 30 s (`OC_WORKLOAD_GATE_SYNC_WAIT_MS`)
+for the lane before refusing, and the push fails closed with the host's
+remediation — never with a skipped gate. Recovery is to rerun the push
+itself through the host's long-running command route, which waits for
+admission within its budget; each gate rejoins the lane per gate, so a
+contended smoke lane lengthens the run by up to one smoke-lane wait per
+matched gate, within that budget. Fix a failing gate before retrying a
+push; do not bypass the hook. CI remains the verification owner. To diagnose
+a failure before retrying a push, run the same gates manually:
 
 ```sh
 bin/oc-test preflight

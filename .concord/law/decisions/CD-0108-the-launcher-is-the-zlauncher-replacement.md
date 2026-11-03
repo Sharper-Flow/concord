@@ -91,4 +91,7 @@ write authority beside the typed mutation surface.
 - `go test ./cmd/concord/ -run
   'TestRemovedLaunchEntriesRefuseWithoutExecuting|TestRemovedLaunchArgvZeroDoesNotForward'`
   proves the removed entry verbs reach no launch and start no process.
-- Repository document, knowledge-index, and link validators pass.
+- [The Domain registry checker](../../../scripts/check-domain-registry.py) checks
+  that law-record Domain fields and Domain registry entries resolve to declared
+  Domains and current law; [the document link checker](../../../scripts/check-doc-links.py)
+  checks bounded relative Markdown paths and heading anchors.

@@ -132,7 +132,7 @@ secure erasure of backups.
 |---|---|---|
 | terminal current-state identity and reported delivery link | exact work and delivered-outcome readers | explicit work removal under its owning contract |
 | operation results and effect receipts | retries and reconciliation of the original intent | CD-0242 D2's documented end of the retry/reconciliation consumer |
-| historical notes and locator projections | historical readers verify recorded Git identity and frozen scope | Git owns notes; projections may be replaced from the same authority |
+| historical notes and locator projections | historical readers return the recorded locator and authorize it through frozen scope | Git owns notes; projections may be replaced from the same authority |
 | research and dependent content | exact-revision readers and active pins under section 3 | explicit eligible research_retire only |
 | verified snapshots | PM10 restore and unfinished recovery | documented count/age bound, never the newest verified snapshot or one recovery needs |
 | logs, traces, screenshots and raw reports | producer-owned, not Concord authority | the producer's own policy |

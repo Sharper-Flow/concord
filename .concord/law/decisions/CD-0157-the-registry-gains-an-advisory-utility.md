@@ -3,9 +3,7 @@
   "id": "CD-0157",
   "title": "The registry gains an advisory utility",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "agent-contract",
   "applies_to_domain_ids": [],
@@ -96,8 +94,10 @@ output. The self-report is a disclosure for post-hoc
 audit, not a control.
 
 Concord cannot enforce that the adviser and the caller differ in model family.
-The adapter admits the call at `tool.execute.before`, and the host routing layer
-picks a model after that point.
+The host admits the adviser through its native Task surface under the caller's
+task permission; the adviser then runs under its generated subagent profile's
+tool permissions, and the adapter registers no tool
+execution hook. The host routing layer picks a model after that point.
 
 No mechanism instructs a caller to compare the disclosed model against its own
 serving model, or to discount on a match. The coordinator definitions, the

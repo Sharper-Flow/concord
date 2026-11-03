@@ -116,11 +116,14 @@ reference. A law/implementation mismatch is reported explicitly, not described
 as if the desired state already exists.
 
 **Basis and rejected options:** [arc42's minimal set](https://faq.arc42.org/questions/B-4/)
-suggests context, strategy, main building blocks and cross-cutting concepts.
-[Its maintenance guidance](https://faq.arc42.org/questions/H-3/) prefers stable
-high-level views over volatile detail. Reject an eager file for every Domain,
-all twelve arc42 sections, and an unchecked Domain-to-code ownership map.
-Existing package notes remain useful and need not acquire a Domain label.
+suggests three to five quality scenarios, context, strategy, main building
+blocks and cross-cutting concepts. Here a quality requirement is an obligation,
+so the reference links its law or scenario under constraints instead of
+restating it. [Its maintenance guidance](https://faq.arc42.org/questions/H-3/)
+prefers stable high-level views over volatile detail. Reject an eager file for
+every Domain, all twelve arc42 sections, a reference-owned quality-requirements
+section, and an unchecked Domain-to-code ownership map. Existing package notes
+remain useful and need not acquire a Domain label.
 
 ### Cross-cutting concepts and glossary
 
@@ -143,8 +146,10 @@ Reject a glossary per Domain and a separate context-map file by default: they
 make common vocabulary harder to find and risk duplicating registry identity.
 Split only for a demonstrated reading problem, keeping the Product glossary
 as the index. [Diátaxis reference](https://diataxis.fr/reference/) supports
-description organised around the system; architecture rationale is explanation,
-not a tutorial, runbook or feature spec.
+description organised around the system. Diátaxis keeps explanation apart from
+reference; this model keeps short rationale beside the boundary it explains so
+one read answers both, and rejects a separate explanation file per reference.
+Architecture documentation is not a tutorial, runbook or feature spec.
 
 ### Reading budget
 
@@ -194,16 +199,20 @@ keyword checker can establish semantic consistency. No new check is proposed.
 ## Architectural plans
 
 Keep the existing six-part plan. Add the following detail within it rather
-than inventing a competing template or a new workflow step:
+than inventing a competing template or a new workflow step. An **architectural
+change** alters a Domain boundary, a governed relation, state authority, a
+cross-Domain interface or runtime flow, or a claim in current architecture
+reference. Other work keeps the ordinary plan. Each part keeps its existing
+duties; the right column lists only what an architectural change adds:
 
-| Existing part | Required detail for an architectural change |
+| Existing part | Addition for an architectural change |
 |---|---|
-| Outcomes and checks | Observed problem, affected readers/users, goals, non-goals, delivery-checkable outcomes, dependencies, and unanswered questions that could change the design. |
-| Approach | Boundaries, state and runtime flows affected; why each new mechanism earns its place; simpler alternative; current versus intended behavior. |
-| Decisions | Choice, reason, rejected alternatives and trade-offs; applicable operator reservation; destination for a lasting decision or reason no promotion is needed. |
-| Touches | Interfaces, Domains, law and reference affected; useful code locators and owners, not an exhaustive file inventory. |
-| Merge split | Independently green delivery slices, order and dependencies, or why the cutover is inseparable. |
-| Risks | Failure modes, unresolved uncertainty, recovery where relevant, and test seams: prefer the highest existing seam that proves the outcome; name any lower-level check that adds distinct proof. |
+| Outcomes and checks | Goals, non-goals, and unanswered questions that could change the design. |
+| Approach | Boundaries, state and runtime flows affected; current versus intended behavior. |
+| Decisions | Trade-offs of each choice; destination for a lasting decision, or why none is needed (routing below). |
+| Touches | Domains by registry ID and the architecture reference affected; useful code locators and owners, not an exhaustive file inventory. |
+| Merge split | Delivery order and the dependencies between slices. |
+| Risks | Recovery where relevant, and test seams: prefer the highest existing seam that proves the outcome; name any lower-level check that adds distinct proof. |
 
 Linear owns the problem, scope, planning choices and sequence. Concord's admitted
 execution record holds the bounded execution design and contract. Link these
@@ -212,11 +221,11 @@ architecture reference. Use whichever current workflow representation is
 admitted; this report proposes no store fields or retained step-history model.
 
 **Basis and rejected options:** [Pocock's to-spec][pocock-spec] contributes
-non-goals, implementation trade-offs and test seams; [Google design-doc practice](https://www.industrialempathy.com/posts/design-docs-at-google/)
+explicit out-of-scope items, implementation decisions and highest-seam testing; [Google design-doc practice](https://www.industrialempathy.com/posts/design-docs-at-google/)
 emphasises goals, non-goals and alternatives. The latter is a public account by
-Malte Ubl, not a formal Google standard. Reject importing to-spec's tracker
-labels, HTML output, or blanket ban on code paths: bounded execution needs
-usable source locators. Keep methods in their existing owning skills rather
+Malte Ubl, not a formal Google standard. Reject importing to-spec's triage
+labels, its exhaustive user-story list, or its ban on file paths: bounded
+execution needs usable source locators. Keep methods in their existing owning skills rather
 than restating every method in an architecture-writing skill.
 
 ### Lasting-output routing at final review
@@ -226,8 +235,9 @@ For each plan decision, classify the lasting output before delivery:
 1. **An obligation or governed boundary:** enact or amend law through the
    existing law-change route. The ADR selection test cannot exempt a rule from
    law merely because it is reversible.
-2. **Discretionary architectural rationale:** offer a law decision when all
-   three hold: hard to reverse, surprising without context, and a real trade-off.
+2. **Discretionary architectural rationale:** when all three hold — hard to
+   reverse, surprising without context, and a real trade-off — record it as a
+   law decision through the existing law-change route.
    Otherwise keep useful current explanation in the reference; leave transient
    choices in the work record. Link an existing decision instead of duplicating it.
 3. **Changed delivered structure:** update its canonical reference.
@@ -279,11 +289,12 @@ The skill and law follow-ups can use it unchanged:
    Existing useful document paths and small owner notes need not be replaced.
 4. Current reference excludes delivery plans, rollout sequences, backlogs,
    exhaustive inventories and research. Planning lives in Linear; managed
-   execution stays in Concord. Research belongs under `.concord/docs/research/`
-   when it has a durable research result, not merely an expired plan.
-5. A structural change updates the affected reference in the same change.
-   Final review checks law consistency and routes lasting plan outputs to law,
-   current reference and glossary before delivery. When no update is needed,
+   execution stays in Concord. Research is kept as a research record under
+   `.concord/docs/` when it has a durable result, not merely an expired plan.
+5. A change that alters a documented boundary, flow or state authority updates
+   the affected reference in the same change. Final review checks law
+   consistency and routes each lasting plan output to law, current reference or
+   glossary, as its kind requires, before delivery. When no update is needed,
    the work record states why. Existing approval and publication duties remain.
 6. References are read on demand. Reading budgets guide editing, not acceptance
    or authority. Missing docs or registry never authorize invented Domain

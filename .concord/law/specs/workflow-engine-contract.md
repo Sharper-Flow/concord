@@ -164,9 +164,8 @@ the new type's missing required steps; it never removes a step.
 
 | From | To | Operation | Authority/fence |
 |---|---|---|---|
-| absent | `planned` | definition selected and capture/planning recorded | internal-inline |
-| `planned` | `ready` | contract, spec mandate, and definition approved | internal-inline |
-| `ready` | `running` | first action recorded | one expected-version-checked transaction |
+| absent | `intake` | capture records the actor tuple and opens the instance with no type and no plan | internal-inline |
+| `intake` | `running` | type picked and the plan written | one expected-version-checked transaction |
 | `running` | `running` | action checkpoint or successful action | one expected-version-checked transaction |
 | `running` | `blocked` | unresolved dependency discovered | internal-inline |
 | `running` | `verifying` | all execution steps are complete and verdict is requested | internal-inline |
@@ -174,8 +173,9 @@ the new type's missing required steps; it never removes a step.
 | `running`, `blocked`, `verifying` | `cancelled` | explicit authorized cancellation | one expected-version-checked transaction |
 
 An action failure records its typed failure result; it does not invent a state.
-Recoverable failures leave the instance in `running` or `blocked` according to the
-definition edge. A completed, cancelled, or superseded instance is immutable.
+Recoverable failures leave the instance in `running` or `blocked`. The states
+`planned` and `ready` remain in the closed enum for rows written before the
+step-plan cutover; no new transition produces them. A completed, cancelled, or superseded instance is immutable.
 Each action is one expected-version-checked, idempotent domain
 transaction with its operation result and effect receipts. There is no separate
 step claim, takeover or claim/settle protocol. Native authorities own external
@@ -403,12 +403,16 @@ Workflow state is current rows written by each mutation in one transaction, and 
 
 | Record | Current-row effect |
 |---|---|
-| definition selected | upsert the one instance definition pin; reject a change once an action has started |
-| contract recorded/updated | insert the immutable contract version and its definition pin; an ordinary update atomically makes the next version current under §4.1 |
+| intake recorded | insert the intake record row (its outcome and which of the fourteen checks found something) |
+| clarify recorded | insert the clarify record row resolving the open questions intake found |
+| type picked | write the item's step plan in one row update through the plan-write check (§2.3); the initial pick copies the type's template; a later pick adds the new type's missing required steps only |
+| step inserted | add the inserted step through the plan-write check; an existing step never changes |
+| step completed | append the step's attempt through the plan-write check; the frontier derives from completions, and no step pointer is stored |
+| contract recorded/updated | insert the immutable contract version; an ordinary update atomically makes the next version current under §4.1 |
 | candidate set revised | insert added candidates and delete only the named removed candidates for that contract; premise and outcome bytes are untouched |
 | backlog alignment recorded | insert the declaration row and, when the outcome is `related_found`, one row per named work id; the alignment action records the candidate set only and creates no relation, so work-to-work relation creation stays with `resolve_overlap`, capture's `raised_from` provenance, and the workflow `link_successor` action |
 | actor recorded | insert once; a different tuple for an existing `actor_ref` is refused |
-| action started/checkpointed/completed/failed | update current step/state/checkpoint timestamps and insert/update checkpoint rows; `record_decision` extracts its typed decision-record checkpoint into `workflow_decision_records`; a repeated idempotency key returns the stored result without a second effect |
+| action started/checkpointed/completed/failed | update instance state/checkpoint timestamps and insert/update checkpoint rows; `record_decision` extracts its typed decision-record checkpoint into `workflow_decision_records`; a repeated idempotency key returns the stored result without a second effect |
 | evidence bound | write to the existing evidence authority and make the binding visible to verification; it is not copied into a workflow-only authority |
 | verdict recorded | retain the verdict for the subject and expose it through the instance's verification view |
 | premise confirmed | insert operator confirmation |

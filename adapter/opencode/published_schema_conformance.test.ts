@@ -16,7 +16,6 @@ const adapter = await import("./concord")
 // below is taken on the raw compact document and on the final hooked
 // argument root, never on the expanded inspection view.
 const fixtures = JSON.parse(readFileSync(new URL("../../contracts/agent-tool-surface.fixtures.json", import.meta.url), "utf8")) as {
-  manifest_digest: string
   fixtures: { input_schema: string; input_valid: Record<string, unknown> }[]
 }
 

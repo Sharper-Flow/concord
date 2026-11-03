@@ -465,8 +465,8 @@ func openMaintenanceDirectory(path string) (*os.File, error) {
 }
 
 // dirIdentity reads a directory's device and inode, failing closed when the
-// platform stat data is unavailable: an identity that cannot be proven can
-// neither admit a lock nor authorize a removal.
+// platform stat data is unavailable: an identity that cannot be proven
+// cannot admit a lock.
 func dirIdentity(info os.FileInfo) (uint64, uint64, bool) {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {

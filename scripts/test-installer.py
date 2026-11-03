@@ -1272,6 +1272,61 @@ esac''',
                 self.fail("a symlinked data root was locked")
         self.assertIn("symlink", str(raised.exception))
 
+    def test_the_maintenance_lock_refuses_a_regular_file_data_root(self) -> None:
+        """A data root that is a regular file is refused with the typed
+        installer diagnostic (CON-868): the refusal names the path and the
+        reason instead of surfacing the raw FileExistsError the creation
+        raised, and no lock is taken."""
+        self.data_root.parent.mkdir(parents=True)
+        self.data_root.write_text("not a directory\n", encoding="utf-8")
+        with self.assertRaises(installer.InstallerError) as raised:
+            with installer.maintenance_lock(installer.paths_for(self.root)):
+                self.fail("a regular-file data root was locked")
+        self.assertIn("refusing data root", str(raised.exception))
+        self.assertIn("it is not a directory", str(raised.exception))
+
+    def test_the_maintenance_lock_refuses_a_symlink_with_a_missing_or_file_target(self) -> None:
+        """A data root that is a dangling symlink, or a symlink to a regular
+        file, is refused as a symlink (CON-868): Linux mkdir does not follow
+        a trailing symlink, so before the typed creation refusal both cases
+        surfaced as an untyped FileExistsError while the open's ELOOP branch
+        stayed unreachable for them."""
+        self.data_root.parent.mkdir(parents=True)
+        for label, target in (
+            ("a missing target", self.root / "unseen"),
+            ("a file target", self.root / "plain"),
+        ):
+            with self.subTest(target=label):
+                if label == "a file target":
+                    target.write_text("not a directory\n", encoding="utf-8")
+                self.data_root.symlink_to(target)
+                try:
+                    with self.assertRaises(installer.InstallerError) as raised:
+                        with installer.maintenance_lock(installer.paths_for(self.root)):
+                            self.fail(f"a data root symlink with {label} was locked")
+                finally:
+                    self.data_root.unlink()
+                self.assertIn("refusing symlinked data root", str(raised.exception))
+
+    def test_the_bootstrap_creates_every_missing_level_private(self) -> None:
+        """The bootstrap creation is private at every level it creates
+        (CON-868): the Go acquisition creates missing levels with
+        MkdirAll(dataRoot, 0o700) (internal/hostlease.AcquireMaintenance),
+        and the installer leaves the same permissions behind whatever the
+        umask is, instead of a umask-dependent makedirs mode."""
+        for umask in (0o022, 0o002):
+            with self.subTest(umask=oct(umask)):
+                home = self.root / f"nested-{oct(umask)[2:]}" / "home"
+                paths = installer.paths_for(home)
+                saved = os.umask(umask)
+                try:
+                    with installer.maintenance_lock(paths):
+                        for created in (home.parent, home, paths.data_home, paths.data_root):
+                            mode = os.stat(created).st_mode & 0o777
+                            self.assertEqual(mode, 0o700, f"{created} was created {mode:#o}")
+                finally:
+                    os.umask(saved)
+
     def test_the_maintenance_lock_is_released_when_the_holder_dies(self) -> None:
         """The lock dies with its holder: the kernel releases a flock when
         the open file description closes, so a killed command leaves the

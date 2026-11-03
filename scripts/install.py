@@ -590,6 +590,66 @@ def admission_lock(paths: Paths):
 # from turning the lock into a wait; the operator re-runs the command (CON-807).
 MAINTENANCE_ACQUIRE_ATTEMPTS = 3
 
+# Every level the bootstrap creates is private to the operator (CON-868): the
+# Go acquisition creates missing levels with MkdirAll(dataRoot, 0o700)
+# (internal/hostlease.AcquireMaintenance), and the two bootstraps must leave
+# the same permissions behind whatever the umask is.
+MAINTENANCE_ROOT_MODE = 0o700
+
+
+def _refuse_maintenance_root(path: Path, error: OSError) -> None:
+    """Turn a failed data-root creation into a typed refusal.
+
+    The path is read with lstat only, so naming the reason never follows a
+    planted symlink. A path that is a symlink refuses as one whatever its
+    target is (Linux mkdir does not follow a trailing symlink, so a dangling
+    or file target fails the creation with EEXIST); a path that is not a
+    directory refuses as that; anything else keeps the underlying reason.
+    """
+    try:
+        current = os.lstat(path)
+    except OSError:
+        current = None
+    if current is not None:
+        if stat.S_ISLNK(current.st_mode):
+            raise InstallerError(f"refusing symlinked data root {path}") from error
+        if not stat.S_ISDIR(current.st_mode):
+            raise InstallerError(f"refusing data root {path}: it is not a directory") from error
+    raise InstallerError(f"cannot create the data root {path}: {error.strerror or error}") from error
+
+
+def _create_maintenance_root(path: Path) -> None:
+    """Create the data root and its missing ancestors, each 0o700.
+
+    The Go acquisition creates every missing level with
+    MkdirAll(dataRoot, 0o700) (internal/hostlease.AcquireMaintenance); this
+    creation does the same one level at a time, so no umask can make the two
+    bootstraps disagree about what a first install leaves behind. A plain
+    mkdir is the whole durability story: the created root is retained
+    (obs:1ca149d633e69626), and a crash before it is durable only means the
+    next command recreates an empty root, so no fsync follows — the same as
+    the Go side. A level another participant created while this bootstrap
+    walked to it is kept, not re-created; anything but a directory is refused
+    typed before anything is opened or locked.
+    """
+    missing: list[Path] = []
+    current = path
+    while not current.exists():
+        missing.append(current)
+        current = current.parent
+    try:
+        for level in reversed(missing):
+            try:
+                os.mkdir(level, MAINTENANCE_ROOT_MODE)
+            except FileExistsError:
+                # Another participant created the level while this bootstrap
+                # walked to it; keep it, and let anything but a directory
+                # fail typed below.
+                if not level.is_dir():
+                    raise
+    except OSError as error:
+        _refuse_maintenance_root(path, error)
+
 
 def _acquire_maintenance_lock(path: Path) -> int:
     """Open and flock the data root directory, without waiting (CON-807).
@@ -597,7 +657,10 @@ def _acquire_maintenance_lock(path: Path) -> int:
     A first-install bootstrap locks the same way an established root does:
     the root is created before it is opened, so an absent root is never an
     unlocked window another command could recover a live transaction through.
-    The creation is a plain mkdir of the missing levels; what it created is
+    The creation is a plain mkdir of the missing levels at 0o700
+    (_create_maintenance_root), and an invalid path — a regular file, or a
+    symlink whose target is missing or a file — is refused there with a typed
+    diagnostic before anything is opened or locked. What the creation made is
     retained at release (obs:1ca149d633e69626), so no creation-attribution
     machinery follows it — attribution existed only to authorize deletion,
     and no path-based deletion is safe against a replacement holder.
@@ -614,7 +677,7 @@ def _acquire_maintenance_lock(path: Path) -> int:
     """
     for attempt in range(1, MAINTENANCE_ACQUIRE_ATTEMPTS + 1):
         last = attempt == MAINTENANCE_ACQUIRE_ATTEMPTS
-        os.makedirs(path, exist_ok=True)
+        _create_maintenance_root(path)
         try:
             descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         except OSError as error:

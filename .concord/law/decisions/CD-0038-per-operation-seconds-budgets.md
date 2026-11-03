@@ -134,7 +134,10 @@ bounded only by the operation's `limit` and `page` pagination inputs. The
 store keeps the canonical envelope cap, and workflow action field
 constraints keep their own `max_items` bound; neither is a caller budget.
 
-The conformance tests pin the published schema and the core decoder.
+The published contracts derive from the operation input structs, so no
+schema or decoder re-declares the retired fields; the generated-contract
+parity checks and the generic unknown-field admission refusals pin that
+surface.
 D3 defines the ceiling refusal shape with typed `supported_budget_seconds`
 and `adjust_budget` recovery.
 The manifest, generated contracts, adapter, corpus, and digests move together.

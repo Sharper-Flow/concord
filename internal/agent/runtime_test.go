@@ -291,23 +291,6 @@ func TestResultPayloadNeverSerializesUnsignedStoreCursor(t *testing.T) {
 	}
 }
 
-func TestBudgetObjectIsRetiredEverywhereOnTheSurface(t *testing.T) {
-	t.Parallel()
-	// CD-0038 amendment (2026-10-02): the result-size budget object is
-	// retired. Size is bounded by limit/page, time by requested_budget_seconds,
-	// so no result path consults a caller budget object and the seconds
-	// parser cannot resurrect one.
-	for _, op := range agentcontract.ContractOperations {
-		payload := []byte(`{"budget":{"max_bytes":65536,"max_items":1,"max_millis":1}}`)
-		if err := agentcontract.ValidateOperationPayload(op.Tool, op.Operation, payload, false); err == nil {
-			t.Fatalf("%s admitted the retired budget object", op.ID)
-		}
-		if err := agentcontract.ValidateOperationPayload(op.Tool, op.Operation, []byte(`{}`), false); err != nil && strings.Contains(err.Error(), "budget") {
-			t.Fatalf("%s refusal names the retired object: %v", op.ID, err)
-		}
-	}
-}
-
 // runtimeKnowledgeStore seeds one archived work note under a committed home,
 // the state the published-execution absence wire reads. The lesson-record
 // branch of this helper served the retired knowledge resolve family.

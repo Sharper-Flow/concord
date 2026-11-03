@@ -51,6 +51,7 @@ SKILL_REFERENCES = {
     "concord-architecture-writing": {
         "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
         "ownership": ".concord/law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
+        "relationship": ".concord/law/decisions/CD-0251-architecture-reference-is-not-product-law.md",
     },
     # Portable engineering methods (CD-0246 D1 and D3).
     "concord-instruction-writing": {

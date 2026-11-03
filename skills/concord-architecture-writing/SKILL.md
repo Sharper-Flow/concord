@@ -20,6 +20,9 @@ adopting Product's behavior. Read that Product's own accepted law for its rules.
 - [Domain ownership](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md):
   the registry alone owns Domain identity, hierarchy, and governed relations.
 - [Product knowledge placement](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0194-product-knowledge-lives-under-concord.md).
+- [Architecture reference is not Product law](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0251-architecture-reference-is-not-product-law.md):
+  the authority relationship this skill operates, including the final-review
+  routing of lasting plan outputs.
 
 The model's sourced research record is
 `.concord/docs/research/architecture-docs-model.md`.

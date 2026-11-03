@@ -37,12 +37,16 @@
 # store-shard, and conformance use full admission; the pre-push gates use smoke admission
 # through the preflight-gate tier, because they vet, build, lint, and compile
 # every package, which is heavy on a shared host when several worktrees push
-# at once. Each admitted gate rejoins the queue per gate, so a contended slot
-# lengthens a push by about one full queue wait per matched gate. The
-# preflight tier passes no admission class of its own: its gates admit
-# themselves, because one wrapper around the whole battery would hold the
-# shared admission slot, and every gate inside it would then wait on that
-# held slot. When `oc-test-gate` is missing, heavy tiers refuse;
+# at once. Each gate is its own smoke-lane admission. That lane is separate
+# from the heavy lane full-tier suites use, so full work does not block a
+# push's gates; only another smoke-class run contends, and inside a
+# synchronous tool call a gate waits up to the host's default 30 s
+# (`OC_WORKLOAD_GATE_SYNC_WAIT_MS`) for the lane before admission is refused
+# (exit 75). The preflight tier passes no admission class of its own: its
+# gates admit themselves, because one wrapper around the whole battery would
+# hold one admission lane for the entire run, and the host refuses a gate
+# nested inside a run that already holds a lane. When `oc-test-gate` is
+# missing, heavy tiers refuse;
 # preflight-gate instead runs its one gate natively with a warning, because
 # a normal push must not lose a gate on a host that has no admission route
 # to enter. The continuous-integration workflow does not use this wrapper; it
@@ -240,8 +244,8 @@ case "$tier" in
     # documented in CONTRIBUTING.md.
     # No admission here: every gate command in lefthook.yml admits itself
     # through the preflight-gate tier, because one wrapper around the whole
-    # battery would hold the shared admission slot, and every gate inside it
-    # would then wait on that held slot.
+    # battery would hold one admission lane for the entire run, and the host
+    # refuses a gate nested inside a run that already holds a lane.
     if command -v lefthook >/dev/null 2>&1; then
       run_tier preflight none lefthook run pre-push
     else

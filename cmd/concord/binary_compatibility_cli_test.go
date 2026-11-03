@@ -1,9 +1,7 @@
 package main
 
 import (
-	"context"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 

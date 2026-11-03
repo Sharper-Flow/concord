@@ -601,10 +601,13 @@ def _refuse_maintenance_root(path: Path, error: OSError) -> None:
     """Turn a failed data-root creation into a typed refusal.
 
     The path is read with lstat only, so naming the reason never follows a
-    planted symlink. A path that is a symlink refuses as one whatever its
-    target is (Linux mkdir does not follow a trailing symlink, so a dangling
-    or file target fails the creation with EEXIST); a path that is not a
-    directory refuses as that; anything else keeps the underlying reason.
+    planted symlink. A path that is a symlink refuses as one (Linux mkdir
+    does not follow a trailing symlink, so a dangling target fails the
+    creation with EEXIST; a symlink whose target exists never reaches the
+    creation and is refused by the open's ELOOP branch instead); a path
+    that is not a directory refuses as that; anything else keeps the
+    underlying reason and, when the failure named one, the entry the
+    kernel refused.
     """
     try:
         current = os.lstat(path)
@@ -615,7 +618,10 @@ def _refuse_maintenance_root(path: Path, error: OSError) -> None:
             raise InstallerError(f"refusing symlinked data root {path}") from error
         if not stat.S_ISDIR(current.st_mode):
             raise InstallerError(f"refusing data root {path}: it is not a directory") from error
-    raise InstallerError(f"cannot create the data root {path}: {error.strerror or error}") from error
+    reason = error.strerror or str(error)
+    if error.filename:
+        reason = f"{reason}: {error.filename}"
+    raise InstallerError(f"cannot create the data root {path}: {reason}") from error
 
 
 def _create_maintenance_root(path: Path) -> None:
@@ -629,8 +635,12 @@ def _create_maintenance_root(path: Path) -> None:
     (obs:1ca149d633e69626), and a crash before it is durable only means the
     next command recreates an empty root, so no fsync follows — the same as
     the Go side. A level another participant created while this bootstrap
-    walked to it is kept, not re-created; anything but a directory is refused
-    typed before anything is opened or locked.
+    walked to it is kept, not re-created. The creation refuses what it
+    touches: a path whose ancestor is not a directory, and a data root that
+    is a dangling symlink, whose creation fails EEXIST because a trailing
+    symlink is not followed. A data root that already exists as a
+    non-directory never reaches the creation — the open's ELOOP/ENOTDIR
+    refusals in _acquire_maintenance_lock name it.
     """
     missing: list[Path] = []
     current = path
@@ -658,9 +668,12 @@ def _acquire_maintenance_lock(path: Path) -> int:
     the root is created before it is opened, so an absent root is never an
     unlocked window another command could recover a live transaction through.
     The creation is a plain mkdir of the missing levels at 0o700
-    (_create_maintenance_root), and an invalid path — a regular file, or a
-    symlink whose target is missing or a file — is refused there with a typed
-    diagnostic before anything is opened or locked. What the creation made is
+    (_create_maintenance_root), and an invalid path is refused typed before
+    the lock is taken: a path the creation touches (a non-directory
+    ancestor, or a dangling symlink) by the creation itself, and a path that
+    already exists as a non-directory — a regular file, or a symlink to an
+    existing entry — by the open below, whose ELOOP/ENOTDIR branches are
+    exactly those cases and stay reachable. What the creation made is
     retained at release (obs:1ca149d633e69626), so no creation-attribution
     machinery follows it — attribution existed only to authorize deletion,
     and no path-based deletion is safe against a replacement holder.
@@ -683,7 +696,10 @@ def _acquire_maintenance_lock(path: Path) -> int:
         except OSError as error:
             if error.errno in (errno.ELOOP, errno.ENOTDIR):
                 # The open itself refused, without following the path; the
-                # lstat only names the reason for the operator.
+                # lstat only names the reason for the operator. These
+                # branches are the reachable refusal for a data root that
+                # already exists as a non-directory: a regular file
+                # (ENOTDIR) or a symlink to an existing entry (ELOOP).
                 if path.is_symlink():
                     raise InstallerError(f"refusing symlinked data root {path}") from error
                 raise InstallerError(f"refusing data root {path}: it is not a directory") from error

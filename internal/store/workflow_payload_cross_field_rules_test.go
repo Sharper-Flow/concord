@@ -448,7 +448,7 @@ func TestCrossFieldSampleObjectUnion(t *testing.T) {
 	for _, keyword := range []string{"oneOf", "anyOf"} {
 		for _, entry := range []string{"object", "value"} {
 			t.Run(keyword+"/"+entry, func(t *testing.T) {
-				node := mergeRefSiblings(defs, defs["worker_oracle_case"].(map[string]any))
+				node := mergeRefSiblings(defs, defs["lane_report_resolved_finding"].(map[string]any))
 				branches := node["oneOf"]
 				delete(node, "oneOf")
 				node[keyword] = branches
@@ -462,10 +462,10 @@ func TestCrossFieldSampleObjectUnion(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := payloadschema.Validate("worker_oracle_case", encoded); err != nil {
+				if err := payloadschema.Validate("lane_report_resolved_finding", encoded); err != nil {
 					t.Fatalf("sample lost enclosing or branch requirements: %v: %s", err, encoded)
 				}
-				for _, field := range []string{"case_id", "control_ids"} {
+				for _, field := range []string{"finding_id", "evidence_refs"} {
 					var mutant map[string]any
 					if err := json.Unmarshal(encoded, &mutant); err != nil {
 						t.Fatal(err)
@@ -475,7 +475,7 @@ func TestCrossFieldSampleObjectUnion(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					if err := payloadschema.Validate("worker_oracle_case", data); err == nil {
+					if err := payloadschema.Validate("lane_report_resolved_finding", data); err == nil {
 						t.Fatalf("sample without required %s was accepted: %s", field, data)
 					}
 				}
@@ -579,6 +579,8 @@ func crossFieldSampleValue(defs map[string]any, node map[string]any) any {
 			return "sha256:" + strings.Repeat("0", 64)
 		case strings.HasPrefix(pattern, "^msg:"):
 			return "msg:" + strings.Repeat("0", 32)
+		case strings.HasPrefix(pattern, "^finding:"):
+			return "finding:0:0"
 		case strings.HasPrefix(pattern, "^https://"):
 			return "https://example.test/pull/1"
 		case strings.Contains(pattern, "[0-9a-f]{40"):

@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:e655566ab72e664c1b5e0984c88f82a1131c8faeb52b519889a245a38a78cc89"
+const ManifestDigest = "sha256:b1c65ad683d2fb21e19e924d000403fa3525b2433049e7c9868bad6ca62247aa"
 
 type OperationKind string
 
@@ -225,8 +225,6 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_transition_project_handoff_consume_input":         {Required: []string{"work_id", "handoff_id", "idempotency_key"}, Properties: []string{"idempotency_key", "work_id", "handoff_id", "requested_budget_seconds"}},
 	"work_transition_project_handoff_record_input":          {Required: []string{"work_id", "target_project_id", "bounded_job", "next_action", "idempotency_key"}, Properties: []string{"idempotency_key", "work_id", "target_project_id", "bounded_job", "next_action", "changes", "verification", "artifact_refs", "blockers", "requested_budget_seconds"}},
 	"work_transition_remove_input":                          {Required: []string{"operation_id", "idempotency_key", "work_id", "expected_version", "reason", "actor", "handoff", "execution_relinquished", "writes_reconciled", "effects_reconciled", "dependencies_resolved", "artifacts_verified"}, Properties: []string{"operation_id", "idempotency_key", "work_id", "expected_version", "reason", "actor", "product_id", "handoff", "linear", "execution_relinquished", "writes_reconciled", "effects_reconciled", "dependencies_resolved", "artifacts_verified"}},
-	"worker_oracle_case":                                    {Required: []string{"case_id", "owner_id", "entry_point", "input_class", "expected_state"}, Properties: []string{"case_id", "owner_id", "entry_point", "input_class", "expected_state", "judge", "control_ids"}},
-	"worker_oracle_control":                                 {Required: []string{"control_id", "owner_id", "predicate_ids", "case_ids", "recipe_source", "argv", "cwd", "expected_result", "required_evidence_role", "readiness_evidence_refs"}, Properties: []string{"control_id", "owner_id", "predicate_ids", "case_ids", "recipe_source", "argv", "cwd", "expected_result", "required_evidence_role", "readiness_evidence_refs"}},
 	"worker_oracle_finding":                                 {Required: []string{"classification"}, Properties: []string{"classification", "owner_id", "failure_family", "predicate_ids", "law_bindings", "case_ids", "control_ids", "evidence_refs", "entry_point", "continues_finding_id", "variant_of"}},
 	"worker_oracle_law_binding":                             {Required: []string{"source", "clause"}, Properties: []string{"source", "clause"}},
 	"workflow_backlog_alignment":                            {Required: []string{"searched", "outcome", "related_ids"}, Properties: []string{"searched", "outcome", "related_ids"}},

@@ -27,7 +27,7 @@
       "target_id": "CD-0088"
     }
   ],
-  "product_wide_rationale": "Owns Concord development coordination and its separation from planning, repository review, merge, and predecessor evidence. CD-0213 amends planning and issue linkage. CD-0241 distinguishes eligible phase-local integration from main-branch review and merge evidence."
+  "product_wide_rationale": "Owns Concord development coordination and its separation from planning and repository review and merge evidence. CD-0213 amends planning and issue linkage. CD-0241 distinguishes eligible phase-local integration from main-branch review and merge evidence."
 }
 ---
 # CD-0089: Concord development coordination
@@ -40,20 +40,20 @@
   2026-08-30.
 - **Related:** CD-0007, CD-0010, CD-0082, CD-0088, issue #600, and pull request #605
 - **Preserves:** Linear as planning authority; pull requests and required
-  checks as main-branch review and merge authority; branch and worktree isolation; Product
-  law; replacement readiness as an evidence claim; and Advance as reference-only
+  checks as main-branch review and merge authority; branch and worktree isolation; and Product
+  law
 
 ## Context
 
-CD-0010 kept Concord's development on a GitHub-native path until replacement
-readiness. That boundary prevented Concord from using its own workflow, hid
-bootstrap defects from normal use, and kept development on a predecessor-style
-path after Concord became the active coordination system.
+CD-0010 kept Concord's development on a GitHub-native path during bootstrap.
+That boundary prevented Concord from using its own workflow, hid
+bootstrap defects from normal use, and kept development outside its own
+coordination system after Concord became the active coordination system.
 
 Issue #600 blocked client registration and typed Concord dispatch. Its release
 shipped through the GitHub path in pull request #605. That bootstrap exception
 has ended, so Concord can coordinate its own development without changing which
-surface owns planning, review, merge, or predecessor evidence.
+surface owns planning, review, or merge evidence.
 
 ## Decision
 
@@ -74,22 +74,16 @@ integration is not evidence of main-branch delivery, release publication, or
 installation. Concord records links to the applicable evidence but does not
 replace its authority. Branch and worktree isolation remain required.
 
-### D3. Replacement readiness does not gate development
+### D3. The readiness floor does not gate development
 
-Replacement readiness remains the evidence claim defined by the accepted floor
-and release evidence. It does not block Concord development, trigger migration,
+The first-usable floor and release-evidence bar remain evidence claims with
+their owning records. They do not block Concord development, trigger migration,
 or grant authority to a partial implementation.
-
-### D4. Advance remains reference-only
-
-Concord does not write Advance state or treat Advance runtime state as a second
-authority. Public Advance issues and pull requests remain reachable reference
-material for predecessor lessons.
 
 ## Supersession boundary
 
-Concord development requires branch and worktree isolation, Product-law
-compliance, and reference-only use of Advance. Main-branch review and merge
+Concord development requires branch and worktree isolation and Product-law
+compliance. Main-branch review and merge
 evidence is GitHub-native; CD-0241 defines eligible phase-local integration
 evidence. The default-checkout implementation firewall and CD-0088's
 bootstrap authority boundaries apply to self-development.
@@ -101,16 +95,15 @@ bootstrap authority boundaries apply to self-development.
 - Pull requests and required checks retain their authority for main-branch
   integration. CD-0241 defines eligible rapid-phase local integration evidence
   without waiving independent review.
-- Replacement-readiness claims remain separate from Concord's development route.
-- Advance remains a reference source with no Concord write path.
+- Readiness-floor claims remain separate from Concord's development route.
 
 ## Rejected alternatives
 
 **Replace Linear planning or GitHub merge authority with Concord.** Rejected
 because each fact retains its owning system under CD-0213.
 
-**Treat partial use as replacement readiness.** Rejected because readiness
-remains an evidence claim governed by the accepted floor and release evidence.
+**Treat partial use as readiness proof.** Rejected because readiness
+remains an evidence claim governed by its owning records.
 
 ## Verification
 
@@ -121,6 +114,4 @@ remains an evidence claim governed by the accepted floor and release evidence.
   checks. Eligible phase-local integration claims link to the local merge and
   recorded gate evidence required by CD-0241, with existing independent review
   preserved.
-- The existing readiness floor remains the source of replacement-readiness
-  evidence without blocking Concord development.
-- No Concord operation writes Advance state.
+- The readiness floor does not block Concord development.

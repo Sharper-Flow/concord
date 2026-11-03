@@ -54,8 +54,8 @@ own the influence boundary. This decision adds no write rule.
 
 ## Rejected alternatives
 
-**Cross-process or cross-installation conformance.** Closest to the
-predecessor's externally-isolated conformance, but for a permanently
+**Cross-process or cross-installation conformance.** Externally-isolated
+conformance, but for a permanently
 single-operator system the isolation is theater: the operator is root on both
 sides. It adds identity agreement between two authorities and is not
 authorized by any floor condition.

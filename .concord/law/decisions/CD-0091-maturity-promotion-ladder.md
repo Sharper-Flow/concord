@@ -18,9 +18,8 @@
   `audience_commitment` fields above their current rung; issue #639
 - **Approval:** The operator approved the finding and the decision contract in
   issue #639 on 2026-08-31.
-- **Related:** CD-0007, CD-0010, CD-0089, `priorities.md` First-usable floor,
-  `rollout-plan.md` §3 and §4, `product-data-model.md`, and
-  `floor-readiness.md`
+- **Related:** CD-0007, CD-0010, CD-0089, [`floor-readiness.md`](../../docs/floor-readiness.md),
+  `rollout-plan.md` §3 and §4, `product-data-model.md`
 - **Preserves:** The first-usable floor; the
   demand-driven correction model of `rollout-plan.md` §4; and the maturity and
   audience vocabulary of `product-data-model.md`

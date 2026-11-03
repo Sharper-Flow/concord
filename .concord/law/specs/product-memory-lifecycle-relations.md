@@ -38,7 +38,7 @@
 > **Decision:** PM4; direct accepted authority for Concord's Product-memory lifecycle and relation semantics.
 > **Binding inputs:** accepted PM1 query contract, PM2 global SQLite authority,
 > PM3 hybrid explicit-core schema, and CD-0002 invariants I1–I6.
-> **Research basis:** public predecessor lessons plus official/public
+> **Research basis:** official/public
 > models from Linear, Jira, Bugzilla, GitHub Issues, Plane, and Fossil. No benchmark
 > or PoC is part of this decision.
 > **Does not decide:** PM5 Project-membership roles/order, exact DDL/indexes, agent
@@ -84,7 +84,7 @@ typed directional relations between work items. Read-time properties such as
 state and relation graph—never independently mutable fields.
 
 This creates one explainable lifecycle/relation answer to PM1 Q2–Q5 and Q7–Q8
-without importing Advance's gate hierarchy into Product memory or allowing stored
+without importing a gate hierarchy into Product memory or allowing stored
 summary flags to drift from truth. Accepted PM5 now supplies Q6 membership identity.
 
 ## 2. Lifecycle

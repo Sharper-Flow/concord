@@ -76,11 +76,11 @@ from this contract. All candidates must pass the same corpus.
 
 The eight jobs below are grounded in the current Product model, ranked priorities,
 workflow visibility rules, state-model postmortem, durable-knowledge design, and
-PM/TS backlogs. The corpus deliberately merges overlapping Advance-style
+PM/TS backlogs. The corpus deliberately merges overlapping
 list/show/search reads into Product-memory jobs.
 
-Evidence is durable-document evidence, not a claim about current live ADV state:
-the session's ADV reads were role-firewalled. The postmortem, inventories, and
+Evidence is durable-document evidence, not a claim about any live system state:
+the observed reads were role-firewalled. The postmortem, inventories, and
 accepted Concord directions record real operator failures/jobs; operator acceptance
 of PM1 is the final check that no repeated Product-memory job is missing.
 
@@ -97,7 +97,7 @@ of PM1 is the final check that no repeated Product-memory job is missing.
 
 Rejected/deferred reads are listed in §6. The corpus remains small on purpose: a
 new canonical query requires a real unmet operator/agent job and a success oracle,
-not merely an existing Advance tool or convenient table.
+not merely an existing tool or convenient table.
 
 ## 3. Universal query contract
 
@@ -137,7 +137,7 @@ errors or explicitly degraded results.
 
 ### 3.4 Performance and boundedness
 
-- **Implementation acceptance target:** at 10× the measured ADV dataset, every
+- **Implementation acceptance target:** at 10× the measured coordination dataset, every
   bounded metadata query must meet **P99 ≤100 ms** locally.
 - Architecture decisions use PM1's jobs/oracles plus authoritative documentation
   and source-backed structural guarantees. The selected implementation must later

@@ -28,7 +28,7 @@
 
 ## Context
 
-The predecessor's validator layer accreted heuristic scanners — code-smell
+A validator layer can accrete heuristic scanners — code-smell
 detection, architectural-consistency inference, textual workflow guards — whose
 maintenance tax exceeded their invariant value. The defect is not any one tool;
 it is three properties arriving together:
@@ -127,7 +127,7 @@ qualifies under every D3 condition today, and pretending otherwise would lose a
 guard whose failure mode is an invisible hang.
 
 **Grow `check-store-boundary.py` behind better discipline.** Rejected: the
-discipline is what failed in the predecessor; the shape itself is the defect.
+discipline is what failed before; the shape itself is the defect.
 
 **Adopt a general linting framework for all invariants.** Rejected as
 overcorrection: a framework answers no specific invariant by itself and adds a

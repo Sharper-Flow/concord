@@ -27,8 +27,7 @@ CD-0086 kept episode as an optional external memory authority and gave
 Concord one promotion seam that targeted `spec` or `decision`. Shaping on
 2026-09-03 measured what that seam served.
 
-The episode store held 7 rows. Every row was a predecessor import with source
-`adv_wisdom`. The `global` namespace was empty. No row was manual and no row
+The episode store held 7 rows. Every row was an imported row. The `global` namespace was empty. No row was manual and no row
 was session-ingested. The cross-Product recall capability had never been used.
 
 Every durable learning already had an owner. A procedure belongs to host

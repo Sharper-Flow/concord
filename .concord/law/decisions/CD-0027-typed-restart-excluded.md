@@ -29,7 +29,7 @@ host session management owns working memory and subagent execution.
 **Deliberately excluded.** Restart-into-a-typed-lane will not be implemented,
 and `typed_availability.restart` stays closed at `unavailable`.
 
-The predecessor's restart existed to prevent silent loss of authority state —
+A restart mechanism would exist to prevent silent loss of authority state —
 law, approvals, workflow position, evidence — across a context boundary, by
 re-dispatching the agent with its context rather than handing the next
 generation a summary. Concord answers that problem structurally instead:

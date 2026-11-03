@@ -33,9 +33,9 @@ follows them without restating the ranked list.
   Product → Domain**. Open Concord → reach current Domain law and unresolved
   work overlap → drill into a Domain's current capabilities,
   requirements, scenarios, decisions, and deltas.
-- Public predecessor evidence proved the value of bounded spec list/show/search;
-  Concord redesigns that outcome as a Domain-bound, browsable surface rather than
-  calling or mirroring predecessor runtime state.
+- Bounded spec list/show/search proved their value;
+  Concord delivers that outcome as a Domain-bound, browsable surface rather than
+  calling or mirroring any external runtime state.
 - The primary operator surface follows [`../law/constitution/priorities.md`](../law/constitution/priorities.md).
   Any grid/table view is an optional projection.
 - Connects to [`specs-as-laws.md`](./specs-as-laws.md): the laws are **visible**,

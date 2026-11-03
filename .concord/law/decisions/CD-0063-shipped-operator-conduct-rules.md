@@ -103,11 +103,11 @@ CD-0246 D3; host-specific lane procedure stays host-owned under CD-0043 D1.
 
 Rules are written for this corpus in Concord's own voice. Existing host rule
 files are not admissible as source: they carry dated identifiers from private
-predecessor history, and they name tooling that will not exist for a consumer
+prior history, and they name tooling that will not exist for a consumer
 who installs Concord. Both are barred by the repository content rules.
 
 A rule enters the corpus only if it is true without reference to a tool, a
-machine, or a predecessor.
+machine, or a private prior system.
 
 ### D4. Conduct ships; repository law stays
 
@@ -194,7 +194,7 @@ reviewable in place. Rejected because copies drift from the installed version
 and reintroduce the per-project maintenance this decision removes.
 
 **Copy the operator's existing rule corpus.** Rejected under D3. It would import
-private predecessor history and host tool coupling into a public release.
+private prior history and host tool coupling into a public release.
 
 ## Verification
 

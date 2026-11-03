@@ -346,6 +346,9 @@ class TierRoutingTest(unittest.TestCase):
                 self.assertEqual(result.gate_class, "targeted")
                 self.assertEqual(len(result.calls), 1)
                 self.assertIn("named test execution not verified", result.stdout)
+                # Targeted admission passes through unqueued: it waits for no
+                # lane, so it never prints a WAIT-admission line.
+                self.assertNotIn("WAIT admission", result.stdout)
 
     def test_targeted_literal_fragments_preserve_argv_and_status(self):
         for pattern in ("Overlap", "Overlap|Sequenc", "TestOne"):
@@ -621,6 +624,8 @@ class TierRoutingTest(unittest.TestCase):
         self.assertEqual([call["command"] for call in result.calls], ["probe"])
         self.assertIn("oc-test-gate not found", result.stderr)
         self.assertIn("not admission-controlled", result.stderr)
+        # Nothing was admitted, so the run waits for no lane.
+        self.assertNotIn("WAIT admission", result.stdout)
 
     def test_preflight_gate_without_gate_still_blocks_the_push_on_failure(self):
         result = self.run_wrapper("preflight-gate", "--", "probe", with_gate=False,

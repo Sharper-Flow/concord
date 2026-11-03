@@ -34,7 +34,7 @@ Agents need separately supplied connected tools without making those tools
 Concord mechanisms. The host or Product supplies them, and availability varies
 with configuration. The host API and Concord's runtime dependencies are not
 outside tools under this decision. This decision closes clarification C8, the
-lgrep and vision lean that CD-0106 left open.
+open lgrep and vision lean.
 
 ## Decision
 

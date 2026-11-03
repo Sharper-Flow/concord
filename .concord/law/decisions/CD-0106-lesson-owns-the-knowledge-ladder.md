@@ -18,9 +18,8 @@
   lifetime
 - **Approval:** The operator approved the knowledge-ladder contract on
   2026-09-03 after shaping in Concord work-cec2c530525706b8574ce633.
-- **Related:** CD-0026, C8, and issue #771
-- **Preserves:** Concord authority for Product law and formalized knowledge;
-  the lgrep and vision lean under C8
+- **Related:** CD-0026 and issue #771
+- **Preserves:** Concord authority for Product law and formalized knowledge
 
 ## Context
 
@@ -87,8 +86,6 @@ freshness is never a stored property and no stored copy can age.
 
 ## Consequences
 
-- C8 does not move. lgrep and vision keep the product-scoping lean.
-- `vertical-integration.md` covers lgrep and vision only.
 - D4's no-vendor-content rule governs every lesson that cites vendor
   documentation.
 - No storage, schema, or event change follows from this record.
@@ -109,7 +106,5 @@ knowledge must outlive the work that found it.
 
 ## Verification
 
-- `vertical-integration.md` names lgrep and vision only and carries no
-  promotion receiving contract.
 - This record sits under `.concord/law/decisions/` on the default branch.
 - Repository document and link validators pass.

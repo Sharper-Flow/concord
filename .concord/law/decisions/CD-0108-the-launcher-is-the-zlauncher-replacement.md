@@ -3,9 +3,7 @@
   "id": "CD-0108",
   "title": "The ZLauncher replacement retired with the session entry route",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "operator-surface",
   "applies_to_domain_ids": []
@@ -63,7 +61,6 @@ surface.
 
 ## Consequences
 
-- `vertical-integration.md` cites this record for the interface direction.
 - No acceptance gate transfers to the host start or to managed
   entry.
 - Documents that restate the R1 split (`design-constraints.md` §6,
@@ -92,7 +89,7 @@ write authority beside the typed mutation surface.
 ## Verification
 
 - The manifest registers this record as an accepted decision.
-- `clarifications.md` R1 and `vertical-integration.md` cite this record.
+- `clarifications.md` R1 cites this record.
 - `go test ./cmd/concord/ -run
   'TestRemovedLaunchEntriesRefuseWithoutExecuting|TestRemovedLaunchArgvZeroDoesNotForward'`
   proves the removed entry verbs reach no launch and start no process.

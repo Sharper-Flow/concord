@@ -201,8 +201,8 @@ func testWorkflowReturnRoute(t *testing.T, id, family, verdictStep, effect strin
 			t.Fatalf("blocking Review delivery=%v", err)
 		}
 		err = j.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}, j.fixture.owner)
-		if !hasFailureKind(err, KindMissingEvidence) || !strings.Contains(err.Error(), "ready_for_final_proof") || j.effects(t) != before {
-			t.Fatalf("blocking Review completion=%v", err)
+		if !hasFailureKind(err, KindIllegalLifecycleTransition) || j.effects(t) != before {
+			t.Fatalf("off-step completion=%v", err)
 		}
 		if err := j.action(t, "request_correction", pReviewCorrectionPayload(t), j.fixture.owner); err != nil {
 			t.Fatal(err)

@@ -65,7 +65,7 @@ func workflowAdmitMandate(definition WorkflowDefinition, step string, state work
 	if actionID == "bind_evidence" {
 		return nil
 	}
-	terminalGate := actionID == "record_review" || actionID == "record_verdict" || actionID == "confirm_premise" || actionID == "complete"
+	terminalGate := actionID == "record_review" || actionID == "record_verdict" || actionID == "confirm_premise"
 	if !terminalGate {
 		mode, declared := workflowActionExecutionMode(definition, actionID)
 		if !declared || mode != ActionAdvance || !stepDeclaresAction(definition, step, "bind_evidence") {
@@ -101,9 +101,5 @@ func workflowAdmitMandate(definition WorkflowDefinition, step string, state work
 			recovery += "; otherwise use revise_intent with the complete contract"
 		}
 	}
-	kind := KindMissingEvidence
-	if actionID == "complete" {
-		kind = KindInvariantViolation
-	}
-	return newFailure(kind, subject, detail, false, recovery)
+	return newFailure(KindMissingEvidence, subject, detail, false, recovery)
 }

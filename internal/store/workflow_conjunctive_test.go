@@ -72,19 +72,16 @@ func TestPinnedConjunctiveContractCompletes(t *testing.T) {
 	}
 }
 
-// Missing proof refuses completion. A caller's outcome or comparability claim
-// is refused before it can become recorded criterion proof (CD-0242 D8/D9).
-func TestConjunctiveCompletionRefusesOnTheRecordedVerdict(t *testing.T) {
+// A caller's outcome or comparability claim cannot become recorded criterion proof.
+func TestConjunctiveVerdictRefusesCallerClaims(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name     string
 		verdicts []conjunctiveVerdict
 		want     FailureKind
-		clause   int
 	}{
-		{"missing absent verdict", conjunctiveVerdicts[:1], KindMissingEvidence, 4},
-		{"caller relocated absence claim", []conjunctiveVerdict{conjunctiveVerdicts[0], {"predicate:absent", "outcome_mismatch", "", false}}, KindInvalidPayload, 0},
-		{"caller comparability claim", []conjunctiveVerdict{conjunctiveVerdicts[0], {"predicate:absent", "ok", "", true}}, KindInvalidPayload, 0},
+		{"caller relocated absence claim", []conjunctiveVerdict{conjunctiveVerdicts[0], {"predicate:absent", "outcome_mismatch", "", false}}, KindInvalidPayload},
+		{"caller comparability claim", []conjunctiveVerdict{conjunctiveVerdicts[0], {"predicate:absent", "ok", "", true}}, KindInvalidPayload},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -94,10 +91,6 @@ func TestConjunctiveCompletionRefusesOnTheRecordedVerdict(t *testing.T) {
 			}
 			if !hasFailureKind(err, tc.want) {
 				t.Fatalf("criterion proof/completion = %v, want %s", err, tc.want)
-			}
-			var failure *Failure
-			if tc.clause != 0 && (!failureAs(err, &failure) || failure.Clause != tc.clause) {
-				t.Fatalf("completion refusal = %v, want clause %d", err, tc.clause)
 			}
 			var count int
 			if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id='conjunctive-work' AND kind=?`, WorkflowCompleted).Scan(&count); err != nil || count != 0 {

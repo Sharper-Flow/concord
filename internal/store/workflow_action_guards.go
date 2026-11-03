@@ -60,7 +60,6 @@ type workflowActionGuard struct {
 // consults this table at each phase point in its sequence.
 var workflowActionGuards = map[string]workflowActionGuard{
 	"request_correction":     {guardPhaseRecovery, guardRequestCorrectionRecovery},
-	"complete":               {guardPhaseBoundary, guardCompleteBoundary},
 	"record_verdict":         {guardPhaseBoundary, guardRecordVerdictArtifactFreshness},
 	"link_successor":         {guardPhasePostValidation, guardForwardLinkOnly},
 	"cross_context_boundary": {guardPhaseOperation, guardNoRestartDispatch},
@@ -305,10 +304,6 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 		return true, nil
 	}
 	return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence requires an outstanding contract evidence requirement or an unbound verification subject for an unverdicted active check", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
-}
-
-func guardCompleteBoundary(g *workflowActionGuardContext) error {
-	return workflowCompletionBoundaryPreflight(g.request.Payload)
 }
 
 // guardForwardLinkOnly rejects nested or non-forward workflow composition.

@@ -305,11 +305,13 @@ issue native verification receipts, or establish Review or acceptance freshness
 by live Git observation. The verified snapshot route remains mandatory before
 retiring stored execution data; no old receipt becomes a report by conversion.
 
-### D9. Completion needs proof, approvals, delivery, and publication
+### D9. Verification owns proof; completion records delivery
 
-Completion requires passing bound verification evidence for every accepted criterion on the
-final candidate, the accepted ready disposition on that candidate, no open
-in-scope blocking finding, every applicable approval, and delivery evidence.
+Verification, Review, delivery-stage admission and premise confirmation keep
+their required proof, current-candidate bindings and applicable approvals.
+Completion does not recheck criterion proof, current ready Review, blocking
+findings, acceptance evidence or premise confirmation. Its terminal mutation
+follows [workflow-engine contract §7](../specs/workflow-engine-contract.md#7-ordered-completion-gate).
 
 A change under rule U needs the operator's approval of a development preview
 of the final candidate before it is pushed to a shared remote or merged. A

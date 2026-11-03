@@ -23,7 +23,6 @@ import (
 // payload-shape rule (CON-412).
 var guardedActions = map[string]workflowActionGuardPhase{
 	"request_correction":     guardPhaseRecovery,
-	"complete":               guardPhaseBoundary,
 	"record_verdict":         guardPhaseBoundary,
 	"link_successor":         guardPhasePostValidation,
 	"cross_context_boundary": guardPhaseOperation,
@@ -102,7 +101,7 @@ func TestMandatedLawGuardNamesBindingRecoveryAndLeavesBindingAvailable(t *testin
 
 // Every builtin definition that declares bind_evidence must hold a contract
 // with an unbound spec mandate at its binding step: no advancing action may
-// leave that step, and no verdict, premise confirmation, or completion may run,
+// leave that step, and no verdict or premise confirmation may run,
 // until the mandate is bound. Once one evidence_bound event names the law, the
 // same actions pass the guard. The walk pins the guard to every shipped
 // definition rather than to one hand-built graph.
@@ -136,13 +135,13 @@ func TestMandatedContractGuardWalksEveryBuiltinDefinition(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			gated := []string{"record_verdict", "confirm_premise", "complete"}
+			gated := []string{"record_verdict", "confirm_premise"}
 			for _, actionID := range workflowStep(definition, bindingStep).Actions {
 				if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionAdvance {
 					gated = append(gated, actionID)
 				}
 			}
-			if len(gated) == 3 {
+			if len(gated) == 2 {
 				t.Fatalf("%s binding step %q declares no advancing action; the walk cannot prove the trap is closed", definition.Ref, bindingStep)
 			}
 			for _, actionID := range gated {

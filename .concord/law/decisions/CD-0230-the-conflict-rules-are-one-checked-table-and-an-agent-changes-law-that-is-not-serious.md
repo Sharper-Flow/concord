@@ -166,7 +166,7 @@ direction, UI/UX, production application data, security, increased spending,
 and legal obligations. Every applicable class counts. Decisions outside them
 belong to agents under CD-0243 D3.
 
-The UI/UX class includes approval of a development preview of the final candidate before it is pushed to a shared remote or merged ([CD-0242 D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)).
+The UI/UX class includes approval of a development preview of the final candidate before it is pushed to a shared remote or merged ([CD-0242 D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-verification-owns-proof-completion-records-delivery)).
 
 The agent asks the operator directly, with its recommendation and material
 risks. The release train engineer (RTE) coordinates dependencies; it does not decide operator choices.

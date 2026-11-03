@@ -115,14 +115,14 @@ Implementation and break-fix use only `exists`, `absent`, and `check`
 ([CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution)).
 
 An `outcome` token is never self-satisfying. The contract's `required_evidence` must
-name the artifact that makes the token true, and completion refuses until that
-evidence is bound. Research reports do not enact binding Product law.
+name the artifact that makes the token true, and premise confirmation refuses
+until that evidence is bound. Research reports do not enact binding Product law.
 
 Predicates are not nested. Strength comparison is mechanical for `exists`/`absent`
 (set-theoretic inclusion), trivial for `outcome` (membership in allowed set), and
 delegated to a registered `check` evaluator for behavioral checks. A `check` whose
-evaluator returns `incomparable_with_approved=true` causes completion to surface
-to the operator instead of passing (CD-0012 D4).
+evaluator returns `incomparable_with_approved=true` does not qualify as passing
+proof at verification (CD-0012 D4).
 
 The registry is closed. Adding a new predicate kind requires an accepted CD-NNNN.
 
@@ -164,7 +164,7 @@ The approved contract carries:
 - `spec_mandate` — exact spec IDs the change is authorized to modify
   (CD-0006 D10);
 - `outcome_kind` + `outcome_payload` — the CD-0012 outcome;
-- `required_evidence` — closed evidence kinds required at completion;
+- `required_evidence` — closed evidence kinds required at premise confirmation;
 - `route_conventions` — declared conventions that determine the operative verb
   (CD-0012 D8);
 - `rigor_class` — the maturity × audience composition from CD-0006 D4.
@@ -172,29 +172,24 @@ The approved contract carries:
 Modifications to specs outside the mandate route back to planning under CD-0006 D10;
 modifications to the outcome fail authorship fencing under CD-0012 D7.
 
-### D10. Completeness gate enforces CD-0012 D9
+### D10. Completion commits terminal state atomically
 
-A workflow reaches `terminal` only when:
-
-1. All required evidence is bound and verified.
-3. All `modifies` edges match their declared scope and the spec mandate is satisfied.
-4. Verdicts are recorded through the loop's review acceptance, with no distinct-actor requirement beyond it ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
-5. The premise is confirmed by an operator-typed actor.
-6. The contract, verdict, evidence, and terminal transition commit in one
-   transaction (PM4 invariant 7 extension).
-
-Each clause is a typed refusal at completion. Refusals reuse the existing TS7 closed
-error kinds wherever one already fits — `missing_evidence`, `unauthorized`,
-`invariant_violation`, `not_terminal`,
-`stale_requires_review`, `version_conflict` — each paired with the recovery action
-the envelope schema already requires for it.
+Completion records reported delivery links and commits terminal metadata and
+the lifecycle transition in one transaction (PM4 invariant 7 extension).
+The legal terminal action and state, active contract, expected version,
+authenticated actor, idempotency, atomic rollback and the law-change enactment
+check remain required under
+[workflow-engine contract §7](../specs/workflow-engine-contract.md#7-ordered-completion-gate).
+Completion does not re-evaluate evidence, candidate scope or mandates, criterion proof,
+verdicts, current Review, premise confirmation, staleness or commit drift.
+Their verification-stage obligations remain with their owning actions.
 
 CD-0012 D3 requires a *typed* outcome mismatch rather than a generic error. The
 closed error enum in `contracts/agent-tool-envelope.schema.json` carries
 `outcome_mismatch`, paired with recovery `contact_operator`, for proof or a
 delivery that answers a criterion the active contract does not approve. A weaker or
-incomparable delivery has no criterion proof and is refused as missing evidence
-(CD-0235 D2). D11 and TS8 govern changes to the current generated surface.
+incomparable delivery has no criterion proof at verification (CD-0235 D1).
+D11 and TS8 govern changes to the current generated surface.
 
 ### D11. Workflow actions use the current generated agent surface
 
@@ -218,9 +213,9 @@ earlier operator decision. The field describes the contract; operator approval
 remains conversational under CD-0243. Every workflow records a valid contract
 and premise confirmation.
 
-Contract updates, correction, verdicts, completion and
-acceptance records preserve evidence, version, source, scope, current-step, and
-recovery checks. Recovery follows CD-0243 D5: the operator may approve
+Contract updates, correction, verdicts and acceptance records preserve evidence,
+version, source, scope, current-step and recovery checks at their owning actions.
+Completion follows D10. Recovery follows CD-0243 D5: the operator may approve
 explained irreversible loss, and customer-data loss remains reserved.
 Contract updates grant no legislative authority or automatic overlap exemption.
 The ordinary update and its version-addressed provenance follow
@@ -235,7 +230,7 @@ acceptance deliverables pass. A UI/UX change requiring
 approval retains the operator's review and acceptance at the current contract
 version; contract approval alone does not satisfy that acceptance. Minor
 corrections introducing no new design or interaction need no fresh UI/UX
-approval. Completion requires current confirmation by that coordinator.
+approval.
 
 The shared admission derivation owns questions and next actions. Every reachable state retains an admitted, evidence-backed exit and terminal reachability. Review is a real prerequisite, not an assumed verdict. No hold loop or fabricated human actor satisfies liveness.
 
@@ -291,12 +286,11 @@ The implementation acceptance suite must exercise:
 ### Outcome contract (CD-0012 binding)
 
 1. Capture accepts a work item without a required end-state; planning records one
-   beside the spec mandate; completion verifies against the recorded approved
-   contract.
+   beside the spec mandate; verification uses the recorded approved contract.
 2. A change contract with no required end-state is refused at planning.
 3. A change contract whose required end-state already holds before execution is
    refused as vacuous.
-4. A weaker delivery is refused at completion.
+4. A weaker delivery gains no passing criterion proof at verification.
 5. A stronger delivery is accepted.
 6. An absence end-state is satisfied by removal; relocation is refused.
 7. Candidate-set revision records current rows in one transaction and leaves
@@ -316,9 +310,9 @@ The implementation acceptance suite must exercise:
 15. The lowest maturity × audience band still requires an approved contract; only
     proof depth differs.
 16. Research `no_change` satisfies the required end-state.
-18. Completion where all postconditions pass but the premise is unconfirmed does
-    not reach an accepted terminal state.
-19. Contract + verdict + evidence + terminal metadata commit in one transaction.
+18. Premise confirmation requires the recorded verdict and required evidence.
+19. Terminal metadata, lifecycle change, reported delivery links and the completion
+    record commit in one transaction.
 
 ### Current-state mutations (CD-0008 binding)
 
@@ -466,8 +460,7 @@ the pinned instance to its declared external-effect step. It does not return to
 `refine`, rewrite the contract, or alter a definition's generated source.
 Each correction keeps its scope and safety checks; native execution remains
 host-owned ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)).
-Completion
-stays fail-closed until the latest approved predicates are healthy.
+Correction creates no healthy verdict and bypasses no verification requirement.
 
 | Artifact | Change |
 |---|---|

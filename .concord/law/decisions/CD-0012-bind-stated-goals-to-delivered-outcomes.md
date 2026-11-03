@@ -18,7 +18,7 @@
 **Reviewer:** Independent review; three rounds, approved.
 **Scope:** The outcome contract carried by a work item, its revision authorities, the
 refusal of weakened deliveries, the handling of work discovered mid-execution, and the
-verification boundary at completion.
+verification boundary at acceptance.
 **Amends:** CD-0006 D5 and D10 by extending the approved-mandate pattern from specs
 authorized for modification to end-state required for delivery. Amends the value-statement
 invariant in [`workflows.md`](../../docs/workflows.md) §2.1 by giving it a binding counterpart.
@@ -62,9 +62,8 @@ detail that research must be free to revise, or licenses replacing the deliverab
 whenever the detail moves.
 
 Concord already holds most of the parts. CD-0006 D10 established the pattern: planning
-approves a **spec mandate** listing exactly which specs a change may modify, execution is
-bounded by it, and "completion verifies delivered changes match the approved mandate: no
-silent scope expansion or reduction." CD-0006 D5 places conflict resolution and scope
+approves a **spec mandate** listing exactly which specs a change may modify, and
+execution is bounded by it. CD-0006 D5 places conflict resolution and scope
 decisions at planning under human authority. CD-0006 R1 provides forward-linked successor
 work. CD-0215 D7 forbids automatic conversion of a research conclusion into a binding
 decision. [`specs-as-laws.md`](../../docs/specs-as-laws.md) forbids silent scope *contraction*
@@ -123,12 +122,11 @@ the same authority as CD-0006 D10's spec mandate. It is not a capture-time field
   R5 §5.3 documents.
 - At planning approval, the operator approves the required end-state together with the
   spec mandate. Both are recorded before execution begins, with provenance.
-- At completion, the delivered outcome is verified against the approved end-state, exactly
-  as D10 verifies delivered changes against the approved spec mandate.
+- At verification, the delivered outcome is evaluated against the approved end-state.
 
-This decision introduces **no additional agent tool identity**. Verification attaches to
-the existing lifecycle transition to `completed`; a separate outcome-verification or
-completion tool is a shape already rejected by
+This decision introduces **no additional agent tool identity**. Verification uses
+the existing workflow actions; a separate outcome-verification or completion
+tool is a shape already rejected by
 [`agent-mutation-tool-contract.md`](../specs/agent-mutation-tool-contract.md) §6, and the TS2
 nine-tool ceiling is unaffected.
 
@@ -136,7 +134,7 @@ That is a statement about tool *identity* only, and it does not establish a go-l
 compatibility promise. TS8 requires a named deterministic scenario, strict generated
 artifacts, and authority/consequence review for changed required fields, meaning,
 authority, consequence, outcome, error, or recovery discriminants. This decision
-changes the meaning of the completion transition and requires a typed outcome-mismatch
+requires a typed outcome-mismatch
 discriminant. The manifest and scenario changes are implementation-design work governed by
 [`agent-tool-surface-evolution.md`](../specs/agent-tool-surface-evolution.md) and must carry the
 evidence that document prescribes. This decision does not pre-empt that classification and
@@ -149,10 +147,10 @@ postcondition may only be strengthened, never weakened. Applied to work items, a
 whose end-state is weaker than the approved end-state **fails**; a delivery whose end-state
 is stronger passes.
 
-This gives verb dilution a structural refusal rather than a reviewer's opinion. Where the
-approved end-state asserts that named paths are absent, a delivery that relocates them
-under an archive is strictly weaker and is refused at completion, regardless of how well
-it is argued, documented, or tested.
+Review evaluates the delivered end-state against the approved criteria. Where
+the approved end-state asserts that named paths are absent, relocating them
+under an archive is strictly weaker and gains no passing criterion proof,
+regardless of how well it is argued, documented, or tested.
 
 The rule is established practice, not a Concord invention. Concord's contribution is
 applying it to work items rather than to routines.
@@ -241,7 +239,7 @@ Main dispatches Review, which inspects the accumulated solution and reports; Imp
 Where the delivery route relies on a pre-existing convention that determines the operative
 verb, the approved contract names that convention. Adopting an undeclared convention that
 weakens the verb is already refused by D3; D8 makes the reliance visible **before**
-execution rather than discovered at completion.
+execution rather than discovered at verification.
 
 This is deliberately the lightest of the eleven decisions. It adds a declaration, not a
 review step, and it is bounded to conventions that bear on the verb — not to every
@@ -257,7 +255,7 @@ not only that the postconditions passed.
 This is the anti-Goodhart clause, and it is load-bearing. R5 §5.4 establishes that a
 checkable proxy displaces the objective it stands for, and that this bites precisely here:
 "named paths are absent" is satisfiable by relocation. A design in which predicate
-satisfaction alone closes the item has rebuilt verb dilution one level up, at the predicate
+satisfaction alone establishes acceptance has rebuilt verb dilution one level up, at the predicate
 rather than the prose.
 
 ### D10. Proportional rigor scales the evidence depth, never the contract's existence
@@ -293,14 +291,13 @@ about recorded findings, not about a change being made.
 
 - *Intent fidelity* and *no silent drift* acquire a mechanism instead of remaining
   aspirational attributes.
-- Verb dilution becomes a typed refusal grounded in established contract practice, rather
-  than something a reviewer must notice.
+- Review judges verb dilution against the approved criteria.
 - A wrong candidate set stops being an identity crisis. Research can invalidate every
   instance without escalation, and without the premise being quietly discarded alongside.
 - Displacement becomes visible. A better target discovered mid-flight becomes linked work
   with its own record instead of an undocumented substitution.
 - The pattern is not new machinery. It is CD-0006 D10 applied to a second object, using
-  the same approval moment, the same authority, and the same completion check.
+  the same approval moment and the same authority.
 - No additional agent tool identity is required, and the capture payload is unchanged. This
   says nothing about surface compatibility; TS8 classification is deferred by D2 and a
   MAJOR bump is stated as a likely cost below.
@@ -345,14 +342,14 @@ follow the existing corpus conventions; this decision does not itself modify
 
 1. A work item is captured with no required end-state and is accepted at capture; the same
    item is approved at planning with its required end-state recorded alongside the CD-0006
-   D10 spec mandate; completion is then verified against the current recorded contract,
+   D10 spec mandate; verification then uses the current recorded contract,
    not an unrecorded assertion. An ordinary update retains prior version-addressed
    content without treating it as proof of changed criteria (D1, D2).
 2. A change contract approved with no required end-state is refused at approval (D4).
 3. A change contract whose required end-state already holds before execution is refused as
    vacuous (D4).
-4. A delivery asserting a weaker end-state than approved is refused at completion,
-   because Review records no passing proof for the weaker criterion (D3, CD-0235 D2).
+4. A delivery asserting a weaker end-state than approved gains no passing criterion
+   proof from Review (D3, CD-0235 D1).
 5. A delivery asserting a stronger end-state than approved is accepted (D3).
 6. An absence end-state over a named ground-truth surface is satisfied by removal and
    refused when the subject is relocated rather than removed (D3, D5).
@@ -381,10 +378,10 @@ follow the existing corpus conventions; this decision does not itself modify
     highest bands (D10).
 16. A research work item concluding `no change` satisfies its required end-state and
     completes (D11).
-18. Completion where all postconditions pass but the operator has not confirmed premise
-    satisfaction does not reach an accepted terminal state (D9).
-19. Contract and terminal metadata commit together; no observer sees an item terminal with
-    an unresolved outcome verdict (PM4 invariant 7).
+18. Premise confirmation requires qualifying verdict and evidence at its declared
+    acceptance step (D9).
+19. Terminal metadata, lifecycle change, reported delivery links and the completion
+    record commit together or not at all (PM4 invariant 7).
 
 ## Deferred to implementation design
 

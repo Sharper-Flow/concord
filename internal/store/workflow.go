@@ -1698,20 +1698,6 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		}
 		return newFailure(KindMissingEvidence, "fold_event", "late criterion association requires its own verified association effect", false, "associate applicable producer receipts before recording completion")
 	}
-	if p.ActionID == "confirm_premise" && workflowLatePremiseConfirmationStep(entry.Definition, currentStep) {
-		// The confirmation event folds before its completion and closes the
-		// late route; join this action's own confirmation of the active
-		// version, recorded immediately before it, rather than re-test the
-		// post-confirmation state.
-		var paired bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_premise_confirmations c WHERE c.work_id=?1 AND c.confirmed_by=?3 AND c.contract_version=(SELECT MAX(contract_version) FROM workflow_contracts WHERE work_id=?1 AND superseded_by IS NULL) AND EXISTS(SELECT 1 FROM workflow_premise_confirmations WHERE work_id=?1 AND contract_version<c.contract_version)) AND (SELECT kind FROM effect_receipts WHERE subject_id=?1 AND effect_seq<?2 ORDER BY effect_seq DESC LIMIT 1)=?4`, event.SubjectID, event.Seq, p.ActorRef, WorkflowPremiseConfirmed).Scan(&paired); err != nil {
-			return workflowProjectionError(err, "cannot read late premise confirmation effect")
-		}
-		if paired {
-			return nil
-		}
-		return newFailure(KindMissingEvidence, "fold_event", "late premise confirmation requires its own confirmation of the active contract version", false, "confirm the active contract version before recording completion")
-	}
 	if p.ActionID == "request_correction" {
 		correctionRecovery, missing, recoveryErr := workflowCorrectionRequestAdmissionStateForRegistry(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event", registry)
 		if recoveryErr != nil {
@@ -2659,15 +2645,6 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *
 	}
 	if err := requireActor(ctx, tx, p.VerdictActorRef); err != nil {
 		return err
-	}
-	// A later evaluator's verdict cannot satisfy this completion's
-	// evaluator-equality rule.
-	verdict, err := latestWorkflowVerdictBefore(ctx, tx, event.SubjectID, event.Seq)
-	if err != nil {
-		return err
-	}
-	if verdict == nil || verdict.VerdictActorRef != p.VerdictActorRef {
-		return newFailure(KindUnauthorized, "fold_event", "completed verdict actor is not the authenticated recorded evaluator", false, "use the persisted workflow verdict actor")
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err

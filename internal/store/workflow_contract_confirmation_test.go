@@ -1,21 +1,16 @@
 package store
 
 import (
-	"strings"
+	"encoding/json"
 	"testing"
 )
 
-// Confirmation binds to the current contract version. A changed premise needs
-// a new confirmation even when the criterion content and its proof are intact.
+// Confirmation binds to its contract version; completion does not re-confirm it.
 func TestContractRevisionInvalidatesPriorPremiseConfirmation(t *testing.T) {
 	t.Parallel()
 	const workID = "cd31-work"
 	f := qCurrentAcceptance(t, workID)
 	s := f.store
-	actor, err := WorkflowActorRef(f.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := f.run(t.Context(), "confirm_premise", "confirm-first", f.version(t.Context(), t), nil, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -33,10 +28,14 @@ func TestContractRevisionInvalidatesPriorPremiseConfirmation(t *testing.T) {
 	if step := currentStep(t, s, workID); step != "release" {
 		t.Fatalf("revision reset release to %s", step)
 	}
-	completion := workflowCompletedFixtureEvent("cd31-terminal", workID, actor, actor, readWorkVersion(t, s, workID))
-	err = CompleteWorkflow(t.Context(), s, completion)
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindMissingEvidence || failure.Clause != 5 || !strings.Contains(failure.Detail, "premise") {
-		t.Fatalf("completion after revision = %v, want the premise refusal at clause 5", err)
+	pin := issue1013Pin(t, s, workID)
+	if issue1013HasIntent(pin, "confirm_premise") || !issue1013HasIntent(pin, "complete") {
+		t.Fatal("terminal update advertised late confirmation or hid completion")
+	}
+	if err := f.run(t.Context(), "confirm_premise", "late-confirm", f.version(t.Context(), t), nil, nil); !hasFailureKind(err, KindIllegalLifecycleTransition) {
+		t.Fatalf("off-step confirmation = %v", err)
+	}
+	if err := f.run(t.Context(), "complete", "complete", f.version(t.Context(), t), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil); err != nil {
+		t.Fatalf("completion after ordinary revision = %v", err)
 	}
 }

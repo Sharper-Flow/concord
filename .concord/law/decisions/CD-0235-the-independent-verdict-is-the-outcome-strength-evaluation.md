@@ -23,7 +23,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-17
-- **Scope:** Who evaluates outcome strength, and what completion refuses on
+- **Scope:** Who evaluates outcome strength and records criterion proof
 - **Preserves:** CD-0012 D3's strengthen-only rule, D4's omission refusal,
   and D9's premise confirmation; CD-0013 D4's closed predicate union and
   outcome-token evidence rule; Review's report and Main's acceptance of the
@@ -38,8 +38,7 @@ trivial for `outcome`, and delegated to a registered evaluator for `check`.
 No delivered predicate is recorded:
 `workflow.verdict_recorded` carries the verdict kind and the incomparable flag
 (CD-0013 D3). No ground-truth surface registry or check catalog exists
-(CD-0013 deferred items 2 and 3). Completion refuses on the recorded verdict of
-an actor distinct from the executor (CD-0013 D10).
+(CD-0013 deferred items 2 and 3).
 
 ## Decision
 
@@ -47,9 +46,12 @@ an actor distinct from the executor (CD-0013 D10).
 
 Review inspects the accumulated solution, may commit corrective changes, verifies the corrected candidate, and reports one disposition, Main records its acceptance, and Implement cannot accept its own result ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
-### D2. Completion refuses on the recorded verdict
+### D2. Verification owns criterion proof
 
-Completion requires a passing receipt for every accepted criterion on the final candidate, the accepted ready disposition on that candidate, no open in-scope blocking finding, every applicable approval, and delivery evidence ([CD-0242 D9](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d9-completion-needs-proof-approvals-delivery-and-publication)).
+Verification and premise confirmation keep their requirements for passing bound
+reports, criterion proof and the current ready Review. Completion records
+reported delivery under [workflow-engine contract §7](../specs/workflow-engine-contract.md#7-ordered-completion-gate),
+without rechecking those acceptance requirements.
 
 ### D3. The review pass interprets surfaces and checks
 

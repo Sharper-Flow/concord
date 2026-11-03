@@ -119,7 +119,6 @@ CD-0006 D10 adds the **spec mandate** refinement:
   violations. This prevents the Advance failure mode where a change created to
   replace a spec blocks itself during execution.
 - Specs outside the mandate still enforce as laws.
-- Completion verifies delivered changes match the approved mandate.
 
 CD-0036 separates compatible amendment from breaking replacement:
 

@@ -31,7 +31,7 @@
   an accepted Review that no longer applies
 - **Related:** CD-0013, CD-0124, CD-0138, CD-0209, CD-0242
 - **Preserves:** Contract authority, native evidence, applicable approvals,
-  subject bindings and fail-closed completion
+  subject bindings and verification requirements
 
 ## Context
 
@@ -65,10 +65,9 @@ Correction ends only when the latest verdict set is healthy and comparable for
 every approved predicate. No attempt count, correction budget or escalation
 wall gates it.
 
-### D4. Keep completion fail-closed
+### D4. Correction preserves verification checks
 
-Completion refuses while any latest approved predicate is unhealthy or
-incomparable. Correction creates no healthy verdict and weakens no evidence,
+Correction creates no healthy verdict and weakens no evidence,
 predicate, subject or version check. A stale verdict cannot reopen correction.
 
 ## Alternatives considered
@@ -84,6 +83,6 @@ attempt or launcher recovery lifecycle.
 ## Verification
 
 - `go test ./internal/store` checks declared returns, bound evidence, current
-  verdicts, no-effect refusals and fail-closed completion.
+  verdicts and no-effect refusals.
 - Committed law-folder snapshot validation checks the record's identity and
   content digest.

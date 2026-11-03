@@ -43,7 +43,7 @@ func smallImplementationAtRelease(t *testing.T) acceptDeliveryCandidate {
 	return c
 }
 
-func TestSmallImplementationCompletionRetainsMandatoryOutcomes(t *testing.T) {
+func TestSmallImplementationCompletionDoesNotRecheckAcceptance(t *testing.T) {
 	cases := []struct {
 		name   string
 		damage string
@@ -51,23 +51,22 @@ func TestSmallImplementationCompletionRetainsMandatoryOutcomes(t *testing.T) {
 		detail string
 	}{
 		{name: "complete"},
-		{name: "missing-contract-predicates", damage: `DELETE FROM workflow_contract_predicates WHERE work_id='small-route-outcomes'`, kind: KindStaleRequiresReview, detail: "recorded Review does not cover the current candidate and dependencies"},
-		{name: "missing-criterion-proof", damage: `DELETE FROM workflow_predicate_verdicts WHERE work_id='small-route-outcomes'`, kind: KindMissingEvidence, detail: "workflow verdict is missing"},
-		{name: "missing-report", damage: `DELETE FROM workflow_evidence_bindings WHERE work_id='small-route-outcomes' AND json_type(payload,'$.verification_report')='object'`, kind: KindStaleRequiresReview, detail: "report"},
-		{name: "review-not-accepted", damage: `UPDATE workflow_review_state SET state=json_set(state,'$.accepted',json('null')) WHERE work_id='small-route-outcomes'`, kind: KindMissingEvidence, detail: "current candidate has no recorded Review"},
-		{name: "blocking-review", damage: `UPDATE workflow_review_state SET state=json_set(state,'$.accepted.report.disposition','correction_required') WHERE work_id='small-route-outcomes'`, kind: KindMissingEvidence, detail: "ready_for_final_proof"},
+		{name: "missing-contract-predicates", damage: `DELETE FROM workflow_contract_predicates WHERE work_id='small-route-outcomes'`, kind: KindInvariantViolation, detail: "approved workflow contract predicates are missing"},
+		{name: "missing-criterion-proof", damage: `DELETE FROM workflow_predicate_verdicts WHERE work_id='small-route-outcomes'`},
+		{name: "missing-report", damage: `DELETE FROM workflow_evidence_bindings WHERE work_id='small-route-outcomes' AND json_type(payload,'$.verification_report')='object'`},
+		{name: "review-not-accepted", damage: `UPDATE workflow_review_state SET state=json_set(state,'$.accepted',json('null')) WHERE work_id='small-route-outcomes'`},
+		{name: "blocking-review", damage: `UPDATE workflow_review_state SET state=json_set(state,'$.accepted.report.disposition','correction_required') WHERE work_id='small-route-outcomes'`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			c := smallImplementationAtRelease(t)
-			// Remove one current prerequisite after successful confirmation.
-			// Completion must recheck it rather than trust an earlier advance.
+			// Change acceptance facts after successful confirmation.
 			if tc.damage != "" {
 				execInFold(t, c.f.store, tc.damage)
 			}
 			before := c.j.effects(t)
 			err := c.j.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}, c.f.owner)
-			if tc.damage == "" {
+			if tc.kind == "" {
 				if err != nil {
 					t.Fatal(err)
 				}

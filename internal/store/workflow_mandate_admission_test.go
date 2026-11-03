@@ -195,7 +195,6 @@ DELETE FROM write_guard`, workID); err != nil {
 					{"record_review", "refine", "review", true},
 					{"record_delivery", "execution", "review", false},
 					{"record_verdict", "acceptance", "review", false},
-					{"complete", "release", "review", false},
 				} {
 					state := WorkflowAdmissionState{Step: test.step, Mandate: mandate}
 					decision := WorkflowAdmissionDecision{}
@@ -212,9 +211,6 @@ DELETE FROM write_guard`, workID); err != nil {
 					}
 					if test.localReview && !strings.Contains(decision.Failure.Detail, `"spec:one" is not bound`) {
 						t.Fatalf("future addition masked missing input: %v", decision.Failure)
-					}
-					if test.action == "complete" && decision.Failure.Kind != KindInvariantViolation {
-						t.Fatalf("completion lost final invariant: %v", decision.Failure)
 					}
 				}
 			}

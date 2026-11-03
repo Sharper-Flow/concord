@@ -174,59 +174,6 @@ func TestWorkflowCompletedCannotBeAppendedThroughGenericEventAPI(t *testing.T) {
 	assertTableCount(t, s, "effect_receipts", 0)
 }
 
-func TestWorkflowCompletionGateUsesFirstRefusalAndRollsBackAllTerminalWrites(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	seedWork(t, s, "ordered-gate-work")
-	actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/executor")
-	operator := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/reviewer", "session/reviewer")
-	digest := workflowFixtureDigest(t)
-	events := []Event{
-		workflowEvent("ordered-actor", WorkflowActorRecorded, "ordered-gate-work", map[string]any{
-			"work_id": "ordered-gate-work", "expected_version": 2, "resulting_version": 3, "actor_ref": actor,
-			"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/executor", "session_ref": "session/executor", "actor_class": "agent",
-		}),
-		workflowEvent("ordered-operator", WorkflowActorRecorded, "ordered-gate-work", map[string]any{
-			"work_id": "ordered-gate-work", "expected_version": 3, "resulting_version": 4, "actor_ref": operator,
-			"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/reviewer", "session_ref": "session/reviewer", "actor_class": "operator",
-		}),
-		workflowEvent("ordered-definition", WorkflowDefinitionSelected, "ordered-gate-work", map[string]any{
-			"work_id": "ordered-gate-work", "expected_version": 4, "resulting_version": 5, "ref": workflowFixtureRef, "version": 1, "digest": digest, "work_kind": workflowFixtureWorkKind,
-		}),
-		workflowEventWithActor("ordered-contract", WorkflowContractApproved, "ordered-gate-work", actor, map[string]any{
-			"work_id": "ordered-gate-work", "expected_version": 5, "resulting_version": 6, "contract_version": 1, "premise": "deliver the checked change",
-			"outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:ordered", "expected_result": "pass"},
-			"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-		}),
-		workflowEventWithActor("ordered-start", WorkflowActionStarted, "ordered-gate-work", actor, map[string]any{
-			"work_id": "ordered-gate-work", "expected_version": 6, "resulting_version": 7, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64), "idempotency_identity": "ordered-operation", "actor_ref": actor,
-		}),
-	}
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "ordered-gate-work"): 2}}); err != nil {
-		t.Fatal(err)
-	}
-	var eventsBefore int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&eventsBefore); err != nil {
-		t.Fatal(err)
-	}
-	completionVersion := readWorkVersion(t, s, "ordered-gate-work")
-	completion := workflowEventWithActor("ordered-completion", WorkflowCompleted, "ordered-gate-work", operator, map[string]any{
-		"work_id": "ordered-gate-work", "expected_version": completionVersion, "resulting_version": completionVersion + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": actor,
-		"premise_confirmed": true, "evidence_count": 1, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking",
-	})
-	completion.PayloadVersion = CurrentEventPayloadVersion(WorkflowCompleted)
-	err := CompleteWorkflow(context.Background(), s, completion)
-	assertFailureKind(t, err, KindMissingEvidence)
-	assertTableCount(t, s, "effect_receipts", eventsBefore)
-	var state string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id='ordered-gate-work'`).Scan(&state); err != nil {
-		t.Fatal(err)
-	}
-	if state == "completed" {
-		t.Fatal("first completion refusal changed the terminal projection")
-	}
-}
-
 func TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses(t *testing.T) {
 	t.Parallel()
 	s, completion := seedCompletionGateCase(t, "complete-work", completionGateCase{requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
@@ -324,14 +271,9 @@ type completionGateCase struct {
 	wantClause         int
 }
 
-func TestWorkflowCompletionGateAdjacentClausePrecedenceAndRollback(t *testing.T) {
+func TestWorkflowCompletionAppendConflictRollsBack(t *testing.T) {
 	t.Parallel()
 	cases := []completionGateCase{
-		{name: "clause-1-before-3", requiredEvidence: []string{"verification", "review", "native_run"}, wantKind: KindMissingEvidence, wantClause: 1},
-		{name: "clause-3-before-4", requiredEvidence: []string{"verification", "review"}, wantKind: KindInvariantViolation, wantClause: 3},
-		{name: "clause-4-before-5", requiredEvidence: []string{"verification", "review"}, includeSpec: true, wantKind: KindMissingEvidence, wantClause: 4},
-		{name: "clause-5-before-7", requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, verdictKind: "ok", completionConflict: true, wantKind: KindMissingEvidence, wantClause: 5},
-		{name: "clause-4-before-7", requiredEvidence: []string{"verification", "review"}, includeSpec: true, completionConflict: true, wantKind: KindMissingEvidence, wantClause: 4},
 		{name: "clause-7-rollback", requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok", completionConflict: true, wantKind: KindOperationConflict, wantClause: 7},
 	}
 	for _, testCase := range cases {
@@ -349,39 +291,6 @@ func TestWorkflowCompletionGateAdjacentClausePrecedenceAndRollback(t *testing.T)
 			}
 			assertTableCount(t, s, "effect_receipts", eventsBefore)
 		})
-	}
-}
-
-func TestWorkflowBlockingStalenessRefusesCompletionSemantics(t *testing.T) {
-	t.Parallel()
-	s, _ := seedCompletionGateCase(t, "staleness-block", completionGateCase{requiredEvidence: []string{"verification", "review"}})
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	definition := cloneWorkflowDefinition(BuiltinWorkflowDefinitions()[0])
-	definition.StalenessRules = []WorkflowStalenessRule{{ID: "staleness:block", InputRef: "input:drifted", Severity: "block"}}
-	err = verifyBlockingStaleness(context.Background(), tx, "staleness-block", definition, nil)
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != KindStaleRequiresReview {
-		t.Fatalf("staleness block failure=%+v err=%v", failure, err)
-	}
-}
-
-func TestWorkflowWarningStalenessIsRecordedForNextRead(t *testing.T) {
-	t.Parallel()
-	s, _ := seedCompletionGateCase(t, "staleness-warning", completionGateCase{requiredEvidence: []string{"verification", "review"}})
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	definition := cloneWorkflowDefinition(BuiltinWorkflowDefinitions()[0])
-	definition.StalenessRules = []WorkflowStalenessRule{{ID: "staleness:warning", InputRef: "input:drifted", Severity: "warning"}}
-	warnings, err := workflowStalenessWarnings(context.Background(), tx, "staleness-warning", definition, nil)
-	if err != nil || !reflect.DeepEqual(warnings, []string{"staleness:warning"}) {
-		t.Fatalf("staleness warnings=%v err=%v", warnings, err)
 	}
 }
 

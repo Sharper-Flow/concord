@@ -107,21 +107,6 @@ func workflowLateCriterionAssociationStep(definition WorkflowDefinition, stepID 
 		workflowUnhealthyVerdictRouteTarget(definition, stepID) != ""
 }
 
-// workflowLatePremiseConfirmationStep reports whether the step can host a late
-// premise confirmation: a terminal step that does not declare confirm_premise
-// in a workflow whose earlier step does.
-func workflowLatePremiseConfirmationStep(definition WorkflowDefinition, stepID string) bool {
-	if !slices.Contains(definition.StepGraph.TerminalSteps, stepID) || stepDeclaresAction(definition, stepID, "confirm_premise") {
-		return false
-	}
-	for _, candidate := range definition.StepGraph.Steps {
-		if slices.Contains(candidate.Actions, "confirm_premise") && workflowStepFollows(definition, candidate.ID, stepID) {
-			return true
-		}
-	}
-	return false
-}
-
 // workflowDeliveryGateCorrectionTarget resolves the corrective return a parked
 // CD-0166 delivery gate takes, through the route table: the gate serves the
 // verdict step its single forward edge delivers into, so the gate's return

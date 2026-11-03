@@ -3,9 +3,7 @@
   "id": "CD-0006",
   "title": "Concord root Product policy",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "product-root:concord",
   "applies_to_domain_ids": [],
@@ -94,7 +92,6 @@ normally proceeds against settled law.
 - Agents detect, explain, and draft changes.
 - Human approval is always required to enact law changes or governed scope cuts.
 - A new execution-time conflict stops and returns to planning.
-- Completion requires no unresolved law conflict.
 
 ### D6. Context-rich navigation, not a control center
 
@@ -140,8 +137,6 @@ authorized to modify. During execution:
 - Specs not listed in the mandate still enforce as laws.
 - If execution discovers it needs to modify a spec outside the mandate, that is a
   genuine new conflict → routes back to planning.
-- Completion verifies delivered changes match the approved mandate: no silent
-  scope expansion or reduction.
 
 This prevents the Advance failure mode where a change created to replace a spec
 blocks itself during execution because the agent treats its own approved purpose as

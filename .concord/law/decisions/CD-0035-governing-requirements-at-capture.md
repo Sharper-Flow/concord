@@ -3,9 +3,7 @@
   "id": "CD-0035",
   "title": "Governing requirements are scope-bound and refused at capture",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "agent-contract",
   "applies_to_domain_ids": [
@@ -45,8 +43,7 @@ That is the gap this record closes.
 **D1 — `options` is a typed-error affordance, not a general envelope field.**
 `TypedError` gains `options`: a bounded, unique list drawn from the closed
 vocabulary `clarify`, `amend_contract`, `accept_scope_cut`. The field is
-*permitted, never required*, so every existing `invariant_violation` emitter —
-notably the unsatisfied spec mandate at completion — is unchanged. A non-empty
+*permitted, never required*. A non-empty
 `options` couples structurally: the error kind must be `invariant_violation` and
 the recovery action must be `contact_operator`. Both Go validation and the
 canonical JSON schema carry the coupling, mirroring the existing
@@ -112,10 +109,9 @@ that were never populated and left agents parsing English prose to recover.
 Reintroducing it for the operator-choice surface would be a regression by
 precedent.
 
-**Extending the workflow-contract `spec_mandate` to capture.** Cheaper — the
-table and completion check already exist. Rejected because `spec_mandate`
-is planning-approved and completion-checked by construction (CD-0006 D10), and
-because capture usually carries no `workflow_type_ref` at all. Most captures
+**Extending the workflow-contract `spec_mandate` to capture.** Rejected because
+`spec_mandate` is planning-approved, and capture usually carries no
+`workflow_type_ref` at all. Most captures
 would bypass the gate entirely, which would make the floor claim read stronger
 than the mechanism actually is.
 

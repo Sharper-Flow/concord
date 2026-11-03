@@ -3,9 +3,7 @@
   "id": "CD-0015",
   "title": "Typed law relations and Git-derived workflow checks",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "product-memory",
   "applies_to_domain_ids": [
@@ -56,9 +54,6 @@ enters the operator-approved amendment path. At contract approval/planning,
 all mandated IDs must be currently accepted in the resolved Git home and an
 explicit conflict blocks unless the endpoint whose record declares it is in
 `law_modifies`.
-Before completion, the same bounded check runs without that exception. An
-amendment intent therefore permits planning only; completion requires a Git
-law delta that removes or resolves the conflict.
 
 Mandated bare law IDs resolve in the Product's designated knowledge home.
 A source-qualified `<project_id>/<law_id>` reference resolves only
@@ -72,8 +67,7 @@ dependency, law-authoring store write, or agent tool.
 
 - Git evidence and the law folder remain the sole law authority.
 - Existing workflow contracts remain readable.
-- Unknown or stale mandated laws fail closed at consequential workflow
-  boundaries.
+- Unknown mandated laws fail closed at contract approval and planning.
 - Relation changes are auditable through Git and its blob proofs.
 
 ## Implementation evidence

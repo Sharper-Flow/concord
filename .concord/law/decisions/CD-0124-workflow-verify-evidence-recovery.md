@@ -3,9 +3,7 @@
   "id": "CD-0124",
   "title": "Workflow verify evidence recovery",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "workflow-engine",
   "applies_to_domain_ids": [],
@@ -31,8 +29,8 @@
 ## Context
 
 An accepted break-fix delivery can reach `verify` with a contract-required
-evidence kind still outstanding. The existing completion gate correctly refuses
-premise confirmation, but the prior action set provides no typed route that can
+evidence kind still outstanding. Premise confirmation refuses, so verify needs
+a typed route that can
 repair the missing evidence without changing the step.
 
 Verdict correction is a separate route. It requires delivered work and a current

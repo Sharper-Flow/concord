@@ -146,25 +146,6 @@ func TestMandateRecoveryStaysWithPlainBindingOutsideTheContractAdditions(t *test
 	}
 }
 
-// The complete gate keeps its invariant kind while carrying the conditional
-// guidance and the ordinary contract update route.
-func TestMandateRecoveryCompleteGateKeepsTheInvariantKind(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	workID := "mandate-recovery-complete"
-	seedWork(t, s, workID)
-	seedWorkflowLaw(t, s)
-	seedMandateContract(t, s, workID)
-	seedReservedLawAddition(t, s, workID)
-	failure := wantMandateRefusal(t, mandateFixtureAdmission(context.Background(), s.db, workID, mandateRecoveryDefinition(), "repair", "complete"))
-	if failure.Kind != KindInvariantViolation {
-		t.Fatalf("kind=%q, want %q for a complete gate", failure.Kind, KindInvariantViolation)
-	}
-	if !strings.Contains(failure.RecoveryAction, "only when the branch adds") || !strings.Contains(failure.RecoveryAction, "otherwise use revise_intent with the complete contract") {
-		t.Fatalf("recovery=%q, want conditional guidance with the ordinary contract update route", failure.RecoveryAction)
-	}
-}
-
 // A helper query failure propagates instead of degrading into the
 // bind_evidence advice: an unavailable projection is not a binding
 // instruction.

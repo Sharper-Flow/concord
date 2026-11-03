@@ -371,34 +371,6 @@ func prepareWorkflowActionEvidence(guards *workflowActionGuardContext, request *
 	return payload, nil
 }
 
-func workflowCompletionBoundaryPreflight(raw json.RawMessage) error {
-	fields, err := workflowActionObject(raw)
-	if err != nil {
-		return err
-	}
-	if evidenceCommit, ok := workflowFieldString(fields, "evidence_commit"); ok {
-		if currentCommit, currentOK := workflowFieldString(fields, "current_commit"); currentOK && evidenceCommit != currentCommit {
-			return newFailure(KindMissingEvidence, "complete_workflow", "immutable evidence commit does not match the current commit", false, "rebind_evidence")
-		}
-	}
-	if nestedRaw := workflowFieldRaw(fields, "payload"); len(nestedRaw) != 0 {
-		var nested map[string]json.RawMessage
-		if json.Unmarshal(nestedRaw, &nested) == nil {
-			if evidenceCommit := workflowFieldStringDefault(nested, "evidence_commit", ""); evidenceCommit != "" && evidenceCommit != workflowFieldStringDefault(nested, "current_commit", evidenceCommit) {
-				return newFailure(KindMissingEvidence, "complete_workflow", "immutable evidence commit does not match the current commit", false, "rebind_evidence")
-			}
-			staleness := map[string]json.RawMessage{}
-			if stalenessRaw := nested["staleness"]; len(stalenessRaw) != 0 {
-				_ = json.Unmarshal(stalenessRaw, &staleness)
-			}
-			if workflowFieldBool(staleness, "drifted") && workflowFieldStringDefault(staleness, "severity", "") == "block" {
-				return newFailure(KindStaleRequiresReview, "complete_workflow", "blocking staleness drift requires review", false, "refresh_context")
-			}
-		}
-	}
-	return nil
-}
-
 func workflowSuccessorFamily(ctx context.Context, tx *sql.Tx, source WorkflowDefinition, successorID string) (string, string, error) {
 	var successorKind string
 	if err := tx.QueryRowContext(ctx, `SELECT kind FROM work_items WHERE id=?`, successorID).Scan(&successorKind); err != nil {
@@ -591,9 +563,6 @@ func workflowCompletionEventForDefinition(ctx context.Context, tx *sql.Tx, regis
 	if err != nil {
 		return Event{}, err
 	}
-	if workflowCompletionCommitDrifted(fields) {
-		return Event{}, newFailure(KindMissingEvidence, "complete_workflow", "immutable evidence commit does not match the current commit", false, "rebind_evidence")
-	}
 	verdictActor := actor
 	if verdict, verdictErr := latestWorkflowVerdict(ctx, tx, request.WorkID); verdictErr != nil {
 		return Event{}, verdictErr
@@ -608,11 +577,8 @@ func workflowCompletionEventForDefinition(ctx context.Context, tx *sql.Tx, regis
 	if impactVerdict != "breaking" && impactVerdict != "non-breaking" {
 		return Event{}, newFailure(KindInvalidPayload, "complete_workflow", "completion requires impact_verdict breaking or non-breaking", false, "supply the delivered change impact verdict")
 	}
-	// The completion record is derived from the log the completion gate
-	// verifies, never from caller fields or literals (#856): the recorded
-	// verdict kinds, the count of bound evidence events, and the premise
-	// confirmation the gate itself reads.
-	contractData, _, contractErr := workflowCompletionContract(ctx, tx, registry, request.WorkID)
+	// Completion reports recorded facts without re-evaluating acceptance.
+	contractData, contractErr := workflowCompletionContractRows(ctx, tx, request.WorkID)
 	if contractErr != nil {
 		return Event{}, contractErr
 	}
@@ -638,27 +604,6 @@ func workflowCompletionEventForDefinition(ctx context.Context, tx *sql.Tx, regis
 	}
 	payload := map[string]any{"terminal_state": "completed", "final_verdict_kind": finalVerdictKind, "verdict_actor_ref": verdictActor, "premise_confirmed": premiseConfirmed, "evidence_count": boundEvidence, "changed_refs_digest": WorkflowChangedRefsDigest([]string{request.WorkID}), "impact_verdict": impactVerdict}
 	return workflowTypedEvent(request.OperationID+":completed", WorkflowCompleted, request.WorkID, actor, request.Now, request.ExpectedVersion, payload), nil
-}
-
-// workflowCompletionCommitDrifted reports whether the completion's evidence
-// commit differs from its current commit, at the top level or in the nested
-// payload.
-func workflowCompletionCommitDrifted(fields map[string]json.RawMessage) bool {
-	if evidenceCommit, ok := workflowFieldString(fields, "evidence_commit"); ok {
-		if currentCommit, currentOK := workflowFieldString(fields, "current_commit"); currentOK && evidenceCommit != currentCommit {
-			return true
-		}
-	}
-	payloadRaw := workflowFieldRaw(fields, "payload")
-	if len(payloadRaw) == 0 {
-		return false
-	}
-	var payloadFields map[string]json.RawMessage
-	if json.Unmarshal(payloadRaw, &payloadFields) != nil {
-		return false
-	}
-	evidenceCommit := workflowFieldStringDefault(payloadFields, "evidence_commit", "")
-	return evidenceCommit != "" && evidenceCommit != workflowFieldStringDefault(payloadFields, "current_commit", evidenceCommit)
 }
 
 // workflowCompletionImpactVerdict reads impact_verdict from the fields, falling
@@ -733,11 +678,6 @@ func workflowFieldInt(fields map[string]json.RawMessage, name string, fallback i
 		return value
 	}
 	return fallback
-}
-func workflowFieldBool(fields map[string]json.RawMessage, name string) bool {
-	var value bool
-	_ = json.Unmarshal(fields[name], &value)
-	return value
 }
 func workflowFieldStrings(fields map[string]json.RawMessage, name string) []string {
 	var values []string

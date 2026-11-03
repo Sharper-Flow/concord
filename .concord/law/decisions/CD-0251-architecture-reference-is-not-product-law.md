@@ -46,20 +46,23 @@
 ## Context
 
 No law stated what a Product architecture document is or how it relates to
-law. Cross-Product observations motivated the investigation: a Product held
-architecture files mixing current state, target designs, delivery plans and
-inventories, keyed to no registry Domain; one overview stated a file-size
-"MUST" contradicting that Product's law; another kept a decision record
-outside its law folder. A reader who takes a document's normative claim as
-current law can act against accepted law. Separately, a plan's lasting
-decisions had no required destination: plans are stored in workflow step
-records, and step records need not outlive the item's delivered close.
+law. Planner reports across Products motivated the investigation: one
+Product was reported to hold architecture files mixing current state, target
+designs, delivery plans and inventories, keyed to no registry Domain; one
+overview was reported to state a file-size rule contradicting that Product's
+law; another to keep a decision record outside its law folder. The research
+report did not reproduce these reports, and they are not proof of current
+violations in those Products. A reader who takes a document's normative
+claim as current law can act against accepted law. Separately, a plan's
+lasting decisions had no required destination: plans are stored in workflow
+step records, and step records need not outlive the item's delivered close.
 
 The operator approved the lazy-reference model on CON-1669 after the merged
 research report. This record enacts that model's relationship rules. The
 authoring method — outlines, reading budgets, plan additions, glossary
-format — ships in the architecture-writing skill (CON-1670), which cites the
-same report rules, and is not restated here.
+format — belongs to the architecture-writing method tracked in CON-1670,
+which cites the same report rules; this record does not restate it and
+depends on no particular state of that follow-up.
 
 ## Decision
 
@@ -110,8 +113,8 @@ Current architecture reference excludes delivery plans, rollout sequences,
 backlogs, exhaustive inventories and research records. Planning lives in
 Linear (CD-0213); managed execution records live in Concord; research with a
 durable result stays a research record under `.concord/docs/` (CD-0194 D1),
-never merged into current reference. A target design is linked from the plan
-that proposes it, not described as delivered behavior.
+never merged into current reference. Reference links a target design in the
+plan that proposes it and does not describe it as delivered behavior.
 
 ### D5. Reference follows change, and lasting plan outputs reach their authorities before delivery
 
@@ -119,8 +122,9 @@ The owner of a change that alters a documented boundary, flow or state
 authority updates the affected reference in the same change, or the work
 record states why the description remains true.
 
-The final review of the delivering item routes each lasting output of its
-plan before delivery:
+The final review of the delivering item checks the changed claims of
+affected reference against code and law, and routes each lasting output of
+its plan before delivery:
 
 1. An obligation or governed boundary is enacted or amended through the
    existing law-change route (CD-0230 D4). A selection test cannot exempt a
@@ -129,7 +133,7 @@ plan before delivery:
    through the same route when all three hold: it is hard to reverse,
    surprising without context, and a real trade-off. Otherwise useful
    current explanation stays in reference and transient choices stay in the
-   work record.
+   work record. An existing decision is linked instead of duplicated.
 3. Changed delivered structure updates its canonical reference.
 4. Settled Product vocabulary updates the glossary, or links the law
    definition instead of redefining it.
@@ -178,16 +182,17 @@ A Product's law folder now answers how its architecture documents relate to
 law: reference explains and links; law and the registry decide. Changes that
 alter documented boundaries owe a same-change reference update, and final
 review owes each lasting plan output a destination. Existing useful document
-paths stay. The architecture-writing skill (CON-1670) carries the method and
-cites this record; no runtime behavior, storage surface or validator is
-added.
+paths stay. The architecture-writing method tracked in CON-1670 carries the
+authoring detail and cites this record; no runtime behavior, storage surface
+or validator is added.
 
 ## Verification
 
-- `python3 scripts/check-json.py`, which chains the validator suite
-  including `scripts/check-domain-registry.py` (law homing, applicability
-  and relation endpoints) and `scripts/check-doc-links.py`, proves this
-  record's frontmatter, relations and links on the changed tree.
+- `python3 scripts/check-domain-registry.py` proves this record's law homing,
+  applicability and relation endpoints on the changed tree.
+- `python3 scripts/check-json.py`, `python3 scripts/check-doc-links.py` and
+  `python3 scripts/check-durable-tier.py` prove corpus shape, link validity
+  and authority tier; required CI runs each as its own step.
 - Required CI on the pull request, and default-branch CI after merge, prove
   the law corpus still validates.
 - Independent exact-head review compares the enacted clauses against the

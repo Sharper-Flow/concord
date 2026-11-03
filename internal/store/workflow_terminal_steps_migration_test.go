@@ -46,10 +46,10 @@ func TestTerminalStepsRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	useStampedBuild(t)
 	db, path := terminalStepsMigrationFixture(t)
 	before := retirementUpgradeSnapshot(t, db)
+	retainedContracts := retainedWorkflowContractRows(t, db)
 	const instanceColumns = `SELECT work_id,definition_ref,definition_digest,current_step,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at,unhealthy_verdict_seq FROM workflow_instances ORDER BY work_id`
 	instances := retirementUpgradeRows(t, db, instanceColumns)
 	bindings := retirementUpgradeRows(t, db, `SELECT * FROM workflow_evidence_bindings WHERE binding_id='binding:ordinary'`)
-	lawGuard := retirementUpgradeRows(t, db, `SELECT sql FROM sqlite_schema WHERE name='workflow_law_baselines_completed'`)
 	if s, err := Open(t.Context(), path); err == nil {
 		s.Close()
 		t.Fatal("ordinary open crossed terminal step retirement")
@@ -72,10 +72,13 @@ func TestTerminalStepsRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	if _, err := Upgrade(t.Context(), path, nil); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"work_items", "workflow_delivery_state", "effect_receipts", "archived_work", "active_research_packs", "workflow_contracts", "workflow_law_baselines"} {
+	for _, table := range []string{"work_items", "workflow_delivery_state", "effect_receipts", "archived_work", "active_research_packs"} {
 		if after := retirementUpgradeRows(t, db, "SELECT * FROM "+table+" ORDER BY rowid"); !reflect.DeepEqual(before[table], after) {
 			t.Errorf("retirement changed surviving %s", table)
 		}
+	}
+	if got := retainedWorkflowContractRows(t, db); !reflect.DeepEqual(got, retainedContracts) {
+		t.Error("current contract facts changed")
 	}
 	for _, table := range []string{"workflow_step_epochs", "workflow_step_completions"} {
 		if after := retirementUpgradeRows(t, db, "SELECT work_id FROM "+table); !reflect.DeepEqual(after, [][]any{{"work-upgrade-to"}}) {
@@ -92,9 +95,6 @@ func TestTerminalStepsRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	}
 	if after := retirementUpgradeRows(t, db, `SELECT * FROM workflow_evidence_bindings`); !reflect.DeepEqual(after, bindings) {
 		t.Errorf("evidence binding retirement changed ordinary bindings: before=%v after=%v", bindings, after)
-	}
-	if after := retirementUpgradeRows(t, db, `SELECT sql FROM sqlite_schema WHERE name='workflow_law_baselines_completed'`); !reflect.DeepEqual(after, lawGuard) || len(after) != 1 {
-		t.Errorf("instance rebuild changed the surviving law-attribution guard: before=%v after=%v", lawGuard, after)
 	}
 	if guards := retirementUpgradeRows(t, db, `SELECT * FROM write_guard`); len(guards) != 0 {
 		t.Errorf("upgrade left write guards=%v", guards)

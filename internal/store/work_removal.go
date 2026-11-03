@@ -507,7 +507,7 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 			return newFailure(KindInvalidRelation, "work_removal", "Linear confirmation names a different Product", false, "confirm the configured Product destination")
 		}
 	}
-	return requireReleasedWorkflowLawEnactmentQ(ctx, q, req.WorkID)
+	return nil
 }
 
 func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -565,9 +565,6 @@ func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 }
 
 func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) error {
-	if err := requireReleasedWorkflowLawEnactmentQ(ctx, tx, workID); err != nil {
-		return err
-	}
 	// This order follows the FK graph. The table names are closed source-owned
 	// identifiers, not caller input. Shared Product, Project, actor, and law
 	// rows have no work-item ownership predicate and remain untouched.
@@ -579,11 +576,6 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 	// foreign key, so removing either end must clear the row first.
 	if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_backlog_alignment WHERE work_id=? OR related_work_id=?`, workID, workID); err != nil {
 		return projectionDeleteFailure("workflow_backlog_alignment", err)
-	}
-	for _, table := range []string{"workflow_law_baselines"} {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE work_id=?`, workID); err != nil { //nolint:gosec // closed source-owned table list.
-			return projectionDeleteFailure(table, err)
-		}
 	}
 	tables := []string{"workflow_candidate_sets", "workflow_contract_predicates", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_edges", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "external_observations", "relations", "work_projects", "linear_issue_links"}
 	for _, table := range tables {

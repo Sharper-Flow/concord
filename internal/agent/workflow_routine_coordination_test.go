@@ -123,7 +123,6 @@ func routineCoordinationDriveWorkflow(t *testing.T, s *store.Store, workID strin
 	binding := workflowArchitectureBindingForSeededRegistry(t, s)
 	binding["domain_modifies"] = []string{binding["home_domain_id"].(string)}
 	fields["architecture_binding"] = binding
-	fields["law_change_reason"] = "The bounded repair changes the declared Domain."
 	fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "absent", "outcome_payload": map[string]any{
 		"kind": "absent", "surface": "behavior:defect", "subjects": []string{workID}, "distinguish_from": []string{"disabled"},
 	}}}

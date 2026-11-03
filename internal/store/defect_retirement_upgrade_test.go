@@ -31,6 +31,7 @@ func TestDefectRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	db, path := defectRetirementFixture(t)
 	before := retirementUpgradeSnapshot(t, db)
 	retainedBindings := retirementUpgradeRows(t, db, `SELECT work_id,contract_version,product_id,home_domain_id,projection_hash FROM workflow_architecture_bindings ORDER BY rowid`)
+	retainedContracts := retainedWorkflowContractRows(t, db)
 	if s, err := Open(t.Context(), path); err == nil {
 		s.Close()
 		t.Fatal("ordinary open crossed the breaking retirement")
@@ -63,7 +64,7 @@ func TestDefectRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	}
 	for table, want := range before {
 		switch table {
-		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations":
+		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "workflow_law_baselines":
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' AND name=?`, table); len(rows) != 0 {
 				t.Errorf("retired table %s survives: %v", table, rows)
 			}
@@ -72,6 +73,11 @@ func TestDefectRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 			continue
 		case "workflow_architecture_bindings":
 			want = retainedBindings
+		case "workflow_contracts":
+			if got := retainedWorkflowContractRows(t, db); !reflect.DeepEqual(got, retainedContracts) {
+				t.Error("current contract facts changed")
+			}
+			continue
 		}
 		if got := retirementUpgradeRows(t, db, `SELECT * FROM "`+table+`" ORDER BY rowid`); !reflect.DeepEqual(got, want) {
 			t.Errorf("unrelated table %s changed", table)
@@ -300,6 +306,7 @@ func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 	}
 	before := retirementUpgradeSnapshot(t, db)
 	retainedBindings := retirementUpgradeRows(t, db, `SELECT work_id,contract_version,product_id,home_domain_id,projection_hash FROM workflow_architecture_bindings ORDER BY rowid`)
+	retainedContracts := retainedWorkflowContractRows(t, db)
 	if _, err := Upgrade(t.Context(), path, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +329,7 @@ func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 	}
 	for table, expected := range before {
 		switch table {
-		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations":
+		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "workflow_law_baselines":
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' AND name=?`, table); len(rows) != 0 {
 				t.Errorf("retired table %s survives: %v", table, rows)
 			}
@@ -336,6 +343,11 @@ func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 			continue
 		case "workflow_architecture_bindings":
 			expected = retainedBindings
+		case "workflow_contracts":
+			if got := retainedWorkflowContractRows(t, db); !reflect.DeepEqual(got, retainedContracts) {
+				t.Error("current contract facts changed")
+			}
+			continue
 		}
 		if got := retirementUpgradeRows(t, db, `SELECT * FROM "`+table+`" ORDER BY rowid`); !reflect.DeepEqual(got, expected) {
 			t.Errorf("unrelated table %s changed", table)

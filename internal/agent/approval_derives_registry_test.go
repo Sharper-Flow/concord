@@ -140,10 +140,7 @@ func TestProductChangingApprovalDerivesTheRegistryWithoutAPriorRead(t *testing.T
 		"law_additions":            []any{},
 		"verification_obligations": []any{},
 	}
-	// Owning-start source verification and the pre-contract actions derive
-	// their own law inventory. Schema 174 retired the SQL Domain projection,
-	// so the approval runs with no stored registry by construction: it must
-	// derive everything from the committed home again.
+	// Approval derives the registry from the committed home, not a stored projection.
 	resp, _ := approvedWorkflowContract(t, s, service, env, version, fields, "derived-registry-approval-no-read")
 	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract with no stored registry present: %+v", resp.Error)

@@ -155,14 +155,6 @@ func firstCallActionInput(t *testing.T, defs map[string]any, workID string, vers
 			for key, value := range overrides {
 				fields[key] = value
 			}
-			// The binding fixtures declare a law addition. Supply its
-			// bounded reason and P12 declarations so each mutant reaches
-			// the guard it is intended to exercise.
-			if binding, ok := fields["architecture_binding"].(map[string]any); ok {
-				if additions, ok := binding["law_additions"].([]map[string]any); ok && len(additions) > 0 {
-					fields[workflowLawChangeReasonField] = "Add the law for the bounded contract."
-				}
-			}
 			input[name] = fields
 			continue
 		}
@@ -566,7 +558,6 @@ func TestFirstCallContractUpdateAdmitsFromPublishedInput(t *testing.T) {
 		for key, value := range overrides {
 			fields[key] = value
 		}
-		fields[workflowLawChangeReasonField] = "Add the law for the bounded contract."
 		input["work_id"], input["expected_version"], input["contract"] = workID, readWorkVersion(t, s, workID), fields
 		input["kind"] = workKind
 		if mutate != nil {

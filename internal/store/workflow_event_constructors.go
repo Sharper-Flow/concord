@@ -113,7 +113,7 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 	}
 	contract["required_evidence"] = required
 	approvalEvent := workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, contract)
-	approvalEvent.PayloadVersion = workflowContractLawChangePayloadVersion
+	approvalEvent.PayloadVersion = workflowContractPayloadVersion
 	return []Event{approvalEvent}, nil
 }
 
@@ -230,13 +230,6 @@ func workflowBoundContractContent(ctx context.Context, tx *sql.Tx, definition Wo
 	}
 	if decisionDomains != nil {
 		contract["decision_domains"] = decisionDomains
-	}
-	lawChange, lawChangeErr := deriveWorkflowLawChangeTx(ctx, tx, definition, workID, fields, lawModifies, productBinding(productChanging, binding))
-	if lawChangeErr != nil {
-		return nil, lawChangeErr
-	}
-	if lawChange != nil {
-		contract["law_change"] = lawChange
 	}
 	contract["law_boundary_version"] = 1
 	return contract, nil

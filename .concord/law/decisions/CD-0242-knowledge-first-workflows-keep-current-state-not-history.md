@@ -345,9 +345,10 @@ one, and its reason.
 
 Workflow contracts store no law or registry freshness pins, and continuity
 reports no compatible-amendment hash pairs. Current readable law context and
-same-operation snapshot consistency remain required, as do exact law-enactment
-baselines and attribution. Those proofs do not impose blanket invalidation
-since contract approval.
+same-operation snapshot consistency remain required. Concord retains no
+owning-start law inventory, enactment before-state or per-item law attribution.
+Law publication and review follow CD-0222 D1; a contract does not retain a
+law-change payload or a separate authoring reason or removal list.
 
 ### D11. A fresh session resumes from current state
 

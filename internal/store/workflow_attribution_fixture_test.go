@@ -3,7 +3,6 @@ package store
 import (
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"testing"
 )
 
@@ -54,70 +53,24 @@ func terminalCleanupSQL(t *testing.T, s *Store, queries ...string) {
 	}
 }
 
-func lawCleanupProducer(t *testing.T, s *Store, enacting bool) {
+func lawUpgradeSnapshot(t *testing.T, s *Store) map[string][]string {
 	t.Helper()
-	laws := []string{}
-	if enacting {
-		laws = []string{"law-peer"}
-	}
-	attributionItem(t, s, "cleanup-producer", laws, []string{})
-	if enacting {
-		editLawChangeLaw(t, s, "law-peer")
-	}
-	if err := CompleteWorkflow(t.Context(), s, attributionCompletion(t, s, "cleanup-producer")); err != nil {
-		t.Fatalf("complete the producer: %v", err)
-	}
-	var proofs int
-	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_law_baselines WHERE work_id='cleanup-producer' AND enactment_json IS NOT NULL`).Scan(&proofs); err != nil || (proofs == 1) != enacting {
-		t.Fatalf("material enactment count=%d, enacting=%t: %v", proofs, enacting, err)
-	}
-}
-
-func lawCleanupStore(t *testing.T) *Store {
-	t.Helper()
-	s := seedLawChangeFixture(t, "inventory-seed")
-	seedLawChangeLaw(t, s, "law-peer", "derived", "agent-surface")
-	return s
-}
-
-func requireLawCleanupJoin(t *testing.T, s *Store, want int) {
-	t.Helper()
-	var count int
-	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_law_baselines b JOIN effect_receipts r ON r.effect_seq=b.enactment_effect_seq JOIN workflow_instances i ON i.work_id=b.work_id JOIN work_items w ON w.id=b.work_id WHERE b.work_id='cleanup-producer' AND r.kind='workflow.completed' AND r.subject_type='work_item' AND r.subject_id=b.work_id AND i.instance_state='completed' AND w.lifecycle='completed'`).Scan(&count); err != nil || count != want {
-		t.Fatalf("attribution join count=%d, want %d: %v", count, want, err)
-	}
-}
-
-func requireLawCleanupAttribution(t *testing.T, s *Store) {
-	t.Helper()
-	if err := s.Transact(t.Context(), func(tx *Transaction) error {
-		var start, enacted string
-		var seq int64
-		if err := tx.tx.QueryRow(`SELECT baseline_json,start_effect_seq FROM workflow_law_baselines WHERE work_id='cleanup-consumer'`).Scan(&start, &seq); err != nil {
-			return err
-		}
-		if err := tx.tx.QueryRow(`SELECT enactment_json FROM workflow_law_baselines WHERE work_id='cleanup-producer'`).Scan(&enacted); err != nil {
-			return err
-		}
-		var cursor workflowLawBaseline
-		var proof workflowLawEnactment
-		if err := json.Unmarshal([]byte(start), &cursor); err != nil {
-			return err
-		}
-		if err := json.Unmarshal([]byte(enacted), &proof); err != nil {
-			return err
-		}
-		if reflect.DeepEqual(cursor, proof.After) {
-			return fmt.Errorf("consumer already has the enacted inventory without attribution")
-		}
-		if err := applyCompletedWorkflowLawEnactmentsTx(t.Context(), tx.tx, "cleanup-consumer", seq, &cursor); err != nil {
-			return err
-		}
-		if !reflect.DeepEqual(cursor, proof.After) {
-			return fmt.Errorf("retained completion did not advance the consumer to its enacted inventory")
-		}
-		return nil
-	}); err != nil {
+	rows, err := s.db.Query(`SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name<>'schema_migrations' ORDER BY name`)
+	if err != nil {
 		t.Fatal(err)
 	}
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		tables = append(tables, name)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sixClassSnapshot(t, s.db, tables...)
 }

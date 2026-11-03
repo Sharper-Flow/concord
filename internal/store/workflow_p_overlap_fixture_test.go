@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 )
@@ -27,8 +26,6 @@ func pOverlapContractFacts(t *testing.T, s *Store, event Event) Event {
 				contract["decision_domains"] = mustJSONValue([]string{})
 			}
 		}
-		// The ordinary update derives law-change facts in its fold. Its closed
-		// input accepts declarations, not caller-supplied derived facts.
 		fields["contract"] = mustJSONValue(contract)
 		event.Payload = mustJSONValue(fields)
 		event.PayloadVersion = CurrentEventPayloadVersion(event.Kind)
@@ -38,36 +35,7 @@ func pOverlapContractFacts(t *testing.T, s *Store, event Event) Event {
 	if err := json.Unmarshal(event.Payload, &fields); err != nil {
 		t.Fatal(err)
 	}
-	contract := fields
-	var modifies []string
-	var binding *WorkflowArchitectureBinding
-	if err := json.Unmarshal(contract["law_modifies"], &modifies); err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(contract["architecture_binding"], &binding); err != nil {
-		t.Fatal(err)
-	}
-	declarations := map[string]json.RawMessage{}
-	if workflowContractChangesLaw(modifies, binding) {
-		declarations = lawChangeFields(t, map[string]any{
-			"law_change_reason": "exercise the declared overlap footprint",
-		})
-	}
-	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), event.SubjectID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	change, err := deriveWorkflowLawChangeTx(ctx, s.DatabaseForTesting(), definition, event.SubjectID, declarations, modifies, binding)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if change != nil {
-		if change.Serious {
-			t.Fatal("overlap fixture unexpectedly requires exact-text operator consent")
-		}
-		contract["law_change"] = mustJSONValue(change)
-	}
-	event.PayloadVersion = workflowContractLawChangePayloadVersion
+	event.PayloadVersion = workflowContractPayloadVersion
 	event.Payload = mustJSONValue(fields)
 	return event
 }

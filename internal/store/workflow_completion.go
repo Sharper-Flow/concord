@@ -138,9 +138,6 @@ func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, registry Definit
 	if err := appendWorkflowCompletionTx(ctx, tx, event, scope, payload, warnings); err != nil {
 		return err
 	}
-	if contract.LawBoundaryVersion == 1 {
-		return recordWorkflowLawEnactmentTx(ctx, tx, event, contract.LawChange)
-	}
 	return nil
 }
 
@@ -163,15 +160,74 @@ func verifyWorkflowCompletionEvidenceAndScopeTx(ctx context.Context, tx *sql.Tx,
 		if mandateErr != nil {
 			return workflowClauseError(mandateErr, 3)
 		}
-		mandated, modified := workflowLawsWithoutRemovals(mandated, contract.LawModifies, contract.LawChange)
-		if err := checkMandatedLawsTx(ctx, tx, workID, mandated, modified, false); err != nil {
+		mandated, modified, err := currentCompletionLawReferences(ctx, tx, workID, mandated, contract.LawModifies)
+		if err != nil {
 			return workflowClauseError(err, 3)
 		}
-		if err := checkWorkflowLawChangeEnactmentTx(ctx, tx, workID, contract.LawChange, contract.ArchitectureBinding); err != nil {
+		if err := checkMandatedLawsTx(ctx, tx, workID, mandated, modified, false); err != nil {
 			return workflowClauseError(err, 3)
 		}
 	}
 	return nil
+}
+
+// Completion omits only absent laws the active contract declares modified.
+// Resolve against verified current sources; a failed verification is not absence.
+func currentCompletionLawReferences(ctx context.Context, tx *sql.Tx, workID string, mandated, modified []string) ([]string, []string, error) {
+	if len(mandated) > 32 || len(modified) > 32 {
+		return nil, nil, newFailure(KindInvalidPayload, "check_mandated_laws", "law mandate exceeds the bounded list size", false, "supply at most 32 law IDs")
+	}
+	if err := validateLawModificationSubset(mandated, modified); err != nil {
+		return nil, nil, err
+	}
+	if len(modified) == 0 {
+		return mandated, modified, nil
+	}
+	projectID, locatorID, err := workflowLawHome(ctx, tx, workID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := requireKnowledgeSourceSetProof(ctx, tx, projectID, locatorID); err != nil {
+		return nil, nil, err
+	}
+	home := KnowledgeHome{HomeProjectID: projectID, HomeLocatorID: locatorID}
+	productID, err := resolveKnowledgeSourceRole(ctx, tx, home)
+	if err != nil {
+		return nil, nil, err
+	}
+	var sources []KnowledgeHome
+	if productID != "" {
+		sources, err = verifiedKnowledgeSourceSet(ctx, tx, productID)
+	} else {
+		sources, err = qualifiedMandateSources(ctx, tx, projectID, locatorID, modified)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, reference := range modified {
+		project, _, qualified, err := parseQualifiedKnowledgeID("check_mandated_laws", reference)
+		if err != nil {
+			return nil, nil, err
+		}
+		if qualified && !slices.ContainsFunc(sources, func(source KnowledgeHome) bool { return source.HomeProjectID == project }) {
+			return nil, nil, mandatedLawProjectionFailure(ctx, tx, sources, []string{reference})
+		}
+	}
+	// The home check revalidates the proof under its original source-set identity.
+	// Require even an empty snapshot before treating a reference as absent.
+	for _, source := range sources {
+		if _, err := lawSnapshotForSource(ctx, source, "check_mandated_laws"); err != nil {
+			return nil, nil, err
+		}
+	}
+	_, missing, err := resolveLawReferences(ctx, "check_mandated_laws", sources, modified)
+	if err != nil {
+		return nil, nil, err
+	}
+	retained := func(references []string) []string {
+		return slices.DeleteFunc(slices.Clone(references), func(reference string) bool { return slices.Contains(missing, reference) })
+	}
+	return retained(mandated), retained(modified), nil
 }
 
 func verifyWorkflowCompletionVerdictsTx(ctx context.Context, tx *sql.Tx, workID string, contract workflowCompletionContractData) error {
@@ -300,7 +356,6 @@ type workflowCompletionContractData struct {
 	OutcomePayload          string
 	ArchitectureBinding     *WorkflowArchitectureBinding
 	VerificationObligations []WorkflowVerificationObligation
-	LawChange               *WorkflowLawChange
 }
 
 // workflowPremiseConfirmationAuthority verifies the recorded coordinator.
@@ -373,8 +428,8 @@ func workflowCompletionContractRows(ctx context.Context, tx queryer, workID stri
 		}
 		return result, activeErr
 	}
-	var decisionDomains, lawChange sql.NullString
-	if err := tx.QueryRowContext(ctx, `SELECT required_evidence,spec_mandate,law_modifies,law_boundary_version,decision_domains,law_change FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, result.Version).Scan(&required, &mandates, &modifies, &result.LawBoundaryVersion, &decisionDomains, &lawChange); err != nil {
+	var decisionDomains sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT required_evidence,spec_mandate,law_modifies,law_boundary_version,decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, result.Version).Scan(&required, &mandates, &modifies, &result.LawBoundaryVersion, &decisionDomains); err != nil {
 		if err == sql.ErrNoRows {
 			return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract is missing or ambiguous", false, "reread_entities")
 		}
@@ -396,12 +451,6 @@ func workflowCompletionContractRows(ctx context.Context, tx queryer, workID stri
 		return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract decision domains are malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	result.DecisionDomainsPresent, result.DecisionDomains = domainsPresent, domains
-	if lawChange.Valid {
-		result.LawChange = &WorkflowLawChange{}
-		if err := json.Unmarshal([]byte(lawChange.String), result.LawChange); err != nil {
-			return result, newFailure(KindInvariantViolation, "complete_workflow", "approved workflow contract law change is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
-		}
-	}
 	result.OutcomeKind = result.Predicates[0].OutcomeKind
 	result.OutcomePayload = result.Predicates[0].OutcomePayload
 	var bindingErr error

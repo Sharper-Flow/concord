@@ -92,7 +92,9 @@ Product-changing work has two valid law outcomes:
   conforms to it; or
 - it carries the mandate required under
   [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
-  D4 and publishes the accepted law delta before completion.
+  D4 and publishes the accepted law delta before completion. Independent review
+  and the committed law folder prove publication, including additions and
+  removals, and whether the delivered delta matches the declared change.
 
 Shipping behavior with neither outcome is invalid even when tests and Git
 checks pass.
@@ -324,9 +326,9 @@ textual merge, passing tests, or a model's semantic-confidence score cannot
 satisfy this boundary.
 
 CD-0036 governs amendment, replacement and Git reconciliation. Current-law
-reads retain readable context and same-operation snapshot consistency. Exact
-enactment baselines and attribution remain proof of the item's delivered delta,
-not approval provenance or contract freshness checks.
+reads retain readable context and same-operation snapshot consistency. Concord
+keeps no per-item enactment baseline or attribution proof; D1's review and Git
+publication duties remain.
 
 ### D8. Business grouping lives in Linear
 

@@ -155,7 +155,7 @@ func evidenceCorpusForWork(t *testing.T, work string) historicalFactCorpus {
 	c.parents = func(t *testing.T, s *Store, guard string) {
 		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates", "durable_operations"}, map[string]map[string]string{
 			"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "current_step": "'verify'", "completion_payload": "NULL", "completion_occurred_at": "NULL", "unhealthy_verdict_seq": "0", "result_disposition": "''", "latest_non_dispatch_start_seq": "0"},
-			"workflow_contracts": {"definition_version": "26", "supersession_seq": "0", "last_healthy_seq": "0"},
+			"workflow_contracts": {"definition_version": "26", "supersession_seq": "0", "last_healthy_seq": "0", "law_change": "NULL"},
 			"durable_operations": {"workflow_type_version": "26", "resume_cursor": "NULL"},
 		}, guard)
 		if _, err := s.db.Exec(`INSERT INTO ` + guard + ` VALUES(1);
@@ -317,24 +317,7 @@ func assertEvidenceSupersession142(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := historicalFactCorpus{parents: func(t *testing.T, s *Store, guard string) {
-		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "result_disposition": "''", "latest_non_dispatch_start_seq": "0"}, "workflow_contracts": {"definition_version": "26"}}, guard)
-		if guard == "write_guard" {
-			// This current corpus starts without a law home. Capture that
-			// explicit state before its first effect; historical prefixes
-			// retain their absent baseline through migration.
-			if err := s.Transact(t.Context(), func(tx *Transaction) error {
-				scope, err := beginWrite(t.Context(), tx.tx)
-				if err != nil {
-					return err
-				}
-				if err := initializeWorkflowLawBaselineTx(t.Context(), tx.tx, work); err != nil {
-					return err
-				}
-				return scope.close(t.Context())
-			}); err != nil {
-				t.Fatal(err)
-			}
-		}
+		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "result_disposition": "''", "latest_non_dispatch_start_seq": "0"}, "workflow_contracts": {"definition_version": "26", "law_change": "NULL"}}, guard)
 	}}
 	e := corpusEvent("supersession-corpus:successor", WorkflowContractSuperseded, work, map[string]any{
 		"work_id": work, "expected_version": version, "resulting_version": version + 1,

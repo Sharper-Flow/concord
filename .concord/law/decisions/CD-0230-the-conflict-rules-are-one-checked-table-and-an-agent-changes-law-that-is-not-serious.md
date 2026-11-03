@@ -146,6 +146,11 @@ A law revision enacted without the operator's
 approval gives the record the `derived` tier, whatever tier it held before,
 including a default tier from the closed D5 cohort.
 
+Independent review checks the reason in the work record and pull request, the
+authored authority tier, and the published law delta. Concord completion runs
+no law-attribution or enactment gate and stores no law-change reason, removal
+list or before-state. These duties do not depend on a separate contract payload.
+
 A governed scope cut is not a law change. It follows D5 and CD-0243 D3's
 Concord deletion exemption, and is never silent. Within assigned work on
 Concord, retiring Concord's own law, unwanted mechanisms and systems, and tests
@@ -207,13 +212,13 @@ Current tool refusals still follow their admitted recovery routes until aligned.
 
 ## Verification
 
-Complete rule enforcement is not implemented. R3, P12 and A2 row 3 reuse the managed-workflow law-change checks.
-`internal/store.TestLawChangeAgentOwnedReasonAndTier` proves a reason and
-derived-tier enactment.
-`internal/agent.TestWorkflowUnclassifiedLawChangeAdmission` checks admission
-through public dispatch. These controls do not infer the
-consequence class or judge a reason's substance; review owns those judgments.
-They do not detect code that contradicts current law without a law edit;
+Complete rule enforcement is not implemented. R3, P12 and A2 row 3 use D4's
+recorded reason, authored tier and independent review. The store does not
+verify their enactment at completion.
+`internal/agent.TestWorkflowUnclassifiedLawChangeAdmission` proves current
+law-modification admission through public dispatch, not publication or the
+substance of a reason. Review owns the consequence-class and reason judgments.
+That admission check does not detect code that contradicts current law without a law edit;
 review and goal A's spot checks own that detection.
 They do not establish D4 enforcement on the ad-hoc development route or
 whole-record runtime alignment under CD-0243 D6.
@@ -338,6 +343,8 @@ CD-0243 replaces seriousness, Domain count, crucial size, and unclassified
 approval points as independent consent triggers. Neither replacement makes
 an unproved retained rule satisfied or permits bypassing a current gate.
 
-- `go test ./internal/store` must prove an agent-enacted law revision records
-  the `derived` tier and a declared law removal is absent from the verified
-  inventory.
+- `internal/store.TestRetiredMandateModifiedAbsenceCompletes` proves completion
+  admits verified absence of a declared modification without a separate removal
+  carrier. It does not prove who deleted the law, whether a declared revision
+  became a deletion, or whether the published tier is correct; D4's review owns
+  those judgments.

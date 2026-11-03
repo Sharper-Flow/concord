@@ -144,8 +144,8 @@ installer journals file operations so interrupted transactions recover cleanly
 without overwriting operator edits.
 
 The [installer tests](scripts/test-installer.py) check recovery after process
-death at each journal phase during install, upgrade, and uninstall:
-`test_install_process_death_at_every_phase_recovers`,
+death at each journal phase from staging through cleanup during install,
+upgrade, and uninstall: `test_install_process_death_at_every_phase_recovers`,
 `test_upgrade_process_death_at_every_phase_recovers_old_or_new_coherently`, and
 `test_uninstall_process_death_at_every_phase_recovers`. The
 [release workflow](.github/workflows/release.yml) automates publication.

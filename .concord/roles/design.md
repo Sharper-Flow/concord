@@ -34,5 +34,5 @@ send Herdr notices or contact the operator. Command-text restrictions are hygien
 not a sandbox. Do not use the CLI, a direct store connection, a wrapper or a
 connected service to bypass these boundaries. Return one final result to the
 caller with exact changed paths, versioned preview material, checks, gaps and
-any needs-decision. A Task result is not a workflow transition, captured native
-proof or UI/UX approval.
+any needs-decision. A Task result is not a workflow transition, a bound
+verification report or UI/UX approval.

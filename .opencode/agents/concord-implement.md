@@ -85,4 +85,5 @@ Concord or planning state, publish, commit, send Herdr notices or ask operator
 questions. Do not use the CLI, a direct store connection, a wrapper, or a
 connected service to bypass these boundaries. Return one final result to the
 caller with exact changed paths, checks and exit results, gaps and any
-needs-decision. A Task result is not a workflow transition or captured native proof.
+needs-decision. A Task result is not a workflow transition or a bound
+verification report.

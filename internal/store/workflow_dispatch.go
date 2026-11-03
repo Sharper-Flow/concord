@@ -250,16 +250,9 @@ func readWorkflowActionStateTx(ctx context.Context, tx *sql.Tx, workID string, e
 	return currentStep, state, nil
 }
 
-// runWorkflowActionAdmissionGuards runs the recovery, boundary, and
-// post-validation guard phases around payload validation, then applies the
-// folded step legality after the payload-bound recoveries refine it.
+// runWorkflowActionAdmissionGuards validates the payload, runs post-validation
+// guards, and applies the folded step legality.
 func runWorkflowActionAdmissionGuards(guards *workflowActionGuardContext, request WorkflowActionExecutionRequest, decision WorkflowAdmissionDecision) error {
-	if err := runWorkflowActionGuard(guards, guardPhaseRecovery); err != nil {
-		return err
-	}
-	if err := runWorkflowActionGuard(guards, guardPhaseBoundary); err != nil {
-		return err
-	}
 	if err := validateWorkflowActionPayload(guards.entry.Definition, request.ActionID, request.Payload); err != nil {
 		return err
 	}
@@ -276,7 +269,7 @@ func runWorkflowActionAdmissionGuards(guards *workflowActionGuardContext, reques
 }
 
 // guardWorkflowActionActor resolves the request actor and runs the actor
-// tuple, correction recovery, and held-attempt takeover guards.
+// tuple and held-attempt takeover guards.
 func guardWorkflowActionActor(guards *workflowActionGuardContext, request WorkflowActionExecutionRequest) error {
 	actorRef, err := WorkflowActorRef(request.Actor)
 	if err != nil {

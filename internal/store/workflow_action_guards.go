@@ -10,14 +10,12 @@ import (
 )
 
 // workflowActionGuardPhase names the point in the dispatcher's sequence where
-// a guard runs. Recovery guards precede payload validation; claim guards run
+// a guard runs. Post-validation guards precede the operation guards, which run
 // after the durable operation is claimed.
 type workflowActionGuardPhase int
 
 const (
-	guardPhaseRecovery workflowActionGuardPhase = iota
-	guardPhaseBoundary
-	guardPhasePostValidation
+	guardPhasePostValidation workflowActionGuardPhase = iota
 	guardPhaseOperation
 )
 

@@ -1940,11 +1940,8 @@ func latestWorkflowActionStart(ctx context.Context, q queryer, workID, stepID st
 // WorkflowActionStarted that precedes that entry belongs to the previous pass.
 // The step's latest start bounds the entry search, so the query only sees
 // advancing completions recorded after the step's last observed start, and the
-// later of the two opens the pass. Contract correction and worker-result
-// recovery read this boundary, which keeps the work pin, action discovery,
-// preflight, and the fold on one answer. Non-advancing step moves (a
-// correction request's return) are outside this rule and keep their own
-// recovery semantics.
+// later of the two opens the pass. Readers use this boundary to agree on the
+// current pass. Non-advancing step moves are outside this rule.
 func workflowStepPassBoundary(ctx context.Context, q queryer, definition WorkflowDefinition, workID, stepID, subject string) (int64, bool, error) {
 	startSeq, _, started, err := latestWorkflowActionStart(ctx, q, workID, stepID)
 	if err != nil {
@@ -2402,7 +2399,7 @@ func foldWorkflowEvidenceBound(ctx context.Context, tx *sql.Tx, event Event) err
 			return workflowProjectionError(err, "cannot inspect verification report identity")
 		}
 		if relabelled {
-			return newFailure(KindIllegalLifecycleTransition, "fold_event", "verification report run or immutable subject is already bound to different evidence", false, "bind an independent report for its original subject")
+			return newFailure(KindIllegalLifecycleTransition, "fold_event", "verification report run is already bound or immutable subject is bound to a different commit", false, "bind an independent report for its original subject")
 		}
 	}
 	var authoritative int

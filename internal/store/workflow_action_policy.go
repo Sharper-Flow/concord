@@ -170,20 +170,6 @@ var workflowIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_.-]{1,63}$`)
 var workflowDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 func validWorkflowID(value string) bool { return workflowIDPattern.MatchString(value) }
-
-func validateWorkflowActionPayloadDeclaration(action WorkflowActionDefinition) error {
-	if !validatePayloadFields(action.Payload.Fields) {
-		return definitionFailure(KindInvalidDefinition, "action payload fields are invalid")
-	}
-	if action.PublicPayload != nil && (!action.PublicPayload.Closed || len(action.PublicPayload.Fields) > 32 || !validatePayloadFields(action.PublicPayload.Fields)) {
-		return definitionFailure(KindInvalidDefinition, "public action payload fields are invalid")
-	}
-	return nil
-}
-
-func validActionConsequence(value ActionConsequence) bool {
-	return value == ActionInternalSQLite || value == ActionCrossAuthority || value == ActionExternalEffect
-}
 func validActionExecutionMode(value ActionExecutionMode) bool {
 	return value == ActionAdvance || value == ActionHold || value == ActionFenced || value == ActionCheckpoint
 }
@@ -229,14 +215,6 @@ func evidenceStrings(values []EvidenceKind) []string {
 }
 func validEvidence(value EvidenceKind) bool {
 	return slices.Contains(evidenceStrings(workflowEvidenceKinds), string(value))
-}
-func allEvidenceKindsValid(values []EvidenceKind) bool {
-	for _, value := range values {
-		if !validEvidence(value) {
-			return false
-		}
-	}
-	return true
 }
 func validPredicateKind(value PredicateKind) bool {
 	return value == PredicateExists || value == PredicateAbsent || value == PredicateOutcome || value == PredicateCheck

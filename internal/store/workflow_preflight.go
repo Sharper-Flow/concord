@@ -199,60 +199,15 @@ func workflowPlanActionAdmissionTx(ctx context.Context, tx *sql.Tx, workID strin
 	// the terminal lifecycle, state and plan, and carries the plan step that
 	// declares the action.
 	if state == "completed" || state == "cancelled" || state == "superseded" {
-		if state == "completed" && actionID == "record_delivery" && plan != nil {
-			owner := workflowPlanDeclaringStep(plan, actionID)
-			records, recordsErr := workflowCurrentRecords(ctx, tx, workID)
-			if recordsErr != nil {
-				return action, plan, owner, recordsErr
-			}
-			if owner != "" && records["record_delivery"] {
-				if err := guardPlanDelivery(ctx, tx, workID); err != nil {
-					return action, plan, owner, err
-				}
-				return action, plan, owner, nil
-			}
-		}
-		return action, plan, step, newFailure(KindInvalidOperation, "workflow_action", "terminal workflow cannot change", false, "reread the work item")
+		owner, err := workflowPlanTerminalAdmissionTx(ctx, tx, workID, actionID, state, step, plan)
+		return action, plan, owner, err
 	}
 	if _, err := readWorkflowPreludeTx(ctx, tx, workID); err != nil {
 		return action, nil, "", err
 	}
-	switch actionID {
-	case "record_intake", "record_clarify", "pick_type", "insert_step":
-	case "complete_step":
-		step, _ = workflowFieldString(fields, "step_id")
-		if plan == nil {
-			return action, plan, step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow has no plan", false, "pick a workflow type")
-		}
-		item, found := stepByID(plan.Steps, step)
-		if !found || (len(item.Attempts) == 0 && !workflowPlanAllowsAction(plan, step, actionID)) {
-			return action, plan, step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "step is not a frontier or completed step", false, "reread the workflow plan")
-		}
-	case "complete":
-		if plan == nil || !WorkflowStepPlanComplete(*plan) {
-			return action, plan, step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow plan is not complete", false, "complete every plan step")
-		}
-	default:
-		if !workflowPlanAllowsAction(plan, step, actionID) {
-			// §4.2: an existing record's owning action stays writable after
-			// its producing step passed; the write carries the declaring
-			// step and holds the frontier.
-			owner := ""
-			if workflowRecordAction(actionID) && plan != nil {
-				owner = workflowPlanDeclaringStep(plan, actionID)
-			}
-			if owner == "" {
-				return action, plan, step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "action is not declared on a frontier step", false, "reread the workflow plan")
-			}
-			records, recordsErr := workflowCurrentRecords(ctx, tx, workID)
-			if recordsErr != nil {
-				return action, plan, step, recordsErr
-			}
-			if !records[actionID] {
-				return action, plan, step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "action has no current record to replace", false, "record it on its frontier step first")
-			}
-			step = owner
-		}
+	step, err = workflowPlanFrontierAdmissionTx(ctx, tx, workID, actionID, step, plan, fields)
+	if err != nil {
+		return action, plan, step, err
 	}
 	if err := guardPlanMandate(ctx, tx, workID, plan, step, action); err != nil {
 		return action, plan, step, err
@@ -268,6 +223,61 @@ func workflowPlanActionAdmissionTx(ctx context.Context, tx *sql.Tx, workID strin
 		}
 	}
 	return action, plan, step, nil
+}
+
+func workflowPlanTerminalAdmissionTx(ctx context.Context, tx *sql.Tx, workID, actionID, state, step string, plan *WorkflowStepPlan) (string, error) {
+	if state == "completed" && actionID == "record_delivery" && plan != nil {
+		owner := workflowPlanDeclaringStep(plan, actionID)
+		records, recordsErr := workflowCurrentRecords(ctx, tx, workID)
+		if recordsErr != nil {
+			return owner, recordsErr
+		}
+		if owner != "" && records["record_delivery"] {
+			if err := guardPlanDelivery(ctx, tx, workID); err != nil {
+				return owner, err
+			}
+			return owner, nil
+		}
+	}
+	return step, newFailure(KindInvalidOperation, "workflow_action", "terminal workflow cannot change", false, "reread the work item")
+}
+
+func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, actionID, step string, plan *WorkflowStepPlan, fields map[string]json.RawMessage) (string, error) {
+	switch actionID {
+	case "record_intake", "record_clarify", "pick_type", "insert_step":
+	case "complete_step":
+		step, _ = workflowFieldString(fields, "step_id")
+		if plan == nil {
+			return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow has no plan", false, "pick a workflow type")
+		}
+		item, found := stepByID(plan.Steps, step)
+		if !found || (len(item.Attempts) == 0 && !workflowPlanAllowsAction(plan, step, actionID)) {
+			return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "step is not a frontier or completed step", false, "reread the workflow plan")
+		}
+	case "complete":
+		if plan == nil || !WorkflowStepPlanComplete(*plan) {
+			return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow plan is not complete", false, "complete every plan step")
+		}
+	default:
+		if !workflowPlanAllowsAction(plan, step, actionID) {
+			owner := ""
+			if workflowRecordAction(actionID) && plan != nil {
+				owner = workflowPlanDeclaringStep(plan, actionID)
+			}
+			if owner == "" {
+				return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "action is not declared on a frontier step", false, "reread the workflow plan")
+			}
+			records, recordsErr := workflowCurrentRecords(ctx, tx, workID)
+			if recordsErr != nil {
+				return step, recordsErr
+			}
+			if !records[actionID] {
+				return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "action has no current record to replace", false, "record it on its frontier step first")
+			}
+			step = owner
+		}
+	}
+	return step, nil
 }
 
 func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, request WorkflowActionPreflightRequest) (WorkflowActionDefinition, error) {
@@ -637,44 +647,6 @@ func validateWorkflowPayloadItems(document map[string]any, field WorkflowPayload
 		}
 	}
 	return nil
-}
-
-func workflowPayloadFieldRule(field WorkflowPayloadField) string {
-	parts := []string{string(field.ValueType)}
-	if field.MinLength != nil {
-		parts = append(parts, fmt.Sprintf("min_length=%d", *field.MinLength))
-	}
-	if field.MaxLength != nil {
-		parts = append(parts, fmt.Sprintf("max_length=%d", *field.MaxLength))
-	}
-	if field.MinItems != nil {
-		parts = append(parts, fmt.Sprintf("min_items=%d", *field.MinItems))
-	}
-	if field.MaxItems != nil {
-		parts = append(parts, fmt.Sprintf("max_items=%d", *field.MaxItems))
-	}
-	if field.Minimum != nil {
-		parts = append(parts, fmt.Sprintf("minimum=%d", *field.Minimum))
-	}
-	if field.Maximum != nil {
-		parts = append(parts, fmt.Sprintf("maximum=%d", *field.Maximum))
-	}
-	if len(field.Enum) != 0 {
-		parts = append(parts, "enum="+strings.Join(field.Enum, ","))
-	}
-	if field.SchemaRef != "" {
-		parts = append(parts, "schema_ref="+field.SchemaRef)
-	}
-	if field.ItemRef != "" {
-		parts = append(parts, "item_ref="+field.ItemRef)
-	}
-	if field.NonBlank {
-		parts = append(parts, "non_blank=true")
-	}
-	if len(field.Forbidden) != 0 {
-		parts = append(parts, "forbidden_values="+strings.Join(field.Forbidden, ","))
-	}
-	return strings.Join(parts, ",")
 }
 
 // validateWorkflowPayloadValue enforces the declared value type and bounds

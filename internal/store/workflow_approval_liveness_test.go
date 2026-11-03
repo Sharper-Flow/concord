@@ -40,7 +40,8 @@ func TestWorkflowPlanConfirmationRequiresDeclaredApprovalEvidence(t *testing.T) 
 	if approvalKindEvidenceCount(t, f.store, workID) != 0 {
 		t.Fatal("fixture unexpectedly bound approval evidence")
 	}
-	planAdmissionFailure(t, approvalPlanAction(t, f, "confirm_premise", json.RawMessage(`{}`)), KindMissingEvidence)
+	confirmErr := approvalPlanAction(t, f, "confirm_premise", json.RawMessage(`{}`))
+	planAdmissionFailure(t, confirmErr, KindMissingEvidence)
 	assertApprovalRefusalUnchanged(t, f, version, events)
 
 	// This isolated producer is synthetic; it proves the binding's exact
@@ -64,7 +65,8 @@ func TestWorkflowPlanConfirmationRefusesOperatorActor(t *testing.T) {
 	f := qCurrentAcceptance(t, workID)
 	version, events := readWorkVersion(t, f.store, workID), approvalEventCount(t, f.store, workID)
 	request := planAdmissionRequest(workID, "confirm_premise", version, f.operator, json.RawMessage(`{}`))
-	planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindInvalidOperation)
+	dispatchErr := planAdmissionDispatch(t, f.store, request)
+	planAdmissionFailure(t, dispatchErr, KindInvalidOperation)
 	assertApprovalRefusalUnchanged(t, f, version, events)
 	if err := approvalPlanAction(t, f, "confirm_premise", json.RawMessage(`{}`)); err != nil {
 		t.Fatalf("authenticated coordinator confirmation: %v", err)
@@ -85,9 +87,11 @@ func TestWorkflowPlanConfirmationRefusesStaleReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	planAdmissionFailure(t, workflowAdmitReview(state), KindStaleRequiresReview)
+	reviewErr := workflowAdmitReview(state)
+	planAdmissionFailure(t, reviewErr, KindStaleRequiresReview)
 	version, events := readWorkVersion(t, f.store, workID), approvalEventCount(t, f.store, workID)
-	planAdmissionFailure(t, approvalPlanAction(t, f, "confirm_premise", json.RawMessage(`{}`)), KindMissingEvidence)
+	confirmErr := approvalPlanAction(t, f, "confirm_premise", json.RawMessage(`{}`))
+	planAdmissionFailure(t, confirmErr, KindMissingEvidence)
 	assertApprovalRefusalUnchanged(t, f, version, events)
 }
 

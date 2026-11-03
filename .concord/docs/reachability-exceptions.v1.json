@@ -37,7 +37,6 @@
       "id": "contract-generator-cross-field-projection",
       "state": "out_of_scope",
       "functions": [
-        "internal/store.BuiltinWorkflowDecisionFactActionDefinitions",
         "internal/store.WorkflowActionCanonicalCrossFieldRules",
         "internal/store.WorkflowActionCrossFieldRules",
         "internal/store.WorkflowContractTeachingRules",
@@ -99,6 +98,52 @@
         "internal/store.ReadWorkPin"
       ],
       "reason": "DatabaseForTesting is the declared raw-handle seam for tests and pm1fixture; boundary_test.go enforces that production callers do not use it. DurableCommits is the test introspection read for the durable commit mechanism CD-0207 governs, exercised by durable_test.go. EstablishDomainRegistryProof establishes the Product-keyed committed-registry proof that store and agent tests hand to the retained Domain-observation fold; no production route records Domain observations. ReadWorkPin is the standalone snapshot read store and agent tests use to observe the pin that read and mutation results stamp through ReadWorkPinTx. None is an operator mutation surface, and deleting them would remove the surviving assertions rather than retire a runtime feature."
+    },
+    {
+      "id": "plan-cutover-generator-projection-seams",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.CompleteWorkflowTx",
+        "internal/store.WorkflowActionCatalogSize",
+        "internal/store.WorkflowPlanActionContract",
+        "internal/store.WorkflowPlanContractUpdatePayload",
+        "internal/store.beginOrdinaryTx",
+        "internal/store.compatibilityReadFailure",
+        "internal/store.containsPredicateID",
+        "internal/store.guardWorkflowActionStepMatch",
+        "internal/store.latestWorkflowVerdict",
+        "internal/store.latestWorkflowVerdictBefore",
+        "internal/store.missingPredicateVerdictsForContract",
+        "internal/store.outstandingWorkflowEvidenceRequirements",
+        "internal/store.validateCrossFieldAlternatives",
+        "internal/store.validateCrossFieldCombinationFields",
+        "internal/store.validateCrossFieldCombinations",
+        "internal/store.validateCrossFieldDeclaration",
+        "internal/store.validateCrossFieldKindMatches",
+        "internal/store.validateEngineCrossFieldDeclarations",
+        "internal/store.validatePayloadFieldBounds",
+        "internal/store.validatePayloadFields",
+        "internal/store.verdictBatchActionFields",
+        "internal/store.workflowAcceptanceSubjectCurrent",
+        "internal/store.workflowCallerEvidenceBinder",
+        "internal/store.workflowEvidenceKindsProducedBy",
+        "internal/store.workflowEvidenceRequirementDefinitions",
+        "internal/store.workflowPreflightFailure",
+        "internal/store.workflowProjectionInvariant"
+      ],
+      "reason": "Per-item step plans replaced the fixed definition graphs (CON-1574). These helpers are the contract generator's projection surface (scripts/workflow-action-contracts reads the catalog size, per-action contracts and cross-field validation declarations) and the retained typed validators the store's own white-box conformance and review-admission tests exercise through package seams the CLI no longer reaches. CompleteWorkflowTx remains the typed completion entry point the law names; its dispatch reaches it through CompleteWorkflowTxWithRegistry, and the unqualified form stays for the seam tests."
+    },
+    {
+      "id": "plan-cutover-test-only-store-helpers",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.binaryCompatibilityFailure",
+        "internal/store.recordRuntimeStateWriter",
+        "internal/store.requireAcceptanceDeliverables",
+        "internal/store.sameStrings",
+        "internal/store.validActionExecutionMode"
+      ],
+      "reason": "Retired definition-era helpers whose only remaining callers are internal/store white-box tests asserting the retired binary-compatibility, runtime-writer and acceptance-deliverable refusal text; the tests pin the closed error vocabulary. They ride the CON-1574 cutover and leave with their tests."
     }
   ]
 }

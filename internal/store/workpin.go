@@ -254,64 +254,74 @@ func workPinReadPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *Work
 	}
 	pin.NextValidIntents = []WorkPinIntent{}
 	if plan != nil {
-		pin.WorkflowType = string(plan.Type)
-		frontier := WorkflowStepPlanFrontier(*plan)
-		if len(frontier) > 0 {
-			pin.Step = frontier[0].ID
-			pin.StepSkill = frontier[0].Skill
-			pin.StepHelper = frontier[0].Helper
-			pin.StepReviewed = &frontier[0].Reviewed
-		} else if WorkflowStepPlanComplete(*plan) && len(plan.Steps) > 0 {
-			// A completed plan reports its terminal step; the pin's step is a
-			// non-empty closed value.
-			pin.Step = plan.Steps[len(plan.Steps)-1].ID
-		}
-		if isTerminalLifecycle(state) || isTerminalLifecycle(pin.Lifecycle) {
-			return state, nil
-		}
-		ids := []string{"insert_step", "pick_type"}
-		if WorkflowStepPlanComplete(*plan) {
-			ids = append(ids, "complete")
-		}
-		// CD-0133 D4: an action the fold refuses is not an intent. The pin
-		// asks the same actor-independent deliverables question the
-		// confirmation admission asks, so it never advertises a confirmation
-		// whose proofs or Review the write would refuse. A read failure is
-		// never a silent drop.
-		confirmAdmitted := false
-		var confirmErr error
-		if template, templateErr := WorkflowStepPlanTemplate(plan.Type); templateErr == nil {
-			for _, step := range template.Steps {
-				if slices.Contains(WorkflowStepPlanTemplateActions(plan.Type, step.ID), "confirm_premise") {
-					confirmAdmitted = true
-					confirmErr = workflowConfirmationDeliverablesTx(ctx, tx, plan.Type, workID)
-					break
-				}
-			}
-		}
-		if confirmErr != nil {
-			var failure *Failure
-			if failureAs(confirmErr, &failure) && failure.Kind == KindUnavailable {
-				return "", confirmErr
-			}
-			confirmAdmitted = false
-		}
-		for _, step := range frontier {
-			actions := WorkflowStepPlanTemplateActions(plan.Type, step.ID)
-			if actions == nil {
-				actions = []string{"complete_step", "record_review", "record_delivery", "link_successor", "bind_evidence"}
-			}
-			for _, action := range actions {
-				if action != "complete" {
-					if action == "confirm_premise" && !confirmAdmitted {
-						continue
-					}
-					ids = append(ids, action)
-				}
-			}
-		}
-		return state, workPinAddCatalogIntents(pin, ids)
+		return workPinReadExistingPlanTx(ctx, tx, workID, pin, state, plan)
 	}
+	return workPinReadPreludeTx(ctx, tx, workID, pin, state)
+}
+
+func workPinReadExistingPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, state string, plan *WorkflowStepPlan) (string, error) {
+	pin.WorkflowType = string(plan.Type)
+	frontier := WorkflowStepPlanFrontier(*plan)
+	if len(frontier) > 0 {
+		pin.Step = frontier[0].ID
+		pin.StepSkill = frontier[0].Skill
+		pin.StepHelper = frontier[0].Helper
+		pin.StepReviewed = &frontier[0].Reviewed
+	} else if WorkflowStepPlanComplete(*plan) && len(plan.Steps) > 0 {
+		pin.Step = plan.Steps[len(plan.Steps)-1].ID
+	}
+	if isTerminalLifecycle(state) || isTerminalLifecycle(pin.Lifecycle) {
+		return state, nil
+	}
+	ids := []string{"insert_step", "pick_type"}
+	if WorkflowStepPlanComplete(*plan) {
+		ids = append(ids, "complete")
+	}
+	confirmAdmitted, err := workPinConfirmationAdmittedTx(ctx, tx, workID, plan.Type)
+	if err != nil {
+		return "", err
+	}
+	for _, step := range frontier {
+		actions := WorkflowStepPlanTemplateActions(plan.Type, step.ID)
+		if actions == nil {
+			actions = []string{"complete_step", "record_review", "record_delivery", "link_successor", "bind_evidence"}
+		}
+		for _, action := range actions {
+			if action != "complete" {
+				if action == "confirm_premise" && !confirmAdmitted {
+					continue
+				}
+				ids = append(ids, action)
+			}
+		}
+	}
+	return state, workPinAddCatalogIntents(pin, ids)
+}
+
+// An unavailable confirmation read is surfaced; other refusals suppress the intent.
+func workPinConfirmationAdmittedTx(ctx context.Context, tx *sql.Tx, workID string, planType WorkflowStepPlanType) (bool, error) {
+	confirmAdmitted := false
+	var confirmErr error
+	if template, templateErr := WorkflowStepPlanTemplate(planType); templateErr == nil {
+		for _, step := range template.Steps {
+			if slices.Contains(WorkflowStepPlanTemplateActions(planType, step.ID), "confirm_premise") {
+				confirmAdmitted = true
+				confirmErr = workflowConfirmationDeliverablesTx(ctx, tx, planType, workID)
+				break
+			}
+		}
+	}
+	if confirmErr != nil {
+		var failure *Failure
+		if failureAs(confirmErr, &failure) && failure.Kind == KindUnavailable {
+			return false, confirmErr
+		}
+		confirmAdmitted = false
+	}
+	return confirmAdmitted, nil
+}
+
+func workPinReadPreludeTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, state string) (string, error) {
 	pin.Step = "intake"
 	if isTerminalLifecycle(state) || isTerminalLifecycle(pin.Lifecycle) {
 		return state, nil

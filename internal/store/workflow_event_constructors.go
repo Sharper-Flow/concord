@@ -228,23 +228,6 @@ func workflowReviseCandidatesEvents(request WorkflowActionExecutionRequest, acto
 // validateWorkflowActionPayload before any event is built, so this
 // constructor does not restate them. Each related id names a real work item,
 // refused here at the boundary rather than at the fold's foreign key.
-func workflowRecordAlignmentEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	relatedIDs := workflowFieldStrings(fields, "related_ids")
-	for _, relatedID := range relatedIDs {
-		var exists int
-		err := tx.QueryRowContext(ctx, `SELECT 1 FROM work_items WHERE id=?`, relatedID).Scan(&exists)
-		if err == sql.ErrNoRows {
-			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_alignment related id "+workflowRefExcerpt(relatedID)+" does not name a work item", false, "supply a real related work item id")
-		} else if err != nil {
-			return nil, workflowProjectionError(err, "cannot read the alignment related work item")
-		}
-	}
-	values := map[string]any{"searched": workflowFieldStringDefault(fields, "searched", ""), "outcome": workflowFieldStringDefault(fields, "outcome", "")}
-	if len(relatedIDs) != 0 {
-		values["related_ids"] = relatedIDs
-	}
-	return []Event{workflowTypedEvent(eventID, WorkflowBacklogAlignmentRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
-}
 
 // workflowRecordDiagnosisEvents builds the typed CD-0198 D2 diagnosis event.
 // The action records all three required sections in one act: the

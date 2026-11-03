@@ -648,8 +648,7 @@
     "approval": "valid",
     "native_authority": "routing-provider",
     "health_after_apply": "failed",
-    "rollback": "declared",
-    "archived_family": "workflow.ops_runbook"
+    "rollback": "declared"
    },
    "expected": {
     "assertions": [

@@ -216,40 +216,51 @@ func validateStepPlanShape(plan WorkflowStepPlan) error {
 	}
 	ids := make(map[string]bool, len(plan.Steps))
 	for _, step := range plan.Steps {
-		if len(step.ID) < 2 || len(step.ID) > 64 || !validWorkflowID(step.ID) || ids[step.ID] {
-			return refuse("plan step id is invalid or duplicated")
-		}
-		ids[step.ID] = true
-		if len(step.After) > 64 {
-			return refuse("plan step declares too many after edges")
-		}
-		edges := make(map[string]bool, len(step.After))
-		for _, after := range step.After {
-			if edges[after] {
-				return refuse("plan step after edge is duplicated")
-			}
-			edges[after] = true
-			if after == step.ID || !ids[after] && !stepIDExists(plan.Steps, after) {
-				return refuse("plan step after edge names a step the plan does not hold")
-			}
-		}
-		if len(step.Attempts) > 64 {
-			return refuse("plan step holds too many attempts")
-		}
-		for _, attempt := range step.Attempts {
-			if len(attempt.Note) < 2 || len(attempt.Note) > 4096 || attempt.CompletedAt == "" || attempt.CompletionSeq < 0 {
-				return refuse("plan step attempt is invalid")
-			}
-			if step.Reviewed && (attempt.Reviewer == "" || (attempt.Result != "pass" && attempt.Result != "fixed") || attempt.Commit == "" || attempt.Link == "") {
-				return refuse("a reviewed step's attempt requires its reviewer, result, commit and link")
-			}
-			if !step.Reviewed && (attempt.Reviewer != "" || attempt.Result != "" || attempt.Commit != "" || attempt.Link != "") {
-				return refuse("an unreviewed step's attempt carries review fields")
-			}
+		if err := validateStepPlanStepShape(plan.Steps, step, ids, refuse); err != nil {
+			return err
 		}
 	}
 	if stepPlanHasCycle(plan.Steps) {
 		return refuse("plan contains a cycle")
+	}
+	return nil
+}
+
+func validateStepPlanStepShape(steps []WorkflowPlanStep, step WorkflowPlanStep, ids map[string]bool, refuse func(string) error) error {
+	if len(step.ID) < 2 || len(step.ID) > 64 || !validWorkflowID(step.ID) || ids[step.ID] {
+		return refuse("plan step id is invalid or duplicated")
+	}
+	ids[step.ID] = true
+	if len(step.After) > 64 {
+		return refuse("plan step declares too many after edges")
+	}
+	edges := make(map[string]bool, len(step.After))
+	for _, after := range step.After {
+		if edges[after] {
+			return refuse("plan step after edge is duplicated")
+		}
+		edges[after] = true
+		if after == step.ID || !ids[after] && !stepIDExists(steps, after) {
+			return refuse("plan step after edge names a step the plan does not hold")
+		}
+	}
+	return validateStepPlanAttemptsShape(step, refuse)
+}
+
+func validateStepPlanAttemptsShape(step WorkflowPlanStep, refuse func(string) error) error {
+	if len(step.Attempts) > 64 {
+		return refuse("plan step holds too many attempts")
+	}
+	for _, attempt := range step.Attempts {
+		if len(attempt.Note) < 2 || len(attempt.Note) > 4096 || attempt.CompletedAt == "" || attempt.CompletionSeq < 0 {
+			return refuse("plan step attempt is invalid")
+		}
+		if step.Reviewed && (attempt.Reviewer == "" || (attempt.Result != "pass" && attempt.Result != "fixed") || attempt.Commit == "" || attempt.Link == "") {
+			return refuse("a reviewed step's attempt requires its reviewer, result, commit and link")
+		}
+		if !step.Reviewed && (attempt.Reviewer != "" || attempt.Result != "" || attempt.Commit != "" || attempt.Link != "") {
+			return refuse("an unreviewed step's attempt carries review fields")
+		}
 	}
 	return nil
 }
@@ -337,25 +348,8 @@ func validateStepPlanContinuation(old, new WorkflowStepPlan) error {
 	}
 	switching := new.Type != old.Type
 	if switching {
-		// A type switch adds the new type's missing required steps and keeps
-		// every existing step; it never removes or rewrites one.
-		template, err := WorkflowStepPlanTemplate(new.Type)
-		if err != nil {
+		if err := validateStepPlanTypeSwitch(old, new, refuse); err != nil {
 			return err
-		}
-		for _, step := range old.Steps {
-			current, found := stepByID(new.Steps, step.ID)
-			if !found {
-				return refuse("a type switch never removes a step")
-			}
-			if !workflowPlanStepEqual(step, current) {
-				return refuse("a type switch never changes an existing step")
-			}
-		}
-		for _, templateStep := range template.Steps {
-			if !stepIDExists(old.Steps, templateStep.ID) && !stepIDExists(new.Steps, templateStep.ID) {
-				return refuse("a type switch adds the new type's missing required steps")
-			}
 		}
 	}
 	oldSteps := make(map[string]WorkflowPlanStep, len(old.Steps))
@@ -366,53 +360,16 @@ func validateStepPlanContinuation(old, new WorkflowStepPlan) error {
 	for _, step := range new.Steps {
 		previous, existed := oldSteps[step.ID]
 		if !existed {
-			// An added step is either an inserted step or, on a type switch,
-			// a required step of the new type's template.
-			if len(step.Attempts) != 0 {
-				return refuse("a new step must be incomplete")
-			}
-			if step.Required {
-				if !switching {
-					return refuse("a required step is added only on a type switch")
-				}
-				template, err := WorkflowStepPlanTemplate(new.Type)
-				if err != nil {
-					return err
-				}
-				templateStep, found := stepByID(template.Steps, step.ID)
-				if !found || step.Reviewed != templateStep.Reviewed || !equalOptionalString(step.Skill, templateStep.Skill) || !equalOptionalString(step.Helper, templateStep.Helper) {
-					return refuse("an added required step must come from the picked type's template")
-				}
-			} else if switching {
-				return refuse("a type switch adds only missing required template steps")
+			if err := validateStepPlanAddedStep(new.Type, step, switching, refuse); err != nil {
+				return err
 			}
 			continue
 		}
-		if len(previous.Attempts) > len(step.Attempts) {
-			return refuse("a completed step's attempts are never removed or reordered")
+		count, err := validateStepPlanExistingStep(old.Steps, previous, step, refuse)
+		if err != nil {
+			return err
 		}
-		for index, attempt := range previous.Attempts {
-			if step.Attempts[index] != attempt {
-				return refuse("a completed step's attempts are never altered")
-			}
-		}
-		if !slices.Equal(previous.After, step.After) {
-			return refuse("an existing step's after edges never change")
-		}
-		if previous.Required != step.Required || previous.Reviewed != step.Reviewed || !equalOptionalString(previous.Skill, step.Skill) || !equalOptionalString(previous.Helper, step.Helper) {
-			return refuse("an existing step's metadata never changes")
-		}
-		if len(step.Attempts) > len(previous.Attempts) {
-			appended += len(step.Attempts) - len(previous.Attempts)
-			// A new attempt completes the step only when every step it comes
-			// after is already completed in the written plan.
-			for _, after := range step.After {
-				afterStep, found := stepByID(old.Steps, after)
-				if !found || len(afterStep.Attempts) == 0 {
-					return refuse("a step completes only after every step it comes after")
-				}
-			}
-		}
+		appended += count
 	}
 	if appended > 1 {
 		return refuse("a plan write appends at most one attempt")
@@ -426,6 +383,77 @@ func validateStepPlanContinuation(old, new WorkflowStepPlan) error {
 		}
 	}
 	return nil
+}
+
+func validateStepPlanTypeSwitch(old, new WorkflowStepPlan, refuse func(string) error) error {
+	template, err := WorkflowStepPlanTemplate(new.Type)
+	if err != nil {
+		return err
+	}
+	for _, step := range old.Steps {
+		current, found := stepByID(new.Steps, step.ID)
+		if !found {
+			return refuse("a type switch never removes a step")
+		}
+		if !workflowPlanStepEqual(step, current) {
+			return refuse("a type switch never changes an existing step")
+		}
+	}
+	for _, templateStep := range template.Steps {
+		if !stepIDExists(old.Steps, templateStep.ID) && !stepIDExists(new.Steps, templateStep.ID) {
+			return refuse("a type switch adds the new type's missing required steps")
+		}
+	}
+	return nil
+}
+
+func validateStepPlanAddedStep(planType WorkflowStepPlanType, step WorkflowPlanStep, switching bool, refuse func(string) error) error {
+	if len(step.Attempts) != 0 {
+		return refuse("a new step must be incomplete")
+	}
+	if step.Required {
+		if !switching {
+			return refuse("a required step is added only on a type switch")
+		}
+		template, err := WorkflowStepPlanTemplate(planType)
+		if err != nil {
+			return err
+		}
+		templateStep, found := stepByID(template.Steps, step.ID)
+		if !found || step.Reviewed != templateStep.Reviewed || !equalOptionalString(step.Skill, templateStep.Skill) || !equalOptionalString(step.Helper, templateStep.Helper) {
+			return refuse("an added required step must come from the picked type's template")
+		}
+	} else if switching {
+		return refuse("a type switch adds only missing required template steps")
+	}
+	return nil
+}
+
+func validateStepPlanExistingStep(oldSteps []WorkflowPlanStep, previous, step WorkflowPlanStep, refuse func(string) error) (int, error) {
+	if len(previous.Attempts) > len(step.Attempts) {
+		return 0, refuse("a completed step's attempts are never removed or reordered")
+	}
+	for index, attempt := range previous.Attempts {
+		if step.Attempts[index] != attempt {
+			return 0, refuse("a completed step's attempts are never altered")
+		}
+	}
+	if !slices.Equal(previous.After, step.After) {
+		return 0, refuse("an existing step's after edges never change")
+	}
+	if previous.Required != step.Required || previous.Reviewed != step.Reviewed || !equalOptionalString(previous.Skill, step.Skill) || !equalOptionalString(previous.Helper, step.Helper) {
+		return 0, refuse("an existing step's metadata never changes")
+	}
+	if len(step.Attempts) > len(previous.Attempts) {
+		for _, after := range step.After {
+			afterStep, found := stepByID(oldSteps, after)
+			if !found || len(afterStep.Attempts) == 0 {
+				return 0, refuse("a step completes only after every step it comes after")
+			}
+		}
+		return len(step.Attempts) - len(previous.Attempts), nil
+	}
+	return 0, nil
 }
 
 func equalOptionalString(a, b *string) bool {

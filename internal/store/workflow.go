@@ -377,34 +377,6 @@ func validateWorkflowProposalContent(content workflowProposalContent) error {
 	return nil
 }
 
-func decodeWorkflowProposalContent(raw json.RawMessage) (workflowProposalContent, error) {
-	if len(raw) == 0 {
-		raw = json.RawMessage(`{}`)
-	}
-	var content workflowProposalContent
-	if err := decodeWorkflowActionPayloadStrict(raw, &content); err != nil {
-		return content, newFailure(KindInvalidPayload, "workflow_proposal", "proposal payload is not one strict JSON object", false, "supply the closed proposal document")
-	}
-	if err := validateWorkflowProposalContent(content); err != nil {
-		return content, err
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		return content, newFailure(KindInvalidPayload, "workflow_proposal", "proposal payload is not one strict JSON object", false, "supply the closed proposal document")
-	}
-	for _, name := range []string{"constraints", "open_questions", "out_of_scope"} {
-		if value, present := fields[name]; present && strings.TrimSpace(string(value)) == "null" {
-			return content, newFailure(KindInvalidPayload, "workflow_proposal", "proposal optional list cannot be null", false, "supply an array or omit the optional list")
-		}
-	}
-	content.Affected = nonNilStrings(content.Affected)
-	content.UserOutcomes = nonNilStrings(content.UserOutcomes)
-	content.Constraints = nonNilStrings(content.Constraints)
-	content.OpenQuestions = nonNilStrings(content.OpenQuestions)
-	content.OutOfScope = nonNilStrings(content.OutOfScope)
-	return content, nil
-}
-
 type workflowDesignRecordedPayload struct {
 	WorkflowVersionFields
 	workflowDesignContent

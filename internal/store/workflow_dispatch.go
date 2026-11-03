@@ -202,27 +202,11 @@ func applyWorkflowPlanActionTx(ctx context.Context, tx *sql.Tx, scope *writeScop
 	if request.ActionID == "complete" {
 		return applyCompleteWorkflowActionTx(ctx, tx, scope, request, actor, request.Payload, events)
 	}
-	planKinds := map[string]string{"record_intake": WorkflowIntakeRecorded, "record_clarify": WorkflowClarifyRecorded, "pick_type": WorkflowTypePicked, "insert_step": WorkflowStepInserted, "complete_step": WorkflowStepCompleted}
-	if kind, ok := planKinds[request.ActionID]; ok {
-		fields, err := workflowActionObject(request.Payload)
-		if err != nil {
-			return result, err
-		}
-		values := make(map[string]any, len(fields)+1)
-		for name, value := range fields {
-			values[name] = value
-		}
-		if request.ActionID == "complete_step" {
-			values["actor"] = actor
-		}
-		events = append(events, workflowTypedEvent(request.OperationID+":semantic", kind, request.WorkID, actor, request.Now, version, values))
-	} else {
-		assembled, err := assemblePlanWorkflowActionEventsTx(ctx, tx, request, action, plan, currentStep, actor, evidenceRefs, version)
-		if err != nil {
-			return result, err
-		}
-		events = append(events, assembled...)
+	planEvents, err := workflowPlanActionEventsTx(ctx, tx, request, action, plan, currentStep, actor, evidenceRefs, version)
+	if err != nil {
+		return result, err
 	}
+	events = append(events, planEvents...)
 	operationResult, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, request.WorkID): request.ExpectedVersion}}, scope)
 	if err != nil {
 		return result, err
@@ -231,6 +215,25 @@ func applyWorkflowPlanActionTx(ctx context.Context, tx *sql.Tx, scope *writeScop
 		return result, err
 	}
 	return finishWorkflowActionTx(ctx, tx, request, operationResult)
+}
+
+func workflowPlanActionEventsTx(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, action WorkflowActionDefinition, plan *WorkflowStepPlan, currentStep, actor string, evidenceRefs []string, version int64) ([]Event, error) {
+	planKinds := map[string]string{"record_intake": WorkflowIntakeRecorded, "record_clarify": WorkflowClarifyRecorded, "pick_type": WorkflowTypePicked, "insert_step": WorkflowStepInserted, "complete_step": WorkflowStepCompleted}
+	if kind, ok := planKinds[request.ActionID]; ok {
+		fields, err := workflowActionObject(request.Payload)
+		if err != nil {
+			return nil, err
+		}
+		values := make(map[string]any, len(fields)+1)
+		for name, value := range fields {
+			values[name] = value
+		}
+		if request.ActionID == "complete_step" {
+			values["actor"] = actor
+		}
+		return []Event{workflowTypedEvent(request.OperationID+":semantic", kind, request.WorkID, actor, request.Now, version, values)}, nil
+	}
+	return assemblePlanWorkflowActionEventsTx(ctx, tx, request, action, plan, currentStep, actor, evidenceRefs, version)
 }
 
 // readWorkflowActionStateTx reads the instance's current step and state and
@@ -494,12 +497,6 @@ func workflowFieldStrings(fields map[string]json.RawMessage, name string) []stri
 		_ = json.Unmarshal(fields[name], &values)
 	}
 	return values
-}
-func workflowFieldStringDefaultMap(fields map[string]any, name, fallback string) string {
-	if value, ok := fields[name].(string); ok && value != "" {
-		return value
-	}
-	return fallback
 }
 
 // requireResearchForPendingQuestions prevents contract approval from closing

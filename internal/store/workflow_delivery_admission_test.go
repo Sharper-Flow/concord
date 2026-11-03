@@ -137,7 +137,7 @@ func TestWorkflowPlanDeliveryAmbiguousContractUpdateIsAtomic(t *testing.T) {
 	before := lawUpgradeSnapshot(t, f.store)
 	version := readWorkVersion(t, f.store, workID)
 	err := reviseContractRecord(t, f.store, workID, f.owner, contract, version)
-	planAdmissionFailure(t, err, KindInvariantViolation)
+	_ = planAdmissionFailure(t, err, KindInvariantViolation)
 	if after := lawUpgradeSnapshot(t, f.store); !reflect.DeepEqual(before, after) || readWorkVersion(t, f.store, workID) != version {
 		t.Fatal("refused ambiguous contract update changed application tables")
 	}

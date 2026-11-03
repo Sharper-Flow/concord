@@ -133,8 +133,8 @@ func TestWorkflowPlanConfirmationRequiresCriterionProof(t *testing.T) {
 	f := qBuildAcceptance(t, workID, "", false)
 	version, events := readWorkVersion(t, f.store, workID), approvalEventCount(t, f.store, workID)
 	request := planAdmissionRequest(workID, "confirm_premise", version, f.owner, json.RawMessage(`{}`))
-	planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindMissingEvidence)
-	planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindMissingEvidence)
+	_ = planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindMissingEvidence)
+	_ = planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindMissingEvidence)
 	assertApprovalRefusalUnchanged(t, f, version, events)
 }
 
@@ -143,8 +143,8 @@ func TestWorkflowPlanCompletionRequiresPlanNotConfirmation(t *testing.T) {
 	f := qCurrentAcceptance(t, workID)
 	version, events := readWorkVersion(t, f.store, workID), approvalEventCount(t, f.store, workID)
 	request := planAdmissionRequest(workID, "complete", version, f.owner, json.RawMessage(`{"impact_verdict":"non-breaking"}`))
-	planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindIllegalLifecycleTransition)
-	planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindIllegalLifecycleTransition)
+	_ = planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindIllegalLifecycleTransition)
+	_ = planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindIllegalLifecycleTransition)
 	assertApprovalRefusalUnchanged(t, f, version, events)
 	completeWorkflowPlanFixture(t, f.store, workID)
 	request = planAdmissionRequest(workID, "complete", version, f.owner, json.RawMessage(`{"impact_verdict":"non-breaking"}`))

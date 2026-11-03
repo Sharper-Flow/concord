@@ -33,13 +33,13 @@ func TestWorkflowReviewCurrentCriteriaAndArchitecture(t *testing.T) {
 			err := workflowAdmitReview(state)
 			switch phase {
 			case "unreviewed":
-				planAdmissionFailure(t, err, KindMissingEvidence)
+				_ = planAdmissionFailure(t, err, KindMissingEvidence)
 			case "current":
 				if err != nil {
 					t.Fatalf("current Review refused: %v", err)
 				}
 			default:
-				planAdmissionFailure(t, err, KindStaleRequiresReview)
+				_ = planAdmissionFailure(t, err, KindStaleRequiresReview)
 			}
 		})
 	}
@@ -59,7 +59,7 @@ func TestWorkflowPlanDeliveryRefusesReviewOfChangedCriterion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	planAdmissionFailure(t, workflowAdmitReview(state), KindStaleRequiresReview)
+	_ = planAdmissionFailure(t, workflowAdmitReview(state), KindStaleRequiresReview)
 	version := readWorkVersion(t, f.store, workID)
 	request := planAdmissionRequest(workID, "record_delivery", version, f.owner, json.RawMessage(`{"delivery_artifact":"artifact:changed","delivery_state":"asserted"}`))
 	first := planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindStaleRequiresReview)

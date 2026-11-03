@@ -41,7 +41,7 @@ func TestWorkflowPlanConfirmationRequiresDeclaredApprovalEvidence(t *testing.T) 
 		t.Fatal("fixture unexpectedly bound approval evidence")
 	}
 	confirmErr := approvalPlanAction(t, f, "confirm_premise", json.RawMessage(`{}`))
-	planAdmissionFailure(t, confirmErr, KindMissingEvidence)
+	_ = planAdmissionFailure(t, confirmErr, KindMissingEvidence)
 	assertApprovalRefusalUnchanged(t, f, version, events)
 
 	// This isolated producer is synthetic; it proves the binding's exact
@@ -66,7 +66,7 @@ func TestWorkflowPlanConfirmationRefusesOperatorActor(t *testing.T) {
 	version, events := readWorkVersion(t, f.store, workID), approvalEventCount(t, f.store, workID)
 	request := planAdmissionRequest(workID, "confirm_premise", version, f.operator, json.RawMessage(`{}`))
 	dispatchErr := planAdmissionDispatch(t, f.store, request)
-	planAdmissionFailure(t, dispatchErr, KindInvalidOperation)
+	_ = planAdmissionFailure(t, dispatchErr, KindInvalidOperation)
 	assertApprovalRefusalUnchanged(t, f, version, events)
 	if err := approvalPlanAction(t, f, "confirm_premise", json.RawMessage(`{}`)); err != nil {
 		t.Fatalf("authenticated coordinator confirmation: %v", err)
@@ -88,10 +88,10 @@ func TestWorkflowPlanConfirmationRefusesStaleReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	reviewErr := workflowAdmitReview(state)
-	planAdmissionFailure(t, reviewErr, KindStaleRequiresReview)
+	_ = planAdmissionFailure(t, reviewErr, KindStaleRequiresReview)
 	version, events := readWorkVersion(t, f.store, workID), approvalEventCount(t, f.store, workID)
 	confirmErr := approvalPlanAction(t, f, "confirm_premise", json.RawMessage(`{}`))
-	planAdmissionFailure(t, confirmErr, KindMissingEvidence)
+	_ = planAdmissionFailure(t, confirmErr, KindMissingEvidence)
 	assertApprovalRefusalUnchanged(t, f, version, events)
 }
 

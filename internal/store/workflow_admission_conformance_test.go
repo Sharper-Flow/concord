@@ -55,7 +55,7 @@ func TestWorkflowPlanAdmissionReviewAndMandate(t *testing.T) {
 			t.Fatalf("ordinary implementation manufactured a Review: %+v", state.Accepted)
 		}
 		reviewErr := workflowAdmitReview(state)
-		planAdmissionFailure(t, reviewErr, KindMissingEvidence)
+		_ = planAdmissionFailure(t, reviewErr, KindMissingEvidence)
 		if got := workflowPlanFixtureFrontier(t, f.store, workID); got != "implement" {
 			t.Fatalf("ordinary implementation advanced to %q", got)
 		}

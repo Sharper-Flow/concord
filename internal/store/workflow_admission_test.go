@@ -138,7 +138,7 @@ func TestWorkflowPlanAdmissionRefusalParity(t *testing.T) {
 		t.Fatalf("actor preflight: %v", err)
 	}
 	dispatchErr := planAdmissionDispatch(t, f.store, request)
-	planAdmissionFailure(t, dispatchErr, KindUnauthorized)
+	_ = planAdmissionFailure(t, dispatchErr, KindUnauthorized)
 	if readWorkVersion(t, f.store, workID) != version {
 		t.Fatal("principal mismatch changed the work")
 	}

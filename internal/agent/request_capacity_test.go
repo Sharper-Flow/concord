@@ -11,42 +11,46 @@ import (
 )
 
 // invokeRequestWireBytes composes the whole invoke request's wire figure
-// from one derived action input: the call envelope under the bounds its
-// current owners enforce plus the derivation's population scope for the
-// members no owner bounds, then the four-member request wrapper. All
-// three request derivations share it.
+// from one derived action input: the call envelope over the writer
+// population and first-run admissions below state, then the four-member
+// request wrapper. All three request derivations share it.
 func invokeRequestWireBytes(t *testing.T, input int) int {
 	t.Helper()
-	// The call envelope's members, each under the bound a current owner
-	// enforces: client_ref must resolve to a trusted client record and
-	// principal_ref must be empty or equal that record's principal (the
-	// agent_clients CHECKs cap both at 128 characters); agent_ref,
-	// ambient_project_id, and selected_product_id must sit inside the
-	// client's agent, Project, and Product scopes, whose members
-	// registration holds to 1..128 bytes; session_ref lands in the
-	// workflow_actors admission on mutations (CHECK 2..128). Two digests
-	// are owner-fixed at "sha256:" plus 64 lowercase hex: manifest_digest
-	// must equal the agentcontract.ManifestDigest constant, and mutations
-	// refuse a scope_version that mismatches the minted scope watermark
-	// (a read refreshes a stale one with a warning).
-	//
-	// Population scope, not declared maxima: nothing bounds the length of
-	// directory, worktree, request_id, host_assertion_digest,
-	// scope_version on reads, or session_ref on reads. The adapter copies
-	// both path values from the host session readback — its only
+	// The adapter writer is the population this derivation scopes: it
+	// copies both path values from the host session readback — its only
 	// writer-side check is non-empty — composes request_id from the host
-	// session and message IDs, omits host_assertion_digest, and echoes
-	// the scope watermark project-resolve returned (checked non-empty); a
-	// mutation defaults an omitted host_assertion_digest to a digest of
-	// the same 71-scalar shape. DecodeInvokeRequest enforces no
-	// per-field envelope bound, and the output definition that last
-	// declared a 4096-code-point session-path figure is retired. This derivation instead scopes its envelope population at
-	// 4096 code points per path value — the release platform's PATH_MAX
-	// order — and 128 per identity-bearing member, at the six-byte worst
-	// case per scalar the figures below carry. A member past this scope
-	// stays transport-admitted; the one bound it faces is the
-	// whole-request refusal TestDecodeInvokeRequestRefusesTypedAndWhole
-	// pins, unchanged.
+	// session and message IDs, sends client_ref from the client
+	// environment (default "opencode") and principal_ref empty, names
+	// agent_ref as the host agent, echoes the scope watermark
+	// project-resolve returned (checked non-empty), pins manifest_digest
+	// to the release constant, and omits host_assertion_digest, which a
+	// mutation defaults to a digest of the same 71-scalar shape.
+	//
+	// First-run admissions bound that population further: client_ref must
+	// resolve to a trusted client record (registration admits any
+	// non-empty ref) and principal_ref must be empty or equal the
+	// record's principal, which registration bounds to 1..128 bytes in
+	// Go; agent_ref, ambient_project_id, and selected_product_id must sit
+	// inside the client's agent, Project, and Product scopes, whose
+	// members registration holds to 1..128 bytes; manifest_digest must
+	// equal the agentcontract.ManifestDigest constant; a workflow
+	// action's actor write guards all four actor references at 128 bytes
+	// (workflowString) and new references at 2..128 (ValidReference); and
+	// workflow actions refuse a scope_version that mismatches the minted
+	// scope watermark, while a read refreshes a stale one with a warning.
+	// A replayed mutation bypasses these re-checks and re-serves the
+	// recorded response.
+	//
+	// The figures below therefore state this derivation's own envelope
+	// population, not declared maxima: 4096 code points per path value —
+	// the release platform's PATH_MAX order — and 128 per
+	// identity-bearing member, at the six-byte worst case per scalar.
+	// DecodeInvokeRequest enforces no per-field envelope bound, and the
+	// output definition that last declared a 4096-code-point session-path
+	// figure is retired. A member past this scope stays
+	// transport-admitted; the one bound it faces is the whole-request
+	// refusal TestDecodeInvokeRequestRefusesTypedAndWhole pins,
+	// unchanged.
 	envelope := map[string]int{
 		"schema_version":      len(`"1.0"`),
 		"request_id":          schemawire.JSONStringWireBytes(128),
@@ -58,15 +62,14 @@ func invokeRequestWireBytes(t *testing.T, input int) int {
 		"worktree":            schemawire.JSONStringWireBytes(4096),
 		"ambient_project_id":  schemawire.JSONStringWireBytes(128),
 		"selected_product_id": schemawire.JSONStringWireBytes(128),
-		// The three digests are this derivation's only one-byte population.
-		// The owner-fixed shapes are "sha256:" plus 64 lowercase hex, and
-		// the adapter-produced values the scope above covers — an echoed
-		// scope watermark, an omitted host_assertion_digest, its mutation
-		// default — share that shape, so the scope takes them at one byte
-		// per scalar too. Fixed-ASCII, no escapable scalar: the encoder's
-		// cost is exactly one byte per code point, quotes included, and
-		// the 130-byte figure keeps headroom. Every other string here
-		// keeps the six-byte figure.
+		// The three digests are this derivation's only one-byte population:
+		// every value the writer population produces — the pinned
+		// manifest constant, the echoed scope watermark, the mutation
+		// default — has the "sha256:" plus 64 lowercase hex shape, 71
+		// ASCII scalars with nothing the encoder escapes, so the cost is
+		// exactly one byte per code point, quotes included; the 130-byte
+		// figure keeps headroom. Every other string here keeps the
+		// six-byte figure.
 		"scope_version":         2 + 128,
 		"manifest_digest":       2 + 128,
 		"host_assertion_digest": 2 + 128,

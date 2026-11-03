@@ -73,6 +73,24 @@ type migrationRunner interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
+// beforeMigrationSQL runs a step's refusal checks and row retirement inside the
+// migrating transaction, before that step's SQL.
+func beforeMigrationSQL(ctx context.Context, q migrationRunner, m migration) error {
+	switch m.Name {
+	case "retire_initiative_work":
+		return retireInitiativeWork(ctx, q)
+	case "repository_verification_retirement":
+		return checkVerificationRetirement(ctx, q)
+	case "workflow_law_pin_retirement":
+		// Earlier steps can materialize retained Review facts. Check again at
+		// the destructive boundary, after those steps have run.
+		return preflightWorkflowLawPinRetirementUpgrade(ctx, q)
+	case "ordinary_workflow_records":
+		return preflightOrdinaryWorkflowRecords(ctx, q)
+	}
+	return nil
+}
+
 // applyMigration runs one step's SQL when the step applies to the database in
 // front of it.
 func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
@@ -91,27 +109,8 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 	if m.Name == "native_task_cutover" {
 		return applyNativeTaskCutover(ctx, q, m.SQL)
 	}
-	if m.Name == "retire_initiative_work" {
-		if err := retireInitiativeWork(ctx, q); err != nil {
-			return err
-		}
-	}
-	if m.Name == "repository_verification_retirement" {
-		if err := checkVerificationRetirement(ctx, q); err != nil {
-			return err
-		}
-	}
-	if m.Name == "workflow_law_pin_retirement" {
-		// Earlier steps can materialize retained Review facts. Check again at
-		// the destructive boundary, after those steps have run.
-		if err := preflightWorkflowLawPinRetirementUpgrade(ctx, q); err != nil {
-			return err
-		}
-	}
-	if m.Name == "ordinary_workflow_records" {
-		if err := preflightOrdinaryWorkflowRecords(ctx, q); err != nil {
-			return err
-		}
+	if err := beforeMigrationSQL(ctx, q, m); err != nil {
+		return err
 	}
 	if _, err := q.ExecContext(ctx, m.SQL); err != nil {
 		return wrapFailure(KindUnavailable, "migrate",

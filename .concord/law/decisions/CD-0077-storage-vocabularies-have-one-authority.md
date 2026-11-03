@@ -59,9 +59,7 @@ The work-item operator vocabulary is:
 
 - `task`, `bug`, `decision`, `research`, and `other`: stored, revisable, and
   accepted by agent capture;
-- `initiative`: stored only through the dedicated Initiative operation and never
-  accepted by ordinary capture or intent revision;
-- `epic`: retired and never stored.
+- `initiative` and `epic`: retired and never stored.
 
 Workflow-family names remain the seven values fixed by CD-0013 D14. They do not
 enter `work_items.kind`.

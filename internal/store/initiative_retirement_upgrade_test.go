@@ -12,7 +12,7 @@ func initiativeRetirementFixture(t *testing.T) (*sql.DB, string) {
 	t.Helper()
 	useStampedBuild(t)
 	db, path := retirementUpgradeFixture(t)
-	advanceHistoricalPrefix(t, db, 180)
+	advanceHistoricalPrefix(t, db, 181)
 	retirementUpgradeExec(t, db, `INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,intent_json,narrative,urgency)
 VALUES('initiative-old','initiative','Old initiative','needed',0,1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z','{}','','standard'),

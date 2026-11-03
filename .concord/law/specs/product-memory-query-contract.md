@@ -75,12 +75,12 @@ from this contract. All candidates must pass the same corpus.
 ## 2. Evidence basis and corpus size
 
 The eight jobs below are grounded in the current Product model, ranked priorities,
-workflow visibility rules, state-model postmortem, durable-knowledge design, and
+workflow visibility rules, durable-knowledge design, and
 PM/TS backlogs. The corpus deliberately merges overlapping
 list/show/search reads into Product-memory jobs.
 
 Evidence is durable-document evidence, not a claim about any live system state:
-the observed reads were role-firewalled. The postmortem, inventories, and
+the observed reads were role-firewalled. Inventories and
 accepted Concord directions record real operator failures/jobs; operator acceptance
 of PM1 is the final check that no repeated Product-memory job is missing.
 

@@ -131,7 +131,7 @@ is stated once; companion documents reference this section rather than restating
 | 12 | **Architecture-bound Product truth** | [Product law and Domain architecture](../law/constitution/priorities.md#product-law-and-domain-architecture-goal-a) | Every current law has one Domain home. Product-changing work pins its Domain/law footprint, and unresolved concurrent Domain overlap cannot enter Product truth. Git merge success and heuristics confer no authority. |
 
 A Go core topology must satisfy all twelve invariants. The first seven derive
-from the durable-tier failure classes in [`design-constraints.md`](./design-constraints.md)
+from the failure classes in [`design-constraints.md`](./design-constraints.md)
 §14–§19; invariants 8–11 follow the standing-law sections cited per row. Architecture-bound
 Product truth follows CD-0222's many-agent Product-concordance requirement.
 

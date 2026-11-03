@@ -77,11 +77,6 @@ operation that atomically changes the predecessor's terminal state.
 No generic Product, Project, resource, or workflow replacement relation is added
 by this decision. The store keeps current state in one transaction per mutation; immutable schema migrations, native authority, and the other data-integrity controls remain current ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
-## Explicit amendments
-
-The accepted strength answers and their cited mechanisms may
-inform a concrete migration demand. They create no global cutover obligation.
-
 ## Consequences
 
 - Current documents describe migration and correction as local, demand-driven

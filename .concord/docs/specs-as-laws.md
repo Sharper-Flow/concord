@@ -174,7 +174,7 @@ shows the legislative moments explicitly.
 | Concurrent changes may affect the same architecture | **CD-0222 D6-D7** requires Git integration and dependency-specific revalidation, not an overlap gate. |
 
 These rows record how observed prior-system outcomes map to Concord shapes.
-Concord does not call, mirror, or dual-write any external runtime state.
+Concord does not call, mirror, or dual-write another coordination system's runtime state.
 
 ---
 

@@ -93,39 +93,22 @@ private history, and local-only precedent are excluded from this snapshot.
   `CONTRIBUTING.md`, `SECURITY.md`, and Code of Conduct.
 - No CLA/DCO, Wiki, Discussions, or GitHub Projects initially.
 
-### D5. Platform, telemetry, and pre-readiness use
+### D5. Platform, telemetry, and conformance use
 
 - Linux amd64 is the only supported v1 platform. Other platforms require concrete
   demand and complete native acceptance evidence.
 - Telemetry/diagnostics are local-only. Nothing leaves the machine automatically;
   bounded diagnostic export requires explicit operator review/action.
 - No prompts, work IDs, paths, spec/evidence contents, or secrets in telemetry.
-- Concord uses invented synthetic conformance cases
-  only. It does not observe or own live Concord development.
+- Conformance cases are invented synthetic cases only.
 
-### D6. Workflow and conformance floor
+### D6. Retired: the readiness workflow catalog and conformance floor
 
-Required workflow catalog:
-
-1. implementation change;
-2. break-fix/RCA;
-3. research/investigation;
-4. architecture spike;
-5. ops runbook;
-6. static-analysis family; and
-7. generic one-off.
-
-Database/configuration/infrastructure map to implementation or ops until a distinct
-recurring progression/evidence/recovery shape proves another type necessary.
-
-The conformance floor requires:
-
-- root-policy scenario families for spec mandates, workflow composition, workflow
-  succession, proportional rigor, human legislation, authority-by-fact-type,
-  Product migration, operator boundary, launcher boundary, and release evidence;
-- per-workflow normal completion, missing evidence/approval rejection,
-  interruption/resume, new-conflict routing, applicable successor linking, and
-  durable-knowledge authority.
+The pre-release readiness catalog and its scenario-family list are retired with
+the readiness claim that required them (CD-0006 D1). Workflow families and their
+composition are owned by [`workflows.md`](../../docs/workflows.md); conformance
+coverage is owned by
+[CD-0065](CD-0065-conformance-corpus-runs-what-production-runs.md).
 
 ### D7. Skill/methodology boundary
 

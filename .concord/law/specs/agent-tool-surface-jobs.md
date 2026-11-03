@@ -159,7 +159,8 @@ surface expansion or pruning. No universal numeric tool ceiling is assumed.
   cross-Project identity, history, and relations (`product-memory-query-contract.md` §§4–5).
 - Concord's first-usable floor requires one Product view, required work capture,
   visible ready/blocked/next work, evidence-backed completion, and durable Product
-  knowledge and architecture-bound Product law (`priorities.md` §§1, 3–6).
+  knowledge and architecture-bound Product law
+  ([`floor-readiness.md`](../../docs/floor-readiness.md)).
 - The live families are implementation, break-fix, and research; completion is a
   contract outcome rather than a process-liveness flag (`workflows.md` §§2–4;
   CD-0218 D1).

@@ -55,7 +55,7 @@
     },
     {
       "criterion": 7,
-      "exemption": "Independent review checks the no-external-runtime-dependency boundary; dedicated independence witnesses and their tests are retired."
+      "exemption": "Independent review checks the no-runtime-dependency-on-another-coordination-system's-state boundary; dedicated independence witnesses and their tests are retired."
     },
     {
       "criterion": 8,
@@ -182,7 +182,7 @@ The other boundaries retain their stated scope.
 
 - Given repository-owned agent surfaces
   When review examines them
-  Then they introduce no external runtime dependency.
+  Then they hold no runtime dependency on another coordination system's state.
 
 - Given a session that serves one Product and finds work owned by another Product
   When the session records the work
@@ -220,7 +220,7 @@ The other boundaries retain their stated scope.
   generated contracts, and `internal/store.TestAppendEventRoundTripsEveryField`
   covers the event records.
 - Criterion 7: independent review checks that repository-owned agent surfaces
-  introduce no external runtime dependency. The dedicated
+  hold no runtime dependency on another coordination system's state. The dedicated
   independence and operational-coverage witnesses, their tests, and their
   history-only runbooks are retired; they are not current readiness gates.
 - Criterion 8: CD-0213 D6 owns the foreign-Product route, and Concord has no

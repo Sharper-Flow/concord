@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:de2de633a59ce47b30f1d8da87a638bf5744c9c12f192d59a862187ca7106fe3"
+const ManifestDigest = "sha256:a9f2c0ffe6e36fb495b7514558da26c1e5eb0deb785db67e74f7818f6d09e099"
 
 type OperationKind string
 
@@ -223,7 +223,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_transition_remove_input":                          {Required: []string{"operation_id", "idempotency_key", "work_id", "expected_version", "reason", "actor", "handoff", "execution_relinquished", "writes_reconciled", "effects_reconciled", "dependencies_resolved", "artifacts_verified"}, Properties: []string{"operation_id", "idempotency_key", "work_id", "expected_version", "reason", "actor", "product_id", "handoff", "linear", "execution_relinquished", "writes_reconciled", "effects_reconciled", "dependencies_resolved", "artifacts_verified"}},
 	"worker_oracle_finding":                                 {Required: []string{"classification"}, Properties: []string{"classification", "owner_id", "failure_family", "predicate_ids", "law_bindings", "case_ids", "control_ids", "evidence_refs", "entry_point", "continues_finding_id", "variant_of"}},
 	"worker_oracle_law_binding":                             {Required: []string{"source", "clause"}, Properties: []string{"source", "clause"}},
-	"workflow_backlog_alignment":                            {Required: []string{"searched", "outcome", "related_ids"}, Properties: []string{"searched", "outcome", "related_ids"}},
+	"workflow_backlog_alignment":                            {Required: []string{"searched", "outcome", "related_ids", "all_matches_removed"}, Properties: []string{"searched", "outcome", "related_ids", "all_matches_removed"}},
 	"workflow_completion_payload":                           {Required: []string{}, Properties: []string{"evidence_commit", "current_commit", "staleness"}},
 	"workflow_contract":                                     {Required: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate"}, Properties: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class", "changes_product_truth", "architecture_binding", "approved_at", "approved_by", "superseded_by", "definition_pin", "decision_domains"}},
 	"workflow_contract_update":                              {Required: []string{"contract_version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class", "decision_domains"}, Properties: []string{"contract_version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class", "architecture_binding", "decision_domains"}},

@@ -168,9 +168,10 @@ type WorkflowReadParkedDelivery struct {
 
 // WorkflowReadBacklogAlignment is the recorded search, not inferred relations.
 type WorkflowReadBacklogAlignment struct {
-	Searched   string   `json:"searched"`
-	Outcome    string   `json:"outcome"`
-	RelatedIDs []string `json:"related_ids"`
+	Searched          string   `json:"searched"`
+	Outcome           string   `json:"outcome"`
+	RelatedIDs        []string `json:"related_ids"`
+	AllMatchesRemoved bool     `json:"all_matches_removed"`
 }
 
 // WorkflowReadProjection is the bounded observation exposed through existing
@@ -353,6 +354,7 @@ func readWorkflowBacklogAlignment(ctx context.Context, q queryer, workID string)
 	if err := rows.Err(); err != nil {
 		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow backlog alignment matches", true, "retry once the database is readable", err)
 	}
+	alignment.AllMatchesRemoved = alignment.Outcome == "related_found" && len(alignment.RelatedIDs) == 0
 	return &alignment, nil
 }
 

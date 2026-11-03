@@ -108,14 +108,15 @@ func TestOffStepRecordCompletionRequiresOwnEffect(t *testing.T) {
 			workID := "off-step-own-effect-" + action
 			var s *Store
 			var actor string
-			if action == "record_proposal" || action == "record_design" {
+			switch action {
+			case "record_proposal", "record_design":
 				s, actor, _ = seedOrdinaryExecutorAtExecution(t, workID)
-			} else if action == "revise_candidates" {
+			case "revise_candidates":
 				f := seedCurrentWorkflowReturnRouteFixture(t, workID, "workflow.research", "investigate")
 				s = f.store
 				issue31WorkflowActionWithPayload(t, s, workID, readWorkVersion(t, s, workID), action, workID+"-first", f.owner, json.RawMessage(`{"added":["candidate:one"]}`))
 				actor, _ = WorkflowActorRef(f.owner)
-			} else {
+			default:
 				kind := "task"
 				if action == "record_diagnosis" {
 					kind = "bug"

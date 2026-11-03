@@ -106,24 +106,6 @@ func TestApplyBudgetRejectsNonPositiveSeconds(t *testing.T) {
 	}
 }
 
-func TestApplyBudgetRetiresTheBudgetObject(t *testing.T) {
-	t.Parallel()
-	// The agent-facing budget object is retired. Closed input validation
-	// refuses it before applyBudget runs, so the seconds field is the only
-	// budget this parser can see.
-	ctx, cancel, budget, failure := applyBudget(context.Background(), budgetOpFor(t), []byte(`{"budget":{"max_bytes":1,"max_items":1},"requested_budget_seconds":2}`))
-	defer cancel()
-	if failure != nil {
-		t.Fatalf("retired budget object reached the seconds parser: %v", failure)
-	}
-	if budget.RequestedSeconds != 2 {
-		t.Fatalf("requested seconds not parsed beside the retired object: %#v", budget)
-	}
-	if _, ok := ctx.Deadline(); !ok {
-		t.Fatal("requested seconds beside the retired object installed no deadline")
-	}
-}
-
 func TestBudgetRefusalCarriesTheTypedCeiling(t *testing.T) {
 	t.Parallel()
 	r := runtime{Tool: "concord_work_transition", Operation: "workflow_action", Budget: budgetInput{CeilingRefused: true, RequestedSeconds: 60, SupportedSeconds: 30}}

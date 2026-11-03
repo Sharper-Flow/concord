@@ -2893,6 +2893,7 @@ esac''',
         skill_names = [
             "concord-codebase-design",
             "concord-diagnosis",
+            "concord-improve-codebase-architecture",
             "concord-instruction-writing",
             "concord-law-writing",
             "concord-retrospective",

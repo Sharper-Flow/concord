@@ -20,6 +20,8 @@ the Product's existing authority and checks still own acceptance and publication
   not yet proven.
 - [Codebase design](concord-codebase-design/SKILL.md): an interface, seam, or
   abstraction that must earn its place, or a repository check's authority.
+- [Improve codebase architecture](concord-improve-codebase-architecture/SKILL.md):
+  find and rank shallow modules and structural friction across a codebase.
 - [Work shaping](concord-work-shaping/SKILL.md): triage a request and decompose
   it into independently verifiable outcomes.
 - [Retrospective](concord-retrospective/SKILL.md): move a recurring correction
@@ -41,6 +43,10 @@ upstream MIT notice in its `LICENSE` file.
 Review adapts the two-axis method from
 [code-review](https://github.com/mattpocock/skills/blob/a496f5513d4a4cf889bc48e189e579f4b0bdf6aa/skills/engineering/code-review/SKILL.md)
 and keeps its upstream MIT notice in `concord-review/LICENSE`.
+
+Improve codebase architecture adapts
+[improve-codebase-architecture](https://github.com/mattpocock/skills/blob/a496f5513d4a4cf889bc48e189e579f4b0bdf6aa/skills/engineering/improve-codebase-architecture/SKILL.md)
+and keeps its upstream MIT notice in `concord-improve-codebase-architecture/LICENSE`.
 
 ## Delivery
 

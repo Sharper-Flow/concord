@@ -14,6 +14,7 @@ func TestWorkRemovalReconcilesUnknownCommitOutcome(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "remove-work-1")
 	req := removalTestRequest()
+	confirmRemovalHandoff(t, s, &req)
 	if err := s.db.Close(); err != nil {
 		t.Fatal(err)
 	}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -124,17 +125,30 @@ func TestTraceHistoryReadsBacklogAlignment(t *testing.T) {
 						}
 						return facts
 					}
-					before := evidence()
-					removalScope, _, err := s.ScopeVersion(t.Context(), "project-1")
-					if err != nil {
-						t.Fatal(err)
-					}
-					removal, err := json.Marshal(map[string]any{"operation_id": "remove-related", "idempotency_key": "remove-related-key", "work_id": related[0], "expected_version": workVersion(t, s, related[0]), "reason": "shelved", "actor": "human-1", "product_id": "product-1",
-						"execution_relinquished": true, "writes_reconciled": true, "effects_reconciled": true, "dependencies_resolved": true, "artifacts_verified": true,
-						"handoff": store.WorkRemovalHandoff{Findings: []string{"finding"}, RemainingScope: []string{"scope"}, Blockers: []string{"blocker"}, Artifacts: []string{"artifact"}, RenewalConditions: []string{"renewal"}}})
-					if err != nil {
-						t.Fatal(err)
-					}
+				before := evidence()
+				if err := s.Transact(t.Context(), func(tx *store.Transaction) error {
+					_, err := store.RecordLinearIssueLinkTx(t.Context(), tx, store.LinearIssueLink{WorkID: related[0], RemoteIssueUUID: "remote-align-related", HumanKey: "CON-1", URL: "https://linear.app/example/issue/CON-1"})
+					return err
+				}); err != nil {
+					t.Fatal(err)
+				}
+				removalHandoff := store.WorkRemovalHandoff{Findings: []string{"finding"}, RemainingScope: []string{"scope"}, Blockers: []string{"blocker"}, Artifacts: []string{"artifact"}, RenewalConditions: []string{"renewal"}}
+				removalHandoffJSON, err := json.Marshal(removalHandoff)
+				if err != nil {
+					t.Fatal(err)
+				}
+				removalHandoffHash := sha256.Sum256(removalHandoffJSON)
+				removalScope, _, err := s.ScopeVersion(t.Context(), "project-1")
+				if err != nil {
+					t.Fatal(err)
+				}
+				removal, err := json.Marshal(map[string]any{"operation_id": "remove-related", "idempotency_key": "remove-related-key", "work_id": related[0], "expected_version": workVersion(t, s, related[0]), "reason": "shelved", "actor": "human-1", "product_id": "product-1",
+					"execution_relinquished": true, "writes_reconciled": true, "effects_reconciled": true, "dependencies_resolved": true, "artifacts_verified": true,
+					"handoff": removalHandoff,
+					"linear": store.LinearHandoffConfirmation{ProductID: "product-1", RemoteIssueUUID: "remote-align-related", Destination: "linear", HandoffDigest: fmt.Sprintf("sha256:%x", removalHandoffHash)}})
+				if err != nil {
+					t.Fatal(err)
+				}
 					if removed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "remove", Input: removal}, mutationEnvelope(grant, removalScope)); removed.Outcome != agentcontract.OutcomeOK {
 						t.Fatalf("related removal refused: %+v", removed.Error)
 					}

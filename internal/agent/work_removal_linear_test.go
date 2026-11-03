@@ -48,6 +48,74 @@ func TestDispatchWorkRemovalRefusesMissingLinearConfirmation(t *testing.T) {
 	}
 }
 
+// CD-0142 D3 (CD-0213 D1: Linear is the only planning authority, so every
+// managed Product uses Linear): removal requires the work item's recorded
+// Linear issue identity and an exact handoff confirmation. The unlinked and
+// no-confirmation path used to pass the destination validator and delete the
+// execution projections with no preserved planning handoff.
+func TestDispatchWorkRemovalRefusesUnlinkedWorkWithoutLinearHandoff(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := workVersion(t, s, "work-1")
+	handoff := store.WorkRemovalHandoff{
+		Findings: []string{"finding"}, RemainingScope: []string{"scope"}, Blockers: []string{"blocker"},
+		Artifacts: []string{"artifact"}, RenewalConditions: []string{"new work identity"},
+	}
+	input := map[string]any{
+		"operation_id": "remove-unlinked-op", "idempotency_key": "remove-unlinked-key", "work_id": "work-1",
+		"expected_version": version, "reason": "shelved", "actor": "human-1", "product_id": "product-1",
+		"handoff":          handoff,
+		"execution_relinquished": true, "writes_reconciled": true, "effects_reconciled": true,
+		"dependencies_resolved": true, "artifacts_verified": true,
+	}
+	preserved := func() {
+		t.Helper()
+		if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 1 || workVersion(t, s, "work-1") != version {
+			t.Fatal("refused removal changed the work item")
+		}
+		if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations`) != 0 {
+			t.Fatal("refused removal prepared or committed a removal receipt")
+		}
+	}
+	response := removalDispatch(t, s, service, mutationEnvelope(grant, scopeVersion), input)
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" || !strings.Contains(response.Error.Message, "no recorded Linear issue identity") || !strings.Contains(response.Error.Message, "carries no Linear handoff confirmation") {
+		t.Fatalf("unlinked removal without confirmation must refuse: outcome=%s error=%+v", response.Outcome, response.Error)
+	}
+	preserved()
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		_, err := store.RecordLinearIssueLinkTx(ctx, tx, store.LinearIssueLink{WorkID: "work-1", RemoteIssueUUID: "remote-unlinked-1", HumanKey: "CON-1", URL: "https://linear.app/example/issue/CON-1"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	response = removalDispatch(t, s, service, mutationEnvelope(grant, scopeVersion), input)
+	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || !strings.Contains(response.Error.Message, "carries no Linear handoff confirmation") {
+		t.Fatalf("linked removal without confirmation must refuse: outcome=%s error=%+v", response.Outcome, response.Error)
+	}
+	preserved()
+	handoffJSON, err := json.Marshal(handoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handoffHash := sha256.Sum256(handoffJSON)
+	input["linear"] = map[string]string{
+		"product_id": "product-1", "remote_issue_uuid": "remote-unlinked-1", "destination": "linear",
+		"handoff_digest": "sha256:" + hex.EncodeToString(handoffHash[:]),
+	}
+	response = removalDispatch(t, s, service, mutationEnvelope(grant, scopeVersion), input)
+	if response.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("confirmed removal must commit: %+v", response.Error)
+	}
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations WHERE operation_id='remove-unlinked-op' AND state='committed'`) != 1 {
+		t.Fatal("confirmed removal must delete execution and retain its committed receipt")
+	}
+}
+
 func TestDispatchWorkRemovalCommitsWithRecordedLinearIssue(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

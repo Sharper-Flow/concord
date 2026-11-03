@@ -18,6 +18,12 @@ func defaultRemovalFixture(t *testing.T) (*store.Store, *Service, CallEnvelope, 
 	s, service, grant, root := worktreeDispatchFixture(t)
 	seedWorkTransition(t, s, "work-1", "needed", "cancelled", 2)
 	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
+	if err := s.Transact(t.Context(), func(tx *store.Transaction) error {
+		_, err := store.RecordLinearIssueLinkTx(t.Context(), tx, store.LinearIssueLink{WorkID: "work-1", RemoteIssueUUID: "remote-default-shelving", HumanKey: "CON-1", URL: "https://linear.app/example/issue/CON-1"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 	scope, _, err := s.ScopeVersion(t.Context(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -25,8 +31,15 @@ func defaultRemovalFixture(t *testing.T) (*store.Store, *Service, CallEnvelope, 
 	env := mutationEnvelope(grant, scope)
 	env.Directory, env.Worktree = root, root
 	env.HostAssertionDigest = "sha256:shelving-host"
+	handoff := store.WorkRemovalHandoff{Findings: []string{"The work was cancelled to preserve its planning goal."}, RemainingScope: []string{"Resume only with new work identity."}, Blockers: []string{"No outside execution approved."}, Artifacts: []string{"The cancellation remains in the preservation record."}, RenewalConditions: []string{"New identity and runtime approval."}}
+	handoffJSON, err := json.Marshal(handoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handoffHash := sha256.Sum256(handoffJSON)
 	in := map[string]any{"operation_id": "shelving-removal", "idempotency_key": "shelving-key", "work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "reason": "shelved", "actor": "human-1", "product_id": "product-1", "execution_relinquished": true, "writes_reconciled": true, "effects_reconciled": true, "dependencies_resolved": true, "artifacts_verified": true,
-		"handoff": store.WorkRemovalHandoff{Findings: []string{"The work was cancelled to preserve its planning goal."}, RemainingScope: []string{"Resume only with new work identity."}, Blockers: []string{"No outside execution approved."}, Artifacts: []string{"The cancellation remains in the preservation record."}, RenewalConditions: []string{"New identity and runtime approval."}}}
+		"handoff": handoff,
+		"linear":  store.LinearHandoffConfirmation{ProductID: "product-1", RemoteIssueUUID: "remote-default-shelving", Destination: "linear", HandoffDigest: fmt.Sprintf("sha256:%x", handoffHash)}}
 	return s, service, env, in
 }
 
@@ -97,7 +110,7 @@ func TestDefaultCheckoutShelvingRefusals(t *testing.T) {
 		{"reason", "requires shelving", func(_ *testing.T, _ *store.Store, in map[string]any) { in["reason"] = "cancelled" }},
 		{"safety", "safety evidence is incomplete", func(_ *testing.T, _ *store.Store, in map[string]any) { in["effects_reconciled"] = false }},
 		{"version", "version", func(_ *testing.T, _ *store.Store, in map[string]any) { in["expected_version"] = int64(1) }},
-		{"Linear identity", "no recorded Linear issue", func(_ *testing.T, _ *store.Store, in map[string]any) {
+		{"Linear identity", "does not match the recorded issue identity", func(_ *testing.T, _ *store.Store, in map[string]any) {
 			in["linear"] = &store.LinearHandoffConfirmation{ProductID: "product-1", RemoteIssueUUID: "wrong-issue", Destination: "linear", HandoffDigest: "sha256:aaaaaaaa"}
 		}},
 		{"completed lifecycle", "cancelled lifecycle", func(t *testing.T, s *store.Store, _ map[string]any) {

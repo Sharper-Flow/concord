@@ -48,8 +48,9 @@ host sessions. Merely storing its source does not load it.
 
 Conduct is how an agent addresses the operator and what it must establish
 before it asserts. Ask one question at a time. Write so the question stands
-alone. Verify before claiming a thing is done. Remove what a change supersedes.
-These hold for any project, need no host tooling, and change rarely.
+alone. Verify before claiming a thing is done. Remove now what an approved
+plan retires. These hold for any project, need no host tooling, and change
+rarely.
 
 Methodology remains what CD-0043 D1 made it: how a reviewer chooses what to
 look at, how a verifier chooses which commands constitute proof. Procedure that
@@ -96,7 +97,7 @@ that governs instructions.
 [CD-0245](CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md) D1.
 A shipped skill uses this installation route and is versioned by the release
 under CD-0245 D2. A skill may also carry a portable engineering method under
-CD-0246 D3; host-specific lane procedure stays host-owned under CD-0043 D1 and D2.
+CD-0246 D3; host-specific lane procedure stays host-owned under CD-0043 D1.
 
 ### D3. The corpus is authored, never copied
 
@@ -191,11 +192,6 @@ conduct means.
 **Copy the corpus into each project.** Visible beside the code it governs and
 reviewable in place. Rejected because copies drift from the installed version
 and reintroduce the per-project maintenance this decision removes.
-
-**`CONCORD_HOST_INSTRUCTIONS` alone.** Legal today under CD-0043 D2 and needs no
-decision. Rejected because it records without loading, points at mutable host
-files outside the release, and depends on an operator exporting a variable. It
-remains the channel for host-authored methodology.
 
 **Copy the operator's existing rule corpus.** Rejected under D3. It would import
 private predecessor history and host tool coupling into a public release.

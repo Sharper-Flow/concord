@@ -21,4 +21,5 @@ Use file tools and tests under the host's safety and assigned-path permissions.
 Do not mutate Concord or planning state, publish, commit, send Herdr notices or
 ask operator questions. Do not use the CLI, a direct store connection, a wrapper,
 or a connected service to bypass these boundaries. Return one final result to
-the caller. A Task result is not a workflow transition or captured native proof.
+the caller. A Task result is not a workflow transition or a bound
+verification report.

@@ -92,7 +92,7 @@ of PM1 is the final check that no repeated Product-memory job is missing.
 | Q4 | Explain blocked work | PM4; workflows §2.4 |
 | Q5 | Select highest-priority ready work | TS1; priorities §4 |
 | Q6 | Inspect cross-Project work | PM5; product-data-model §4 |
-| Q7 | Explain why work changed state | workflows §2.2; postmortem C2 |
+| Q7 | Explain why work changed state | workflows §2.2 |
 | Q8 | Inspect dependencies and supersession | PM4; product-data-model §10 |
 
 Rejected/deferred reads are listed in §6. The corpus remains small on purpose: a

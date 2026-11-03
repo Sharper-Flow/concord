@@ -18,7 +18,7 @@
 **Date:** 2026-08-07
 **Decision owner:** Operator approval under the public bootstrap plan
 **Scope:** Repository ownership, public migration, release/install boundary,
-development governance, initial workflow/conformance floor, skills, privacy, and
+development governance, skills, privacy, and
 supported platform.
 
 ## Context

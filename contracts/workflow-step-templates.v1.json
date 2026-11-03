@@ -1,0 +1,183 @@
+{
+  "schema_version": "1.0",
+  "contract": "Each work item carries its own step plan. When the driving agent picks the type, Concord copies that type's required steps from this contract into one JSON plan stored on the item's workflow row. Between required steps the agent may insert steps. A step passes only as recorded here: a note, plus the reviewer, result, commit and link for a reviewed step. This file is the single authority for each type's ordered required steps and the stored plan's schema; code reads it, and law and docs hold no hand-written copy. Changes to this contract ride the law route.",
+  "types": [
+    {
+      "id": "change",
+      "steps": [
+        {
+          "id": "plan",
+          "skill": "concord-work-shaping",
+          "helper": null,
+          "reviewed": false,
+          "actions": ["record_plan", "approve_contract", "checkpoint_context", "cross_context_boundary", "record_work_context"]
+        },
+        {
+          "id": "implement",
+          "skill": "concord-codebase-design",
+          "helper": "concord-implement",
+          "reviewed": true,
+          "actions": ["start_execution", "checkpoint_execution", "bind_evidence", "link_successor", "checkpoint_context", "cross_context_boundary", "record_work_context"]
+        },
+        {
+          "id": "review",
+          "skill": "concord-review",
+          "helper": "concord-review",
+          "reviewed": true,
+          "actions": ["record_review", "record_delivery", "complete_step", "complete", "bind_evidence", "checkpoint_context", "cross_context_boundary", "record_work_context"]
+        }
+      ]
+    },
+    {
+      "id": "fix",
+      "steps": [
+        {
+          "id": "diagnose",
+          "skill": "concord-diagnosis",
+          "helper": "concord-research",
+          "reviewed": false,
+          "actions": ["record_diagnosis", "checkpoint_context", "cross_context_boundary", "record_work_context"]
+        },
+        {
+          "id": "plan",
+          "skill": "concord-work-shaping",
+          "helper": null,
+          "reviewed": false,
+          "actions": ["record_plan", "approve_contract", "checkpoint_context", "cross_context_boundary", "record_work_context"]
+        },
+        {
+          "id": "implement",
+          "skill": "concord-codebase-design",
+          "helper": "concord-implement",
+          "reviewed": true,
+          "actions": ["start_execution", "checkpoint_execution", "bind_evidence", "link_successor", "checkpoint_context", "cross_context_boundary", "record_work_context"]
+        },
+        {
+          "id": "review",
+          "skill": "concord-review",
+          "helper": "concord-review",
+          "reviewed": true,
+          "actions": ["record_review", "record_delivery", "complete_step", "complete", "bind_evidence", "checkpoint_context", "cross_context_boundary", "record_work_context"]
+        }
+      ]
+    },
+    {
+      "id": "research",
+      "steps": [
+        {
+          "id": "frame",
+          "skill": "concord-work-shaping",
+          "helper": null,
+          "reviewed": false,
+          "actions": ["frame_research", "approve_contract", "checkpoint_context", "cross_context_boundary", "record_work_context"]
+        },
+        {
+          "id": "investigate",
+          "skill": null,
+          "helper": "concord-research",
+          "reviewed": false,
+          "actions": ["record_finding", "revise_candidates", "bind_evidence", "checkpoint_context", "cross_context_boundary", "record_work_context"]
+        },
+        {
+          "id": "report",
+          "skill": null,
+          "helper": null,
+          "reviewed": false,
+          "actions": ["record_report", "link_successor", "checkpoint_context", "cross_context_boundary", "record_work_context"]
+        },
+        {
+          "id": "conclude",
+          "skill": null,
+          "helper": null,
+          "reviewed": true,
+          "actions": ["record_conclusion", "record_verdict", "confirm_premise", "record_review", "record_delivery", "complete_step", "complete", "bind_evidence", "checkpoint_context", "cross_context_boundary", "record_work_context"]
+        }
+      ]
+    },
+    {
+      "id": "removal",
+      "steps": [
+        {
+          "id": "list",
+          "skill": "concord-law-writing",
+          "helper": null,
+          "reviewed": false,
+          "actions": ["record_removal_scope", "approve_contract", "checkpoint_context", "cross_context_boundary", "record_work_context"]
+        },
+        {
+          "id": "implement",
+          "skill": "concord-law-writing",
+          "helper": "concord-implement",
+          "reviewed": true,
+          "actions": ["start_execution", "checkpoint_execution", "bind_evidence", "link_successor", "checkpoint_context", "cross_context_boundary", "record_work_context"]
+        },
+        {
+          "id": "review",
+          "skill": "concord-review",
+          "helper": "concord-review",
+          "reviewed": true,
+          "actions": ["record_review", "record_delivery", "complete_step", "complete", "bind_evidence", "checkpoint_context", "cross_context_boundary", "record_work_context"]
+        }
+      ]
+    }
+  ],
+  "intake": {
+    "skill": "concord-work-shaping",
+    "checks": ["freshness", "overtaken", "already_delivered", "still_reproducible", "observed_or_theoretical", "defect_or_feature", "duplicate_or_overlap", "right_owner", "conflicts", "value", "cost_against_value", "one_outcome_or_several", "checkable_end_state", "blocked"],
+    "outcomes": ["proceed", "clarify", "already_handled", "decline", "split_or_merge"],
+    "clarify": {
+      "skill": "concord-work-shaping",
+      "runs_only_when_intake_found_open_questions": true
+    }
+  },
+  "plan_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "workflow step plan v1",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["schema_version", "type", "steps"],
+    "properties": {
+      "schema_version": { "const": "1.0" },
+      "type": { "enum": ["change", "fix", "research", "removal"] },
+      "steps": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 64,
+        "items": { "$ref": "#/$defs/step" }
+      }
+    },
+    "$defs": {
+      "step": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "required", "after", "reviewed"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,63}$" },
+          "required": { "type": "boolean" },
+          "after": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,63}$" }, "uniqueItems": true },
+          "skill": { "type": ["string", "null"] },
+          "helper": { "type": ["string", "null"] },
+          "reviewed": { "type": "boolean" },
+          "attempts": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/attempt" }
+          }
+        }
+      },
+      "attempt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["note", "completed_at"],
+        "properties": {
+          "note": { "type": "string", "minLength": 2, "maxLength": 4096 },
+          "completed_at": { "type": "string" },
+          "actor": { "type": "string" },
+          "reviewer": { "type": "string" },
+          "result": { "enum": ["pass", "fixed"] },
+          "commit": { "type": "string" },
+          "link": { "type": "string" }
+        }
+      }
+    }
+  }
+}

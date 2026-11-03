@@ -1775,11 +1775,13 @@ for name, sql in (
         breaking=[175],
     )
 
-# Work side-channel retirement (179) sets the live compatibility floor: it
-# drops work_messages and work_observations, which older binaries still fold
-# and read. Atomic operation rebuild (178), terminal retirement (177), law pin
-# (176), and JSON member retirement (175) also constrain older binaries. Law index
-# retirement (174) also constrains older binaries: older
+# Law attribution retirement (180) sets the live compatibility floor: it drops
+# the owning-start law baseline and the law_change contract column. Work
+# side-channel retirement (179) drops work_messages and work_observations,
+# which older binaries still fold and read, so it also constrains older
+# binaries, beside atomic operation rebuild (178), terminal retirement (177),
+# law pin (176), and JSON member retirement (175).
+# Law index retirement (174) also constrains older binaries: older
 # binaries still read and rebuild the dropped law index, publication
 # observation and Domain registry projection tables.
 # Worktree ownership retirement (173) also constrains older binaries, which
@@ -1789,8 +1791,7 @@ for name, sql in (
 # Verification retirement (171), size retirement (170) and the checkpoint
 # step-kind CHECK rebuild (169) also constrain older binaries.
 # The conflict application evidence table (162), which the recorder maintains
-# per effect, requires current writers. The owning-start law baseline
-# table (161) also requires current writers. The ordinary-consent CHECK
+# per effect, requires current writers. The ordinary-consent CHECK
 # rebuilds (160) and the six-class decision-domain column replacement (159)
 # also constrain older binaries. The operator approval system removal (168)
 # drops the approval tables, drops the overlap approval_ref column, and
@@ -1840,7 +1841,7 @@ expect_evaluate(
 live_failures, live_breaking = check.evaluate(check.migrations(live_source))
 if live_failures:
     FAILURES.append(f"live manifest drew refusals: {live_failures}")
-required_breaking = {110, 111, 119, 120, 121, 123, 124, 125, 126, 128, 134, 136, 137, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179}
+required_breaking = {110, 111, 119, 120, 121, 123, 124, 125, 126, 128, 134, 136, 137, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180}
 historical_declared = {
     version for version, declaration, _ in check.migrations(live_source)
     if version <= 174 and check.declares_breaking(declaration)

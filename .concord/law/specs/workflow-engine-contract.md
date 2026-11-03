@@ -56,15 +56,20 @@ checks the laws committed in the law folder and their declared relations;
 an explicit conflict may pass planning only when the endpoint whose record
 declares it is in `law_modifies`. Completion reruns the check without that
 exception, so only a Git-authorized law delta can resolve the conflict.
-A mandated law that the contract declares in `law_change_removals` satisfies
-completion by its verified absence, not its presence.
+At completion, a mandated law declared in `law_modifies` may be absent from the
+verified current snapshot. It then leaves both law lists before conflict
+checking. Present modified laws still participate, and any other missing
+mandated law refuses. Approval's presence, subset and amendment rules remain.
 
 CD-0036 binds contracts to law IDs without law or Domain registry freshness
 hashes. Later amendments, deletions and registry edits reconcile through Git;
 they produce no stale-law refusal or compatible-amendment hash projection.
 Current mandate, Domain, modification, addition and obligation membership
-checks remain. Same-operation law snapshots and exact enactment before-states
-retain their separate proof requirements.
+checks remain. Same-operation law snapshots remain required. Concord retains
+no owning-start inventory, enactment before-state, per-item law attribution or
+registry delta. Contract payloads carry no separate law-change reason or removal
+list. Independent review and the committed law folder prove publication and
+the declared law delta under CD-0222 D1, not a completion enactment gate.
 
 CD-0016 governs V22 context-continuity projections and the two closed workflow
 events `workflow.context_checkpointed` and `workflow.context_boundary_crossed`.

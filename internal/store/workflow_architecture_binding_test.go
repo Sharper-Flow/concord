@@ -75,6 +75,22 @@ func architectureValidationFixture(t *testing.T, workID string) (*Store, Workflo
 	return s, definition.Definition, binding, []string{"spec:one"}
 }
 
+func TestArchitectureBindingLawAdditionCannotReuseCurrentID(t *testing.T) {
+	const workID = "addition-reuses-current-law"
+	s, definition, binding, mandate := architectureValidationFixture(t, workID)
+	binding.LawAdditions = []WorkflowLawAddition{{LawID: "spec:one", HomeDomainID: "root"}}
+	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx := lawChangeTx(t, s)
+	err = validateArchitectureBindingTx(ctx, tx, workID, definition, &binding, mandate, []string{})
+	requireFailureKind(t, err, KindProjectionConflict, "law addition reusing current law")
+	if !strings.Contains(err.Error(), "law addition reuses an existing Product law ID") {
+		t.Fatalf("wrong addition refusal: %v", err)
+	}
+}
+
 func TestArchitectureBindingCurrentValidationFailures(t *testing.T) {
 	t.Parallel()
 	// registryWithChildStatus renders the committed registry revision whose
@@ -432,7 +448,6 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	successorBinding.DomainModifies = []string{"root"}
 	successor := pContractSuccessor(t, s, workID, "revised Product law binding")
 	successor["architecture_binding"] = successorBinding
-	successor["law_change_reason"] = "Revise the declared Domain footprint."
 	successor["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:architecture-v2", "immutable_subject_ref": "commit:architecture-v2", "expected_result": "pass"}}}
 	absentSuccessor := map[string]any{}
 	for key, value := range successor {
@@ -456,7 +471,6 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 		t.Fatalf("historical binding was rewritten: count=%d err=%v", oldModifications, err)
 	}
 	incomplete := pContractSuccessor(t, s, workID, "An incomplete Product-changing revision")
-	incomplete["law_change_reason"] = "Revise the declared Domain footprint."
 	delete(incomplete, "architecture_binding")
 	beforeRevision = contractRecordEffectSnapshot(t, s, workID)
 	if err := reviseContractRecord(t, s, workID, actor, incomplete, 6, nil); err == nil {
@@ -561,7 +575,6 @@ func TestProductChangingCompletionRequiresVerificationObligation(t *testing.T) {
 		successor["required_evidence"] = []string{"verification", "review"}
 		successor["spec_mandate"] = []string{"spec:one"}
 		successor["law_modifies"] = []string{"spec:one"}
-		successor["law_change_reason"] = "Require law-bound verification."
 		successor["architecture_binding"].(map[string]any)["verification_obligations"] = []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}
 		version := readWorkVersion(t, s, workID)
 		if err := reviseContractRecord(t, s, workID, f.owner, successor, version, nil); err != nil {

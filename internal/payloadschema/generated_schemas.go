@@ -7682,35 +7682,6 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "array",
               "uniqueItems": true
             },
-            "law_change_reason": {
-              "description": "Accepted shape: string matching \\S; Bounds: 1..1024 code points inclusive; <=1024 UTF-8 bytes inclusive; example: \"a\"",
-              "examples": [
-                "a"
-              ],
-              "maxLength": 1024,
-              "minLength": 1,
-              "pattern": "\\S",
-              "type": "string",
-              "x-maxBytes": 1024
-            },
-            "law_change_removals": {
-              "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..64 items inclusive; example: [\"aa\"]",
-              "examples": [
-                [
-                  "aa"
-                ]
-              ],
-              "items": {
-                "$ref": "#/$defs/law_id",
-                "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
-                "examples": [
-                  "aa"
-                ]
-              },
-              "maxItems": 64,
-              "minItems": 1,
-              "type": "array"
-            },
             "law_modifies": {
               "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
               "examples": [
@@ -12578,35 +12549,6 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 0,
           "type": "array",
           "uniqueItems": true
-        },
-        "law_change_reason": {
-          "description": "Accepted shape: string matching \\S; Bounds: 1..1024 code points inclusive; <=1024 UTF-8 bytes inclusive; example: \"a\"",
-          "examples": [
-            "a"
-          ],
-          "maxLength": 1024,
-          "minLength": 1,
-          "pattern": "\\S",
-          "type": "string",
-          "x-maxBytes": 1024
-        },
-        "law_change_removals": {
-          "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..64 items inclusive; example: [\"aa\"]",
-          "examples": [
-            [
-              "aa"
-            ]
-          ],
-          "items": {
-            "$ref": "#/$defs/law_id",
-            "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
-            "examples": [
-              "aa"
-            ]
-          },
-          "maxItems": 64,
-          "minItems": 1,
-          "type": "array"
         },
         "law_modifies": {
           "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",

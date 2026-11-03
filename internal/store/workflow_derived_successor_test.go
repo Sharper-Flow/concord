@@ -24,20 +24,14 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 			seedWork(t, s, workID)
 			seedWorkflowLaw(t, s)
 			seedDerivedLawExtension(t, s)
-			// Both successor mandate candidates exist before this item's start.
 			// A research contract revises derived law; it cannot add new law.
 			// spec:two exists when its committed file is on the default
 			// branch, so the successor candidate is a committed spec fixture.
 			commitFixtureLawFile(t, lawChangeFixtureHome(t, s), "spec:two", fixtureLawFolderLaw("spec:two"))
 			version := seedDerivedRevisionWorkflow(t, s, workID, actor)
-			// The initial contract declares spec:one in every scenario, so the
-			// CD-0230 D4 law-change inputs ride on the shared map; the
-			// successor action consumes the same fields, and a legislated
-			// successor still refuses at the tier guard before they are read.
 			fields := map[string]any{
 				"premise":      "Revise the derived record inside this contract.",
 				"spec_mandate": []string{"spec:one"}, "law_modifies": []string{"spec:one"},
-				"law_change_reason": "Move the derived revision into this contract.",
 				"outcome_predicates": []map[string]any{{
 					"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "outcome",
 					"outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"resolved"}},
@@ -52,9 +46,6 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 			fields["spec_mandate"] = []string{"spec:two"}
 			fields["law_modifies"] = scenario.modifies
 			fields["decision_domains"] = []string{}
-			if len(scenario.modifies) != 0 {
-				fields["law_change_reason"] = "Move the derived revision into this contract."
-			}
 			if scenario.refused {
 				fields["spec_mandate"] = []string{"spec:two", "spec:legislated"}
 			}

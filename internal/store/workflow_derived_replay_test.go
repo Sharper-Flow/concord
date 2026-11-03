@@ -32,12 +32,6 @@ func TestNonProductChangingLawRevision(t *testing.T) {
 					"outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"resolved"}},
 				}},
 			}
-			// A contract that declares a modification records why (CD-0230 D4);
-			// an empty law_modifies changes no law and must not declare the
-			// law-change inputs.
-			if len(scenario.modifies) != 0 {
-				fields["law_change_reason"] = "Preserve the approved derived-law revision."
-			}
 			payload, err := json.Marshal(fields)
 			if err != nil {
 				t.Fatal(err)
@@ -52,7 +46,6 @@ func TestNonProductChangingLawRevision(t *testing.T) {
 				modifies = []string{"spec:one"}
 				fields = pContractSuccessor(t, s, workID, "Preserve the approved derived-law revision.")
 				fields["law_modifies"] = modifies
-				fields["law_change_reason"] = "Carry the derived revision into the successor contract."
 				version = readWorkVersion(t, s, workID)
 				if err := reviseContractRecord(t, s, workID, actor, fields, version, nil); err != nil {
 					t.Fatalf("live successor fold: %v", err)

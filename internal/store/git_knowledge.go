@@ -322,18 +322,6 @@ func validateCommitOID(oid string) error {
 	return nil
 }
 
-func validateContentHash(hash string) error {
-	if len(hash) != len("sha256:")+64 || !strings.HasPrefix(hash, "sha256:") {
-		return newFailure(KindInvalidNoteProof, "verify_note", "content hash must be a SHA-256 digest", false, "supply sha256 followed by 64 hexadecimal characters")
-	}
-	for _, r := range hash[len("sha256:"):] {
-		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
-			return newFailure(KindInvalidNoteProof, "verify_note", "content hash contains a non-hexadecimal character", false, "supply a SHA-256 digest")
-		}
-	}
-	return nil
-}
-
 // marshalStrings renders a string slice for the JSON-array columns of the
 // projection. Every such column declares json_type(...)='array', which a nil
 // slice would violate: encoding/json renders nil as null, so an absent

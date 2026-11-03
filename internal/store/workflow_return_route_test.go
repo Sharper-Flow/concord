@@ -40,8 +40,8 @@ func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, r
 	return seedWorkflowReturnRouteFixtureWithSource(t, workID, registered, verdictStep, requiredEvidence, boundKinds, nil, predicates...)
 }
 
-// beforeInitialize models source state already delivered before this item's
-// owning start. The initializer records that state; the hook never edits a baseline.
+// beforeInitialize models source state already delivered before this item
+// starts. The initializer records that state; the hook never edits it.
 func seedWorkflowReturnRouteFixtureWithSource(t *testing.T, workID string, registered RegisteredDefinition, verdictStep string, requiredEvidence, boundKinds []string, beforeInitialize func(*Store), predicates ...map[string]any) workflowReturnRouteFixture {
 	t.Helper()
 	ctx := context.Background()

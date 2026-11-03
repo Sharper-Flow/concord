@@ -104,14 +104,11 @@ type workflowContractApprovedPayload struct {
 	// records engineering and nil records historical absence. omitzero drops a
 	// nil fact from the encoding while a non-nil empty slice stays present.
 	DecisionDomains []string `json:"decision_domains,omitzero"`
-	// LawChange records the reason, scope and any exact operator-approved text;
-	// nil when the contract and the owning-start comparison change no law.
-	LawChange *WorkflowLawChange `json:"law_change,omitempty"`
 }
 
-// workflowContractLawChangePayloadVersion is the workflow.contract_approved
+// workflowContractPayloadVersion is the workflow.contract_approved
 // current payload version.
-const workflowContractLawChangePayloadVersion = 6
+const workflowContractPayloadVersion = 7
 
 // workflowDecisionDomainSet is the sorted authoring set from CD-0243 D2.
 var workflowDecisionDomainSet = []string{"increased_spending", "legal", "product", "production_data", "security", "ui_ux"}
@@ -885,23 +882,6 @@ func validateWorkflowContractFacts(ctx context.Context, tx *sql.Tx, event Event,
 	if workflowDeclaresDecisionDomains(registered.Definition) && p.DecisionDomains == nil {
 		return newFailure(KindInvalidPayload, "fold_event", "contract approval requires the declared decision-domain fact; absence is a legacy shape", false, "declare the contract's decision domains explicitly")
 	}
-	// A successor that changes no law itself still carries the law change its
-	// predecessors recorded; the live check holds it to the item's baseline.
-	tracksLawChange := workflowDeclaresDecisionDomains(registered.Definition)
-	if p.LawChange != nil && !tracksLawChange {
-		return newFailure(KindInvalidPayload, "fold_event", "law_change is recorded only on a consequence_v1 contract", false, "omit law_change")
-	}
-	if p.LawChange == nil && tracksLawChange && workflowContractChangesLaw(p.LawModifies, p.ArchitectureBinding) {
-		return newFailure(KindInvalidPayload, "fold_event", "a consequence_v1 contract that changes law must record law_change", false, "record the law change with its reason")
-	}
-	if p.LawChange != nil {
-		if err := validateWorkflowLawChangeShape(p.LawChange, p.LawModifies, p.ArchitectureBinding); err != nil {
-			return err
-		}
-	}
-	if err := validateLiveWorkflowLawChangeTx(ctx, tx, event.SubjectID, p); err != nil {
-		return err
-	}
 	if err := validateWorkflowContractApprovalLaw(ctx, tx, event, registered, contractFields, p, changesProductTruth); err != nil {
 		return err
 	}
@@ -949,11 +929,7 @@ func persistWorkflowContractApprovalTx(ctx context.Context, tx *sql.Tx, event Ev
 	if p.DecisionDomains != nil {
 		decisionDomains = workflowJSON(p.DecisionDomains)
 	}
-	var lawChange any
-	if p.LawChange != nil {
-		lawChange = workflowJSON(p.LawChange)
-	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_digest,decision_domains,law_change) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, registered.Definition.Ref, registered.Digest, decisionDomains, lawChange)
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_digest,decision_domains) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RequiredEvidence), workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, registered.Definition.Ref, registered.Digest, decisionDomains)
 	if err != nil {
 		return workflowProjectionError(err, "cannot record immutable workflow contract")
 	}

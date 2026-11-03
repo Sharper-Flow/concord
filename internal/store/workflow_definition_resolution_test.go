@@ -95,7 +95,7 @@ func tryAppendWorkflowEventsWithRegistry(s *Store, registry DefinitionRegistry, 
 		return err
 	}
 	defer tx.Rollback()
-	if err := applyWorkflowFixtureOperationTx(ctx, tx, operation, registry); err != nil {
+	if err := applyWorkflowOperationTxWithRegistry(ctx, tx, operation, newWriteScope(tx), registry); err != nil {
 		return err
 	}
 	return tx.Commit()

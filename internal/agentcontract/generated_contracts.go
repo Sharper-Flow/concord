@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:eb8110bdc9aac75dbff7af89efbee2bf10b3ab8ae0cb18d4c9f86849d5b4385d"
+const ManifestDigest = "sha256:e655566ab72e664c1b5e0984c88f82a1131c8faeb52b519889a245a38a78cc89"
 
 type OperationKind string
 
@@ -232,7 +232,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_backlog_alignment":                            {Required: []string{"searched", "outcome", "related_ids"}, Properties: []string{"searched", "outcome", "related_ids"}},
 	"workflow_completion_payload":                           {Required: []string{}, Properties: []string{"evidence_commit", "current_commit", "staleness"}},
 	"workflow_contract":                                     {Required: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate"}, Properties: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class", "changes_product_truth", "architecture_binding", "approved_at", "approved_by", "superseded_by", "definition_pin", "decision_domains"}},
-	"workflow_contract_update":                              {Required: []string{"contract_version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class", "decision_domains"}, Properties: []string{"contract_version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class", "architecture_binding", "law_change_reason", "law_change_removals", "decision_domains"}},
+	"workflow_contract_update":                              {Required: []string{"contract_version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class", "decision_domains"}, Properties: []string{"contract_version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class", "architecture_binding", "decision_domains"}},
 	"workflow_correction_context":                           {Required: []string{"disposition", "predicate_ids", "evidence_refs", "source_event_id", "source_event_seq"}, Properties: []string{"disposition", "predicate_ids", "evidence_refs", "diagnosis", "strategy", "source_event_id", "source_event_seq"}},
 	"workflow_delivery_assertion":                           {Required: []string{"event_id", "seq", "target_payload_version", "artifact", "state", "actor_ref", "asserted_at", "effective_artifact"}, Properties: []string{"event_id", "seq", "target_payload_version", "artifact", "state", "actor_ref", "asserted_at", "effective_artifact", "correction"}},
 	"workflow_delivery_correction":                          {Required: []string{"event_id", "reason", "artifact", "evidence_source", "corrected_at"}, Properties: []string{"event_id", "reason", "artifact", "evidence_source", "corrected_at"}},

@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 )
 
@@ -15,17 +14,6 @@ func TestLawDeletionLeavesLateVerdictAdmitted(t *testing.T) {
 	})
 	s, owner := fixture.store, fixture.owner
 	defer s.Close()
-	var startBaseline string
-	if err := s.db.QueryRow(`SELECT baseline_json FROM workflow_law_baselines WHERE work_id=?`, workID).Scan(&startBaseline); err != nil {
-		t.Fatal(err)
-	}
-	var baseline workflowLawBaseline
-	if err := json.Unmarshal([]byte(startBaseline), &baseline); err != nil {
-		t.Fatal(err)
-	}
-	if len(baseline.Laws) != 1 || baseline.Laws[0].LawID != "project/spec:two" {
-		t.Fatalf("owning start inventory=%+v", baseline.Laws)
-	}
 	if got := currentStep(t, s, workID); got != "complete" {
 		t.Fatalf("step=%q", got)
 	}
@@ -74,13 +62,5 @@ func TestLawDeletionLeavesLateVerdictAdmitted(t *testing.T) {
 	}
 	if got, active := activeContractState(t, s, workID); got != 1 || active != 1 {
 		t.Fatalf("contract=%d/%d", got, active)
-	}
-	var finalBaseline string
-	var noEnactment bool
-	if err := s.db.QueryRow(`SELECT baseline_json,enactment_json IS NULL AND enactment_effect_seq IS NULL FROM workflow_law_baselines WHERE work_id=?`, workID).Scan(&finalBaseline, &noEnactment); err != nil {
-		t.Fatal(err)
-	}
-	if finalBaseline != startBaseline || !noEnactment {
-		t.Fatal("late verdict rewrote its owning start or invented enactment attribution")
 	}
 }

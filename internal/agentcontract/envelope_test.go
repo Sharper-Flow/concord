@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
@@ -59,7 +60,7 @@ func TestEnvelopeGoldenOutcomes(t *testing.T) {
 
 func TestMutationOKEnvelopeEmitsRequiredMetadataWhenEmpty(t *testing.T) {
 	t.Parallel()
-	// The generated envelope contract (contracts/agent-tool-envelope.schema.json,
+	// The envelope contract (contracts/agent-tool-envelope.schema.json,
 	// ok def) requires changed_refs and next_valid_intents even when empty.
 	// Slice omitempty would drop required arrays and make committed effects
 	// undeliverable through the adapter.
@@ -195,7 +196,7 @@ func TestAdapterEnvelopeAdmitsSchemaVocabulary(t *testing.T) {
 		Then       *schemaNode           `json:"then"`
 	}
 	var schema schemaNode
-	if err := json.Unmarshal([]byte(payloadschema.GeneratedEnvelopeSchemaDocument), &schema); err != nil {
+	if err := json.Unmarshal([]byte(concord.EnvelopeSchemaDocument), &schema); err != nil {
 		t.Fatal(err)
 	}
 	reasons := schema.Defs["typedError"].Properties["adapter_reason"].Enum

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord"
 	"github.com/sharper-flow/concord/internal/agentcontract"
-	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -21,8 +21,8 @@ import (
 func TestDomainReadPayloadTypesPinResultFieldsAndSchema(t *testing.T) {
 	t.Parallel()
 	var root map[string]any
-	if err := json.Unmarshal([]byte(payloadschema.GeneratedPayloadSchemaDocument), &root); err != nil {
-		t.Fatalf("decode generated payload schema: %v", err)
+	if err := json.Unmarshal([]byte(concord.PayloadSchemaDocument), &root); err != nil {
+		t.Fatalf("decode embedded payload schema: %v", err)
 	}
 	for _, testCase := range []struct {
 		operation string

@@ -1,5 +1,5 @@
 // Package payloadschema owns raw JSON admission and validation against the
-// generated payload and envelope schema documents.
+// embedded payload and envelope contract documents.
 //
 // The declaration of an action payload names a schema; the agent boundary and
 // the workflow engine both answer to that name. Before this package existed the
@@ -20,6 +20,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	concord "github.com/sharper-flow/concord"
 )
 
 var (
@@ -28,20 +30,20 @@ var (
 	dateTimePattern = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$`)
 )
 
-// loadDocumentOnce parses one generated schema document exactly once.
+// loadDocumentOnce parses one embedded schema document exactly once.
 func loadDocumentOnce(once *sync.Once, raw string, target *map[string]any, what string) {
 	once.Do(func() {
 		decoder := json.NewDecoder(strings.NewReader(raw))
 		decoder.UseNumber()
 		if err := decoder.Decode(target); err != nil {
-			panic(fmt.Sprintf("generated %s document is not JSON: %v", what, err))
+			panic(fmt.Sprintf("embedded %s document is not JSON: %v", what, err))
 		}
 	})
 }
 
-// Document returns the parsed generated schema document.
+// Document returns the parsed embedded payload schema document.
 func Document() map[string]any {
-	loadDocumentOnce(&documentOnce, GeneratedPayloadSchemaDocument, &documentValue, "payload schema")
+	loadDocumentOnce(&documentOnce, concord.PayloadSchemaDocument, &documentValue, "payload schema")
 	return documentValue
 }
 

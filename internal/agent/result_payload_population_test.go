@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord"
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
@@ -458,16 +459,16 @@ func enrichmentPinFixture(t *testing.T) (*store.Store, string, store.WorkPin) {
 	return s, workID, pin
 }
 
-// payloadSchemaDefs parses the generated payload schema document once, so the
+// payloadSchemaDefs parses the embedded payload schema document once, so the
 // conformance run can enumerate closed result schemas and synthesize fixtures
 // from the same bytes the validator enforces.
 func payloadSchemaDefs(t *testing.T) map[string]map[string]any {
 	t.Helper()
-	decoder := json.NewDecoder(strings.NewReader(payloadschema.GeneratedPayloadSchemaDocument))
+	decoder := json.NewDecoder(strings.NewReader(concord.PayloadSchemaDocument))
 	decoder.UseNumber()
 	var document map[string]any
 	if err := decoder.Decode(&document); err != nil {
-		t.Fatalf("generated payload schema document is not JSON: %v", err)
+		t.Fatalf("embedded payload schema document is not JSON: %v", err)
 	}
 	raw, ok := document["$defs"].(map[string]any)
 	if !ok {

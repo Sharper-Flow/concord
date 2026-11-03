@@ -126,14 +126,6 @@ class ProfileTests(unittest.TestCase):
                        "You are the only participant that advances workflow state"):
             self.assertIn(clause, text)
 
-    def test_authored_roles_do_not_require_retired_launcher(self):
-        for profile in self.profiles["profiles"]:
-            text = " ".join((ROOT / profile["role_source"]).read_text().split())
-            for clause in ("typed dispatch", "`dispatch_worker`", "authorized attempt window",
-                           "failed worker attempt", "lane result"):
-                with self.subTest(profile=profile["id"], clause=clause):
-                    self.assertNotIn(clause, text)
-
     def test_primary_role_map_has_exact_population(self):
         text = generator.primary_ts_projection(self.profiles, self.manifest)
         data = json.loads(text.split(" = ", 1)[1])

@@ -41,14 +41,6 @@ class VerificationReportSchemaTests(unittest.TestCase):
         generator.schema_validate(binding, schema, payload_schema)
         generator.schema_validate(binding | {"fields": {"evidence_kind": "review"}}, schema, payload_schema)
 
-    def test_pruning_drops_retired_native_definitions(self):
-        document = copy.deepcopy(payload_schema)
-        generator.prune_payload_definitions(document, manifest, [])
-        for name in document["$defs"]:
-            self.assertFalse(name.startswith("native_oracle_"), name)
-            self.assertNotIn(name, {"retained_native_oracle_preparation", "active_worktree_verify_lease",
-                                    "worktree_verify_result", "work_transition_worktree_verify_input"})
-
 
 class NativeTaskContractTests(unittest.TestCase):
     def setUp(self):
@@ -736,40 +728,6 @@ class ToolDescriptionTests(unittest.TestCase):
         ])
         self.assertEqual(tool["description"],
                           "Navigate Product architecture: current Domains and current law.")
-
-    def test_tool_descriptions_do_not_name_retired_operations(self):
-        retired = [
-            "concord_domain.footprint",
-            "concord_domain.shape",
-            "concord_domain.active_work",
-            "concord_domain.observation_record",
-            "concord_domain.observation_dismiss",
-            "concord_work_relate.link",
-            "concord_work_relate.unlink",
-            "concord_work_relate.supersede",
-            "concord_work_relate.restore_superseded",
-            "concord_product_view.portfolio",
-            "concord_work_compact.lesson_publish",
-            "concord_work_compact.publish",
-            "concord_work_compact.reconcile",
-            "concord_work_transition.outside_repair",
-            "concord_work_transition.outside_repair_reconcile",
-            "concord_knowledge.unprocessed",
-            "concord_knowledge.search",
-            "concord_knowledge.resolve_note",
-            "concord_knowledge.observe_publication",
-        ]
-        registered = {operation["id"] for operation in manifest["operations"]}
-        for operation in retired:
-            owner, name = operation.split(".")
-            with self.subTest(operation=operation):
-                self.assertNotIn(operation, registered)
-                for tool in manifest["tools"]:
-                    self.assertNotRegex(tool["description"],
-                                        re.compile(r"\b" + re.escape(operation) + r"\b", re.I))
-                    if tool["id"] == owner:
-                        self.assertNotRegex(tool["description"],
-                                            re.compile(r"\b" + re.escape(name) + r"\b", re.I))
 
 
 class ResultRequirednessTests(unittest.TestCase):

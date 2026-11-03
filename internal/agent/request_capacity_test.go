@@ -27,10 +27,11 @@ func invokeRequestWireBytes(t *testing.T, input int) int {
 	// mutation defaults to a digest of the same 71-scalar shape.
 	//
 	// First-run admissions bound that population further: client_ref must
-	// resolve to a trusted client record (registration admits any
-	// non-empty ref) and principal_ref must be empty or equal the
-	// record's principal, which registration bounds to 1..128 bytes in
-	// Go; agent_ref, ambient_project_id, and selected_product_id must sit
+	// resolve to a trusted client record (registration's Go guard admits
+	// any non-empty ref; the column CHECK bounds only the pre-NUL
+	// prefix) and principal_ref must be empty or equal the record's
+	// principal, which registration bounds to 1..128 bytes in Go;
+	// agent_ref, ambient_project_id, and selected_product_id must sit
 	// inside the client's agent, Project, and Product scopes, whose
 	// members registration holds to 1..128 bytes; manifest_digest must
 	// equal the agentcontract.ManifestDigest constant; a workflow
@@ -38,8 +39,10 @@ func invokeRequestWireBytes(t *testing.T, input int) int {
 	// (workflowString) and new references at 2..128 (ValidReference); and
 	// workflow actions refuse a scope_version that mismatches the minted
 	// scope watermark, while a read refreshes a stale one with a warning.
-	// A replayed mutation bypasses these re-checks and re-serves the
-	// recorded response.
+	// A replayed mutation still re-runs identity authorization and
+	// re-authorizes its recorded scope, but skips the actor write; a
+	// replay answered before the scope check also skips the scope_version
+	// check.
 	//
 	// The figures below therefore state this derivation's own envelope
 	// population, not declared maxima: 4096 code points per path value —
@@ -48,9 +51,9 @@ func invokeRequestWireBytes(t *testing.T, input int) int {
 	// DecodeInvokeRequest enforces no per-field envelope bound, and the
 	// output definition that last declared a 4096-code-point session-path
 	// figure is retired. A member past this scope stays
-	// transport-admitted; the one bound it faces is the whole-request
-	// refusal TestDecodeInvokeRequestRefusesTypedAndWhole pins,
-	// unchanged.
+	// transport-admitted; the one transport bound it faces is the
+	// whole-request refusal TestDecodeInvokeRequestRefusesTypedAndWhole
+	// pins, unchanged.
 	envelope := map[string]int{
 		"schema_version":      len(`"1.0"`),
 		"request_id":          schemawire.JSONStringWireBytes(128),
@@ -62,14 +65,15 @@ func invokeRequestWireBytes(t *testing.T, input int) int {
 		"worktree":            schemawire.JSONStringWireBytes(4096),
 		"ambient_project_id":  schemawire.JSONStringWireBytes(128),
 		"selected_product_id": schemawire.JSONStringWireBytes(128),
-		// The three digests are this derivation's only one-byte population:
-		// every value the writer population produces — the pinned
-		// manifest constant, the echoed scope watermark, the mutation
-		// default — has the "sha256:" plus 64 lowercase hex shape, 71
-		// ASCII scalars with nothing the encoder escapes, so the cost is
-		// exactly one byte per code point, quotes included; the 130-byte
-		// figure keeps headroom. Every other string here keeps the
-		// six-byte figure.
+		// The three digests are this derivation's only one-byte population.
+		// The two the writer carries — the pinned manifest constant, the
+		// echoed scope watermark — have the "sha256:" plus 64 lowercase
+		// hex shape, 71 ASCII scalars with nothing the encoder escapes;
+		// host_assertion_digest, which the writer omits, rides the same
+		// one-byte scope on the strength of the mutation default's shape.
+		// The cost is exactly one byte per code point, quotes included,
+		// and the 130-byte figure keeps headroom. Every other string here
+		// keeps the six-byte figure.
 		"scope_version":         2 + 128,
 		"manifest_digest":       2 + 128,
 		"host_assertion_digest": 2 + 128,

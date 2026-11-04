@@ -43,6 +43,7 @@
       "operations": [
         "concord_work_trace.history",
         "concord_work_trace.continuity",
+        "concord_work_trace.resume",
         "concord_work_trace.mutation_result",
         "concord_work_trace.relations",
         "concord_work_trace.project_retirement"
@@ -253,6 +254,26 @@
       "query_id": "C19.Continuity",
       "input_schema": "#/schemas/work_trace_continuity_input",
       "result_schema": "#/schemas/continuity_read_result",
+      "capability": "product_read",
+      "consequence": "read",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "request_id",
+        "pagination": "cursor",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_work_trace.resume",
+      "tool": "concord_work_trace",
+      "kind": "read",
+      "query_id": "C19.Resume",
+      "input_schema": "#/schemas/work_trace_resume_input",
+      "result_schema": "#/schemas/resume_read_result",
       "capability": "product_read",
       "consequence": "read",
       "metadata": {
@@ -577,6 +598,18 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/continuity_read_result",
       "closed": true
     },
+    "resume_read_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/resume_read_result",
+      "closed": true
+    },
+    "resume_read_document": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/resume_read_document",
+      "closed": true
+    },
+    "work_trace_resume_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_resume_input",
+      "closed": true
+    },
     "continuity_snapshot": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/continuity_snapshot",
       "closed": true
@@ -764,6 +797,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:939454e5660bb3d23082b737d74f7ffc03ef0415e82645cd41a5442ab1eb3624",
-  "digest": "sha256:e1f236ef79b7df614eb468a6c887d433d57c20477f5adabef45f11ab2aa450e9"
+  "payload_digest": "sha256:5e2269b6d5c65b55fcc5c74f858117539507b437c4c007d734d1767ad039a5ef",
+  "digest": "sha256:65f9ac07226bdd616d3ce2ed354d24e3a720befed9130c71cea87facab566360"
 }

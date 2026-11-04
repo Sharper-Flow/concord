@@ -563,6 +563,68 @@ class GeneratorWithoutBunTests(unittest.TestCase):
         self.assertEqual(attempts[0][:2], ["bun", "-e"])
 
 
+class ProducerFailureStderrBoundTests(unittest.TestCase):
+    """A failed Go producer surfaces its stderr, bounded.
+
+    An unbounded print buries the one-line root cause (for example
+    `undefined: containsString`) under every compiler error a broken merge
+    produced, so the failure message keeps a bounded head and says when it
+    truncated.
+    """
+
+    CAUSE = "internal/store/workflow_operator.go:438:12: undefined: containsString"
+    RUNAWAY = "noise line\n" * 2000
+
+    @staticmethod
+    def _failing_producer(stderr_text: str):
+        def failing(args, **kwargs):
+            if list(args[:2]) == ["go", "run"]:
+                raise subprocess.CalledProcessError(1, args, stderr=stderr_text)
+            return _REAL_SUBPROCESS_RUN(args, **kwargs)
+        return failing
+
+    def _check_main(self, stderr_text: str):
+        error = io.StringIO()
+        with (
+            unittest.mock.patch.object(generator.subprocess, "run", self._failing_producer(stderr_text)),
+            redirect_stdout(io.StringIO()),
+            redirect_stderr(error),
+            unittest.mock.patch.object(sys, "argv", ["generate-agent-contracts.py", "--check"]),
+        ):
+            code = generator.main()
+        return code, error.getvalue()
+
+    def test_a_failing_producer_failure_message_carries_bounded_stderr(self):
+        code, error = self._check_main(self.CAUSE + "\n" + self.RUNAWAY)
+        self.assertEqual(code, 1)
+        self.assertIn("agent contract generation failed", error)
+        self.assertIn("workflow-action-contracts", error, "the failure must keep naming the failed command")
+        self.assertIn(self.CAUSE, error, "the leading compiler cause must survive the bound")
+        self.assertIn("truncated", error, "a bounded print must say it truncated")
+        self.assertLessEqual(
+            len(error), generator.PRODUCER_STDERR_LIMIT + 300,
+            "the failure message must stay bounded when the producer stderr is huge",
+        )
+
+    def test_a_failing_producer_with_short_stderr_prints_it_whole(self):
+        code, error = self._check_main(self.CAUSE + "\n")
+        self.assertEqual(code, 1)
+        self.assertIn(self.CAUSE, error)
+        self.assertNotIn("truncated", error)
+
+    def test_a_failing_schema_guidance_run_bounds_its_embedded_stderr(self):
+        completed = subprocess.CompletedProcess(
+            ["go", "run", "./scripts/schema-guidance"], 1, stdout="", stderr=self.CAUSE + "\n" + self.RUNAWAY)
+        with unittest.mock.patch.object(generator.subprocess, "run", return_value=completed):
+            with self.assertRaises(ValueError) as raised:
+                generator.project_schema_guidance({"type": "object"}, ["a"])
+        message = str(raised.exception)
+        self.assertIn("schema guidance generation failed", message)
+        self.assertIn(self.CAUSE, message)
+        self.assertIn("truncated", message)
+        self.assertLessEqual(len(message), generator.PRODUCER_STDERR_LIMIT + 200)
+
+
 class ManifestTamperTests(unittest.TestCase):
     def assert_rejected(self, value):
         with self.assertRaises(ValueError):

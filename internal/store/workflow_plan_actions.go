@@ -61,10 +61,36 @@ func readWorkflowPreludeTx(ctx context.Context, tx *sql.Tx, workID string) (*wor
 		return nil, nil
 	}
 	var prelude workflowPreludeState
-	if err := json.Unmarshal([]byte(raw.String), &prelude); err != nil || prelude.Intake.Outcome == "" {
-		return nil, newFailure(KindInvariantViolation, "fold_event", "stored workflow prelude is invalid", false, "restore a verified backup")
+	if err := unmarshalWorkflowPrelude(raw.String, &prelude); err != nil {
+		return nil, err
 	}
 	return &prelude, nil
+}
+
+// unmarshalWorkflowPrelude decodes one stored prelude projection. A prelude
+// without an intake outcome is an invariant violation, not an empty prelude.
+func unmarshalWorkflowPrelude(raw string, prelude *workflowPreludeState) error {
+	if err := json.Unmarshal([]byte(raw), prelude); err != nil || prelude.Intake.Outcome == "" {
+		return newFailure(KindInvariantViolation, "fold_event", "stored workflow prelude is invalid", false, "restore a verified backup")
+	}
+	return nil
+}
+
+// workflowPreludeAdmitsClarify reports whether the recorded prelude admits
+// record_clarify: intake found open questions and no clarification exists.
+func workflowPreludeAdmitsClarify(prelude *workflowPreludeState) bool {
+	return prelude != nil && prelude.Intake.Outcome == WorkflowIntakeClarify && prelude.Intake.OpenQuestionsFound && prelude.Clarify == nil
+}
+
+// workflowPreludeAdmitsTypePick reports whether the recorded prelude admits
+// pick_type: intake proceeded without open questions, or clarification
+// resolved the questions intake found.
+func workflowPreludeAdmitsTypePick(prelude *workflowPreludeState) bool {
+	if prelude == nil {
+		return false
+	}
+	return (prelude.Intake.Outcome == WorkflowIntakeProceed && !prelude.Intake.OpenQuestionsFound) ||
+		(prelude.Intake.Outcome == WorkflowIntakeClarify && prelude.Intake.OpenQuestionsFound && prelude.Clarify != nil)
 }
 
 func writeWorkflowPreludeTx(ctx context.Context, tx *sql.Tx, workID string, prelude workflowPreludeState) error {
@@ -135,7 +161,7 @@ func foldWorkflowClarifyRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 	if err != nil {
 		return err
 	}
-	if prelude == nil || prelude.Intake.Outcome != WorkflowIntakeClarify || !prelude.Intake.OpenQuestionsFound || prelude.Clarify != nil {
+	if !workflowPreludeAdmitsClarify(prelude) {
 		return newFailure(KindInvalidOperation, "fold_event", "clarification is not available", false, "reread the workflow prelude")
 	}
 	plan, err := readWorkflowPlanTx(ctx, tx, event.SubjectID)
@@ -198,7 +224,7 @@ func foldWorkflowTypePicked(ctx context.Context, tx *sql.Tx, event Event) error 
 	if err != nil {
 		return err
 	}
-	if prelude == nil || !((prelude.Intake.Outcome == WorkflowIntakeProceed && !prelude.Intake.OpenQuestionsFound) || (prelude.Intake.Outcome == WorkflowIntakeClarify && prelude.Intake.OpenQuestionsFound && prelude.Clarify != nil)) {
+	if !workflowPreludeAdmitsTypePick(prelude) {
 		return newFailure(KindInvalidOperation, "fold_event", "workflow intake does not permit a type pick", false, "complete intake and clarification first")
 	}
 	old, err := readWorkflowPlanTx(ctx, tx, event.SubjectID)

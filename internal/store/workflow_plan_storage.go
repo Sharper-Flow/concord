@@ -22,6 +22,12 @@ func readWorkflowPlanTx(ctx context.Context, q queryer, workID string) (*Workflo
 	if !typ.Valid && !raw.Valid {
 		return nil, nil
 	}
+	return decodeStoredPlanTx(typ, raw)
+}
+
+// decodeStoredPlanTx decodes one stored plan projection and refuses the
+// half-written, malformed, or type-mismatched shapes as invariant violations.
+func decodeStoredPlanTx(typ, raw sql.NullString) (*WorkflowStepPlan, error) {
 	if !typ.Valid || !raw.Valid {
 		return nil, newFailure(KindInvariantViolation, "workflow_step_plan", "workflow type and plan are inconsistent", false, "restore a verified backup")
 	}

@@ -425,7 +425,6 @@ var fixtureStringCandidates = []string{
 	"actor:" + strings.Repeat("0", 64),
 	"7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e",
 	"finding:1:0",
-	"research:1:0",
 	"case:conformance",
 	"control:conformance",
 	"owner:conformance",
@@ -902,6 +901,7 @@ func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]str
 		"concord_work_trace.history":            `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
 		"concord_work_trace.relations":          `{"work_id":"` + fx.workID + `"}`,
 		"concord_work_trace.continuity":         `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
+		"concord_work_trace.resume":             `{"work_id":"` + fx.workID + `"}`,
 		"concord_work_trace.mutation_result":    `{"source_tool":"concord_work_transition","source_operation":"workflow_action","idempotency_key":"population-checkpoint","digest":"` + mutationDocumentDigest([]byte(record.ResultPayload)) + `"}`,
 		"concord_work_trace.project_retirement": `{"work_id":"` + fx.workID + `"}`,
 		"concord_domain.list":                   `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
@@ -914,6 +914,18 @@ func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]str
 // fixture seeds specific rows names them here; a producer that drops those rows
 // fails the test even though its payload still validates.
 var readPopulationWitnesses = map[string]func(t *testing.T, result json.RawMessage){
+	"concord_work_trace.resume": func(t *testing.T, result json.RawMessage) {
+		var page struct {
+			Type      string   `json:"type"`
+			NextSteps []string `json:"next_steps"`
+		}
+		if err := json.Unmarshal(result, &page); err != nil {
+			t.Fatal(err)
+		}
+		if page.Type != "change" || len(page.NextSteps) != 1 || page.NextSteps[0] != "plan" {
+			t.Fatalf("resume read lost the seeded plan frontier: %s", result)
+		}
+	},
 	"concord_work_trace.mutation_result": func(t *testing.T, result json.RawMessage) {
 		var page mutationFragmentPage
 		if err := json.Unmarshal(result, &page); err != nil {
@@ -964,6 +976,7 @@ var readPopulationRows = map[string][]string{
 	"concord_work_trace.history":            {"entries"},
 	"concord_work_trace.relations":          {"edges"},
 	"concord_work_trace.continuity":         {"boundaries.items"},
+	"concord_work_trace.resume":             {"steps"},
 	"concord_work_trace.project_retirement": {"blockers"},
 	"concord_domain.list":                   {"domains"},
 	"concord_domain.detail":                 {"current_law", "relations", "observations"},

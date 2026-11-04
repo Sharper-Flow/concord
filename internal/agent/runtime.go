@@ -948,6 +948,8 @@ func (r runtime) readResult(ctx context.Context, base agentcontract.Envelope, in
 		return r.readTraceHistory(ctx, base, input)
 	case "concord_work_trace.continuity":
 		return r.readTraceContinuity(ctx, base, input)
+	case "concord_work_trace.resume":
+		return r.readTraceResume(ctx, base, input)
 	case "concord_work_trace.mutation_result":
 		return r.readMutationResult(ctx, base, input)
 	case "concord_work_trace.relations":

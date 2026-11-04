@@ -595,6 +595,8 @@ func TestOutcomeRetirementHistoricalDecoderParity(t *testing.T) {
 		{name: "decision record with malformed approval ref", kind: "outcome", payload: outcome(historicalDecisionRecord(t, "Which?", map[string]any{"operator_approval_ref": "operator-in-session"})), refused: true},
 		{name: "decision record with null approval ref", kind: "outcome", payload: outcome(historicalDecisionRecord(t, "Which?", map[string]any{"operator_approval_ref": nil})), refused: true},
 		{name: "decision record with non-string approval ref", kind: "outcome", payload: outcome(historicalDecisionRecord(t, "Which?", map[string]any{"operator_approval_ref": 7})), refused: true},
+		{name: "decision record with approval ref and case-folded null", kind: "outcome", payload: outcome(strings.TrimSuffix(historicalDecisionRecord(t, "Which?", nil), "}") + `,"operator_approval_ref":"approval:operator-in-session","Operator_Approval_Ref":null}`)},
+		{name: "decision record with non-string approval ref before case-folded ref", kind: "outcome", payload: outcome(strings.TrimSuffix(historicalDecisionRecord(t, "Which?", nil), "}") + `,"operator_approval_ref":7,"Operator_Approval_Ref":"approval:operator-in-session"}`), refused: true},
 		{name: "decision contradicting its only allowed token", kind: "outcome", payload: outcome(historicalDecisionRecord(t, "Which?", map[string]any{"decision": "insufficient_evidence", "unknowns": []string{"u"}, "required_to_decide": []string{"r"}})), refused: true},
 		{name: "check subject at 128 characters", kind: "check", payload: check("spec:" + strings.Repeat("a", 123))},
 		{name: "check subject above 128 characters", kind: "check", payload: check("spec:" + strings.Repeat("a", 124)), refused: true},

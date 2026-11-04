@@ -369,29 +369,9 @@ func validateHistoricalNonPresence(kind string, fields map[string]json.RawMessag
 		seen[token] = true
 	}
 	// A JSON null decision_record decoded to an absent record historically.
-	// Writers before the approval challenge retirement required
-	// operator_approval_ref; later writers omitted it. Both shapes are stored.
-	var decision *struct {
-		Question            string          `json:"question"`
-		OptionsConsidered   []string        `json:"options_considered"`
-		Decision            string          `json:"decision"`
-		Rationale           string          `json:"rationale"`
-		Consequences        []string        `json:"consequences"`
-		Inputs              []string        `json:"inputs"`
-		POCFindings         string          `json:"poc_findings"`
-		Supersedes          *string         `json:"supersedes"`
-		SupersededBy        *string         `json:"superseded_by"`
-		Unknowns            []string        `json:"unknowns"`
-		RequiredToDecide    []string        `json:"required_to_decide"`
-		ReviewerActorRef    string          `json:"reviewer_actor_ref"`
-		OperatorApprovalRef json.RawMessage `json:"operator_approval_ref"`
-	}
-	if raw, exists := fields["decision_record"]; exists {
-		decoder := json.NewDecoder(bytes.NewReader(raw))
-		decoder.DisallowUnknownFields()
-		if decoder.Decode(&decision) != nil {
-			return fmt.Errorf("invalid decision record")
-		}
+	decision, err := decodeHistoricalDecision(fields["decision_record"])
+	if err != nil {
+		return err
 	}
 	if decision != nil {
 		if len(decision.Question) < 1 || len(decision.Question) > 4096 ||
@@ -403,7 +383,6 @@ func validateHistoricalNonPresence(kind string, fields map[string]json.RawMessag
 			len(decision.POCFindings) < 1 || len(decision.POCFindings) > 4096 ||
 			len(decision.Unknowns) > 16 || len(decision.RequiredToDecide) > 16 ||
 			!historicalOutcomeActor.MatchString(decision.ReviewerActorRef) ||
-			!historicalApprovalRef(decision.OperatorApprovalRef) ||
 			(decision.Decision == "insufficient_evidence" && (len(decision.Unknowns) == 0 || len(decision.RequiredToDecide) == 0)) ||
 			(len(tokens) == 1 && tokens[0] != decision.Decision) {
 			return fmt.Errorf("invalid decision record")
@@ -419,10 +398,46 @@ func validateHistoricalNonPresence(kind string, fields map[string]json.RawMessag
 	return nil
 }
 
-func historicalApprovalRef(raw json.RawMessage) bool {
+type historicalDecision struct {
+	Question          string   `json:"question"`
+	OptionsConsidered []string `json:"options_considered"`
+	Decision          string   `json:"decision"`
+	Rationale         string   `json:"rationale"`
+	Consequences      []string `json:"consequences"`
+	Inputs            []string `json:"inputs"`
+	POCFindings       string   `json:"poc_findings"`
+	Supersedes        *string  `json:"supersedes"`
+	SupersededBy      *string  `json:"superseded_by"`
+	Unknowns          []string `json:"unknowns"`
+	RequiredToDecide  []string `json:"required_to_decide"`
+	ReviewerActorRef  string   `json:"reviewer_actor_ref"`
+}
+
+// decodeHistoricalDecision admits a decision record in either stored shape.
+// Writers before the approval challenge retirement required
+// operator_approval_ref and decoded it into a string; later writers refused
+// the field. Each shape decodes with its own writer's types, so case-folded
+// keys, nulls and type errors resolve exactly as that writer resolved them.
+func decodeHistoricalDecision(raw json.RawMessage) (*historicalDecision, error) {
 	if raw == nil {
-		return true
+		return nil, nil
 	}
-	var ref string
-	return !bytes.Equal(raw, []byte("null")) && json.Unmarshal(raw, &ref) == nil && historicalOutcomeApproval.MatchString(ref)
+	var current *historicalDecision
+	if decodeHistoricalDecisionShape(raw, &current) == nil {
+		return current, nil
+	}
+	var approved *struct {
+		historicalDecision
+		OperatorApprovalRef string `json:"operator_approval_ref"`
+	}
+	if decodeHistoricalDecisionShape(raw, &approved) != nil || approved == nil || !historicalOutcomeApproval.MatchString(approved.OperatorApprovalRef) {
+		return nil, fmt.Errorf("invalid decision record")
+	}
+	return &approved.historicalDecision, nil
+}
+
+func decodeHistoricalDecisionShape(raw json.RawMessage, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(target)
 }

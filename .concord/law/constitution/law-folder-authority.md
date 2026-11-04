@@ -76,7 +76,7 @@ projections, rebuild and publication-observation operations confer no
 authority and are not retained as a replacement service. No law-search
 wrapper replaces `concord_knowledge`.
 
-Workflow mandates, Domain organization and research packs retain their
+Workflow mandates and Domain organization retain their
 owning semantics. Workflow contracts store no law or registry freshness hashes.
 A historical work note retains its verified home,
 path, commit and content-hash linkage on the retained-work read surface; it

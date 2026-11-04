@@ -18,21 +18,12 @@ func seedCriterionAssociationAtStep(t *testing.T, workID, step string) (workflow
 	}
 	route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, step, []string{}, []string{"artifact"}, predicates...)
 	t.Cleanup(func() { _ = route.store.Close() })
+	if step != "conclude" {
+		return route, ""
+	}
 	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
-	pack := seedResearchContextPack(t, f, "late-association-pack")
-	bindResearchPack(t, f, pack.PackID, 1, true)
-	// The fixture registry's Product root is "product-root:product"; the
-	// Product-wide rationale is valid only on that root Domain.
-	selection := researchSelectionEntry(pack.PackID, 1, "f2", "product-root:product")
-	selection["product_wide_rationale"] = "The selected finding supports the Product-wide research criteria."
-	if err := f.recordWorkContext(t, map[string]any{"research_finding_refs": []map[string]any{selection}}); err != nil {
-		t.Fatal(err)
-	}
-	view, err := readWorkContextView(t.Context(), f.store.db, workID)
-	if err != nil || view == nil || len(view.ResearchFindings) != 1 {
-		t.Fatalf("selected research proof: %+v err=%v", view, err)
-	}
-	return route, view.ResearchFindings[0].ViewID
+	proof := qAssociateCurrentProofAt(t, f, "conclude", "", false)
+	return route, proof.receipt
 }
 
 func criterionAssociationPayload(ref string, predicates ...string) json.RawMessage {
@@ -80,16 +71,29 @@ func TestCriterionAssociationAtConclusionBeforeConfirmation(t *testing.T) {
 	if step := workflowPlanFixtureFrontier(t, f.store, workID); step != "conclude" {
 		t.Fatalf("confirmation moved explicit plan frontier to %s", step)
 	}
+	state, err := loadWorkflowReviewState(t.Context(), f.store.db, workID)
+	if err != nil || state.Accepted == nil || state.Candidate == nil {
+		t.Fatalf("accepted review=%+v err=%v", state.Accepted, err)
+	}
+	completion := mustJSONValue(map[string]any{"step_id": "conclude", "note": "research reviewed", "reviewer": "concord-review", "result": "pass", "commit": state.Candidate.Commit, "link": state.Accepted.ReportRef})
+	if err := runVerdictActionAs(t, f.store, workID, "complete_step", completion, 0, f.owner); err != nil {
+		t.Fatalf("complete reviewed conclusion: %v", err)
+	}
+	if err := runVerdictActionAs(t, f.store, workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), 0, f.owner); err != nil {
+		t.Fatalf("complete research: %v", err)
+	}
+	var lifecycle string
+	if err := f.store.db.QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil || lifecycle != "completed" {
+		t.Fatalf("research lifecycle=%q err=%v", lifecycle, err)
+	}
 }
 
 func TestCriterionAssociationSurvivesUnchangedContractDigest(t *testing.T) {
 	const workID = "criterion-digest-survival"
-	f, ref := seedLateCriterionAssociation(t, workID)
+	f, ref := seedCriterionAssociationAtStep(t, workID, "conclude")
 	if err := runVerdictActionAs(t, f.store, workID, "record_verdict", criterionAssociationPayload(ref, "predicate:first", "predicate:second"), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
-	// Contract projection changes isolate the association reader from the
-	// unrelated contract-recovery admission. No association row is rewritten.
 	for _, tc := range []struct {
 		version int
 		payload string
@@ -99,12 +103,10 @@ func TestCriterionAssociationSurvivesUnchangedContractDigest(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { _ = tx.Rollback() })
 		if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tx.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains)
-			SELECT work_id,?,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=1`, tc.version, workID); err != nil {
+		if _, err := tx.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains) SELECT work_id,?,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=1`, tc.version, workID); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := tx.Exec(`UPDATE workflow_contracts SET superseded_by=? WHERE work_id=? AND contract_version<?`, tc.version, workID, tc.version); err != nil {
@@ -127,8 +129,16 @@ func TestCriterionAssociationSurvivesUnchangedContractDigest(t *testing.T) {
 			if association.ContractVersion != 1 {
 				t.Fatal("association provenance was rewritten")
 			}
-			if err := verifyWorkflowCriterionAssociation(t.Context(), f.store.db, workID, association); err != nil {
+			err := verifyWorkflowCriterionAssociation(t.Context(), f.store.db, workID, association)
+			if tc.count == 2 && err != nil {
 				t.Fatalf("unchanged criterion lost its original proof: %v", err)
+			}
+			// A changed sibling criterion breaks report currency for the whole
+			// contract, so the unchanged criterion no longer fully verifies. Its
+			// own proof must stay original: the refusal must be report currency,
+			// never a rewritten criterion digest.
+			if tc.count != 2 && !hasFailureKind(err, KindMissingEvidence) {
+				t.Fatalf("contract %d: unchanged criterion proof = %v", tc.version, err)
 			}
 		}
 		err = runVerdictActionAs(t, f.store, workID, "confirm_premise", json.RawMessage(`{}`), 0, f.owner)

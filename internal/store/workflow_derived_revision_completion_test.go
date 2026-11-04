@@ -23,11 +23,24 @@ func TestCompletionDoesNotRecheckMandatedLaw(t *testing.T) {
 	commitFixtureLawFile(t, home, "spec:one", derivedRevisionConflictLaw)
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/researcher", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	version := seedDerivedRevisionWorkflow(t, s, workID, owner)
-	approval := json.RawMessage(`{"premise":"Bring the derived law into conformance with the legislated one.","spec_mandate":["spec:legislated","spec:one"],"law_modifies":["spec:one"],"required_evidence":["artifact"],"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["report_recorded"]}}]}`)
+	approval := json.RawMessage(`{"premise":"Bring the derived law into conformance with the legislated one.","spec_mandate":["spec:legislated","spec:one"],"law_modifies":["spec:one"],"required_evidence":["artifact","verification"],"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["report_recorded"]}}]}`)
 	if err := runDerivedLawApproval(t, s, workID, version, owner, approval); err != nil {
 		t.Fatalf("the derived revision was not admitted at approval: %v", err)
 	}
-	// Completion is plan-gated, not gated on proof or premise confirmation.
+	moveWorkflowPlanFixtureFrontier(t, s, workID, "conclude")
+	for _, ref := range []string{"spec:legislated", "spec:one"} {
+		if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": ref}), 0, owner); err != nil {
+			t.Fatalf("bind mandated law %s: %v", ref, err)
+		}
+	}
+	f := workContextFixture{store: s, workID: workID, owner: owner}
+	proof := qAssociateCurrentProofAt(t, f, "conclude", "", false)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", criterionAssociationPayload(proof.receipt, "predicate:primary"), 0, owner); err != nil {
+		t.Fatalf("associate proof: %v", err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "confirm_premise", json.RawMessage(`{}`), 0, owner); err != nil {
+		t.Fatalf("confirm premise: %v", err)
+	}
 	completeWorkflowPlanFixture(t, s, workID)
 	// Completion reads no law: an unreadable mandated law cannot refuse it.
 	commitFixtureLawFile(t, home, "spec:one", "---\nnot json\n---\n\nbroken\n")

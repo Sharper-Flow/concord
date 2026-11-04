@@ -138,22 +138,13 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 func TestRecordDeliveryRequiresAcceptedReview(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
-	s, service, workID := f.store, f.service, researchScopeConsumer
-	root, _ := seedResearchContextDomainRegistry(t, f)
-	fields := workflowContractFieldsFixture()
-	binding := workflowArchitectureBindingFixture()
-	binding["home_domain_id"] = root
-	binding["affected_domain_ids"] = []string{root}
-	fields["architecture_binding"] = binding
-	approved := researchScopeInvoke(t, f, "workflow_action", map[string]any{"work_id": workID, "expected_version": workVersion(t, s, workID), "action_id": "approve_contract", "fields": fields, "idempotency_key": "delivery-unreviewed-contract"})
-	if approved.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("approve contract: %+v", approved.Error)
-	}
-	env, err := researchScopeEnvelope(f)
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
+	env := mutationEnvelope(grant, scopeVersion)
+	workID, _ := ekbWorkAtExecute(t, ctx, s, service, env, "delivery-unreviewed")
 	var plan store.WorkflowStepPlan
 	if err := json.Unmarshal([]byte(agentPlanFixtureJSON(t, store.WorkflowStepPlanChange, "implement")), &plan); err != nil {
 		t.Fatal(err)

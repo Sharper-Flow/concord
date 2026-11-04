@@ -1,7 +1,7 @@
 ---
 {
   "id": "CD-0129",
-  "title": "Premise confirmation and research at contract approval",
+  "title": "Premise confirmation and architecture at contract approval",
   "authority": {
     "tier": "derived"
   },
@@ -15,12 +15,11 @@
   ]
 }
 ---
-# CD-0129: Premise confirmation and research at contract approval
+# CD-0129: Premise confirmation and architecture at contract approval
 
 - **Status:** Accepted
 - **Date:** 2026-09-09
-- **Scope:** Coordinator premise confirmation and contract approval while a
-  plan holds recorded open questions
+- **Scope:** Coordinator premise confirmation and architecture at contract approval
 - **Related:** CD-0113, and issues #903, #1010
 - **Preserves:** Contract authority, architecture binding at approval,
   evidence provenance, and the recorded facts the store keeps
@@ -41,15 +40,6 @@ deliverables. It records the authenticated coordinator, with no semantic choice
 or human decision-context digest. Operator decisions follow CD-0243 in
 conversation; the step machine projects no operator question or withholding.
 
-### D3. Open questions require bound research at contract approval
-
-`approve_contract` refuses while the item's latest durable context
-checkpoint records pending questions and no research pack revision is bound
-to the item. The trigger is recorded state that `checkpoint_context`
-already requires, not a planner judgement at gate time, because a planner
-that decides research is unnecessary would otherwise pass unchecked.
-Contract approval admits when the questions close or a revision binds.
-
 ### D4. Architecture stays where it already was
 
 The architecture obligation stays at approval for Product-changing work,
@@ -59,7 +49,7 @@ This record adds no approval gate for architecture.
 ## Verification
 
 ```text
-go test ./internal/store/ -run 'TestPendingQuestionsRequireBoundResearchRevision|TestEngineeringConfirmation'
+go test ./internal/store/ -run 'TestEngineeringConfirmation'
 go test ./internal/store/ ./internal/agent/...
 cd adapter/opencode && bun test dispatch_route_end_to_end
 ```

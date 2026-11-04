@@ -101,9 +101,6 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, planType Wor
 	if err := ensureInitialWorkflowContractApproval(ctx, tx, request.WorkID, fields); err != nil {
 		return nil, err
 	}
-	if err := requireResearchForPendingQuestions(ctx, tx, request.WorkID); err != nil {
-		return nil, err
-	}
 	contract, err := workflowContractContent(ctx, tx, planType, request.WorkID, fields, request.LawModifies)
 	if err != nil {
 		return nil, err
@@ -498,11 +495,7 @@ func associateWorkflowVerdictReceiptsTx(ctx context.Context, tx queryer, workID,
 	if stateErr != nil {
 		return nil, stateErr
 	}
-	research, err := workflowResearchCriterionFamily(ctx, tx, workID)
-	if err != nil {
-		return nil, err
-	}
-	if state.Candidate == nil && !research {
+	if state.Candidate == nil {
 		return nil, reviewFailure(KindMissingEvidence, "criterion association requires a current integrated candidate", "accept the observed candidate before associating its proof")
 	}
 	dependencies, err := workflowReviewDependencies(ctx, tx, workID)
@@ -581,10 +574,10 @@ func validateWorkflowCoordinatorConfirmationTx(ctx context.Context, tx *sql.Tx, 
 
 // workflowConfirmationDeliverablesTx holds the actor-independent confirmation
 // admission facts: every approved predicate proved, every required evidence
-// kind and mandate bound, and a current ready Review outside research. The
+// kind and mandate bound, and a current ready Review. The
 // write validates them here; reads (preflight, the work pin) ask the same
 // question so no surface advertises a confirmation the fold refuses.
-func workflowConfirmationDeliverablesTx(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, workID string) error {
+func workflowConfirmationDeliverablesTx(ctx context.Context, tx *sql.Tx, _ WorkflowStepPlanType, workID string) error {
 	contract, err := workflowCompletionContractRows(ctx, tx, workID)
 	if err != nil {
 		return err
@@ -614,14 +607,11 @@ func workflowConfirmationDeliverablesTx(ctx context.Context, tx *sql.Tx, planTyp
 	if len(outstanding) != 0 {
 		return newFailure(KindMissingEvidence, "workflow_action", fmt.Sprintf("contract evidence requirements are not bound: kind %q reference %q", outstanding[0].Kind, outstanding[0].Reference), false, "bind required evidence")
 	}
-	if planType != WorkflowStepPlanResearch {
-		review, err := loadWorkflowReviewState(ctx, tx, workID)
-		if err != nil {
-			return err
-		}
-		return workflowAdmitReview(review)
+	review, err := loadWorkflowReviewState(ctx, tx, workID)
+	if err != nil {
+		return err
 	}
-	return nil
+	return workflowAdmitReview(review)
 }
 
 func workflowLinkSuccessorEvents(ctx context.Context, tx *sql.Tx, _ WorkflowStepPlanType, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {

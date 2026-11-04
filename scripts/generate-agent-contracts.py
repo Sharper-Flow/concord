@@ -614,11 +614,7 @@ RETAINED_OUTPUT_TWINS = {
     "workflow_law_context": ("/properties/registry_path/maxLength",),
     "workflow_law_context_law": ("/properties/path/maxLength",),
     "work_context_finding_view": ("/properties/source_event_id/maxLength",),
-    "research_source": tuple(f"/properties/{name}/maxLength" for name in ("locator", "title", "publisher_or_author", "published_at", "accessed_at")),
-    "work_context_research_finding": ("/properties/statement/maxLength", "/properties/source_ids/maxItems", "/properties/source_ids/items/maxLength"),
-    "work_context_research_finding_view": ("/oneOf/0/properties/selection_event_id/maxLength", "/oneOf/0/properties/sources/maxItems", "/oneOf/1/properties/selection_event_id/maxLength"),
     "work_context_view": (),
-    "research_scopes": (),
     "worker_oracle_finding": (),
 }
 # Caps a retained twin raises: the store's retained producer exceeds the cap
@@ -627,24 +623,14 @@ RETAINED_OUTPUT_TWINS = {
 # proves, while the packet keeps the admitted cap.
 RETAINED_OUTPUT_RAISES = {
     "workflow_law_context_law": {"/properties/criteria/maxItems": 1000},
-    "research_scopes": {f"/properties/{name}/maxItems": 100 for name in ("product_ids", "project_ids", "domain_ids", "tag_ids")},
     "worker_oracle_finding": {"/properties/owner_id/maxLength": 133},
 }
-# References a retained twin points at a wider definition: the retained
-# producers admit identities above the lane contract's bounded id
-# (validateResearchScopes admits 256-rune scope IDs; raw retained research
-# source IDs exceed the id bound), while packet dispatch keeps that id.
-RETAINED_OUTPUT_RETYPES = {
-    "research_scopes": {f"/properties/{name}/items/$ref": "#/$defs/knowledge_id" for name in ("product_ids", "project_ids", "domain_ids", "tag_ids")},
-    "research_source": {"/properties/source_id/$ref": "#/$defs/research_record_id"},
-}
+RETAINED_OUTPUT_RETYPES = {}
 # The read parents that replay stored values, each with the twinned
 # definitions it references directly.
 RETAINED_OUTPUT_PARENTS = {
     "continuity_snapshot": ("workflow_law_context", "work_context_view"),
     "work_summary": ("workflow_law_context",),
-    "research_revision": ("research_source",),
-    "research_finding": ("research_scopes",),
     "work_pin": ("work_context_view",),
 }
 
@@ -1188,13 +1174,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
         "action_id": {"$ref": "#/$defs/id"},
         "idempotency_key": {"$ref": "#/$defs/id"},
         "evidence": {"type": "array", "maxItems": 32, "items": {"$ref": "#/$defs/evidence"}},
-        "research_bindings": {
-            "type": "array", "minItems": 1, "maxItems": 16,
-            "items": {"type": "object", "additionalProperties": False, "required": ["pack_id", "revision", "use_role", "required"], "properties": {
-                "pack_id": {"$ref": "#/$defs/id"}, "revision": {"type": "integer", "minimum": 1},
-                "use_role": {"type": "string", "enum": ["context", "design_input", "verification_basis", "decision_basis"]}, "required": {"type": "boolean"},
-            }},
-        },
         "requested_budget_seconds": {"$ref": "#/$defs/requested_budget_seconds"},
     }
     common_required = ["work_id", "expected_version", "action_id", "idempotency_key"]
@@ -1486,7 +1465,7 @@ def validate(manifest: dict) -> str:
     # The operation surface is closed: the manifest must enumerate the full
     # published set exactly, and the count changes only with an accepted
     # surface change.
-    expected_operations = 31
+    expected_operations = 24
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
@@ -1718,13 +1697,6 @@ def fixtures_projection(manifest: dict, public_variants: list[dict]) -> str:
         if input_name == "work_transition_action_input":
             input_sample_schema = first_variant
         valid_input=sample(input_sample_schema);valid_result=sample(payload[result_name])
-        if result_name == "research_retire_result" and isinstance(valid_result, dict):
-            # A real retirement run reclassifies every eligible candidate to
-            # retired before the result returns, so eligible only appears in a
-            # dry run. Keep the sampled eligible candidate and flip the run to
-            # dry; dry_run=false with eligible is a result the core can never
-            # produce.
-            valid_result["dry_run"]=True
         invalid_input=dict(valid_input) if isinstance(valid_input,dict) else {"value":valid_input};invalid_input["unknown"]=True
         invalid_result=dict(valid_result) if isinstance(valid_result,dict) else {"value":valid_result};invalid_result["unknown"]=True
         input_invalid=[case for case in [invalid_input,nested_unknown(valid_input),oversized_case(valid_input,input_sample_schema)] if case != valid_input]

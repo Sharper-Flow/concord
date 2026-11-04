@@ -71,7 +71,6 @@ func seedReadPopulationFixture(t *testing.T) readPopulationFixture {
 	seedReadPopulationFocusWork(t, s)
 	fx.registryHash = fx.seedKnowledgeHome(t)
 	fx.seedFocusWorkflow(t)
-	fx.seedResearchPack(t)
 
 	fx.service, _, fx.grant = newAuthorizedService(t, s, "client-1", "human-1",
 		[]agentcontract.Capability{"product_read", "work_define", "work_transition", "work_relate"},
@@ -289,44 +288,6 @@ func (fx readPopulationFixture) seedFocusWorkflow(t *testing.T) {
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES(?,1,?)`, fx.workID, readPopulationChildDomain)
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES(?,1,?)`, fx.workID, readPopulationDecision)
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:population',0,'exists','{"kind":"exists","surface":"go_test:internal/agent","subjects":["work-population"]}')`, fx.workID)
-}
-
-// seedResearchPack authors a research pack through the store's own mutation
-// API and binds it to the focus work item, so the research read resolves by
-// owner.
-func (fx readPopulationFixture) seedResearchPack(t *testing.T) {
-	t.Helper()
-	ctx := context.Background()
-	pack, err := createResearchPack(ctx, fx.store, store.CreateResearchPackRequest{
-		OwnerWorkID: fx.workID, Freshness: store.ResearchCurrent,
-		Revision: store.ResearchRevisionInput{
-			Question: "does every read hold at population scale?",
-			ScopeIn:  json.RawMessage(`[]`), ScopeOut: json.RawMessage(`[]`), DoneWhen: json.RawMessage(`[]`),
-			Method: "source_code",
-		},
-	})
-	if err != nil {
-		t.Fatalf("create research pack: %v", err)
-	}
-	if err := recordResearchSource(ctx, fx.store, store.ResearchSourceRequest{
-		PackID: pack.PackID, ExpectedVersion: 1,
-		Source: store.ResearchSource{
-			SourceID: "source-population", Kind: store.SourceCode, Locator: "internal/agent/result_payload_population_test.go",
-			Title: "read population fixture", PublisherOrAuthor: "concord",
-			PublishedAt: "2026-09-01T00:00:00Z", AccessedAt: "2026-09-02T00:00:00Z",
-		},
-	}); err != nil {
-		t.Fatalf("add research source: %v", err)
-	}
-	if err := recordResearchFinding(ctx, fx.store, store.ResearchFindingRequest{
-		PackID: pack.PackID, ExpectedVersion: 2,
-		Finding: store.ResearchFinding{
-			FindingID: "finding-population", Kind: store.FindingObservation, Statement: "the population fixture answers every read",
-			Confidence: store.ConfidenceHigh, Freshness: store.ResearchCurrent, Status: store.FindingActive,
-		},
-	}); err != nil {
-		t.Fatalf("add research finding: %v", err)
-	}
 }
 
 // The inspect read walks an actual Git worktree and the retained entry projection.

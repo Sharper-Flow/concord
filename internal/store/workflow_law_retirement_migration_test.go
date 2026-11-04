@@ -64,6 +64,9 @@ func TestLawAttributionVerifiedSnapshotUpgrade(t *testing.T) {
 		t.Fatalf("applied=%v, want %v", report.Applied, wantApplied)
 	}
 	for table, expected := range retained {
+		if retirementUpgradeResearchTable(t, db, table) {
+			continue
+		}
 		switch table {
 		case "schema", "schema_migrations", "store_revision", "workflow_law_baselines", "work_messages", "work_observations", "workflow_correction_state", "workflow_artifact_actions":
 			continue

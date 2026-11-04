@@ -161,7 +161,7 @@ func TestWorkflowActionPreflightRefusesUndeclaredActionAtCheckpoint(t *testing.T
 func TestVerdictOmittingContractVersionResolvesActiveContract(t *testing.T) {
 	t.Parallel()
 	const id = "verdict-version-default-supersede"
-	f, ref := seedCriterionAssociationAtStep(t, id, "investigate")
+	f, _ := seedCriterionAssociationAtStep(t, id, "investigate")
 	successor := pContractSuccessor(t, f.store, id, "corrected premise")
 	predicates := successor["outcome_predicates"].([]any)
 	successor["outcome_predicates"] = append(predicates, map[string]any{"predicate_id": "predicate:added", "ordinal": 2, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}})
@@ -172,7 +172,7 @@ func TestVerdictOmittingContractVersionResolvesActiveContract(t *testing.T) {
 	// A revision stales nothing by itself (CD-0242 D7); a verdict
 	// before research production is refused because investigate does not
 	// declare it.
-	if err := runVerdictActionAs(t, f.store, id, "record_verdict", criterionAssociationPayload(ref, "predicate:added"), 0, f.owner); !hasFailureKind(err, KindIllegalLifecycleTransition) {
+	if err := runVerdictActionAs(t, f.store, id, "record_verdict", criterionAssociationPayload("report:pending", "predicate:added"), 0, f.owner); !hasFailureKind(err, KindIllegalLifecycleTransition) {
 		t.Fatalf("successor association before research production=%v, want the off-step refusal", err)
 	}
 	if contractCorrectionEffectSnapshot(t, f.store, id) != before {
@@ -187,6 +187,8 @@ func TestVerdictOmittingContractVersionResolvesActiveContract(t *testing.T) {
 		t.Fatalf("successor research report: %v", err)
 	}
 	reviewGateRequireStep(t, f.store, id, "conclude")
+	proof := qAssociateCurrentProofAt(t, workContextFixture{store: f.store, workID: id, owner: f.owner, operator: f.operator}, "conclude", "", false)
+	ref := proof.receipt
 	if err := runVerdictActionAs(t, f.store, id, "record_verdict", criterionAssociationPayload(ref, "predicate:first", "predicate:second", "predicate:added"), 0, f.owner); err != nil {
 		t.Fatalf("association without contract_version: %v", err)
 	}

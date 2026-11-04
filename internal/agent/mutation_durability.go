@@ -21,12 +21,6 @@ type mutationDurability struct {
 var mutationDurabilityDeclarations = map[string]mutationDurability{
 	"concord_work_define.capture":                     {},
 	"concord_work_define.revise_intent":               {},
-	"concord_work_define.research_pack_create":        {},
-	"concord_work_define.research_revision_append":    {},
-	"concord_work_define.research_finding_record":     {},
-	"concord_work_define.research_source_record":      {},
-	"concord_work_define.research_freshness_set":      {},
-	"concord_work_define.research_retire":             {},
 	"concord_work_define.issue_link_record":           {},
 	"concord_work_transition.lifecycle":               {},
 	"concord_work_transition.remove":                  {initial: true, replay: true},

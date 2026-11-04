@@ -42,12 +42,6 @@ type WorkflowActionExecutionRequest struct {
 	LawModifies          []string
 	ContractDigest       string
 	Now                  time.Time
-	// ResearchBindings declares the pack revisions this action's work item
-	// starts relying on (CD-0216). The engine binds each consumer and proves
-	// freshness fail-closed inside this action's transaction; there is no
-	// standalone binding operation, because reliance declared outside the
-	// boundary that consumes it is unproven reliance.
-	ResearchBindings []ResearchBindingDeclaration
 }
 
 type WorkflowActionExecutionResult struct {
@@ -188,9 +182,6 @@ func applyWorkflowPlanActionTx(ctx context.Context, tx *sql.Tx, scope *writeScop
 	}
 	evidenceRefs, err := recordWorkflowOperationTx(ctx, tx, request, typeName, "", currentStep)
 	if err != nil {
-		return result, err
-	}
-	if err := BindResearchRelianceTx(ctx, tx, request.WorkID, request.ResearchBindings, request.Now); err != nil {
 		return result, err
 	}
 	version := request.ExpectedVersion
@@ -497,34 +488,6 @@ func workflowFieldStrings(fields map[string]json.RawMessage, name string) []stri
 		_ = json.Unmarshal(fields[name], &values)
 	}
 	return values
-}
-
-// requireResearchForPendingQuestions prevents contract approval from closing
-// a plan while its latest durable context checkpoint still has open questions.
-func requireResearchForPendingQuestions(ctx context.Context, q queryer, workID string) error {
-	var questionsJSON string
-	err := q.QueryRowContext(ctx, `SELECT pending_questions FROM workflow_context_checkpoints WHERE work_id=? ORDER BY checkpoint_sequence DESC LIMIT 1`, workID).Scan(&questionsJSON)
-	if err == sql.ErrNoRows {
-		return nil
-	}
-	if err != nil {
-		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect pending workflow questions", true, "retry once the workflow context is readable", err)
-	}
-	var questions []string
-	if err := json.Unmarshal([]byte(questionsJSON), &questions); err != nil {
-		return newFailure(KindInvariantViolation, "workflow_action", "pending workflow questions are malformed", false, "restore a verified backup into a new path with concord restore, then swap")
-	}
-	if len(questions) == 0 {
-		return nil
-	}
-	var bound int
-	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM active_research_consumers WHERE consumer_work_id=?)`, workID).Scan(&bound); err != nil {
-		return wrapFailure(KindUnavailable, "workflow_action", "cannot inspect research bound to pending workflow questions", true, "retry once the research projection is readable", err)
-	}
-	if bound != 0 {
-		return nil
-	}
-	return newFailure(KindMissingEvidence, "workflow_action", "contract approval requires a research pack revision for recorded pending questions", false, "add research_bindings to the approving action to bind a research pack revision to the work item before approving the contract")
 }
 
 func nullableWorkflowText(value string) any {

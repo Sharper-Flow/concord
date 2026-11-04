@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +19,30 @@ import (
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
+
+func TestWorkflowActionFieldsNormalization(t *testing.T) {
+	for _, input := range []string{`{"finding_refs":["finding-a"]}`, `[{"name":"finding_refs","value":["finding-a"]}]`} {
+		payload, err := workflowActionFields(json.RawMessage(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got struct {
+			FindingRefs []string `json:"finding_refs"`
+		}
+		if err := json.Unmarshal(payload, &got); err != nil || len(got.FindingRefs) != 1 || got.FindingRefs[0] != "finding-a" {
+			t.Fatalf("normalized fields = %s, err = %v", payload, err)
+		}
+	}
+	for _, input := range []string{
+		`{"finding_refs":[],"finding_refs":[]}`,
+		`[{"name":"finding_refs","value":[]},{"name":"finding_refs","value":[]}]`,
+		`{"context_findings":[{"id":"a","id":"b"}]}`,
+	} {
+		if _, err := workflowActionFields(json.RawMessage(input)); err == nil {
+			t.Fatalf("ambiguous fields passed normalization: %s", input)
+		}
+	}
+}
 
 type collectionReadPointer struct {
 	Tool      string          `json:"tool"`
@@ -681,90 +704,6 @@ func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) 
 		"finding_refs":     []string{},
 		"context_findings": findings,
 	})
-	// The research-bearing declaration: one bound A-owned pack
-	// whose selected finding links one source descriptor. The selected
-	// research rides the same oversized projection pages the generic members
-	// build, so the continuation contract proves research bytes join
-	// losslessly and refuse on state drift.
-	const continuationResearchPack = "pack-continuation-research"
-	ownerEvents := []store.Event{
-		{EventID: "continuation-research-owner", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-research-owner", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"research","title":"Continuation research owner","priority":1}`)},
-		{EventID: "continuation-research-owner-members", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-research-owner", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-	}
-	if err := store.ApplyOperation(ctx, s, store.Operation{Events: ownerEvents, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-research-owner"): 0}}); err != nil {
-		t.Fatal(err)
-	}
-	pack, err := createResearchPack(ctx, s, store.CreateResearchPackRequest{
-		PackID: continuationResearchPack, OwnerWorkID: "work-research-owner", Freshness: store.ResearchCurrent,
-		Revision: store.ResearchRevisionInput{Question: "the continuation research question", Method: "source inspection", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`)},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := recordResearchSource(ctx, s, store.ResearchSourceRequest{
-		PackID: continuationResearchPack, Revision: 1, ExpectedVersion: pack.ExpectedVersion,
-		Source: store.ResearchSource{SourceID: "src-continuation-research", Kind: store.SourceCode, Locator: "internal/agent/continuity_collection_budget_test.go", Title: "the continuation research source", PublisherOrAuthor: "concord", AccessedAt: "2026-01-01T00:00:00Z"},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := recordResearchFinding(ctx, s, store.ResearchFindingRequest{
-		PackID: continuationResearchPack, Revision: 1, ExpectedVersion: pack.ExpectedVersion + 1,
-		Finding: store.ResearchFinding{FindingID: "f-continuation-research", Kind: store.FindingObservation,
-			Statement:  "the continuation research finding 😀 " + strings.Repeat("f", 512),
-			Confidence: store.ConfidenceHigh, Freshness: store.ResearchCurrent, Status: store.FindingActive,
-			SourceIDs: []string{"src-continuation-research"}, Scopes: store.ResearchScopes{Mode: "home"}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	version := func() int64 {
-		var current int64
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, "work-1").Scan(&current); err != nil {
-			t.Fatalf("cannot read work version for the research declaration: %v", err)
-		}
-		return current
-	}
-	// The declaration rides the authoritative engine route with its
-	// same-action consuming binding, at the live head whose closed payload
-	// declares the selection member.
-	declaration := map[string]any{
-		"required_reading": []map[string]any{},
-		"finding_refs":     []string{},
-		"context_findings": []map[string]any{},
-		"research_finding_refs": []map[string]any{{
-			"pack_id": continuationResearchPack, "revision": 1,
-			"finding_id": "f-continuation-research", "domain_id": workflowArchitectureBindingForSeededRegistry(t, s)["home_domain_id"],
-			"product_wide_rationale": "the continuation fixture selects across every Domain of the fixture Product",
-		}},
-	}
-	declarationRaw, err := json.Marshal(declaration)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The work version is read before the boundary transaction opens: while
-	// any transaction holds the pooled connection, a nested s.db read would
-	// park on the pool forever.
-	declarationVersion := version()
-	// The research-bearing declaration is a consequential transaction: its
-	// mandated-law check demands the pre-transaction knowledge-home proof,
-	// so the proof is established before the boundary tx opens and rides the
-	// context into it.
-	ctx = agentWorkflowSourceProof(t, ctx, s, "work-1")
-	if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.WorkflowActionPreflightRequest{
-		WorkID: "work-1", ExpectedVersion: declarationVersion, ActionID: "record_work_context", Payload: declarationRaw,
-		Actor: store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-session-exec-aaaa", AgentRef: "agent-exec", SessionRef: "session-exec-aaaa", ActorClass: store.ActorAgent},
-	}, nil, func(tx *store.Transaction) error {
-		_, err := store.ApplyWorkflowActionTx(ctx, tx, store.WorkflowActionExecutionRequest{
-			WorkID: "work-1", ExpectedVersion: declarationVersion, ActionID: "record_work_context", Payload: declarationRaw,
-			Actor:                store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-session-exec-aaaa", AgentRef: "agent-exec", SessionRef: "session-exec-aaaa", ActorClass: store.ActorAgent},
-			AcceptedInputsDigest: "sha256:" + strings.Repeat("3", 64), IdempotencyIdentity: "continuation-research-declaration",
-			OperationID: "continuation-research-op", PrincipalRef: "human-1", Tool: "concord-test", IdempotencyKey: "continuation-research-key",
-			RequestID: "continuation-research-request", AcceptedScope: `{"project":"project-1"}`, ContractDigest: agentcontract.ManifestDigest, Now: fixedTime(),
-			ResearchBindings: []store.ResearchBindingDeclaration{{PackID: continuationResearchPack, Revision: 1, UseRole: store.UseContext, Required: true}},
-		})
-		return err
-	}); err != nil {
-		t.Fatalf("the research-bearing declaration refused: %v", err)
-	}
 	proof, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: "work-1", Limit: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -1089,112 +1028,4 @@ func TestContinuityProjectionPageFrameBounds(t *testing.T) {
 	if agentcontract.MaxResultEnvelopeBytes-frame < 12 {
 		t.Fatalf("frame reserve %d leaves fewer than 12 payload bytes", frame)
 	}
-}
-
-// TestContinuityProjectionCarriesSelectedResearch holds the selected research
-// bytes to the projection-page transport on the shared oversized fixture:
-// the joined document carries the resolved research entry with its complete
-// linked source descriptor at both pinned anchors, and a required research
-// state change between pages refuses the signed continuation before any
-// fragment is emitted, with zero dispatch effects.
-func TestContinuityProjectionCarriesSelectedResearch(t *testing.T) {
-	t.Parallel()
-	s, ctx := oversizedContinuationFixture(t)
-	identity := CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture", ClientRef: "client-continuation-aa", AgentRef: "agent-continuation", SessionRef: "session-continuation-aa"}
-	r := runtime{Store: s, Tool: "concord_work_trace", Operation: "continuity", Envelope: identity}
-	request := func() map[string]any { return map[string]any{"work_id": "work-1", "limit": 1} }
-
-	t.Run("joined_document_carries_complete_research", func(t *testing.T) {
-		doc, _, pages, _ := readContinuityDocument(t, ctx, r, "continuation-research-join", request())
-		if doc == nil {
-			t.Fatal("the research-bearing fixture must page")
-		}
-		if pages < 2 {
-			t.Fatalf("the research document paged into %d pages, want multipage reconstruction", pages)
-		}
-		var document struct {
-			Pinned struct {
-				WorkContext *store.WorkContextView `json:"work_context"`
-				WorkPin     struct {
-					WorkContext *store.WorkContextView `json:"work_context"`
-				} `json:"work_pin"`
-			} `json:"pinned"`
-		}
-		if err := json.Unmarshal(doc, &document); err != nil {
-			t.Fatal(err)
-		}
-		if document.Pinned.WorkContext == nil || document.Pinned.WorkPin.WorkContext == nil {
-			t.Fatal("the joined document lost a pinned work-context anchor")
-		}
-		view := document.Pinned.WorkContext
-		if len(view.ResearchFindings) != 1 {
-			t.Fatalf("the joined view carries %d research entries, want the one selected entry", len(view.ResearchFindings))
-		}
-		entry := view.ResearchFindings[0]
-		if entry.State != store.WorkContextResearchStateResolved || entry.Finding == nil || entry.Sources == nil {
-			t.Fatalf("the joined entry state=%q finding=%v sources=%v, want resolved with content", entry.State, entry.Finding, entry.Sources)
-		}
-		if entry.Selection.PackID != "pack-continuation-research" || entry.Selection.FindingID != "f-continuation-research" {
-			t.Fatalf("the joined entry lost its selection: %+v", entry.Selection)
-		}
-		sources := *entry.Sources
-		if len(sources) != 1 {
-			t.Fatalf("the joined entry carries %d sources, want the complete linked descriptor", len(sources))
-		}
-		source := sources[0]
-		if source.SourceID != "src-continuation-research" || source.Locator == "" || source.Title != "the continuation research source" || source.AccessedAt == "" {
-			t.Fatalf("the joined source descriptor lost fields: %+v", source)
-		}
-		if !reflect.DeepEqual(document.Pinned.WorkContext, document.Pinned.WorkPin.WorkContext) {
-			t.Fatal("the two pinned anchors project different canonical views after the join")
-		}
-	})
-
-	t.Run("changed_required_research_state_refuses_continuation_with_zero_dispatch", func(t *testing.T) {
-		input := request()
-		page, first := readContinuityPage(t, ctx, r, "continuation-research-drift", input)
-		if page == nil || page.NextKind == nil || *page.NextKind != "projection" || first.NextCursor == nil {
-			t.Fatal("fixture produced no projection continuation to drift past")
-		}
-		var operations int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations`).Scan(&operations); err != nil {
-			t.Fatal(err)
-		}
-		var packVersion int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT expected_version FROM active_research_packs WHERE pack_id=?`, "pack-continuation-research").Scan(&packVersion); err != nil {
-			t.Fatal(err)
-		}
-		if err := setResearchFreshness(ctx, s, store.SetResearchFreshnessRequest{
-			PackID: "pack-continuation-research", Revision: 1, ExpectedVersion: packVersion, Freshness: store.ResearchStale,
-		}); err != nil {
-			t.Fatal(err)
-		}
-		continued := request()
-		continued["page"] = map[string]any{"cursor": *first.NextCursor}
-		raw, err := json.Marshal(continued)
-		if err != nil {
-			t.Fatal(err)
-		}
-		response, err := r.read(ctx, agentcontract.NewBase("continuation-research-drift-2", r.Tool, r.Operation), raw, "C19.Continuity")
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertBoundedRead(t, response)
-		if response.Outcome == agentcontract.OutcomeOK || response.Error == nil || response.Error.Kind != "invalid_cursor" {
-			t.Fatalf("changed required-research state must refuse the signed continuation: %+v", response.Error)
-		}
-		var probe map[string]json.RawMessage
-		if err := json.Unmarshal(response.Result, &probe); err == nil {
-			if _, paged := probe["projection_page"]; paged {
-				t.Fatal("the research-drift refusal must detect before any fragment is emitted")
-			}
-		}
-		var after int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations`).Scan(&after); err != nil {
-			t.Fatal(err)
-		}
-		if after != operations {
-			t.Fatalf("research drift dispatched %d durable operations, want zero", after-operations)
-		}
-	})
 }

@@ -49,8 +49,8 @@ allowed from a registered Project's default checkout.
 
 ### D2. `work_define` is Product-state-only
 
-`concord_work_define` operations (`capture`, `revise_intent`, and the research
-authoring operations) write work items, memberships, and research packs in the
+`concord_work_define` operations (`capture` and `revise_intent`) write work
+items and memberships in the
 store. None writes a checkout path. The capability is therefore allowed from
 the default checkout.
 

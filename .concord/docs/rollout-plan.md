@@ -41,9 +41,7 @@ Runtime implementation proceeds only when all of these are true:
    [CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)
    governs current-state recovery and schema evolution; [D6](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)
    gives native Task execution to the host while workflow stages retain subject-bound outcomes.
-7. CD-0215 fixes research context as bounded working context, not a second
-   durable-knowledge authority.
-8. The accepted storage-spine conformance slice has a public verification plan.
+7. The accepted storage-spine conformance slice has a public verification plan.
 
 Missing conditions block runtime implementation but do not block documentation,
 research, or clarification work.

@@ -57,11 +57,11 @@ test("every declared read refuses mutation metadata even when empty", () => {
   }
 })
 
-test("the four operations issue #352 reported, and their controls, all validate", () => {
+test("continuity and its controls validate", () => {
   // The controls were never broken. They fail here only if the validator has
   // become permissive rather than correct, which is the way a green run of the
   // repaired operations above could otherwise lie.
-  const repaired = ["concord_work_trace.continuity", "concord_work_trace.research"]
+  const repaired = ["concord_work_trace.continuity"]
   const controls = ["concord_work_trace.history", "concord_work_browse.scope"]
   for (const name of [...repaired, ...controls]) {
     const pair = declaredPairs.find((item) => `${item.tool}.${item.operation}` === name)

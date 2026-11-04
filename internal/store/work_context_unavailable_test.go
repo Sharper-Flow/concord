@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -294,22 +295,15 @@ func TestWorkContextUnavailableNativeCustody(t *testing.T) {
 // A non-limit failure inside the strict reader propagates through the
 // projection read: only the canonical bound refusal becomes the unavailable
 // marker, so an injected provenance-read sentinel returns nil view and nil
-// marker while preserving the source cause and the unavailable kind from the
-// research mutation operation. The live projection read on the open store
+// marker while preserving the source cause and unavailable kind. The live projection read on the open store
 // first proves the sentinel fires inside the reader's own provenance read,
 // never at an outer closed-store check.
 func TestWorkContextUnavailableNonLimitError(t *testing.T) {
 	t.Parallel()
 	fixture := seedWorkContextFixture(t, "ctx-unavailable-nonlimit")
 	defer fixture.store.Close()
-	pack := seedResearchContextPack(t, fixture, "unavailable-nonlimit")
-	bindResearchPack(t, fixture, pack.PackID, 1, true)
-	if err := recordResearchDeclarationTx(t, fixture, map[string]any{
-		"finding_refs":          []string{},
-		"context_findings":      []map[string]any{},
-		"research_finding_refs": []map[string]any{researchSelectionEntry(pack.PackID, 1, "f1", workContextTestChild)},
-	}, nil); err != nil {
-		t.Fatalf("research declaration refused: %v", err)
+	if err := fixture.recordWorkContext(t, map[string]any{"context_findings": []map[string]any{workContextFinding(workContextTestChild, "observation", "a retained finding", "")}}); err != nil {
+		t.Fatalf("declaration refused: %v", err)
 	}
 	db := fixture.store.DatabaseForTesting()
 	live, liveMarker, liveErr := readWorkContextProjection(context.Background(), db, fixture.workID)
@@ -317,16 +311,28 @@ func TestWorkContextUnavailableNonLimitError(t *testing.T) {
 		t.Fatalf("live projection read = (%+v, %+v, %v), want the current view with no marker", live, liveMarker, liveErr)
 	}
 	sentinel := errors.New("the provenance cursor failed")
-	failing := researchFailingQueryer{db: db, err: sentinel}
+	failing := contextReportFailingQueryer{queryer: db, err: sentinel}
 	projected, unavailable, projectionErr := readWorkContextProjection(context.Background(), failing, fixture.workID)
 	if projected != nil || unavailable != nil {
 		t.Fatalf("non-limit projection = (%+v, %+v), want nil view and nil marker", projected, unavailable)
 	}
 	var failure *Failure
-	if !errors.As(projectionErr, &failure) || failure.Kind != KindUnavailable || failure.Op != "research_mutation" {
-		t.Fatalf("non-limit projection error = %v, want %s from the research mutation operation", projectionErr, KindUnavailable)
+	if !errors.As(projectionErr, &failure) || failure.Kind != KindUnavailable || failure.Op != "work_context_read" {
+		t.Fatalf("non-limit projection error = %v, want %s from the work context read", projectionErr, KindUnavailable)
 	}
 	if !errors.Is(projectionErr, sentinel) {
 		t.Fatalf("non-limit projection lost its source cause: %v", projectionErr)
 	}
+}
+
+type contextReportFailingQueryer struct {
+	queryer
+	err error
+}
+
+func (q contextReportFailingQueryer) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if strings.Contains(query, "SELECT DISTINCT f.source_seq,r.event_id,r.kind FROM work_context_findings") {
+		return nil, q.err
+	}
+	return q.queryer.QueryContext(ctx, query, args...)
 }

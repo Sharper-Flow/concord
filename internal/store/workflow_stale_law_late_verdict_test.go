@@ -18,16 +18,7 @@ func TestLawDeletionLeavesLateVerdictAdmitted(t *testing.T) {
 		t.Fatalf("step=%q", got)
 	}
 	f := workContextFixture{store: s, workID: workID, owner: owner}
-	pack := seedResearchContextPack(t, f, "research-proof")
-	bindResearchPack(t, f, pack.PackID, 1, true)
-	selection := researchSelectionEntry(pack.PackID, 1, "f2", "root")
-	if err := f.recordWorkContext(t, map[string]any{"research_finding_refs": []map[string]any{selection}}); err != nil {
-		t.Fatal(err)
-	}
-	view, err := readWorkContextView(context.Background(), s.db, workID)
-	if err != nil || view == nil || len(view.ResearchFindings) != 1 {
-		t.Fatalf("research receipt=%+v err=%v", view, err)
-	}
+	proof := qAssociateCurrentProofAt(t, f, "conclude", "", false)
 	execInFold(t, s, `UPDATE workflow_contracts SET spec_mandate='["spec:two"]' WHERE work_id='`+workID+`' AND contract_version=1`)
 	version := readWorkVersion(t, s, workID)
 	ownerRef, err := WorkflowActorRef(owner)
@@ -41,15 +32,15 @@ func TestLawDeletionLeavesLateVerdictAdmitted(t *testing.T) {
 	})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
 	}
-	view, err = readWorkContextView(context.Background(), s.db, workID)
-	if err != nil || view == nil || len(view.ResearchFindings) != 1 {
-		t.Fatalf("research receipt=%+v err=%v", view, err)
+	state, err := loadWorkflowReviewState(context.Background(), s.db, workID)
+	if err != nil || state.Candidate == nil {
+		t.Fatalf("candidate=%+v err=%v", state.Candidate, err)
 	}
-	if err := workflowCriterionReceipt(context.Background(), s.db, workID, "predicate:return-route", view.ResearchFindings[0].ViewID, ""); err != nil {
+	if err := workflowCriterionReceipt(context.Background(), s.db, workID, "predicate:return-route", proof.receipt, state.Candidate.Commit); err != nil {
 		t.Fatal(err)
 	}
 	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/late-verdict-judge", SessionRef: "session/" + workID + "-judge", ActorClass: ActorAgent}
-	payload := mustJSONValue(map[string]any{"contract_version": 1, "verdicts": []map[string]any{{"predicate_id": "predicate:return-route", "receipt_refs": []string{view.ResearchFindings[0].ViewID}}}})
+	payload := mustJSONValue(map[string]any{"contract_version": 1, "verdicts": []map[string]any{{"predicate_id": "predicate:return-route", "receipt_refs": []string{proof.receipt}}}})
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", payload, 0, reviewer); err != nil {
 		t.Fatal(err)
 	}

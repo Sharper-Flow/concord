@@ -55,12 +55,7 @@ retired publication, claim, closure, cleanup and outside-repair state. It also
 disposes completed execution that has no canonical note or cannot be compacted.
 Upgrade creates no note, Git operation, successful workflow verdict or new
 archive. It preserves active work, setup, historical `archived_work` locators,
-their `content_hash` and `lesson_tags`, and retained research with its owners and
-consumers. No new cleanup pass is required after upgrade.
-
-Research remains a separate direct-authority aggregate. Completion and upgrade
-must preserve it; only eligible explicit `research_retire` deletes it under
-[CD-0215](../decisions/CD-0215-retained-research-context.md).
+their `content_hash` and `lesson_tags`. No new cleanup pass is required after upgrade.
 
 Reusable lessons follow the independent ordinary reviewed pull-request route in
 [CD-0026 D1–D2](../decisions/CD-0026-learning-capture.md).
@@ -110,7 +105,7 @@ proves what the retained record stores, not a current Git check. They never
 infer a different note or silently choose between two valid notes claiming one
 work ID. Verifying the recorded commit and note hash against Git belongs to the
 consumer or to PM10 recovery, never to the read. Read inspection does not
-publish, reconcile, prune, change membership or mutate research. Verified PM10
+publish, reconcile, prune or change membership. Verified PM10
 recovery may reconstruct the existing Git-derived historical projection; it
 creates no law catalog or public rebuild surface.
 

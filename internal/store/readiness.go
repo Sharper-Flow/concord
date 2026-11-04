@@ -184,6 +184,13 @@ func readAppliedFromDB(ctx context.Context, db *sql.DB, path string) (map[int]ap
 	return applied, false, nil
 }
 
+// UpgradeOptions names the preservation input at the upgrade boundary.
+// The CLI owns maintenance exclusion and the verified pre-mutation snapshot.
+type UpgradeOptions struct {
+	// SnapshotPath is the CLI-owned verified pre-upgrade snapshot.
+	SnapshotPath string
+}
+
 // UpgradeReadiness is the read-only activation answer for one store path.
 type UpgradeReadiness struct {
 	// StorePresent reports whether the database file exists.

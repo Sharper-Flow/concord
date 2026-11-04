@@ -1,10 +1,6 @@
 package store
 
 import (
-	"bytes"
-	"encoding/json"
-	"errors"
-	"io"
 	"sort"
 	"strings"
 )
@@ -44,20 +40,4 @@ func uniqueSorted(values []string) []string {
 	}
 	sort.Strings(result)
 	return result
-}
-
-// decodeCursorFields decodes exactly one JSON object and refuses a key the
-// current cursor shape does not declare. A cursor minted under a retired
-// filter names that filter, so it cannot resume a query that no longer
-// applies it.
-func decodeCursorFields(b []byte, cursor any) error {
-	decoder := json.NewDecoder(bytes.NewReader(b))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(cursor); err != nil {
-		return err
-	}
-	if _, err := decoder.Token(); err != io.EOF {
-		return errors.New("cursor carries trailing data")
-	}
-	return nil
 }

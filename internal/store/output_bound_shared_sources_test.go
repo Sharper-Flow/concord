@@ -537,7 +537,7 @@ func TestOutputBoundRequiredFieldsDirectWriters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const original = `RequiredFields: []string{"pack_id", "expected_version"}`
+	const original = `RequiredFields: []string{"work_id"}`
 	grown := `RequiredFields: []string{` + strings.Repeat(`"field",`, 40) + `}`
 	for _, tc := range []struct {
 		name, replacement string

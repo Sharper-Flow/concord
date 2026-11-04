@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:7ca374404a6931b00e9b66eeb6c6f322e8b6ebe994faefb86b378f531ce26321`
-Payload schema digest: `sha256:c2503cc18f6207e8154a06277405eff2bf145af1a5ae4ca514332836db27c236`
+Manifest digest: `sha256:13fad597b482f1a587fb604a2daaf0a7764148d9e781b98b1849b0339877e464`
+Payload schema digest: `sha256:796ad0e024c3ddae8c105ef8d6c67d843af01410ba4806f6efbdaeff1c747ffd`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -17,16 +17,9 @@ Envelope schema: `1.0`
 | `concord_work_trace.continuity` | `read` | `C19.Continuity` | `product_read` | `read` | `always` |
 | `concord_work_trace.resume` | `read` | `C19.Resume` | `product_read` | `read` | `always` |
 | `concord_work_trace.mutation_result` | `read` | `C19.MutationResult` | `product_read` | `read` | `always` |
-| `concord_work_trace.research` | `read` | `PM1.Q11` | `product_read` | `read` | `always` |
 | `concord_work_trace.project_retirement` | `read` | `CD-0182.R1` | `product_read` | `read` | `always` |
 | `concord_work_define.capture` | `mutation` | `—` | `work_define` | `intent` | `always` |
 | `concord_work_define.revise_intent` | `mutation` | `—` | `work_define` | `intent` | `always` |
-| `concord_work_define.research_pack_create` | `mutation` | `—` | `research` | `research` | `always` |
-| `concord_work_define.research_revision_append` | `mutation` | `—` | `research` | `research` | `always` |
-| `concord_work_define.research_finding_record` | `mutation` | `—` | `research` | `research` | `always` |
-| `concord_work_define.research_source_record` | `mutation` | `—` | `research` | `research` | `always` |
-| `concord_work_define.research_freshness_set` | `mutation` | `—` | `research` | `research` | `always` |
-| `concord_work_define.research_retire` | `mutation` | `—` | `research` | `research` | `always` |
 | `concord_work_define.issue_link_record` | `mutation` | `—` | `work_define` | `intent` | `always` |
 | `concord_work_transition.lifecycle` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.remove` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |

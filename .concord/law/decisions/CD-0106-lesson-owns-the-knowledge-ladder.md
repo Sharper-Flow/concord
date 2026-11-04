@@ -38,8 +38,6 @@ pull request. Accepted law belongs to a `decision` or a
 so every promotion needed a human edit.
 
 Knowledge about an external system belongs to the Product that learned it.
-A research pack is retained context for its owning work, not the durable home
-for learned usage.
 
 ## Decision
 
@@ -99,9 +97,6 @@ and would be a second knowledge authority beside the Product home.
 
 **Add an integration knowledge kind.** Rejected because a tagged `lesson`
 already holds learned usage.
-
-**Keep learned usage in a research pack.** Rejected because integration
-knowledge must outlive the work that found it.
 
 ## Verification
 

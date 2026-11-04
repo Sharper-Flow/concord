@@ -71,11 +71,12 @@ func countOverflowFindings(statement string) []map[string]any {
 // byteOverflowFinding builds one legal declaration finding with a bounded
 // statement and eight distinct 256-byte evidence refs.
 func byteOverflowFinding(index int) map[string]any {
-	finding := researchBoundFinding(researchBoundStatement(1024), 8)
-	refs := finding["evidence_refs"].([]string)
+	finding := workContextFinding(workContextTestChild, "observation", strings.Repeat("s", 1024), "")
+	refs := make([]string, 8)
 	for ref := range refs {
 		refs[ref] = fmt.Sprintf("evidence:byte-%02d-%02d-%s", index, ref, strings.Repeat("e", 236))
 	}
+	finding["evidence_refs"] = refs
 	return finding
 }
 
@@ -165,27 +166,22 @@ func TestWorkContextDeclarationResultingView(t *testing.T) {
 		}
 	})
 
-	t.Run("a mandatory-content overflow refuses a no-research declaration and rolls its binding and receipt back", func(t *testing.T) {
+	t.Run("a mandatory-content overflow refuses a declaration without effects", func(t *testing.T) {
 		fixture := seedWorkContextFixture(t, "ctx-view-mandatory")
 		defer fixture.store.Close()
 		seedMandatoryNativeEvidence(t, fixture, 24)
 		if _, readErr := readWorkContextView(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID); !hasFailureKind(readErr, KindLimitExceeded) {
 			t.Fatalf("fixture premise: mandatory-only view read = %v, want %s", readErr, KindLimitExceeded)
 		}
-		pack := seedResearchContextPack(t, fixture, "view-mandatory")
-		key := MutationIdempotencyKey{PrincipalRef: "principal/operator", Tool: "concord_work_transition", OperationKind: "workflow_action", IdempotencyKey: "declaration-mirror-" + fixture.workID}
 		version := readWorkVersion(t, fixture.store, fixture.workID)
 		events := declarationEventCount(t, fixture)
-		// The fields carry no research_finding_refs member at all and the
-		// generic finding is legal on its own: only the resulting shared
-		// view can refuse, and the same-action binding and the idempotency
-		// receipt must roll back with the refused transaction.
-		err := recordResearchDeclarationTxReceipt(t, fixture, map[string]any{
+		operations := durableOperationCount(t, fixture)
+		err := fixture.recordWorkContext(t, map[string]any{
 			"finding_refs":     []string{},
 			"context_findings": []map[string]any{workContextFinding(workContextTestChild, "observation", "the legal generic finding", "")},
-		}, []ResearchBindingDeclaration{{PackID: pack.PackID, Revision: 1, UseRole: UseContext, Required: true}}, &key)
+		})
 		if !hasFailureKind(err, KindLimitExceeded) {
-			t.Fatalf("no-research declaration error = %v, want %s refusing whole", err, KindLimitExceeded)
+			t.Fatalf("declaration error = %v, want %s refusing whole", err, KindLimitExceeded)
 		}
 		if got := readWorkVersion(t, fixture.store, fixture.workID); got != version {
 			t.Fatalf("refused declaration moved the version to %d, want %d", got, version)
@@ -193,16 +189,7 @@ func TestWorkContextDeclarationResultingView(t *testing.T) {
 		if got := declarationEventCount(t, fixture); got != events {
 			t.Fatalf("refused declaration left %d declaration events, want %d", got, events)
 		}
-		var pins int
-		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM active_research_consumers WHERE pack_id=? AND consumer_work_id=?`, pack.PackID, fixture.workID).Scan(&pins); err != nil {
-			t.Fatal(err)
-		}
-		if pins != 0 {
-			t.Fatalf("the rolled-back same-action binding left %d consumer pins", pins)
-		}
-		if _, found, lookupErr := fixture.store.LookupMutationIdempotency(context.Background(), key); lookupErr != nil || found {
-			t.Fatalf("the refused transaction left its idempotency receipt behind: found=%t err=%v", found, lookupErr)
-		}
+		assertRefusedDeclarationLeftNoEffect(t, fixture, version, events, operations)
 	})
 }
 

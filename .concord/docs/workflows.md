@@ -215,12 +215,11 @@ the machine-readable template contract
 [`contracts/workflow-step-templates.v1.json`](../../contracts/workflow-step-templates.v1.json);
 docs hold no hand-written copy. Research records findings, conclusions and
 recommendations, may conclude `no_change`, and takes outcome predicates only
-(CD-0218 D1). [CD-0215](../law/decisions/CD-0215-retained-research-context.md)
-owns the research-pack capability. The retired family refs select no new
+(CD-0218 D1). The retired family refs select no new
 execution, and no alias maps a retired ref to a type (CD-0218 D1).
-[CD-0215 D2](../law/decisions/CD-0215-retained-research-context.md) requires
+[CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) requires
 an architecture spike to resolve through a separate reviewed and accepted
-decision; CD-0218 assigns that obligation to the cutover owner's approved
+decision and assigns that obligation to the cutover owner's approved
 successor set. Research reports do not enact legislation (CD-0218 D1).
 
 External analysis covers architecture-inconsistency detection, AI-slop

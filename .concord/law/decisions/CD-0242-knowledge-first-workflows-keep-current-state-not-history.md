@@ -144,7 +144,7 @@ required that a fresh session resume in-progress work without that history.
 
 Linear owns planning. The Product's Git knowledge home owns law, the Domain
 registry, specifications and promoted findings. The local SQLite store owns current setup, current work,
-coordination, approvals, research, and unresolved effects. A per-execution
+coordination, approvals, and unresolved effects. A per-execution
 artifact directory owns working evidence files for the life of that execution.
 The worktree owns code progress, both committed and uncommitted.
 
@@ -394,7 +394,7 @@ as though that would review the retained descendant.
 ### D13. The cutover is one documented migration with a verified snapshot
 
 One migration route inventories what survives and what is discarded, migrates
-setup, knowledge homes, research and its consumers, and active work, preserves
+setup, knowledge homes, and active work, preserves
 every worktree and its uncommitted files, reconciles unresolved operations,
 verifies the target, and retires old tables and code. It reports progress and
 recovers from interruption without an old-schema execution fallback.
@@ -404,7 +404,7 @@ cutover needs a verified recovery snapshot and the operator's approval of its
 destructive operation. Tooling explains missing or incompatible data and its
 migration route.
 
-The verified-snapshot migration preserves active work, knowledge, research and
+The verified-snapshot migration preserves active work, knowledge and
 worktrees while removing retired execution state. Supported historical reads report truthful absence; migration
 invents no successful outcome or subagent provenance.
 

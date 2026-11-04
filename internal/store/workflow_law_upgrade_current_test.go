@@ -61,8 +61,8 @@ func currentLawUpgradeFixture(t *testing.T, contract, boundary int) (*Store, Wor
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{183}) {
-		t.Fatalf("applied migrations=%v, want [183]", report.Applied)
+	if !reflect.DeepEqual(report.Applied, []int{183, 184}) {
+		t.Fatalf("applied migrations=%v, want [183 184]", report.Applied)
 	}
 	for name, query := range queries {
 		if got := retirementUpgradeRows(t, db, query); !reflect.DeepEqual(got, before[name]) {

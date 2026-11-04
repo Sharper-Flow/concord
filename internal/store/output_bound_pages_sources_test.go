@@ -963,10 +963,8 @@ func init() {
 	// (time/format.go stdFracSecond9), so the stored render is byte-ceiling
 	// only and the redundant schema caps go to the parent for removal.
 
-	// The shared mutation-result changed_refs producer keeps its own evidence:
-	// the research-retire path truncates its committed change list with
-	// boundResultChangedRefs to MaxChangedRefs before the result is built, so
-	// the constant is the producer-side bound, not the output validator's.
+	// Envelope validation refuses a mutation result whose changed_refs list
+	// exceeds MaxChangedRefs.
 	registerOutputBound("/$defs/mutation_result/properties/changed_refs/maxItems", goConstantBound("internal/agentcontract/envelope.go", "MaxChangedRefs", boundItems))
 	// The delivery object is reserved and unemitted: no writer sets either
 	// member and result payloads refuse unknown members, so the published
@@ -2438,7 +2436,6 @@ func TestPkDerivations(t *testing.T) {
 		"refusal kinds":  pkTypedConstVocabularyLongestBound("FailureKind", "internal/store/errors.go", "internal/store/readiness.go"),
 		"delivery":       pkFieldNeverWrittenBound("delivery", boundCharacters, "internal/agent/mutations.go"),
 		"readiness":      pkFieldNeverWrittenBound("readiness_evidence", boundItems, "internal/agent/runtime.go", "internal/agent/runtime_read_handlers.go"),
-		"retire struct":  pkStructWithoutFieldBound("internal/store/research_retirement.go", "RetireResearchPacksResult", "work_pins"),
 		"task guard":     pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkCreated", "len(payload.Task)"),
 		"last progress":  pkTimeLayoutWidthBound("internal/store/work_effect_seq.go", "advanceWorkEffectSeqTx", "time.RFC3339Nano"),
 		"verdict time":   pkTimeLayoutWidthBound("internal/store/workflow.go", "foldWorkflowCompleted", "time.RFC3339Nano"),

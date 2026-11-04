@@ -736,7 +736,7 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 		if err := attachQ3FullDetail(ctx, tx, items); err != nil {
 			return out, err
 		}
-		if err := attachItemScopedResumeFacts(ctx, tx, items, proofs, req.AmbientProject); err != nil {
+		if err := attachItemScopedResumeFacts(tx, items, proofs, req.AmbientProject); err != nil {
 			return out, err
 		}
 	}
@@ -778,7 +778,7 @@ func prepareItemScopedLawProofs(ctx context.Context, s *Store, req Q3Request) (m
 // resolved law context, and the attributed native runs. It runs inside the
 // caller's transaction with the caller's prepared law proofs; items without
 // a prepared proof keep the facts absent.
-func attachItemScopedResumeFacts(ctx context.Context, tx *sql.Tx, items []WorkItem, proofs map[string]context.Context, ambientProject string) error {
+func attachItemScopedResumeFacts(tx *sql.Tx, items []WorkItem, proofs map[string]context.Context, ambientProject string) error {
 	for i := range items {
 		item := &items[i]
 		itemCtx, ok := proofs[item.ID]

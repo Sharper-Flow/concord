@@ -39,8 +39,7 @@
 //     owning transaction.
 //   - workflow_domain_overlap.go: the resolve_overlap work-relation writer.
 //   - project_handoffs.go: Project handoff record, consume, and recovery.
-//   - research_*.go, law_boundary.go, knowledge_*.go: research-pack
-//     identity, consumer pins, accepted-law lookup, derived projections.
+//   - law_boundary.go, knowledge_*.go: accepted-law lookup and derived projections.
 //   - worker_lanes.go, worker_recovery.go: lane versions, packet and report
 //     schema identity, and retained-result recovery as a data reader.
 //

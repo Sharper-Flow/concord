@@ -142,20 +142,6 @@ CREATE TRIGGER fail_initiative_retirement BEFORE DELETE ON work_items WHEN OLD.i
 	}
 }
 
-func TestInitiativeRetirementDependencyRollback(t *testing.T) {
-	db, path := initiativeRetirementFixture(t)
-	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1); INSERT INTO active_research_packs(pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at) VALUES('shared-pack','initiative-old',1,'current',1,'t','t'); DELETE FROM write_guard`)
-	before := retirementUpgradeSnapshot(t, db)
-	_, err := Upgrade(t.Context(), path, nil)
-	if err == nil || !strings.Contains(err.Error(), "active_research_packs") || !strings.Contains(err.Error(), "initiative-old") {
-		t.Fatalf("upgrade error = %v, want named research dependency", err)
-	}
-	assertFailureKind(t, err, KindUpgradeBlocked)
-	if got := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(got, before) {
-		t.Fatal("refused retirement changed the predecessor database")
-	}
-}
-
 func TestInitiativeRetirementForeignOwnerRollback(t *testing.T) {
 	db, path := initiativeRetirementFixture(t)
 	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1); UPDATE work_items SET kind='initiative' WHERE id='work-upgrade-to'; DELETE FROM write_guard`)

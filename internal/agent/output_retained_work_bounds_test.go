@@ -8,6 +8,7 @@ import (
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
+	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
 func TestWorkListAdmitsRetainedWorkText(t *testing.T) {
@@ -20,7 +21,16 @@ func TestWorkListAdmitsRetainedWorkText(t *testing.T) {
 func testWorkListRetainedText(t *testing.T, detail string) {
 	t.Helper()
 	ctx := context.Background()
-	s, service, grant, _ := researchSurfaceFixture(t)
+	s, err := storetest.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	events := agentFixtureProductEvents("retained", "product-1", "project-1", "Product", "Project", "fixture")
+	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0}}); err != nil {
+		t.Fatal(err)
+	}
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	workID := strings.Repeat("w", 129)
 	if detail == "full" {
 		// Full detail also reads continuity, whose independent request guard

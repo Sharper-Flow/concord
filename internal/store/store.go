@@ -160,7 +160,8 @@ type UpgradeReport struct {
 	// Applied lists the migration versions this call applied, in order.
 	Applied []int `json:"applied"`
 	// SchemaVersion is the highest applied migration after the call.
-	SchemaVersion int `json:"schema_version"`
+	SchemaVersion  int    `json:"schema_version"`
+	ResearchExport string `json:"research_export,omitempty"`
 }
 
 // Upgrade applies every pending migration, breaking steps included. It refuses
@@ -168,7 +169,7 @@ type UpgradeReport struct {
 // breaking step, naming each session and the release it holds, and writes
 // nothing in that case. An unstamped build refuses pending migrations in an
 // existing store and applies them only to a fresh store.
-func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport, error) {
+func Upgrade(ctx context.Context, path string, held []HeldSchema, options ...UpgradeOptions) (UpgradeReport, error) {
 	s, err := openUnmigrated(ctx, path)
 	if err != nil {
 		return UpgradeReport{}, err
@@ -190,6 +191,10 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport
 		}
 	}
 	var after map[int]appliedMigration
+	ctx, researchExport, err := prepareResearchRetirementUpgrade(ctx, before, options)
+	if err != nil {
+		return UpgradeReport{}, fmt.Errorf("research export failed; no migration was applied: %w", err)
+	}
 	if version.Value == version.Development && !unstampedFresh {
 		after = before
 	} else {
@@ -209,7 +214,7 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport
 	if err := s.finishOpen(ctx); err != nil {
 		return UpgradeReport{}, err
 	}
-	report := UpgradeReport{Applied: []int{}}
+	report := UpgradeReport{Applied: []int{}, ResearchExport: researchExport}
 	for _, m := range migrations {
 		if _, was := before[m.Version]; was {
 			continue
@@ -224,6 +229,25 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport
 		}
 	}
 	return report, nil
+}
+
+// prepareResearchRetirementUpgrade runs the verified research export before
+// any pending migration applies, when the caller supplied a snapshot path and
+// the retirement migration is pending. The returned context carries the proof
+// migration 184 re-checks inside its transaction.
+func prepareResearchRetirementUpgrade(ctx context.Context, before map[int]appliedMigration, options []UpgradeOptions) (context.Context, string, error) {
+	for _, option := range options {
+		if option.SnapshotPath == "" {
+			continue
+		}
+		for _, pending := range pendingBreaking(before) {
+			if pending.Name != researchRetirementMigration {
+				continue
+			}
+			return prepareResearchRetirement(ctx, option.SnapshotPath, option.SnapshotPath+".research")
+		}
+	}
+	return ctx, "", nil
 }
 
 // CheckUpgradeSessions is the CD-0111 D3 gate: a breaking step never applies

@@ -8763,6 +8763,18 @@ CREATE TRIGGER workflow_removal_scopes_guard_delete BEFORE DELETE ON workflow_re
 DELETE FROM write_guard;
 `,
 	},
+	{
+		Version: 184, Name: researchRetirementMigration, Breaking: true,
+		SQL: `
+DROP TABLE active_research_finding_scopes;
+DROP TABLE active_research_finding_sources;
+DROP TABLE active_research_consumers;
+DROP TABLE active_research_sources;
+DROP TABLE active_research_findings;
+DROP TABLE active_research_revisions;
+DROP TABLE active_research_packs;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any
@@ -9246,9 +9258,26 @@ func inspectUnstampedManifest(ctx context.Context, tx *sql.Tx) (bool, error) {
 	return false, nil
 }
 
+// verifyPendingResearchRetirement holds the export-before-drop proof at the
+// upgrade boundary: migration 184 never applies over populated research
+// tables unless the verified snapshot and export were already checked in this
+// transaction.
+func verifyPendingResearchRetirement(ctx context.Context, tx *sql.Tx, scope migrationScope, applied map[int]appliedMigration) error {
+	if scope != migrateForUpgrade {
+		return nil
+	}
+	if _, done := applied[184]; done {
+		return nil
+	}
+	return verifyResearchRetirement(ctx, tx)
+}
+
 func applyPendingMigrations(ctx context.Context, tx *sql.Tx, scope migrationScope, applied map[int]appliedMigration, lawIndexProof *lawIndexRetirementProof, clock ...func() time.Time) (*migration, bool, error) {
 	var stopped *migration
 	remoteUpgrade := false
+	if err := verifyPendingResearchRetirement(ctx, tx, scope, applied); err != nil {
+		return nil, false, err
+	}
 	for i := range migrations {
 		m := migrations[i]
 		if _, done := applied[m.Version]; done {

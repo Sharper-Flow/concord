@@ -41,7 +41,7 @@
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** PM10; Product-memory recovery amendment.
 > **Binding inputs:** PM1–PM9, CD-0002 I1–I6, PM2 global SQLite authority,
-> PM6 historical notes, compaction-retention-policy research retention, PM8 no-CAS boundary, PM9 no-receipt boundary.
+> PM6 historical notes, compaction-retention-policy, PM8 no-CAS boundary, PM9 no-receipt boundary.
 > **Does not decide:** remote replication provider, encryption/key custody, retention
 > schedule, TS1–TS9, or a new blob store.
 
@@ -129,10 +129,9 @@ verified snapshot, or a backup required by the configured retention policy
 online reclaim uses a fresh verified snapshot rather than a live-file copy.
 Git GC retains Git's configured grace window.
 
-CD-0215 research retirement is governed by its explicit retirement operation,
-not PM10 reclamation. Active pack tables are included in backups while present;
-live deletion does not retroactively alter verified backups, which age out under the
-ordinary retention policy.
+Existing research rows must be exported to files and verified before their tables
+are dropped. The upgrade uses a verified snapshot from which the source remains
+recoverable; an export failure aborts before the drop.
 
 ## 4. Invariants
 
@@ -145,8 +144,7 @@ ordinary retention policy.
    or event replay
    ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 5. PM10 reclamation never deletes retained SQLite/git authority or asserts recovery
-   for PM8/PM9-excluded data; CD-0215 explicit retirement separately deletes
-   research authority.
+   for PM8/PM9-excluded data.
 
 ## 5. Migration and acceptance proof
 

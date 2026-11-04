@@ -47,12 +47,12 @@ func TestEnvelopeStillRefusesACarrierLessVersionConflict(t *testing.T) {
 	t.Parallel()
 	failure := &store.Failure{
 		Kind:           store.KindVersionConflict,
-		Op:             "research_mutation",
-		Detail:         "research pack changed before its write",
+		Op:             "revise_intent",
+		Detail:         "work changed before its write",
 		RetrySafe:      false,
-		RecoveryAction: "reload the pack and retry",
+		RecoveryAction: "reload the work and retry",
 	}
-	out := failureEnvelope(agentcontract.NewBase("vc-bare", "concord_work_define", "research_finding_record"), failure)
+	out := failureEnvelope(agentcontract.NewBase("vc-bare", "concord_work_define", "revise_intent"), failure)
 	if err := out.Validate(); err == nil {
 		t.Fatalf("a version conflict naming no current version must still be refused at the envelope boundary")
 	}

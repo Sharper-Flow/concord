@@ -2021,8 +2021,8 @@ func TestMigrateV45ToV46DropsOrchestratorReservationAndNarrowsBoundaryKind(t *te
 // execution on the research scope surface: the active_research_finding_scopes
 // CHECK on scope_kind drops 'component' in favor of 'domain', every legacy
 // 'component' row is rewritten to 'domain' in the same transaction, the home
-// guard trigger still refuses home-with-IDs, and the rest of the replay
-// reaches the head schema with no step depending on the retired enum member.
+// guard trigger still refuses home-with-IDs. Later historical migrations
+// replay through the last schema before research retirement.
 func TestMigrateV47ToV48RenamesResearchScopeComponentToDomain(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "concord-v47-scopes.db")
@@ -2175,10 +2175,7 @@ func TestMigrateV47ToV48RenamesResearchScopeComponentToDomain(t *testing.T) {
 	); err == nil {
 		t.Fatal("post-migration home guard admitted an explicit scope ID")
 	}
-	// Carry the replay through the rest of the migrations so this test
-	// confirms the rename is not the only step that has to survive the
-	// upgrade: every later migration must still apply on top of the rebuilt
-	// table.
+	// Replay the populated historical table through the schema before its retirement.
 	for _, m := range migrations[48:] {
 		if err := applyMigration(ctx, db, m); err != nil {
 			t.Fatalf("migration %d (%s): %v", m.Version, m.Name, err)

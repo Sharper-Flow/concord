@@ -294,7 +294,6 @@ all current records and the work version unchanged.
 These existing records remain editable after their producing step has passed.
 Research control markers (`frame_research`, `record_finding`, `record_report`,
 and `record_conclusion`), checkpoints and native jobs are not record edits.
-Research finding data uses its ordinary research mutations.
 Ordinary `bind_evidence` also remains available after the workflow reaches or
 passes a step declaring it, under one active contract and the same evidence,
 membership, actor, lifecycle, version and idempotency checks. A satisfied

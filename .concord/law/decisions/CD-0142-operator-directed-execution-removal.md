@@ -119,7 +119,7 @@ This route neither closes the planning goal nor enacts outside effects. It grant
 
 - Shelving removes execution while preserving the planning handoff and history.
 - Cancellation removal leaves no actionable cancelled WorkItem.
-- Completion follows PM6 §1; research retention remains separate from work removal.
+- Completion follows PM6 §1.
 - Every removal is per-item, operator-directed, fenced, bounded, and replay-safe.
 
 ## Verification

@@ -245,13 +245,6 @@ func decodeRecordedReview(payload json.RawMessage) (*ReviewBlock, error) {
 // A supported assessment cannot relabel another recorded candidate's report
 // as proof of the reviewed output.
 func validateReviewAssessmentReceiptSubjects(ctx context.Context, q queryer, work string, report *ReviewBlock) error {
-	research, err := workflowResearchCriterionFamily(ctx, q, work)
-	if err != nil {
-		return err
-	}
-	if research {
-		return nil
-	}
 	for _, assessment := range report.Assessments {
 		if assessment.Assessment != "supported" {
 			continue
@@ -373,13 +366,6 @@ func reviewFindingLocalID(state WorkflowReviewState, canonical string) (string, 
 }
 
 func workflowCriterionReceipt(ctx context.Context, q queryer, work, predicate, ref, subject string) error {
-	research, err := workflowResearchCriterionFamily(ctx, q, work)
-	if err != nil {
-		return err
-	}
-	if research {
-		return workflowResearchCriterionReceipt(ctx, q, work, predicate, ref)
-	}
 	state, err := loadWorkflowReviewState(ctx, q, work)
 	if err != nil {
 		return err
@@ -394,21 +380,6 @@ func workflowCriterionReceipt(ctx context.Context, q queryer, work, predicate, r
 		}
 	}
 	return reviewFailure(KindMissingEvidence, fmt.Sprintf("report %s has no current passing coverage of criterion %s", ref, predicate), "bind a passing report covering the current candidate and criterion")
-}
-
-func workflowResearchCriterionReceipt(ctx context.Context, q queryer, work, predicate, ref string) error {
-	view, err := readWorkContextView(ctx, q, work)
-	if err != nil {
-		return err
-	}
-	if view != nil {
-		for _, entry := range view.ResearchFindings {
-			if entry.ViewID == ref && entry.State == WorkContextResearchStateResolved && entry.Finding != nil && entry.Sources != nil && len(*entry.Sources) != 0 {
-				return nil
-			}
-		}
-	}
-	return reviewFailure(KindMissingEvidence, "criterion "+predicate+" reference "+workflowRefExcerpt(ref)+" cites no evidenced research finding", "select the exact pack, revision and sourced finding through record_work_context, then cite its research view reference in receipt_refs")
 }
 
 func workflowReviewedCommandReceipt(ctx context.Context, q queryer, work, predicate, ref, subject, project string) error {
@@ -426,12 +397,6 @@ func workflowReviewedCommandReceipt(ctx context.Context, q queryer, work, predic
 	return reviewFailure(KindMissingEvidence, "report "+ref+" has no current Review assessment of criterion "+predicate, "record a Review assessing that criterion and report on the final candidate")
 }
 
-func workflowResearchCriterionFamily(ctx context.Context, q queryer, work string) (bool, error) {
-	var research bool
-	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_instances WHERE work_id=? AND workflow_type='research')`, work).Scan(&research)
-	return research, err
-}
-
 func verifyWorkflowCriterionAssociation(ctx context.Context, q queryer, work string, association workflowVerdictRecordedPayload) error {
 	if err := requireActor(ctx, q, association.VerdictActorRef); err != nil {
 		return err
@@ -440,11 +405,7 @@ func verifyWorkflowCriterionAssociation(ctx context.Context, q queryer, work str
 	if err != nil {
 		return err
 	}
-	research, err := workflowResearchCriterionFamily(ctx, q, work)
-	if err != nil {
-		return err
-	}
-	if !research && (association.Candidate == nil || state.Candidate == nil || *association.Candidate != *state.Candidate) || association.VerdictKind != "ok" || association.IncomparableWithApproved || len(association.EvaluationEvidence) == 0 {
+	if association.Candidate == nil || state.Candidate == nil || *association.Candidate != *state.Candidate || association.VerdictKind != "ok" || association.IncomparableWithApproved || len(association.EvaluationEvidence) == 0 {
 		return reviewFailure(KindMissingEvidence, "criterion proof does not identify the current integrated candidate", "associate passing reports for the current candidate")
 	}
 	deps, err := workflowReviewDependencies(ctx, q, work)

@@ -440,7 +440,7 @@ func TestUpgradeKeepsTheFenceWhenFinishOpenFailsAfterACommit(t *testing.T) {
 	}
 	var snapshots []string
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), "pre-upgrade-") && !strings.Contains(entry.Name(), ".json") && !strings.HasSuffix(entry.Name(), "-wal") && !strings.HasSuffix(entry.Name(), "-shm") {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "pre-upgrade-") && !strings.Contains(entry.Name(), ".json") && !strings.HasSuffix(entry.Name(), "-wal") && !strings.HasSuffix(entry.Name(), "-shm") {
 			snapshots = append(snapshots, filepath.Join(root, "backups", entry.Name()))
 		}
 	}
@@ -606,7 +606,7 @@ func preCutoverUpgradeSnapshots(t *testing.T, root string) []string {
 	}
 	var snapshots []string
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), "pre-upgrade-") && !strings.Contains(entry.Name(), ".json") && !strings.HasSuffix(entry.Name(), "-wal") && !strings.HasSuffix(entry.Name(), "-shm") {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "pre-upgrade-") && !strings.Contains(entry.Name(), ".json") && !strings.HasSuffix(entry.Name(), "-wal") && !strings.HasSuffix(entry.Name(), "-shm") {
 			snapshots = append(snapshots, filepath.Join(root, "backups", entry.Name()))
 		}
 	}

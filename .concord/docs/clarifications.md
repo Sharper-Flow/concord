@@ -29,8 +29,7 @@ repo/package is chosen and separately authorized; pre-go-live changes remain sub
 to the deterministic TS9 evidence contract.
 CD-0006 fixes root policy, CD-0007 fixes the repository/public-migration contract, and
 CD-0008 fixes evidence binding, unreadable-record isolation, and the remaining runtime
-mechanics; CD-0215 fixes research work identity and pack
-retention. CD-0222 binds Product law and architectural
+mechanics. CD-0222 binds Product law and architectural
 concordance to canonical
 Domains. CD-0213 places planning and business grouping in Linear through the
 Linear MCP server; Concord keeps managed execution and recorded issue identity.
@@ -218,12 +217,11 @@ re-litigate them silently.
 
 ### C7. Research trackable ✅ Accepted 2026-08-07
 - **Question:** Option A (reframe backlog items as investigations) or Option B
-  (new trackable type)? ([CD-0215 D2](../law/decisions/CD-0215-retained-research-context.md#d2-research-resolves-to-ordinary-work))
+  (new trackable type)?
 - **Why:** decides whether the research surface is a small reframe or a new
   primitive.
-- **Decision:** CD-0215 D2 keeps Option A. Independent research is an ordinary
-  `work_items.kind = research`; embedded research remains inside its owning change;
-  research packs are retained context/output, not another trackable.
+- **Decision:** Independent research is ordinary `work_items.kind = research`;
+  embedded research remains inside its owning change.
 
 ### C17. What does the Product coordination drill-down render?
 - **Question:** After a Product row is selected, what does the coordination detail

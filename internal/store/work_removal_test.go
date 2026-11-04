@@ -175,38 +175,3 @@ func TestWorkLivenessKeepsDecisionAndProgressEvidence(t *testing.T) {
 		}
 	}
 }
-
-func TestWorkRemovalRefusesRequiredResearchConsumer(t *testing.T) {
-	s := openTemp(t)
-	ctx := context.Background()
-	seedWork(t, s, "research-owner")
-	seedWork(t, s, "research-consumer")
-	err := s.Transact(ctx, func(tx *Transaction) error {
-		if err := enterWrite(ctx, tx.tx); err != nil {
-			return err
-		}
-		if _, err := tx.tx.ExecContext(ctx, `INSERT INTO active_research_packs(pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at) VALUES('pack-owner','research-owner',1,'current',2,'now','now')`); err != nil {
-			return err
-		}
-		if _, err := tx.tx.ExecContext(ctx, `INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at) VALUES('pack-owner',1,'question','{}','{}','{}','method','now')`); err != nil {
-			return err
-		}
-		if _, err := tx.tx.ExecContext(ctx, `INSERT INTO active_research_consumers(pack_id,revision,consumer_work_id,use_role,required,accepted_at) VALUES('pack-owner',1,'research-consumer','context',1,'now')`); err != nil {
-			return err
-		}
-		return leaveWrite(ctx, tx.tx)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	refuseReq := func() WorkRemovalRequest {
-		req := removalTestRequest()
-		req.WorkID = "research-owner"
-		return req
-	}()
-	refuseReq.Reason = "shelved"
-	confirmRemovalHandoff(t, s, &refuseReq)
-	if err := removeWorkForTest(ctx, s, refuseReq); err == nil || !strings.Contains(err.Error(), "required research consumer") {
-		t.Fatalf("required consumer removal error = %v", err)
-	}
-}

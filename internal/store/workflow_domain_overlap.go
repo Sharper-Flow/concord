@@ -159,9 +159,6 @@ func terminalizeWorkflowOverlapWork(ctx context.Context, tx *sql.Tx, event Event
 	if err := updateWorkLifecycle(ctx, tx, terminalEvent, "superseded", current, resulting); err != nil {
 		return err
 	}
-	if err := removeTerminalResearchBindings(ctx, tx, workID, event.OccurredAt); err != nil {
-		return err
-	}
 	return nil
 }
 

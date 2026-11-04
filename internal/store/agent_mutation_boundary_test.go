@@ -65,13 +65,11 @@ func TestReplayNamespacesRemainPartitioned(t *testing.T) {
 		{PrincipalRef: "principal-2", Tool: "concord_work_transition", OperationKind: "workflow_action", IdempotencyKey: "shared-key"},
 		{PrincipalRef: "principal-1", Tool: "concord_work_transition", OperationKind: "lifecycle", IdempotencyKey: "shared-key"},
 		{PrincipalRef: "principal-1", Tool: "concord_work_define", OperationKind: "capture", IdempotencyKey: "shared-key"},
-		{PrincipalRef: "principal-1", Tool: "concord_work_define", OperationKind: "research_retire", IdempotencyKey: "shared-key"},
 		{PrincipalRef: "principal-1", Tool: "concord_work_relate", OperationKind: "resolve_overlap", IdempotencyKey: "shared-key"},
 		{PrincipalRef: "principal-1", Tool: "concord_domain", OperationKind: "observation_record", IdempotencyKey: "shared-key"},
 		{PrincipalRef: "principal-1", Tool: "concord_work_compact", OperationKind: "claim", IdempotencyKey: "shared-key"},
 		{PrincipalRef: "principal-1", Tool: "concord_work_compact", OperationKind: "lesson_publish", IdempotencyKey: "shared-key"},
 		{PrincipalRef: "principal-1", Tool: "concord_work_compact", OperationKind: "reconcile", IdempotencyKey: "shared-key"},
-		{PrincipalRef: "principal-1", Tool: "direct-research", OperationKind: "create", IdempotencyKey: "shared-key"},
 		{PrincipalRef: "principal-1", Tool: "concord_work_transition", OperationKind: "session_vacate", IdempotencyKey: "shared-key"},
 		{PrincipalRef: "principal-1", Tool: "concord_work_transition", OperationKind: "project_handoff_consume", IdempotencyKey: "shared-key"},
 	}
@@ -79,9 +77,6 @@ func TestReplayNamespacesRemainPartitioned(t *testing.T) {
 	for i, key := range identities {
 		id := "namespace-" + strconv.Itoa(i)
 		events := `["` + id + `"]`
-		if key.Tool == "direct-research" {
-			events = `{"pack_id":"pack-namespace","revision":1}`
-		}
 		records[i] = MutationIdempotencyInsert{Key: key, CanonicalDigest: testDigest(id), OperationID: id, ResultEventIDs: events, ResultPayload: `{"owner":"` + id + `"}`, ChangedRefs: "[]", AuthorizedScopeSnapshot: `{"product_id":"product-namespace"}`, ObservedAt: time.Unix(10, 0).UTC()}
 		if err := s.Transact(ctx, func(tx *Transaction) error {
 			return InsertMutationIdempotencyTx(ctx, tx, records[i])

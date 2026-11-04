@@ -21,15 +21,6 @@ CREATE TABLE durable_operations(work_id TEXT, attempt_epoch INTEGER);
 INSERT INTO workflow_instances VALUES('research-work','research'),('change-work','change');`); err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct {
-		work     string
-		research bool
-	}{{"research-work", true}, {"change-work", false}} {
-		got, err := workflowResearchCriterionFamily(ctx, db, tc.work)
-		if err != nil || got != tc.research {
-			t.Fatalf("%s: research=%v err=%v", tc.work, got, err)
-		}
-	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)

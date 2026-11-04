@@ -51,22 +51,8 @@ func ExportResearchDatabase(ctx context.Context, path, destination string) (resu
 	if err != nil {
 		return ResearchExportResult{}, fmt.Errorf("read research export: %w", err)
 	}
-	if err := os.Mkdir(destination, 0o700); err != nil && !os.IsExist(err) {
-		return ResearchExportResult{}, fmt.Errorf("create research export directory: %w", err)
-	}
-	info, err := os.Lstat(destination)
-	if err != nil {
+	if err := prepareResearchExportDestination(destination); err != nil {
 		return ResearchExportResult{}, err
-	}
-	if !info.IsDir() {
-		return ResearchExportResult{}, fmt.Errorf("research export destination is not a directory")
-	}
-	entries, err := os.ReadDir(destination)
-	if err != nil {
-		return ResearchExportResult{}, err
-	}
-	if len(entries) != 0 {
-		return ResearchExportResult{}, fmt.Errorf("research export destination is not empty")
 	}
 	defer func() {
 		if err != nil {
@@ -83,40 +69,78 @@ func ExportResearchDatabase(ctx context.Context, path, destination string) (resu
 		if err := ctx.Err(); err != nil {
 			return ResearchExportResult{}, err
 		}
-		data, err := json.MarshalIndent(packs[id], "", "  ")
-		if err != nil {
-			return ResearchExportResult{}, err
-		}
-		name := fmt.Sprintf("%x.json", sha256.Sum256([]byte(id)))
-		file, err := os.OpenFile(filepath.Join(destination, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // The caller supplies the checked-empty directory; the filename is a fixed-length hash and O_EXCL refuses replacement.
-		if err != nil {
-			return ResearchExportResult{}, err
-		}
-		_, err = file.Write(append(data, '\n'))
-		if err == nil {
-			err = file.Sync()
-		}
-		if closeErr := file.Close(); err == nil {
-			err = closeErr
-		}
-		if err != nil {
+		if err := writeResearchExportPack(destination, id, packs[id]); err != nil {
 			return ResearchExportResult{}, err
 		}
 	}
+	if err := syncResearchExportDestination(destination); err != nil {
+		return ResearchExportResult{}, err
+	}
+	return ResearchExportResult{Destination: destination, PackCount: len(packs)}, nil
+}
+
+// prepareResearchExportDestination ensures destination is an empty directory
+// this export may fill exclusively.
+func prepareResearchExportDestination(destination string) error {
+	if err := os.Mkdir(destination, 0o700); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("create research export directory: %w", err)
+	}
+	info, err := os.Lstat(destination)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("research export destination is not a directory")
+	}
+	entries, err := os.ReadDir(destination)
+	if err != nil {
+		return err
+	}
+	if len(entries) != 0 {
+		return fmt.Errorf("research export destination is not empty")
+	}
+	return nil
+}
+
+// writeResearchExportPack writes one pack as a deterministic JSON file named
+// by the hex SHA-256 of its pack ID, created exclusively and synced.
+func writeResearchExportPack(destination, id string, pack *researchExportPack) error {
+	data, err := json.MarshalIndent(pack, "", "  ")
+	if err != nil {
+		return err
+	}
+	name := fmt.Sprintf("%x.json", sha256.Sum256([]byte(id)))
+	file, err := os.OpenFile(filepath.Join(destination, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // The caller supplies the checked-empty directory; the filename is a fixed-length hash and O_EXCL refuses replacement.
+	if err != nil {
+		return err
+	}
+	_, err = file.Write(append(data, '\n'))
+	if err == nil {
+		err = file.Sync()
+	}
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	return err
+}
+
+// syncResearchExportDestination fsyncs the export directory and its parent so
+// the files survive before any destructive migration runs.
+func syncResearchExportDestination(destination string) error {
 	for _, path := range []string{destination, filepath.Dir(destination)} {
 		directory, err := os.Open(path) //nolint:gosec // The explicit export directory and its parent must be synced before destructive migration.
 		if err != nil {
-			return ResearchExportResult{}, err
+			return err
 		}
 		err = directory.Sync()
 		if closeErr := directory.Close(); err == nil {
 			err = closeErr
 		}
 		if err != nil {
-			return ResearchExportResult{}, err
+			return err
 		}
 	}
-	return ResearchExportResult{Destination: destination, PackCount: len(packs)}, nil
+	return nil
 }
 
 func readResearchExport(ctx context.Context, path string) (map[string]*researchExportPack, error) {

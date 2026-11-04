@@ -191,18 +191,9 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema, options ...Upg
 		}
 	}
 	var after map[int]appliedMigration
-	var researchExport string
-	for _, option := range options {
-		if option.SnapshotPath != "" {
-			for _, pending := range pendingBreaking(before) {
-				if pending.Name == researchRetirementMigration {
-					ctx, researchExport, err = prepareResearchRetirement(ctx, option.SnapshotPath, option.SnapshotPath+".research")
-					if err != nil {
-						return UpgradeReport{}, fmt.Errorf("research export failed; no migration was applied: %w", err)
-					}
-				}
-			}
-		}
+	ctx, researchExport, err := prepareResearchRetirementUpgrade(ctx, before, options)
+	if err != nil {
+		return UpgradeReport{}, fmt.Errorf("research export failed; no migration was applied: %w", err)
 	}
 	if version.Value == version.Development && !unstampedFresh {
 		after = before
@@ -238,6 +229,25 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema, options ...Upg
 		}
 	}
 	return report, nil
+}
+
+// prepareResearchRetirementUpgrade runs the verified research export before
+// any pending migration applies, when the caller supplied a snapshot path and
+// the retirement migration is pending. The returned context carries the proof
+// migration 184 re-checks inside its transaction.
+func prepareResearchRetirementUpgrade(ctx context.Context, before map[int]appliedMigration, options []UpgradeOptions) (context.Context, string, error) {
+	for _, option := range options {
+		if option.SnapshotPath == "" {
+			continue
+		}
+		for _, pending := range pendingBreaking(before) {
+			if pending.Name != researchRetirementMigration {
+				continue
+			}
+			return prepareResearchRetirement(ctx, option.SnapshotPath, option.SnapshotPath+".research")
+		}
+	}
+	return ctx, "", nil
 }
 
 // CheckUpgradeSessions is the CD-0111 D3 gate: a breaking step never applies

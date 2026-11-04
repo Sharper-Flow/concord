@@ -9258,15 +9258,25 @@ func inspectUnstampedManifest(ctx context.Context, tx *sql.Tx) (bool, error) {
 	return false, nil
 }
 
+// verifyPendingResearchRetirement holds the export-before-drop proof at the
+// upgrade boundary: migration 184 never applies over populated research
+// tables unless the verified snapshot and export were already checked in this
+// transaction.
+func verifyPendingResearchRetirement(ctx context.Context, tx *sql.Tx, scope migrationScope, applied map[int]appliedMigration) error {
+	if scope != migrateForUpgrade {
+		return nil
+	}
+	if _, done := applied[184]; done {
+		return nil
+	}
+	return verifyResearchRetirement(ctx, tx)
+}
+
 func applyPendingMigrations(ctx context.Context, tx *sql.Tx, scope migrationScope, applied map[int]appliedMigration, lawIndexProof *lawIndexRetirementProof, clock ...func() time.Time) (*migration, bool, error) {
 	var stopped *migration
 	remoteUpgrade := false
-	if scope == migrateForUpgrade {
-		if _, done := applied[184]; !done {
-			if err := verifyResearchRetirement(ctx, tx); err != nil {
-				return nil, false, err
-			}
-		}
+	if err := verifyPendingResearchRetirement(ctx, tx, scope, applied); err != nil {
+		return nil, false, err
 	}
 	for i := range migrations {
 		m := migrations[i]

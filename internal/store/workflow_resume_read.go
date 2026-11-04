@@ -42,6 +42,12 @@ func ReadWorkflowResume(ctx context.Context, s *Store, workID string) (WorkflowR
 		return out, wrapFailure(KindUnavailable, "C19.Resume", "cannot open a consistent resume read", true, "retry once the database is readable", err)
 	}
 	defer tx.Rollback()
+	return readWorkflowResumeTx(ctx, tx, workID)
+}
+
+func readWorkflowResumeTx(ctx context.Context, tx *sql.Tx, workID string) (WorkflowResumeRead, error) {
+	var out WorkflowResumeRead
+	var err error
 	out.SourceVersionWatermark, err = storeRevision(ctx, tx)
 	if err != nil {
 		return out, err

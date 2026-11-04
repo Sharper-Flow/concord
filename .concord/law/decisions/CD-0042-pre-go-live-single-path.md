@@ -3,9 +3,7 @@
   "id": "CD-0042",
   "title": "Pre-go-live development keeps one agent-surface path",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "agent-evolution",
   "applies_to_domain_ids": []
@@ -21,7 +19,7 @@
   does not need agent-surface versions yet, and must delete code outside the primary
   path on 2026-08-19; the public record is
   [issue #195 comment](https://github.com/Sharper-Flow/concord/issues/195#issuecomment-5347857526)
-- **Related:** CD-0005, CD-0007, CD-0010, CD-0024, CD-0031, CD-0222, TS1,
+- **Related:** CD-0005, CD-0007, CD-0010, CD-0024, CD-0252, CD-0222, TS1,
   TS5–TS9
 - **Preserves:** One generated canonical manifest and digest; strict schemas; signed
   client bootstrap; fail-closed unknown input; durable Product state authority; release

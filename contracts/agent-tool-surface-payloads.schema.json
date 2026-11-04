@@ -3621,112 +3621,6 @@
         }
       ]
     },
-    "continuity_boot_projection_reference": {
-      "description": "CD-0031: the deterministic boot projection reference for an oversized continuity projection. It carries the exact small identity header, the complete captured boot projection's digest and byte length, and the canonical initial continuity read pointer. It is not the projection and cannot carry complete authority: reconstruction through the referenced authenticated pages precedes use, and a later read may describe newer state than this captured snapshot.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "workflow_instance",
-        "workflow_step",
-        "watermark",
-        "digest",
-        "total_bytes",
-        "projection_omitted",
-        "read_pointer"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "work_version": {
-          "description": "The exact work-item version the captured projection was derived from, when the capture exposes it; absent otherwise.",
-          "type": "integer",
-          "minimum": 1
-        },
-        "workflow_instance": {
-          "description": "Typed workflow-instance presence, exactly the store's captured marker: \"present\" when the work item holds a workflow instance, \"absent\" when it holds none (imported work).",
-          "type": "string",
-          "enum": [
-            "present",
-            "absent"
-          ]
-        },
-        "workflow_step": {
-          "description": "The instance's current step; null when the work item holds no workflow instance (imported work).",
-          "type": [
-            "string",
-            "null"
-          ],
-          "minLength": 1,
-          "maxLength": 256
-        },
-        "watermark": {
-          "description": "The exact source watermark of the captured projection.",
-          "$ref": "#/$defs/id"
-        },
-        "digest": {
-          "$ref": "#/$defs/digest"
-        },
-        "total_bytes": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "projection_omitted": {
-          "description": "Exact omitted-projection status: the boot packet carries no projection body and no fragment, and claims no complete contract, question, intent set, or evidence.",
-          "const": true
-        },
-        "read_pointer": {
-          "description": "The canonical initial concord_work_trace.continuity read that starts a separate authenticated projection stream for this projection. The captured boot digest describes the boot snapshot; it is not a promise that later read bytes match.",
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "tool",
-            "operation",
-            "input"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_work_trace"
-            },
-            "operation": {
-              "const": "continuity"
-            },
-            "input": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "work_id",
-                "page"
-              ],
-              "properties": {
-                "work_id": {
-                  "$ref": "#/$defs/id"
-                },
-                "page": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "cursor",
-                    "limit"
-                  ],
-                  "properties": {
-                    "cursor": {
-                      "description": "The initial null cursor.",
-                      "const": null
-                    },
-                    "limit": {
-                      "description": "The continuity read's default boundary window.",
-                      "const": 20
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "work_trace_relations_input": {
       "type": "object",
       "additionalProperties": false,
@@ -5111,8 +5005,11 @@
         "session_contract_version",
         "manifest_digest",
         "product_id",
+        "project_id",
         "work_id",
-        "continuity"
+        "source_version_watermark",
+        "workflow_instance",
+        "resume"
       ],
       "properties": {
         "schema_version": {
@@ -5122,7 +5019,7 @@
           "const": "operator"
         },
         "session_contract_version": {
-          "const": "1.0"
+          "const": "2.0"
         },
         "manifest_digest": {
           "$ref": "#/$defs/digest"
@@ -5130,19 +5027,200 @@
         "product_id": {
           "$ref": "#/$defs/id"
         },
+        "project_id": {
+          "$ref": "#/$defs/id"
+        },
         "work_id": {
           "$ref": "#/$defs/id"
         },
-        "continuity": {
-          "description": "The boot continuity: the complete typed inline snapshot when the measured boot packet fits its unchanged 65,536-byte cap, or the closed projection reference when the projection is oversized. The reference omits the projection body and names the canonical read that reconstructs it; reconstruction precedes use.",
+        "source_version_watermark": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "workflow_instance": {
+          "type": "string",
+          "enum": [
+            "present",
+            "absent"
+          ]
+        },
+        "resume": {
           "oneOf": [
             {
-              "$ref": "#/$defs/continuity_snapshot"
+              "type": "null"
             },
             {
-              "$ref": "#/$defs/continuity_boot_projection_reference"
+              "$ref": "#/$defs/resume_read_document"
+            },
+            {
+              "$ref": "#/$defs/boot_resume_reference"
             }
           ]
+        },
+        "pending_project_handoff": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/continuity_pending_project_handoff"
+            },
+            {
+              "$ref": "#/$defs/boot_handoff_reference"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "workflow_instance": {
+                "const": "absent"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "resume": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "resume": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "boot_resume_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "projection_omitted",
+        "digest",
+        "total_bytes",
+        "read_pointer"
+      ],
+      "properties": {
+        "projection_omitted": {
+          "const": true
+        },
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "total_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "read_pointer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tool",
+            "operation",
+            "input"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_work_trace"
+            },
+            "operation": {
+              "const": "resume"
+            },
+            "input": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "work_id"
+              ],
+              "properties": {
+                "work_id": {
+                  "$ref": "#/$defs/id"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "boot_handoff_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "projection_omitted",
+        "digest",
+        "total_bytes",
+        "read_pointer",
+        "projection_path"
+      ],
+      "properties": {
+        "projection_omitted": {
+          "const": true
+        },
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "total_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "projection_path": {
+          "const": "items[0].pending_project_handoff"
+        },
+        "read_pointer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tool",
+            "operation",
+            "input"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_work_browse"
+            },
+            "operation": {
+              "const": "list"
+            },
+            "input": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "product_id",
+                "project_ids",
+                "work_ids",
+                "detail"
+              ],
+              "properties": {
+                "product_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "project_ids": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/id"
+                  }
+                },
+                "work_ids": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/id"
+                  }
+                },
+                "detail": {
+                  "const": "full"
+                }
+              }
+            }
+          }
         }
       }
     },

@@ -25,8 +25,9 @@
 Agents obtain current work context through explicit Concord reads, including
 `concord_work_trace.continuity` with a work ID. Concord injects no automatic
 per-turn context and derives no work identity from worktree ownership or a
-directory-to-work locator. CD-0031 supplies core-derived continuity for explicitly
-selected work through store-write-free `session-prepare`.
+directory-to-work locator. CD-0252 supplies the core-derived resume plan and
+addressed handoff for explicitly selected work through store-write-free
+`session-prepare`.
 The store keeps current rows; no event log, fold, or replay exists
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 

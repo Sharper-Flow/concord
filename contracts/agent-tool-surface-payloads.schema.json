@@ -2661,7 +2661,7 @@
       }
     },
     "workflow_law_context": {
-      "description": "The approved contract's binding law and Domains, resolved at continuity read time from the committed law folder and Domain registry. Absent when the contract binds no law and no Domain.",
+      "description": "The approved contract's binding law and Domains, resolved at read time from the committed law folder and Domain registry. Absent when the contract binds no law and no Domain.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -14178,7 +14178,7 @@
       }
     },
     "retained_workflow_law_context": {
-      "description": "The approved contract's binding law and Domains, resolved at continuity read time from the committed law folder and Domain registry. Absent when the contract binds no law and no Domain.",
+      "description": "The approved contract's binding law and Domains, resolved at read time from the committed law folder and Domain registry. Absent when the contract binds no law and no Domain.",
       "type": "object",
       "additionalProperties": false,
       "required": [

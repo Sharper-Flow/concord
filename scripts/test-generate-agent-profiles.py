@@ -308,7 +308,7 @@ class ProfileTests(unittest.TestCase):
         for clause in ("explicit execution budget", "`TESTING.md` and `bin/oc-test`", "Do not edit files",
                        "Read its status first", "if it is not completed", "Never\nwatch, poll or wait",
                        "matches a linked record", "explicitly unknown", "exit codes", "unexpected changed paths",
-                       "A Task result is not a bound verification report\nor a Concord verdict"):
+                       "A Task result is not an evidence binding"):
             self.assertIn(clause, text)
 
     def test_verifier_effective_permissions_preserve_host_denies_and_caller_owned_waits(self):

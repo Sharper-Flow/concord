@@ -332,7 +332,6 @@ all current records and the work version unchanged.
 These existing records remain editable after their producing step has passed.
 Research control markers (`frame_research`, `record_finding`, `record_report`,
 and `record_conclusion`), checkpoints and native jobs are not record edits.
-Research finding data uses its ordinary research mutations.
 Ordinary `bind_evidence` also remains available after the workflow reaches or
 passes a step declaring it, under one active contract and the same evidence,
 membership, actor, lifecycle, version and idempotency checks. A satisfied
@@ -683,7 +682,7 @@ times or compare argv to a tooling manifest. Independent Review judges adequacy.
 |---|---|
 | **Implementation** — [`workflows.md` §1](../../docs/workflows.md#1-the-shift-from-one-workflow-to-a-plurality) | `proposal[record_proposal] → alignment[record_alignment] → discovery[record_discovery] → design[record_design] → planning[approve_contract] → execution[start_execution, checkpoint_execution, bind_evidence, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → acceptance[record_verdict, confirm_premise] → release[complete]`. Refine is mandatory and requires artifact evidence at that step (CD-0242 D4; CD-0229 D4). The CD-0156 alignment step follows proposal: record_alignment is the step's only advance exit, so backlog search cannot be skipped. A native Task result supplies no workflow exit. |
 | **Break-fix / RCA** — [`workflows.md` §3](../../docs/workflows.md#3-complete-work-kind-taxonomy) and §4 | `reproduce[record_reproduction] → alignment[record_alignment] → diagnose[record_root_cause] → planning[approve_contract] → repair[start_repair, checkpoint_repair, bind_evidence, link_successor, record_delivery] → refine[start_refine, checkpoint_refine, bind_evidence, record_delivery] → verify[bind_evidence, record_verdict, confirm_premise] → complete[complete]`. Refine is mandatory and requires artifact evidence at that step (CD-0138 D1). Verify declares the ordinary hold-mode `bind_evidence` action (CD-0124). The CD-0156 alignment step follows reproduce on the same terms. |
-| **Research / investigation** — [`workflows.md` §4](../../docs/workflows.md#4-example-workflow-types) and CD-0215 D3 | `frame[frame_research, approve_contract] → investigate[record_finding, revise_candidates, bind_evidence] → findings[record_report, link_successor] → conclude[record_conclusion, record_verdict, confirm_premise] → complete[complete]`. Completion verb: findings recorded; `no_change` is valid. |
+| **Research / investigation** — [`workflows.md` §4](../../docs/workflows.md#4-example-workflow-types) | `frame[frame_research, approve_contract] → investigate[record_finding, revise_candidates, bind_evidence] → findings[record_report, link_successor] → conclude[record_conclusion, record_verdict, confirm_premise] → complete[complete]`. Completion verb: findings recorded; `no_change` is valid. |
 
 ### 12.1 Action-to-event mapping
 

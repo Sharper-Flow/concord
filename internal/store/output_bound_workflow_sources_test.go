@@ -266,44 +266,6 @@ func init() {
 	registerOutputBound("/$defs/work_context_reading_source_repository_file/properties/path/maxLength", repoPathMaxBytes)
 	registerOutputBound("/$defs/work_context_reading_source_repository_file/properties/project_id/maxLength", projectRefMaxBytes)
 
-	// Research finding embed: the ids ride the admitted selection shape the
-	// declaration fold re-admits with ValidReference; the statement, the
-	// citation list, and the linked source descriptors are unbounded at the
-	// store: the research write checks presence only and the CLI route
-	// applies no schema, so the resolved view embeds them verbatim.
-	registerRetainedTwinBound("/$defs/work_context_research_finding/properties/finding_id/maxLength",
-		inputBound("/$defs/work_context_research_selection/properties/finding_id/maxLength"))
-	registerRetainedTwinBound("/$defs/work_context_research_finding/properties/pack_id/maxLength",
-		inputBound("/$defs/work_context_research_selection/properties/pack_id/maxLength"))
-	registerRetainedTwinBound("/$defs/work_context_research_finding/properties/source_ids/items/maxLength",
-		unboundedOutput("the research write checks source_id non-empty only (internal/store/research_operations.go:133-138) and active_research_sources CHECKs length(source_id) > 0 only (internal/store/schema.go:645); the resolved work-context view embeds the finding's source ids verbatim (internal/store/work_context_research.go:125-129)", readSizeRefusalPath, mutationResultPath))
-	registerRetainedTwinBound("/$defs/work_context_research_finding/properties/source_ids/maxItems",
-		unboundedOutput("the finding citation loop admits any number of source_ids, foreign-key-checked per row only (internal/store/research_mutations.go:474-478), with no count cap on active_research_finding_sources; the view embeds the recorded citation list verbatim", readSizeRefusalPath, mutationResultPath))
-	registerRetainedTwinBound("/$defs/work_context_research_finding/properties/statement/maxLength",
-		unboundedOutput("the research write checks the finding statement non-empty only (internal/store/research_operations.go:127-132) and active_research_findings CHECKs length(statement) > 0 only (internal/store/schema.go:630); store admission carries no upper text guard, and the projection rebuild snapshot/restore (internal/store/research_rebuild.go:18,44) plus copyResearchRevisionContent (internal/store/research_operations.go:364) carry existing rows forward without revalidation, so the resolved view embeds the recorded statement verbatim (internal/store/work_context_research.go:124)", readSizeRefusalPath, mutationResultPath))
-
-	// Research finding view: both oneOf arms carry the same provenance
-	// derivations, so one wildcard row covers the repeated arms; only the
-	// resolved arm carries sources. The view id is the fixed
-	// research:<seq>:<ordinal> Sprintf construction.
-	for _, arm := range []string{"0", "1"} {
-		registerRetainedTwinBound("/$defs/work_context_research_finding_view/oneOf/"+arm+"/properties/selection_event_id/maxLength", eventIDRaw)
-	}
-	registerRetainedTwinBound("/$defs/work_context_research_finding_view/oneOf/*/properties/view_id/maxLength",
-		workflowSprintfFieldCharactersBound("internal/store/work_context_research.go", "readWorkContextResearchSelections", "ViewID"))
-	registerRetainedTwinBound("/$defs/work_context_research_finding_view/oneOf/0/properties/sources/maxItems",
-		unboundedOutput("revision sources are unbounded rows of active_research_sources per pack and revision with non-empty CHECKs only (internal/store/schema.go:633-650), and the resolved view embeds them verbatim (internal/store/work_context_research.go:125-129)", readSizeRefusalPath, mutationResultPath))
-
-	// Research selection: the declaration's admitted shape, re-admitted by
-	// the fold with ValidReference at the same numbers.
-	registerOutputBound("/$defs/work_context_research_selection/properties/domain_id/maxLength", domainIDMaxBytes)
-	registerOutputBound("/$defs/work_context_research_selection/properties/finding_id/maxLength",
-		inputBound("/$defs/work_context_research_selection/properties/finding_id/maxLength"))
-	registerOutputBound("/$defs/work_context_research_selection/properties/pack_id/maxLength",
-		inputBound("/$defs/work_context_research_selection/properties/pack_id/maxLength"))
-	registerOutputBound("/$defs/work_context_research_selection/properties/product_wide_rationale/maxLength",
-		inputBound("/$defs/work_context_research_selection/properties/product_wide_rationale/maxLength"))
-
 	// The retained context read uses the shared assembly. The subject commit
 	// rides the inline 40..64 lowercase-hex guard.
 	viewDefs := []string{"retained_work_context_view"}
@@ -314,8 +276,6 @@ func init() {
 		registerOutputBound("/$defs/"+def+"/properties/required_reading/maxItems", requiredReadingMax)
 		registerOutputBound("/$defs/"+def+"/properties/subject_commit/maxLength", commitOIDBound)
 	}
-	registerOutputBound("/$defs/retained_work_context_view/properties/research_findings/maxItems", viewFindingsMax)
-
 	// Work liveness: read-time evidence assembled from one state-switch
 	// assignment plus at most two conditional single-element appends; each
 	// element is a fixed prose format with one int64 count. last_progress

@@ -8640,6 +8640,18 @@ BEGIN
 END;
 `,
 	},
+	{
+		Version: 183, Name: researchRetirementMigration, Breaking: true,
+		SQL: `
+DROP TABLE active_research_finding_scopes;
+DROP TABLE active_research_finding_sources;
+DROP TABLE active_research_consumers;
+DROP TABLE active_research_sources;
+DROP TABLE active_research_findings;
+DROP TABLE active_research_revisions;
+DROP TABLE active_research_packs;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any
@@ -9129,6 +9141,13 @@ func inspectUnstampedManifest(ctx context.Context, tx *sql.Tx) (bool, error) {
 func applyPendingMigrations(ctx context.Context, tx *sql.Tx, scope migrationScope, applied map[int]appliedMigration, lawIndexProof *lawIndexRetirementProof, clock ...func() time.Time) (*migration, bool, error) {
 	var stopped *migration
 	remoteUpgrade := false
+	if scope == migrateForUpgrade {
+		if _, done := applied[183]; !done {
+			if err := verifyResearchRetirement(ctx, tx); err != nil {
+				return nil, false, err
+			}
+		}
+	}
 	for i := range migrations {
 		m := migrations[i]
 		if _, done := applied[m.Version]; done {

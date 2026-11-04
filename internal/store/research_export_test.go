@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -10,43 +11,65 @@ import (
 	"testing"
 )
 
+func seedResearchExportFixture(t *testing.T, db *sql.DB) {
+	t.Helper()
+	statements := []string{
+		`INSERT INTO write_guard(active) VALUES(1)`,
+		`INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product','Product','prototype','operator_only',1,'now','now')`,
+		`INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project','Project',1,'now','now')`,
+		`INSERT INTO product_projects(product_id,project_id,role) VALUES('product','project','primary')`,
+		`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES
+		 ('owner','task','Owner','needed',0,1,'now','now',NULL),
+		 ('retained','task','Retained','completed',0,1,'now','now','now'),
+		 ('consumer','task','Consumer','needed',0,1,'now','now',NULL)`,
+		`INSERT INTO work_projects(work_id,project_id,role) VALUES('owner','project','primary'),('retained','project','primary'),('consumer','project','primary')`,
+		`INSERT INTO active_research_packs(pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at) VALUES
+		 ('export','owner',2,'current',6,'now','now'), ('retained','retained',1,'current',1,'now','now')`,
+		`INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at) VALUES
+		 ('export',1,'Question','{}','{}','[]','Method','now'),
+		 ('export',2,'Question','{}','{}','[]','Method','now'),
+		 ('retained',1,'Question','{}','{}','[]','Method','now')`,
+		`INSERT INTO active_research_findings(pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode) VALUES
+		 ('export',1,'finding','observation','First revision','high','current','active','explicit'),
+		 ('export',2,'finding','observation','First revision','high','current','active','explicit'),
+		 ('export',2,'second','conclusion','Second revision','medium','unknown','active','home')`,
+		`INSERT INTO active_research_sources(pack_id,revision,source_id,kind,locator,title,publisher_or_author,published_at,accessed_at) VALUES
+		 ('export',1,'source','official_doc','https://example.com/research','Source','Example',NULL,'2026-01-01T00:00:00Z'),
+		 ('export',2,'source','official_doc','https://example.com/research','Source','Example',NULL,'2026-01-01T00:00:00Z')`,
+		`INSERT INTO active_research_finding_sources(pack_id,revision,finding_id,source_id) VALUES ('export',1,'finding','source'),('export',2,'finding','source')`,
+		`INSERT INTO active_research_finding_scopes(pack_id,revision,finding_id,scope_kind,scope_id) VALUES ('export',1,'finding','project','project'),('export',2,'finding','project','project')`,
+		`INSERT INTO active_research_consumers(pack_id,revision,consumer_work_id,use_role,required,accepted_at) VALUES ('export',1,'consumer','context',1,'now')`,
+		`DELETE FROM write_guard`,
+	}
+	for _, statement := range statements {
+		if _, err := db.ExecContext(t.Context(), statement); err != nil {
+			t.Fatalf("seed research fixture: %v", err)
+		}
+	}
+}
+
+func openResearchExportFixture(t *testing.T) (string, *sql.DB) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "historical.db")
+	db := openMigratedTo(t, path, 182)
+	seedResearchExportFixture(t, db)
+	return path, db
+}
+
 func TestExportResearchDatabaseDeterministicCompleteAndReadOnly(t *testing.T) {
-	s := openTemp(t)
-	seedResearchWork(t, s, "owner", "retained", "consumer")
-	pack := createSimplePack(t, s, "export", "owner")
-	if _, err := recordResearchSource(t.Context(), s, ResearchSourceRequest{
-		PackID: pack.PackID, ExpectedVersion: 1,
-		Source: ResearchSource{SourceID: "source", Kind: SourceOfficialDoc, Locator: "https://example.com/research", Title: "Source", PublisherOrAuthor: "Example", AccessedAt: "2026-01-01T00:00:00Z"},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := recordResearchFinding(t.Context(), s, ResearchFindingRequest{
-		PackID: pack.PackID, ExpectedVersion: 2,
-		Finding: ResearchFinding{FindingID: "finding", Kind: FindingObservation, Statement: "First revision", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"source"}, Scopes: ResearchScopes{Mode: "explicit", ProjectIDs: []string{"project"}}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	pinResearch(t, s, "consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext, Required: true})
-	if _, err := appendResearchRevision(t.Context(), s, AppendResearchRevisionRequest{PackID: pack.PackID, ExpectedVersion: 4, Revision: simpleResearchRevision()}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := recordResearchFinding(t.Context(), s, ResearchFindingRequest{
-		PackID: pack.PackID, ExpectedVersion: 5,
-		Finding: ResearchFinding{FindingID: "second", Kind: FindingConclusion, Statement: "Second revision", Confidence: ConfidenceMedium, Freshness: ResearchUnknown, Status: FindingActive},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	retained := createSimplePack(t, s, "retained", "retained")
-	terminalizeResearchOwner(t, s, "retained")
-	before, err := backupCurrentStateDigest(t.Context(), s.db)
+	path, db := openResearchExportFixture(t)
+	before, err := backupCurrentStateDigest(t.Context(), db)
 	if err != nil {
 		t.Fatal(err)
 	}
 	first, second := filepath.Join(t.TempDir(), "first"), t.TempDir()
 	for _, destination := range []string{first, second} {
-		result, err := ExportResearchDatabase(t.Context(), s.Path(), destination)
+		result, err := ExportResearchDatabase(t.Context(), path, destination)
 		if err != nil || result.PackCount != 2 || result.Destination != destination {
 			t.Fatalf("export = %+v, %v", result, err)
+		}
+		if err := VerifyResearchExport(t.Context(), path, destination); err != nil {
+			t.Fatalf("verify export: %v", err)
 		}
 	}
 	entries, err := os.ReadDir(first)
@@ -76,7 +99,7 @@ func TestExportResearchDatabaseDeterministicCompleteAndReadOnly(t *testing.T) {
 		}
 		seen[document.PackID] = true
 		counts := map[string]int{"active_research_packs": 1, "active_research_revisions": 1, "active_research_findings": 0, "active_research_sources": 0, "active_research_finding_sources": 0, "active_research_finding_scopes": 0, "active_research_consumers": 0}
-		if document.PackID == pack.PackID {
+		if document.PackID == "export" {
 			counts["active_research_revisions"] = 2
 			counts["active_research_findings"] = 3
 			for _, name := range []string{"active_research_sources", "active_research_finding_sources", "active_research_finding_scopes", "active_research_consumers"} {
@@ -102,12 +125,56 @@ func TestExportResearchDatabaseDeterministicCompleteAndReadOnly(t *testing.T) {
 			}
 		}
 	}
-	if !seen[pack.PackID] || !seen[retained.PackID] {
+	if !seen["export"] || !seen["retained"] {
 		t.Fatalf("export omitted active or retained pack: %v", seen)
 	}
-	after, err := backupCurrentStateDigest(t.Context(), s.db)
+	after, err := backupCurrentStateDigest(t.Context(), db)
 	if err != nil || after != before {
 		t.Fatalf("export changed source state: %s -> %s, %v", before, after, err)
+	}
+}
+
+func TestExportResearchVerifierRejectsChanges(t *testing.T) {
+	path, _ := openResearchExportFixture(t)
+	for _, change := range []string{"tamper", "missing", "extra", "symlink"} {
+		t.Run(change, func(t *testing.T) {
+			destination := filepath.Join(t.TempDir(), "export")
+			if _, err := ExportResearchDatabase(t.Context(), path, destination); err != nil {
+				t.Fatal(err)
+			}
+			entries, err := os.ReadDir(destination)
+			if err != nil || len(entries) != 2 {
+				t.Fatalf("export files: %v, %v", entries, err)
+			}
+			file := filepath.Join(destination, entries[0].Name())
+			switch change {
+			case "tamper":
+				err = os.WriteFile(file, []byte("changed\n"), 0o600)
+			case "missing":
+				err = os.Remove(file)
+			case "extra":
+				err = os.WriteFile(filepath.Join(destination, "extra"), []byte("extra"), 0o600)
+			case "symlink":
+				data, readErr := os.ReadFile(file)
+				if readErr != nil {
+					t.Fatal(readErr)
+				}
+				target := filepath.Join(t.TempDir(), "target")
+				if err := os.WriteFile(target, data, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Remove(file); err != nil {
+					t.Fatal(err)
+				}
+				err = os.Symlink(target, file)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := VerifyResearchExport(t.Context(), path, destination); err == nil {
+				t.Fatalf("verifier accepted %s", change)
+			}
+		})
 	}
 }
 
@@ -154,15 +221,13 @@ func TestExportResearchDatabaseMissingSource(t *testing.T) {
 }
 
 func TestExportResearchDatabaseRefusesLossyText(t *testing.T) {
-	s := openTemp(t)
-	seedResearchWork(t, s, "owner")
-	pack := createSimplePack(t, s, "invalid-text", "owner")
+	path, db := openResearchExportFixture(t)
 	for _, value := range []any{string([]byte{0xff}), []byte{0xff}} {
-		if _, err := s.db.ExecContext(t.Context(), `UPDATE active_research_revisions SET question=? WHERE pack_id=?`, value, pack.PackID); err != nil {
+		if _, err := db.ExecContext(t.Context(), `UPDATE active_research_revisions SET question=? WHERE pack_id=?`, value, "export"); err != nil {
 			t.Fatal(err)
 		}
 		destination := filepath.Join(t.TempDir(), "export")
-		if _, err := ExportResearchDatabase(t.Context(), s.Path(), destination); err == nil || !strings.Contains(err.Error(), "non-UTF-8") {
+		if _, err := ExportResearchDatabase(t.Context(), path, destination); err == nil || !strings.Contains(err.Error(), "non-UTF-8") {
 			t.Fatalf("lossy text accepted: %v", err)
 		}
 		if _, err := os.Stat(destination); !os.IsNotExist(err) {
@@ -175,9 +240,7 @@ func TestExportResearchDatabaseWriteFailureExplainsRecovery(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root bypasses directory write permissions")
 	}
-	s := openTemp(t)
-	seedResearchWork(t, s, "owner")
-	createSimplePack(t, s, "write-failure", "owner")
+	path, _ := openResearchExportFixture(t)
 	destination := t.TempDir()
 	if err := os.Chmod(destination, 0o500); err != nil {
 		t.Fatal(err)
@@ -187,7 +250,7 @@ func TestExportResearchDatabaseWriteFailureExplainsRecovery(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	_, err := ExportResearchDatabase(t.Context(), s.Path(), destination)
+	_, err := ExportResearchDatabase(t.Context(), path, destination)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Op != "research_export" || !strings.Contains(failure.RecoveryAction, "keep the source database") || !strings.Contains(failure.RecoveryAction, "new empty directory") {
 		t.Fatalf("write failure omits export recovery: %v", err)

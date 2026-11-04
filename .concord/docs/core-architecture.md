@@ -171,7 +171,7 @@ details; this table does not duplicate them.
 | Work context and evidence | `internal/store/work_context.go`, `internal/store/workflow_review.go`, `internal/store/workflow_verification_report.go` | Declared sources, recorded subject, Review outcomes and verification reports; adjacent tests |
 | Workflow action and protected writes | `internal/store/workflow_dispatch.go`, `internal/store/workflow_preflight.go`, `internal/store/workflow_domain_overlap.go` | Approved scope, law revision, and work-relation resolution |
 | Project handoff | `internal/store/project_handoffs.go` | Directory-resolved receiving Project and authenticated handoff provenance; host tools own checkout inspection and lifecycle; Concord retains no worktree locator metadata |
-| Research and knowledge law | `internal/store/research_types.go`, `internal/store/research_reads.go`, `internal/store/research_mutations.go`, `internal/store/law_boundary.go` | Version and source identity, consumer pins, staleness, accepted-law lookup |
+| Knowledge law | `internal/store/law_boundary.go` | Version and source identity, accepted-law lookup |
 | Repository verification | `.github/workflows/ci.yml`, `scripts/check-json.py`, `bin/oc-test` | Required checks and targeted verification routing |
 
 ---

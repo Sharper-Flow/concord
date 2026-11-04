@@ -111,7 +111,7 @@
     },
     "operations": {
       "type": "array",
-      "minItems": 30,
+      "minItems": 23,
       "maxItems": 96,
       "items": {
         "type": "object",
@@ -169,7 +169,6 @@
             "enum": [
               "cross_scope",
               "product_read",
-              "research",
               "work_define",
               "work_relate",
               "work_transition"
@@ -185,8 +184,7 @@
               "scope",
               "relation",
               "supersession",
-              "recovery",
-              "research"
+              "recovery"
             ],
             "type": "string"
           },
@@ -215,7 +213,6 @@
         "enum": [
           "cross_scope",
           "product_read",
-          "research",
           "work_define",
           "work_relate",
           "work_transition"
@@ -223,8 +220,8 @@
         "type": "string"
       },
       "uniqueItems": true,
-      "minItems": 6,
-      "maxItems": 6
+      "minItems": 5,
+      "maxItems": 5
     },
     "consequences": {
       "type": "array",
@@ -237,14 +234,13 @@
           "scope",
           "relation",
           "supersession",
-          "recovery",
-          "research"
+          "recovery"
         ],
         "type": "string"
       },
       "uniqueItems": true,
-      "minItems": 9,
-      "maxItems": 9
+      "minItems": 8,
+      "maxItems": 8
     },
     "bounds": {
       "$ref": "#/$defs/bounds"

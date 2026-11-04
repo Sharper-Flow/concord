@@ -24,7 +24,7 @@ func TestCompletionDoesNotRecheckMandatedLaw(t *testing.T) {
 	commitFixtureLawFile(t, home, "spec:one", derivedRevisionConflictLaw)
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/researcher", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	version := seedDerivedRevisionWorkflow(t, s, workID, owner)
-	approval := json.RawMessage(`{"premise":"Bring the derived law into conformance with the legislated one.","spec_mandate":["spec:legislated","spec:one"],"law_modifies":["spec:one"],"required_evidence":["artifact"],"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["report_recorded"]}}]}`)
+	approval := json.RawMessage(`{"premise":"Bring the derived law into conformance with the legislated one.","spec_mandate":["spec:legislated","spec:one"],"law_modifies":["spec:one"],"required_evidence":["artifact","verification"],"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["report_recorded"]}}]}`)
 	if err := runDerivedLawApproval(t, s, workID, version, owner, approval); err != nil {
 		t.Fatalf("the derived revision was not admitted at approval: %v", err)
 	}
@@ -43,19 +43,9 @@ func TestCompletionDoesNotRecheckMandatedLaw(t *testing.T) {
 		}
 	}
 	f := workContextFixture{store: s, workID: workID, owner: owner}
-	pack := seedResearchContextPack(t, f, "derived-lands-proof")
-	bindResearchPack(t, f, pack.PackID, 1, true)
-	// The selection's child Domain carries no product-wide rationale.
-	selection := researchSelectionEntry(pack.PackID, 1, "f2", "root")
-	if err := f.recordWorkContext(t, map[string]any{"research_finding_refs": []map[string]any{selection}}); err != nil {
-		t.Fatal(err)
-	}
-	view, err := readWorkContextView(context.Background(), s.DatabaseForTesting(), workID)
-	if err != nil || view == nil || len(view.ResearchFindings) != 1 {
-		t.Fatalf("selected research proof: %+v err=%v", view, err)
-	}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", mustJSONValue(map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{view.ResearchFindings[0].ViewID}}}}), 0, owner); err != nil {
-		t.Fatalf("research receipt association: %v", err)
+	proof := qAssociateCurrentProofAt(t, f, "conclude", "", false)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", mustJSONValue(map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{proof.receipt}}}}), 0, owner); err != nil {
+		t.Fatalf("receipt association: %v", err)
 	}
 	ownerRef, _ := WorkflowActorRef(owner)
 	premiseVersion := readWorkVersion(t, s, workID)

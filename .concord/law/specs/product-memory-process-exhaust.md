@@ -65,8 +65,7 @@ a restore promise. No generic screenshot obligation applies.
 
 There is no process-exhaust migration, backfill, retention window, inventory,
 backup or garbage collector. Existing producer reports are neither enrolled nor
-destroyed by Concord. Research remains direct-table authority until explicit
-eligible retirement, not process exhaust or a completion archive.
+destroyed by Concord.
 
 ## Acceptance criteria
 

@@ -100,9 +100,6 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 	if err := ensureInitialWorkflowContractApproval(ctx, tx, request.WorkID, fields); err != nil {
 		return nil, err
 	}
-	if err := requireResearchForPendingQuestions(ctx, tx, request.WorkID); err != nil {
-		return nil, err
-	}
 	contract, err := workflowContractContent(ctx, tx, definition, request.WorkID, fields, request.LawModifies)
 	if err != nil {
 		return nil, err
@@ -543,11 +540,7 @@ func associateWorkflowVerdictReceiptsTx(ctx context.Context, tx queryer, workID,
 	if stateErr != nil {
 		return nil, stateErr
 	}
-	research, err := workflowResearchCriterionFamily(ctx, tx, workID)
-	if err != nil {
-		return nil, err
-	}
-	if state.Candidate == nil && !research {
+	if state.Candidate == nil {
 		return nil, reviewFailure(KindMissingEvidence, "criterion association requires a current integrated candidate", "accept the observed candidate before associating its proof")
 	}
 	dependencies, err := workflowReviewDependencies(ctx, tx, workID)

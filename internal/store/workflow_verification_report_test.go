@@ -152,8 +152,8 @@ func TestWorkflowVerificationReportsUseRecordedBinding(t *testing.T) {
 	if err := workflowAcceptanceSubjectCurrent(context.Background(), db, "work:one", candidate, []string{ref}); !hasFailureKind(err, KindStaleRequiresReview) {
 		t.Fatalf("old binding satisfied acceptance: %v", err)
 	}
-	if err := workflowAcceptanceSubjectCurrent(context.Background(), db, "work:research", candidate, []string{"finding:research"}); err != nil {
-		t.Fatalf("research evidence was treated as a verification report: %v", err)
+	if err := workflowAcceptanceSubjectCurrent(context.Background(), db, "work:research", candidate, []string{"finding:research"}); !hasFailureKind(err, KindStaleRequiresReview) {
+		t.Fatalf("research work accepted a reference without a verification report: %v", err)
 	}
 	insert("work:one", 3, map[string]any{"evidence_kind": "verification", "immutable_subject_ref": ref, "verification_report": VerificationReport{Source: "required_ci", Commit: commit, Result: "fail", RunRef: "run:failed"}})
 	reports := read()

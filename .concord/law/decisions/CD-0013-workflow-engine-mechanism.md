@@ -22,7 +22,7 @@ evidence binding, outcome verification, workflow composition, and the durable sh
 workflow engine must add to the existing storage spine.
 **Amends:** CD-0006 D3 (engine authority), D4 (rigor), D5 (spec-law), D10 (spec mandate);
 CD-0008 D2 (evidence), D4 (checkpoints), D6 (schema evolution);
-CD-0215 D2/D6 (research ownership); CD-0012 D1–D11 (outcome contract).
+CD-0012 D1–D11 (outcome contract).
 **Amended:** 2026-10-18. These 2026-10-17 records amend this one:
 [CD-0229](CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md)
 amends this record's D1 (plain Go workflow definitions);
@@ -39,8 +39,7 @@ outcome-contract acceptance criterion 3 (vacuity is judged at review).
 
 CD-0006 D3 commits Concord to a full workflow coordination engine with native-effect
 preservation. CD-0008 commits to current-state resumption, expected versions, immutable
-evidence binding and schema evolution. CD-0215 commits
-research ownership semantics. CD-0012 commits a three-part outcome contract
+evidence binding and schema evolution. CD-0012 commits a three-part outcome contract
 and a strengthening-only delivery comparison; Review reports one disposition and Main records its acceptance ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
 The accepted law already defines:
@@ -234,12 +233,12 @@ approval.
 The shared admission derivation owns questions and next actions. Every reachable state retains an admitted, evidence-backed exit and terminal reachability. Review is a real prerequisite, not an assumed verdict. No hold loop or fabricated human actor satisfies liveness.
 
 At the current operation surface, removal, cancellation, repair,
-reconciliation, research-pack retirement, overlap resolution, membership
+reconciliation, overlap resolution, membership
 changes and delivery correction require operator consent
 only when a CD-0243 D2 class applies. Governing-requirement scope cuts remain
 product decisions. Granting access remains a security decision. No approval
 grants otherwise absent capability or authorization. Existing authentication,
-capability, state, evidence, exact-target and research-retention checks remain required. Workflow acceptance does not authorize host-controlled
+capability, state, evidence and exact-target checks remain required. Workflow acceptance does not authorize host-controlled
 destructive commands, deployment, release, credential disclosure, or
 force-push; host permissions still govern them.
 

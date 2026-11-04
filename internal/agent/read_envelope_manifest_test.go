@@ -37,7 +37,6 @@ var readMarshalInputs = map[string]string{
 	"concord_work_trace.continuity":         `{"work_id":"work-done","page":{"cursor":null,"limit":10}}`,
 	"concord_work_trace.mutation_result":    `{"source_tool":"concord_work_transition","source_operation":"workflow_action","idempotency_key":"missing-mutation","digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"}`,
 	"concord_work_trace.project_retirement": `{"work_id":"work-done"}`,
-	"concord_work_trace.research":           `{"product_id":"prod-alpha"}`,
 
 	"concord_domain.list":   `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`,
 	"concord_domain.detail": `{"product_id":"prod-alpha","domain_id":"root"}`,

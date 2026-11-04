@@ -122,8 +122,6 @@ const (
 	KindKnowledgeUnavailable        FailureKind = "knowledge_unavailable"
 	KindStaleAttempt                FailureKind = "stale_attempt"
 	KindIdempotencyConflict         FailureKind = "idempotency_conflict"
-	KindResearchRevisionImmutable   FailureKind = "research_revision_immutable"
-	KindResearchConsumerBlocked     FailureKind = "research_consumer_blocked"
 	// KindDomainRegistryAbsent marks a Domain read against a Product whose Git
 	// knowledge home has not projected a Domain registry. Absent is a refusal,
 	// never an empty page: authoritative-empty requires a registry watermark.

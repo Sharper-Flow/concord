@@ -126,4 +126,4 @@ The store keeps current state and finite verified snapshots; retired planning ki
   retired Initiative records and their owned projections while preserving
   actionable work, idempotency records and a verified predecessor snapshot.
 - The Initiative retirement rollback tests exercise atomic refusal when
-  research or foreign-owned dependencies remain or a deletion fails.
+  foreign-owned dependencies remain or a deletion fails.

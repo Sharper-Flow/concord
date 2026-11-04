@@ -34,7 +34,6 @@ func terminalStepsMigrationFixture(t *testing.T) (*sql.DB, string) {
 		retirementUpgradeExec(t, db, `INSERT INTO idempotency_records(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,result_event_ids,first_observed_at,last_observed_at) VALUES('operator','tool','mutation',?,?,?,'["event-upgrade-4"]',?,?)`, op.id, digest, op.id, retirementUpgradeTime, retirementUpgradeTime)
 	}
 	retirementUpgradeExec(t, db, `INSERT INTO workflow_evidence_bindings VALUES('work-upgrade-from',24,'binding:ordinary','operator','{"producer_run_ref":"successful-operation"}'),('work-upgrade-from',25,'binding:publication','operator','{"producer_run_ref":"partial-publication"}')`)
-	retirementUpgradeExec(t, db, `INSERT INTO active_research_packs VALUES('pack:retained','work-upgrade-from',1,'current',1,?,?)`, retirementUpgradeTime, retirementUpgradeTime)
 	retirementUpgradeExec(t, db, `INSERT INTO project_locators(project_id,locator_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('project-upgrade','historical-home','canonical_path','/synthetic/history','/synthetic/history',?,?)`, retirementUpgradeTime, retirementUpgradeTime)
 	retirementUpgradeExec(t, db, `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES('historical-work','work_note','Historical outcome',?,'delivered','["lesson:independent"]','completed',0,'Preserve the historical locator','project-upgrade','historical-home','.concord/notes/historical-work.md',?,?)`, retirementUpgradeTime, strings.Repeat("a", 40), digest)
 	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
@@ -74,7 +73,7 @@ func TestTerminalStepsRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	if _, err := Upgrade(t.Context(), path, nil); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"work_items", "effect_receipts", "archived_work", "active_research_packs"} {
+	for _, table := range []string{"work_items", "effect_receipts", "archived_work"} {
 		if after := retirementUpgradeRows(t, db, "SELECT * FROM "+table+" ORDER BY rowid"); !reflect.DeepEqual(before[table], after) {
 			t.Errorf("retirement changed surviving %s", table)
 		}

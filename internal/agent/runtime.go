@@ -163,20 +163,6 @@ type workScopeInput struct {
 	Limit     int       `json:"limit,omitempty"`
 	OneOf     string    `json:"one_of"`
 }
-type researchReadInput struct {
-	ProductID string    `json:"product_id"`
-	PackID    string    `json:"pack_id"`
-	WorkID    string    `json:"work_id"`
-	Page      pageInput `json:"page"`
-	Limit     int       `json:"limit,omitempty"`
-	// ResultVersion selects the result contract: 0 and 1 keep the legacy full
-	// research_pack result; 2 is the canonical read (exact revision and
-	// finding selection, or the owner descriptor page). The runtime, not the
-	// schema, refuses the combinations the flat input cannot express.
-	ResultVersion int      `json:"result_version,omitempty"`
-	Revision      int64    `json:"revision,omitempty"`
-	FindingIDs    []string `json:"finding_ids,omitempty"`
-}
 
 type historyInput struct {
 	WorkID          string    `json:"work_id"`
@@ -458,24 +444,6 @@ func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelop
 		return err
 	}
 	workIDs := identity.WorkIDs
-	// A pack_id names content owned by one immutable work item, so these
-	// operations are authorized as references to that owner.
-	switch request.Tool + "." + request.Operation {
-	case "concord_work_trace.research", "concord_work_define.research_revision_append", "concord_work_define.research_finding_record", "concord_work_define.research_source_record", "concord_work_define.research_freshness_set":
-		var in struct {
-			PackID string `json:"pack_id"`
-		}
-		if err := json.Unmarshal(request.Input, &in); err != nil {
-			return err
-		}
-		if in.PackID != "" {
-			owners, err := s.ResearchPackOwnerWorkIDs(ctx, []string{in.PackID})
-			if err != nil {
-				return err
-			}
-			workIDs = append(workIDs, owners...)
-		}
-	}
 	if len(workIDs) > 0 {
 		scopes, err := s.ProductsForWorkIDs(ctx, workIDs)
 		if err != nil {
@@ -519,10 +487,9 @@ func validateProjectReferenceScope(ctx context.Context, s *store.Store, env Call
 	return nil
 }
 
-// validateWorkReferenceScope is the one Product policy for a work reference:
-// a direct work ID or a research pack owner. Every
-// referenced work's Products must intersect the grant, and a mutation outside
-// the selected Product also needs cross_scope.
+// validateWorkReferenceScope is the Product policy for direct work references.
+// Every referenced work's Products must intersect the grant, and a mutation
+// outside the selected Product also needs cross_scope.
 func validateWorkReferenceScope(env CallEnvelope, grant Authority, kind agentcontract.OperationKind, workIDs []string, scopes map[string][]string) error {
 	for _, id := range workIDs {
 		products, ok := scopes[id]
@@ -537,67 +504,6 @@ func validateWorkReferenceScope(env CallEnvelope, grant Authority, kind agentcon
 		}
 	}
 	return nil
-}
-
-// authorizeWorkflowActionTx authorizes the caller inside the action
-// transaction, then authorizes the owner of every declared research binding
-// and every explicitly selected research pack (CD-0216 D2) under that grant,
-// before the action writes a binding, a selection, or an idempotency
-// receipt. A retained pin or retained selection with no new declaration is
-// not rechecked.
-func (r runtime) authorizeWorkflowActionTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, inv Invocation, bindings []researchBindingInput, selectedPacks []string) error {
-	grant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
-	if err != nil {
-		return err
-	}
-	ids := combinedResearchPackIDs(bindings, selectedPacks)
-	owners, err := store.ResearchPackOwnerWorkIDsTx(ctx, tx, ids)
-	if err != nil {
-		return err
-	}
-	owners = dedupeStrings(owners)
-	scopes, err := store.ProductsForWorkIDsTx(ctx, tx, owners)
-	if err != nil {
-		return err
-	}
-	return validateWorkReferenceScope(r.Envelope, grant, agentcontract.OperationMutation, owners, scopes)
-}
-
-// combinedResearchPackIDs merges the declared binding packs and the
-// explicitly selected packs into one deduplicated identity list, first-seen
-// order kept, so a pack both bound and selected on one action resolves its
-// owner once. No identity is dropped: an unresolvable one keeps its typed
-// absence refusal at the owner lookup.
-func combinedResearchPackIDs(bindings []researchBindingInput, selectedPacks []string) []string {
-	seen := make(map[string]bool)
-	ids := make([]string, 0)
-	for _, binding := range bindings {
-		if !seen[binding.PackID] {
-			seen[binding.PackID] = true
-			ids = append(ids, binding.PackID)
-		}
-	}
-	for _, packID := range selectedPacks {
-		if !seen[packID] {
-			seen[packID] = true
-			ids = append(ids, packID)
-		}
-	}
-	return ids
-}
-
-// dedupeStrings keeps the first occurrence of every value, order preserved.
-func dedupeStrings(values []string) []string {
-	seen := make(map[string]bool, len(values))
-	kept := make([]string, 0, len(values))
-	for _, value := range values {
-		if seen[value] {
-			continue
-		}
-		seen[value] = true
-		kept = append(kept, value)
-	}
-	return kept
 }
 
 type mutationWorkIdentity struct {
@@ -975,8 +881,6 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "operation_conflict"
 	case store.KindIndexDegraded:
 		return "degraded_not_allowed"
-	case store.KindResearchConsumerBlocked:
-		return "stale_requires_review"
 	}
 	// A store kind whose value is already a public kind passes through. The
 	// cases above are the genuine renames, where the store's name and the
@@ -1094,8 +998,6 @@ func (r runtime) readResult(ctx context.Context, base agentcontract.Envelope, in
 		return r.readTraceContinuity(ctx, base, input)
 	case "concord_work_trace.mutation_result":
 		return r.readMutationResult(ctx, base, input)
-	case "concord_work_trace.research":
-		return r.readTraceResearch(ctx, base, input)
 	case "concord_work_trace.relations":
 		return r.readTraceRelations(ctx, base, input)
 	case "concord_work_trace.project_retirement":

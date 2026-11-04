@@ -102,7 +102,7 @@ func builtinWorkflowActionCatalog() workflowActionCatalog {
 			return []WorkflowPayloadField{actionObjectField("review", true, "workflow_review_report")}
 		})},
 		"record_verdict":      {canonicalVerdictPayload},
-		"record_work_context": {researchContextSelection},
+		"record_work_context": nil,
 		"revise_candidates":   nil,
 		"start_execution":     nil,
 	}

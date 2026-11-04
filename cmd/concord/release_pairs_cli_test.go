@@ -727,9 +727,6 @@ type cutoverEvidenceQuery struct {
 // carry across the breaking floor. Every query names only columns that
 // exist identically at the baseline and candidate schemas.
 var cutoverEvidenceQueries = []cutoverEvidenceQuery{
-	{"active_research_packs", `SELECT pack_id,owner_work_id,current_revision,freshness,expected_version FROM active_research_packs ORDER BY pack_id`},
-	{"active_research_revisions", `SELECT pack_id,revision,question,method,freshness FROM active_research_revisions ORDER BY pack_id,revision`},
-	{"active_research_consumers", `SELECT pack_id,revision,consumer_work_id,use_role,required,accepted_at FROM active_research_consumers ORDER BY pack_id,consumer_work_id`},
 	{"durable_knowledge", `SELECT id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version FROM archived_work ORDER BY home_project_id,home_locator_id,id`},
 	{"durable_knowledge_products", `SELECT home_project_id,home_locator_id,work_id,product_id FROM archived_work_products ORDER BY home_project_id,home_locator_id,work_id,product_id`},
 	{"durable_knowledge_projects", `SELECT home_project_id,home_locator_id,work_id,project_id FROM archived_work_projects ORDER BY home_project_id,home_locator_id,work_id,project_id`},
@@ -793,6 +790,9 @@ func captureCutoverEvidence(t *testing.T, db *sql.DB, queries []cutoverEvidenceQ
 func captureBaselineCutoverEvidence(t *testing.T, db *sql.DB) map[string][]string {
 	t.Helper()
 	queries := append([]cutoverEvidenceQuery{
+		{"active_research_packs", `SELECT pack_id,owner_work_id,current_revision,freshness,expected_version FROM active_research_packs ORDER BY pack_id`},
+		{"active_research_revisions", `SELECT pack_id,revision,question,method,freshness FROM active_research_revisions ORDER BY pack_id,revision`},
+		{"active_research_consumers", `SELECT pack_id,revision,consumer_work_id,use_role,required,accepted_at FROM active_research_consumers ORDER BY pack_id,consumer_work_id`},
 		{"worker_attempts", `SELECT work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at FROM worker_attempts ORDER BY attempt_id`},
 		{"worktree_entries", `SELECT set_id,project_id,claim_op_id,branch,base_sha,state FROM worktree_entries ORDER BY set_id,project_id`},
 		{"worktree_occupancy", `SELECT worktree_id,session_ref,host_pid,has_process_identity FROM worktree_occupancy ORDER BY session_ref`},
@@ -1101,7 +1101,7 @@ DELETE FROM fold_guard;`); err != nil {
 	}
 	postCutoverWant := make(map[string][]string, len(want))
 	for name, population := range want {
-		if name != "worker_attempts" && name != "worker_payloads" && name != "worktree_entries" && name != "worktree_occupancy" {
+		if name != "worker_attempts" && name != "worker_payloads" && name != "worktree_entries" && name != "worktree_occupancy" && !strings.HasPrefix(name, "active_research_") {
 			postCutoverWant[name] = population
 		}
 	}
@@ -1284,8 +1284,8 @@ DELETE FROM fold_guard;`); err != nil {
 	}
 	assertPreserved(t, captureCurrentCutoverEvidence(t, mustOpenCutoverStore(t, path)), postCutoverWant)
 
-	// Continue the surviving owner's actual research through the current
-	// transactional API. A successful upgrade no-op alone proves no authoring.
+	// The current store still opens with both work items active and retained
+	// evidence intact after the baseline core's refusal.
 	ctx := context.Background()
 	current, err := store.Open(ctx, path)
 	if err != nil {
@@ -1306,19 +1306,6 @@ DELETE FROM fold_guard;`); err != nil {
 		}
 	}
 	assertActiveWithoutLog()
-	const continuedQuestion = "Can the surviving research owner publish a new revision without moving its required consumer?"
-	if err := current.Transact(ctx, func(tx *store.Transaction) error {
-		_, err := store.AppendResearchRevisionWithinTx(ctx, tx, store.AppendResearchRevisionRequest{
-			PackID: "pack-cutover-living", ExpectedVersion: 1,
-			Revision: store.ResearchRevisionInput{
-				Question: continuedQuestion, Method: "compare the new revision with the retained required consumer pin",
-				ScopeIn: json.RawMessage(`[]`), ScopeOut: json.RawMessage(`[]`), DoneWhen: json.RawMessage(`[]`),
-			},
-		})
-		return err
-	}); err != nil {
-		t.Fatalf("surviving active research must remain authorable without the log: %v", err)
-	}
 	if err := current.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -1327,21 +1314,9 @@ DELETE FROM fold_guard;`); err != nil {
 		t.Fatal(err)
 	}
 	defer current.Close()
-	continued, err := current.ReadResearchPack(ctx, store.ResearchReadRequest{PackID: "pack-cutover-living", Limit: 100})
-	if err != nil {
-		t.Fatalf("read continued research after reopen: %v", err)
-	}
-	if continued.OwnerWorkID != "cutover-owner" || continued.CurrentRevision != 2 || continued.ExpectedVersion != 2 ||
-		len(continued.Revisions) != 2 || continued.Revisions[0].Question != "does the cutover preserve living evidence?" || continued.Revisions[1].Question != continuedQuestion ||
-		len(continued.Consumers) != 1 || continued.Consumers[0].ConsumerWorkID != "cutover-consumer" || continued.Consumers[0].Revision != 1 || !continued.Consumers[0].Required {
-		t.Fatalf("continued research must persist its new revision and retain the original required consumer pin: %+v", continued)
-	}
 	assertActiveWithoutLog()
 	afterContinuation := captureCurrentCutoverEvidence(t, current.DatabaseForTesting())
 	for name, expected := range postCutoverWant {
-		if name == "active_research_packs" || name == "active_research_revisions" {
-			continue // Only the owner's research revision and pack version advance.
-		}
 		got := afterContinuation[name]
 		if !reflect.DeepEqual(got, expected) {
 			t.Fatalf("continued work changed retained %s: got %v, want %v", name, got, expected)

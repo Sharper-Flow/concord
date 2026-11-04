@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -102,6 +103,19 @@ func ExportResearchDatabase(ctx context.Context, path, destination string) (resu
 			return ResearchExportResult{}, err
 		}
 	}
+	for _, path := range []string{destination, filepath.Dir(destination)} {
+		directory, err := os.Open(path) //nolint:gosec // The explicit export directory and its parent must be synced before destructive migration.
+		if err != nil {
+			return ResearchExportResult{}, err
+		}
+		err = directory.Sync()
+		if closeErr := directory.Close(); err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			return ResearchExportResult{}, err
+		}
+	}
 	return ResearchExportResult{Destination: destination, PackCount: len(packs)}, nil
 }
 
@@ -129,6 +143,13 @@ func readResearchExport(ctx context.Context, path string) (map[string]*researchE
 }
 
 func readResearchExportTable(ctx context.Context, tx *sql.Tx, table, order string, packs map[string]*researchExportPack) error {
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?)`, table).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
 	// Table names and ordering come only from researchExportTables, never input.
 	rows, err := tx.QueryContext(ctx, `SELECT * FROM `+table+` ORDER BY `+order) //nolint:gosec // Identifiers come only from the closed researchExportTables list, never caller input.
 	if err != nil {
@@ -178,4 +199,53 @@ func readResearchExportTable(ctx context.Context, tx *sql.Tx, table, order strin
 		return err
 	}
 	return rows.Close()
+}
+
+// VerifyResearchExport compares every output byte with the source's deterministic
+// projection. Missing, changed, additional and non-regular files refuse the export.
+func VerifyResearchExport(ctx context.Context, source, destination string) error {
+	packs, err := readResearchExport(ctx, source)
+	if err != nil {
+		return err
+	}
+	return verifyResearchExportFiles(destination, packs)
+}
+
+func verifyResearchExportFiles(destination string, packs map[string]*researchExportPack) error {
+	info, err := os.Lstat(destination)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("research export destination is not a directory")
+	}
+	entries, err := os.ReadDir(destination)
+	if err != nil {
+		return err
+	}
+	if len(entries) != len(packs) {
+		return fmt.Errorf("research export file count does not match the source")
+	}
+	for _, pack := range packs {
+		path := filepath.Join(destination, fmt.Sprintf("%x.json", sha256.Sum256([]byte(pack.PackID))))
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("research export file is not regular: %s", path)
+		}
+		data, err := os.ReadFile(path) //nolint:gosec // The filename is a fixed-length pack hash under the checked export directory.
+		if err != nil {
+			return err
+		}
+		want, err := json.MarshalIndent(pack, "", "  ")
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(data, append(want, '\n')) {
+			return fmt.Errorf("research export does not match source pack %s", pack.PackID)
+		}
+	}
+	return nil
 }

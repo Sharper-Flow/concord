@@ -466,8 +466,12 @@ func TestRoutineOverlapAuthorityMigration(t *testing.T) {
 		t.Fatalf("the target migration recorded no manifest row: %v", err)
 	}
 	want := migrations[target]
-	if recordedName != want.Name || recordedChecksum != want.checksum() || recordedBreaking != boolInt(want.Breaking) {
-		t.Fatalf("recorded target row = %s/%s/breaking=%d, want %s/%s/breaking=%d", recordedName, recordedChecksum, recordedBreaking, want.Name, want.checksum(), boolInt(want.Breaking))
+	wantBreaking := 0
+	if want.Breaking {
+		wantBreaking = 1
+	}
+	if recordedName != want.Name || recordedChecksum != want.checksum() || recordedBreaking != wantBreaking {
+		t.Fatalf("recorded target row = %s/%s/breaking=%d, want %s/%s/breaking=%d", recordedName, recordedChecksum, recordedBreaking, want.Name, want.checksum(), wantBreaking)
 	}
 
 	// Without a write guard the rebuilt table still refuses every direct

@@ -140,6 +140,20 @@ func retirementUpgradeSnapshot(t *testing.T, db *sql.DB) map[string][][]any {
 	return state
 }
 
+func retirementUpgradeResearchTable(t *testing.T, db *sql.DB, table string) bool {
+	t.Helper()
+	switch table {
+	case "active_research_packs", "active_research_revisions", "active_research_findings",
+		"active_research_finding_scopes", "active_research_sources", "active_research_finding_sources", "active_research_consumers":
+		if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name=? OR tbl_name=?`, table, table); len(rows) != 0 {
+			t.Errorf("retired research schema for %s survives: %v", table, rows)
+		}
+		return true
+	default:
+		return false
+	}
+}
+
 func retirementUpgradeHealthy(t *testing.T, db *sql.DB) {
 	t.Helper()
 	if got := retirementUpgradeRows(t, db, `PRAGMA foreign_keys`); !reflect.DeepEqual(got, [][]any{{int64(1)}}) {

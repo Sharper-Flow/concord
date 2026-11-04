@@ -98,6 +98,9 @@ func TestWorktreeRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 		t.Fatalf("retired registry hash column survives: %v", got)
 	}
 	for table, want := range retained {
+		if retirementUpgradeResearchTable(t, db, table) {
+			continue
+		}
 		switch table {
 		case "schema", "schema_migrations", "store_revision", "workflow_contract_law_revisions":
 			continue

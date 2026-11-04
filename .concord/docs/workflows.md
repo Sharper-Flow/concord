@@ -213,14 +213,14 @@ matures into a break-fix workflow, which may become an implementation change.
 |---|---|---|
 | **`workflow.implementation`** | Tasks default here | Declares the family's mandatory steps, including refine. The outcome contract, review acceptance and closure apply to every item (CD-0229 D4; CD-0242 D4). |
 | **`workflow.break_fix`** | Bugs default here | One typed diagnosis with required reproduction, backlog-search, and root-cause sections, then repair, the mandatory refine pass, and verification (CD-0242 D4; CD-0138 D1). |
-| **`workflow.research`** | Research defaults here | Records findings, conclusions, and recommendations; may conclude `no_change`; outcome predicates only (CD-0218 D1). [CD-0215](../law/decisions/CD-0215-retained-research-context.md) owns the research-pack capability. |
+| **`workflow.research`** | Research defaults here | Records findings, conclusions, and recommendations; may conclude `no_change`; outcome predicates only (CD-0218 D1). |
 
 The retired families — `architecture_spike`, `ops_runbook`, `static_analysis`,
 `generic_one_off` — select no new execution, and no alias maps a retired
 family to a retained one (CD-0218 D1).
-[CD-0215 D2](../law/decisions/CD-0215-retained-research-context.md) requires
+[CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) requires
 an architecture spike to resolve through a separate reviewed and accepted
-decision; CD-0218 assigns that obligation to the cutover owner's approved
+decision and assigns that obligation to the cutover owner's approved
 successor set. Research reports do not enact legislation (CD-0218 D1).
 
 External analysis covers architecture-inconsistency detection, AI-slop

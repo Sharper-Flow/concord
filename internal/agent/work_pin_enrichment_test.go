@@ -107,7 +107,7 @@ func TestHandWrittenIntentsNeverNameAWorkMutation(t *testing.T) {
 						op, known := operations[tool+"."+operation]
 						if !known {
 							t.Errorf("%s: hand-written intent names %s.%s, which the manifest does not declare", position, tool, operation)
-						} else if op.Kind == agentcontract.OperationMutation && op.Capability != "research" {
+						} else if op.Kind == agentcontract.OperationMutation {
 							t.Errorf("%s: hand-written intent names work mutation %s; derive it from the work pin", position, op.ID)
 						}
 					}

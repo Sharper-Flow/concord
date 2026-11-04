@@ -83,8 +83,8 @@ pre-decided here.
 
 ### D4. Mandates and methods; does not authorize implementation
 
-Under CD-0213, each feature's research and shape-fixing proceeds through Linear MCP,
-research packs, and subsequent shape-fixing decision records. This CD
+Under CD-0213, each feature's research and shape-fixing proceeds through Linear MCP
+and subsequent shape-fixing decision records. This CD
 establishes the preservation mandate and research-informed method only. No feature
 is implemented by virtue of this decision.
 

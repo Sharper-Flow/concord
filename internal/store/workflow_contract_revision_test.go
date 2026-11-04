@@ -138,10 +138,15 @@ func TestWorkflowActionPreflightRefusesUndeclaredActionAtCheckpoint(t *testing.T
 func TestVerdictOmittingContractVersionResolvesActiveContract(t *testing.T) {
 	t.Parallel()
 	const id = "verdict-version-default-supersede"
-	f, ref := seedCriterionAssociationAtStep(t, id, mustBuiltinDefinition(t, "workflow.research"), "investigate")
+	var predicates []map[string]any
+	for ordinal, predicate := range []string{"predicate:first", "predicate:second"} {
+		predicates = append(predicates, map[string]any{"predicate_id": predicate, "ordinal": ordinal, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}})
+	}
+	f := seedWorkflowReturnRouteFixtureWithDefinition(t, id, mustBuiltinDefinition(t, "workflow.research"), "investigate", []string{"verification"}, []string{"artifact"}, predicates...)
+	t.Cleanup(func() { _ = f.store.Close() })
 	successor := pContractSuccessor(t, f.store, id, "corrected premise")
-	predicates := successor["outcome_predicates"].([]any)
-	successor["outcome_predicates"] = append(predicates, map[string]any{"predicate_id": "predicate:added", "ordinal": 2, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}})
+	successorPredicates := successor["outcome_predicates"].([]any)
+	successor["outcome_predicates"] = append(successorPredicates, map[string]any{"predicate_id": "predicate:added", "ordinal": 2, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}})
 	if err := reviseContractRecord(t, f.store, id, f.owner, successor, readWorkVersion(t, f.store, id), nil); err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +154,7 @@ func TestVerdictOmittingContractVersionResolvesActiveContract(t *testing.T) {
 	// A revision stales nothing by itself (CD-0242 D7); a verdict
 	// before research production is refused because investigate does not
 	// declare it.
-	if err := runVerdictActionAs(t, f.store, id, "record_verdict", criterionAssociationPayload(ref, "predicate:added"), 0, f.owner); !hasFailureKind(err, KindIllegalLifecycleTransition) {
+	if err := runVerdictActionAs(t, f.store, id, "record_verdict", criterionAssociationPayload("report:pending", "predicate:added"), 0, f.owner); !hasFailureKind(err, KindIllegalLifecycleTransition) {
 		t.Fatalf("successor association before research production=%v, want the off-step refusal", err)
 	}
 	if contractCorrectionEffectSnapshot(t, f.store, id) != before {
@@ -161,6 +166,8 @@ func TestVerdictOmittingContractVersionResolvesActiveContract(t *testing.T) {
 	if err := runVerdictActionAs(t, f.store, id, "record_report", json.RawMessage(`{"evidence_kind":"artifact","evidence_ref":"evidence:return-route-artifact"}`), 0, f.owner); err != nil {
 		t.Fatalf("successor research report: %v", err)
 	}
+	proof := qAssociateCurrentProofAt(t, workContextFixture{store: f.store, workID: id, owner: f.owner, operator: f.operator}, "conclude", "", false)
+	ref := proof.receipt
 	if err := runVerdictActionAs(t, f.store, id, "record_verdict", criterionAssociationPayload(ref, "predicate:first", "predicate:second", "predicate:added"), 0, f.owner); err != nil {
 		t.Fatalf("association without contract_version: %v", err)
 	}

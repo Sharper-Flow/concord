@@ -282,8 +282,7 @@ func TestCanonicalImplementationV30RemovesDiscoveryKeepsAlignmentBeforeCriteria(
 
 func TestCanonicalHeadsAuthorBatchVerdictsOnly(t *testing.T) {
 	const workID = "canonical-verdict-batch-only"
-	// The current head associates criteria with captured receipts (CD-0242
-	// D8): the research fixture selects one sourced finding as that receipt.
+	// The current head associates criteria with captured verification receipts.
 	fixture, receipt := seedCriterionAssociationAtStep(t, workID, mustBuiltinDefinition(t, "workflow.research"), "conclude")
 	s := fixture.store
 	run := func(payload json.RawMessage) error {
@@ -920,15 +919,6 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 		}
 		files[file] = id
 	}
-	// Research content stays; only the cancelled work's active bindings drop.
-	execInFold(t, s, `UPDATE work_items SET kind='research' WHERE id='c-canonical'`)
-	pack, err := createResearchPack(ctx, s, CreateResearchPackRequest{OwnerWorkID: "c-canonical", Revision: ResearchRevisionInput{Question: "cutover fixture", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "source"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, id := range []string{"a-archived", "b-contract-only"} {
-		pinResearch(t, s, id, ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext, Required: true})
-	}
 	before := map[string]workProjection{}
 	for _, id := range []string{"a-archived", "b-contract-only", "c-canonical", "d-terminal", "e-superseded-contract"} {
 		before[id], err = cutoverReadWork(ctx, s, id)
@@ -937,7 +927,7 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 		}
 	}
 	untouched := map[string]string{}
-	for _, table := range []string{"relations", "workflow_contracts", "workflow_checkpoints", "linear_issue_links", "active_research_revisions"} {
+	for _, table := range []string{"relations", "workflow_contracts", "workflow_checkpoints", "linear_issue_links"} {
 		untouched[table] = cutoverTableSnapshot(t, s, table)
 	}
 	eventsBefore := countRows(t, s, "effect_receipts")
@@ -999,9 +989,6 @@ func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
 		if after := cutoverTableSnapshot(t, s, table); after != prior {
 			t.Fatalf("cancellation changed %s: %s -> %s", table, prior, after)
 		}
-	}
-	if countRows(t, s, "active_research_consumers") != 0 {
-		t.Fatal("cancelled consumers still bind research")
 	}
 	for file, want := range files {
 		content, err := os.ReadFile(file)

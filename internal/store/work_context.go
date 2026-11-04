@@ -15,14 +15,14 @@ import (
 )
 
 // Work context combines the current declaration and retained finding claims
-// for continuity and dispatch packets. Research content remains with its
-// authority. Context claims grant no Git or knowledge publication authority.
+// for continuity and dispatch packets. Context claims grant no Git or
+// knowledge publication authority.
 
 // Closed bounds of the work-context surface. The action declares the full
 // current reading list (at most 32), selects at most 32 exact earlier
 // finding references, and contributes at most 16 new findings; the current
-// view holds at most 32 finding slots across its generic, ranked, and
-// research entries, and its complete serialization stays inside 64 KiB. An
+// view holds at most 32 finding slots across its generic and ranked entries,
+// and its complete serialization stays inside 64 KiB. An
 // over-bound action or view refuses explicitly; content is never truncated
 // to fit.
 const (
@@ -189,12 +189,6 @@ type WorkContextView struct {
 	RequiredReading     []WorkContextReading     `json:"required_reading"`
 	Findings            []WorkContextFindingView `json:"findings"`
 	DomainGroups        []WorkContextDomainGroup `json:"domain_groups"`
-	// ResearchFindings carries the latest declaration anchor's selected
-	// research in authored order, resolved through the canonical
-	// selected-read helper. Research entries and event-owned findings share
-	// the 32-slot view bound and the whole-view byte bound; the member is
-	// omitted when the declaration selects none.
-	ResearchFindings []WorkContextResearchFindingView `json:"research_findings,omitempty"`
 }
 
 // workflowWorkContextRecordedPayload is the durable declaration event. The
@@ -203,19 +197,15 @@ type WorkContextView struct {
 // never carries its own sequence.
 type workflowWorkContextRecordedPayload struct {
 	WorkflowVersionFields
-	StepID          string               `json:"step_id"`
-	AttemptEpoch    int64                `json:"attempt_epoch"`
-	RequiredReading []WorkContextReading `json:"required_reading"`
-	FindingRefs     []string             `json:"finding_refs"`
-	ContextFindings []WorkContextFinding `json:"context_findings"`
-	// ResearchSelections stores references only: the optional member is
-	// absent and empty for the same meaning, and a new full declaration
-	// explicitly replaces its research selections.
-	ResearchSelections       []WorkContextResearchSelection `json:"research_finding_refs,omitempty"`
-	WorkflowRef              string                         `json:"workflow_ref"`
-	WorkflowDefinitionDigest string                         `json:"workflow_definition_digest"`
-	ActorRef                 string                         `json:"actor_ref"`
-	RequestID                string                         `json:"request_id"`
+	StepID                   string               `json:"step_id"`
+	AttemptEpoch             int64                `json:"attempt_epoch"`
+	RequiredReading          []WorkContextReading `json:"required_reading"`
+	FindingRefs              []string             `json:"finding_refs"`
+	ContextFindings          []WorkContextFinding `json:"context_findings"`
+	WorkflowRef              string               `json:"workflow_ref"`
+	WorkflowDefinitionDigest string               `json:"workflow_definition_digest"`
+	ActorRef                 string               `json:"actor_ref"`
+	RequestID                string               `json:"request_id"`
 }
 
 var workContextFindingRefPattern = regexp.MustCompile(`^finding:([0-9]+):([0-9]+)$`)
@@ -226,7 +216,7 @@ var workContextFindingRefPattern = regexp.MustCompile(`^finding:([0-9]+):([0-9]+
 // exceeds the bound names the ordinary contract update or stop route
 // instead of promising that reduction always repairs.
 func workContextOverflowRecovery() string {
-	return "reduce the declaration's optional context (readings, findings, or research selections) through a later declaration; if mandatory context alone exceeds the bound, use revise_intent with complete contract content only when the agreed scope permits reducing mandatory context, or stop the work"
+	return "reduce the declaration's optional context (readings or findings) through a later declaration; if mandatory context alone exceeds the bound, use revise_intent with complete contract content only when the agreed scope permits reducing mandatory context, or stop the work"
 }
 
 // workContextFailure bounds the refusal messages of this surface.
@@ -369,12 +359,6 @@ func validateWorkContextDeclarationShape(payload workflowWorkContextRecordedPayl
 			return workContextFailure(KindInvalidPayload, "work_context", fmt.Sprintf("finding ref %d must be finding:<event_seq>:<ordinal>, got %q", index, ref), "select earlier findings by their exact ids")
 		}
 	}
-	if len(payload.ResearchSelections) > WorkContextFindingRefsMax {
-		return workContextFailure(KindInvalidPayload, "work_context", fmt.Sprintf("declaration selects %d research findings; at most %d are selected", len(payload.ResearchSelections), WorkContextFindingRefsMax), "select at most 32 research findings")
-	}
-	if err := validateWorkContextResearchSelectionShape(payload.ResearchSelections); err != nil {
-		return err
-	}
 	// The combined bound measures the declaration's new context content. An
 	// over-bound declaration refuses whole; content is never truncated.
 	readingsJSON, readingsErr := json.Marshal(payload.RequiredReading)
@@ -384,33 +368,6 @@ func validateWorkContextDeclarationShape(payload workflowWorkContextRecordedPayl
 	}
 	if len(readingsJSON)+len(findingsJSON) > WorkContextCombinedMaxBytes {
 		return workContextFailure(KindLimitExceeded, "work_context", "declaration context content exceeds the 64 KiB combined bound and is refused, never truncated", "reduce the declaration's readings and findings")
-	}
-	return nil
-}
-
-func validateWorkContextResearchSelectionShape(selections []WorkContextResearchSelection) error {
-	seenResearch := make(map[string]bool, len(selections))
-	for index, selection := range selections {
-		if !ValidReference(selection.PackID) {
-			return workContextFailure(KindInvalidPayload, "work_context", fmt.Sprintf("research selection %d carries an invalid pack reference", index), "name the research pack by its valid reference")
-		}
-		if selection.Revision < 1 {
-			return workContextFailure(KindInvalidPayload, "work_context", fmt.Sprintf("research selection %d must pin a revision of at least 1", index), "pin the exact selected revision")
-		}
-		if !ValidReference(selection.FindingID) {
-			return workContextFailure(KindInvalidPayload, "work_context", fmt.Sprintf("research selection %d carries an invalid finding reference", index), "name the selected finding by its valid reference")
-		}
-		if !validateWorkContextDomainID(selection.DomainID) {
-			return workContextFailure(KindInvalidPayload, "work_context", fmt.Sprintf("research selection %d domain_id must be between 1 and 256 bytes", index), "name a current Domain of the Product registry")
-		}
-		if !validateWorkContextRationale(selection.ProductWideRationale) {
-			return workContextFailure(KindInvalidPayload, "work_context", fmt.Sprintf("research selection %d product_wide_rationale exceeds 512 bytes", index), "bound the product-wide rationale")
-		}
-		identity := selection.PackID + "\x00" + strconv.FormatInt(selection.Revision, 10) + "\x00" + selection.FindingID
-		if seenResearch[identity] {
-			return workContextFailure(KindInvalidPayload, "work_context", fmt.Sprintf("research selection %d repeats the pack, revision, and finding of an earlier selection", index), "select each research finding once")
-		}
-		seenResearch[identity] = true
 	}
 	return nil
 }
@@ -579,11 +536,6 @@ func workflowRecordWorkContextEvents(ctx context.Context, tx *sql.Tx, request Wo
 	if err := validateWorkContextFindingRefs(ctx, tx, request.WorkID, payload.FindingRefs); err != nil {
 		return nil, err
 	}
-	if len(payload.ResearchSelections) > 0 {
-		if err := validateWorkContextResearchSelectionsTx(ctx, tx, request.WorkID, payload.ResearchSelections); err != nil {
-			return nil, err
-		}
-	}
 	var workflowRef, workflowDigestValue string
 	var attemptEpoch int64
 	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&workflowRef, &workflowDigestValue); err != nil {
@@ -600,11 +552,6 @@ func workflowRecordWorkContextEvents(ctx context.Context, tx *sql.Tx, request Wo
 		"required_reading": payload.RequiredReading, "finding_refs": payload.FindingRefs, "context_findings": payload.ContextFindings,
 		"workflow_ref": workflowRef, "workflow_definition_digest": workflowDigestValue,
 		"actor_ref": actor, "request_id": request.RequestID,
-	}
-	// The selection member stays absent for declarations without research,
-	// so those declaration events keep their exact published shape.
-	if len(payload.ResearchSelections) > 0 {
-		values["research_finding_refs"] = payload.ResearchSelections
 	}
 	return []Event{workflowTypedEvent(eventID, WorkflowWorkContextRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
 }
@@ -631,13 +578,6 @@ func decodeWorkContextDeclarationFields(fields map[string]json.RawMessage) (work
 		}
 	} else {
 		payload.ContextFindings = []WorkContextFinding{}
-	}
-	if raw := fields["research_finding_refs"]; len(raw) != 0 {
-		decoder := json.NewDecoder(strings.NewReader(string(raw)))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&payload.ResearchSelections); err != nil {
-			return payload, workContextFailure(KindInvalidPayload, "work_context", "research_finding_refs must be an array of closed selection entries", "supply exact pack, revision, finding, and Domain references")
-		}
 	}
 	return payload, nil
 }
@@ -737,7 +677,6 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	}
 	var anchorSeq int64 = 0
 	var anchor Event
-	var anchorResearch []WorkContextResearchSelection
 	anchorErr := q.QueryRowContext(ctx, `SELECT declaration_seq,declaration_id,declaration_payload FROM work_context_state WHERE work_id=? AND declaration_seq>0`, workID).Scan(&anchorSeq, &anchor.EventID, &anchor.Payload)
 	if anchorErr != nil && anchorErr != sql.ErrNoRows {
 		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read the latest work context declaration", true, "retry once the database is readable", anchorErr)
@@ -757,7 +696,6 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 			return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the latest work context declaration payload is malformed", "restore a verified backup into a new path with concord restore, then swap")
 		}
 		view.RequiredReading = append(view.RequiredReading, payload.RequiredReading...)
-		anchorResearch = payload.ResearchSelections
 		if err := appendWorkContextAnchorFindings(ctx, q, workID, anchor, anchorSeq, payload, &review, addFinding); err != nil {
 			return nil, err
 		}
@@ -768,19 +706,8 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	if err := projectOpenReviewContextFindings(review, addFinding); err != nil {
 		return nil, err
 	}
-	// The anchor's research selections resolve in authored order through
-	// the canonical selected-read helper. Unresolved entries stay visible
-	// without content and still consume their shared slot, so omissions
-	// cannot evade the bounds by omitting their body.
-	if anchorErr == nil && len(anchorResearch) > 0 {
-		research, researchErr := readWorkContextResearchSelections(ctx, q, workID, anchor.EventID, anchorSeq, anchorResearch)
-		if researchErr != nil {
-			return nil, researchErr
-		}
-		view.ResearchFindings = research
-	}
-	if len(order)+len(view.ResearchFindings) > WorkContextViewFindingsMax {
-		return nil, workContextFailure(KindLimitExceeded, "work_context_read", fmt.Sprintf("the current work context holds %d finding slots across its generic, ranked, and research entries; the view bound is %d and the read refuses instead of truncating", len(order)+len(view.ResearchFindings), WorkContextViewFindingsMax), workContextOverflowRecovery())
+	if len(order) > WorkContextViewFindingsMax {
+		return nil, workContextFailure(KindLimitExceeded, "work_context_read", fmt.Sprintf("the current work context holds %d finding slots across its generic and ranked entries; the view bound is %d and the read refuses instead of truncating", len(order), WorkContextViewFindingsMax), workContextOverflowRecovery())
 	}
 	for _, id := range order {
 		view.Findings = append(view.Findings, byID[id])
@@ -790,8 +717,7 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	}
 	// The whole serialized view measures once, after grouping, with the
 	// same Go encoding the dispatch equality owner compares: readings,
-	// findings, research entries, groups, and oracle metadata share the
-	// 64 KiB budget, and no second budget exists.
+	// findings, groups, and oracle metadata share the 64 KiB budget.
 	viewJSON, err := json.Marshal(view)
 	if err != nil {
 		return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the current work context cannot be measured", "restore a verified backup into a new path with concord restore, then swap")
@@ -801,7 +727,7 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 			fmt.Sprintf("the current work context measures %d bytes of canonical JSON, above the %d-byte view bound and the read refuses instead of truncating", len(viewJSON), WorkContextCombinedMaxBytes),
 			workContextOverflowRecovery())
 	}
-	if anchorErr == sql.ErrNoRows && len(order) == 0 && len(view.ResearchFindings) == 0 && len(view.RequiredReading) == 0 && view.SubjectCommit == "" {
+	if anchorErr == sql.ErrNoRows && len(order) == 0 && len(view.RequiredReading) == 0 && view.SubjectCommit == "" {
 		return nil, nil
 	}
 	return &view, nil
@@ -1003,12 +929,6 @@ func groupWorkContextByDomain(view *WorkContextView, orderedDomains []string) {
 	}
 	for _, finding := range view.Findings {
 		groupFor(finding.DomainID).FindingIDs = append(groupFor(finding.DomainID).FindingIDs, finding.FindingID)
-	}
-	// Research entries join the existing Domain group's finding_ids under
-	// their research view_id namespace; there is no second grouping
-	// structure.
-	for _, research := range view.ResearchFindings {
-		groupFor(research.Selection.DomainID).FindingIDs = append(groupFor(research.Selection.DomainID).FindingIDs, research.ViewID)
 	}
 	for _, domainID := range orderedDomains {
 		if group := grouped[domainID]; group != nil && (len(group.RequiredReadingOrdinals) > 0 || len(group.FindingIDs) > 0) {

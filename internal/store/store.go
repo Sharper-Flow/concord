@@ -166,6 +166,7 @@ type UpgradeReport struct {
 	// SchemaVersion is the highest applied migration after the call.
 	SchemaVersion      int                 `json:"schema_version"`
 	CutoverDisposition *CutoverDisposition `json:"cutover_disposition,omitempty"`
+	ResearchExport     string              `json:"research_export,omitempty"`
 }
 
 // Upgrade applies every pending migration, breaking steps included. It refuses
@@ -199,6 +200,19 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema, options ...Upg
 		}
 	}
 	var after map[int]appliedMigration
+	var researchExport string
+	for _, option := range options {
+		if option.SnapshotPath != "" {
+			for _, pending := range pendingBreaking(before) {
+				if pending.Name == researchRetirementMigration {
+					ctx, researchExport, err = prepareResearchRetirement(ctx, option.SnapshotPath, option.SnapshotPath+".research")
+					if err != nil {
+						return UpgradeReport{}, fmt.Errorf("research export failed; no migration was applied: %w", err)
+					}
+				}
+			}
+		}
+	}
 	if version.Value == version.Development && !unstampedFresh {
 		after = before
 	} else {
@@ -225,7 +239,7 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema, options ...Upg
 	if err := s.finishOpen(ctx); err != nil {
 		return UpgradeReport{}, err
 	}
-	report := UpgradeReport{Applied: []int{}, CutoverDisposition: disposition}
+	report := UpgradeReport{Applied: []int{}, CutoverDisposition: disposition, ResearchExport: researchExport}
 	for _, m := range migrations {
 		if _, was := before[m.Version]; was {
 			continue

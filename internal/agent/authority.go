@@ -142,7 +142,7 @@ func validPolicyGrants(policy TrustedClientPolicy) bool {
 		return false
 	}
 	for _, capability := range policy.Capabilities {
-		if !slices.Contains([]string{"product_read", "work_define", "work_transition", "work_relate", "cross_scope", "research"}, string(capability)) {
+		if !slices.Contains([]string{"product_read", "work_define", "work_transition", "work_relate", "cross_scope"}, string(capability)) {
 			return false
 		}
 	}

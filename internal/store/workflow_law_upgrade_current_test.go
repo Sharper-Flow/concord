@@ -78,14 +78,6 @@ func currentLawUpgradeCompletionProof(t *testing.T, s *Store, id string, owner W
 	execSixClassSQL(t, s.db, `INSERT INTO write_guard(active) VALUES(1)`)
 	execSixClassSQL(t, s.db, `UPDATE workflow_instances SET current_step='findings' WHERE work_id=?`, id)
 	execSixClassSQL(t, s.db, `DELETE FROM write_guard`)
-	f := workContextFixture{store: s, workID: id, owner: owner}
-	pack := seedResearchContextPack(t, f, "upgrade-proof")
-	bindResearchPack(t, f, pack.PackID, 1, true)
-	selection := researchSelectionEntry(pack.PackID, 1, "f2", "product-root:product")
-	selection["product_wide_rationale"] = "The research result supports the whole bounded Product question."
-	if err := currentLawUpgradeAction(t, s, id, owner, "record_work_context", map[string]any{"research_finding_refs": []map[string]any{selection}}); err != nil {
-		t.Fatal(err)
-	}
 	for _, action := range []string{"record_report", "record_conclusion"} {
 		fields := map[string]any{}
 		if action == "record_report" {
@@ -95,11 +87,12 @@ func currentLawUpgradeCompletionProof(t *testing.T, s *Store, id string, owner W
 			t.Fatalf("ordinary %s before upgrade: %v", action, err)
 		}
 	}
-	view, err := readWorkContextView(t.Context(), s.db, id)
-	if err != nil || view == nil || len(view.ResearchFindings) != 1 || view.ResearchFindings[0].State != WorkContextResearchStateResolved {
-		t.Fatalf("historical research proof=%+v error=%v", view, err)
-	}
-	if err := currentLawUpgradeAction(t, s, id, owner, "record_verdict", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{view.ResearchFindings[0].ViewID}}}}); err != nil {
+	journey := pReturnClaim(t, workflowReturnRouteFixture{store: s, owner: owner}, id)
+	journey.acceptor = owner
+	run := journey.observeRun(t, "upgrade-proof")
+	journey.bindVerification(t, run)
+	qAcceptCriterionReview(t, journey.fixture, run.OperationRef)
+	if err := currentLawUpgradeAction(t, s, id, owner, "record_verdict", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{run.OperationRef}}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := currentLawUpgradeAction(t, s, id, owner, "confirm_premise", map[string]any{}); err != nil {

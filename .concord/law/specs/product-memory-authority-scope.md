@@ -65,8 +65,6 @@ machine.
   lesson registry or law catalog. Product law is the default-branch
   `.concord/law/` folder, which the store reads into one explicit committed
   in-memory snapshot.
-- **Research remains local:** CD-0215 pack tables live in this same SQLite
-  database, never become Git knowledge, and are deleted only by explicit retirement.
 - **Product portability uses logical export:** an export is a versioned,
   non-authoritative snapshot unless explicitly imported into another installation.
 - **No per-Product or per-Project live-authority shards.** They add fan-out,

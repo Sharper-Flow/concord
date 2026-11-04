@@ -406,6 +406,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 			return code
 		}
 	}
+	options.SnapshotPath = snapshotPath
 	report, err := store.Upgrade(context.Background(), path, held, options)
 	if err != nil {
 		return boundary.reportFailure(err, path, plan.PendingBreaking, options, snapshotPath, errOut)
@@ -657,6 +658,9 @@ func (boundary upgradeFence) finish(report store.UpgradeReport, pendingBreaking 
 	}
 	if report.CutoverDisposition != nil {
 		result["cutover_disposition"] = report.CutoverDisposition
+	}
+	if report.ResearchExport != "" {
+		result["research_export"] = report.ResearchExport
 	}
 	if snapshotPath != "" {
 		result["backup"] = snapshotPath

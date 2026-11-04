@@ -3868,10 +3868,10 @@ func TestLedgerSQLiteTextPrefixHonesty(t *testing.T) {
 func TestLedgerUnprovedReporting(t *testing.T) {
 	t.Parallel()
 	rt := newLedgerRuntime(ledgerRepoRoot(t))
-	const researchGap = "research statement fields accumulate without any store CHECK or full-string Go admission"
-	if _, err := rt.evaluateSource(unprovedOutput(researchGap), nil); err == nil {
+	const exampleGap = "an output field lacks a complete admission bound"
+	if _, err := rt.evaluateSource(unprovedOutput(exampleGap), nil); err == nil {
 		t.Fatal("an unproved row must never close the ledger")
-	} else if !strings.Contains(err.Error(), researchGap) {
+	} else if !strings.Contains(err.Error(), exampleGap) {
 		t.Fatalf("the failure must report the saved gap text, got: %v", err)
 	}
 	if _, err := rt.evaluateSource(unprovedOutput("   "), nil); err == nil {

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -272,9 +271,8 @@ func captureEvidenceRows(t *testing.T, db *sql.DB, query string) []string {
 }
 
 // TestBackupRestorePreservesLivingEvidence checks workflow pins and law IDs, the
-// knowledge-home binding, research selections, issue identity, and retained
-// reports through snapshot and restore. Retiring research must leave its
-// selection typed missing.
+// knowledge-home binding, work context, issue identity, and retained reports
+// through snapshot and restore.
 func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -283,14 +281,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 
-	// Research trio first: the pack owner plus a required and an optional
-	// consumer work item, on the Product and Project the workflow work below
-	// joins.
-	seedResearchWork(t, s, "evidence-research-owner", "evidence-required-consumer", "evidence-optional-consumer")
 	seedWork(t, s, workID)
-	// The context consumer carries the work-context selection on its own
-	// current research-enabled workflow head, so the retained selection is
-	// one the admitted record_work_context route really authored.
 	seedWork(t, s, contextWork)
 	seedWorkflowLaw(t, s)
 
@@ -340,43 +331,9 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		t.Fatalf("RecordLinearIssueLink error = %v", err)
 	}
 
-	// Research pack: one recorded source, one finding citing it, and two
-	// consumer pins — one required decision-basis pin and one optional
-	// context pin.
-	pack := createSimplePack(t, s, "evidence", "evidence-research-owner")
-	recordedSource := ResearchSource{PackID: pack.PackID, Revision: 1, SourceID: "s1", Kind: SourceOfficialDoc, Locator: "https://example.com/evidence-spec", Title: "Evidence specification", PublisherOrAuthor: "Example Org", PublishedAt: "2026-09-01T00:00:00Z", AccessedAt: "2026-10-01T00:00:00Z"}
-	if _, err := recordResearchSource(ctx, s, ResearchSourceRequest{PackID: pack.PackID, ExpectedVersion: 1, Revision: 1, Source: recordedSource}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := recordResearchFinding(ctx, s, ResearchFindingRequest{PackID: pack.PackID, ExpectedVersion: 2, Revision: 1, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "observed evidence", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"s1"}}}); err != nil {
-		t.Fatal(err)
-	}
-	pinResearch(t, s, "evidence-required-consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true})
-	pinResearch(t, s, "evidence-optional-consumer", ResearchBindingDeclaration{PackID: pack.PackID, Revision: 1, UseRole: UseContext})
-	seededPack, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
-	if err != nil || len(seededPack.Revisions) != 1 || len(seededPack.Revisions[0].Sources) != 1 || len(seededPack.Revisions[0].Findings) != 1 || len(seededPack.Consumers) != 2 {
-		t.Fatalf("source pack=%+v err=%v, want one revision with one source, one finding and two consumers", seededPack, err)
-	}
-
-	// The selection validates its Domain against the committed registry in
-	// the already-designated knowledge home.
+	// The workflow contract uses the committed Domain registry in the
+	// already-designated knowledge home.
 	seedWorkContextDomainRegistry(t, s)
-
-	// A second research revision: revision 1 stays the exact selection target
-	// while a newer revision 2 carries its own linked descriptor, so the
-	// preserved store must keep the selection reading its exact revision.
-	if _, err := appendResearchRevision(ctx, s, AppendResearchRevisionRequest{PackID: pack.PackID, ExpectedVersion: 5, Revision: simpleResearchRevision()}); err != nil {
-		t.Fatal(err)
-	}
-	execResearchFixture := func(tag, query string, args ...any) {
-		t.Helper()
-		if _, err := s.DatabaseForTesting().Exec(query, args...); err != nil {
-			t.Fatalf("research fixture statement %q failed: %v", tag, err)
-		}
-	}
-	execResearchFixture("evidence-s2", `INSERT INTO active_research_sources(pack_id,revision,source_id,kind,locator,title,publisher_or_author,accessed_at) VALUES(?,2,'s2','issue','https://example.com/evidence-newer','Newer evidence','Example','2026-10-02T00:00:00Z')`, pack.PackID)
-	execResearchFixture("evidence-f2", `INSERT INTO active_research_findings(pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode) VALUES(?,2,'f2','conclusion','newer revision conclusion','high','current','active','home')`, pack.PackID)
-	execResearchFixture("evidence-f2-link", `INSERT INTO active_research_finding_sources(pack_id,revision,finding_id,source_id) VALUES(?,2,'f2','s2')`, pack.PackID)
 
 	// This trusted state fixture tests byte preservation, not native execution.
 	report := reviewBlockFixture()
@@ -389,12 +346,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	}
 	memberMigrationExec(t, s.db, `DELETE FROM write_guard`)
 
-	// The work-context selection: the context consumer runs the current
-	// research-enabled workflow.break_fix head, and the selection is authored
-	// through the admitted workflow action route — the same-action research
-	// binding, the declared record_work_context payload with the selection
-	// field, the step admission at the repair step, and the production
-	// post-append view check all run inside the action transaction.
+	// Author the work-context declaration through the workflow action route.
 	contextOwner := WorkflowActor{PrincipalRef: "principal:evidence", ClientRef: "client:evidence", AgentRef: "agent:evidence", SessionRef: "session:evidence-context", ActorClass: ActorAgent}
 	contextOwnerRef, err := WorkflowActorRef(contextOwner)
 	if err != nil {
@@ -445,12 +397,10 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if _, err := applyWorkflowActionRawTx(ctx, actionTx, newWriteScope(actionTx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		WorkID: contextWork, ExpectedVersion: contextActionVersion, ActionID: "record_work_context",
 		Payload: mustJSONValue(map[string]any{
-			"required_reading":      []map[string]any{},
-			"finding_refs":          []string{},
-			"context_findings":      []map[string]any{},
-			"research_finding_refs": []map[string]any{researchSelectionEntry(pack.PackID, 1, "f1", workContextTestChild)},
+			"required_reading": []map[string]any{},
+			"finding_refs":     []string{},
+			"context_findings": []map[string]any{},
 		}),
-		ResearchBindings:     []ResearchBindingDeclaration{{PackID: pack.PackID, Revision: 1, UseRole: UseContext, Required: true}},
 		Actor:                contextOwner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64),
 		IdempotencyIdentity:  "record_work_context-evidence-context", OperationID: "record_work_context-evidence-context",
@@ -458,7 +408,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		RequestID: "request:evidence-context", ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
 	}); err != nil {
 		_ = actionTx.Rollback()
-		t.Fatalf("admitted record_work_context with the research selection refused: %v", err)
+		t.Fatalf("admitted record_work_context refused: %v", err)
 	}
 	if err := actionTx.Commit(); err != nil {
 		t.Fatal(err)
@@ -469,14 +419,11 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT declaration_id,declaration_payload,declaration_seq FROM work_context_state WHERE work_id=?`, contextWork).Scan(&declarationEventID, &declarationPayload, &declarationSeq); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(declarationPayload), `"research_finding_refs"`) {
-		t.Fatalf("declaration event lost the selection references: %s", declarationPayload)
+	if declarationEventID == "" || declarationSeq == 0 || !strings.Contains(string(declarationPayload), `"context_findings"`) {
+		t.Fatalf("invalid context declaration: id=%s seq=%d payload=%s", declarationEventID, declarationSeq, declarationPayload)
 	}
 
-	// The exact selection and view before backup: the entry resolves with the
-	// native finding and its full linked descriptor at their exact selected
-	// revision values, and the serialized view bytes are the shape every
-	// later stage must reproduce byte for byte.
+	// The serialized view must survive backup and restore byte for byte.
 	readViewBytes := func(stage string, db *sql.DB) []byte {
 		t.Helper()
 		view, err := readWorkContextView(ctx, db, contextWork)
@@ -490,54 +437,6 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		return raw
 	}
 	wantViewRaw := readViewBytes("pre-backup", s.DatabaseForTesting())
-	var beforeDocument map[string]any
-	if err := json.Unmarshal(wantViewRaw, &beforeDocument); err != nil {
-		t.Fatal(err)
-	}
-	if beforeEntries := researchEntries(t, beforeDocument, wantViewRaw); len(beforeEntries) != 1 {
-		t.Fatalf("pre-backup view carries %d research entries, want the one selection: %s", len(beforeEntries), wantViewRaw)
-	}
-	var beforeView WorkContextView
-	if err := json.Unmarshal(wantViewRaw, &beforeView); err != nil {
-		t.Fatal(err)
-	}
-	if len(beforeView.ResearchFindings) != 1 {
-		t.Fatalf("typed pre-backup view carries %d research entries, want the one selection: %s", len(beforeView.ResearchFindings), wantViewRaw)
-	}
-	resolved := beforeView.ResearchFindings[0]
-	if resolved.State != WorkContextResearchStateResolved || !resolved.Required {
-		t.Fatalf("pre-backup entry state=%q required=%v, want resolved and required", resolved.State, resolved.Required)
-	}
-	if resolved.Selection.PackID != pack.PackID || resolved.Selection.Revision != 1 || resolved.Selection.FindingID != "f1" || resolved.Selection.DomainID != workContextTestChild {
-		t.Fatalf("pre-backup selection = %+v, want the exact authored tuple", resolved.Selection)
-	}
-	if resolved.SelectionEventID != declarationEventID || resolved.SelectionEventSeq != declarationSeq || resolved.Ordinal != 0 {
-		t.Fatalf("pre-backup provenance = %s/%d/%d, want the declaration event %s/%d ordinal 0", resolved.SelectionEventID, resolved.SelectionEventSeq, resolved.Ordinal, declarationEventID, declarationSeq)
-	}
-	if resolved.ViewID != fmt.Sprintf("research:%d:0", declarationSeq) {
-		t.Fatalf("pre-backup view_id = %q, want research:%d:0", resolved.ViewID, declarationSeq)
-	}
-	if resolved.Finding == nil {
-		t.Fatalf("resolved pre-backup entry carries no finding: %s", wantViewRaw)
-	}
-	wantFinding := ResearchFinding{PackID: pack.PackID, Revision: 1, FindingID: "f1", Kind: FindingObservation, Statement: "observed evidence", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"s1"}, Scopes: ResearchScopes{Mode: "home"}}
-	if !reflect.DeepEqual(*resolved.Finding, wantFinding) {
-		t.Fatalf("pre-backup finding =\n%+v\nwant the exact selected revision 1 finding\n%+v", *resolved.Finding, wantFinding)
-	}
-	if resolved.Sources == nil || len(*resolved.Sources) != 1 {
-		t.Fatalf("pre-backup sources = %v, want the one linked descriptor", resolved.Sources)
-	}
-	wantSource := ResearchSource{PackID: pack.PackID, Revision: 1, SourceID: "s1", Kind: SourceOfficialDoc, Locator: "https://example.com/evidence-spec", Title: "Evidence specification", PublisherOrAuthor: "Example Org", PublishedAt: "2026-09-01T00:00:00Z", AccessedAt: "2026-10-01T00:00:00Z"}
-	if (*resolved.Sources)[0] != wantSource {
-		t.Fatalf("pre-backup source = %+v, want the exact linked revision 1 descriptor %+v", (*resolved.Sources)[0], wantSource)
-	}
-
-	// The original pack rows the restore and rebuild must reproduce, read
-	// only after every research mutation is final.
-	wantPack, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
-	if err != nil || len(wantPack.Revisions) != 2 || len(wantPack.Consumers) != 3 {
-		t.Fatalf("final pack=%+v err=%v, want two revisions and three consumers", wantPack, err)
-	}
 
 	// Fingerprint every living-evidence population on the source store.
 	fingerprints := []struct {
@@ -550,13 +449,6 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		{"workflow_contracts", `SELECT work_id,contract_version,premise,spec_mandate,law_boundary_version,definition_ref,definition_digest FROM workflow_contracts ORDER BY work_id,contract_version`},
 		{"workflow_review_state", `SELECT work_id,state FROM workflow_review_state ORDER BY work_id`},
 		{"linear_issue_links", `SELECT work_id,remote_issue_uuid,human_key,url,created_at,updated_at FROM linear_issue_links ORDER BY work_id`},
-		{"research_packs", `SELECT pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at FROM active_research_packs ORDER BY pack_id`},
-		{"research_revisions", `SELECT pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at,freshness FROM active_research_revisions ORDER BY pack_id,revision`},
-		{"research_findings", `SELECT pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode FROM active_research_findings ORDER BY pack_id,revision,finding_id`},
-		{"research_sources", `SELECT pack_id,revision,source_id,kind,locator,title,publisher_or_author,published_at,accessed_at FROM active_research_sources ORDER BY pack_id,revision,source_id`},
-		{"research_finding_sources", `SELECT pack_id,revision,finding_id,source_id FROM active_research_finding_sources ORDER BY pack_id,revision,finding_id,source_id`},
-		{"research_finding_scopes", `SELECT pack_id,revision,finding_id,scope_kind,scope_id FROM active_research_finding_scopes ORDER BY pack_id,revision,finding_id,scope_kind,scope_id`},
-		{"research_consumers", `SELECT pack_id,revision,consumer_work_id,use_role,required,accepted_at FROM active_research_consumers ORDER BY pack_id,consumer_work_id`},
 		{"knowledge_homes", `SELECT product_id,project_id,locator_id FROM product_knowledge_homes ORDER BY product_id`},
 	}
 	want := map[string][]string{}
@@ -566,17 +458,14 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if len(want["effect_receipts"]) < 12 {
 		t.Fatalf("receipt population = %d, want the seeded living-evidence identities", len(want["effect_receipts"]))
 	}
-	if len(want["research_packs"]) != 1 || len(want["research_revisions"]) != 2 || len(want["research_sources"]) != 3 || len(want["research_findings"]) != 3 || len(want["research_consumers"]) != 3 {
-		t.Fatalf("research population = %d packs, %d revisions, %d sources, %d findings, %d consumers, want one pack with two revisions, three linked descriptors (revision 2 copies revision 1's), three findings and three pins", len(want["research_packs"]), len(want["research_revisions"]), len(want["research_sources"]), len(want["research_findings"]), len(want["research_consumers"]))
-	}
 	// The committed Domain registry lives in the Product's designated Git
 	// home (law-folder-authority.md, Committed reads), so the store carries
 	// the home binding the registry reads resolve through, not registry rows.
 	if len(want["knowledge_homes"]) != 1 {
 		t.Fatalf("knowledge home population = %d, want the one Product knowledge-home binding", len(want["knowledge_homes"]))
 	}
-	if !strings.Contains(strings.Join(want["work_context_state"], "\x1e"), `"research_finding_refs"`) {
-		t.Fatalf("current context fingerprint lost the selection declaration bytes")
+	if !strings.Contains(strings.Join(want["work_context_state"], "\x1e"), `"context_findings"`) {
+		t.Fatalf("current context fingerprint lost the declaration bytes")
 	}
 	if len(want["workflow_instances"]) != 2 || len(want["workflow_contracts"]) != 2 {
 		t.Fatalf("workflow population = %d instances, %d contracts, want the evidence and context-consumer instances with their contracts", len(want["workflow_instances"]), len(want["workflow_contracts"]))
@@ -630,23 +519,10 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 
 	// The restored store carries every population with full identity.
 	compareFingerprints("restored", restored.DatabaseForTesting())
-	gotPack, err := restored.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(gotPack, wantPack) {
-		t.Fatalf("restored research pack =\n%+v\nwant\n%+v", gotPack, wantPack)
-	}
 	if gotView := readViewBytes("restored", restored.DatabaseForTesting()); string(gotView) != string(wantViewRaw) {
 		t.Fatalf("restored view =\n%s\nwant\n%s", gotView, wantViewRaw)
 	}
 
-	// The preservation boundary: terminate every consumer legally, retire the
-	// pack through the explicit retirement route, and prove retirement empties
-	// the corpus.
-	terminalizeResearchOwner(t, restored, "evidence-research-owner")
-	terminalizeResearchOwner(t, restored, "evidence-required-consumer")
-	terminalizeResearchOwner(t, restored, "evidence-optional-consumer")
 	contextVersion := readWorkVersion(t, restored, contextWork)
 	if err := ApplyOperation(ctx, restored, Operation{Events: []Event{{
 		EventID: "evidence-context-consumer-terminal", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: contextWork,
@@ -655,55 +531,16 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, contextWork): contextVersion}}); err != nil {
 		t.Fatal(err)
 	}
-	var pinned int
-	if err := restored.DatabaseForTesting().QueryRow(`SELECT count(*) FROM active_research_consumers WHERE pack_id=?`, pack.PackID).Scan(&pinned); err != nil {
-		t.Fatal(err)
-	}
-	if pinned != 0 {
-		t.Fatalf("terminal consumers left %d pins, want the legal release of all three", pinned)
-	}
-	var retireVersion int64
-	if err := restored.DatabaseForTesting().QueryRow(`SELECT expected_version FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&retireVersion); err != nil {
-		t.Fatal(err)
-	}
-	retired, err := retireResearchForTest(t, restored, RetireResearchPacksRequest{ProductID: "product", Candidates: []ResearchRetirementCandidate{{PackID: pack.PackID, ExpectedVersion: retireVersion}}})
-	if err != nil || len(retired.Candidates) != 1 || retired.Candidates[0].Classification != ResearchRetirementRetired {
-		t.Fatalf("legal retirement = %+v err=%v, want the retired classification", retired, err)
-	}
-	// The context consumer's terminal transition disposed its work context
-	// with its other workflow step records, so no selection outlives it.
+	// The terminal transition disposes the work-context declaration.
 	disposedView, err := readWorkContextView(ctx, restored.DatabaseForTesting(), contextWork)
 	if err != nil {
-		t.Fatalf("after retirement view read refused: %v", err)
+		t.Fatalf("terminal context view read refused: %v", err)
 	}
-	if disposedView != nil && len(disposedView.ResearchFindings) != 0 {
-		t.Fatalf("terminal context consumer retained research selections: %+v", disposedView.ResearchFindings)
+	if disposedView != nil {
+		t.Fatalf("terminal context consumer retained work context: %+v", disposedView)
 	}
-	retiredPrints := []struct {
-		name  string
-		query string
-	}{
-		{"effect_receipts", `SELECT effect_seq,event_id,kind,subject_type,subject_id,actor,payload_version,payload_digest,delivery_assertion,relation_seq FROM effect_receipts ORDER BY effect_seq`},
-		{"work_context_state", `SELECT work_id,source_frontier,declaration_seq,declaration_id,declaration_payload FROM work_context_state ORDER BY work_id`},
-		{"research_packs", `SELECT pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at FROM active_research_packs ORDER BY pack_id`},
-		{"research_revisions", `SELECT pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at,freshness FROM active_research_revisions ORDER BY pack_id,revision`},
-		{"research_findings", `SELECT pack_id,revision,finding_id,kind,statement,confidence,freshness,status,scope_mode FROM active_research_findings ORDER BY pack_id,revision,finding_id`},
-		{"research_sources", `SELECT pack_id,revision,source_id,kind,locator,title,publisher_or_author,published_at,accessed_at FROM active_research_sources ORDER BY pack_id,revision,source_id`},
-		{"research_finding_sources", `SELECT pack_id,revision,finding_id,source_id FROM active_research_finding_sources ORDER BY pack_id,revision,finding_id,source_id`},
-		{"research_finding_scopes", `SELECT pack_id,revision,finding_id,scope_kind,scope_id FROM active_research_finding_scopes ORDER BY pack_id,revision,finding_id,scope_kind,scope_id`},
-		{"research_consumers", `SELECT pack_id,revision,consumer_work_id,use_role,required,accepted_at FROM active_research_consumers ORDER BY pack_id,consumer_work_id`},
-	}
-	afterRetire := map[string][]string{}
-	for i := range retiredPrints {
-		afterRetire[retiredPrints[i].name] = captureEvidenceRows(t, restored.DatabaseForTesting(), retiredPrints[i].query)
-	}
-	for _, name := range []string{"research_packs", "research_revisions", "research_findings", "research_sources", "research_finding_sources", "research_finding_scopes", "research_consumers"} {
-		if len(afterRetire[name]) != 0 {
-			t.Fatalf("retired corpus %s = %v, want the legal retirement to empty it", name, afterRetire[name])
-		}
-	}
-	if strings.Contains(strings.Join(afterRetire["work_context_state"], "\x1e"), contextWork) {
-		t.Fatalf("terminal context consumer kept its work context declaration: %v", afterRetire["work_context_state"])
+	if rows := captureEvidenceRows(t, restored.DatabaseForTesting(), `SELECT work_id FROM work_context_state ORDER BY work_id`); strings.Contains(strings.Join(rows, "\x1e"), contextWork) {
+		t.Fatalf("terminal context consumer kept its work context declaration: %v", rows)
 	}
 }
 

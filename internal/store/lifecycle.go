@@ -451,12 +451,6 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *w
 	if err := updateWorkLifecycle(ctx, tx, event, payload.To, current.version, payload.ResultingVersion); err != nil {
 		return err
 	}
-	if isTerminalLifecycle(payload.To) {
-		if err := removeTerminalResearchBindings(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
-			return err
-		}
-		return nil
-	}
 	return nil
 }
 
@@ -637,9 +631,6 @@ func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
 		if err := updateWorkVersionByID(ctx, tx, payload.Successor, successor.version, payload.SuccessorResultingVer, event.OccurredAt); err != nil {
 			return err
 		}
-	}
-	if err := removeTerminalResearchBindings(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
-		return err
 	}
 	return nil
 }

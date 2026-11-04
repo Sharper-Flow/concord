@@ -301,9 +301,6 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 	checks := []struct{ query, detail string }{
 		{`SELECT count(*) FROM relations WHERE work_id_from=? OR work_id_to=?`, "work has unresolved relation dependencies"},
 		{`SELECT count(*) FROM workflow_impact_edges WHERE work_id=? OR target_work_id=?`, "work has unresolved workflow impact dependencies"},
-		{`SELECT count(*) FROM active_research_consumers WHERE consumer_work_id=? AND required=1`, "work has a required research consumer"},
-		{`SELECT count(*) FROM active_research_consumers c JOIN active_research_packs p ON p.pack_id=c.pack_id WHERE p.owner_work_id=? AND c.required=1 AND c.consumer_work_id<>?`, "work has a required research consumer that depends on its findings"},
-		{`SELECT count(*) FROM active_research_packs WHERE owner_work_id=?`, "work still owns research packs; retire them through research_retire before removal"},
 	}
 	for _, check := range checks {
 		args := []any{req.WorkID}
@@ -354,13 +351,6 @@ func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindIdempotencyConflict, "fold_event", "removal event does not match its prepared operation", false, "reuse the prepared removal operation")
 	}
 	if err := validateRemovalGatesQ(ctx, tx, WorkRemovalRequest{WorkID: event.SubjectID, ExpectedVersion: payload.ExpectedVersion}); err != nil {
-		return err
-	}
-	// Removal is a terminal route: it releases the removed work's consuming
-	// pins and advances each affected pack once, exactly as every other
-	// terminal fold does. Owned packs are not touched here — the gate above
-	// refuses removal while they remain, and only research_retire deletes them.
-	if err := removeTerminalResearchBindings(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
 		return err
 	}
 	if err := deleteWorkOwnedProjections(ctx, tx, event.SubjectID); err != nil {

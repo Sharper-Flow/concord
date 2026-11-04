@@ -43,9 +43,9 @@ CD-0002 proposed external evidence files with hash and path, and the
 operator decided WIP needs no durable byte-level proof. The binding inputs
 are PM1, the accepted PM2 through PM6 and compaction-retention-policy, CD-0002 invariants, and the
 one-operator one-machine envelope. This record rejects a content-addressed
-blob store for v1: process exhaust stays producer-owned, no generic rule may
-require a screenshot, and CD-0215 research-pack text stays
-SQLite only.
+blob store for v1: process exhaust stays producer-owned, and no generic rule may
+require a screenshot.
+
 ## Contract
 
 The binding contract is sections 1 through 4: the no-store decision and its
@@ -74,11 +74,8 @@ Small, structured Concord artifacts remain SQLite text under
 the existing decision; durable markdown knowledge remains PM6 and compaction-retention-policy git content. Neither
 is a general binary-evidence store.
 
-CD-0215 narrows one structured-artifact case further: research-pack text lives
-only in SQLite pack tables until explicit retirement. It never enters Git as a
-research pack. Only explicit eligible retirement deletes a pack; completion and
-durable promotion preserve it. Selected decisions/specifications/lessons use
-their existing independently reviewed forms, not a completion-note operation.
+Selected decisions, specifications and lessons use their existing independently
+reviewed forms, not a completion-note operation.
 
 ### 1.1 Repository check output
 
@@ -150,9 +147,6 @@ a separate process-exhaust or completion receipt, not automatic retention of raw
 5. **Explicit promotion only:** if future work needs a durable artifact, it must first
    name its reader, decision/recovery job, authority, retention duration, and restore
    guarantee in a new accepted decision.
-6. **Research retires:** CD-0215 pack rows are not WIP-byte evidence or durable
-   knowledge; publication may retain selected reasoning in normal outputs, and only
-   explicit retirement deletes the complete pack, with no tombstone or hidden history.
 
 ## 6. Required implementation-acceptance scenarios
 

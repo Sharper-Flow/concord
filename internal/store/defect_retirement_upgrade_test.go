@@ -102,6 +102,9 @@ func TestDefectRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 		t.Fatalf("applied migrations = %v, want %v", report.Applied, wantApplied)
 	}
 	for table, want := range retained {
+		if retirementUpgradeResearchTable(t, db, table) {
+			continue
+		}
 		switch table {
 		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions":
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' AND name=?`, table); len(rows) != 0 {
@@ -368,6 +371,9 @@ func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 		})
 	}
 	for table, expected := range before {
+		if retirementUpgradeResearchTable(t, db, table) {
+			continue
+		}
 		switch table {
 		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions":
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' AND name=?`, table); len(rows) != 0 {

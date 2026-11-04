@@ -23,7 +23,7 @@
   CD-0077, CD-0156, CD-0198. The D5 owner must resolve its current successor
   identities before cutover.
 - **Related:** CD-0007, CD-0012, CD-0013, CD-0036, CD-0039, CD-0077,
-  CD-0156, CD-0198, CD-0215
+  CD-0156, CD-0198
 
 [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
 governs D1: Product-law changes require approval only under its six classes. Workflow-family and repository-law-route requirements remain required.
@@ -40,7 +40,6 @@ job, independent evidence, and delivery duties that the retained execution owner
 already carry. Their public authoring can retire; the store keeps current state and finite snapshots, and the one documented cutover retires what the migration discards ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) and [D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 
 Research conclusions do not enact binding Product law.
-The accepted research-pack capability remains independent of workflow selection.
 
 ## Decision
 
@@ -77,8 +76,8 @@ The live families are implementation, break-fix, and research, each family's pla
 
 Attributed contract recording and premise confirmation remain separate from
 independent verdict evidence. Immutable job revisions, attempts, subject commits,
-packet/report identities, actor/session/Project/worktree bindings, research
-pins, and operation/idempotency keys remain executable admission facts.
+packet/report identities, actor/session/Project/worktree bindings, and
+operation/idempotency keys remain executable admission facts.
 
 One admission owner serves ordinary writes and closure; admission validates current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Host preauthorization remains at its own
 boundaries. No caller-supplied echo replaces dispatch-owned provenance.
@@ -99,7 +98,7 @@ or authority to bypass completion requirements.
 Exact shared-write conflicts, exclusive step claims, host-owned session/worktree
 placement under CD-0088 D1,
 cross-repository handoff, uncertain-effect recovery, typed shared context,
-research-pack provenance and consumers, and GitHub delivery receipts remain.
+and GitHub delivery receipts remain.
 Shared affected-Domain membership alone grants no effect authority and creates
 no compatible-with approval requirement.
 
@@ -117,7 +116,7 @@ The candidate supersession set names records, not clause-level runtime overrides
 Before publication, carry every unaffected obligation from those records into
 the accepted successor text or an approved coherent successor set. Retain the
 bootstrap/platform floor, explicit end-state and independent-verdict rules,
-research-pack guarantees, vocabulary ownership, the identities active work
+vocabulary ownership, the identities active work
 needs, mandatory backlog search and CD-0198's evidence and approval floors.
 Native Task remains host-owned; workflow result recording keeps scope and
 safety checks ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)).
@@ -193,9 +192,9 @@ D9 govern attributed reports, failures, and effects.
 
 CD-0077 governs operator kind separation, stored historical names, and immutable
 migration checksums. CD-0156 governs mandatory backlog search. CD-0198 governs
-evidence, approval, and start floors. CD-0215 governs research-pack guarantees.
+evidence, approval, and start floors.
 
-CD-0215 D2 requires a separate architecture spike decision. D5 cutover must
+An architecture spike requires a separate reviewed and accepted decision. D5 cutover must
 resolve that obligation through an approved successor set.
 
 Retired families keep no live capture eligibility; that refusal activates with the
@@ -231,7 +230,5 @@ set at the D5 boundary.
   [workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates),
    including unchanged workflow position, retained evidence and current-proof validity.
 
-Retained research failure derivation is covered by
-`internal/store.TestResearchDerivedFailureRetriesAndRebuilds`.
 These runtime witnesses establish enforcement, not live consumer disposition,
 supersession publication or release activation. D5 still governs those operator actions.

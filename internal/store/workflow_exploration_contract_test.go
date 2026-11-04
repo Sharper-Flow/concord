@@ -199,6 +199,14 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 					fields["architecture_binding"] = WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 					payload = mustJSONValue(fields)
 				}
+				if actionID == "approve_contract" && definition.Ref == "workflow.research" {
+					var fields map[string]any
+					if err := json.Unmarshal(payload, &fields); err != nil {
+						t.Fatal(err)
+					}
+					fields["required_evidence"] = []string{"artifact", "verification"}
+					payload = mustJSONValue(fields)
+				}
 				switch {
 				case actionID == "record_verdict":
 					err = runVerdictActionAs(t, s, workID, actionID, criterionAssociationPayload(proofRef, "predicate:liveness-exit"), 0, livenessActor())
@@ -244,19 +252,12 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 					}
 				}
 				if actionID == "record_verdict" && definition.Ref == "workflow.research" {
-					fixture := workContextFixture{store: s, workID: workID, owner: livenessActor()}
-					pack := seedResearchContextPack(t, fixture, "liveness-research")
-					bindResearchPack(t, fixture, pack.PackID, 1, true)
-					// The selection's child Domain carries no product-wide rationale.
-					selection := researchSelectionEntry(pack.PackID, 1, "f2", "root")
-					if err := fixture.recordWorkContext(t, map[string]any{"research_finding_refs": []map[string]any{selection}}); err != nil {
-						t.Fatal(err)
-					}
-					view, err := readWorkContextView(ctx, s.db, workID)
-					if err != nil || view == nil || len(view.ResearchFindings) != 1 {
-						t.Fatalf("selected research proof: %+v err=%v", view, err)
-					}
-					proofRef = view.ResearchFindings[0].ViewID
+					journey = pReturnClaim(t, workflowReturnRouteFixture{store: s, owner: livenessActor()}, workID)
+					journey.acceptor = livenessActor()
+					run := journey.observeRun(t, "research-proof")
+					journey.bindVerification(t, run)
+					qAcceptCriterionReview(t, journey.fixture, run.OperationRef)
+					proofRef = run.OperationRef
 				}
 				if actionID == "record_verdict" {
 					contract := pContractSuccessor(t, s, workID, "Complete the revised plan with the current candidate and proof.")

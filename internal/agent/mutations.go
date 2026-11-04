@@ -79,38 +79,6 @@ type workRemovalMutationInput struct {
 	ArtifactsVerified     bool                             `json:"artifacts_verified"`
 }
 
-type researchRevisionInput struct {
-	Question string `json:"question"`
-	ScopeIn  any    `json:"scope_in"`
-	ScopeOut any    `json:"scope_out"`
-	DoneWhen any    `json:"done_when"`
-	Method   string `json:"method"`
-}
-type researchScopesInput struct {
-	Mode       string   `json:"mode"`
-	ProductIDs []string `json:"product_ids"`
-	ProjectIDs []string `json:"project_ids"`
-	DomainIDs  []string `json:"domain_ids"`
-	TagIDs     []string `json:"tag_ids"`
-}
-type researchFindingInput struct {
-	FindingID  string               `json:"finding_id"`
-	Kind       string               `json:"kind"`
-	Statement  string               `json:"statement"`
-	Confidence string               `json:"confidence"`
-	Freshness  string               `json:"freshness"`
-	Status     string               `json:"status"`
-	Scopes     *researchScopesInput `json:"scopes"`
-}
-type researchSourceInput struct {
-	SourceID          string `json:"source_id"`
-	Kind              string `json:"kind"`
-	Locator           string `json:"locator"`
-	Title             string `json:"title"`
-	PublisherOrAuthor string `json:"publisher_or_author"`
-	PublishedAt       string `json:"published_at"`
-	AccessedAt        string `json:"accessed_at"`
-}
 type issueLinkRecordInput struct {
 	WorkID          string `json:"work_id"`
 	HumanKey        string `json:"human_key"`
@@ -118,20 +86,13 @@ type issueLinkRecordInput struct {
 	URL             string `json:"url"`
 	IdempotencyKey  string `json:"idempotency_key"`
 }
-type researchBindingInput struct {
-	PackID   string `json:"pack_id"`
-	Revision int64  `json:"revision"`
-	UseRole  string `json:"use_role"`
-	Required bool   `json:"required"`
-}
 type actionMutationInput struct {
-	WorkID           string                      `json:"work_id"`
-	ExpectedVersion  int64                       `json:"expected_version"`
-	ActionID         string                      `json:"action_id"`
-	Fields           json.RawMessage             `json:"fields"`
-	IdempotencyKey   string                      `json:"idempotency_key"`
-	Evidence         []agentcontract.EvidenceRef `json:"evidence"`
-	ResearchBindings []researchBindingInput      `json:"research_bindings"`
+	WorkID          string                      `json:"work_id"`
+	ExpectedVersion int64                       `json:"expected_version"`
+	ActionID        string                      `json:"action_id"`
+	Fields          json.RawMessage             `json:"fields"`
+	IdempotencyKey  string                      `json:"idempotency_key"`
+	Evidence        []agentcontract.EvidenceRef `json:"evidence"`
 }
 type membershipsMutationInput struct {
 	WorkID          string               `json:"work_id"`
@@ -155,18 +116,10 @@ type resolveOverlapMutationInput struct {
 type mutationEffect func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error)
 
 func (r runtime) replayMutationBeforeScope(ctx context.Context, base agentcontract.Envelope, raw []byte, grant Authority, op agentcontract.ContractOperation) (agentcontract.Envelope, bool, error) {
-	// Retirement re-authorizes every retained owner inside its transaction;
-	// a cached Product snapshot cannot establish the owner's current scope.
-	if op.ID == "concord_work_define.research_retire" {
-		return agentcontract.Envelope{}, false, nil
-	}
 	// project_handoff_consume replays state-driven: its recorded success
 	// goes stale when its bind names another receiving session or the active
-	// contract moved on. Every
-	// replay must reach the planner and re-read the recorded state inside
-	// the transaction instead of returning the cached payload here: the
-	// core's own state checks refuse the foreign or stale bind and resolve
-	// the owning session's replay as the standing bind with no second event.
+	// contract moved on. Every replay must reach the planner and re-read the
+	// recorded state inside the transaction.
 	if op.ID == "concord_work_transition.project_handoff_consume" {
 		return agentcontract.Envelope{}, false, nil
 	}
@@ -563,43 +516,6 @@ func (r runtime) knowledgeSourceProofForAction(ctx context.Context, base agentco
 	return verifiedCtx, nil
 }
 
-// researchContextSelectionPacks extracts the research pack identities one
-// record_work_context declaration explicitly selects (CD-0216 D2), decoded
-// with the shared closed selection shape through decodeOperationInput. A
-// present member that is not an array of complete closed entries refuses
-// before the action transaction, so malformed input can never reach the
-// owner-scope check as an empty owner set. The payload is the object produced
-// by workflowActionFields, which owns field-list normalization and unique JSON
-// validation. Only absent members and empty arrays select nothing; every other
-// action keeps its retained shape. The declaration's semantic rules
-// (duplicates, bounds, exact existence, Domain
-// registry) stay with the store constructor that owns them.
-func researchContextSelectionPacks(actionID string, payload json.RawMessage) ([]string, error) {
-	if actionID != "record_work_context" {
-		return nil, nil
-	}
-	var fields map[string]json.RawMessage
-	if err := decodeOperationInput(payload, &fields); err != nil || fields == nil {
-		return nil, newRuntimeFailure("invalid_input", "research selection fields must be a normalized JSON object", "", false)
-	}
-	raw, present := fields["research_finding_refs"]
-	if !present {
-		return nil, nil
-	}
-	var selections []store.WorkContextResearchSelection
-	if err := decodeOperationInput(raw, &selections); err != nil || selections == nil {
-		return nil, errors.New("research_finding_refs must be an array of closed selection entries carrying pack_id, revision, finding_id, and domain_id")
-	}
-	packs := make([]string, 0, len(selections))
-	for index, selection := range selections {
-		if selection.PackID == "" || selection.Revision < 1 || selection.FindingID == "" || selection.DomainID == "" {
-			return nil, fmt.Errorf("research_finding_refs entry %d must carry a complete pack, revision, finding, and Domain reference", index)
-		}
-		packs = append(packs, selection.PackID)
-	}
-	return packs, nil
-}
-
 func (r runtime) mutateWorkflowAction(ctx context.Context, base agentcontract.Envelope, raw []byte, grant Authority, op agentcontract.ContractOperation) (agentcontract.Envelope, error) {
 	if r.Store == nil {
 		return coreError(base, "invalid_input", "workflow action requires a registered workflow authority", "contact_operator", false), nil
@@ -617,15 +533,6 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base agentcontract.En
 	}
 	payload = withEvidenceKindDefault(in.ActionID, payload, in.Evidence)
 	if err := validateEvidenceKindBinding(in.ActionID, payload, in.Evidence); err != nil {
-		return coreError(base, "invalid_input", err.Error(), "", false), nil
-	}
-	// CD-0216 D2: an explicitly selected research pack enters the same
-	// in-transaction owner-scope check as a new binding. The decode refuses
-	// malformed selection input here, before any effect; the owner check
-	// runs inside the action transaction below, ahead of the approval and
-	// idempotency writes.
-	selectedPacks, err := researchContextSelectionPacks(in.ActionID, payload)
-	if err != nil {
 		return coreError(base, "invalid_input", err.Error(), "", false), nil
 	}
 	registry := r.Registry
@@ -654,7 +561,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base agentcontract.En
 		}
 		return replay, nil
 	}
-	mutation := workflowActionMutation{runtime: r, base: base, in: in, grant: grant, registry: registry, preflight: preflight, scope: scope, digest: digest, operationID: operationID, selectedPacks: selectedPacks}
+	mutation := workflowActionMutation{runtime: r, base: base, in: in, grant: grant, registry: registry, preflight: preflight, scope: scope, digest: digest, operationID: operationID}
 	return mutation.execute(ctx, action)
 }
 
@@ -697,7 +604,7 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 		return failureEnvelope(base, hostErr), nil
 	}
 	scopeJSON, _ := json.Marshal(scope)
-	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, ExpectedTakeover: takeover, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: agentcontract.ManifestDigest, Now: r.Authority.now()}
+	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, ExpectedTakeover: takeover, AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: agentcontract.ManifestDigest, Now: r.Authority.now()}
 	// CD-0200: the approval, supersession, and completion gates each run the
 	// mandated-law boundary inside their transaction, so their registered
 	// source set verifies before the transaction opens (store connection
@@ -734,7 +641,6 @@ type workflowActionMutation struct {
 	scope                          map[string]any
 	scopeJSON, digest, operationID string
 	takeover                       *store.WorkflowStartTakeover
-	selectedPacks                  []string
 	request                        store.WorkflowActionExecutionRequest
 	result                         agentcontract.Envelope
 	resultRejected                 bool
@@ -742,7 +648,7 @@ type workflowActionMutation struct {
 
 func (m *workflowActionMutation) authorizeTx(ctx context.Context, tx *store.Transaction) error {
 	r, in, grant := m.runtime, m.in, m.grant
-	if err := r.authorizeWorkflowActionTx(ctx, tx, m.host, m.inv, in.ResearchBindings, m.selectedPacks); err != nil {
+	if _, err := r.Authority.AuthorizeTx(ctx, tx, m.host, m.inv); err != nil {
 		return err
 	}
 	return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, CanonicalDigest: m.digest, OperationID: m.operationID, ResultEventIDs: "[]", ResultPayload: "{}", ChangedRefs: "[]", AuthorizedScopeSnapshot: m.scopeJSON, ObservedAt: r.Authority.now()})
@@ -1080,283 +986,6 @@ func (r runtime) planLifecycle(_ context.Context, base agentcontract.Envelope, r
 	return agentcontract.Envelope{}, nil, false
 }
 
-// planResearchPackCreate plans concord_work_define.research_pack_create.
-func (r runtime) planResearchPackCreate(_ context.Context, base agentcontract.Envelope, raw []byte, _ string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
-	var in researchPackCreateMutation
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	plan.scope["work_ids"] = []string{in.OwnerWorkID}
-	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_define", Operation: "research_finding_record", ReasonCode: "record_findings", RequiredFields: []string{"pack_id", "expected_version"}}}
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		pack, err := store.CreateResearchPackWithinTx(ctx, tx, store.CreateResearchPackRequest{OwnerWorkID: in.OwnerWorkID, Revision: storeResearchRevision(in.Revision), Freshness: store.ResearchFreshness(in.Freshness)})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []agentcontract.ChangedRef{{EntityKind: "research_pack", ID: pack.PackID, Version: strconv.FormatInt(pack.ExpectedVersion, 10)}}
-		return mutationPayload(changed, plan.intents), []string{pack.PackID}, changed, nil
-	}
-	return agentcontract.Envelope{}, nil, false
-}
-
-// planResearchRevisionAppend plans concord_work_define.research_revision_append.
-func (r runtime) planResearchRevisionAppend(ctx context.Context, base agentcontract.Envelope, raw []byte, _ string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
-	var in researchRevisionMutation
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	owners, err := r.Store.ResearchPackOwnerWorkIDs(ctx, []string{in.PackID})
-	if err != nil {
-		return failureEnvelope(base, err), nil, true
-	}
-	plan.scope["work_ids"] = owners
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		if _, err := store.AppendResearchRevisionWithinTx(ctx, tx, store.AppendResearchRevisionRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Revision: storeResearchRevision(in.Revision)}); err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []agentcontract.ChangedRef{{EntityKind: "research_pack", ID: in.PackID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-		return mutationPayload(changed, plan.intents), []string{in.PackID}, changed, nil
-	}
-	return agentcontract.Envelope{}, nil, false
-}
-
-// planResearchFindingRecord plans concord_work_define.research_finding_record.
-func (r runtime) planResearchFindingRecord(ctx context.Context, base agentcontract.Envelope, raw []byte, _ string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
-	var in researchFindingMutation
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	owners, err := r.Store.ResearchPackOwnerWorkIDs(ctx, []string{in.PackID})
-	if err != nil {
-		return failureEnvelope(base, err), nil, true
-	}
-	plan.scope["work_ids"] = owners
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		freshness := in.Finding.Freshness
-		if freshness == "" {
-			freshness = "current"
-		}
-		status := in.Finding.Status
-		if status == "" {
-			status = "active"
-		}
-		scopes := store.ResearchScopes{Mode: "home"}
-		if in.Finding.Scopes != nil {
-			scopes = store.ResearchScopes{Mode: in.Finding.Scopes.Mode, ProductIDs: in.Finding.Scopes.ProductIDs, ProjectIDs: in.Finding.Scopes.ProjectIDs, DomainIDs: in.Finding.Scopes.DomainIDs, TagIDs: in.Finding.Scopes.TagIDs}
-		}
-		finding, err := store.RecordResearchFindingWithinTx(ctx, tx, store.ResearchFindingRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Finding: store.ResearchFinding{FindingID: in.Finding.FindingID, Kind: store.ResearchFindingKind(in.Finding.Kind), Statement: in.Finding.Statement, Confidence: store.ResearchConfidence(in.Finding.Confidence), Freshness: store.ResearchFreshness(freshness), Status: store.ResearchFindingStatus(status), Scopes: scopes, SourceIDs: in.SourceIDs}})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []agentcontract.ChangedRef{{EntityKind: "research_pack", ID: in.PackID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-		return mutationPayload(changed, plan.intents), []string{in.PackID + ":" + finding.FindingID}, changed, nil
-	}
-	return agentcontract.Envelope{}, nil, false
-}
-
-// planResearchSourceRecord plans concord_work_define.research_source_record.
-func (r runtime) planResearchSourceRecord(ctx context.Context, base agentcontract.Envelope, raw []byte, _ string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
-	var in researchSourceMutation
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	owners, err := r.Store.ResearchPackOwnerWorkIDs(ctx, []string{in.PackID})
-	if err != nil {
-		return failureEnvelope(base, err), nil, true
-	}
-	plan.scope["work_ids"] = owners
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		source, err := store.RecordResearchSourceWithinTx(ctx, tx, store.ResearchSourceRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Source: store.ResearchSource{SourceID: in.Source.SourceID, Kind: store.ResearchSourceKind(in.Source.Kind), Locator: in.Source.Locator, Title: in.Source.Title, PublisherOrAuthor: in.Source.PublisherOrAuthor, PublishedAt: in.Source.PublishedAt, AccessedAt: in.Source.AccessedAt}})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []agentcontract.ChangedRef{{EntityKind: "research_pack", ID: in.PackID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-		return mutationPayload(changed, plan.intents), []string{in.PackID + ":" + source.SourceID}, changed, nil
-	}
-	return agentcontract.Envelope{}, nil, false
-}
-
-// planResearchFreshnessSet plans concord_work_define.research_freshness_set.
-func (r runtime) planResearchFreshnessSet(ctx context.Context, base agentcontract.Envelope, raw []byte, _ string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
-	var in researchFreshnessMutation
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	owners, err := r.Store.ResearchPackOwnerWorkIDs(ctx, []string{in.PackID})
-	if err != nil {
-		return failureEnvelope(base, err), nil, true
-	}
-	plan.scope["work_ids"] = owners
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		if err := store.SetResearchFreshnessWithinTx(ctx, tx, store.SetResearchFreshnessRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Freshness: store.ResearchFreshness(in.Freshness), Revision: in.Revision}); err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []agentcontract.ChangedRef{{EntityKind: "research_pack", ID: in.PackID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-		return mutationPayload(changed, plan.intents), []string{in.PackID}, changed, nil
-	}
-	return agentcontract.Envelope{}, nil, false
-}
-
-// mutateResearchRetire keeps batch authorization, deletion, and the replay
-// receipt in one transaction. Dry runs classify without a receipt. Replays
-// authorize the retained owners from the cached result, not deleted packs.
-func (r runtime) mutateResearchRetire(ctx context.Context, base agentcontract.Envelope, raw []byte, op agentcontract.ContractOperation) (agentcontract.Envelope, error) {
-	var in researchRetireMutation
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err
-	}
-	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
-	host, err := r.probeInvocationHost(ctx)
-	if err != nil {
-		return agentcontract.Envelope{}, err
-	}
-	var response agentcontract.Envelope
-	durable := false
-	mutation := func(tx *store.Transaction) error {
-		return r.retireResearchTx(ctx, tx, &base, in, op, digest, host, durable, &response)
-	}
-	if in.DryRun {
-		err = r.Store.ReadTransaction(ctx, mutation)
-	} else {
-		err = r.executeAdmittedMutation(&ctx, &durable, mutation)
-	}
-	if err != nil {
-		if response.Outcome == agentcontract.OutcomeError {
-			return response, nil
-		}
-		return failureEnvelope(base, err), nil
-	}
-	return response, nil
-}
-
-func (r runtime) retireResearchTx(ctx context.Context, tx *store.Transaction, base *agentcontract.Envelope, in researchRetireMutation, op agentcontract.ContractOperation, digest string, host store.ResolvedProjectHost, durable bool, response *agentcontract.Envelope) error {
-	inv := envelopeInvocation(r.Envelope, op.Capability, r.Operation)
-	if inv.HostAssertionDigest == "" {
-		inv.HostAssertionDigest = digest
-	}
-	grant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
-	if err != nil {
-		return err
-	}
-	if !slices.Contains(grant.ProductScope, in.ProductID) {
-		return newRuntimeFailure("unauthorized", "research retirement Product is outside grant scope", "contact_operator", false)
-	}
-	key := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: in.IdempotencyKey}
-	prior, found, err := store.LookupMutationIdempotencyTx(ctx, tx, key)
-	if err != nil {
-		return err
-	}
-	if found && prior.CanonicalDigest != digest {
-		return storeIdempotencyConflict(r.Operation, in.IdempotencyKey)
-	}
-	var result store.RetireResearchPacksResult
-	if found {
-		if err := json.Unmarshal([]byte(prior.ResultPayload), &result); err != nil {
-			return err
-		}
-	} else {
-		result, err = store.RetireResearchPacksWithinTx(ctx, tx, store.RetireResearchPacksRequest{ProductID: in.ProductID, Candidates: in.Candidates, DryRun: true})
-		if err != nil {
-			return err
-		}
-	}
-	owners := make([]string, 0, len(result.Candidates))
-	for _, candidate := range result.Candidates {
-		owners = append(owners, candidate.OwnerWorkID)
-	}
-	scope := map[string]any{"product_id": in.ProductID, "work_ids": normalizeScopeList(owners)}
-	byOwner, err := store.ProductsForWorkIDsTx(ctx, tx, owners)
-	if err != nil {
-		return err
-	}
-	for _, owner := range owners {
-		if !slices.Contains(byOwner[owner], in.ProductID) {
-			return newRuntimeFailure("unauthorized", "research retirement owner is outside the requested Product", "contact_operator", false)
-		}
-	}
-	crossProduct, err := r.deriveAuthorizedProductsTx(ctx, tx, scope, grant)
-	if err != nil {
-		return err
-	}
-	base.ResolvedScope = scopeFromMap(scope)
-	if found {
-		return r.replayResearchRetirementTx(ctx, tx, base, prior, grant, key, crossProduct, durable, response)
-	}
-	if r.Budget.CeilingRefused {
-		*response = r.budgetRefusal(*base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds))
-		return nil
-	}
-	if crossProduct && !in.DryRun && !durable {
-		return errMutationDurabilityRequired
-	}
-	if !in.DryRun {
-		result, err = store.RetireResearchPacksWithinTx(ctx, tx, store.RetireResearchPacksRequest{ProductID: in.ProductID, Candidates: in.Candidates})
-		if err != nil {
-			return err
-		}
-	}
-	return r.recordResearchRetirementTx(ctx, tx, base, in, result, scope, key, digest, durable, response)
-}
-
-func (r runtime) replayResearchRetirementTx(ctx context.Context, tx *store.Transaction, base *agentcontract.Envelope, prior store.MutationIdempotencyRecord, grant Authority, key store.MutationIdempotencyKey, crossProduct, durable bool, response *agentcontract.Envelope) error {
-	originalScope, err := authorizedScopeFromSnapshot(prior.AuthorizedScopeSnapshot)
-	if err != nil {
-		return err
-	}
-	if !scopeWithinAuthority(originalScope, grant) {
-		return newRuntimeFailure("unauthorized", "original research retirement scope is no longer authorized", "contact_operator", false)
-	}
-	originalDurable, _ := originalScope["durable_commit"].(bool)
-	if (crossProduct || originalDurable) && !durable {
-		return errMutationDurabilityRequired
-	}
-	var changed []agentcontract.ChangedRef
-	if err := json.Unmarshal([]byte(prior.ChangedRefs), &changed); err != nil {
-		return err
-	}
-	changed, omission := boundResultChangedRefs(changed)
-	if omission != nil {
-		base.Omissions = append(base.Omissions, *omission)
-	}
-	base.Replayed = true
-	*response = r.mutationResult(*base, json.RawMessage(prior.ResultPayload), changed, nil)
-	if response.Outcome == agentcontract.OutcomeError {
-		return errors.New("research retirement replay result rejected")
-	}
-	return store.TouchMutationIdempotencyTx(ctx, tx, key, r.Authority.now())
-}
-
-func (r runtime) recordResearchRetirementTx(ctx context.Context, tx *store.Transaction, base *agentcontract.Envelope, in researchRetireMutation, result store.RetireResearchPacksResult, scope map[string]any, key store.MutationIdempotencyKey, digest string, durable bool, response *agentcontract.Envelope) error {
-	changed := []agentcontract.ChangedRef{}
-	for _, candidate := range result.Candidates {
-		if candidate.Classification == store.ResearchRetirementRetired {
-			changed = append(changed, agentcontract.ChangedRef{EntityKind: "research_pack", ID: candidate.PackID, Version: strconv.FormatInt(candidate.CurrentVersion, 10)})
-		}
-	}
-	payload, err := json.Marshal(result)
-	if err != nil {
-		return err
-	}
-	// The payload reports every candidate. The envelope's auxiliary
-	// changed-reference list has a smaller capacity than a retirement batch.
-	boundedChanged, omission := boundResultChangedRefs(changed)
-	if omission != nil {
-		base.Omissions = append(base.Omissions, *omission)
-	}
-	*response = r.mutationResult(*base, payload, boundedChanged, nil)
-	if response.Outcome == agentcontract.OutcomeError {
-		return errors.New("research retirement result rejected")
-	}
-	if in.DryRun {
-		return nil
-	}
-	changedJSON, _ := json.Marshal(changed)
-	authorizedSnapshot := boundedMutationScope(scope)
-	authorizedSnapshot["durable_commit"] = durable
-	authorizedScope, _ := json.Marshal(authorizedSnapshot)
-	return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: key, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: "[]", ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()})
-}
-
 // planIssueLinkRecord plans concord_work_define.issue_link_record: record the
 // Linear issue identity the agent read from the Linear MCP server on one work
 // item. Concord makes no Linear call (CD-0213 D3, D7), and the record bumps no
@@ -1565,24 +1194,6 @@ func (r runtime) planWorkRemoval(ctx context.Context, base agentcontract.Envelop
 	return agentcontract.Envelope{}, nil, false
 }
 
-// boundResultChangedRefs bounds a committed change list to the result
-// envelope's changed-reference capacity. Research retirement reports every
-// candidate in its payload, but a retirement batch can retire more packs than
-// the envelope's auxiliary changed-reference list holds, so the list is
-// bounded and the returned notice accounts for the dropped tail.
-func boundResultChangedRefs(changed []agentcontract.ChangedRef) ([]agentcontract.ChangedRef, *agentcontract.Notice) {
-	if len(changed) <= agentcontract.MaxChangedRefs {
-		return changed, nil
-	}
-	bounded := append([]agentcontract.ChangedRef(nil), changed[:agentcontract.MaxChangedRefs]...)
-	notice := agentcontract.Notice{
-		Kind:    "changed_refs_truncated",
-		Count:   int64(len(changed) - agentcontract.MaxChangedRefs),
-		Details: map[string]any{"committed": int64(len(changed)), "reported": int64(agentcontract.MaxChangedRefs)},
-	}
-	return bounded, &notice
-}
-
 // planSetMemberships plans concord_work_relate.set_memberships.
 func (r runtime) planSetMemberships(_ context.Context, base agentcontract.Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
 	var in membershipsMutationInput
@@ -1650,9 +1261,6 @@ func (r runtime) planResolveOverlap(ctx context.Context, base agentcontract.Enve
 // execute it (handled false). This is the dispatch shape (runtime).read
 // established: arms delegate rather than inline.
 func (r runtime) mutate(ctx context.Context, base agentcontract.Envelope, raw []byte, grant Authority, op agentcontract.ContractOperation) (agentcontract.Envelope, error) {
-	if op.ID == "concord_work_define.research_retire" {
-		return r.mutateResearchRetire(ctx, base, raw, op)
-	}
 	if op.ID == "concord_work_transition.workflow_action" {
 		return r.mutateWorkflowAction(ctx, base, raw, grant, op)
 	}
@@ -1670,16 +1278,6 @@ func (r runtime) mutate(ctx context.Context, base agentcontract.Envelope, raw []
 		answer, err, handled = r.planLifecycle(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.remove":
 		answer, err, handled = r.planWorkRemoval(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_define.research_pack_create":
-		answer, err, handled = r.planResearchPackCreate(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_define.research_revision_append":
-		answer, err, handled = r.planResearchRevisionAppend(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_define.research_finding_record":
-		answer, err, handled = r.planResearchFindingRecord(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_define.research_source_record":
-		answer, err, handled = r.planResearchSourceRecord(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_define.research_freshness_set":
-		answer, err, handled = r.planResearchFreshnessSet(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.issue_link_record":
 		answer, err, handled = r.planIssueLinkRecord(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.project_handoff_record":
@@ -2317,70 +1915,4 @@ func idempotencyKey(raw []byte) string {
 func marshalEventIDs(ids []string) string { b, _ := json.Marshal(ids); return string(b) }
 func storeIdempotencyConflict(operation, key string) error {
 	return store.IdempotencyConflict(operation, key)
-}
-
-type researchPackCreateMutation struct {
-	OwnerWorkID    string                `json:"owner_work_id"`
-	Revision       researchRevisionInput `json:"revision"`
-	Freshness      string                `json:"freshness"`
-	IdempotencyKey string                `json:"idempotency_key"`
-}
-type researchRevisionMutation struct {
-	PackID          string                `json:"pack_id"`
-	ExpectedVersion int64                 `json:"expected_version"`
-	Revision        researchRevisionInput `json:"revision"`
-	IdempotencyKey  string                `json:"idempotency_key"`
-}
-type researchFindingMutation struct {
-	PackID          string               `json:"pack_id"`
-	ExpectedVersion int64                `json:"expected_version"`
-	Finding         researchFindingInput `json:"finding"`
-	SourceIDs       []string             `json:"source_ids"`
-	IdempotencyKey  string               `json:"idempotency_key"`
-}
-type researchSourceMutation struct {
-	PackID          string              `json:"pack_id"`
-	ExpectedVersion int64               `json:"expected_version"`
-	Source          researchSourceInput `json:"source"`
-	IdempotencyKey  string              `json:"idempotency_key"`
-}
-type researchFreshnessMutation struct {
-	PackID          string `json:"pack_id"`
-	ExpectedVersion int64  `json:"expected_version"`
-	Freshness       string `json:"freshness"`
-	Revision        int64  `json:"revision"`
-	IdempotencyKey  string `json:"idempotency_key"`
-}
-
-type researchRetireMutation struct {
-	ProductID      string                              `json:"product_id"`
-	Candidates     []store.ResearchRetirementCandidate `json:"candidates"`
-	DryRun         bool                                `json:"dry_run"`
-	IdempotencyKey string                              `json:"idempotency_key"`
-}
-
-func rawJSON(v any) json.RawMessage {
-	if v == nil {
-		return json.RawMessage("null")
-	}
-	out, err := json.Marshal(v)
-	if err != nil {
-		return json.RawMessage("null")
-	}
-	return out
-}
-
-func storeResearchRevision(in researchRevisionInput) store.ResearchRevisionInput {
-	return store.ResearchRevisionInput{Question: in.Question, ScopeIn: rawJSON(in.ScopeIn), ScopeOut: rawJSON(in.ScopeOut), DoneWhen: rawJSON(in.DoneWhen), Method: in.Method}
-}
-
-func researchBindingDeclarations(in []researchBindingInput) []store.ResearchBindingDeclaration {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]store.ResearchBindingDeclaration, 0, len(in))
-	for _, b := range in {
-		out = append(out, store.ResearchBindingDeclaration{PackID: b.PackID, Revision: b.Revision, UseRole: store.ResearchUseRole(b.UseRole), Required: b.Required})
-	}
-	return out
 }

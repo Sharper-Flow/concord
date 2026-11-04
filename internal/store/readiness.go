@@ -225,6 +225,8 @@ func readAppliedFromDB(ctx context.Context, db *sql.DB, path string, disposition
 // The CLI owns maintenance exclusion and the verified pre-mutation snapshot.
 type UpgradeOptions struct {
 	CancelCutoverPinnedWork bool
+	// SnapshotPath is the CLI-owned verified pre-upgrade snapshot.
+	SnapshotPath string
 }
 
 func upgradeCancelsCutover(options []UpgradeOptions) bool {

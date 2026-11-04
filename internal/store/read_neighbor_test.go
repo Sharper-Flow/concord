@@ -38,10 +38,8 @@ type readNeighborCase struct {
 func TestReadEntryPointsWithNeighbor(t *testing.T) {
 	ctx := context.Background()
 	s := seedQueryFixture(t)
-	seedResearchWork(t, s, "neighbor-research")
 	actor, version := continuityTestWorkflow(t, s, "neighbor-work")
 	seedWorkflowLaw(t, s)
-	pack := createSimplePack(t, s, "neighbor-pack", "neighbor-research")
 	if _, err := s.db.Exec(`INSERT INTO durable_operations(op_id,work_id,workflow_type_ref,step_id,accepted_inputs_digest,principal_ref,request_id,observed_at,contract_digest) VALUES('neighbor-result','work-1','fixture.atomic','execute',?,'agent-1','request:neighbor','2026-08-07T00:00:00Z',?)`, testDigest("inputs"), testManifestDigest); err != nil {
 		t.Fatal(err)
 	}
@@ -259,22 +257,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			if result.ResultKind != "completed" || result.OpID != "neighbor-result" {
 				return fmt.Errorf("atomic result=%+v", result)
-			}
-			return nil
-		}},
-
-		// Research reads use the canonical pack reader and owner descriptor page.
-		{name: "ReadResearchPack", run: func() error {
-			_, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 100})
-			return err
-		}},
-		{name: "ResearchPacksByOwner", run: func() error {
-			page, err := s.ResearchPacksByOwner(ctx, "neighbor-research", 100, "")
-			if err != nil {
-				return err
-			}
-			if len(page.Packs) != 1 {
-				return fmt.Errorf("packs=%d, want 1", len(page.Packs))
 			}
 			return nil
 		}},

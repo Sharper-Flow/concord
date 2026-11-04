@@ -264,24 +264,6 @@
         {
           "required": [
             "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_work_trace"
-            },
-            "operation": {
-              "const": "research"
-            },
-            "query_id": {
-              "const": "PM1.Q11"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
             "operation"
           ],
           "not": {
@@ -297,12 +279,6 @@
               "enum": [
                 "capture",
                 "revise_intent",
-                "research_pack_create",
-                "research_revision_append",
-                "research_finding_record",
-                "research_source_record",
-                "research_freshness_set",
-                "research_retire",
                 "issue_link_record"
               ],
               "type": "string"
@@ -427,13 +403,6 @@
             "mutation_result",
             "ready",
             "relations",
-            "research",
-            "research_finding_record",
-            "research_freshness_set",
-            "research_retire",
-            "research_pack_create",
-            "research_revision_append",
-            "research_source_record",
             "resolve",
             "resolve_overlap",
             "revise_intent",
@@ -875,13 +844,6 @@
             "mutation_result",
             "ready",
             "relations",
-            "research",
-            "research_finding_record",
-            "research_freshness_set",
-            "research_retire",
-            "research_pack_create",
-            "research_revision_append",
-            "research_source_record",
             "resolve",
             "resolve_overlap",
             "revise_intent",
@@ -1581,12 +1543,6 @@
                     "enum": [
                       "capture",
                       "issue_link_record",
-                      "research_finding_record",
-                      "research_freshness_set",
-                      "research_retire",
-                      "research_pack_create",
-                      "research_revision_append",
-                      "research_source_record",
                       "revise_intent"
                     ],
                     "type": "string"

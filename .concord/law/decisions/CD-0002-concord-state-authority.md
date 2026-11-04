@@ -19,7 +19,6 @@
 > - [`../specs/product-memory-domain-schema.md`](../specs/product-memory-domain-schema.md) (PM3) fixes explicit typed projections.
 > - [`../specs/canonical-git-note-placement.md`](../specs/canonical-git-note-placement.md) (PM6) fixes reported delivery and historical note locators.
 > - [`../specs/compaction-retention-policy.md`](../specs/compaction-retention-policy.md) (2026-10-09) fixes bounded retention of store state; the store keeps current rows and finite verified snapshots ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-> - [`CD-0215-retained-research-context.md`](CD-0215-retained-research-context.md) (2026-10-09) keeps the sole narrow direct-table exception for research context, retained until explicit retirement.
 > - [`CD-0011-retain-sqlite-after-conformance.md`](CD-0011-retain-sqlite-after-conformance.md) (2026-08-07) records the post-falsifier review and retains SQLite with explicit future reopen conditions.
 > - [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D1, D2, D9, D11, D13, D14.
 > **Decided:** 2026-08-05 (operator decision D1).
@@ -159,7 +158,7 @@ named job proves it necessary.
 ## 2c. Storage tiers and the archive lifecycle
 
 Linear owns planning, the Git knowledge home owns durable knowledge, the SQLite
-store owns current state and research, an execution's artifact directory owns
+store owns current state, an execution's artifact directory owns
 working evidence, and the worktree owns code progress ([CD-0242 D1](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d1-each-kind-of-state-has-one-owner)).
 
 [PM6 §1](../specs/canonical-git-note-placement.md#1-decision) governs reported-link
@@ -168,9 +167,7 @@ Existing historical locators, note hashes and lesson tags remain readable.
 Durable markdown distills knowledge rather than serializing state; work and
 lesson notes target a page, not hundreds of kilobytes.
 
-CD-0215 research is neither a Git note nor store history. Its selected reasoning
-may use normal decision/specification/lesson forms. Only explicit eligible
-research retirement deletes a pack; completion and upgrade preserve it.
+Selected research reasoning may use normal decision, specification and lesson forms.
 
 ```
 .concord/docs/work/YYYY-MM-DD-slug.md       # what shipped, why it mattered, links to commits/PRs
@@ -337,7 +334,7 @@ typed Product-memory projection shape. See
 and [`../specs/product-memory-domain-schema.md`](../specs/product-memory-domain-schema.md).
 
 **PM6, compaction-retention-policy, and PM9 govern:** reported-link completion,
-historical note readers, explicit research retention and the process-exhaust
+historical note readers and the process-exhaust
 boundary. See [`../specs/canonical-git-note-placement.md`](../specs/canonical-git-note-placement.md),
 [`../specs/compaction-retention-policy.md`](../specs/compaction-retention-policy.md), and
 [`../specs/product-memory-process-exhaust.md`](../specs/product-memory-process-exhaust.md).

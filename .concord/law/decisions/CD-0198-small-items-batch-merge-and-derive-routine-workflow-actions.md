@@ -45,21 +45,25 @@ Concord attests no subagent identity.
 
 ### D2. Break-fix records one typed diagnosis
 
-`record_diagnosis` advances the diagnosis step only with reproduction,
-alignment-search and root-cause sections, each retaining its fields and guards.
-The search includes `searched`, `outcome` and `related_ids`.
-It writes the same alignment declaration and creates no relation. An outcome
-of found-nothing is distinct from not searched. Implementation retains its
-declared alignment step. Analysis cannot advance without the search beside it.
+`record_diagnosis` records its reproduction, alignment-search and
+root-cause sections, each retaining its fields and guards. The search
+includes `searched`, `outcome` and `related_ids`. It writes the same
+alignment declaration and creates no relation. An outcome of found-nothing
+is distinct from not searched. Under per-item step plans (CON-1574) the
+record holds the diagnose step; the step completes only through
+`complete_step`, and the plan's alignment read replaces the retired
+implementation alignment step. Analysis cannot complete without the search
+beside it.
 
 ### D3. Repair and refine starts derive from the first action
 
-The first action at repair or refine derives the step-start fact in its own
-transaction. The first recorded action wins, opens the epoch and binds the
-fence from its actor. Delivery still requires that start. Refine proof uses a
-passing report for the recorded candidate; no lease acquisition,
-live Git freshness or exact tooling argv comparison is required. Current rows own these facts; generated definitions
-derive from one canonical source.
+The first action at the item's implement step derives the step-start fact
+in its own transaction. The first recorded action wins, opens the epoch and
+binds the fence from its actor. Delivery requires the accepted Review and a
+recorded verification report for the current candidate; no lease
+acquisition, live Git freshness or exact tooling argv comparison is
+required. Current rows own these facts; per-item plans copy one canonical
+template contract (CON-1574).
 
 Whole-work delivery uses `record_delivery` and its complete admission. A Review
 outcome is recorded separately through `record_review`; it does not combine

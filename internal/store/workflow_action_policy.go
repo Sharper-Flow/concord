@@ -823,13 +823,6 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	),
 }
 
-// workflowCallerEvidenceBinders names the actions whose completed event binds
-// the evidence kind the call submitted. Each payload declares the
-// evidence_kind enum (evidenceBindingActionFields), so one action can produce
-// any declared kind. The workflowSemanticActionEvents case arm reads this
-// list, so producibility and routing cannot disagree.
-var workflowCallerEvidenceBinders = []string{"bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation"}
-
 func currentActionDefinition(id string, payloadContracts bool) WorkflowActionDefinition {
 	policy, ok := builtinActionPolicies[id]
 	if !ok {

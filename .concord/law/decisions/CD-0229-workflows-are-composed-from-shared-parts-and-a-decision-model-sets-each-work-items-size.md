@@ -18,10 +18,6 @@
     },
     {
       "kind": "refines",
-      "target_id": "CD-0138"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0213"
     },
     {
@@ -42,17 +38,17 @@
 
 ## Decision
 
-### D1. Workflows use plain definitions
+### D1. Workflows use one template contract and per-item plans
 
-The implementation, break-fix and research families each have a plain Go
-`WorkflowDefinition` value. Each definition directly declares its steps,
-actions, edges, evidence and outcomes. The registry validates
-the value and derives its canonical manifest and digest. Common runtime action
+Each workflow type's required steps live once in the machine-readable template
+contract `contracts/workflow-step-templates.v1.json`; when the type is picked,
+its steps are copied into the item's own stored plan (CON-1574). There is no
+definition registry, digest, or per-kind fixed chain. Common runtime action
 and payload implementations remain shared under CD-0242 D3.
 
 There is no workflow parts catalog, part-use mapping or composition compiler.
 No replacement assembly framework or workflow language is introduced. Public
-schemas and tool contracts derive from the Go definitions under
+schemas and tool contracts derive from the template contract under
 [CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source).
 This changes definition authoring, not live execution semantics. Composition
 across work items remains forward-link only under CD-0013 D7-D8.

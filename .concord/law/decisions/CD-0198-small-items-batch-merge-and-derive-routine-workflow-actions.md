@@ -10,14 +10,6 @@
   "law_relations": [
     {
       "kind": "refines",
-      "target_id": "CD-0156"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0166"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0183"
     }
   ]
@@ -28,7 +20,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-30
 - **Scope:** Batched verdicts, typed diagnosis and derived producing-step starts
-- **Related:** CD-0012, CD-0156, CD-0166, CD-0173, CD-0183, CD-0192, CD-0242, CD-0243
+- **Related:** CD-0012, CD-0173, CD-0183, CD-0242, CD-0243
 
 ## Context
 
@@ -53,21 +45,25 @@ Concord attests no subagent identity.
 
 ### D2. Break-fix records one typed diagnosis
 
-`record_diagnosis` advances the diagnosis step only with reproduction,
-alignment-search and root-cause sections, each retaining its fields and guards.
-The search includes `searched`, `outcome` and `related_ids` under CD-0156 D3.
-It writes the same alignment declaration and creates no relation. An outcome
-of found-nothing is distinct from not searched. Implementation retains its
-declared alignment step. Analysis cannot advance without the search beside it.
+`record_diagnosis` records its reproduction, alignment-search and
+root-cause sections, each retaining its fields and guards. The search
+includes `searched`, `outcome` and `related_ids`. It writes the same
+alignment declaration and creates no relation. An outcome of found-nothing
+is distinct from not searched. The record holds the diagnose step; the
+step completes only through `complete_step` with the typed diagnosis
+recorded, and the plan's alignment read replaces the retired
+implementation alignment step. Analysis cannot complete without the search
+beside it.
 
-### D3. Repair and refine starts derive from the first action
+### D3. The fenced implement start derives the step-start fact
 
-The first action at repair or refine derives the step-start fact in its own
-transaction. The first recorded action wins, opens the epoch and binds the
-fence from its actor. Delivery still requires that start. Refine proof uses a
-passing report for the recorded candidate under CD-0192; no lease acquisition,
-live Git freshness or exact tooling argv comparison is required. Current rows own these facts; generated definitions
-derive from one canonical source.
+The fenced `start_execution` at the item's implement step derives the
+step-start fact in its own transaction. The first start wins, opens the
+epoch and binds the fence from its actor. Delivery requires the accepted Review and, when the active contract
+requires verification evidence, a passing verification report covering the
+current reviewed candidate; no step start, lease acquisition, live Git
+freshness or exact tooling argv comparison is required. Current rows own these facts;
+per-item plans copy one canonical template contract.
 
 Whole-work delivery uses `record_delivery` and its complete admission. A Review
 outcome is recorded separately through `record_review`; it does not combine
@@ -88,7 +84,7 @@ No worker-failure record, combined worker acceptance or retry launcher exists.
 ## Verification
 
 - `go test ./internal/store ./internal/agent` checks batching, duplicate and
-  omitted predicates, diagnosis completeness, first-action starts and delivery
+  omitted predicates, diagnosis completeness, fenced `start_execution` starts and delivery
   refusal for missing, failed, unresolved or mixed-candidate verification.
 - Committed law-folder snapshot validation checks the record's identity and
   content digest.

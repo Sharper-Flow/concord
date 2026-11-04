@@ -90,21 +90,13 @@ func seedCLIHostWorktree(t *testing.T, repo, workID, _ string) cliHostCheckout {
 
 func initializeCLILocatorWorkflow(t *testing.T, s *store.Store) {
 	t.Helper()
-	ref, err := store.DefaultWorkflowRefForKind("task")
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition, err := store.LiveWorkflowDefinitionForRef(ref)
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), "work-wl")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{
-			WorkID: "work-wl", Definition: definition, Now: time.Unix(5, 0).UTC(),
+			WorkID: "work-wl", Now: time.Unix(5, 0).UTC(),
 			Actor: store.WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord", AgentRef: "agent/concord", SessionRef: "session/fixture", ActorClass: store.ActorOperator},
 		})
 	}); err != nil {

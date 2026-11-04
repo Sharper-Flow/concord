@@ -3,220 +3,166 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
 
-// Isolated mandate fixtures omit a full workflow instance. They load the
-// same gate facts and exercise the pure mandate owner with those facts.
-func mandateFixtureAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, step, actionID string) error {
-	const subject = "workflow_action"
-	mandate, err := loadWorkflowMandateAdmission(ctx, q, workID, definition, step, subject)
-	if err != nil {
-		return err
-	}
-	if failure := workflowAdmitMandate(definition, step, mandate, actionID, subject, false); failure != nil {
-		return failure
-	}
-	return nil
-}
-
-func setAdmissionMandate(t *testing.T, s *Store, workID, lawID string) {
+func setAdmissionMandates(t *testing.T, s *Store, workID string, laws []string) {
 	t.Helper()
-	ctx := context.Background()
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if err := enterWrite(ctx, tx); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`UPDATE workflow_contracts SET spec_mandate=? WHERE work_id=? AND superseded_by IS NULL`, string(mustJSONValue([]string{lawID})), workID); err != nil {
-		t.Fatal(err)
-	}
-	if err := leaveWrite(ctx, tx); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contracts SET spec_mandate=? WHERE work_id=? AND superseded_by IS NULL; DELETE FROM write_guard`, string(mustJSONValue(laws)), workID); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestMandateAdmissionAgreement(t *testing.T) {
-	const workID = "mandate-admission-agreement"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
-	s := fixture.store
-	ctx := context.Background()
-	setAdmissionMandate(t, s, workID, "spec:one")
-	for _, bound := range []bool{false, true} {
-		if bound {
-			payload := json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"spec:one"}`)
-			if err := runVerdictActionAs(t, s, workID, "bind_evidence", payload, 0, fixture.owner); err != nil {
-				t.Fatalf("bind the mandated law: %v", err)
-			}
-		}
-		pin := issue1013Pin(t, s, workID)
-		definition, state := loadedAdmissionForTest(t, s, workID, pin)
-		mandate := "missing"
-		if bound {
-			mandate = "bound"
-		}
-		model := admissionModelState{
-			step: pin.Step, contracts: 1, mandate: mandate,
-		}
-		for _, action := range []string{"record_alignment", "record_delivery", "record_design", "record_proposal"} {
-			model.records |= admissionRecordBit(definition, action)
-		}
-		conformanceCheckpoint(t, s, workID, definition, model, mandate)
-		decision := workflowAdmit(definition, state, "record_verdict")
-		payload := json.RawMessage(`{"verdicts":[{"predicate_id":"predicate:return-route","receipt_refs":["worktree_verify:mandate-unreachable"]}]}`)
-		preflightErr := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-			WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_verdict", Actor: fixture.operator, Payload: payload,
-		})
-		advertised := workPinContainsAction(pin.NextValidIntents, "record_verdict")
-		if bound {
-			// A bound mandate no longer refuses. The fixture carries no
-			// integrated candidate, so the payload-bound record_verdict
-			// validation refuses on that next requirement instead — the
-			// mandate dimension itself is satisfied on both sides.
-			if !decision.Admitted || !advertised {
-				t.Fatalf("bound mandate: admitted=%v, advertised=%v", decision.Admitted, advertised)
-			}
-			var boundFailure *Failure
-			if !failureAs(preflightErr, &boundFailure) || boundFailure.Kind != KindMissingEvidence ||
-				!strings.Contains(boundFailure.Detail, "current integrated candidate") || strings.Contains(boundFailure.Detail, "spec:one") {
-				t.Fatalf("bound mandate preflight = %v, want the candidate requirement past the satisfied mandate", preflightErr)
-			}
-			continue
-		}
-		var failure *Failure
-		if decision.Admitted || advertised || !failureAs(preflightErr, &failure) || failure.Kind != KindMissingEvidence ||
-			decision.Failure.Kind != failure.Kind || decision.Failure.Detail != failure.Detail || !strings.Contains(failure.Detail, "spec:one") {
-			t.Fatalf("unbound mandate: admitted=%v, advertised=%v, pure=%v, preflight=%v", decision.Admitted, advertised, decision.Failure, preflightErr)
-		}
-		if !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
-			t.Fatal("mandate refusal hides its evidence-binding recovery")
-		}
+func TestWorkflowPlanMandateVerdictAndBindingRecovery(t *testing.T) {
+	const workID = "plan-mandate-verdict"
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", []string{}, nil)
+	setAdmissionMandates(t, f.store, workID, []string{"spec:one"})
+	pin, err := ReadWorkPin(t.Context(), f.store, workID)
+	if err != nil || !workPinContainsAction(pin.NextValidIntents, "record_verdict") || !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
+		t.Fatalf("plan intents=%+v err=%v", pin.NextValidIntents, err)
+	}
+	payload := json.RawMessage(`{"verdicts":[{"predicate_id":"predicate:return-route","receipt_refs":["worktree_verify:unreachable"]}]}`)
+	request := planAdmissionRequest(workID, "record_verdict", pin.Version, f.owner, payload)
+	first := planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindMissingEvidence)
+	second := planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindMissingEvidence)
+	if first.Detail != second.Detail || !strings.Contains(first.Detail, "spec:one") || readWorkVersion(t, f.store, workID) != pin.Version {
+		t.Fatalf("mandate refusal or rollback: %v / %v", first, second)
+	}
+	bind := planAdmissionRequest(workID, "bind_evidence", pin.Version, f.owner, json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"spec:one"}`))
+	if err := planAdmissionPreflight(t, f.store, bind); err != nil {
+		t.Fatalf("binding preflight: %v", err)
+	}
+	if err := planAdmissionDispatch(t, f.store, bind); err != nil {
+		t.Fatalf("binding dispatch: %v", err)
+	}
+	request = planAdmissionRequest(workID, "record_verdict", readWorkVersion(t, f.store, workID), f.owner, payload)
+	first = planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindMissingEvidence)
+	second = planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindMissingEvidence)
+	if first.Detail != second.Detail || !strings.Contains(first.Detail, "current integrated candidate") || strings.Contains(first.Detail, "spec:one") || readWorkVersion(t, f.store, workID) != request.ExpectedVersion {
+		t.Fatalf("bound mandate did not reach candidate guard: %v / %v", first, second)
 	}
 }
 
-func TestReadyReviewCannotBypassMandate(t *testing.T) {
+func TestWorkflowPlanMandateReviewDispositionParity(t *testing.T) {
 	for _, disposition := range []string{"continue", "correction_required", "revision_required", "ready_for_final_proof"} {
 		t.Run(disposition, func(t *testing.T) {
-			workID := "mandate-ready-review-" + disposition
-			j, _ := descendantReviewFixture(t, workID)
-			s := j.s
-			law := j.fixture.sources.lawProject + "/" + j.fixture.sources.lawID
-			setAdmissionMandate(t, s, workID, law)
-			report := currentReviewBlockForTest(t, s, workID, disposition)
-			payload := map[string]any{"review": report}
-			for _, bound := range []bool{false, true} {
-				if bound {
-					if err := j.action(t, "bind_evidence", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": law}, j.fixture.owner); err != nil {
-						t.Fatalf("bind mandated law: %v", err)
-					}
-				}
-				pin := issue1013Pin(t, s, workID)
-				before := j.effects(t)
-				beforeReview := string(mustJSONValue(pin.Review))
-				definition, state := loadedAdmissionForTest(t, s, workID, pin)
-				decision := workflowAdmit(definition, state, "record_review")
-				advertised := workPinContainsAction(pin.NextValidIntents, "record_review")
-				ctx, err := prepareTerminalTestContext(t.Context(), s, workID, "record_review")
-				if err != nil {
-					t.Fatal(err)
-				}
-				preflightErr := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-					WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_review", Actor: j.fixture.owner, Payload: mustJSONValue(payload),
-				})
-				if after := j.effects(t); after != before {
-					t.Fatal("mandate preflight changed durable state")
-				}
-				executionErr := recordReviewForTest(t, s, workID, j.fixture.owner, report)
-				accepted := issue1013Pin(t, s, workID)
-				if bound {
-					if !decision.Admitted || !advertised || preflightErr != nil || executionErr != nil {
-						t.Fatalf("bound mandate: admission=%+v, advertised=%v, preflight=%v, execution=%v", decision, advertised, preflightErr, executionErr)
-					}
-					if accepted.Step != pin.Step || accepted.Review.Accepted == nil || accepted.Review.Accepted.ReportDigest != reviewDigest(report) || accepted.Review.Accepted.Report.Disposition != disposition {
-						t.Fatalf("local acceptance advanced execution or lost the exact Review: %+v", accepted)
-					}
-					continue
-				}
-				var preflightFailure, executionFailure *Failure
-				if decision.Admitted || advertised ||
-					!failureAs(preflightErr, &preflightFailure) || !failureAs(executionErr, &executionFailure) ||
-					preflightFailure.Kind != KindMissingEvidence || executionFailure.Kind != KindMissingEvidence ||
-					decision.Failure.Detail != preflightFailure.Detail || decision.Failure.Detail != executionFailure.Detail ||
-					!strings.Contains(executionFailure.Detail, law) {
-					t.Fatalf("ready review bypasses unbound mandate: admission=%+v, advertised=%v, preflight=%v, execution=%v", decision, advertised, preflightErr, executionErr)
-				}
-				if after := j.effects(t); after != before || string(mustJSONValue(accepted.Review)) != beforeReview {
-					t.Fatal("refused mandate acceptance changed durable state or Review authority")
-				}
-				if !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
-					t.Fatal("unbound mandate hides evidence binding")
-				}
+			workID := "plan-mandate-review-" + disposition
+			f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", []string{}, nil)
+			reviewSubjectClaim(t, f.store, workID)
+			report := currentReviewBlockForTest(t, f.store, workID, disposition)
+			setAdmissionMandates(t, f.store, workID, []string{"spec:one"})
+			version := readWorkVersion(t, f.store, workID)
+			request := planAdmissionRequest(workID, "record_review", version, f.owner, mustJSONValue(map[string]any{"review": report}))
+			first := planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindMissingEvidence)
+			second := planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindMissingEvidence)
+			state, err := loadWorkflowReviewState(t.Context(), f.store.db, workID)
+			if err != nil || state.Accepted != nil || readWorkVersion(t, f.store, workID) != version || first.Detail != second.Detail || !strings.Contains(first.Detail, "spec:one") {
+				t.Fatalf("unbound review changed authority or refusals: state=%+v preflight=%v dispatch=%v err=%v", state, first, second, err)
+			}
+			bind := planAdmissionRequest(workID, "bind_evidence", version, f.owner, json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"spec:one"}`))
+			if err := planAdmissionDispatch(t, f.store, bind); err != nil {
+				t.Fatalf("bind mandate: %v", err)
+			}
+			request = planAdmissionRequest(workID, "record_review", readWorkVersion(t, f.store, workID), f.owner, mustJSONValue(map[string]any{"review": report}))
+			if err := planAdmissionPreflight(t, f.store, request); err != nil {
+				t.Fatalf("bound review preflight: %v", err)
+			}
+			if err := planAdmissionDispatch(t, f.store, request); err != nil {
+				t.Fatalf("bound review dispatch: %v", err)
+			}
+			state, err = loadWorkflowReviewState(t.Context(), f.store.db, workID)
+			if err != nil || state.Accepted == nil || state.Accepted.ReportDigest != reviewDigest(report) || state.Accepted.Report.Disposition != disposition || state.Accepted.ActorRef != mustActorRef(t, f.owner) {
+				t.Fatalf("recorded Review=%+v err=%v", state.Accepted, err)
+			}
+			if step := workflowPlanFixtureFrontier(t, f.store, workID); step != "implement" {
+				t.Fatalf("recording Review advanced to %q", step)
 			}
 		})
 	}
 }
 
-func TestBaselineReviewMandateAdmission(t *testing.T) {
-	for _, mandates := range [][]string{{"CD-0189"}, {"CD-0189", "spec:one"}, {"spec:one", "CD-0189"}} {
-		t.Run(strings.Join(mandates, ","), func(t *testing.T) {
-			s := openTemp(t)
-			const workID = "baseline-review-mandate"
-			seedWork(t, s, workID)
-			seedWorkflowLaw(t, s)
-			seedMandateContract(t, s, workID)
-			seedReservedLawAddition(t, s, workID)
-			if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
-UPDATE workflow_contracts SET spec_mandate=? WHERE work_id=?;
-DELETE FROM write_guard`, string(mustJSONValue(mandates)), workID); err != nil {
-				t.Fatal(err)
-			}
-			definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
-			for _, boundInput := range []bool{false, true} {
-				if boundInput {
-					if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
-INSERT INTO workflow_evidence_bindings(work_id,binding_seq,binding_id,actor,payload) VALUES(?,1,'baseline-input-binding','operator','{"immutable_subject_ref":"spec:one"}');
-DELETE FROM write_guard`, workID); err != nil {
+func TestWorkflowPlanMandateBlocksDeliveryUntilBound(t *testing.T) {
+	const workID = "plan-mandate-delivery"
+	f, _ := deliveryPlanFixture(t, workID, []string{}, "ready_for_final_proof")
+	setAdmissionMandates(t, f.store, workID, []string{"spec:one"})
+	version := readWorkVersion(t, f.store, workID)
+	payload := json.RawMessage(`{"delivery_artifact":"artifact:mandate","delivery_state":"asserted"}`)
+	request := planAdmissionRequest(workID, "record_delivery", version, f.owner, payload)
+	first := planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindMissingEvidence)
+	second := planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindMissingEvidence)
+	if first.Detail != second.Detail || !strings.Contains(first.Detail, "spec:one") || readWorkVersion(t, f.store, workID) != version {
+		t.Fatalf("delivery mandate refusal: %v / %v", first, second)
+	}
+	bind := planAdmissionRequest(workID, "bind_evidence", version, f.owner, json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"spec:one"}`))
+	if err := planAdmissionDispatch(t, f.store, bind); err != nil {
+		t.Fatalf("bind mandate: %v", err)
+	}
+	request = planAdmissionRequest(workID, "record_delivery", readWorkVersion(t, f.store, workID), f.owner, payload)
+	if err := planAdmissionPreflight(t, f.store, request); err != nil {
+		t.Fatalf("bound delivery preflight: %v", err)
+	}
+	if err := planAdmissionDispatch(t, f.store, request); err != nil {
+		t.Fatalf("bound delivery dispatch: %v", err)
+	}
+}
+
+func TestWorkflowPlanMandateLawAdditionAndInputOrder(t *testing.T) {
+	for _, laws := range [][]string{{"CD-0189"}, {"CD-0189", "spec:one"}, {"spec:one", "CD-0189"}} {
+		for _, inputBound := range []bool{false, true} {
+			name := fmt.Sprintf("%s/bound-%t", strings.Join(laws, ","), inputBound)
+			t.Run(name, func(t *testing.T) {
+				workID := fmt.Sprintf("plan-mandate-addition-%d-%t-%t", len(laws), laws[0] == "CD-0189", inputBound)
+				f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", []string{}, nil)
+				setAdmissionMandates(t, f.store, workID, laws)
+				// The contract's existing synthetic architecture binding owns the
+				// reservation and addition rows used by this isolated gate test.
+				if _, err := f.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
+INSERT INTO workflow_law_addition_reservations(product_id,law_id,owner_work_id,owner_contract_version,home_domain_id) VALUES('product','CD-0189',?,1,'root');
+INSERT INTO workflow_contract_law_additions(work_id,contract_version,product_id,law_id,home_domain_id,reservation_owner_work_id,reservation_owner_contract_version) VALUES(?,1,'product','CD-0189','root',?,1);
+DELETE FROM write_guard`, workID, workID, workID); err != nil {
+					t.Fatal(err)
+				}
+				if inputBound {
+					if _, err := f.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO workflow_evidence_bindings(work_id,binding_seq,binding_id,actor,payload) VALUES(?,999999,'binding:mandate-input',?,'{"evidence_kind":"artifact","immutable_subject_ref":"spec:one"}'); DELETE FROM write_guard`, workID, mustActorRef(t, f.owner)); err != nil {
 						t.Fatal(err)
 					}
 				}
-				mandate, err := loadWorkflowMandateAdmission(t.Context(), s.db, workID, definition, "execution", "workflow_action")
+				tx, err := f.store.db.BeginTx(context.Background(), nil)
 				if err != nil {
 					t.Fatal(err)
 				}
-				for _, test := range []struct {
-					action, step, capability string
-					localReview              bool
-				}{
-					{"record_review", "execution", "review", true},
-					{"record_review", "refine", "review", true},
-					{"record_delivery", "execution", "review", false},
-					{"record_verdict", "acceptance", "review", false},
-				} {
-					state := WorkflowAdmissionState{Step: test.step, Mandate: mandate}
-					decision := WorkflowAdmissionDecision{}
-					refused := workflowAdmitDeliveryRefused(definition, state, test.action, &decision)
-					inputMissing := len(mandates) > 1 && !boundInput
-					if test.localReview && !inputMissing {
-						if refused {
-							t.Fatalf("%s/%s/%s boundInput=%v: %v", test.step, test.action, test.capability, boundInput, decision.Failure)
+				defer tx.Rollback()
+				plan, err := readWorkflowPlanTx(t.Context(), tx, workID)
+				if err != nil || plan == nil {
+					t.Fatalf("read plan=%v err=%v", plan, err)
+				}
+				for _, actionID := range []string{"record_review", "complete_step", "record_verdict", "record_delivery"} {
+					action, err := catalogAction(actionID)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !workflowPlanAllowsAction(plan, "review", actionID) {
+						t.Fatalf("%s is not declared on the review frontier", actionID)
+					}
+					err = guardPlanMandate(t.Context(), tx, workID, plan, "review", action)
+					missingInput := len(laws) > 1 && !inputBound
+					if actionID == "record_review" && !missingInput {
+						if err != nil {
+							t.Fatalf("local Review refused added law: %v", err)
 						}
 						continue
 					}
-					if !refused || decision.Failure == nil || !strings.Contains(decision.Failure.Detail, "spec mandate law") {
-						t.Fatalf("%s/%s/%s bypassed mandate: %+v", test.step, test.action, test.capability, decision)
+					failure := planAdmissionFailure(t, err, KindMissingEvidence)
+					if actionID == "record_review" && !strings.Contains(failure.Detail, "spec:one") {
+						t.Fatalf("local Review masked its missing input: %v", failure)
 					}
-					if test.localReview && !strings.Contains(decision.Failure.Detail, `"spec:one" is not bound`) {
-						t.Fatalf("future addition masked missing input: %v", decision.Failure)
+					if actionID != "record_review" && !strings.Contains(failure.RecoveryAction, "bind_evidence") {
+						t.Fatalf("%s has no binding recovery: %v", actionID, failure)
 					}
 				}
-			}
-		})
+			})
+		}
 	}
 }

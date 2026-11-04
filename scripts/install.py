@@ -3851,8 +3851,7 @@ def cutover(args: argparse.Namespace) -> int:
             environment["XDG_DATA_HOME"] = str(paths.data_home)
             request = {"require_no_sessions": True,
                        "maintenance_fd": descriptor,
-                       "confirm_sessions_stopped": args.confirm_sessions_stopped,
-                       "cancel_cutover_pinned_work": args.cancel_cutover_pinned_work}
+                       "confirm_sessions_stopped": args.confirm_sessions_stopped}
             print(f"Running the snapshot-backed upgrade for {version}.", flush=True)
             try:
                 completed = subprocess.run(upgrade_plan_command(paths, version), input=json.dumps(request).encode(),
@@ -5147,7 +5146,6 @@ def main() -> int:
     cutover_parser = subparsers.add_parser("cutover", help="migrate, activate and verify the prepared release from an ordinary shell")
     cutover_parser.add_argument("--version", required=True, help="confirm the prepared release tag")
     cutover_parser.add_argument("--confirm-sessions-stopped", action="store_true", help="confirm no session runs on an unfenceable installed release tree")
-    cutover_parser.add_argument("--cancel-cutover-pinned-work", action="store_true", help="explicitly cancel every work item selected by the authoring-cutover gate")
     repair_parser = subparsers.add_parser("repair", help="complete an incomplete installation of the installed release")
     repair_parser.add_argument("--version", help="confirm the installed release tag; a different tag refuses")
     repair_parser.add_argument("--artifact-dir", help="use local published assets instead of downloading")

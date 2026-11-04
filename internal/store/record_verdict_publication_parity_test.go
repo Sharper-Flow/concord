@@ -50,10 +50,6 @@ func recordVerdictParityPublishedFields(t *testing.T, document map[string]any) m
 func TestRecordVerdictReceiptPublicationMatchesCurrentAdmission(t *testing.T) {
 	document := payloadschema.Document()
 	publishedFields := recordVerdictParityPublishedFields(t, document)
-	live, err := LiveWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
 	entry := func(refs []any) map[string]any {
 		return map[string]any{"predicate_id": "predicate:primary", "receipt_refs": refs}
 	}
@@ -75,7 +71,7 @@ func TestRecordVerdictReceiptPublicationMatchesCurrentAdmission(t *testing.T) {
 		{"scalar form", map[string]any{"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []any{"receipt:captured"}}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			core := validateWorkflowActionPayload(live.Definition, "record_verdict", mustJSONRaw(t, tc.fields))
+			_, core := validateWorkflowPlanActionPayload("record_verdict", mustJSONRaw(t, tc.fields))
 			published := payloadschema.ValidateValue(recordVerdictParityDecode(t, tc.fields), publishedFields, document, "fields")
 			if (core == nil) != tc.want || (published == nil) != tc.want {
 				t.Fatalf("core=%v publication=%v, want admission %v", core, published, tc.want)
@@ -97,7 +93,7 @@ func TestRecordVerdictReceiptPublicationMatchesCurrentAdmission(t *testing.T) {
 			entries = append(entries, value)
 		}
 		fields := batch(entries)
-		core := validateWorkflowActionPayload(live.Definition, "record_verdict", mustJSONRaw(t, fields))
+		_, core := validateWorkflowPlanActionPayload("record_verdict", mustJSONRaw(t, fields))
 		published := payloadschema.ValidateValue(recordVerdictParityDecode(t, fields), publishedFields, document, "fields")
 		if (core == nil) != bounds.want || (published == nil) != bounds.want {
 			t.Errorf("%d criteria with %d receipts: core=%v publication=%v, want admission %v", bounds.criteria, bounds.receipts, core, published, bounds.want)
@@ -115,7 +111,7 @@ func TestRecordVerdictReceiptPublicationMatchesCurrentAdmission(t *testing.T) {
 			} else {
 				fields[name] = "forbidden"
 			}
-			core := validateWorkflowActionPayload(live.Definition, "record_verdict", mustJSONRaw(t, fields))
+			_, core := validateWorkflowPlanActionPayload("record_verdict", mustJSONRaw(t, fields))
 			published := payloadschema.ValidateValue(recordVerdictParityDecode(t, fields), publishedFields, document, "fields")
 			if core == nil || published == nil {
 				t.Errorf("field %s (nested=%v) escaped the closed receipt schema: core=%v publication=%v", name, nested, core, published)
@@ -209,7 +205,7 @@ func TestMultibyteStringBoundsKeepCoreAndPublicationAligned(t *testing.T) {
 	if err := payloadschema.ValidateValue(maxByteASCII, premiseNode, document, "premise"); err != nil {
 		t.Fatalf("published premise bounds refused a core-admitted maximum string: %v", err)
 	}
-	// The other direction at the max bound: record_alignment.searched is
+	// The other direction at the max bound: approve_contract.premise is
 	// bounded at 4096 bytes core-side. A 4096-code-point all-two-byte string
 	// is 8192 bytes — core refuses it and the byte bound refuses it, where
 	// the old code-point-equal maxLength admitted it.
@@ -217,7 +213,7 @@ func TestMultibyteStringBoundsKeepCoreAndPublicationAligned(t *testing.T) {
 	if len(maxBoundMultibyte) != 8192 || utf8.RuneCountInString(maxBoundMultibyte) != 4096 {
 		t.Fatal("fixture is not 4096 code points of 8192 bytes")
 	}
-	searchedNode := stringNode("work_transition_action_variant_record_alignment", "searched")
+	searchedNode := premiseNode
 	if maxLength := schemaNumber(searchedNode, "maxLength"); maxLength != "4096" {
 		t.Fatalf("published searched maxLength is %q, want 4096", maxLength)
 	}

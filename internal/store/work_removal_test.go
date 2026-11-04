@@ -121,7 +121,7 @@ func TestWorkRemovalCancellationKeepsReasonDistinct(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "cancelled-removal-work")
 	if err := s.Transact(t.Context(), func(tx *Transaction) error {
-		return InitializeWorkflowTx(t.Context(), tx, WorkflowInitializationRequest{WorkID: "cancelled-removal-work", Definition: mustBuiltinDefinition(t, "workflow.implementation"), Actor: lawChangeConstructorActor})
+		return InitializeWorkflowTx(t.Context(), tx, WorkflowInitializationRequest{WorkID: "cancelled-removal-work", Actor: lawChangeConstructorActor})
 	}); err != nil {
 		t.Fatal(err)
 	}

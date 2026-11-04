@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestReadWorkPinReportsEveryCoordinatorSessionDrivingTheItem pins the gap a
@@ -16,7 +17,19 @@ import (
 // and cannot learn that another session is driving the same item.
 func TestReadWorkPinReportsEveryCoordinatorSessionDrivingTheItem(t *testing.T) {
 	s := openTemp(t)
-	first, version := continuityTestWorkflow(t, s, "workpin-codriver")
+	const workID = "workpin-codriver"
+	seedWork(t, s, workID)
+	first := WorkflowActor{PrincipalRef: "principal:continuity", ClientRef: "client:continuity", AgentRef: "agent:continuity", SessionRef: "session:continuity", ActorClass: ActorAgent}
+	if err := s.Transact(t.Context(), func(tx *Transaction) error {
+		return initializeWorkflowRawTx(t.Context(), tx.tx, WorkflowInitializationRequest{WorkID: workID, Actor: first, Now: time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	version := readWorkVersion(t, s, workID)
+	version, err := continuityAction(t, s, workID, version, "record_intake", "codriver-intake", map[string]any{"outcome": "proceed", "open_questions_found": false}, first)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	second := WorkflowActor{
 		PrincipalRef: first.PrincipalRef,
@@ -25,7 +38,18 @@ func TestReadWorkPinReportsEveryCoordinatorSessionDrivingTheItem(t *testing.T) {
 		SessionRef:   "session:second-coordinator",
 		ActorClass:   ActorAgent,
 	}
-	if _, err := continuityAction(t, s, "workpin-codriver", version, "record_proposal", "codriver-proposal-1", nil, second); err != nil {
+	version, err = continuityAction(t, s, workID, version, "pick_type", "codriver-pick", map[string]any{"type": "change", "reason": "bounded change"}, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := map[string]any{"outcomes": "working outcome", "approach": "bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "which?", "choice": "one", "rationale": "fits", "rejected": []string{}}}, "touches": []string{"file:one"}, "merge_split": "one item", "risks": "bounded risk"}
+	version, err = continuityAction(t, s, workID, version, "record_plan", "codriver-first-plan", plan, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan["reason"] = "second coordinator revision"
+	version, err = continuityAction(t, s, workID, version, "record_plan", "codriver-plan", plan, second)
+	if err != nil {
 		t.Fatalf("second coordinator was refused: %v, want admission per CD-0061 D4", err)
 	}
 
@@ -33,10 +57,10 @@ func TestReadWorkPinReportsEveryCoordinatorSessionDrivingTheItem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pin.DrivingSessions) != 2 || pin.DrivingSessions[0].SessionRef != second.SessionRef || pin.DrivingSessions[1].SessionRef != first.SessionRef {
+	if len(pin.DrivingSessions) != 2 || pin.DrivingSessions[0].SessionRef != first.SessionRef || pin.DrivingSessions[1].SessionRef != second.SessionRef {
 		t.Fatalf("driving sessions=%v, want the two coordinator sessions in order", pin.DrivingSessions)
 	}
-	if pin.DrivingSessions[0].LastActionID != "record_proposal" || pin.DrivingSessions[0].LastActedAt != "2026-08-11T00:00:00Z" || pin.DrivingSessions[1].LastActionID != "record_proposal" || pin.DrivingSessions[1].LastActedAt != "2026-08-07T12:00:00Z" {
+	if pin.Version != version || pin.DrivingSessions[0].LastActionID != "record_plan" || pin.DrivingSessions[0].LastActedAt != "2026-08-11T00:00:00Z" || pin.DrivingSessions[1].LastActionID != "record_plan" || pin.DrivingSessions[1].LastActedAt != "2026-08-11T00:00:00Z" {
 		t.Fatalf("driving sessions=%+v, want each latest action and time", pin.DrivingSessions)
 	}
 	encoded, err := json.Marshal(pin)

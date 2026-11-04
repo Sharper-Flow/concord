@@ -27,7 +27,6 @@ type captureMutationInput struct {
 	Priority         int64    `json:"priority"`
 	Urgency          string   `json:"urgency"`
 	Tags             []string `json:"tags"`
-	WorkflowTypeRef  string   `json:"workflow_type_ref"`
 	ExternalRef      string   `json:"external_ref"`
 	RaisedFromWorkID string   `json:"raised_from_work_id"`
 	IdempotencyKey   string   `json:"idempotency_key"`
@@ -48,7 +47,6 @@ type reviseMutationInput struct {
 	Priority        int64                       `json:"priority"`
 	Urgency         string                      `json:"urgency"`
 	Tags            []string                    `json:"tags"`
-	WorkflowTypeRef string                      `json:"workflow_type_ref"`
 	Reason          string                      `json:"reason"`
 	IdempotencyKey  string                      `json:"idempotency_key"`
 	Evidence        []agentcontract.EvidenceRef `json:"evidence"`
@@ -293,11 +291,11 @@ func scopeFromMap(scope map[string]any) *agentcontract.Scope {
 	return result
 }
 
-// preflightWorkflowActionRequestWithRegistry takes the authorized actor
+// preflightWorkflowActionRequest takes the authorized actor
 // separately from the envelope. CD-0080 D1 derives principal_ref from the
 // registered client, so the envelope carries no principal to build an actor
 // tuple from and none to partition idempotency by.
-func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.Store, raw []byte, env CallEnvelope, actor Authority, registry store.DefinitionRegistry) error {
+func preflightWorkflowActionRequest(ctx context.Context, s *store.Store, raw []byte, env CallEnvelope, actor Authority) error {
 	var in actionMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return newRuntimeFailure("invalid_input", err.Error(), "", false)
@@ -339,7 +337,7 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 			return err
 		}
 	}
-	preflightErr := store.WorkflowActionPreflightWithRegistry(ctx, s, registry, store.WorkflowActionPreflightRequest{
+	_, preflightErr := store.WorkflowActionDefinitionFor(ctx, s, store.WorkflowActionPreflightRequest{
 		WorkID:           in.WorkID,
 		ExpectedVersion:  in.ExpectedVersion,
 		ActionID:         in.ActionID,
@@ -369,7 +367,7 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 // never disagree about which actions they govern.
 func evidenceBindingFamily(actionID string) bool {
 	switch actionID {
-	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":
+	case "bind_evidence", "record_research", "record_report", "approve_operation":
 		return true
 	default:
 		return false
@@ -602,7 +600,7 @@ func researchContextSelectionPacks(actionID string, payload json.RawMessage) ([]
 
 func (r runtime) mutateWorkflowAction(ctx context.Context, base agentcontract.Envelope, raw []byte, grant Authority, op agentcontract.ContractOperation) (agentcontract.Envelope, error) {
 	if r.Store == nil {
-		return coreError(base, "invalid_input", "workflow action requires a registered workflow authority", "contact_operator", false), nil
+		return coreError(base, "invalid_input", "workflow action requires a workflow authority", "contact_operator", false), nil
 	}
 	var in actionMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
@@ -628,11 +626,8 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base agentcontract.En
 	if err != nil {
 		return coreError(base, "invalid_input", err.Error(), "", false), nil
 	}
-	registry := r.Registry
-	if registry == nil {
-		registry = store.BuiltinWorkflowRegistry()
-	}
-	_, action, err := store.WorkflowActionDefinitionFor(ctx, r.Store, registry, in.WorkID, in.ActionID)
+	preflight := store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, Payload: payload, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionProjectID: r.Envelope.AmbientProjectID}
+	action, err := store.WorkflowActionDefinitionFor(ctx, r.Store, preflight)
 	if err != nil {
 		// A state-derived action may close once its effect commits; the
 		// identical recorded request still replays.
@@ -647,14 +642,13 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base agentcontract.En
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
 	operationID := "workflow-" + digest[7:31]
 	scope := map[string]any{"product_id": r.Envelope.SelectedProductID, "project_ids": []string{r.Envelope.AmbientProjectID}, "work_ids": []string{in.WorkID}, "scope_version": r.Envelope.ScopeVersion}
-	preflight := store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, Payload: payload, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionProjectID: r.Envelope.AmbientProjectID}
 	if replay, handled, replayErr := r.replayMutationBeforeScope(ctx, base, raw, grant, op); replayErr != nil || handled {
 		if replayErr != nil {
 			return failureEnvelope(base, replayErr), nil
 		}
 		return replay, nil
 	}
-	mutation := workflowActionMutation{runtime: r, base: base, in: in, grant: grant, registry: registry, preflight: preflight, scope: scope, digest: digest, operationID: operationID, selectedPacks: selectedPacks}
+	mutation := workflowActionMutation{runtime: r, base: base, in: in, grant: grant, preflight: preflight, scope: scope, digest: digest, operationID: operationID, selectedPacks: selectedPacks}
 	return mutation.execute(ctx, action)
 }
 
@@ -662,7 +656,7 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 	r, base, in, grant := m.runtime, m.base, m.in, m.grant
 	preflight, scope := m.preflight, m.scope
 	digest, operationID := m.digest, m.operationID
-	payload, registry := preflight.Payload, m.registry
+	payload := preflight.Payload
 	var takeover *store.WorkflowStartTakeover
 	if store.WorkflowActionOpensHeldAttempt(action) {
 		var err error
@@ -679,7 +673,7 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 		return r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds)), nil
 	}
 	// CD-0059 D3: per-action capability resolution is structural. The
-	// registry entry declares the capability the dispatcher must hold;
+	// action declares the capability the dispatcher must hold;
 	// legacy actions that did not declare one default to work_transition
 	// so pre-CD-0059 actions retain their authority contract.
 	requiredCapability := agentcontract.Capability("work_transition")
@@ -708,7 +702,7 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 	}
 	ctx = verifiedCtx
 	m.host, m.inv, m.scopeJSON, m.takeover, m.request = host, inv, string(scopeJSON), takeover, actionRequest
-	err := store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, preflight, r.workflowActionReplayPreflight(ctx, base, digest, grant, in, &m.result, &m.resultRejected), func(tx *store.Transaction) error {
+	err := store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, preflight, r.workflowActionReplayPreflight(ctx, base, digest, grant, in, &m.result, &m.resultRejected), func(tx *store.Transaction) error {
 		return m.authorizeTx(ctx, tx)
 	}, func(tx *store.Transaction) error {
 		return m.applyTx(ctx, tx)
@@ -727,7 +721,6 @@ type workflowActionMutation struct {
 	base                           agentcontract.Envelope
 	in                             actionMutationInput
 	grant                          Authority
-	registry                       store.DefinitionRegistry
 	preflight                      store.WorkflowActionPreflightRequest
 	host                           store.ResolvedProjectHost
 	inv                            Invocation
@@ -751,7 +744,7 @@ func (m *workflowActionMutation) authorizeTx(ctx context.Context, tx *store.Tran
 func (m *workflowActionMutation) applyTx(ctx context.Context, tx *store.Transaction) error {
 	r, in, grant := m.runtime, m.in, m.grant
 	base := m.base
-	execution, err := store.ApplyWorkflowActionTx(ctx, tx, m.registry, m.request)
+	execution, err := store.ApplyWorkflowActionTx(ctx, tx, m.request)
 	if err != nil {
 		return err
 	}
@@ -830,23 +823,6 @@ func (r runtime) planCapture(ctx context.Context, base agentcontract.Envelope, r
 		return coreError(base, "invalid_input", "capture requires at least one Project membership", "reread_entities", false), nil, true
 	}
 	workID := "work-" + digest[7:31]
-	// C19 continuity is unconditional, so a capture that names no workflow pins
-	// the kind-driven default rather than leaving the work item without a
-	// workflow instance. The live authoring selector resolves the ref,
-	// so a retired family or an unnamed decision/other kind refuses before
-	// any write.
-	workflowRef := in.WorkflowTypeRef
-	if workflowRef == "" {
-		var refErr error
-		workflowRef, refErr = store.DefaultWorkflowRefForKind(in.Kind)
-		if refErr != nil {
-			return failureEnvelope(base, refErr), nil, true
-		}
-	}
-	registeredDefinition, definitionErr := store.LiveWorkflowDefinitionForRef(workflowRef)
-	if definitionErr != nil {
-		return failureEnvelope(base, definitionErr), nil, true
-	}
 	productsByProject, scopeErr := r.Store.ProductsForProjectIDs(ctx, in.ProjectIDs)
 	if scopeErr != nil {
 		return failureEnvelope(base, scopeErr), nil, true
@@ -888,7 +864,7 @@ func (r runtime) planCapture(ctx context.Context, base agentcontract.Envelope, r
 		if err := store.ValidateCaptureGoverningRequirementsTx(verifiedCtx, tx, in.ProjectIDs, governingScope); err != nil {
 			return nil, nil, nil, err
 		}
-		return r.applyCaptureTx(verifiedCtx, tx, grant, in, digest, workID, registeredDefinition)
+		return r.applyCaptureTx(verifiedCtx, tx, grant, in, digest, workID)
 	}
 	return agentcontract.Envelope{}, nil, false
 }
@@ -908,7 +884,7 @@ func captureProductIDs(productsByProject map[string][]string) []string {
 	return productIDs
 }
 
-func (r runtime) applyCaptureTx(ctx context.Context, tx *store.Transaction, grant Authority, in captureMutationInput, digest, workID string, registeredDefinition store.RegisteredDefinition) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
+func (r runtime) applyCaptureTx(ctx context.Context, tx *store.Transaction, grant Authority, in captureMutationInput, digest, workID string) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 	priority := in.Priority
 	urgency := in.Urgency
 	if urgency == "" {
@@ -917,7 +893,7 @@ func (r runtime) applyCaptureTx(ctx context.Context, tx *store.Transaction, gran
 	// A captured task rides the work.created payload into the same
 	// intent_json.task projection a revise writes, so one call persists
 	// the operator's instruction identically to a later revise.
-	payloadFields := map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "external_ref": in.ExternalRef, "raised_from_work_id": in.RaisedFromWorkID}
+	payloadFields := map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "urgency": urgency, "tags": in.Tags, "external_ref": in.ExternalRef, "raised_from_work_id": in.RaisedFromWorkID}
 	payloadFields["governing_requirements"] = append([]string{}, in.GoverningRequirements...)
 	if in.Task != nil {
 		payloadFields["task"] = *in.Task
@@ -941,11 +917,11 @@ func (r runtime) applyCaptureTx(ctx context.Context, tx *store.Transaction, gran
 		return nil, nil, nil, err
 	}
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-	if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: registeredDefinition, Actor: actor, Now: now, Registry: r.Registry}); err != nil {
+	if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: now}); err != nil {
 		return nil, nil, nil, err
 	}
 	eventIDs := result.EventIDs
-	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: "4"}}
+	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: "3"}}
 	return mutationPayload(changed, nil), eventIDs, changed, nil
 }
 
@@ -959,16 +935,6 @@ func (r runtime) planReviseIntent(ctx context.Context, base agentcontract.Envelo
 		return coreError(base, "invalid_input", message, "reread_entities", false), nil, true
 	}
 	plan.scope["work_ids"] = []string{in.WorkID}
-	var registeredDefinition store.RegisteredDefinition
-	if in.WorkflowTypeRef != "" {
-		var definitionErr error
-		// The live authoring selector refuses a retired family before the
-		// revision plans any effect, so a re-pin cannot reach archived authoring.
-		registeredDefinition, definitionErr = store.LiveWorkflowDefinitionForRef(in.WorkflowTypeRef)
-		if definitionErr != nil {
-			return failureEnvelope(base, definitionErr), nil, true
-		}
-	}
 	verifiedCtx := ctx
 	if in.Contract != nil {
 		if err := r.Store.EnsureWorkProductKnowledgeFresh(ctx, in.WorkID); err != nil {
@@ -981,25 +947,17 @@ func (r runtime) planReviseIntent(ctx context.Context, base agentcontract.Envelo
 		}
 	}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		return r.applyReviseIntentTx(verifiedCtx, tx, grant, in, digest, registeredDefinition, plan)
+		return r.applyReviseIntentTx(verifiedCtx, tx, grant, in, digest, plan)
 	}
 	return agentcontract.Envelope{}, nil, false
 }
 
-func (r runtime) applyReviseIntentTx(ctx context.Context, tx *store.Transaction, grant Authority, in reviseMutationInput, digest string, registeredDefinition store.RegisteredDefinition, plan *mutationPlan) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-	definition, definitionFound, existingErr := store.WorkflowInstanceDefinitionTx(ctx, tx, in.WorkID)
-	if existingErr != nil {
-		return nil, nil, nil, existingErr
-	}
-	switchingFamily := definitionFound && in.WorkflowTypeRef != "" && definition.DefinitionRef != in.WorkflowTypeRef
-	// A changed definition digest refreshes the instance's current family
-	// without restarting its step. Version numbers carry no freshness.
-	carryingForward := definitionFound && in.WorkflowTypeRef != "" && definition.DefinitionRef == in.WorkflowTypeRef && definition.DefinitionDigest != registeredDefinition.Digest
+func (r runtime) applyReviseIntentTx(ctx context.Context, tx *store.Transaction, grant Authority, in reviseMutationInput, digest string, plan *mutationPlan) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 	urgency := in.Urgency
 	if urgency == "" {
 		urgency = "standard"
 	}
-	payloadFields := map[string]any{"title": in.Title, "value_statement": in.ValueStatement, "kind": in.Kind, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "workflow_type_ref": in.WorkflowTypeRef, "reason": in.Reason, "evidence_refs": evidenceLocators(in.Evidence), "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1}
+	payloadFields := map[string]any{"title": in.Title, "value_statement": in.ValueStatement, "kind": in.Kind, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "reason": in.Reason, "evidence_refs": evidenceLocators(in.Evidence), "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1}
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	eventActor := grant.PrincipalRef
 	if in.Contract != nil {
@@ -1015,23 +973,11 @@ func (r runtime) applyReviseIntentTx(ctx context.Context, tx *store.Transaction,
 		payloadFields["task"] = *in.Task
 	}
 	payload, _ := json.Marshal(payloadFields)
-	result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":revise", Kind: "work.intent_revised", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: eventActor, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}, Registry: r.Registry})
+	result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":revise", Kind: "work.intent_revised", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: eventActor, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}})
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	changedVersion := in.ExpectedVersion + 1
-	switch {
-	case in.WorkflowTypeRef != "" && !definitionFound:
-		if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: in.WorkID, Definition: registeredDefinition, Actor: actor, Now: r.Authority.now(), Registry: r.Registry}); err != nil {
-			return nil, nil, nil, err
-		}
-		changedVersion += 2
-	case switchingFamily || carryingForward:
-		if err := store.RepinWorkflowTx(ctx, tx, store.WorkflowRepinRequest{WorkID: in.WorkID, EventID: digest + ":repin", Definition: registeredDefinition, Actor: actor, Now: r.Authority.now(), Registry: r.Registry}); err != nil {
-			return nil, nil, nil, err
-		}
-		changedVersion++
-	}
 	eventIDs := result.EventIDs
 	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
 	return mutationPayload(changed, plan.intents), eventIDs, changed, nil
@@ -1849,7 +1795,7 @@ func (r runtime) enrichMutationPayloadTx(ctx context.Context, tx *store.Transact
 	pins := make([]store.WorkPin, 0, len(refs))
 	var pinless []string
 	for _, ref := range refs {
-		pin, available, err := store.ReadMutationWorkPinTxForRegistry(ctx, tx, r.Registry, ref.ID, ownEventIDs)
+		pin, available, err := store.ReadMutationWorkPinTx(ctx, tx, ref.ID, ownEventIDs)
 		if err != nil {
 			return nil, nil, nil, err
 		}

@@ -33,6 +33,7 @@ func TestSpineFactualDocumentationCorrectionWithoutApproval(t *testing.T) {
 	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{
 		"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise", "idempotency_key": "doc-correction-confirm",
 	}))
+	f.completeReview(t)
 	spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))
 	done := f.read(t)
 	if done.Pinned.Pin.Lifecycle != "completed" || len(done.Pinned.Pin.VerifiedCriteria) != 1 || done.Pinned.Contract.Version != 1 {

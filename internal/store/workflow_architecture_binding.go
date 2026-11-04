@@ -189,29 +189,7 @@ func architectureBindingCurrentMandate(specMandate []string, additions []Workflo
 	return result, nil
 }
 
-func workflowDefinitionObligations(definition WorkflowDefinition) map[string]struct{} {
-	result := map[string]struct{}{}
-	for _, kind := range definition.RequiredEvidenceKinds {
-		result[string(kind)] = struct{}{}
-	}
-	for _, step := range definition.StepGraph.Steps {
-		for _, kind := range step.RequiredEvidenceKinds {
-			result[string(kind)] = struct{}{}
-		}
-	}
-	for _, rule := range definition.RigorRules {
-		for _, kind := range rule.RequiredEvidenceKinds {
-			result[string(kind)] = struct{}{}
-		}
-	}
-	return result
-}
-
-// workflowObligationMembershipTeaching states the membership rule
-// workflowDefinitionObligations (the collector behind
-// workflowDefinitionObligationIDs) enforces at admission; the teaching
-// projection publishes the same text from this guard site.
-const workflowObligationMembershipTeaching = "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership."
+const workflowObligationMembershipTeaching = "Evidence obligations must name a kind in the closed evidence kind set and a current mandated law."
 
 // WorkflowContractTeaching carries the typed descriptions of the relational
 // and live-context constraints the store enforces. Every rule is a
@@ -229,8 +207,7 @@ type WorkflowContractTeaching struct {
 	// LawAdditionMandateRule states the mandate subset and disjointness the
 	// law boundary and architecture-binding guards enforce.
 	LawAdditionMandateRule string `json:"law_addition_mandate_rule"`
-	// ObligationMembershipRule states where the exact admitted obligation
-	// membership is published: the pinned definition the WorkPin projects.
+	// ObligationMembershipRule states the admitted evidence kind membership.
 	ObligationMembershipRule string `json:"obligation_membership_rule"`
 	// ArchitectureDomainRule states the Domain-membership and canonical
 	// relation rules the architecture-binding guards enforce.
@@ -255,19 +232,6 @@ func WorkflowContractTeachingRules() WorkflowContractTeaching {
 		AlignmentCombinationRule: workflowAlignmentCombinationTeaching,
 		OutcomeKindEqualityRule:  workflowOutcomeKindEqualityTeaching,
 	}
-}
-
-// workflowDefinitionObligationIDs projects the admission collector's
-// obligation set into the sorted exact ID list a WorkPin publishes. It reads
-// no second source: the set and the list derive from one collector.
-func workflowDefinitionObligationIDs(definition WorkflowDefinition) []string {
-	membership := workflowDefinitionObligations(definition)
-	ids := make([]string, 0, len(membership))
-	for id := range membership {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return ids
 }
 
 func architectureBindingProjectionHash(binding WorkflowArchitectureBinding) string {
@@ -295,15 +259,15 @@ func relationBindingKey(relation WorkflowDomainRelationModification) string {
 	return relation.SourceDomainID + "\x00" + relation.Kind + "\x00" + relation.TargetDomainID
 }
 
-func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, binding *WorkflowArchitectureBinding, specMandate, lawModifies []string) error {
+func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID string, planType WorkflowStepPlanType, binding *WorkflowArchitectureBinding, specMandate, lawModifies []string) error {
 	if binding == nil {
 		return newFailure(KindInvalidPayload, "workflow_architecture_binding", "Product-changing contract is missing architecture_binding", false, "supply the complete architecture binding")
 	}
 	if err := validateWorkflowArchitectureBindingShape(*binding); err != nil {
 		return err
 	}
-	if !*definition.ChangesProductTruth {
-		return newFailure(KindInvalidPayload, "workflow_architecture_binding", "non-Product-changing workflow cannot carry an architecture binding", false, "select a registered Product-changing workflow")
+	if planType == WorkflowStepPlanResearch {
+		return newFailure(KindInvalidPayload, "workflow_architecture_binding", "non-Product-changing workflow cannot carry an architecture binding", false, "select a Product-changing workflow type")
 	}
 	affected := make(map[string]struct{}, len(binding.AffectedDomainIDs))
 	for _, domainID := range binding.AffectedDomainIDs {
@@ -362,7 +326,7 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 	if err := checkMandatedLawsTx(ctx, tx, workID, remaining, lawModifies, true); err != nil {
 		return err
 	}
-	return validateArchitectureBindingObligationsTx(snapshot, definition, binding.VerificationObligations, remaining)
+	return validateArchitectureBindingObligationsTx(snapshot, binding.VerificationObligations, remaining)
 }
 
 // architectureBindingProductIDTx resolves the one Product whose primary
@@ -494,13 +458,12 @@ func validateArchitectureBindingLawAdditionsTx(snapshot *lawFolderSnapshot, affe
 }
 
 // validateArchitectureBindingObligationsTx refuses verification obligations
-// the pinned workflow definition does not declare, that name non-current
+// outside the closed evidence kind set, that name non-current
 // law, or whose law is outside the current-law mandate.
-func validateArchitectureBindingObligationsTx(snapshot *lawFolderSnapshot, definition WorkflowDefinition, obligations []WorkflowVerificationObligation, mandated []string) error {
-	declared := workflowDefinitionObligations(definition)
+func validateArchitectureBindingObligationsTx(snapshot *lawFolderSnapshot, obligations []WorkflowVerificationObligation, mandated []string) error {
 	for _, obligation := range obligations {
-		if _, ok := declared[obligation.ObligationID]; !ok {
-			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "verification obligation is not declared by the pinned workflow definition", false, "reference a root, step, or rigor evidence obligation ID")
+		if !slices.Contains(workflowEvidenceKinds, EvidenceKind(obligation.ObligationID)) {
+			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "verification obligation is not a declared evidence kind", false, "reference a closed evidence kind")
 		}
 		if _, ok := snapshot.Law(bareLawID(obligation.LawID)); !ok {
 			return newFailure(KindProjectionNotFound, "workflow_architecture_binding", "verification obligation names a non-current law", false, "reference a current mandated law")

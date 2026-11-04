@@ -3,21 +3,27 @@ package store
 import (
 	"encoding/json"
 	"reflect"
-	"slices"
 	"testing"
 )
 
-// declaringDefinition carries the required decision-domain declaration the
-// live composition build appends to approve_contract.
-func declaringDefinition() WorkflowDefinition {
-	approve := currentActionDefinition("approve_contract", true)
-	approve.Payload.Fields = append(slices.Clone(approve.Payload.Fields), workflowDecisionFactField())
-	return WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{approve}}
+func sixClassActionField(t *testing.T) WorkflowPayloadField {
+	t.Helper()
+	action, err := WorkflowPlanActionContract("approve_contract")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range action.Payload.Fields {
+		if field.Name == "decision_domains" {
+			return field
+		}
+	}
+	t.Fatal("approve_contract has no decision_domains field")
+	return WorkflowPayloadField{}
 }
 
 func TestSixClassDecisionDomainsAuthoring(t *testing.T) {
 	t.Parallel()
-	definition := declaringDefinition()
+	field := sixClassActionField(t)
 	for _, domains := range authoredDecisionDomainSets() {
 		if err := validateWorkflowAuthoredDecisionDomains(domains); err != nil {
 			t.Fatalf("canonical set %v refused: %v", domains, err)
@@ -29,8 +35,14 @@ func TestSixClassDecisionDomainsAuthoring(t *testing.T) {
 		`["increased_spending","legal","product","production_data","security","ui_ux","unknown"]`,
 		`null`, `{}`, `"security"`, `[true]`, `[1]`, `[null]`,
 	} {
-		_, err := workflowSubmittedDecisionDomains(definition, map[string]json.RawMessage{"decision_domains": json.RawMessage(raw)})
-		if !hasFailureKind(err, KindInvalidPayload) {
+		if !validateWorkflowPayloadValue(field, json.RawMessage(raw)) {
+			continue
+		}
+		var domains []string
+		if err := json.Unmarshal([]byte(raw), &domains); err != nil {
+			t.Fatal(err)
+		}
+		if err := validateWorkflowAuthoredDecisionDomains(domains); !hasFailureKind(err, KindInvalidPayload) {
 			t.Errorf("authored %s returned %v, want invalid_payload", raw, err)
 		}
 	}
@@ -39,12 +51,6 @@ func TestSixClassDecisionDomainsAuthoring(t *testing.T) {
 			t.Errorf("stored historical fact %v refused: %v", domains, err)
 		}
 	}
-	// Definitions without the policy retain the absence contract, not a new fact.
-	legacy, err := workflowSubmittedDecisionDomains(WorkflowDefinition{}, nil)
-	if err != nil || legacy != nil {
-		t.Fatalf("legacy absence = %v, %v; want nil, nil", legacy, err)
-	}
-	field := workflowDecisionFactField()
 	if !reflect.DeepEqual(field.Enum, []string{"increased_spending", "legal", "product", "production_data", "security", "ui_ux"}) || field.MaxItems == nil || *field.MaxItems != 6 {
 		t.Fatalf("authoring field = %+v, want exactly the six approved classes", field)
 	}
@@ -61,9 +67,15 @@ func TestSixClassDecisionDomainsRoundTrip(t *testing.T) {
 	}
 	for _, domains := range sets {
 		t.Run(workflowJSON(domains), func(t *testing.T) {
-			definition := declaringDefinition()
-			authored, err := workflowSubmittedDecisionDomains(definition, map[string]json.RawMessage{"decision_domains": json.RawMessage(workflowJSON(domains))})
-			if err != nil {
+			field := sixClassActionField(t)
+			if !validateWorkflowPayloadValue(field, json.RawMessage(workflowJSON(domains))) {
+				t.Fatal("approved six-class fact refused by action payload")
+			}
+			var authored []string
+			if err := json.Unmarshal([]byte(workflowJSON(domains)), &authored); err != nil {
+				t.Fatal(err)
+			}
+			if err := validateWorkflowAuthoredDecisionDomains(authored); err != nil {
 				t.Fatalf("approved six-class fact refused by authoring: %v", err)
 			}
 			if !reflect.DeepEqual(authored, domains) {

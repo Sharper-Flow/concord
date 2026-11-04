@@ -32,9 +32,9 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 		t.Helper()
 		before := f.read(t)
 		effects := premiseConsentSnapshot(t, f.s)
-		err := store.WorkflowActionPreflightWithRegistry(t.Context(), f.s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{
+		err := store.AuthorizeWorkflowActionAtBoundaryTx(t.Context(), f.s, store.WorkflowActionPreflightRequest{
 			WorkID: f.work, ExpectedVersion: before.Pinned.Pin.Version, ActionID: action, Payload: retryJSON(payload), Actor: actor,
-		})
+		}, nil, func(*store.Transaction) error { return nil })
 		var failure *store.Failure
 		if !errors.As(err, &failure) || failure.RecoveryAction == "" {
 			t.Fatalf("preflight did not name the required recovery: %v", err)
@@ -50,7 +50,7 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 	}
 	spineOK(t, f.action(t, "record_review", map[string]any{"review": report}))
 	accepted := f.read(t)
-	if accepted.Pinned.Step != "execution" || accepted.Pinned.Pin.Review.Accepted == nil || accepted.Pinned.Pin.Review.Accepted.Report.Disposition != "correction_required" {
+	if accepted.Pinned.Step != "implement" || accepted.Pinned.Pin.Review.Accepted == nil || accepted.Pinned.Pin.Review.Accepted.Report.Disposition != "correction_required" {
 		t.Fatalf("Main lost the current correction hold: %+v", accepted.Pinned)
 	}
 	reportRef := accepted.Pinned.Pin.Review.Accepted.ReportRef
@@ -72,11 +72,11 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 	t.Run("corrective intake still requires current ready Review", func(t *testing.T) { refuse(t, "record_delivery", delivery) })
 	f.review(t, "ready_for_final_proof", f.proof)
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
-	if step := f.read(t).Pinned.Step; step != "execution" {
+	if step := f.read(t).Pinned.Step; step != "implement" {
 		t.Fatalf("corrective Review moved the producing step to %q", step)
 	}
-	spineOK(t, f.action(t, "record_delivery", delivery))
-	if current := f.read(t); current.Pinned.Step != "refine" || current.Pinned.Pin.Review.Candidate == nil || current.Pinned.Pin.Review.Candidate.Commit != gitRun(t, f.path, "rev-parse", "HEAD") {
+	f.advanceToAcceptance(t)
+	if current := f.read(t); current.Pinned.Step != "review" || current.Pinned.Pin.Review.Candidate == nil || current.Pinned.Pin.Review.Candidate.Commit != gitRun(t, f.path, "rev-parse", "HEAD") {
 		t.Fatalf("corrective execution did not exit on its accepted checked candidate: %+v", current.Pinned)
 	}
 }

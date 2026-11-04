@@ -14,7 +14,7 @@ func TestIssue1013LateVerdictRecoveryPassesReadOnlyPreflight(t *testing.T) {
 		if !issue1013HasIntent(issue1013Pin(t, s, workID), "record_verdict") {
 			t.Fatal("missing criterion proof has no late-association intent")
 		}
-		_, action, err := WorkflowActionDefinitionFor(t.Context(), s, BuiltinWorkflowRegistry(), workID, "record_verdict")
+		action, err := WorkflowActionDefinitionFor(t.Context(), s, WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "record_verdict", Payload: payload, Actor: owner})
 		if err != nil || action.ExecutionMode != ActionHold {
 			t.Fatalf("late association discovery=%+v err=%v", action, err)
 		}
@@ -28,14 +28,14 @@ func TestIssue1013LateVerdictRecoveryPassesReadOnlyPreflight(t *testing.T) {
 		if err := runVerdictActionAs(t, s, workID, "record_verdict", payload, 0, owner); err != nil {
 			t.Fatalf("late association: %v", err)
 		}
-		if got := currentStep(t, s, workID); got != "complete" {
+		if got := workflowPlanFixtureFrontier(t, s, workID); got != "conclude" {
 			t.Fatalf("late association moved to %s", got)
 		}
 	}
 	payload := criterionAssociationPayload(ref, "predicate:first")
 	var currentRecord bool
 	for _, intent := range issue1013Pin(t, s, workID).NextValidIntents {
-		if intent.ActionID == "record_verdict" && intent.ReasonCode == "current_record" {
+		if intent.ActionID == "record_verdict" && intent.ReasonCode == "declared_step_action" {
 			currentRecord = true
 		}
 	}

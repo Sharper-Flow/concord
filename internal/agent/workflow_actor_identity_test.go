@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
@@ -17,27 +16,25 @@ import (
 func TestWorkflowActionPartitionsUnderDerivedPrincipal(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
-	if version := seedAgentWorkflow(t, s, grant); version != 4 {
-		t.Fatalf("workflow seed version=%d, want 4", version)
-	}
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
+	version := prepareCurrentImplement(t, s, service, grant, env, "partition-setup")
 	env.PrincipalRef = ""
 
 	response, err := Dispatch(context.Background(), s, service, InvokeRequest{
 		Tool:      "concord_work_transition",
 		Operation: "workflow_action",
-		Input:     json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"wf-partition"}`),
+		Input:     retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "start_execution", "fields": map[string]any{}, "idempotency_key": "wf-partition"}),
 	}, env)
 	if err != nil || response.Outcome != agentcontract.OutcomeOK || response.Error != nil {
 		t.Fatalf("workflow action response=%+v err=%v", response, err)
 	}
 
 	var storedPrincipal string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT principal_ref FROM idempotency_records WHERE operation_kind='workflow_action'`).Scan(&storedPrincipal); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT principal_ref FROM idempotency_records WHERE operation_kind='workflow_action' AND idempotency_key='wf-partition'`).Scan(&storedPrincipal); err != nil {
 		t.Fatal(err)
 	}
 	if storedPrincipal != grant.PrincipalRef {
@@ -58,20 +55,18 @@ func TestWorkflowActionPartitionsUnderDerivedPrincipal(t *testing.T) {
 func TestWorkflowActionRefusesForgedEnvelopePrincipal(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
-	if version := seedAgentWorkflow(t, s, grant); version != 4 {
-		t.Fatalf("workflow seed version=%d, want 4", version)
-	}
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
+	version := prepareCurrentImplement(t, s, service, grant, env, "forged-setup")
 	env.PrincipalRef = "principal-forged"
 
 	response, err := Dispatch(context.Background(), s, service, InvokeRequest{
 		Tool:      "concord_work_transition",
 		Operation: "workflow_action",
-		Input:     json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"wf-forged"}`),
+		Input:     retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "start_execution", "fields": map[string]any{}, "idempotency_key": "wf-forged"}),
 	}, env)
 	if err != nil {
 		t.Fatalf("forged principal dispatch err=%v", err)
@@ -80,7 +75,7 @@ func TestWorkflowActionRefusesForgedEnvelopePrincipal(t *testing.T) {
 		t.Fatalf("forged principal response=%+v", response)
 	}
 	var records int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM idempotency_records`).Scan(&records); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM idempotency_records WHERE idempotency_key='wf-forged'`).Scan(&records); err != nil {
 		t.Fatal(err)
 	}
 	if records != 0 {

@@ -19,7 +19,7 @@ import (
 // fixture with an optional decision_domains value (nil omits the member).
 func decisionDomainsContract(workID string, contractVersion int64, domains any) map[string]any {
 	contract := map[string]any{
-		"work_id": workID, "expected_version": int64(4), "resulting_version": int64(5), "contract_version": contractVersion,
+		"work_id": workID, "contract_version": contractVersion,
 		"premise": "record the research report", "outcome_kind": "outcome",
 		"outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}},
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:research-report-exit", "ordinal": 0, "outcome_kind": "outcome",
@@ -37,7 +37,7 @@ func decisionDomainsContract(workID string, contractVersion int64, domains any) 
 // contract, the minimal fold chain a decision fact needs. payloadVersion pins
 // the event's payload version: the current version for a live-shaped contract,
 // an older one for a historical or forged shape.
-func seedDecisionDomainsItem(t *testing.T, s *Store, workID string, domains any, payloadVersion int) error {
+func seedDecisionDomainsItem(t *testing.T, s *Store, workID string, domains any, payloadVersion int, baseline ...*int64) error {
 	t.Helper()
 	ctx := context.Background()
 	seedWork(t, s, workID)
@@ -46,10 +46,6 @@ func seedDecisionDomainsItem(t *testing.T, s *Store, workID string, domains any,
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
 		t.Fatal(err)
-	}
-	definition, ok := BuiltinWorkflowRegistry().Current("workflow.research")
-	if !ok {
-		t.Fatal("workflow.research v5 is not registered")
 	}
 	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	if err != nil {
@@ -60,12 +56,30 @@ func seedDecisionDomainsItem(t *testing.T, s *Store, workID string, domains any,
 		return err
 	}
 	defer tx.Rollback()
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: owner}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: owner}); err != nil {
 		return err
 	}
-	event := workflowEventWithActor("decision-contract-"+workID, WorkflowContractApproved, workID, ownerRef, decisionDomainsContract(workID, 1, domains))
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanResearch, "frame")
+	tx, err = s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var version int64
+	if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+		return err
+	}
+	if len(baseline) > 0 {
+		*baseline[0] = version
+	}
+	payload := decisionDomainsContract(workID, 1, domains)
+	payload["expected_version"], payload["resulting_version"] = version, version+1
+	event := workflowEventWithActor("decision-contract-"+workID, WorkflowContractApproved, workID, ownerRef, payload)
 	event.PayloadVersion = payloadVersion
-	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}, newWriteScope(tx)); err != nil {
+	if _, err := applyWorkflowOperationTx(ctx, tx, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}, newWriteScope(tx)); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -146,11 +160,12 @@ func TestDecisionDomains(t *testing.T) {
 		for name, domains := range map[string]any{"missing": nil, "null": json.RawMessage("null")} {
 			s := openTemp(t)
 			workID := "decision-" + name
-			err := seedDecisionDomainsItem(t, s, workID, domains, eventKindRegistry[WorkflowContractApproved].CurrentVersion)
+			var baseline int64
+			err := seedDecisionDomainsItem(t, s, workID, domains, eventKindRegistry[WorkflowContractApproved].CurrentVersion, &baseline)
 			if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "requires the declared decision-domain fact") {
 				t.Fatalf("%s decision fact error = %v, want the declared-fact refusal", name, err)
 			}
-			if decisionContractCount(t, s, workID) != 0 || readWorkVersion(t, s, workID) != 2 {
+			if decisionContractCount(t, s, workID) != 0 || readWorkVersion(t, s, workID) != baseline {
 				t.Fatalf("%s refusal changed the contract population or work version", name)
 			}
 			s.Close()
@@ -253,7 +268,7 @@ func TestDecisionDomains(t *testing.T) {
 		successor := pContractSuccessor(t, s, "decision-successor", "the corrected decision-bearing premise")
 		successor["decision_domains"] = []string{"security", "ui_ux"}
 		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/decision-successor", ActorClass: ActorAgent}
-		if err := reviseContractRecord(t, s, "decision-successor", owner, successor, version, nil); err != nil {
+		if err := reviseContractRecord(t, s, "decision-successor", owner, successor, version); err != nil {
 			t.Fatalf("successor correction refused: %v", err)
 		}
 		if stored := storedDecisionDomains(t, s, "decision-successor", 1); stored != `["product"]` {
@@ -278,7 +293,7 @@ func TestDecisionDomains(t *testing.T) {
 		}
 		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/decision-clone", ActorClass: ActorAgent}
 		before := contractRecordEffectSnapshot(t, s, "decision-clone")
-		err := reviseContractRecord(t, s, "decision-clone", owner, map[string]any{"contract_version": 2}, version, nil)
+		err := reviseContractRecord(t, s, "decision-clone", owner, map[string]any{"contract_version": 2}, version)
 		if !hasFailureKind(err, KindInvalidPayload) {
 			t.Fatalf("incomplete contract revision = %v", err)
 		}
@@ -306,7 +321,7 @@ func TestDecisionDomains(t *testing.T) {
 		delete(successor, "decision_domains")
 		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/decision-successor-boundary", ActorClass: ActorAgent}
 		before := contractRecordEffectSnapshot(t, s, "decision-successor-boundary")
-		if err := reviseContractRecord(t, s, "decision-successor-boundary", owner, successor, version, nil); !hasFailureKind(err, KindInvalidPayload) {
+		if err := reviseContractRecord(t, s, "decision-successor-boundary", owner, successor, version); !hasFailureKind(err, KindInvalidPayload) {
 			t.Fatalf("revision without the declared decision fact = %v", err)
 		}
 		if after := contractRecordEffectSnapshot(t, s, "decision-successor-boundary"); after != before {
@@ -316,7 +331,7 @@ func TestDecisionDomains(t *testing.T) {
 			t.Fatalf("refused forged successor left %d contract rows, want the original 1", count)
 		}
 		successor["decision_domains"] = []string{"security", "ui_ux"}
-		if err := reviseContractRecord(t, s, "decision-successor-boundary", owner, successor, version, nil); err != nil {
+		if err := reviseContractRecord(t, s, "decision-successor-boundary", owner, successor, version); err != nil {
 			t.Fatalf("declared successor correction refused: %v", err)
 		}
 		if stored := storedDecisionDomains(t, s, "decision-successor-boundary", 1); stored != `["product"]` {

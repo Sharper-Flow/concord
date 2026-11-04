@@ -82,3 +82,9 @@ and grant nothing beyond this profile.
 Lead with the answer. Give the evidence at the claim, the uncertainty that
 remains, and the decision the operator would need to make. A research note
 under `.planning/` holds the detail; the reply points to it.
+
+Before a directive or a status reply that names an item's state, owner, or
+next action, read that item's current status and latest record in the same
+turn; a value held from earlier in the session is recall. Capacity is the
+RTE's reading: cite it, and never offer your own load measurement as
+capacity.

@@ -1,0 +1,30 @@
+package store
+
+import (
+	"encoding/json"
+	"fmt"
+)
+
+func historicalWorkflowPayload(action string, raw json.RawMessage) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	switch action {
+	case "record_review":
+		definition := WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{{ID: "probe", Payload: WorkflowPayloadDefinition{Closed: true, Fields: []WorkflowPayloadField{{Name: "review", ValueType: PayloadObject, Required: true, SchemaRef: "workflow_design_decision"}}}}}}
+		return validateWorkflowActionPayload(definition, "probe", raw)
+	case "record_plan":
+		definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+		if err != nil {
+			return err
+		}
+		legacy, err := json.Marshal(map[string]json.RawMessage{"approach": fields["approach"], "decisions": fields["decisions"], "touched_refs": fields["touches"]})
+		if err != nil {
+			return err
+		}
+		return validateWorkflowActionPayload(definition.Definition, "record_design", legacy)
+	default:
+		return fmt.Errorf("unsupported historical action %q", action)
+	}
+}

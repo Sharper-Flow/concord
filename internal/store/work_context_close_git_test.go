@@ -45,10 +45,6 @@ func TestWorkContextCloseGit(t *testing.T) {
 	}
 
 	// Completion retains context without publishing it into either Git tree.
-	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/context-owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
@@ -62,13 +58,14 @@ func TestWorkContextCloseGit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: owner, Now: time.Unix(11, 0).UTC()}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: owner, Now: time.Unix(11, 0).UTC()}); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "implement")
 	closeGitWorkflowEvent(t, s, ownerRef, WorkflowContractApproved, map[string]any{
 		"contract_version": 1, "premise": "deliver a checked implementation",
 		"decision_domains":   []string{},
@@ -80,9 +77,6 @@ func TestWorkContextCloseGit(t *testing.T) {
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
 		},
 	})
-	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "execution", ownerRef); err != nil {
-		t.Fatal(err)
-	}
 	if err := runVerdictActionAs(t, s, workID, "start_execution", json.RawMessage(`{}`), 0, owner); err != nil {
 		t.Fatal(err)
 	}
@@ -107,9 +101,6 @@ func TestWorkContextCloseGit(t *testing.T) {
 		"agent_ref": reviewer.AgentRef, "session_ref": reviewer.SessionRef, "actor_class": string(reviewer.ActorClass),
 	})
 	evidenceKinds := []string{"verification", "review"}
-	for _, kind := range definition.Definition.RequiredEvidenceKinds {
-		evidenceKinds = append(evidenceKinds, string(kind))
-	}
 	seen := map[string]bool{}
 	for _, kind := range evidenceKinds {
 		if seen[kind] || kind == "verification" {
@@ -137,18 +128,14 @@ func TestWorkContextCloseGit(t *testing.T) {
 	if err := recordReviewForTest(t, s, workID, owner, report); err != nil {
 		t.Fatalf("record close Review: %v", err)
 	}
-	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "acceptance", ownerRef); err != nil {
-		t.Fatal(err)
-	}
+	moveWorkflowPlanFixtureFrontier(t, s, workID, "review")
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", mustJSONValue(map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:context-close", "receipt_refs": []string{commitRef}}}}), 0, owner); err != nil {
 		t.Fatalf("associate close criterion receipt: %v", err)
 	}
 	closeGitWorkflowEvent(t, s, ownerRef, WorkflowPremiseConfirmed, map[string]any{
 		"contract_version": 1, "confirming_actor_ref": ownerRef, "confirmation_authority": "coordinator",
 	})
-	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "release", ownerRef); err != nil {
-		t.Fatal(err)
-	}
+	completeWorkflowPlanFixture(t, s, workID)
 	version := readWorkVersion(t, s, workID)
 	completion := workflowEventWithActor("close-git-workflow-completed", WorkflowCompleted, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed",
@@ -172,12 +159,12 @@ func TestWorkContextCloseGit(t *testing.T) {
 			t.Errorf("completion changed %s Git/content state: before=%+v after=%+v", probe.name, probe.before, after)
 		}
 	}
-	var lifecycle, state, definitionRef string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT w.lifecycle,i.instance_state,i.definition_ref FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&lifecycle, &state, &definitionRef); err != nil {
+	var lifecycle, state, workflowType string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT w.lifecycle,i.instance_state,COALESCE(i.workflow_type,'') FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&lifecycle, &state, &workflowType); err != nil {
 		t.Fatal(err)
 	}
-	if lifecycle != "completed" || state != "completed" || definitionRef != "workflow.implementation" {
-		t.Fatalf("close state lifecycle=%s instance=%s definition=%s", lifecycle, state, definitionRef)
+	if lifecycle != "completed" || state != "completed" || workflowType != "change" {
+		t.Fatalf("close state lifecycle=%s instance=%s type=%s", lifecycle, state, workflowType)
 	}
 	continuity, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
 	if err != nil {

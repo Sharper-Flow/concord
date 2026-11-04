@@ -8,7 +8,7 @@ import (
 // An operator stop cancels the workflow despite a standing correction.
 func TestCorrectionResolvesThroughOperatorStop(t *testing.T) {
 	const workID = "convergence-operator-stop"
-	j := pReturnReviewFixture(t, workID, "workflow.break_fix", "correction_required")
+	j := pReturnReviewFixture(t, workID, WorkflowStepPlanFix, "correction_required")
 	s := j.s
 	pin, err := ReadWorkPin(context.Background(), s, workID)
 	if err != nil {
@@ -16,6 +16,14 @@ func TestCorrectionResolvesThroughOperatorStop(t *testing.T) {
 	}
 	if pin.Review == nil || pin.Review.Accepted == nil || pin.Review.Accepted.Report.Disposition != "correction_required" {
 		t.Fatal("the rejection left no current Review")
+	}
+	if pin.Review.Accepted.ActorRef != mustActorRef(t, j.fixture.owner) {
+		t.Fatal("correction review lost its actor")
+	}
+	reviewRef := pin.Review.Accepted.ReportRef
+	var reviewDigest string
+	if err := s.db.QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=?`, reviewRef).Scan(&reviewDigest); err != nil {
+		t.Fatal(err)
 	}
 	var lifecycle string
 	if err := s.db.QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
@@ -31,5 +39,9 @@ func TestCorrectionResolvesThroughOperatorStop(t *testing.T) {
 	}
 	if instanceState != "cancelled" {
 		t.Fatalf("operator stop left instance %q", instanceState)
+	}
+	var retainedDigest string
+	if err := s.db.QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=?`, reviewRef).Scan(&retainedDigest); err != nil || retainedDigest != reviewDigest {
+		t.Fatalf("operator stop changed correction review receipt: %q, %v", retainedDigest, err)
 	}
 }

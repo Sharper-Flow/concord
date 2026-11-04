@@ -34,18 +34,9 @@
       "reason": "validateEventKindRegistry is an assertion helper for registry conformance tests: it rejects an ill-formed event-kind registration. It guards no production path: it runs where a malformed registration can actually be written, which is in a test that constructs one deliberately. Exposing it to an operator would offer a verb whose only honest answer is that the build already settled the question."
     },
     {
-      "id": "registry-injection-test-seam",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/agent.InvokeWithRegistry"
-      ],
-      "reason": "Production never injects a definition registry: cmd/concord enters through Invoke, which dispatches on the builtin registry. This seam lets the workflow corpus boundary runner drive a scenario registry through the real byte-oriented boundary instead of reaching past it. The tested seam remains until its disposition is decided."
-    },
-    {
       "id": "contract-generator-cross-field-projection",
       "state": "out_of_scope",
       "functions": [
-        "internal/store.BuiltinWorkflowDecisionFactActionDefinitions",
         "internal/store.WorkflowActionCanonicalCrossFieldRules",
         "internal/store.WorkflowActionCrossFieldRules",
         "internal/store.WorkflowContractTeachingRules",
@@ -107,6 +98,34 @@
         "internal/store.ReadWorkPin"
       ],
       "reason": "DatabaseForTesting is the declared raw-handle seam for tests and pm1fixture; boundary_test.go enforces that production callers do not use it. DurableCommits is the test introspection read for the durable commit mechanism CD-0207 governs, exercised by durable_test.go. EstablishDomainRegistryProof establishes the Product-keyed committed-registry proof that store and agent tests hand to the retained Domain-observation fold; no production route records Domain observations. ReadWorkPin is the standalone snapshot read store and agent tests use to observe the pin that read and mutation results stamp through ReadWorkPinTx. None is an operator mutation surface, and deleting them would remove the surviving assertions rather than retire a runtime feature."
+    },
+    {
+      "id": "plan-cutover-generator-projection-seams",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.WorkflowActionCatalogSize",
+        "internal/store.WorkflowPlanActionContract",
+        "internal/store.WorkflowPlanContractUpdatePayload",
+        "internal/store.validateCrossFieldAlternatives",
+        "internal/store.validateCrossFieldCombinationFields",
+        "internal/store.validateCrossFieldCombinations",
+        "internal/store.validateCrossFieldDeclaration",
+        "internal/store.validateCrossFieldKindMatches",
+        "internal/store.validateEngineCrossFieldDeclarations",
+        "internal/store.verdictBatchActionFields",
+        "internal/store.workflowAcceptanceSubjectCurrent",
+        "internal/store.workflowProjectionInvariant"
+      ],
+      "reason": "These helpers are the contract generator's projection surface and retained typed validators exercised by store conformance and review-admission tests through package seams the CLI does not reach."
+    },
+    {
+      "id": "plan-cutover-test-only-store-helpers",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.sameStrings",
+        "internal/store.validActionExecutionMode"
+      ],
+      "reason": "Retired definition-era helpers whose only remaining callers are internal/store white-box tests asserting the retired binary-compatibility, runtime-writer and acceptance-deliverable refusal text; the tests pin the closed error vocabulary. They ride the CON-1574 cutover and leave with their tests."
     }
   ]
 }

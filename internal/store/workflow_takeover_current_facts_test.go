@@ -9,7 +9,7 @@ import (
 func TestWorkflowTakeoverReadsCurrentHeldEpoch(t *testing.T) {
 	t.Parallel()
 	const work = "current-workflow-takeover"
-	f := seedWorkflowReturnRouteFixture(t, work, "workflow.implementation", "execution")
+	f := seedWorkflowReturnRouteFixture(t, work, WorkflowStepPlanChange, "implement")
 	s := f.store
 	holder, err := WorkflowActorRef(f.owner)
 	if err != nil {

@@ -22,6 +22,10 @@ func retryJSON(value any) json.RawMessage {
 	return raw
 }
 
+func agentPlanFields() map[string]any {
+	return map[string]any{"outcomes": "Working outcome", "approach": "Bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "Which approach?", "choice": "One approach", "rationale": "It fits", "rejected": []string{}}}, "touches": []string{"file:one"}, "merge_split": "One item", "risks": "Bounded risk"}
+}
+
 func mustScopeVersion(t *testing.T, s *store.Store) string {
 	t.Helper()
 	version, _, err := s.ScopeVersion(t.Context(), "project-1")
@@ -197,10 +201,8 @@ func workflowContractActionInputWithFields(t *testing.T, key string, fields map[
 	return raw
 }
 
-// advanceCapturedWorkToContract walks one captured implementation work item
-// through the canonical pre-contract steps (proposal, alignment) so
-// approve_contract is declared on the work's current step. Each action
-// consumes two events; the walk returns the version approve_contract takes.
+// advanceCapturedWorkToContract records intake and a change plan before
+// returning the version used to approve the contract on its plan frontier.
 func advanceCapturedWorkToContract(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID, keyPrefix string) int64 {
 	t.Helper()
 	ctx := context.Background()
@@ -225,8 +227,9 @@ func advanceCapturedWorkToContract(t *testing.T, s *store.Store, service *Servic
 		}
 		return after
 	}
-	dispatch("record_proposal", map[string]any{"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."}}, "proposal")
-	return dispatch("record_alignment", map[string]any{"searched": "The bounded backlog search statement.", "outcome": "none_found"}, "alignment")
+	dispatch("record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false}, "intake")
+	dispatch("pick_type", map[string]any{"type": "change", "reason": "The work changes behavior."}, "type")
+	return dispatch("record_plan", agentPlanFields(), "plan")
 }
 
 func recordApprovedWorkDesign(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID, key string) int64 {
@@ -329,12 +332,63 @@ func TestApproveContractSchemaAcceptsExplicitEvidenceAndRigor(t *testing.T) {
 	}
 }
 
-func currentImplementationFixtureDefinition(t testing.TB) store.RegisteredDefinition {
+// seedAgentPlanFrontier installs a real template with a synthetic completed
+// prefix. It does not create the Review or evidence receipts needed by gates.
+func seedAgentPlanFrontier(t testing.TB, s *store.Store, workID string, planType store.WorkflowStepPlanType, target string) {
 	t.Helper()
-	const ref = "workflow.implementation"
-	live, err := store.LiveWorkflowDefinitionForRef(ref)
+	raw := agentPlanFixtureJSON(t, planType, target)
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return live
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	result, err := tx.Exec(`UPDATE workflow_instances SET workflow_type=?, step_plan=?, prelude_state=?, instance_state='running' WHERE work_id=?`, planType, raw, `{"intake":{"outcome":"proceed","open_questions_found":false}}`, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count, err := result.RowsAffected(); err != nil || count != 1 {
+		t.Fatalf("seed plan for %s: updated %d rows: %v", workID, count, err)
+	}
+	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func agentPlanFixtureJSON(t testing.TB, planType store.WorkflowStepPlanType, target string) string {
+	t.Helper()
+	plan, err := store.WorkflowStepPlanTemplate(planType)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for i := range plan.Steps {
+		step := &plan.Steps[i]
+		if step.ID == target {
+			found = true
+			break
+		}
+		attempt := store.WorkflowPlanAttempt{Note: "synthetic prerequisite", CompletedAt: "2026-09-12T00:00:00Z"}
+		if step.Reviewed {
+			attempt.Reviewer, attempt.Result, attempt.Commit, attempt.Link = "concord-review", "pass", "commit:fixture", "https://example.com/review"
+		}
+		step.Attempts = []store.WorkflowPlanAttempt{attempt}
+	}
+	if !found {
+		t.Fatalf("workflow type %s has no step %q", planType, target)
+	}
+	frontier := store.WorkflowStepPlanFrontier(plan)
+	if len(frontier) != 1 || frontier[0].ID != target {
+		t.Fatalf("unexpected plan frontier: %+v", frontier)
+	}
+	raw, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
 }

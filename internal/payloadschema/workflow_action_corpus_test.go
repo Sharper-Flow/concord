@@ -3,6 +3,7 @@ package payloadschema
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 )
@@ -642,6 +643,28 @@ func corpusCrossVariantFields(defs map[string]any, allVariants []string, variant
 // TestWorkflowActionVariantCorpusParity proves published/core shape-verdict
 // parity in both directions over every published action variant.
 func TestWorkflowActionVariantCorpusParity(t *testing.T) {
+	data, err := os.ReadFile("../../contracts/workflow-step-templates.v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var templates struct {
+		Types []struct {
+			Steps []struct {
+				Actions []string `json:"actions"`
+			} `json:"steps"`
+		} `json:"types"`
+	}
+	if err := json.Unmarshal(data, &templates); err != nil {
+		t.Fatal(err)
+	}
+	expected := map[string]bool{"record_intake": true, "record_clarify": true, "pick_type": true, "insert_step": true}
+	for _, template := range templates.Types {
+		for _, step := range template.Steps {
+			for _, action := range step.Actions {
+				expected[action] = true
+			}
+		}
+	}
 	document := Document()
 	defs, _ := document["$defs"].(map[string]any)
 	variantNames := []string{}
@@ -650,11 +673,16 @@ func TestWorkflowActionVariantCorpusParity(t *testing.T) {
 		ref := branch.(map[string]any)["$ref"].(string)
 		name := strings.TrimPrefix(ref, "#/$defs/")
 		if strings.HasPrefix(name, "work_transition_action_variant_") {
+			action := strings.TrimPrefix(name, "work_transition_action_variant_")
+			if !expected[action] {
+				t.Fatalf("unexpected or duplicate action variant %s", name)
+			}
+			delete(expected, action)
 			variantNames = append(variantNames, name)
 		}
 	}
-	if len(variantNames) != 24 {
-		t.Fatalf("corpus found %d action variants, want 24", len(variantNames))
+	if len(expected) != 0 {
+		t.Fatalf("corpus missing action variants: %v", expected)
 	}
 	for _, variantName := range variantNames {
 		// The public variant replaces the core payload only at the agent
@@ -700,30 +728,6 @@ func TestWorkflowActionVariantCorpusParity(t *testing.T) {
 					}
 				}
 			}
-		}
-	}
-}
-
-// TestRecordAlignmentExactLegalCombination pins the reported fault: the
-// published record_alignment variant must refuse the none_found outcome that
-// carries related_ids, and the related_found outcome without related_ids,
-// exactly as guardRecordAlignmentConsistency refuses them at admission.
-func TestRecordAlignmentExactLegalCombination(t *testing.T) {
-	illegal := [][]byte{
-		[]byte(`{"work_id":"work-corpus-1","expected_version":3,"action_id":"record_alignment","idempotency_key":"corpus-align-1","fields":{"searched":"bounded search","outcome":"none_found","related_ids":["work-probe"]}}`),
-		[]byte(`{"work_id":"work-corpus-1","expected_version":3,"action_id":"record_alignment","idempotency_key":"corpus-align-2","fields":{"searched":"bounded search","outcome":"related_found"}}`),
-	}
-	for _, data := range illegal {
-		for _, schemaName := range []string{"work_transition_action_variant_record_alignment", "work_transition_action_input", "work_transition_action_public_input"} {
-			if err := Validate(schemaName, data); err == nil {
-				t.Fatalf("%s admitted an illegal record_alignment combination: %s", schemaName, data)
-			}
-		}
-	}
-	legal := []byte(`{"work_id":"work-corpus-1","expected_version":3,"action_id":"record_alignment","idempotency_key":"corpus-align-3","fields":{"searched":"bounded search","outcome":"related_found","related_ids":["work-probe"]}}`)
-	for _, schemaName := range []string{"work_transition_action_variant_record_alignment", "work_transition_action_input", "work_transition_action_public_input"} {
-		if err := Validate(schemaName, legal); err != nil {
-			t.Fatalf("%s refused the legal record_alignment combination: %v", schemaName, err)
 		}
 	}
 }

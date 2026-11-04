@@ -284,8 +284,8 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	execProjection(t, s, []string{
 		`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) SELECT 'work-1',1,'Preserve the planning goal','internal_sqlite','[]','[]','2026-08-08T12:00:00Z',execution_actor_ref,'["spec:shelving-fixture"]','[]',1,'prototype_internal' FROM workflow_instances WHERE work_id='work-1'`,
 	}, [][]any{nil})
-	var definitionPin string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_digest FROM workflow_instances WHERE work_id='work-1'`).Scan(&definitionPin); err != nil {
+	var workflowType, stepPlan any
+	if err := s.DatabaseForTesting().QueryRow(`SELECT workflow_type,step_plan FROM workflow_instances WHERE work_id='work-1'`).Scan(&workflowType, &stepPlan); err != nil {
 		t.Fatal(err)
 	}
 	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
@@ -304,8 +304,8 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 		t.Fatalf("managed cancellation: %+v %v", cancelled.Error, err)
 	}
 	var cancellation string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_object('lifecycle',w.lifecycle,'workflow_state',i.instance_state,'definition',i.definition_digest,'reason',w.transition_reason,'actor',w.transition_actor,'evidence',json(w.transition_evidence_refs),'laws',json(c.spec_mandate)) FROM work_items w JOIN workflow_instances i ON i.work_id=w.id JOIN workflow_contracts c ON c.work_id=w.id WHERE w.id='work-1' AND w.lifecycle='cancelled' AND i.instance_state='cancelled' AND i.definition_digest=? AND c.spec_mandate='["spec:shelving-fixture"]'`, definitionPin).Scan(&cancellation); err != nil {
-		t.Fatalf("cancellation lost workflow definition or law mandate: %v", err)
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_object('lifecycle',w.lifecycle,'workflow_state',i.instance_state,'workflow_type',i.workflow_type,'step_plan',json(i.step_plan),'reason',w.transition_reason,'actor',w.transition_actor,'evidence',json(w.transition_evidence_refs),'laws',json(c.spec_mandate)) FROM work_items w JOIN workflow_instances i ON i.work_id=w.id JOIN workflow_contracts c ON c.work_id=w.id WHERE w.id='work-1' AND w.lifecycle='cancelled' AND i.instance_state='cancelled' AND i.workflow_type IS ? AND i.step_plan IS ? AND c.spec_mandate='["spec:shelving-fixture"]'`, workflowType, stepPlan).Scan(&cancellation); err != nil {
+		t.Fatalf("cancellation lost workflow plan or law mandate: %v", err)
 	}
 	if !strings.Contains(cancellation, "evidence:managed-cancellation") || !strings.Contains(cancellation, "Preserve planning while retiring execution") {
 		t.Fatalf("missing cancellation reason/evidence: %s", cancellation)

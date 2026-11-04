@@ -15,11 +15,6 @@ import (
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
-type WorkflowDefinitionPin struct {
-	Ref    string
-	Digest string
-}
-
 type WorkflowActionPreflightRequest struct {
 	WorkID          string
 	ExpectedVersion int64
@@ -32,116 +27,22 @@ type WorkflowActionPreflightRequest struct {
 	SessionProjectID string
 }
 
-func VerifyWorkflowDefinitionPin(registry DefinitionRegistry, pin WorkflowDefinitionPin) (RegisteredDefinition, error) {
-	entry, err := resolveCurrentWorkflowDefinition(registry, pin.Ref)
-	if err != nil {
-		return RegisteredDefinition{}, err
-	}
-	if pin.Digest != entry.Digest {
-		return RegisteredDefinition{}, workflowPinFailure("requested workflow definition is not current")
-	}
-	return entry, nil
-}
-
-func resolveCurrentWorkflowDefinition(registry DefinitionRegistry, ref string) (RegisteredDefinition, error) {
-	if registry == nil {
-		registry = BuiltinWorkflowRegistry()
-	}
-	if !validWorkflowRef(ref) {
-		return RegisteredDefinition{}, workflowPinFailure("workflow definition family is incomplete")
-	}
-	// No archived family registers a definition (CD-0242 D14). Its
-	// nonterminal work refuses every public action and read by name until the
-	// cutover migration resolves it (CD-0242 D13).
-	if workflowFamilyArchived(ref) {
-		return RegisteredDefinition{}, newFailure(KindInvariantViolation, "workflow_preflight",
-			"workflow family "+ref+" is archived: no definition is registered, so new public workflow actions are refused", false,
-			"resolve the work through the cutover migration, or start retained-family work")
-	}
-	entry, ok := registry.Current(ref)
-	if !ok {
-		return RegisteredDefinition{}, workflowPinFailure("current workflow definition is unavailable: " + ref)
-	}
-	computed, err := WorkflowDefinitionDigest(entry.Definition)
-	if err != nil {
-		return RegisteredDefinition{}, err
-	}
-	if computed != entry.Digest {
-		return RegisteredDefinition{}, workflowPinFailure("current workflow definition digest drifted")
-	}
-	return entry, nil
-}
-
-func workflowPinFailure(detail string) error {
-	return newFailure(KindInvariantViolation, "workflow_preflight", detail, false, "reread_entities")
-}
-
-// workflowPreflightFailure re-subjects one folded admission refusal for the
-// preflight surface: the kind, detail, and recovery action are the shared
-// admission's answer, and only the reporting operation names the surface that
-// refused.
-func workflowPreflightFailure(failure *Failure) *Failure {
-	resubjected := *failure
-	resubjected.Op = "workflow_action_preflight"
-	return &resubjected
-}
-
-func VerifyWorkflowInstanceDefinition(ctx context.Context, s *Store, registry DefinitionRegistry, workID string) (RegisteredDefinition, error) {
+// WorkflowActionDefinitionFor answers whether the named action passes preflight.
+// It reads a snapshot; the owning boundary revalidates before any effect.
+func WorkflowActionDefinitionFor(ctx context.Context, s *Store, request WorkflowActionPreflightRequest) (WorkflowActionDefinition, error) {
 	if s == nil || s.db == nil {
-		return RegisteredDefinition{}, newFailure(KindUnavailable, "workflow_preflight", "store is not open", false, "open the authority database")
-	}
-	if registry == nil {
-		registry = BuiltinWorkflowRegistry()
-	}
-	var pin WorkflowDefinitionPin
-	if err := s.db.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Digest); err != nil {
-		if err == sql.ErrNoRows {
-			return RegisteredDefinition{}, workflowPinFailure("workflow instance is not recorded")
-		}
-		return RegisteredDefinition{}, wrapFailure(KindUnavailable, "workflow_preflight", "cannot read workflow definition pin", true, "retry once the database is readable", err)
-	}
-	return resolveCurrentWorkflowDefinition(registry, pin.Ref)
-}
-
-func WorkflowActionAvailableWithRegistry(ctx context.Context, s *Store, registry DefinitionRegistry, workID string) (bool, error) {
-	if _, err := VerifyWorkflowInstanceDefinition(ctx, s, registry, workID); err != nil {
-		var failure *Failure
-		if failureAs(err, &failure) && failure.Kind == KindInvariantViolation {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
-}
-
-// WorkflowActionPreflightWithRegistry answers whether the named workflow
-// action would pass the owning boundary against current authority, without
-// advancing the instance. The admission is the single implementation: the
-// action resolution runs against the store (it takes the pool-backed reader),
-// and the transaction preflight — the same function the owning boundary runs
-// — folds and decides inside one read snapshot. Inspection does not acquire
-// the write lock; the owning boundary revalidates before any effect.
-func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest) error {
-	if s == nil || s.db == nil {
-		return newFailure(KindUnavailable, "workflow_action_preflight", "store is not open", false, "open the authority database")
-	}
-	if registry == nil {
-		registry = BuiltinWorkflowRegistry()
+		return WorkflowActionDefinition{}, newFailure(KindUnavailable, "workflow_action_preflight", "store is not open", false, "open the authority database")
 	}
 	ctx, err := s.PrepareWorkflowActionProof(ctx, request.ActionID, request.WorkID)
 	if err != nil {
-		return err
-	}
-	if _, _, err := WorkflowActionDefinitionFor(ctx, s, registry, request.WorkID, request.ActionID); err != nil {
-		return err
+		return WorkflowActionDefinition{}, err
 	}
 	readTx, err := beginReadTx(ctx, s.db)
 	if err != nil {
-		return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot begin workflow admission read snapshot", true, "retry once the database is readable", err)
+		return WorkflowActionDefinition{}, wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot begin workflow admission read snapshot", true, "retry once the database is readable", err)
 	}
 	defer func() { _ = readTx.Rollback() }()
-	_, err = workflowActionPreflightTx(ctx, readTx, registry, request)
-	return err
+	return workflowActionPreflightTx(ctx, readTx, request)
 }
 
 // PrepareWorkflowActionProof establishes, before any transaction for the
@@ -174,29 +75,26 @@ func (s *Store) PrepareWorkflowActionProof(ctx context.Context, actionID, workID
 // coordinator. The preflight, authorization, and the persisted action callback
 // share one transaction and one write guard, so a callback error or mutation
 // failure commits nothing.
-func AuthorizeWorkflowActionAtBoundaryTx(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, authorize func(*Transaction) error, mutate func(*Transaction) error) error {
-	return authorizeWorkflowActionAtBoundaryCore(ctx, s, registry, request, nil, authorize, mutate)
+func AuthorizeWorkflowActionAtBoundaryTx(ctx context.Context, s *Store, request WorkflowActionPreflightRequest, authorize func(*Transaction) error, mutate func(*Transaction) error) error {
+	return authorizeWorkflowActionAtBoundaryCore(ctx, s, request, nil, authorize, mutate)
 }
 
 // AuthorizeWorkflowActionAtBoundaryWithPreflightTx lets an owning dispatcher
 // inspect durable idempotency before the version-sensitive preflight. This
 // preserves exact replay when concurrent requests share one action key.
-func AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, beforePreflight func(*Transaction) (bool, error), authorize func(*Transaction) error, mutate func(*Transaction) error) error {
+func AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx context.Context, s *Store, request WorkflowActionPreflightRequest, beforePreflight func(*Transaction) (bool, error), authorize func(*Transaction) error, mutate func(*Transaction) error) error {
 	if beforePreflight == nil {
-		return AuthorizeWorkflowActionAtBoundaryTx(ctx, s, registry, request, authorize, mutate)
+		return AuthorizeWorkflowActionAtBoundaryTx(ctx, s, request, authorize, mutate)
 	}
-	return authorizeWorkflowActionAtBoundaryCore(ctx, s, registry, request, beforePreflight, authorize, mutate)
+	return authorizeWorkflowActionAtBoundaryCore(ctx, s, request, beforePreflight, authorize, mutate)
 }
 
-func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, registry DefinitionRegistry, request WorkflowActionPreflightRequest, beforePreflight func(*Transaction) (bool, error), authorize func(*Transaction) error, mutate func(*Transaction) error) (retErr error) {
+func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, request WorkflowActionPreflightRequest, beforePreflight func(*Transaction) (bool, error), authorize func(*Transaction) error, mutate func(*Transaction) error) (retErr error) {
 	if s == nil || s.db == nil {
 		return newFailure(KindUnavailable, "workflow_action_boundary", "store is not open", false, "open the authority database")
 	}
 	if mutate == nil {
 		return newFailure(KindInvalidOperation, "workflow_action_boundary", "owning action mutation is required", false, "supply the persisted action operation")
-	}
-	if registry == nil {
-		registry = BuiltinWorkflowRegistry()
 	}
 	ctx, err := s.PrepareWorkflowActionProof(ctx, request.ActionID, request.WorkID)
 	if err != nil {
@@ -230,11 +128,13 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 			return nil
 		}
 	}
-	entry, err := workflowActionPreflightTx(ctx, tx.Tx, registry, request)
+	// Confirmation is admitted by its event constructor in this transaction;
+	// evaluating it here too would check the same facts twice per write.
+	action, err := workflowActionPreflightCoreTx(ctx, tx.Tx, request, false)
 	if err != nil {
 		return err
 	}
-	if workflowActionConsequence(entry.Definition, request.ActionID) != ActionInternalSQLite {
+	if action.Consequence != ActionInternalSQLite && request.ActionID != "record_verdict" {
 		// Project-session handoff admission (CD-0182 amendment): a
 		// session whose receiving Project holds an unconsumed or stale
 		// frontier executes no managed external effect until a session of
@@ -261,195 +161,189 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 	return nil
 }
 
-func workflowActionConsequence(definition WorkflowDefinition, actionID string) ActionConsequence {
-	if actionID == "record_verdict" {
-		return ActionInternalSQLite
+// workflowPlanActionAdmissionTx is shared with the dispatcher: it reads one
+// snapshot and selects the action's frontier step without mutating the plan.
+func workflowPlanActionAdmissionTx(ctx context.Context, tx *sql.Tx, workID string, expectedVersion int64, actionID string, payload json.RawMessage) (WorkflowActionDefinition, *WorkflowStepPlan, string, error) {
+	action, err := catalogAction(actionID)
+	if err != nil {
+		return action, nil, "", err
 	}
-	for _, action := range definition.ActionDefinitions {
-		if action.ID == actionID {
-			return action.Consequence
+	switch actionID {
+	case "record_proposal", "record_alignment", "record_design":
+		return action, nil, "", newFailure(KindIllegalLifecycleTransition, "workflow_action", "retired workflow action", false, "use an action declared by the current plan")
+	}
+	fields, err := validateWorkflowPlanActionPayload(actionID, payload)
+	if err != nil {
+		return action, nil, "", err
+	}
+	step, state, err := readWorkflowActionStateTx(ctx, tx, workID, expectedVersion)
+	if err != nil {
+		return action, nil, "", err
+	}
+	plan, err := readWorkflowPlanTx(ctx, tx, workID)
+	if err != nil {
+		return action, nil, "", err
+	}
+	// A terminal instance admits only a completed item's record_delivery
+	// replacement over its retained delivery record (§4.2): the write keeps
+	// the terminal lifecycle, state and plan, and carries the plan step that
+	// declares the action.
+	if state == "completed" || state == "cancelled" || state == "superseded" {
+		owner, err := workflowPlanTerminalAdmissionTx(ctx, tx, workID, actionID, state, step, plan)
+		return action, plan, owner, err
+	}
+	if _, err := readWorkflowPreludeTx(ctx, tx, workID); err != nil {
+		return action, nil, "", err
+	}
+	step, err = workflowPlanFrontierAdmissionTx(ctx, tx, workID, actionID, step, plan, fields)
+	if err != nil {
+		return action, plan, step, err
+	}
+	if err := guardPlanMandate(ctx, tx, workID, plan, step, action); err != nil {
+		return action, plan, step, err
+	}
+	if actionID == "bind_evidence" {
+		if err := guardEvidenceBindingContract(ctx, tx, workID); err != nil {
+			return action, plan, step, err
 		}
 	}
-	return ""
+	if actionID == "record_delivery" {
+		if err := guardPlanDelivery(ctx, tx, workID); err != nil {
+			return action, plan, step, err
+		}
+	}
+	return action, plan, step, nil
 }
 
-func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, request WorkflowActionPreflightRequest) (RegisteredDefinition, error) {
-	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, registry, request.WorkID)
-	if err != nil {
-		return RegisteredDefinition{}, err
+func workflowPlanTerminalAdmissionTx(ctx context.Context, tx *sql.Tx, workID, actionID, state, step string, plan *WorkflowStepPlan) (string, error) {
+	if state == "completed" && actionID == "record_delivery" {
+		owner := "delivery"
+		if plan != nil {
+			owner = workflowPlanDeclaringStep(plan, actionID)
+		}
+		records, recordsErr := workflowCurrentRecords(ctx, tx, workID)
+		if recordsErr != nil {
+			return owner, recordsErr
+		}
+		if plan == nil {
+			var exists bool
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_delivery_state WHERE work_id=?)`, workID).Scan(&exists); err != nil {
+				return owner, workflowProjectionError(err, "cannot read retained delivery")
+			}
+			records["record_delivery"] = exists
+		}
+		if owner != "" && records["record_delivery"] {
+			if err := guardPlanDelivery(ctx, tx, workID); err != nil {
+				return owner, err
+			}
+			return owner, nil
+		}
 	}
-	var currentStep, state, lifecycle string
-	var version int64
-	if err := tx.QueryRowContext(ctx, `SELECT current_step,instance_state,(SELECT lifecycle FROM work_items WHERE id=workflow_instances.work_id),(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &state, &lifecycle, &version); err != nil {
-		return RegisteredDefinition{}, wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot read workflow instance state", true, "retry once the database is readable", err)
+	return step, newFailure(KindInvalidOperation, "workflow_action", "terminal workflow cannot change", false, "reread the work item")
+}
+
+func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, actionID, step string, plan *WorkflowStepPlan, fields map[string]json.RawMessage) (string, error) {
+	switch actionID {
+	case "record_intake", "record_clarify", "pick_type", "insert_step":
+	case "complete_step":
+		step, _ = workflowFieldString(fields, "step_id")
+		if plan == nil {
+			return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow has no plan", false, "pick a workflow type")
+		}
+		item, found := stepByID(plan.Steps, step)
+		if !found || (len(item.Attempts) == 0 && !workflowPlanAllowsAction(plan, step, actionID)) {
+			return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "step is not a frontier or completed step", false, "reread the workflow plan")
+		}
+	case "complete":
+		if plan == nil || !WorkflowStepPlanComplete(*plan) {
+			return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow plan is not complete", false, "complete every plan step")
+		}
+		contractVersion, contractErr := completionActiveContractVersion(ctx, tx, workID)
+		if contractErr != nil {
+			return step, contractErr
+		}
+		if err := requireWorkflowCompletionFactsTx(ctx, tx, workID, plan.Type, contractVersion); err != nil {
+			return step, err
+		}
+	default:
+		if !workflowPlanAllowsAction(plan, step, actionID) {
+			owner := ""
+			if workflowRecordAction(actionID) && plan != nil {
+				owner = workflowPlanDeclaringStep(plan, actionID)
+			}
+			if owner == "" {
+				return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "action is not declared on a frontier step", false, "reread the workflow plan")
+			}
+			records, recordsErr := workflowCurrentRecords(ctx, tx, workID)
+			if recordsErr != nil {
+				return step, recordsErr
+			}
+			if !records[actionID] {
+				return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "action has no current record to replace", false, "record it on its frontier step first")
+			}
+			step = owner
+		}
+	}
+	return step, nil
+}
+
+func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, request WorkflowActionPreflightRequest) (WorkflowActionDefinition, error) {
+	return workflowActionPreflightCoreTx(ctx, tx, request, true)
+}
+
+func workflowActionPreflightCoreTx(ctx context.Context, tx *sql.Tx, request WorkflowActionPreflightRequest, checkConfirmation bool) (WorkflowActionDefinition, error) {
+	action, plan, currentStep, err := workflowPlanActionAdmissionTx(ctx, tx, request.WorkID, request.ExpectedVersion, request.ActionID, request.Payload)
+	if err != nil {
+		return action, err
 	}
 	if request.StepID != "" && request.StepID != currentStep {
-		return RegisteredDefinition{}, workflowPinFailure("workflow action request does not match the current definition step")
-	}
-	if request.ExpectedVersion > 0 && request.ExpectedVersion != version {
-		conflict, conflictErr := versionConflictForQuery(ctx, tx, request.WorkID, request.ExpectedVersion, version)
-		if conflictErr != nil {
-			return RegisteredDefinition{}, conflictErr
-		}
-		return RegisteredDefinition{}, conflict
-	}
-	// One admission derivation for the preflight: the tx-scoped loader folds
-	// the instance history into the abstract admission state once, and the
-	// pure workflowAdmit decides. The recovery flags and the
-	// supersede classification below read the same folded state instead of
-	// re-deriving the conditions per site.
-	admission, admissionErr := loadWorkflowAdmissionStateTx(ctx, tx, request.WorkID, entry.Definition, currentStep, "workflow_action_preflight")
-	if admissionErr != nil {
-		return RegisteredDefinition{}, admissionErr
-	}
-	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
-	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld {
-		return RegisteredDefinition{}, workflowPreflightFailure(decision.Failure)
+		return action, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action request does not match the current plan step", false, "reread the workflow plan")
 	}
 	if err := validateWorkflowReviewRequest(ctx, tx, request.WorkID, request.ActionID, request.Payload); err != nil {
-		return RegisteredDefinition{}, err
+		return action, err
 	}
 	if err := ValidateWorkflowActor(request.Actor); err != nil {
-		return RegisteredDefinition{}, err
+		return action, err
 	}
 	if _, err := WorkflowActorRef(request.Actor); err != nil {
-		return RegisteredDefinition{}, err
+		return action, err
 	}
-	if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, request.Payload); err != nil {
-		return RegisteredDefinition{}, err
+	if checkConfirmation && request.ActionID == "confirm_premise" {
+		fields, err := workflowActionObject(request.Payload)
+		if err != nil {
+			return action, err
+		}
+		actor, err := WorkflowActorRef(request.Actor)
+		if err != nil {
+			return action, err
+		}
+		if _, err := workflowConfirmationAdmissionTx(ctx, tx, plan.Type, request.WorkID, actor, fields); err != nil {
+			return action, err
+		}
 	}
-	// Apply step legality after the payload checks whose specific refusals
-	// precede the generic off-step refusal.
-	if err := preflightWorkflowActionStepTx(ctx, tx, entry.Definition, currentStep, request, decision); err != nil {
-		return RegisteredDefinition{}, err
-	}
-	if err := preflightWorkflowActionGuardsTx(ctx, tx, entry.Definition, currentStep, request); err != nil {
-		return RegisteredDefinition{}, err
-	}
-	// See the note in the non-transactional preflight: recording a new actor is
-	// the action guard's job, and refusing here would prevent it.
-	return entry, nil
-}
-
-func preflightWorkflowActionStepTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest, decision WorkflowAdmissionDecision) error {
-	if decision.OffStep {
-		return workflowPreflightFailure(decision.Failure)
-	}
-	if request.ActionID == "bind_evidence" && !definitionStepAllows(definition, currentStep, request.ActionID) {
-		return guardEvidenceBindingMembership(ctx, tx, request.WorkID, definition, request.Payload, "workflow_action_preflight")
-	}
-	return nil
-}
-
-func preflightWorkflowActionGuardsTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest) error {
 	if request.ActionID == "record_verdict" {
-		return preflightWorkflowVerdictTx(ctx, tx, definition, currentStep, request)
+		fields, err := workflowActionObject(request.Payload)
+		if err != nil {
+			return action, err
+		}
+		actor, err := WorkflowActorRef(request.Actor)
+		if err != nil {
+			return action, err
+		}
+		if _, err := workflowVerdictReceiptAssociations(ctx, tx, request.WorkID, actor, fields); err != nil {
+			return action, err
+		}
+		if err := guardLateCriterionAssociations(ctx, tx, request.WorkID, plan.Type, currentStep, fields); err != nil {
+			return action, err
+		}
 	}
-	return nil
-}
-
-func preflightWorkflowVerdictTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, currentStep string, request WorkflowActionPreflightRequest) error {
-	fields, err := workflowActionObject(request.Payload)
-	if err != nil {
-		return err
-	}
-	actor, err := WorkflowActorRef(request.Actor)
-	if err != nil {
-		return err
-	}
-	if _, err := workflowVerdictReceiptAssociations(ctx, tx, request.WorkID, actor, fields); err != nil {
-		return err
-	}
-	return guardLateCriterionAssociations(ctx, tx, request.WorkID, definition, currentStep, fields)
+	return action, nil
 }
 
 // workflowLivePayloadSchemaDocument resolves declared schema references
 // against the generated public authoring document.
 func workflowLivePayloadSchemaDocument() map[string]any {
 	return payloadschema.Document()
-}
-
-func validateWorkflowActionPayload(definition WorkflowDefinition, actionID string, payload json.RawMessage) error {
-	document := workflowLivePayloadSchemaDocument()
-	if len(payload) == 0 {
-		payload = json.RawMessage(`{}`)
-	}
-	var fields map[string]json.RawMessage
-	if err := decodeWorkflowActionPayloadStrict(payload, &fields); err != nil {
-		return newFailure(KindInvalidPayload, "workflow_action_preflight", "workflow action payload is not one strict JSON object", false, "supply the registered action payload")
-	}
-	if err := validateEvidenceBindingReferences(actionID, fields); err != nil {
-		return err
-	}
-	payloadDefinition, found, err := workflowActionPayloadDefinition(definition, actionID)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return nil
-	}
-	definitionFields := payloadDefinition.Fields
-	if !payloadDefinition.Closed && len(definitionFields) == 0 {
-		return nil
-	}
-	allowed := make(map[string]WorkflowPayloadField, len(definitionFields))
-	for _, field := range definitionFields {
-		allowed[field.Name] = field
-	}
-	if err := validateWorkflowPayloadStructure(actionID, definitionFields, allowed, fields); err != nil {
-		return err
-	}
-	// The structure is complete, so the per-field value and schema checks
-	// walk the supplied names in sorted order and keep stop-at-first
-	// behavior: a type error on one field is a per-field value fact outside
-	// the structural refusal.
-	for _, name := range slices.Sorted(maps.Keys(fields)) {
-		field := allowed[name]
-		if !validateWorkflowPayloadValue(field, fields[name]) {
-			return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q has the wrong registered type or bounds for rule %s", name, workflowPayloadFieldRule(field)), false, "supply the declared action field type and bounds")
-		}
-		if err := validateWorkflowPayloadSchema(document, field, fields[name]); err != nil {
-			return err
-		}
-	}
-	if err := validateWorkflowPayloadCrossFieldRules(actionID, fields); err != nil {
-		return err
-	}
-	if actionID == "approve_contract" && workflowDeclaresDecisionDomains(definition) {
-		_, err := workflowSubmittedDecisionDomains(definition, fields)
-		return err
-	}
-	// The proposal document rule is cross-field, so it runs only for a pinned
-	// definition that declares the document. A definition pinned before the
-	// typed payload keeps its empty call.
-	if _, typed := allowed["problem"]; typed && actionID == "record_proposal" {
-		_, err := decodeWorkflowProposalContent(payload)
-		return err
-	}
-	return nil
-}
-
-func workflowActionPayloadDefinition(definition WorkflowDefinition, actionID string) (WorkflowPayloadDefinition, bool, error) {
-	var payloadDefinition WorkflowPayloadDefinition
-	found := false
-	for _, action := range definition.ActionDefinitions {
-		if action.ID == actionID {
-			payloadDefinition = action.Payload
-			found = true
-			break
-		}
-	}
-	// A consequence_v1 pin validates its found initial contract approval
-	// against the selected decision-fact declaration; the typed refusal
-	// propagates.
-	if found && actionID == "approve_contract" && workflowDeclaresDecisionDomains(definition) {
-		selected, err := workflowDecisionFactInitialActionDefinition(definition)
-		if err != nil {
-			return WorkflowPayloadDefinition{}, false, err
-		}
-		payloadDefinition = selected.Payload
-	}
-	return payloadDefinition, found, nil
 }
 
 func validateWorkflowPayloadStructure(actionID string, definitionFields []WorkflowPayloadField, allowed map[string]WorkflowPayloadField, fields map[string]json.RawMessage) error {
@@ -762,44 +656,6 @@ func validateWorkflowPayloadItems(document map[string]any, field WorkflowPayload
 	return nil
 }
 
-func workflowPayloadFieldRule(field WorkflowPayloadField) string {
-	parts := []string{string(field.ValueType)}
-	if field.MinLength != nil {
-		parts = append(parts, fmt.Sprintf("min_length=%d", *field.MinLength))
-	}
-	if field.MaxLength != nil {
-		parts = append(parts, fmt.Sprintf("max_length=%d", *field.MaxLength))
-	}
-	if field.MinItems != nil {
-		parts = append(parts, fmt.Sprintf("min_items=%d", *field.MinItems))
-	}
-	if field.MaxItems != nil {
-		parts = append(parts, fmt.Sprintf("max_items=%d", *field.MaxItems))
-	}
-	if field.Minimum != nil {
-		parts = append(parts, fmt.Sprintf("minimum=%d", *field.Minimum))
-	}
-	if field.Maximum != nil {
-		parts = append(parts, fmt.Sprintf("maximum=%d", *field.Maximum))
-	}
-	if len(field.Enum) != 0 {
-		parts = append(parts, "enum="+strings.Join(field.Enum, ","))
-	}
-	if field.SchemaRef != "" {
-		parts = append(parts, "schema_ref="+field.SchemaRef)
-	}
-	if field.ItemRef != "" {
-		parts = append(parts, "item_ref="+field.ItemRef)
-	}
-	if field.NonBlank {
-		parts = append(parts, "non_blank=true")
-	}
-	if len(field.Forbidden) != 0 {
-		parts = append(parts, "forbidden_values="+strings.Join(field.Forbidden, ","))
-	}
-	return strings.Join(parts, ",")
-}
-
 // validateWorkflowPayloadValue enforces the declared value type and bounds
 // against the generated public authoring document.
 func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessage) bool {
@@ -933,16 +789,4 @@ func validWorkflowPayloadListItem(itemRef, value string) bool {
 
 func validWorkflowProseItem(value string, upper int) bool {
 	return len([]rune(value)) >= 1 && len([]rune(value)) <= upper && strings.TrimSpace(value) != ""
-}
-
-func definitionStepAllows(definition WorkflowDefinition, stepID, actionID string) bool {
-	if stepID == "" || actionID == "" {
-		return false
-	}
-	for _, step := range definition.StepGraph.Steps {
-		if step.ID == stepID {
-			return slices.Contains(step.Actions, actionID)
-		}
-	}
-	return false
 }

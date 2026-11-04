@@ -1171,14 +1171,6 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	if snapshot.PendingProjectHandoff != nil {
 		pinned["pending_project_handoff"] = snapshot.PendingProjectHandoff
 	}
-	// Resumed sessions receive available context or explicit unavailability.
-	// Absence keeps context-free payload bytes unchanged.
-	if snapshot.WorkContext != nil {
-		pinned["work_context"] = snapshot.WorkContext
-	}
-	if snapshot.WorkContextUnavailable != nil {
-		pinned["work_context_unavailable"] = snapshot.WorkContextUnavailable
-	}
 	payload := map[string]any{
 		"work_id":            snapshot.WorkID,
 		"pinned":             pinned,

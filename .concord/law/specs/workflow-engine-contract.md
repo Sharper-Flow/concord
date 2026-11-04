@@ -572,7 +572,7 @@ of a plan step. `record_review` and `complete_step` use the same step-attempt wr
 |---|---|
 | `record_intake`, `record_clarify`, `pick_type`, `insert_step`, `complete_step` | `workflow.intake_recorded`, `workflow.clarify_recorded`, `workflow.type_picked`, `workflow.step_inserted`, `workflow.step_completed`, respectively |
 | `record_plan`, `record_removal_scope` | `workflow.plan_recorded`, `workflow.removal_scope_recorded`, respectively, plus `workflow.action_completed` |
-| `checkpoint_context`, `cross_context_boundary`, `record_work_context` | `workflow.context_checkpointed`, `workflow.context_boundary_crossed`, `workflow.work_context_recorded`, respectively |
+| `checkpoint_context`, `cross_context_boundary` | `workflow.context_checkpointed`, `workflow.context_boundary_crossed`, respectively |
 | `approve_contract`, `revise_candidates`, `record_diagnosis` | `workflow.contract_approved`, `workflow.candidate_set_revised`, `workflow.diagnosis_recorded`, respectively, plus `workflow.action_completed` |
 | `record_review` | `workflow.step_completed` with the reviewed attempt |
 | `bind_evidence`, `record_report` | `workflow.evidence_bound` plus `workflow.action_completed` |

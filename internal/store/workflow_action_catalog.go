@@ -127,9 +127,8 @@ func builtinWorkflowActionCatalog() workflowActionCatalog {
 		"record_plan":            nil,
 		"record_removal_scope":   nil,
 		"record_report":          nil,
-		"record_review":          {workTransitionAction},
-		"record_work_context":    nil,
-		"revise_candidates":      nil,
+		"record_review":            {workTransitionAction},
+		"revise_candidates":        nil,
 		"start_execution":        nil,
 	}
 }

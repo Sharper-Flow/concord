@@ -28,11 +28,6 @@ type WorkPin struct {
 	// workflow, with each session's most recent action and action time. It is
 	// derived from workflow actors and actions, not session identity evidence.
 	DrivingSessions []WorkPinDrivingSession `json:"driving_sessions"`
-	// WorkContext carries the strict reader's exact view for dispatch.
-	// WorkContextUnavailable distinguishes an over-bound view from absence.
-	// The partial recovery pin does not evaluate either field.
-	WorkContext            *WorkContextView        `json:"work_context,omitempty"`
-	WorkContextUnavailable *WorkContextUnavailable `json:"work_context_unavailable,omitempty"`
 }
 
 type WorkPinDrivingSession struct {
@@ -150,17 +145,7 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	if len(activeContractVersions) > 1 {
 		return pin, nil
 	}
-	if err := workPinReadWorkContextTx(ctx, tx, workID, &pin); err != nil {
-		return pin, err
-	}
 	return pin, nil
-}
-
-// workPinReadWorkContextTx uses the caller's transaction, never the pooled connection.
-func workPinReadWorkContextTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin) error {
-	view, unavailable, err := readWorkContextProjection(ctx, tx, workID)
-	pin.WorkContext, pin.WorkContextUnavailable = view, unavailable
-	return err
 }
 
 // workPinReadIdentityTx fills the pin's item identity: version, lifecycle,

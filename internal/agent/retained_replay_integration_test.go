@@ -233,3 +233,19 @@ func TestRetainedReplayRefusesUncapturedChangedRefs(t *testing.T) {
 		}
 	}
 }
+
+func mutationProjectionState(t *testing.T, s *store.Store) map[string]string {
+	t.Helper()
+	state := premiseConsentSnapshot(t, s)
+	for name, query := range map[string]string{
+		"idempotency":              `SELECT json_group_array(json_array(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,result_payload,changed_refs,authorized_scope_snapshot)) FROM (SELECT * FROM idempotency_records ORDER BY principal_ref,tool,operation_kind,idempotency_key)`,
+		"idempotency_observations": `SELECT json_group_array(json_array(idempotency_key,replayed_count,last_observed_at)) FROM (SELECT * FROM idempotency_records ORDER BY principal_ref,tool,operation_kind,idempotency_key)`,
+	} {
+		var value string
+		if err := s.DatabaseForTesting().QueryRow(query).Scan(&value); err != nil {
+			t.Fatal(err)
+		}
+		state[name] = value
+	}
+	return state
+}

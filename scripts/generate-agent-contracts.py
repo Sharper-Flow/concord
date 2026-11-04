@@ -534,8 +534,6 @@ def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict 
 RETAINED_OUTPUT_TWINS = {
     "workflow_law_context": ("/properties/registry_path/maxLength",),
     "workflow_law_context_law": ("/properties/path/maxLength",),
-    "work_context_finding_view": ("/properties/source_event_id/maxLength",),
-    "work_context_view": (),
 }
 # Caps a retained twin raises: the store's retained producer exceeds the cap
 # dispatch admission enforces on the shared packet definition, so the read
@@ -546,9 +544,8 @@ RETAINED_OUTPUT_RETYPES = {}
 # The read parents that replay stored values, each with the twinned
 # definitions it references directly.
 RETAINED_OUTPUT_PARENTS = {
-    "continuity_snapshot": ("workflow_law_context", "work_context_view"),
+    "continuity_snapshot": ("workflow_law_context",),
     "work_summary": ("workflow_law_context",),
-    "work_pin": ("work_context_view",),
 }
 
 
@@ -882,9 +879,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], teaching
     }
     if "legislative_subjects" not in contract["required"]:
         contract["required"].append("legislative_subjects")
-    finding_view = defs["work_context_finding_view"]["properties"]
-    finding_view["kind"] = copy.deepcopy(defs["work_context_finding"]["properties"]["kind"])
-    finding_view["evidence_refs"]["description"] = "Evidence references reported with the finding."
     common = {
         "work_id": {"$ref": "#/$defs/id"},
         "expected_version": {"$ref": "#/$defs/version"},

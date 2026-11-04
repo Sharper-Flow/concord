@@ -123,8 +123,8 @@ test("grants select whole tools and never trim a published schema", async () => 
     const operations = contractOperations.filter((operation: any) => operation.tool === tool)
     expect(expanded.oneOf, tool).toHaveLength(operations.length)
   }
-  expect(registeredBytes.get("concord_work_transition")).toBe(39_748)
-  expect(workflowActionPublicVariants.length).toBe(25)
+  expect(registeredBytes.get("concord_work_transition")).toBe(36_260)
+  expect(workflowActionPublicVariants.length).toBe(24)
 })
 
 test("publication is role-blind, so a denied role's budget is not an immutable ceiling", async () => {

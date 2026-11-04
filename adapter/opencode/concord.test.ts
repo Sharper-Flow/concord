@@ -999,7 +999,7 @@ for (const tampered of [false, true]) {
       const page = fixture.pages[reads++]
       return { exitCode: 0, stdout: JSON.stringify(coreEnvelope(request.tool, request.operation, "ok", page)), stderr: "" }
     } } })
-    const raw = await adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-projection-0", action_id: "record_work_context", expected_version: 2, idempotency_key: "projection-key" }), contextFor())
+    const raw = await adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-projection-0", action_id: "start_execution", expected_version: 2, idempotency_key: "projection-key" }), contextFor())
     const output = typeof raw === "string" ? raw : raw.output
     const result = JSON.parse(output.split("\n")[0])
     expect(result.outcome).toBe("ok")
@@ -1049,7 +1049,7 @@ for (const capacity of ["room", "warnings-full", "bytes-full"] as const) {
       reads++
       return { exitCode: 0, stdout: JSON.stringify(coreEnvelope(request.tool, request.operation, "ok", fixture.pages[0])), stderr: "" }
     } } })
-    const raw = await adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-projection-0", action_id: "record_work_context", expected_version: 2, idempotency_key: "projection-key" }), contextFor())
+    const raw = await adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-projection-0", action_id: "start_execution", expected_version: 2, idempotency_key: "projection-key" }), contextFor())
     const output = typeof raw === "string" ? raw : raw.output
     const result = JSON.parse(output)
     expect(writes).toBe(1)

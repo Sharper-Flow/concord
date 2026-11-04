@@ -34,6 +34,9 @@ const (
 	WorkflowSuccessorLinked          = "workflow.successor_linked"
 	WorkflowContextCheckpointed      = "workflow.context_checkpointed"
 	WorkflowContextBoundaryCrossed   = "workflow.context_boundary_crossed"
+	// WorkflowWorkContextRecorded is the retired work-context declaration
+	// kind. No registration accepts it; only frozen migration replay reads
+	// the string (work_context_migration.go, CON-1571 end state 2).
 	WorkflowWorkContextRecorded      = "workflow.work_context_recorded"
 	WorkflowProposalRecorded         = "workflow.proposal_recorded"
 	WorkflowDesignRecorded           = "workflow.design_recorded"

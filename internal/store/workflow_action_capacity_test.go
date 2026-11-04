@@ -82,12 +82,6 @@ func TestCapacityWalkerWireTruth(t *testing.T) {
 	}
 }
 
-func TestWorkflowCurrentActionWriterBounds(t *testing.T) {
-	if WorkContextActionFindingsMax != 16 {
-		t.Fatalf("WorkContextActionFindingsMax = %d, want 16; the finding-reference derivation rests on it", WorkContextActionFindingsMax)
-	}
-}
-
 func TestWorkflowActionPayloadBudgetRefusesTypedAndWhole(t *testing.T) {
 	oversize := bytes.Repeat([]byte("x"), maxWorkflowActionPayloadBytes+1)
 	var target map[string]any

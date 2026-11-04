@@ -171,9 +171,15 @@ DELETE FROM write_guard`); err != nil {
 				t.Fatalf("upgrade rewrote the remediated authored declaration: %v", after)
 			}
 			assertRetirementUpgrade(t, db, domainShapeRetiredObjects(), domainShapePreservedTables, retained, migrations[171].Version)
-			view, err := readWorkContextView(context.Background(), db, "shape-work")
-			if err != nil || view == nil || len(view.RequiredReading) != 1 || view.RequiredReading[0].Reason != "Retained reading" || view.RequiredReading[0].Source.Kind != WorkContextSourceKnowledge {
-				t.Fatalf("remediated context remains unreadable: view=%+v err=%v", view, err)
+			// The remediated declaration stays byte-for-byte readable as a
+			// stored row; the declaration read surface itself is retired
+			// (CON-1571 end state 2), so the witness reads the row.
+			var remediatedPayload string
+			if err := db.QueryRow(`SELECT declaration_payload FROM work_context_state WHERE work_id='shape-work'`).Scan(&remediatedPayload); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(remediatedPayload, `"kind":"knowledge"`) || strings.Contains(remediatedPayload, "domain_shape") || !strings.Contains(remediatedPayload, "Retained reading") {
+				t.Fatalf("remediated declaration lost its retained knowledge reading: %s", remediatedPayload)
 			}
 		})
 	}

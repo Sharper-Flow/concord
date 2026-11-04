@@ -1769,7 +1769,10 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
         self.assertEqual(repeated, self.projected)
         generator.check_schema_keywords(self.projected)
         generator.check_payload_closed(self.projected)
-        self.assertIn("subject_commit", self.projected["$defs"]["work_context_view"]["properties"])
+        # The work-context view is retired (CON-1571 end state 2); the
+        # retained-twin machinery it exercised stays covered by the law
+        # context twins below.
+        self.assertNotIn("work_context_view", self.projected["$defs"])
 
 def workflow_job_steps(job_name: str) -> list[dict]:
     """One job's steps as name/run/env records.
@@ -2823,20 +2826,15 @@ class WorkContextProjectionTests(unittest.TestCase):
 
     def test_unresolved_context_reference_fails_loudly(self):
         canonical = copy.deepcopy(payload_schema)
-        canonical["$defs"]["work_context_view"]["properties"]["domain_groups"]["items"] = {"$ref": "#/$defs/missing_group"}
-        with self.assertRaisesRegex(ValueError, "missing_group"):
-            generator.prune_payload_definitions(canonical, {"schemas": {"context": {"ref": "#/$defs/work_context_view"}}}, [])
+        canonical["$defs"]["workflow_law_context"]["properties"]["registry_path"] = {"$ref": "#/$defs/missing_law_member"}
+        with self.assertRaisesRegex(ValueError, "missing_law_member"):
+            generator.prune_payload_definitions(canonical, {"schemas": {"context": {"ref": "#/$defs/workflow_law_context"}}}, [])
 
     def test_current_context_identity_matches_its_declared_source(self):
         declared = payload_schema["$defs"]
-        for name in ("work_context_view", "work_context_domain_group"):
+        for name in ("workflow_law_context", "workflow_law_context_law"):
             self.assertEqual(self.projected["$defs"][name], declared[name],
                              f"the {name} identity differs from its declared source")
-        group_ref = self.projected["$defs"]["work_context_view"]["properties"]["domain_groups"]["items"]["$ref"]
-        self.assertEqual(group_ref, "#/$defs/work_context_domain_group")
-        self.assertEqual(
-            self.projected["$defs"]["work_context_domain_group"]["properties"]["finding_ids"]["items"]["pattern"],
-            "^finding:[0-9]+:[0-9]+$")
 
 
 class _WorkloadReached(Exception):

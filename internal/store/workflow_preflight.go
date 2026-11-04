@@ -47,12 +47,11 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, request Workflow
 
 // PrepareWorkflowActionProof establishes, before any transaction for the
 // action opens, the knowledge-source proof the action reads inside it.
-// Approval and supersession verify the law and Domains the contract binds,
-// including a proposed contract that is not active yet; record_work_context
-// and confirm_premise validate Domain refs against the committed registry;
-// completion reads no law and needs no proof; every other action follows the
-// work's own demand (PrepareWorkLawProof). Git runs only here, outside the
-// pool (CD-0195 D2).
+// Approval verifies the law and Domains the contract binds, including a
+// proposed contract that is not active yet; confirm_premise validates Domain
+// refs against the committed registry; completion reads no law and needs no
+// proof; every other action follows the work's own demand
+// (PrepareWorkLawProof). Git runs only here, outside the pool (CD-0195 D2).
 // The agent boundary, the preflight, and the owning transaction share this one
 // rule, so none refuses for a missing proof another would hold. An
 // unreachable or invalid law home refuses: a law or registry boundary has no
@@ -65,7 +64,7 @@ func (s *Store) PrepareWorkflowActionProof(ctx context.Context, actionID, workID
 	switch actionID {
 	case "complete":
 		return ctx, nil
-	case "approve_contract", "record_work_context", "confirm_premise":
+	case "approve_contract", "confirm_premise":
 		return s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	}
 	return s.PrepareWorkLawProof(ctx, workID)

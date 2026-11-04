@@ -140,12 +140,11 @@ type workListInput struct {
 	Limit         int       `json:"limit,omitempty"`
 }
 type historyInput struct {
-	WorkID          string    `json:"work_id"`
-	Direction       string    `json:"direction"`
-	RecordKinds     []string  `json:"record_kinds"`
-	ContractVersion int64     `json:"contract_version,omitempty"`
-	Page            pageInput `json:"page"`
-	Limit           int       `json:"limit,omitempty"`
+	WorkID      string    `json:"work_id"`
+	Direction   string    `json:"direction"`
+	RecordKinds []string  `json:"record_kinds"`
+	Page        pageInput `json:"page"`
+	Limit       int       `json:"limit,omitempty"`
 }
 type continuityInput struct {
 	WorkID string    `json:"work_id"`

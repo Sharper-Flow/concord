@@ -42,6 +42,7 @@ List full detail no longer embeds a WorkPin. Mutation results retain their pins
 and derived intents under CD-0113 D1–D3. The continuity read is unchanged.
 History no longer carries the `workflow` sub-projection; resume and item-scoped
 list full detail carry current step state and per-item facts.
+The history read's `contract_version` selector retires with that sub-projection.
 
 The Product snapshot and work list retain their derived readiness behavior. The
 relation vocabulary and the effect of `blocks` on readiness remain unchanged;

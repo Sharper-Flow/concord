@@ -79,6 +79,22 @@ func TestQ7CurrentTransitionAndTieCursor(t *testing.T) {
 		old := base64.RawURLEncoding.EncodeToString([]byte(`{"version":1,"seq":1}`))
 		_, err = s.QueryQ7(t.Context(), Q7Request{Work: "q7-prior", Cursor: old})
 		assertFailureKind(t, err, KindInvalidCursor)
+		raw, err := base64.RawURLEncoding.DecodeString(*first.NextCursor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var legacy map[string]any
+		if err := json.Unmarshal(raw, &legacy); err != nil {
+			t.Fatal(err)
+		}
+		legacy["version"] = 2
+		legacy["contract_version"] = 0
+		raw, err = json.Marshal(legacy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = s.QueryQ7(t.Context(), Q7Request{Work: "q7-prior", Direction: direction, Cursor: base64.RawURLEncoding.EncodeToString(raw)})
+		assertFailureKind(t, err, KindInvalidCursor)
 		if err := s.Transact(t.Context(), func(tx *Transaction) error { return advanceStoreRevision(t.Context(), tx.tx) }); err != nil {
 			t.Fatal(err)
 		}

@@ -860,7 +860,6 @@ def project_workflow_plan_read_schemas(defs: dict, actions: list[dict]) -> None:
         return node
 
     defs["workflow_step_plan"] = rewrite(plan)
-    defs["workflow_read"]["properties"]["prelude"]["properties"]["intake"]["properties"]["outcome"].setdefault("type", "string")
     for name, schema in nested.items():
         defs[names[name]] = rewrite(schema)
     action_by_id = {action["id"]: action for action in actions}

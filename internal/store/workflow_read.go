@@ -8,23 +8,6 @@ import (
 	"time"
 )
 
-// WorkflowReadRequest bounds the read-only workflow trace/read projection.
-type WorkflowReadRequest struct {
-	WorkID string
-	Limit  int
-	// ContractVersion, when nonzero, selects one recorded contract version
-	// instead of the active one. The contract, architecture binding, and
-	// Product-truth flag then describe that version from its own pin; the
-	// instance fields stay current. A version the work
-	// never had refuses unknown_scope.
-	ContractVersion int64
-}
-
-type WorkflowReadDefinition struct {
-	Ref    string `json:"ref"`
-	Digest string `json:"digest"`
-}
-
 type WorkflowReadContract struct {
 	Version             int64                        `json:"version"`
 	Premise             string                       `json:"premise"`
@@ -111,141 +94,6 @@ type WorkflowReadBacklogAlignment struct {
 	AllMatchesRemoved bool     `json:"all_matches_removed"`
 }
 
-// WorkflowReadProjection is the bounded observation exposed through existing
-// read surfaces. Values derive from event-folded projections and are not an
-// authority for mutation.
-type WorkflowReadProjection struct {
-	WorkID              string                       `json:"work_id"`
-	State               string                       `json:"state"`
-	CurrentStep         string                       `json:"current_step"`
-	Plan                *WorkflowStepPlan            `json:"plan"`
-	Prelude             *workflowPreludeState        `json:"prelude,omitempty"`
-	PlanRecord          *WorkflowReadPlanDocument    `json:"plan_record,omitempty"`
-	RemovalScope        *WorkflowReadPlanDocument    `json:"removal_scope,omitempty"`
-	Contract            *WorkflowReadContract        `json:"contract,omitempty"`
-	CandidateIDs        []string                     `json:"candidate_ids"`
-	CompletionWarnings  []string                     `json:"completion_warnings"`
-	ChangesProductTruth bool                         `json:"changes_product_truth"`
-	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
-	ProposalRecord      *WorkflowProposalRecord      `json:"proposal_record,omitempty"`
-	ParkedDelivery      *WorkflowReadParkedDelivery  `json:"parked_delivery,omitempty"`
-	// DeliveryAssertion carries the current completed delivery assertion with
-	// its typed correction. The asserted artifact is the unchanged original
-	// event; the correction, when present, holds the effective merge evidence
-	// and its coordinator provenance, and the assertion carries that overlay's
-	// selection as effective_artifact: the correction's merge evidence when a
-	// correction exists, the asserted artifact otherwise.
-	DeliveryAssertion *WorkflowReadDeliveryAssertion `json:"delivery_assertion,omitempty"`
-	// Absence means no search was recorded; none_found is an explicit result.
-	BacklogAlignment *WorkflowReadBacklogAlignment `json:"backlog_alignment,omitempty"`
-}
-
-type WorkflowReadPlanDocument struct {
-	WorkVersion int64           `json:"work_version"`
-	Document    json.RawMessage `json:"document"`
-	RecordedAt  string          `json:"recorded_at"`
-	Actor       string          `json:"actor"`
-	EventRef    string          `json:"event_ref"`
-}
-
-// readWorkflowProjectionTx returns the bounded workflow observation from the
-// caller's snapshot. An absent instance returns an empty projection.
-func readWorkflowProjectionTx(ctx context.Context, q queryer, request WorkflowReadRequest) (WorkflowReadProjection, error) {
-	var out WorkflowReadProjection
-	if request.Limit <= 0 {
-		request.Limit = 32
-	}
-	if request.Limit > 100 {
-		return out, newFailure(KindInvalidOperation, "workflow_read", "workflow read limit exceeds the bounded maximum", false, "reduce the read limit")
-	}
-	var prelude sql.NullString
-	if err := q.QueryRowContext(ctx, `SELECT instance_state,prelude_state FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&out.State, &prelude); err != nil {
-		if err == sql.ErrNoRows {
-			return out, nil
-		}
-		return out, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow instance", true, "retry once the database is readable", err)
-	}
-	out.WorkID = request.WorkID
-	plan, err := readWorkflowPlanTx(ctx, q, request.WorkID)
-	if err != nil {
-		return out, err
-	}
-	out.Plan = plan
-	if prelude.Valid {
-		var value workflowPreludeState
-		if json.Unmarshal([]byte(prelude.String), &value) != nil || value.Intake.Outcome == "" {
-			return out, newFailure(KindInvariantViolation, "workflow_read", "stored workflow prelude is invalid", false, "restore a verified backup")
-		}
-		out.Prelude = &value
-	}
-	if plan != nil {
-		frontier := WorkflowStepPlanFrontier(*plan)
-		if len(frontier) > 0 {
-			out.CurrentStep = frontier[0].ID
-		}
-	} else if !isTerminalLifecycle(out.State) {
-		out.CurrentStep = "intake"
-		if out.Prelude != nil && out.Prelude.Intake.Outcome == WorkflowIntakeClarify && out.Prelude.Intake.OpenQuestionsFound && out.Prelude.Clarify == nil {
-			out.CurrentStep = "clarify"
-		}
-	}
-	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, q, request.WorkID, "workflow_read")
-	if contractErr != nil && contractErr != sql.ErrNoRows {
-		return out, contractErr
-	}
-	out.CandidateIDs = []string{}
-	out.CompletionWarnings = []string{}
-	out.ParkedDelivery = parkedDeliveryRead(ctx, q, plan, request.WorkID, out.CurrentStep, out.State)
-	deliveryAssertion, assertionErr := workflowDeliveryAssertionRead(ctx, q, request.WorkID)
-	if assertionErr != nil {
-		return out, assertionErr
-	}
-	out.DeliveryAssertion = deliveryAssertion
-	if out.BacklogAlignment, err = readWorkflowBacklogAlignment(ctx, q, request.WorkID); err != nil {
-		return out, err
-	}
-	if out.ProposalRecord, err = readLatestWorkflowProposal(ctx, q, request.WorkID, "workflow_read"); err != nil {
-		return out, err
-	}
-	if out.PlanRecord, err = readWorkflowPlanDocument(ctx, q, request.WorkID, false); err != nil {
-		return out, err
-	}
-	if out.RemovalScope, err = readWorkflowPlanDocument(ctx, q, request.WorkID, true); err != nil {
-		return out, err
-	}
-	if err := readWorkflowProjectionContractTx(ctx, q, request, activeContractVersion, &out); err != nil {
-		return out, err
-	}
-	if err := readWorkflowProjectionCandidatesTx(ctx, q, request, activeContractVersion, &out); err != nil {
-		return out, err
-	}
-	if err := readWorkflowProjectionWarningsTx(ctx, q, request.WorkID, &out); err != nil {
-		return out, err
-	}
-	return out, nil
-}
-
-func readWorkflowPlanDocument(ctx context.Context, q queryer, workID string, removal bool) (*WorkflowReadPlanDocument, error) {
-	query, action := `SELECT work_version,payload,recorded_at,actor,event_ref FROM workflow_plan_records WHERE work_id=?`, "record_plan"
-	if removal {
-		query, action = `SELECT work_version,payload,recorded_at,actor,event_ref FROM workflow_removal_scopes WHERE work_id=?`, "record_removal_scope"
-	}
-	var document WorkflowReadPlanDocument
-	var raw string
-	err := q.QueryRowContext(ctx, query, workID).Scan(&document.WorkVersion, &raw, &document.RecordedAt, &document.Actor, &document.EventRef)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, workflowProjectionError(err, "cannot read workflow document")
-	}
-	document.Document = json.RawMessage(raw)
-	if _, err := validateWorkflowPlanActionPayload(action, document.Document); err != nil {
-		return nil, newFailure(KindInvariantViolation, "workflow_read", "stored workflow document is invalid", false, "restore a verified backup")
-	}
-	return &document, nil
-}
-
 // readLatestWorkflowProposal reads the latest recorded proposal, or nil when
 // none is recorded. A record with malformed arrays is an invariant
 // violation; op names the reader in every failure.
@@ -265,33 +113,6 @@ func readLatestWorkflowProposal(ctx context.Context, q queryer, workID, op strin
 	return &proposal, nil
 }
 
-func readWorkflowProjectionContractTx(ctx context.Context, q queryer, request WorkflowReadRequest, activeContractVersion int64, out *WorkflowReadProjection) error {
-	version := activeContractVersion
-	if request.ContractVersion != 0 {
-		version = request.ContractVersion
-	}
-	contract, err := readWorkflowContractVersion(ctx, q, request.WorkID, version)
-	switch {
-	case err == sql.ErrNoRows && request.ContractVersion != 0:
-		return newFailure(KindUnknownScope, "workflow_read", "the work item has no such contract version", false, "choose a contract version the work item recorded")
-	case err == sql.ErrNoRows:
-	case err != nil:
-		return err
-	case request.ContractVersion != 0:
-		out.ChangesProductTruth = contract.ChangesProductTruth != nil && *contract.ChangesProductTruth
-		out.ArchitectureBinding = contract.ArchitectureBinding
-		out.Contract = &contract
-	default:
-		out.ArchitectureBinding = contract.ArchitectureBinding
-		out.Contract = &contract
-		// The current contract's recorded rule answers first; only a
-		// pre-cutover row without one falls back to the live plan's type
-		// (every picked type except research changes Product truth).
-		out.ChangesProductTruth = workflowCurrentProductTruth(&contract, out.Plan)
-	}
-	return nil
-}
-
 func workflowCurrentProductTruth(contract *WorkflowReadContract, plan *WorkflowStepPlan) bool {
 	if contract != nil && contract.ChangesProductTruth != nil {
 		return *contract.ChangesProductTruth
@@ -304,37 +125,6 @@ func workflowCurrentProductTruth(contract *WorkflowReadContract, plan *WorkflowS
 		contract.ChangesProductTruth = &truth
 	}
 	return truth
-}
-
-func readWorkflowProjectionCandidatesTx(ctx context.Context, q queryer, request WorkflowReadRequest, activeContractVersion int64, out *WorkflowReadProjection) error {
-	rows, err := q.QueryContext(ctx, `SELECT candidate_ref FROM workflow_candidate_sets WHERE work_id=? AND contract_version=COALESCE(?,0) ORDER BY candidate_ref LIMIT ?`, request.WorkID, activeContractVersion, request.Limit)
-	if err != nil {
-		return wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow candidates", true, "retry once the database is readable", err)
-	}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow candidate", true, "retry once the database is readable", err)
-		}
-		out.CandidateIDs = append(out.CandidateIDs, id)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return wrapFailure(KindUnavailable, "workflow_read", "cannot scan workflow candidates", true, "retry once the database is readable", err)
-	}
-	rows.Close()
-	return nil
-}
-
-func readWorkflowProjectionWarningsTx(ctx context.Context, q queryer, workID string, out *WorkflowReadProjection) error {
-	var warnings string
-	if err := q.QueryRowContext(ctx, `SELECT json_extract(completion_payload,'$.warnings') FROM workflow_instances WHERE work_id=? AND completion_payload IS NOT NULL`, workID).Scan(&warnings); err == nil && warnings != "" && warnings != "null" {
-		if json.Unmarshal([]byte(warnings), &out.CompletionWarnings) != nil {
-			return newFailure(KindInvariantViolation, "workflow_read", "completion warnings are malformed", false, "restore a verified backup into a new path with concord restore, then swap")
-		}
-	}
-	return nil
 }
 
 func readWorkflowBacklogAlignment(ctx context.Context, q queryer, workID string) (*WorkflowReadBacklogAlignment, error) {

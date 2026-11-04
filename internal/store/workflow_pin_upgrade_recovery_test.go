@@ -150,10 +150,10 @@ func TestLawPinUpgradeRetainsReviewAndRecovers(t *testing.T) {
 				t.Fatalf("snapshot predecessor: %v", err)
 			}
 			report, err := Upgrade(ctx, path, nil)
-			if err != nil || report.SchemaVersion != 183 {
-				t.Fatalf("upgrade to 183: %+v %v", report, err)
+			if err != nil || report.SchemaVersion != CurrentSchemaVersion() {
+				t.Fatalf("upgrade to %d: %+v %v", CurrentSchemaVersion(), report, err)
 			}
-			if len(report.Applied) != 183-schema {
+			if len(report.Applied) != CurrentSchemaVersion()-schema {
 				t.Fatalf("migration count=%v, predecessor=%d", report.Applied, schema)
 			}
 			for i, version := range report.Applied {

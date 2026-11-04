@@ -15,7 +15,7 @@ import (
 // production: any change in the widest shape fails this exact figure first,
 // and the pin moves only by a deliberate re-derivation beside the ceilings'
 // own next-power-of-two assertions.
-const derivedRequestWireMaxBytes = 10412653
+const derivedRequestWireMaxBytes = 10398807
 
 func TestContinuityRetiresDuplicateReviewInput(t *testing.T) {
 	defs := payloadschema.Document()["$defs"].(map[string]any)

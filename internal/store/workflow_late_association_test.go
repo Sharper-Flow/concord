@@ -16,13 +16,13 @@ func seedCriterionAssociationAtStep(t *testing.T, workID, step string) (workflow
 	for ordinal, id := range []string{"predicate:first", "predicate:second"} {
 		predicates = append(predicates, map[string]any{"predicate_id": id, "ordinal": ordinal, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}})
 	}
-	route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, "conclude", []string{}, []string{"artifact"}, predicates...)
+	route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, step, []string{}, []string{"artifact"}, predicates...)
 	t.Cleanup(func() { _ = route.store.Close() })
+	if step != "conclude" {
+		return route, ""
+	}
 	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
 	proof := qAssociateCurrentProofAt(t, f, "conclude", "", false)
-	if step != "conclude" {
-		moveWorkflowPlanFixtureFrontier(t, route.store, workID, step)
-	}
 	return route, proof.receipt
 }
 

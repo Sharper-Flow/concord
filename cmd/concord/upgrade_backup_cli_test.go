@@ -89,7 +89,7 @@ func TestUpgradeKeepsTheSnapshotWhenTheBreakingStepFails(t *testing.T) {
 	var snapshots []string
 	for _, entry := range entries {
 		name := entry.Name()
-		if strings.HasPrefix(name, "pre-upgrade-") && !strings.HasSuffix(name, ".json") && !strings.HasSuffix(name, "-wal") && !strings.HasSuffix(name, "-shm") {
+		if !entry.IsDir() && strings.HasPrefix(name, "pre-upgrade-") && !strings.HasSuffix(name, ".json") && !strings.HasSuffix(name, "-wal") && !strings.HasSuffix(name, "-shm") {
 			snapshots = append(snapshots, name)
 		}
 	}

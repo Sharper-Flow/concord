@@ -61,16 +61,18 @@ reclamation that never deletes retained authority.
 ## Contract
 
 The binding contract is sections 1 through 3: the two-authority decision
-with verification and manifest rules, the six-step restore protocol with the
+with verification and manifest rules, the four-step restore protocol with the
 `.recover` emergency boundary, and the failure-handling and reclamation
-table. Sections 4 through 7 record invariants, the clean-machine acceptance
-drill, reopen criteria, and sources, and carry no obligation.
+table. Sections 4 through 7 record invariants, acceptance proof, reopen
+criteria, and sources, and carry no obligation.
 ## 1. Decision
 
-Concord backs up and restores exactly two authorities:
+Concord's recovery spans exactly two authorities:
 
-1. a consistent snapshot of the one local SQLite database; and
-2. canonical git repositories containing durable notes.
+1. the one local SQLite database, which Concord backs up and restores; and
+2. canonical git repositories containing durable notes, which host tools back
+   up, restore, and integrity-check. Concord records their commit IDs as
+   manifest inventory and runs no git command during backup or restore.
 
 WIP output, screenshots, blobs/CAS, process-exhaust receipts, derived SQLite
 projections, caches, and temporary backup files are not authority and are not backup
@@ -82,7 +84,7 @@ before promotion. A disposable restore copy also passes supported forward migrat
 and restore verification before promotion of the snapshot and its manifest.
 This rule includes pre-upgrade snapshots. A failure prevents the guarded
 mutation. Verification never changes the source database or the retained snapshot.
-Git restores pass `git fsck --full`. A backup manifest records schema
+A backup manifest records schema
 version, snapshot ID, creation time, DB checksum, and git repository commit IDs. It is
 an inventory, not a third authority.
 Restore results distinguish source-snapshot inventory from the verified restored database
@@ -97,15 +99,21 @@ or locator machinery. No replay of retained events exists
 
 ## 2. Restore protocol
 
-1. create a clean recovery directory; never overwrite the live database in place;
-2. restore and verify git repositories first;
-3. verify the SQLite snapshot, atomically install it as the next local DB, and open it
-   with accepted per-connection settings including `PRAGMA foreign_keys=ON`;
-4. apply forward-only schema migrations; reject a snapshot newer than the
-   installed binary's supported schema;
-5. rebuild derived indexes from git; verify PM6 locators and run the PM1 corpus; and
-6. swap the verified recovery directory into service atomically, otherwise retain the
-   prior live state and report typed recovery failure.
+1. stage into a clean temporary staging file beside the destination; never
+   overwrite the live database in place;
+2. verify the SQLite snapshot, restore it into the staging file with the Online
+   Backup API, and open it with accepted per-connection settings including
+   `PRAGMA foreign_keys=ON`;
+3. apply forward-only schema migrations; reject a snapshot newer than the
+   installed binary's supported schema; and
+4. promote the verified staging file to the destination by atomic no-replace
+   link; any failure creates no destination, leaves any existing file and the
+   live database untouched, and reports a typed recovery failure.
+
+The protocol rebuilds nothing from git and probes no git repository: it verifies
+the snapshot's retained current state and applies migrations. Resolving a PM6
+locator against git belongs to the consumer
+([PM6 §3](canonical-git-note-placement.md#3-historical-locator)), never to the restore.
 
 `sqlite3 .recover` is emergency salvage only when no verified snapshot remains. Its
 output is suspect, must be isolated, and cannot replace a verified restore without an
@@ -118,8 +126,6 @@ operator-approved recovery record.
 | backup interrupted | discard partial output; do not promote manifest; retry from a new snapshot |
 | verification fails | quarantine candidate; retain live authority unchanged |
 | restore interrupted | prior or verified-next state only; never expose partial state |
-| git integrity failure | reject restore and surface affected repository/objects |
-| projection corruption | restore the last verified snapshot, then re-verify |
 | store corruption | restore last verified snapshot; `.recover` only last resort |
 
 PM10 authorizes deletion only for disposable caches and completed, verified
@@ -138,8 +144,7 @@ recoverable; an export failure aborts before the drop.
 1. Only accepted SQLite and git authorities are required for clean-machine recovery.
 2. Every promoted backup and restore passes SQLite triple verification; `integrity_check`
    alone is insufficient because it does not check foreign keys.
-3. A recovery never serves a partial DB, mixed git/DB generation, or unverified
-   derived index as complete.
+3. A recovery never serves a partial or unverified database as complete.
 4. Recovery restores verified snapshots; it never substitutes `.recover` output
    or event replay
    ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
@@ -151,14 +156,16 @@ recoverable; an export failure aborts before the drop.
 Schema manifests are versioned. Restore to a newer compatible binary applies
 supported forward migrations and verifies; restore to an older unsupported binary
 rejects before serving.
-The production gate is an automated clean-machine drill that restores only the manifest,
-SQLite snapshot, and git clones; rebuilds every disposable derived index; validates note
-locators; and passes the PM1 query corpus with no hidden local state.
+Restore acceptance is the round-trip proof through the real CLI
+(`TestBackupAndRestoreRoundTripViaCLI`, `cmd/concord/main_test.go`): a
+manifest and snapshot pair restores on a clean destination with no hidden
+local state. No derived-index rebuild, note-locator validation or query
+corpus runs at restore.
 
 Required fault tests: concurrent-writer backup; interrupted backup/restore; corrupted
-snapshot; foreign key (FK) only violation; missing git object; projection-only corruption; schema
-version direction; historical locator preservation; safe temporary-file/projection GC; and
-proof that no screenshot/log/CAS/receipt is required.
+snapshot; foreign key (FK) only violation; restore-stage current-state tampering;
+schema version direction; safe temporary-file GC; and proof that no
+screenshot/log/CAS/receipt is required.
 
 ## 6. Reopen criteria
 
@@ -174,8 +181,7 @@ restore proof before introducing a daemon, remote store, or blob mechanism.
 - SQLite integrity, FK, and quick checks: https://sqlite.org/pragma.html
 - SQLite recovery caveats: https://sqlite.org/recovery.html
 - SQLite VACUUM / `VACUUM INTO`: https://sqlite.org/lang_vacuum.html
-- Git object verification and GC: https://git-scm.com/docs/git-fsck and
-  https://git-scm.com/docs/git-gc
+- Git GC grace windows: https://git-scm.com/docs/git-gc
 
 ## Acceptance criteria
 

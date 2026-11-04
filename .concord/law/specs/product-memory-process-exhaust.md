@@ -37,7 +37,7 @@ completion requires no publication or deletion attestation.
 The store keeps current state and finite verified snapshots under CD-0242 D2.
 Evidence bindings remain attributed and subject-bound under CD-0242 D8.
 PM6 §1 owns reported-link completion and disposal of step
-records. PM10 restores accepted SQLite and Git authorities, not producer-owned
+records. Recovery restores accepted SQLite and Git authorities, not producer-owned
 WIP output.
 
 ### 2. Findings use their existing owners

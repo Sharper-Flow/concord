@@ -129,8 +129,8 @@ There is no general evidence-store migration or backfill. Existing WIP paths, at
 large outputs are not scanned, hashed, copied, or enrolled into Product memory.
 
 There is no Concord blob retention period, refcount, quarantine, backup inventory, or
-garbage collector. PM10 therefore backs up the accepted SQLite/git authority only; it
-does not inherit a CAS subtree from PM8. Accepted PM9 keeps process findings in concise
+garbage collector. PM10 therefore backs up the accepted SQLite authority only and
+inventories the git authorities; it does not inherit a CAS subtree from PM8. Accepted PM9 keeps process findings in concise
 durable knowledge through its existing reviewed routes when material and rejects
 a separate process-exhaust or completion receipt, not automatic retention of raw WIP bytes.
 

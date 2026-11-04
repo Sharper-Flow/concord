@@ -18,12 +18,12 @@
 - **Approval:** Operator raised the question on 2026-08-26 while deciding how much
   the launcher serves one operator's setup against general use, and selected this
   record as the next launcher move. The pull request is the public record.
-- **Related:** C18 (§§5, 6, 7), CD-0014, CD-0021, CD-0031, CD-0008 (D1), CD-0219
+- **Related:** C18 (§§5, 6, 7), CD-0014, CD-0021, CD-0252, CD-0008 (D1), CD-0219
 - **Approval:** Host-owned session start and resume: Concord (CON) issue
   CON-910 (2026-10-13), under the Snowball coordinator's operator-delegated
   approval.
 - **Preserves:** C18 §6's exclusion of external-system execution, C18 §7's
-  per-instance ambient Product, CD-0014's no-renderer rule, CD-0031's
+  per-instance ambient Product, CD-0014's no-renderer rule, CD-0252's
   core-derived session boot
 
 ## Context
@@ -72,11 +72,11 @@ terminal session identifier.
 
 ### D3. Continuity never travels through a terminal session identifier
 
-Resumption of workflow position is not a terminal fact. Under CD-0031 the
-core derives the bounded context packet from the canonical CD-0016 continuity
-projection; session preparation renders and validates it, and agents explicitly
-read current continuity when they need it. Managed position comes
-from that projection, never from a terminal identifier.
+Resumption of workflow position is not a terminal fact. Under CD-0252 the
+core derives the bounded resume-plan and addressed-handoff packet; session
+preparation renders and validates it, and agents explicitly read current
+state when they need it. Managed position comes from canonical state, never
+from a terminal identifier.
 
 A host remains free to resume its own sessions by identifier outside Concord.
 Deriving workflow position from that identifier would be the split-authority
@@ -104,8 +104,8 @@ abstraction with one real implementation on one machine. The host boundary
 already separates the concerns with no Concord code at all.
 
 **Derive workflow position from a terminal session identifier.** Rejected
-because CD-0031 derives continuity from the canonical projection at the
-moment of use. A derived identifier would introduce a second source for
+because CD-0252 derives the resume plan and addressed handoff from canonical
+state. A derived identifier would introduce a second source for
 workflow position.
 
 **Keep a Concord entry route beside the host start.** Rejected because the

@@ -24,8 +24,7 @@ the declared check. A failed declared check stops the push. If the repository
 declares no such checks, say so in the completion report.
 
 Stop when required acceptance and checks pass and material change-related risks
-have adequate evidence. Do not add verification merely to repeat a passing
-result in another record. Reporting a gap does not satisfy required acceptance.
+have adequate evidence. Reporting a gap does not satisfy required acceptance.
 
 A regression test must exercise the change. Confirm it fails without the fix
 before trusting that it passes with the fix. For a removal, the deletion

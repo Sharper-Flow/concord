@@ -14,7 +14,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-30
 - **Scope:** Host-owned Git worktree isolation and Concord's self-host readiness restriction
-- **Related:** CD-0010, CD-0031, CD-0049, CD-0072, CD-0079, CD-0104, CD-0243
+- **Related:** CD-0010, CD-0252, CD-0049, CD-0072, CD-0079, CD-0104, CD-0243
 - **Preserves:** CD-0010 and the default-checkout implementation firewall
 
 ## Decision

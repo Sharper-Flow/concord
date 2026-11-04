@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -33,6 +34,7 @@ type sessionPrepareOutput struct {
 var sessionPrepareID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 
 const sessionPrepareRefusalExit = 2
+const sessionPreparePromptPrefix = "Concord session boot packet (core-derived at its source-version watermark; reread concord_work_trace.resume and item-scoped concord_work_browse.list detail=full before consequential action. Reconstruct referenced documents and verify digest/length before use: hash compact UTF-8 JSON in source member order with Go JSON escaping for <, >, &, U+2028 and U+2029; preserve fragment bytes without re-encoding. If changed or unavailable, re-prepare boot):\n"
 
 // Untyped failures keep the caller's ordinary failure or identity-refusal status.
 func sessionPrepareFailureExit(err error, untypedExit int) int {
@@ -120,23 +122,39 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, hostCo
 		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
 		return 1
 	}
-	packet, err := bootstrap(context.Background(), database, input.ProductID, input.WorkID, resolution.ProjectID)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
-		return sessionPrepareFailureExit(err, 1)
-	}
-	prompt := "Concord session boot packet (core-derived authority at its watermark; reread concord_work_trace.continuity before consequential action):\n" + string(packet)
-	if input.Task != "" {
-		prompt += "\nTask: " + input.Task
-	}
-	if len(prompt) > agent.MaxEnvelopeBytes {
-		writeOperatorDiagnostic(errOut, "session-prepare", "launch prompt exceeds 65536 bytes")
-		return sessionPrepareRefusalExit
-	}
 	summary, err := s.ReadWorkItemSummary(context.Background(), input.WorkID)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
 		return sessionPrepareFailureExit(err, 1)
 	}
-	return writeJSON(out, sessionPrepareOutput{SchemaVersion: "1.0", Agent: handle, Directory: cwd, ProductID: input.ProductID, WorkID: input.WorkID, Title: summary.Title, Prompt: prompt}, errOut)
+	taskTail := ""
+	if input.Task != "" {
+		taskTail = "\nTask: " + input.Task
+	}
+	render := func(packet []byte) sessionPrepareOutput {
+		return sessionPrepareOutput{SchemaVersion: "1.0", Agent: handle, Directory: cwd, ProductID: input.ProductID, WorkID: input.WorkID, Title: summary.Title, Prompt: sessionPreparePromptPrefix + string(packet) + taskTail}
+	}
+	fits := func(packet []byte) (bool, error) {
+		value := render(packet)
+		data, err := json.Marshal(value)
+		if err != nil {
+			return false, err
+		}
+		return len(value.Prompt) <= agent.MaxEnvelopeBytes && len(data) <= agent.MaxEnvelopeBytes, nil
+	}
+	packet, err := bootstrap(context.Background(), database, input.ProductID, input.WorkID, resolution.ProjectID, fits)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
+		return sessionPrepareFailureExit(err, 1)
+	}
+	fit, err := fits(packet)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
+		return 1
+	}
+	if !fit {
+		writeOperatorDiagnostic(errOut, "session-prepare", "launch prompt exceeds 65536 bytes")
+		return sessionPrepareRefusalExit
+	}
+	return writeJSON(out, render(packet), errOut)
 }

@@ -16,7 +16,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
-	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -568,64 +567,6 @@ func TestContinuityFragmentSelectorPropagatesRenderErrors(t *testing.T) {
 			t.Fatalf("the search rendered %d times, want exactly the failing third call", calls)
 		}
 	})
-}
-
-// TestContinuityProjectionReferenceContract holds the shared projection
-// reference to its closed shape: it validates against the published boot
-// reference schema, stays inside the header byte budget, carries the exact
-// canonical digest and byte length of the captured snapshot, states the
-// omitted projection, and names the canonical initial continuity read.
-func TestContinuityProjectionReferenceContract(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, _, _, _, _ := workflowEngineFixture(t, "reference fixture")
-	snapshot, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: "work-1", Limit: 20})
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc, digest, err := ContinuityCanonicalDocument(snapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reference, err := ContinuityProjectionReference(snapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := json.Marshal(reference)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := payloadschema.Validate("continuity_boot_projection_reference", raw); err != nil {
-		t.Fatalf("projection reference failed its closed schema: %v", err)
-	}
-	if len(raw) > 4096 {
-		t.Fatalf("projection reference header measured %d bytes against its 4,096-byte bound", len(raw))
-	}
-	if reference["digest"] != digest {
-		t.Fatalf("reference digest %v, want the canonical %s", reference["digest"], digest)
-	}
-	if reference["total_bytes"] != len(doc) {
-		t.Fatalf("reference total_bytes %v, want %d", reference["total_bytes"], len(doc))
-	}
-	if reference["projection_omitted"] != true {
-		t.Fatal("the reference must state its omitted projection exactly")
-	}
-	if snapshot.WorkPin == nil || reference["work_version"] != snapshot.WorkPin.Version {
-		t.Fatalf("reference work_version %v, want the captured pin version", reference["work_version"])
-	}
-	pointer, _ := reference["read_pointer"].(map[string]any)
-	input, _ := pointer["input"].(map[string]any)
-	page, _ := input["page"].(map[string]any)
-	if pointer["tool"] != "concord_work_trace" || pointer["operation"] != "continuity" || input["work_id"] != "work-1" || page["cursor"] != nil || page["limit"] != 20 {
-		t.Fatalf("read pointer is not the canonical initial continuity read: %+v", pointer)
-	}
-	// The reference renders the same identity header the fragment pages
-	// repeat, and it never carries a projection member.
-	for _, member := range []string{"pinned", "projection_page", "observations"} {
-		if _, present := reference[member]; present {
-			t.Fatalf("the reference carries the projection member %q", member)
-		}
-	}
 }
 
 // TestContinuityProjectionPagePropagatesRenderErrors proves a real render

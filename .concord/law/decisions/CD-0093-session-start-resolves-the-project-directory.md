@@ -19,12 +19,12 @@
 - **Approval:** The operator raised the question on 2026-09-01 after a
   launcher-started session ran against the wrong repository. The pull request is
   the public record.
-- **Related:** CD-0078, CD-0079, CD-0031, CD-0049, CD-0088, issues #661, #664,
+- **Related:** CD-0078, CD-0079, CD-0252, CD-0049, CD-0088, issues #661, #664,
   and the closed #426, #428, #430, #466
 - **Approval:** Session-preparation directory discipline: Concord (CON)
   issue CON-910 (2026-10-13), under the Snowball coordinator's
   operator-delegated approval.
-- **Preserves:** CD-0078 D1's host ownership of placement, CD-0031's
+- **Preserves:** CD-0078 D1's host ownership of placement, CD-0252's
   core-derived session boot, and CD-0049 D4's refusal of a degraded start
 
 ## Context

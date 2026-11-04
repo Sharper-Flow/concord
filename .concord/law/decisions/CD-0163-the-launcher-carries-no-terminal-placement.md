@@ -51,9 +51,9 @@ placement too (CD-0088 D1).
 
 ### D2. Workflow position comes from explicit continuity
 
-Resumption of workflow position is the CD-0016 canonical projection,
-delivered by session preparation and explicit Concord reads (CD-0031), never
-a terminal session identifier.
+Resumption of workflow position comes from the canonical resume plan and
+addressed handoff delivered by session preparation (CD-0252) and explicit
+current Concord reads (CD-0016), never a terminal session identifier.
 
 ## Consequences
 

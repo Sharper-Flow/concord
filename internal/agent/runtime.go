@@ -1343,8 +1343,8 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 // FitContinuity renders the largest complete prefix of one captured
 // continuity snapshot whose serialized form fits maximum bytes. It shrinks
 // the boundary page, which its cursor resumes. render returns
-// the caller's final wire object and its size, so session boot and the
-// continuity read measure what they emit. When even one boundary
+// the caller's final wire object and its size, so callers measure what they
+// emit. When even one boundary
 // exceeds maximum, the smallest rendering returns with its size
 // and the caller refuses.
 func FitContinuity[T any](snapshot store.ContinuitySnapshot, req store.ContinuityRequest, maximum int, render func(store.ContinuitySnapshot) (T, int, error)) (T, int, error) {
@@ -1398,44 +1398,6 @@ func ContinuityCanonicalDocument(snapshot store.ContinuitySnapshot) ([]byte, str
 	return doc, "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-// ContinuityProjectionReference renders the closed projection reference for
-// one captured continuity snapshot: the identity header, the canonical
-// document's exact digest and byte length, the explicit omitted-projection
-// status, and the canonical initial continuity read pointer at the read's
-// default boundary window of 20. It carries no
-// projection member and no fragment, claims no complete contract, question,
-// intent set, or evidence, and changes no reading obligation; the
-// authenticated page stream reconstruction precedes use, and a later read
-// may describe newer state or a different session's held leases than this
-// captured snapshot.
-func ContinuityProjectionReference(snapshot store.ContinuitySnapshot) (map[string]any, error) {
-	doc, digest, err := ContinuityCanonicalDocument(snapshot)
-	if err != nil {
-		return nil, err
-	}
-	header := continuityProjectionHeaderOf(snapshot)
-	reference := map[string]any{
-		"work_id":            header.WorkID,
-		"workflow_instance":  header.WorkflowInstance,
-		"workflow_step":      header.WorkflowStep,
-		"watermark":          header.Watermark,
-		"digest":             digest,
-		"total_bytes":        len(doc),
-		"projection_omitted": true,
-		// Limit 20 is the read's default boundary window, not the boot
-		// capture's window: boot captures its snapshot at limit 1
-		// (cmd/concord/session.go), the digest field describes exactly that
-		// captured document, and the later read this pointer starts is
-		// separate — it can describe newer state or a different session's
-		// held leases than the captured snapshot.
-		"read_pointer": map[string]any{"tool": "concord_work_trace", "operation": "continuity", "input": map[string]any{"work_id": header.WorkID, "page": map[string]any{"cursor": nil, "limit": 20}}},
-	}
-	if header.WorkVersion != nil {
-		reference["work_version"] = *header.WorkVersion
-	}
-	return reference, nil
-}
-
 // continuityResultMeta builds the continuity result metadata both the inline
 // answer and every projection page carry: one source watermark, ordering
 // keys, and the continuation the envelope cursor authenticates.
@@ -1456,8 +1418,7 @@ func continuityResultMetaObservedAt(snapshot store.ContinuitySnapshot, next *str
 
 // continuityProjectionHeader is the small closed identity header every page
 // of one oversized projection repeats: exact scalar work, step, instance,
-// and watermark identities, never an abbreviated projection member. The
-// boot projection reference renders the same header.
+// and watermark identities, never an abbreviated projection member.
 type continuityProjectionHeader struct {
 	WorkID           string
 	WorkVersion      *int64

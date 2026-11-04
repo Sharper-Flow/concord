@@ -159,24 +159,26 @@ func TestOverlapBlocksRemovesWorkFromReady(t *testing.T) {
 	setWorkLifecycleForTesting(t, s, "ready-blocked", "needed")
 	readyIDs := func() map[string]bool {
 		t.Helper()
-		ready, err := s.QueryQ5(ctx, Q5Request{Product: "product", Project: "project"})
+		ready, err := s.QueryQ3(ctx, Q3Request{Product: "product", Project: "project", WorkIDs: []string{"ready-blocker", "ready-blocked"}, Detail: "full"})
 		if err != nil {
 			t.Fatal(err)
 		}
 		ids := map[string]bool{}
 		for _, item := range ready.Items {
-			ids[item.ID] = true
+			if item.Ready {
+				ids[item.ID] = true
+			}
 		}
 		return ids
 	}
 	if ids := readyIDs(); ids["ready-blocked"] || !ids["ready-blocker"] {
 		t.Fatalf("ready IDs = %v, want ready-blocked gated out and ready-blocker ready", ids)
 	}
-	blocked, err := s.QueryQ4(ctx, Q4Request{Product: "product", Project: "project", Limit: 1, Depth: 3})
+	blocked, err := s.QueryQ8(ctx, Q8Request{Work: "ready-blocked", RelationKinds: []string{"blocked_by"}, Direction: "outgoing", Depth: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(blocked.Items) != 1 || blocked.Items[0].ID != "ready-blocked" || len(blocked.Items[0].Blockers) != 1 || blocked.Items[0].Blockers[0].ID != "ready-blocker" || len(blocked.Items[0].Blockers[0].Blockers) != 0 {
+	if len(blocked.Edges) != 1 || blocked.Edges[0].Source != "ready-blocked" || blocked.Edges[0].Target != "ready-blocker" {
 		t.Fatalf("blocked = %#v, want only ready-blocked with ready-blocker as its sole leaf blocker", blocked)
 	}
 	setWorkTerminalForTesting(t, s, "ready-blocker")

@@ -5,12 +5,7 @@ import (
 	"testing"
 )
 
-// The persisted work task rides the single-record scope read the
-// adapter's lane packet projects from. readOneWork returns the narrative and
-// the task, so concord_work_browse.scope returns the field its own
-// work_summary schema declares and a dispatched worker receives the recorded
-// instruction.
-func TestScopeReadCarriesThePersistedWorkTask(t *testing.T) {
+func TestFullListCarriesThePersistedWorkTask(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -29,14 +24,14 @@ func TestScopeReadCarriesThePersistedWorkTask(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := s.QueryQ6(ctx, Q6Request{Work: "packet-task-work"})
+	result, err := s.QueryQ3(ctx, Q3Request{Product: "product", WorkIDs: []string{"packet-task-work"}, Detail: "full"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Work == nil {
-		t.Fatal("scope returned no work item")
+	if len(result.Items) != 1 {
+		t.Fatal("list did not return one work item")
 	}
-	if result.Work.Task != "Reproduce, extract the loop, and keep the budget green." {
-		t.Fatalf("scope work task = %q, want the persisted task", result.Work.Task)
+	if result.Items[0].Task != "Reproduce, extract the loop, and keep the budget green." {
+		t.Fatalf("list work task = %q, want the persisted task", result.Items[0].Task)
 	}
 }

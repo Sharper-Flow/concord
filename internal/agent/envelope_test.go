@@ -46,7 +46,6 @@ func TestOperationPayloadValidationNamesSiblingOperationForUnknownField(t *testi
 	for _, testCase := range []struct {
 		tool, operation, payload, owner string
 	}{
-		{"concord_work_browse", "scope", `{"product_id":"p-1","detail":"summary"}`, "concord_work_browse.list"},
 		{"concord_work_transition", "workflow_action", `{"work_id":"w-1","expected_version":1,"action_id":"do_work","idempotency_key":"i-1","actor":"actor-1"}`, "concord_work_transition.remove"},
 	} {
 		t.Run(testCase.tool+"."+testCase.operation, func(t *testing.T) {

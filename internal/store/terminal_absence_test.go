@@ -60,9 +60,8 @@ func assertPublishedExecutionAbsenceReaders(t *testing.T, s *Store, home Knowled
 		"summary":   func() error { _, err := s.ReadWorkItemSummary(ctx, "work-published"); return err },
 		"history":   func() error { _, err := s.QueryQ7(ctx, Q7Request{Work: "work-published"}); return err },
 		"relations": func() error { _, err := s.QueryQ8(ctx, Q8Request{Work: "work-published"}); return err },
-		"scope": func() error {
-			_, err := s.QueryQ6(ctx, Q6Request{Work: "work-published", Product: "prod-alpha", Project: "proj-web"})
-			return err
+		"scoped absence": func() error {
+			return publishedWorkAbsenceInScopeQ(ctx, s.db, "work-published", "prod-alpha", "proj-web", "test")
 		},
 	} {
 		t.Run(name, func(t *testing.T) { assertPublishedAbsence(t, read(), home, commit, hash) })
@@ -77,13 +76,11 @@ func TestPublishedExecutionAbsenceProjectGuards(t *testing.T) {
 			_, err := EvaluateProjectSessionRetirement(ctx, s, "work-published", "proj-other", "session-reader", t.TempDir())
 			return err
 		},
-		"scope Product": func() error {
-			_, err := s.QueryQ6(ctx, Q6Request{Work: "work-published", Product: "prod-other"})
-			return err
+		"absence Product": func() error {
+			return publishedWorkAbsenceInScopeQ(ctx, s.db, "work-published", "prod-other", "", "test")
 		},
-		"scope Project": func() error {
-			_, err := s.QueryQ6(ctx, Q6Request{Work: "work-published", Project: "proj-other"})
-			return err
+		"absence Project": func() error {
+			return publishedWorkAbsenceInScopeQ(ctx, s.db, "work-published", "", "proj-other", "test")
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

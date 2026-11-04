@@ -22,7 +22,7 @@ func TestEnvelopeGoldenOutcomes(t *testing.T) {
 			return newOKReadForTest(NewBase("req-1", "concord_product_view", "resolve"), json.RawMessage(`{"product_id":"p-1","projects":[]}`))
 		}},
 		{"ok mutation", func() Envelope {
-			return NewOKMutation(NewBase("req-2", "concord_work_define", "capture"), json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), []ChangedRef{{EntityKind: "work", ID: "w-1", Version: "2"}}, []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "created"}})
+			return NewOKMutation(NewBase("req-2", "concord_work_define", "capture"), json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), []ChangedRef{{EntityKind: "work", ID: "w-1", Version: "2"}}, []NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "created"}})
 		}},
 		{"core error", func() Envelope {
 			e := NewBase("req-5", "concord_work_browse", "list")
@@ -97,7 +97,7 @@ func TestMutationEnvelopeIntentCapacity(t *testing.T) {
 		t.Run(fmt.Sprint(tc.count), func(t *testing.T) {
 			intents := make([]NextIntent, tc.count)
 			for i := range intents {
-				intents[i] = NextIntent{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "created"}
+				intents[i] = NextIntent{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "created"}
 			}
 			e := NewOKMutation(NewBase("intent-capacity", "concord_work_transition", "lifecycle"),
 				json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), nil, intents)

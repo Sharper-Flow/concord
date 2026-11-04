@@ -15,7 +15,7 @@ import (
 // CON-835 regression. revise_intent is complete replacement (TS4 2.1), so a
 // coordinator that revises only the task must carry every other revisable
 // value out of the authoritative typed read. external_ref stays capture-owned.
-func TestTaskOnlyRevisionCarriesCompleteIntentThroughScopeRead(t *testing.T) {
+func TestTaskOnlyRevisionCarriesCompleteTaskIntentThroughFullListRead(t *testing.T) {
 	t.Parallel()
 	s, ctx, service, env, workID := seedIntentRoundtripWork(t, map[string]any{
 		"title": "Preserve the recorded intent", "value_statement": "Unrelated intent metadata must survive a task-only revision",
@@ -24,7 +24,7 @@ func TestTaskOnlyRevisionCarriesCompleteIntentThroughScopeRead(t *testing.T) {
 		"external_ref": "linear:CON-835-1", "idempotency_key": "roundtrip-capture-1",
 	})
 
-	before := roundtripScopeWork(t, ctx, s, service, env, workID)
+	before := roundtripFullListItem(t, ctx, s, service, env, workID)
 	assertCompleteIntentRead(t, before, map[string]any{
 		"kind": "task", "title": "Preserve the recorded intent", "task": "Original recorded instruction",
 		"value_statement": "Unrelated intent metadata must survive a task-only revision",
@@ -38,7 +38,7 @@ func TestTaskOnlyRevisionCarriesCompleteIntentThroughScopeRead(t *testing.T) {
 		t.Fatalf("changed refs=%#v, want the expected version to advance by exactly one", revised.ChangedRefs)
 	}
 
-	after := roundtripScopeWork(t, ctx, s, service, env, workID)
+	after := roundtripFullListItem(t, ctx, s, service, env, workID)
 	assertCompleteIntentRead(t, after, map[string]any{
 		"kind": "task", "title": "Preserve the recorded intent", "task": "Replacement instruction that changes nothing else",
 		"value_statement": "Unrelated intent metadata must survive a task-only revision",
@@ -48,10 +48,8 @@ func TestTaskOnlyRevisionCarriesCompleteIntentThroughScopeRead(t *testing.T) {
 	assertStoredExternalRef(t, s, workID, "linear:CON-835-1")
 }
 
-// The full-detail list read is the other authoritative source a coordinator
-// can carry into a task-only revision. It already carried the recorded task;
-// it must also carry the value statement and the rest of the revisable
-// intent, because a caller that cannot read a value cannot preserve it.
+// A coordinator must be able to carry the complete revisable intent from a
+// full-detail list read into a task-only revision.
 func TestTaskOnlyRevisionCarriesCompleteIntentThroughFullListRead(t *testing.T) {
 	t.Parallel()
 	s, ctx, service, env, workID := seedIntentRoundtripWork(t, map[string]any{
@@ -96,7 +94,7 @@ func TestTaskOnlyRevisionPreservesZeroEmptyAndAbsentIntentStates(t *testing.T) {
 		"kind": "bug", "tags": []string{}, "external_ref": "linear:CON-835-3", "idempotency_key": "roundtrip-capture-3",
 	})
 
-	before := roundtripScopeWork(t, ctx, s, service, env, workID)
+	before := roundtripFullListItem(t, ctx, s, service, env, workID)
 	if got := before["urgency"]; got != "standard" {
 		t.Fatalf("default urgency = %v, want standard", got)
 	}
@@ -124,7 +122,7 @@ func TestTaskOnlyRevisionPreservesZeroEmptyAndAbsentIntentStates(t *testing.T) {
 	revise := carriedTaskOnlyRevision(t, before, workID, "First recorded instruction", "roundtrip-revise-3")
 	roundtripDispatchOK(t, ctx, s, service, env, "roundtrip-revise-3", "concord_work_define", "revise_intent", revise)
 
-	after := roundtripScopeWork(t, ctx, s, service, env, workID)
+	after := roundtripFullListItem(t, ctx, s, service, env, workID)
 	if got := after["urgency"]; got != "standard" {
 		t.Fatalf("urgency after revision = %v, want standard", got)
 	}
@@ -234,22 +232,6 @@ func roundtripDispatchOK(t *testing.T, ctx context.Context, s *store.Store, serv
 		t.Fatalf("%s.%s response=%+v error=%s err=%v", tool, operation, response, errorJSON, err)
 	}
 	return response
-}
-
-// roundtripScopeWork returns the single work summary the scope read carries.
-func roundtripScopeWork(t *testing.T, ctx context.Context, s *store.Store, service *Service, env CallEnvelope, workID string) map[string]any {
-	t.Helper()
-	response := roundtripDispatchOK(t, ctx, s, service, env, "scope-read-"+workID, "concord_work_browse", "scope", map[string]any{"product_id": "product-1", "work_id": workID})
-	var payload struct {
-		Work map[string]any `json:"work"`
-	}
-	if err := json.Unmarshal(response.Result, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.Work == nil || payload.Work["id"] != workID {
-		t.Fatalf("scope work = %#v, want the captured item", payload.Work)
-	}
-	return payload.Work
 }
 
 // roundtripFullListItem returns the item the full-detail list read carries.

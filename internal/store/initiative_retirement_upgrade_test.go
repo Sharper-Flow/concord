@@ -95,30 +95,32 @@ func TestInitiativeRetirementUpgrade(t *testing.T) {
 	if len(list.Items) != 3 {
 		t.Fatalf("list = %#v, want three live work items", list.Items)
 	}
-	ready, err := s.QueryQ5(t.Context(), Q5Request{Product: "product-upgrade", Project: "project-upgrade"})
+	ready, err := s.QueryQ3(t.Context(), Q3Request{Product: "product-upgrade", Project: "project-upgrade", Detail: "full"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ids := map[string]bool{}
 	for _, item := range ready.Items {
-		ids[item.ID] = true
+		if item.Ready {
+			ids[item.ID] = true
+		}
 	}
 	if len(ids) != 2 || !ids["work-upgrade-from"] || !ids["work-upgrade-to"] {
 		t.Errorf("ready IDs = %v", ids)
 	}
-	blocked, err := s.QueryQ4(t.Context(), Q4Request{Product: "product-upgrade", Project: "project-upgrade", Limit: 1, Depth: 3})
-	if err != nil || len(blocked.Items) != 1 || blocked.Items[0].ID != "work-live" || len(blocked.Items[0].Blockers) != 1 || blocked.Items[0].Blockers[0].ID != "work-upgrade-from" || len(blocked.Items[0].Blockers[0].Blockers) != 0 || blocked.NextCursor != nil {
+	blocked, err := s.QueryQ8(t.Context(), Q8Request{Work: "work-live", RelationKinds: []string{"blocked_by"}, Direction: "outgoing", Depth: 3})
+	if err != nil || len(blocked.Edges) != 1 || blocked.Edges[0].Source != "work-live" || blocked.Edges[0].Target != "work-upgrade-from" {
 		t.Errorf("blocked = %#v, %v", blocked, err)
 	}
 	productSnapshot, err := s.QueryQ2(t.Context(), Q2Request{Product: "product-upgrade"})
 	if err != nil || productSnapshot.LifecycleCounts["needed"] != 3 || productSnapshot.DerivedCounts.Ready != 2 || productSnapshot.DerivedCounts.Blocked != 1 {
 		t.Errorf("snapshot = %#v, %v", productSnapshot, err)
 	}
-	projectScope, err := s.QueryQ6(t.Context(), Q6Request{Product: "product-upgrade", Project: "project-upgrade"})
+	projectScope, err := s.QueryQ3(t.Context(), Q3Request{Product: "product-upgrade", Project: "project-upgrade", Detail: "full"})
 	if err != nil || len(projectScope.Items) != 3 {
 		t.Errorf("project scope = %#v, %v", projectScope, err)
 	}
-	if scope, err := s.QueryQ6(t.Context(), Q6Request{Product: "product-upgrade", Work: "initiative-old"}); err == nil {
+	if scope, err := s.QueryQ3(t.Context(), Q3Request{Product: "product-upgrade", WorkIDs: []string{"initiative-old"}, Detail: "full"}); err == nil && len(scope.Items) != 0 {
 		t.Errorf("retired initiative remains in scope: %#v", scope)
 	}
 	if _, err := db.Exec(`INSERT INTO write_guard VALUES(1); UPDATE work_items SET kind='initiative' WHERE id='work-live'`); err == nil || !strings.Contains(err.Error(), "work_items kind is not a stored work kind") {

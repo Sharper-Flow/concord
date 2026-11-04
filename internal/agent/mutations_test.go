@@ -57,7 +57,7 @@ func scopeWorkReadback(t *testing.T, s *store.Store, service *Service, grant Aut
 	t.Helper()
 	env := mutationEnvelope(grant, scopeVersion)
 	env.RequestID = "capture-task-scope-read"
-	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_browse", Operation: "scope", Input: json.RawMessage(`{"product_id":"product-1","work_id":"` + workID + `"}`)}, env)
+	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_browse", Operation: "list", Input: json.RawMessage(`{"product_id":"product-1","work_ids":["` + workID + `"],"detail":"full"}`)}, env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,16 +65,19 @@ func scopeWorkReadback(t *testing.T, s *store.Store, service *Service, grant Aut
 		t.Fatalf("scope read response=%+v", response)
 	}
 	var readback struct {
-		Work struct {
+		Items []struct {
 			Task           string `json:"task"`
 			ValueStatement string `json:"value_statement"`
-		} `json:"work"`
+		} `json:"items"`
 	}
 	raw, _ := json.Marshal(response.Result)
 	if err := json.Unmarshal(raw, &readback); err != nil {
 		t.Fatalf("decode scope readback %s: %v", raw, err)
 	}
-	return readback.Work.Task, readback.Work.ValueStatement
+	if len(readback.Items) != 1 {
+		t.Fatalf("list readback returned %d items", len(readback.Items))
+	}
+	return readback.Items[0].Task, readback.Items[0].ValueStatement
 }
 
 func TestCapturePersistsTaskInstructionInOneCall(t *testing.T) {

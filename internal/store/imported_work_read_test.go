@@ -43,11 +43,11 @@ func TestImportedWorkRemainsReadable(t *testing.T) {
 	s := openTemp(t)
 	const id = "import-advance-work-change-1"
 	seedImportedWork(t, s, "change-1", "operator:predecessor-import")
-	result, err := s.QueryQ6(t.Context(), Q6Request{Product: "product", Work: id})
-	if err != nil || result.Work == nil {
-		t.Fatalf("work read = %+v, %v", result.Work, err)
+	result, err := s.QueryQ3(t.Context(), Q3Request{Product: "product", WorkIDs: []string{id}, Detail: "full"})
+	if err != nil || len(result.Items) != 1 {
+		t.Fatalf("work read = %+v, %v", result.Items, err)
 	}
-	w := result.Work
+	w := result.Items[0]
 	if w.Lifecycle != "needed" || w.Priority != 3 || w.Version != 2 {
 		t.Fatalf("imported state changed: %+v", w)
 	}

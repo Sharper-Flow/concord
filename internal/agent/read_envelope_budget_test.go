@@ -194,21 +194,14 @@ func TestWorkSummaryBytePagesKeepContinuation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, operation := range []string{"ready", "scope", "blocked"} {
+	for _, operation := range []string{"list"} {
 		t.Run(operation, func(t *testing.T) {
-			if operation == "blocked" {
-				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1);
-					INSERT INTO relations(work_id_from,work_id_to,kind,created_at) SELECT 'work-1',id,'blocks','2026-08-08T12:00:00Z' FROM work_items WHERE id<>'work-1';
-					DELETE FROM write_guard`); err != nil {
-					t.Fatal(err)
-				}
-			}
 			r := runtime{Store: s, Tool: "concord_work_browse", Operation: operation, Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
 			var cursor *string
 			seen := map[string]bool{}
 			pages := 0
 			for {
-				input, _ := json.Marshal(map[string]any{"product_id": "product-1", "project_id": "project-1", "limit": 100, "page": map[string]any{"cursor": cursor}})
+				input, _ := json.Marshal(map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "limit": 100, "page": map[string]any{"cursor": cursor}})
 				response, err := r.read(ctx, agentcontract.NewBase("summary-byte-pages", r.Tool, r.Operation), input, agentcontract.NewBase("", r.Tool, r.Operation).QueryID)
 				if err != nil {
 					t.Fatal(err)
@@ -241,10 +234,7 @@ func TestWorkSummaryBytePagesKeepContinuation(t *testing.T) {
 					t.Fatal("cursor did not advance")
 				}
 			}
-			want := 99
-			if operation == "scope" {
-				want = 100
-			}
+			want := 100
 			if len(seen) != want || pages < 2 {
 				t.Fatalf("enumerated %d items in %d pages, want %d", len(seen), pages, want)
 			}
@@ -352,7 +342,6 @@ func TestReadBudgetIncludesEnvelopeMetadata(t *testing.T) {
 	s, _, _ := workflowEngineFixture(t, "metadata budget")
 	for _, test := range []struct{ tool, operation, input string }{
 		{"concord_work_browse", "list", `{"product_id":"product-1","limit":1}`},
-		{"concord_work_browse", "scope", `{"product_id":"product-1","work_id":"work-1"}`},
 		{"concord_work_trace", "continuity", `{"work_id":"work-1","limit":1}`},
 		{"concord_work_trace", "history", `{"work_id":"work-1","limit":1}`},
 	} {

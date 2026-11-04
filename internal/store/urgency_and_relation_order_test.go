@@ -106,7 +106,7 @@ func TestCD0018UrgencyOrderingExpediteAboveStandard(t *testing.T) {
 	seedWorkWithUrgency(t, s, "std-high-prio", "standard", 1)
 	seedWorkWithUrgency(t, s, "exp-low-prio", "expedite", 50)
 
-	result, err := s.QueryQ5(context.Background(), Q5Request{Product: "product", Limit: 10})
+	result, err := s.QueryQ3(context.Background(), Q3Request{Product: "product", Limit: 10})
 	if err != nil {
 		t.Fatalf("Q5: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestCD0018UrgencyWithinBandPriorityOrders(t *testing.T) {
 	seedWorkWithUrgency(t, s, "exp-10", "expedite", 10)
 	seedWorkWithUrgency(t, s, "exp-20", "expedite", 20)
 
-	result, err := s.QueryQ5(context.Background(), Q5Request{Product: "product", Limit: 10})
+	result, err := s.QueryQ3(context.Background(), Q3Request{Product: "product", Limit: 10})
 	if err != nil {
 		t.Fatalf("Q5: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestCD0018RaisedFromIsAcyclic(t *testing.T) {
 
 func TestCD0018RaisedFromDoesNotExcludeFromReady(t *testing.T) {
 	t.Parallel()
-	// Unlike blocks, a raised_from edge must NOT remove the target from Q5.
+	// Unlike blocks, a raised_from edge must not affect readiness.
 	s := openTemp(t)
 	seedWork(t, s, "parent-work")
 	seedWork(t, s, "child-work")
@@ -177,13 +177,15 @@ func TestCD0018RaisedFromDoesNotExcludeFromReady(t *testing.T) {
 		t.Fatalf("add raised_from: %v", err)
 	}
 
-	result, err := s.QueryQ5(context.Background(), Q5Request{Product: "product", Limit: 10})
+	result, err := s.QueryQ3(context.Background(), Q3Request{Product: "product", WorkIDs: []string{"parent-work", "child-work"}, Detail: "full"})
 	if err != nil {
 		t.Fatalf("Q5: %v", err)
 	}
 	ids := make(map[string]bool)
 	for _, item := range result.Items {
-		ids[item.ID] = true
+		if item.Ready {
+			ids[item.ID] = true
+		}
 	}
 	if !ids["parent-work"] {
 		t.Error("parent-work missing from ready: raised_from must not exclude the target")

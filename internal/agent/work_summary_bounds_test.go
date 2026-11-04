@@ -10,9 +10,8 @@ import (
 
 // Bounded summary and preview reads stay bounded: the
 // recorded intent detail (task, value statement and tags) rides only the
-// authoritative single-work scope read and the
-// full-detail list read. Snapshot previews, summary-detail listings, and the
-// ready listing must not carry it. Urgency is not intent detail: CD-0018
+// full-detail list read. Snapshot previews and summary-detail listings must not
+// carry it. Urgency is not intent detail: CD-0018
 // already declares it on work_summary, so every read that carries a work
 // summary carries the declared band.
 func TestBoundedWorkReadsOmitIntentDetailButCarryUrgency(t *testing.T) {
@@ -30,9 +29,6 @@ func TestBoundedWorkReadsOmitIntentDetailButCarryUrgency(t *testing.T) {
 
 	summaryItems := roundtripReadItems(t, ctx, s, service, env, "concord_work_browse", "list", map[string]any{"product_id": "product-1", "work_ids": []string{workID}}, "items")
 	assertBoundedSummaries(t, "summary-detail list", summaryItems, intentOnly, workID)
-
-	readyItems := roundtripReadItems(t, ctx, s, service, env, "concord_work_browse", "ready", map[string]any{"product_id": "product-1"}, "items")
-	assertBoundedSummaries(t, "ready listing", readyItems, intentOnly, workID)
 }
 
 func roundtripReadItems(t *testing.T, ctx context.Context, s *store.Store, service *Service, env CallEnvelope, tool, operation string, input map[string]any, field string) []map[string]any {

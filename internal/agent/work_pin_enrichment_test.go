@@ -127,12 +127,12 @@ func TestNextIntentLiteralScanner(t *testing.T) {
 		name, source string
 		want         int
 	}{
-		{"qualified value", `agentcontract.NextIntent{Tool: "concord_work_browse", Operation: "scope"}`, 1},
-		{"qualified slice", `[]agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "scope"}}`, 1},
-		{"explicit slice element", `[]agentcontract.NextIntent{agentcontract.NextIntent{Tool: "concord_work_browse", Operation: "scope"}}`, 1},
-		{"unrelated value", `other.NextIntent{Tool: "concord_work_browse", Operation: "scope"}`, 0},
-		{"unrelated slice", `[]other.NextIntent{{Tool: "concord_work_browse", Operation: "scope"}}`, 0},
-		{"unqualified value", `NextIntent{Tool: "concord_work_browse", Operation: "scope"}`, 0},
+		{"qualified value", `agentcontract.NextIntent{Tool: "concord_work_browse", Operation: "list"}`, 1},
+		{"qualified slice", `[]agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "list"}}`, 1},
+		{"explicit slice element", `[]agentcontract.NextIntent{agentcontract.NextIntent{Tool: "concord_work_browse", Operation: "list"}}`, 1},
+		{"unrelated value", `other.NextIntent{Tool: "concord_work_browse", Operation: "list"}`, 0},
+		{"unrelated slice", `[]other.NextIntent{{Tool: "concord_work_browse", Operation: "list"}}`, 0},
+		{"unqualified value", `NextIntent{Tool: "concord_work_browse", Operation: "list"}`, 0},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			expr, err := parser.ParseExpr(tt.source)
@@ -145,7 +145,7 @@ func TestNextIntentLiteralScanner(t *testing.T) {
 					for _, intent := range nextIntentLiterals(lit) {
 						found++
 						tool, operation, literal := intentTarget(intent)
-						if !literal || tool != "concord_work_browse" || operation != "scope" {
+						if !literal || tool != "concord_work_browse" || operation != "list" {
 							t.Errorf("intent target = %q.%q, literal=%v", tool, operation, literal)
 						}
 					}

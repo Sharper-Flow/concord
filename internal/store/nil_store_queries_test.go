@@ -23,18 +23,6 @@ func TestUnopenedStoreQueryMethods(t *testing.T) {
 			_, err := s.QueryQ3(ctx, Q3Request{})
 			return err
 		}},
-		{"QueryQ4", func(s *Store) error {
-			_, err := s.QueryQ4(ctx, Q4Request{})
-			return err
-		}},
-		{"QueryQ5", func(s *Store) error {
-			_, err := s.QueryQ5(ctx, Q5Request{})
-			return err
-		}},
-		{"QueryQ6", func(s *Store) error {
-			_, err := s.QueryQ6(ctx, Q6Request{})
-			return err
-		}},
 		{"QueryQ7", func(s *Store) error {
 			_, err := s.QueryQ7(ctx, Q7Request{})
 			return err

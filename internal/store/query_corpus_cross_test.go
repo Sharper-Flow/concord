@@ -25,8 +25,8 @@ func TestExtraCrossProductFixture(t *testing.T) {
 	if err != nil || len(scope["cross-work"]) != 2 {
 		t.Fatalf("ProductsForWorkIDs = %v, err %v", scope["cross-work"], err)
 	}
-	result, err := s.QueryQ6(ctx, Q6Request{Work: "cross-work"})
-	if err != nil || result.Work == nil || result.Work.ID != "cross-work" {
-		t.Fatalf("cross-product Q6 = %#v, err %v", result, err)
+	result, err := s.QueryQ3(ctx, Q3Request{Product: "cross-a", WorkIDs: []string{"cross-work"}, Detail: "full"})
+	if err != nil || len(result.Items) != 1 || result.Items[0].ID != "cross-work" {
+		t.Fatalf("cross-product list = %#v, err %v", result, err)
 	}
 }

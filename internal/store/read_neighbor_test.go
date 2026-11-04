@@ -94,9 +94,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		{name: "PM1.Q1", run: func() error { _, err := s.QueryQ1(ctx, Q1Request{Product: "prod"}); return err }},
 		{name: "PM1.Q2", run: func() error { _, err := s.QueryQ2(ctx, Q2Request{Product: "prod"}); return err }},
 		{name: "PM1.Q3", run: func() error { _, err := s.QueryQ3(ctx, Q3Request{Product: "prod"}); return err }},
-		{name: "PM1.Q4", run: func() error { _, err := s.QueryQ4(ctx, Q4Request{Product: "prod"}); return err }},
-		{name: "PM1.Q5", run: func() error { _, err := s.QueryQ5(ctx, Q5Request{Product: "prod"}); return err }},
-		{name: "PM1.Q6", run: func() error { _, err := s.QueryQ6(ctx, Q6Request{Work: "blocker"}); return err }},
 		{name: "PM1.Q7", run: func() error { _, err := s.QueryQ7(ctx, Q7Request{Work: "blocker"}); return err }},
 		{name: "PM1.Q8", run: func() error { _, err := s.QueryQ8(ctx, Q8Request{Work: "blocker"}); return err }},
 		// Work-item reads.

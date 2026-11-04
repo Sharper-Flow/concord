@@ -110,38 +110,6 @@ func TestQueryRejectsInvalidFilterAndCursorBinding(t *testing.T) {
 	assertFailureKind(t, err, KindInvalidCursor)
 }
 
-func TestQueryQ6ValidatesExplicitProductForWork(t *testing.T) {
-	t.Parallel()
-	s := seedQueryFixture(t)
-	_, err := s.QueryQ6(context.Background(), Q6Request{Product: "missing", Work: "blocked"})
-	assertFailureKind(t, err, KindUnknownScope)
-	_, err = s.QueryQ6(context.Background(), Q6Request{Product: "prod", Project: "missing", Work: "blocked"})
-	assertFailureKind(t, err, KindUnknownScope)
-}
-
-func TestQueryQ6ProjectPaginationBoundsContinuationAndTamper(t *testing.T) {
-	t.Parallel()
-	s := seedQueryFixture(t)
-	for _, id := range []string{"scope-a", "scope-b", "scope-c"} {
-		addQ4Work(t, s, id, 1, time.Now().UTC())
-	}
-	first, err := s.QueryQ6(context.Background(), Q6Request{Project: "proj", Limit: 2})
-	if err != nil || len(first.Items) != 2 || first.NextCursor == nil {
-		t.Fatalf("first scope page=%#v, err=%v", first, err)
-	}
-	second, err := s.QueryQ6(context.Background(), Q6Request{Project: "proj", Limit: 2, Cursor: *first.NextCursor})
-	if err != nil || len(second.Items) == 0 || second.Items[0].ID == first.Items[0].ID {
-		t.Fatalf("continuation scope page=%#v, err=%v", second, err)
-	}
-	tampered := *first.NextCursor + "x"
-	_, err = s.QueryQ6(context.Background(), Q6Request{Project: "proj", Limit: 2, Cursor: tampered})
-	assertFailureKind(t, err, KindInvalidCursor)
-	_, err = s.QueryQ6(context.Background(), Q6Request{Project: "proj", Limit: 0, Cursor: *first.NextCursor})
-	if err != nil {
-		t.Fatalf("default bounded limit rejected continuation: %v", err)
-	}
-}
-
 func TestTerminalOnlyQ3RecognizesEveryTerminalFilter(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -187,24 +155,6 @@ func TestQueryDeduplicatesMultipleProjectMemberships(t *testing.T) {
 			t.Fatalf("duplicate work item %q", item.ID)
 		}
 		seen[item.ID] = true
-	}
-}
-
-func TestQueryQ4DerivesAndResolvesBlockers(t *testing.T) {
-	t.Parallel()
-	s := seedQueryFixture(t)
-	result, err := s.QueryQ4(context.Background(), Q4Request{Product: "prod"})
-	if err != nil || len(result.Items) != 1 || result.Items[0].Blockers[0].ID != "blocker" {
-		t.Fatalf("Q4 = %#v, err %v", result, err)
-	}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
-		workTransitionEvent("q-resolve", "blocker", "needed", "completed", 3, 4),
-	}, ExpectedVersions: workVersion("blocker", 3)}); err != nil {
-		t.Fatal(err)
-	}
-	result, err = s.QueryQ4(context.Background(), Q4Request{Product: "prod"})
-	if err != nil || len(result.Items) != 0 {
-		t.Fatalf("resolved Q4 = %#v, err %v", result, err)
 	}
 }
 
@@ -254,7 +204,6 @@ func TestQuerySpecializedResultsCarryUniversalPayload(t *testing.T) {
 		field string
 	}{
 		{name: "Q1", value: mustQueryQ1(t, s), field: "products"},
-		{name: "Q6-work", value: mustQueryQ6(t, s), field: "work"},
 		{name: "Q7", value: mustQueryQ7(t, s), field: "entries"},
 		{name: "Q8", value: mustQueryQ8(t, s), field: "edges"},
 	}
@@ -287,15 +236,6 @@ func mustQueryQ1(t *testing.T, s *Store) Q1Result {
 	return result
 }
 
-func mustQueryQ6(t *testing.T, s *Store) Q6Result {
-	t.Helper()
-	result, err := s.QueryQ6(context.Background(), Q6Request{Work: "blocked"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return result
-}
-
 func mustQueryQ7(t *testing.T, s *Store) Q7Result {
 	t.Helper()
 	result, err := s.QueryQ7(context.Background(), Q7Request{Work: "blocked"})
@@ -312,132 +252,4 @@ func mustQueryQ8(t *testing.T, s *Store) Q8Result {
 		t.Fatal(err)
 	}
 	return result
-}
-
-func q4WorkCreatedAt(id string, priority int64, when time.Time) Event {
-	e := operationEvent("q4-create-"+id, "work.created", SubjectWorkItem, id, map[string]any{
-		"work_kind": "task", "title": id, "priority": priority,
-	})
-	e.OccurredAt = when
-	return e
-}
-
-func addQ4Work(t *testing.T, s *Store, id string, priority int64, when time.Time) {
-	t.Helper()
-	if err := ApplyOperation(context.Background(), s, Operation{
-		Events: []Event{
-			q4WorkCreatedAt(id, priority, when),
-			operationEvent("q4-project-"+id, "work_project.added", SubjectWorkItem, id, map[string]any{
-				"work_id": id, "project_id": "proj", "role": "primary", "reason": "q4 fixture", "expected_version": 1, "resulting_version": 2,
-			}),
-		},
-		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, id): 0},
-	}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func addQ4Blocker(t *testing.T, s *Store, id, blocked string, when time.Time) {
-	t.Helper()
-	if err := ApplyOperation(context.Background(), s, Operation{
-		Events: []Event{
-			q4WorkCreatedAt(id, 10, when),
-			operationEvent("q4-project-"+id, "work_project.added", SubjectWorkItem, id, map[string]any{
-				"work_id": id, "project_id": "proj", "role": "primary", "reason": "q4 fixture", "expected_version": 1, "resulting_version": 2,
-			}),
-		},
-		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, id): 0},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	relation := relationAddedEvent("q4-blocks-"+id+"-"+blocked, "blocks", id, blocked, 2, 3)
-	relation.OccurredAt = when
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{relation}, ExpectedVersions: workVersion(id, 2)}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func seedQ4LimitFixture(t *testing.T, secondBlockerWhen time.Time) *Store {
-	t.Helper()
-	s := seedQueryFixture(t)
-	addQ4Work(t, s, "blocked-z", 1, time.Date(2026, 1, 10, 0, 0, 0, 0, time.UTC))
-	addQ4Work(t, s, "blocked-a", 1, time.Date(2026, 1, 11, 0, 0, 0, 0, time.UTC))
-	addQ4Blocker(t, s, "z-blocker-1", "blocked-z", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
-	addQ4Blocker(t, s, "z-blocker-2", "blocked-z", time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
-	addQ4Blocker(t, s, "z-blocker-3", "blocked-z", time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC))
-	addQ4Blocker(t, s, "a-blocker-1", "blocked-a", secondBlockerWhen)
-	return s
-}
-
-func TestQueryQ4LimitBoundsWorksBeforeBlockerJoin(t *testing.T) {
-	t.Parallel()
-	s := seedQ4LimitFixture(t, time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
-	result, err := s.QueryQ4(context.Background(), Q4Request{Product: "prod", Limit: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Items) != 1 || result.Items[0].ID != "blocked-z" || len(result.Items[0].Blockers) != 3 {
-		t.Fatalf("Q4 limit=1 = %#v", result.Items)
-	}
-}
-
-func TestQueryQ4LimitDoesNotDropSecondWork(t *testing.T) {
-	t.Parallel()
-	s := seedQ4LimitFixture(t, time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
-	result, err := s.QueryQ4(context.Background(), Q4Request{Product: "prod", Limit: 2})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Items) != 2 || result.Items[0].ID != "blocked-z" || result.Items[1].ID != "blocked-a" || len(result.Items[0].Blockers) != 3 {
-		t.Fatalf("Q4 limit=2 = %#v", result.Items)
-	}
-}
-
-func TestQueryQ4OrdersOldestBlockerThenStableWorkID(t *testing.T) {
-	t.Parallel()
-	s := seedQ4LimitFixture(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
-	result, err := s.QueryQ4(context.Background(), Q4Request{Product: "prod", Limit: 2})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Items) != 2 || result.Items[0].ID != "blocked-a" || result.Items[1].ID != "blocked-z" {
-		t.Fatalf("Q4 ordering = %#v", result.Items)
-	}
-}
-
-func TestQueryQ4ExcludesTerminalBlockersAndReportsCaps(t *testing.T) {
-	t.Parallel()
-	s := seedQ4LimitFixture(t, time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workTransitionEvent("q4-resolve-z1", "z-blocker-1", "needed", "completed", 3, 4)}, ExpectedVersions: workVersion("z-blocker-1", 3)}); err != nil {
-		t.Fatal(err)
-	}
-	result, err := s.QueryQ4(context.Background(), Q4Request{Product: "prod", Limit: 2, EdgeLimit: 2})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var z WorkItem
-	for _, item := range result.Items {
-		if item.ID == "blocked-z" {
-			z = item
-		}
-	}
-	if z.ID == "" || len(z.Blockers) != 1 || z.Blockers[0].ID == "z-blocker-1" {
-		t.Fatalf("Q4 terminal/cap result = %#v", result.Items)
-	}
-	if len(result.Warnings) == 0 || len(result.Omissions) == 0 {
-		t.Fatalf("Q4 cap metadata = %#v", result.ResultMeta)
-	}
-}
-
-func TestQueryQ4RejectsUnboundedGraphRequests(t *testing.T) {
-	t.Parallel()
-	s := seedQueryFixture(t)
-	for _, req := range []Q4Request{
-		{Product: "prod", Depth: 4},
-		{Product: "prod", NodeLimit: q4MaxNodeLimit + 1},
-		{Product: "prod", EdgeLimit: q4MaxEdgeLimit + 1},
-	} {
-		_, err := s.QueryQ4(context.Background(), req)
-		assertFailureKind(t, err, KindInvalidFilter)
-	}
 }

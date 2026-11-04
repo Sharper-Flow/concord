@@ -233,7 +233,7 @@ func operationUsesCurrentLaw(op agentcontract.ContractOperation) bool {
 	case "concord_domain.list", "concord_domain.detail",
 		"concord_work_trace.continuity", "concord_work_trace.history", "concord_work_trace.mutation_result",
 		"concord_product_view.snapshot",
-		"concord_work_browse.list", "concord_work_browse.ready", "concord_work_browse.blocked", "concord_work_browse.scope":
+		"concord_work_browse.list":
 		return true
 	}
 	return slices.Contains(agentcontract.GeneratedPayloadRules[op.ResultSchema].Properties, "work_pins")

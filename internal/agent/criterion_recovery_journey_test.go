@@ -72,7 +72,8 @@ func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
 		"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise",
 		"idempotency_key": "journey-corrected-confirm",
 	}))
-	spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))
+	f.completeReview(t)
+	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{"work_id": f.work, "expected_version": workVersion(t, f.s, f.work), "action_id": "complete", "fields": map[string]any{"impact_verdict": "non-breaking"}, "idempotency_key": "journey-complete"}))
 	done := f.read(t)
 	if done.Pinned.Pin.Lifecycle != "completed" || *done.Pinned.Pin.Review.Candidate != candidate || len(done.Pinned.Pin.VerifiedCriteria) != 1 ||
 		f.proofCommit != candidate.Commit {

@@ -19,21 +19,16 @@ import (
 // verdicts that match in both directions — including every partial
 // alternative-group mutant.
 
-// declaredActionPayloads collects every action payload declaration the
-// registry owns, keyed by action ID. It reads
-// the same source the contract projection reads — the current builtin
-// definitions (so record_verdict carries its canonical batch payload), so
-// the differential judges the shape publication actually advertises.
+// declaredActionPayloads collects current catalog payloads keyed by action ID.
 func declaredActionPayloads(t *testing.T) map[string]WorkflowPayloadDefinition {
 	t.Helper()
 	payloads := map[string]WorkflowPayloadDefinition{}
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		for _, action := range definition.ActionDefinitions {
-			payloads[action.ID] = action.Payload
+	for id := range builtinWorkflowActionCatalog() {
+		action, err := catalogAction(id)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	for _, action := range BuiltinWorkflowDecisionFactActionDefinitions() {
-		payloads[action.ID] = action.Payload
+		payloads[id] = action.Payload
 	}
 	return payloads
 }
@@ -69,14 +64,14 @@ func TestDeclaredCrossFieldRulesAreRegistryValid(t *testing.T) {
 // refuse: each one is a way a cross-field declaration can drift from its
 // own fields.
 func TestRegistryRefusesDriftedCrossFieldDeclarations(t *testing.T) {
-	base := builtinActionPolicies["record_alignment"].Payload
+	base := builtinActionPolicies["record_diagnosis"].Payload
 	mutate := func(cross WorkflowActionCrossField) WorkflowActionCrossField { return cross }
-	incomplete := WorkflowActionCrossField{Combinations: builtinActionPolicies["record_alignment"].CrossField.Combinations[:1]}
+	incomplete := WorkflowActionCrossField{Combinations: builtinActionPolicies["record_diagnosis"].CrossField.Combinations[:1]}
 	undeclaredDiscriminator := mutate(WorkflowActionCrossField{Combinations: []WorkflowPayloadCombination{{Field: "searched", Value: "xx", Requires: []string{"related_ids"}}}})
 	undeclaredSide := mutate(WorkflowActionCrossField{Combinations: []WorkflowPayloadCombination{{Field: "outcome", Value: "related_found", Requires: []string{"no_such_field"}}}})
 	nonEnumValue := mutate(WorkflowActionCrossField{Combinations: []WorkflowPayloadCombination{{Field: "outcome", Value: "partially_found", Requires: []string{"related_ids"}}, {Field: "outcome", Value: "none_found", Forbids: []string{"related_ids"}}}})
-	twoDiscriminators := mutate(WorkflowActionCrossField{Combinations: append(append([]WorkflowPayloadCombination{}, builtinActionPolicies["record_alignment"].CrossField.Combinations...), WorkflowPayloadCombination{Field: "searched", Value: "xx"})})
-	bothFamilies := mutate(WorkflowActionCrossField{Combinations: builtinActionPolicies["record_alignment"].CrossField.Combinations, Alternatives: []WorkflowPayloadAlternative{{Fields: []string{"searched"}}}})
+	twoDiscriminators := mutate(WorkflowActionCrossField{Combinations: append(append([]WorkflowPayloadCombination{}, builtinActionPolicies["record_diagnosis"].CrossField.Combinations...), WorkflowPayloadCombination{Field: "searched", Value: "xx"})})
+	bothFamilies := mutate(WorkflowActionCrossField{Combinations: builtinActionPolicies["record_diagnosis"].CrossField.Combinations, Alternatives: []WorkflowPayloadAlternative{{Fields: []string{"searched"}}}})
 	emptyAlternative := WorkflowActionCrossField{Alternatives: []WorkflowPayloadAlternative{{Fields: []string{}}}}
 	overlappingAlternatives := WorkflowActionCrossField{Alternatives: []WorkflowPayloadAlternative{{Fields: []string{"searched", "outcome"}}, {Fields: []string{"outcome", "related_ids"}}}}
 	undeclaredForbid := WorkflowActionCrossField{Alternatives: []WorkflowPayloadAlternative{{Fields: []string{"searched"}}, {Fields: []string{"outcome"}, Forbids: []string{"no_such_field"}}}}
@@ -152,7 +147,8 @@ func TestDeclaredCrossFieldRulesMatchCoreAndPublishedVerdicts(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			return validateWorkflowActionPayload(WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{{ID: actionID, Payload: payload}}}, actionID, encoded)
+			_, err = validateWorkflowPlanActionPayload(actionID, encoded)
+			return err
 		}
 		published := func(fields map[string]any) error {
 			encoded, err := json.Marshal(map[string]any{

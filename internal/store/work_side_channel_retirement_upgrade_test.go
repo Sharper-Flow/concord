@@ -4,19 +4,21 @@ import (
 	"database/sql"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
+
+func cutoverRetainedContractRows(t *testing.T, db *sql.DB) [][]any {
+	t.Helper()
+	return cutoverContractRows(t, db)
+}
 
 func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 	useStampedBuild(t)
 	db, path := retirementUpgradeFixture(t)
 	advanceHistoricalPrefix(t, db, 178)
-	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
 	retirementUpgradeExec(t, db, `INSERT INTO write_guard(active) VALUES(1)`)
-	retirementUpgradeExec(t, db, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state) VALUES('work-upgrade-from',?,?,'proposal','planned')`, definition.Definition.Ref, definition.Digest)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state) VALUES('work-upgrade-from','workflow.implementation',?,'proposal','planned')`, "sha256:"+strings.Repeat("a", 64))
 	retirementUpgradeExec(t, db, `INSERT INTO workflow_premise_confirmations(work_id,contract_version,confirmed_by,confirmed_at) SELECT work_id,contract_version,approved_by,approved_at FROM workflow_contracts WHERE work_id='work-upgrade-from'`)
 	retirementUpgradeExec(t, db, `INSERT INTO work_messages(message_id,sender_work_id,recipient_work_id,body,state,sent_at) VALUES('msg:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','work-upgrade-from','work-upgrade-to','Retain the live message in the snapshot','sent',?)`, retirementUpgradeTime)
 	retirementUpgradeExec(t, db, `INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at,recorded_seq) VALUES('obs:aaaaaaaaaaaaaaaa','work-upgrade-from','Retain the observation','[]','[]',?,4)`, retirementUpgradeTime)
@@ -45,11 +47,12 @@ func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 	if err != nil || verified.DBChecksum != manifest.DBChecksum || verified.SchemaVersion != 178 {
 		t.Fatalf("verified predecessor = %+v, %v", verified, err)
 	}
-	contracts := retainedWorkflowContractRows(t, db)
+	contracts := cutoverContractRows(t, db)
+	instances := cutoverInstanceExpectations(t, db, "")
 	if _, err := Upgrade(t.Context(), path, nil); err != nil {
 		t.Fatal(err)
 	}
-	retired := map[string]bool{"work_messages": true, "work_observations": true, "workflow_law_baselines": true, "workflow_artifact_actions": true, "workflow_correction_state": true}
+	retired := map[string]bool{"work_messages": true, "work_observations": true, "workflow_law_baselines": true, "workflow_artifact_actions": true, "workflow_correction_state": true, "workflow_step_completions": true}
 	for table, want := range retained {
 		if retired[table] {
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name=? OR tbl_name=?`, table, table); len(rows) != 0 {
@@ -60,15 +63,18 @@ func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 		if table == "schema" || table == "schema_migrations" || table == "store_revision" {
 			continue
 		}
-		if table == "workflow_contracts" {
+		if table == "workflow_contracts" || table == "workflow_instances" {
 			continue
 		}
 		if got := retirementUpgradeRows(t, db, `SELECT * FROM "`+table+`" ORDER BY rowid`); !reflect.DeepEqual(got, want) {
 			t.Errorf("unrelated current authority %s changed", table)
 		}
 	}
-	if got := retainedWorkflowContractRows(t, db); !reflect.DeepEqual(got, contracts) {
+	if got := cutoverContractRows(t, db); !reflect.DeepEqual(got, contracts) {
 		t.Errorf("unrelated current authority workflow_contracts changed")
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT * FROM workflow_instances ORDER BY rowid`); !reflect.DeepEqual(got, instances) {
+		t.Errorf("retained workflow instance fields changed: before=%v after=%v", instances, got)
 	}
 	backup, err := sql.Open(driverName, readOnlyDataSource(snapshot))
 	if err != nil {
@@ -88,7 +94,7 @@ func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("current work pin after retirement: %v", err)
 	}
-	if pin.WorkflowType != definition.Definition.Ref || pin.Step != "proposal" || len(pin.NextValidIntents) == 0 {
-		t.Fatalf("current workflow did not survive: %+v", pin)
+	if pin.Step != "intake" || len(pin.NextValidIntents) == 0 {
+		t.Fatalf("undelivered work did not return to intake: %+v", pin)
 	}
 }

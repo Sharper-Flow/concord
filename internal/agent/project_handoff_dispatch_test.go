@@ -135,36 +135,7 @@ func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, Cal
 	}
 	sourceEnv := handoffEnvelope(sourceGrant, "project-1", scopeVersion)
 	receiveEnv := handoffEnvelope(receiveGrant, "project-2", receiveScope)
-	version := seedAgentWorkflow(t, s, sourceGrant)
-	if version != 4 {
-		t.Fatalf("workflow seed version=%d, want 4", version)
-	}
-	// Walk the implementation workflow to its approved contract through the real
-	// tool boundary, so the handoff record binds an active workflow
-	// contract version. Each step carries the fields its contract declares.
-	stepFields := map[string]map[string]any{
-		"record_proposal":  {"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."}},
-		"record_alignment": {"searched": "The bounded backlog search statement.", "outcome": "none_found"},
-	}
-	for _, action := range []string{"record_proposal", "record_alignment"} {
-		stepped := handoffInvoke(t, s, sourceService, sourceEnv, "workflow_action", map[string]any{
-			"work_id": "work-1", "expected_version": version, "action_id": action,
-			"fields": stepFields[action], "idempotency_key": "handoff-" + action,
-		})
-		if stepped.Outcome != agentcontract.OutcomeOK {
-			t.Fatalf("%s failed: %+v", action, stepped.Error)
-		}
-		version, err = workVersionForWorkflow(t, s)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	contractFields := workflowContractFieldsForSeededRegistry(t, s)
-	approved, _ := dispatchWorkflowActionResult(t, s, sourceService, sourceEnv, version, "approve_contract", contractFields, "handoff-approve-contract")
-	if approved.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("approve_contract failed: %+v", approved.Error)
-	}
-	recordApprovedWorkDesign(t, s, sourceService, sourceEnv, "work-1", "handoff-design")
+	prepareCurrentImplement(t, s, sourceService, sourceGrant, sourceEnv, "handoff-setup")
 	sourcePath := filepath.Join(t.TempDir(), "source")
 	receivePath := filepath.Join(t.TempDir(), "receive")
 	for _, pair := range [][2]string{{repoSource, sourcePath}, {repoReceive, receivePath}} {

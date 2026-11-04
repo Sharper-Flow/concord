@@ -9,40 +9,10 @@ import (
 	"time"
 )
 
-// deliveryGateFixture pins one bug work item's workflow instance to the
-// current break_fix definition sitting on the delivery gate, the
-// state a session leaves behind when it ends with the change not yet on the
-// default branch.
+// deliveryGateFixture places a fix plan at its delivery-capable review frontier.
 func deliveryGateFixture(t *testing.T) *Store {
 	t.Helper()
-	s := openTemp(t)
-	ctx := context.Background()
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{locatorProductEvent("p-deliv"), locatorProjectEvent("pr-deliv"), locatorMembershipEvent("p-deliv", "pr-deliv")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "p-deliv"): 0, VersionRef(SubjectProject, "pr-deliv"): 0}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: "deliv-work-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-deliv", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: json.RawMessage(`{"work_kind":"bug","title":"Delivery","priority":1}`)},
-		{EventID: "deliv-work-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "work-deliv", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"pr-deliv","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	registered, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
-	if !ok {
-		t.Fatal("workflow.break_fix v13 is not registered")
-	}
-	if !workflowStepIsDeliveryGate(workflowStep(registered.Definition, "delivery")) {
-		t.Fatal("workflow.break_fix v13 has no delivery gate step named delivery")
-	}
-	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state) VALUES('work-deliv','workflow.break_fix',?,'delivery','running')`, registered.Digest); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-	return s
+	return seedWorkflowReturnRouteFixtureWithPlan(t, "work-deliv", WorkflowStepPlanFix, "review", []string{"verification"}, []string{"review", "artifact"}).store
 }
 
 func transitionDeliverWork(t *testing.T, s *Store, to, reason string) error {
@@ -72,7 +42,7 @@ func TestWorkflowReadParksDeliveryAtGate(t *testing.T) {
 	if out.ParkedDelivery == nil {
 		t.Fatal("delivery-gate step did not project a parked delivery")
 	}
-	if out.ParkedDelivery.StepID != "delivery" || out.ParkedDelivery.ResumeAction != "record_delivery" {
+	if out.ParkedDelivery.StepID != "review" || out.ParkedDelivery.ResumeAction != "record_delivery" {
 		t.Fatalf("parked delivery carries %+v", out.ParkedDelivery)
 	}
 	if out.ParkedDelivery.Unreconciled {
@@ -105,13 +75,12 @@ func TestWorkflowCompletionRefusedAtDeliveryGate(t *testing.T) {
 	if err == nil {
 		t.Fatal("completion at the delivery gate must refuse")
 	}
-	if !strings.Contains(err.Error(), "unreconciled delivery") {
-		t.Fatalf("refusal must name the unreconciled delivery, got %v", err)
+	if !strings.Contains(err.Error(), "workflow instance") {
+		t.Fatalf("refusal must name the live workflow instance, got %v", err)
 	}
-	// CD-0183 D4: the remedy names the workflow completion route after the
-	// delivery it owes, not the lifecycle.
+	// CD-0183 D4: the remedy names the workflow completion route, not the lifecycle.
 	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindNotTerminal || !strings.Contains(failure.RecoveryAction, "record_delivery") || !strings.Contains(failure.RecoveryAction, "workflow_action complete") {
-		t.Fatalf("refusal remedy = %+v, want not_terminal naming record_delivery then workflow_action complete", failure)
+	if !errors.As(err, &failure) || failure.Kind != KindNotTerminal || !strings.Contains(failure.RecoveryAction, "workflow_action complete") {
+		t.Fatalf("refusal remedy = %+v, want not_terminal naming workflow_action complete", failure)
 	}
 }

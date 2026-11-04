@@ -145,11 +145,11 @@ func TestInvokeContractRequestCorrection(t *testing.T) {
 func contractRequestCorrectionState(t *testing.T, s *store.Store, workID string) map[string]any {
 	t.Helper()
 	state := map[string]any{"work_version": workVersion(t, s, workID)}
-	var step string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
+	var workflowType, plan any
+	if err := s.DatabaseForTesting().QueryRow(`SELECT workflow_type,step_plan FROM workflow_instances WHERE work_id=?`, workID).Scan(&workflowType, &plan); err != nil {
 		t.Fatal(err)
 	}
-	state["step"] = step
+	state["workflow_type"], state["step_plan"] = workflowType, plan
 	var sequence int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&sequence); err != nil {
 		t.Fatal(err)

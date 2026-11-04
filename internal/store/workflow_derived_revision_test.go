@@ -40,7 +40,7 @@ func runDerivedLawApproval(t *testing.T, s *Store, workID string, version int64,
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: actor,
 		AcceptedInputsDigest: "sha256:derived-revision", IdempotencyIdentity: "approve-derived-" + workID, OperationID: "approve-derived-" + workID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "approve-derived-" + workID,
@@ -56,22 +56,8 @@ func runDerivedLawApproval(t *testing.T, s *Store, workID string, version int64,
 	return nil
 }
 
-// seedDerivedRevisionWorkflow puts a research instance at its frame step,
-// where approve_contract sits, and returns the version the approval drives.
-// The research family is the live authoring family whose contract does not
-// change Product truth, so the CD-0222 D5 boundaries bind to it unchanged.
+// seedDerivedRevisionWorkflow puts a research plan at its approval frontier.
 func seedDerivedRevisionWorkflow(t *testing.T, s *Store, workID string, actor WorkflowActor) int64 {
-	t.Helper()
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.research")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return seedDerivedRevisionWorkflowAt(t, s, workID, actor, registered)
-}
-
-// seedDerivedRevisionWorkflowAt initializes the research workflow under the
-// given registered pin.
-func seedDerivedRevisionWorkflowAt(t *testing.T, s *Store, workID string, actor WorkflowActor, registered RegisteredDefinition) int64 {
 	t.Helper()
 	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
 	if err != nil {
@@ -81,14 +67,15 @@ func seedDerivedRevisionWorkflowAt(t *testing.T, s *Store, workID string, actor 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)}); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	return 4
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanResearch, "frame")
+	return readWorkVersion(t, s, workID)
 }
 
 // TestDerivedLawRevisionOnNonProductChangingContract holds the carve-out

@@ -14,7 +14,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-23
 - **Scope:** Native Task authority
-- **Related:** CD-0013, CD-0166
+- **Related:** CD-0013
 
 ## Decision
 

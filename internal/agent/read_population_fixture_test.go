@@ -101,7 +101,11 @@ func seedReadPopulationFixture(t *testing.T) readPopulationFixture {
 // blocker edges, and one workflow instance per Product.
 func seedReadPopulationProducts(t *testing.T, s *store.Store) {
 	t.Helper()
-	definition, err := store.BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	plan, err := store.WorkflowStepPlanTemplate(store.WorkflowStepPlanChange)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planJSON, err := json.Marshal(plan)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +136,7 @@ func seedReadPopulationProducts(t *testing.T, s *store.Store) {
 			fmt.Fprintf(&statements, "INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES('%s','%s','Perf work %03d-%02d','%s',%d,1,'2026-08-%02dT00:00:00Z','2026-08-%02dT00:00:00Z',%s);", workID, kind, product, work, lifecycle, work+1, (work%8)+1, (work%8)+1, terminal)
 			fmt.Fprintf(&statements, "INSERT INTO work_projects(work_id,project_id,role) VALUES('%s','%s','primary'),('%s','%s','secondary');", workID, projectPrimary, workID, projectSecondary)
 			if work == 0 {
-				fmt.Fprintf(&statements, "INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,started_at) VALUES('%s','%s','%s','planning','ready','2026-08-01T00:00:00Z');", workID, definition.Definition.Ref, definition.Digest)
+				fmt.Fprintf(&statements, "INSERT INTO workflow_instances(work_id,workflow_type,step_plan,instance_state,started_at) VALUES('%s','change','%s','running','2026-08-01T00:00:00Z');", workID, planJSON)
 			}
 		}
 		blockerID := fmt.Sprintf("perf-work-%03d-06", product)
@@ -268,19 +272,16 @@ func execPopulationStatement(t *testing.T, s *store.Store, statement string, arg
 func (fx readPopulationFixture) seedFocusWorkflow(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
-	registered, err := store.BuiltinWorkflowRegistry().Register(store.BuiltinWorkflowDefinitions()[0])
-	if err != nil {
-		t.Fatal(err)
-	}
 	actor := store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-population", ActorClass: store.ActorAgent}
 	ctx = agentWorkflowSourceProof(t, ctx, fx.store, fx.workID)
 	if err := fx.store.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{
-			WorkID: fx.workID, Definition: registered, Actor: actor, Now: fixedTime(),
+			WorkID: fx.workID, Actor: actor, Now: fixedTime(),
 		})
 	}); err != nil {
 		t.Fatal(err)
 	}
+	seedAgentPlanFrontier(t, fx.store, fx.workID, store.WorkflowStepPlanChange, "plan")
 	actorRef := store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-population")
 	execPopulationStatement(t, fx.store, `INSERT OR IGNORE INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'human-1','client-1','agent-1','session-population','agent','now')`, actorRef)
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'population focus','internal_sqlite','[]','[]','now',?,'[]',?,1,'prototype_internal')`, fx.workID, actorRef, `["`+readPopulationDecision+`"]`)
@@ -404,7 +405,8 @@ func (fx readPopulationFixture) seedPopulationPeerWork(t *testing.T) {
 		t.Fatalf("fold population relation: %v", err)
 	}
 	// The peer starts last, after the setup mutations above.
-	execPopulationStatement(t, fx.store, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES(?,'workflow.break_fix',?,'repair','running','2026-08-19T00:00:00Z')`, readPopulationPeer, breakFixFixtureDigest(t))
+	execPopulationStatement(t, fx.store, `INSERT INTO workflow_instances(work_id,instance_state,execution_started_at) VALUES(?,'intake','2026-08-19T00:00:00Z')`, readPopulationPeer)
+	seedAgentPlanFrontier(t, fx.store, readPopulationPeer, store.WorkflowStepPlanFix, "implement")
 }
 
 // seedPopulationDomainRows records a Domain observation so observation reads
@@ -431,12 +433,8 @@ func (fx readPopulationFixture) seedPopulationDomainRows(t *testing.T) {
 // continuity read, mirroring the store's own fixture for that table.
 func (fx readPopulationFixture) seedPopulationFocusRows(t *testing.T) {
 	t.Helper()
-	registered, err := store.BuiltinWorkflowRegistry().Register(store.BuiltinWorkflowDefinitions()[0])
-	if err != nil {
-		t.Fatal(err)
-	}
 	actorRef := store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-population")
 	_, focusVersion := readWorkFromStore(t, fx.store, fx.workID)
-	execPopulationStatement(t, fx.store, `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES(?,?,1,1,'population-boundary','summary','population-checkpoint:context-checkpoint',1,1,'population summary boundary',?,?,?,'request:population','2026-09-01T00:00:00Z')`,
-		fx.workID, focusVersion, registered.Definition.Ref, registered.Digest, actorRef)
+	execPopulationStatement(t, fx.store, `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,actor_ref,request_id,recorded_at) VALUES(?,?,1,1,'population-boundary','summary','population-checkpoint:context-checkpoint',1,1,'population summary boundary',?,?,'request:population','2026-09-01T00:00:00Z')`,
+		fx.workID, focusVersion, "change", actorRef)
 }

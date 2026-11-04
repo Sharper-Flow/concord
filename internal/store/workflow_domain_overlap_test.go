@@ -13,10 +13,6 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 	s, _, binding, _ := architectureValidationFixture(t, left)
 	hash := architectureBindingProjectionHash(binding)
 	seedWork(t, s, right)
-	pinned, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
-	if !ok {
-		t.Fatal("workflow.break_fix v9 is unavailable")
-	}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +42,7 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 			tx.Rollback()
 			t.Fatal(err)
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES(?, 'workflow.break_fix', ?, 'repair', 'running', '2026-08-19T00:00:00Z')`, workID, pinned.Digest); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,instance_state,execution_started_at) VALUES(?, 'running', '2026-08-19T00:00:00Z')`, workID); err != nil {
 			tx.Rollback()
 			t.Fatal(err)
 		}
@@ -108,10 +104,6 @@ func resolveApprovedOverlap(t *testing.T, s *Store, eventID, fromWorkID, toWorkI
 func seedProductChangingContract(t *testing.T, s *Store, workID string, binding WorkflowArchitectureBinding) WorkflowActor {
 	t.Helper()
 	ctx := context.Background()
-	registered, ok := BuiltinWorkflowRegistry().Current("workflow.break_fix")
-	if !ok {
-		t.Fatal("workflow.break_fix v9 is unavailable")
-	}
 	actor := WorkflowActor{PrincipalRef: "principal:overlap", ClientRef: "client:overlap", AgentRef: "agent:" + workID, SessionRef: "session:" + workID, ActorClass: ActorAgent}
 	ctx, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	if err != nil {
@@ -121,7 +113,7 @@ func seedProductChangingContract(t *testing.T, s *Store, workID string, binding 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)}); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -132,15 +124,11 @@ func seedProductChangingContract(t *testing.T, s *Store, workID string, binding 
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The current graph records diagnosis and the derived execution start in
-	// the log, so rebuilding derives the same active overlap claim.
-	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "repair", actorRef); err != nil {
-		t.Fatalf("advance onto repair: %v", err)
-	}
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanFix, "implement")
 	version := readWorkVersion(t, s, workID)
 	started := workflowEventWithActor("overlap-start-execution-"+workID, WorkflowActionStarted, workID, actorRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"step_id": "repair", "action_id": "checkpoint_repair", "attempt_epoch": int64(1),
+		"step_id": "implement", "action_id": "start_execution", "attempt_epoch": int64(1),
 		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "overlap-start-" + workID,
 		"actor_ref": actorRef,
 	})
@@ -214,7 +202,7 @@ func setExecutionStartedForTesting(t *testing.T, s *Store, workID string, starte
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES(?, 'workflow.break_fix', ?, 'repair', 'running', ?) ON CONFLICT(work_id) DO UPDATE SET execution_started_at=excluded.execution_started_at`, workID, "sha256:"+strings.Repeat("e", 64), value); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,instance_state,execution_started_at) VALUES(?, 'running', ?) ON CONFLICT(work_id) DO UPDATE SET execution_started_at=excluded.execution_started_at`, workID, value); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -262,15 +250,17 @@ func setWorkTerminalForTesting(t *testing.T, s *Store, workID string) {
 }
 
 // CD-0183 D2: the first workflow action moves the lifecycle, and the
-// external-effect start records the execution-start fact, not arrival at repair.
+// external-effect start records the execution-start fact, not arrival at implement.
 func TestExecutionStartRecordsTheInstanceFact(t *testing.T) {
 	const workID = "claim-at-execution-start"
-	f := seedCurrentWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	f := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanFix, "implement")
 	s := f.store
 	if startedAt, _ := instanceExecutionStart(t, s, workID); startedAt != "" {
-		t.Fatal("arrival at repair recorded execution before its qualifying start")
+		t.Fatal("arrival at implement recorded execution before its qualifying start")
 	}
-	reviewGateStartStep(t, s, workID, "repair", "checkpoint_repair", f.owner)
+	if err := runVerdictActionAs(t, s, workID, "start_execution", []byte(`{}`), 0, f.owner); err != nil {
+		t.Fatalf("start execution: %v", err)
+	}
 	var lifecycle string
 	var startedAt any
 	if err := s.DatabaseForTesting().QueryRow(`SELECT w.lifecycle, i.execution_started_at FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&lifecycle, &startedAt); err != nil {

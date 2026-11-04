@@ -23,7 +23,7 @@
   the contract-step admission those checks proved stranded
 - **Preserves:** CD-0201 D2, the liveness law; CD-0112 D1, continuity actions never move
   the step; every other route refusal keeps its scope
-- **Related:** CD-0016, CD-0166, CD-0173
+- **Related:** CD-0016, CD-0173
 - **Approval:** The operator directed in session chat on 2026-10-02 that the
   checks stay strict, with no named exception, and that the engine routes
   change until the law holds.
@@ -109,7 +109,9 @@ Scenario: Every registered definition stays live under the full model
   Then each well-formed nonterminal state has an exit and each reachable state reaches a terminal step
 ```
 
-- `go test ./internal/store/ -run TestContractStepAdvancesOnlyThroughItsApproval` proves the first scenario.
-- `TestCurrentDefinitionsHaveOneSourcePerLiveFamily` checks the current family set.
-- `go test ./internal/store/ -run TestRegisteredNonTerminalStepsCanAdvance` checks advancing exits across the registered current definitions.
-- `go test ./internal/store/ -run 'TestWellFormedAdmissionStateHasNonContinuityExit|TestReachableAdmissionStateReachesTerminal|TestAdmissionConformanceLocalJobAcceptHolds|TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition'` proves the final scenario over current definitions and Review admission.
+Verification-inventory update only; the obligations above are unchanged. Current
+plan admission and preflight/dispatch checks are in
+[`workflow_admission_conformance_test.go`](../../../internal/store/workflow_admission_conformance_test.go),
+[`workflow_plan_preflight_test.go`](../../../internal/store/workflow_plan_preflight_test.go), and
+[`workflow_plan_dispatch_test.go`](../../../internal/store/workflow_plan_dispatch_test.go).
+These pointers do not assert proof of the abstract-state liveness scenario.

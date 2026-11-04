@@ -16,7 +16,7 @@ func init() {
 		obligation    = "/$defs/lane_report_review_obligation/properties/"
 		accepted      = "/$defs/workflow_review_state/properties/accepted_review/anyOf/1/properties/"
 	)
-	reference := goInlineBound("internal/store/workflow_registry.go", "ValidReference", "len(value)", boundBytes)
+	reference := goInlineBound("internal/store/workflow_action_policy.go", "ValidReference", "len(value)", boundBytes)
 	predicate := goPatternBound(review, "reviewPredicatePattern")
 	sha := goPatternBound("internal/store/worktree_reads.go", "worktreeSHAPattern")
 	evidenceRef := goInlineBound(review, "validateReviewOracleFinding", "len(ref)", boundBytes)

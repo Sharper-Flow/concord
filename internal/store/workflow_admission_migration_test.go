@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -84,51 +83,42 @@ func admissionMigration149(t *testing.T) migration {
 }
 
 func TestWorkflowAdmissionMigration149Parity(t *testing.T) {
-	const work = "admission-migration-journey"
-	fixture := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
-	s := fixture.store
-	want := admissionMigrationCurrentFacts(t, s)
+	useStampedBuild(t)
+	c := admissionExplicitCorpus()
+	s := c.prefix(t, 148)
+	want := admissionCorpusOracle(c.events)
+	advanceHistoricalPrefix(t, s.db, 149)
+	admissionMigrationRequireFacts(t, s, want)
 	if len(want.exits) == 0 || len(want.actors) == 0 {
-		t.Fatal("pinned journey must produce real completed actions and coordinator facts")
+		t.Fatal("historical corpus must witness exits and coordinator actions")
 	}
-	actor, err := WorkflowActorRef(fixture.owner)
-	if err != nil {
+	advanceHistoricalPrefix(t, s.db, 182)
+	retirementUpgradeExec(t, s.db, `INSERT INTO write_guard VALUES(1)`)
+	retirementUpgradeExec(t, s.db, `INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('admission-product','Admission product','prototype','operator_only',1,'t','t')`)
+	retirementUpgradeExec(t, s.db, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('admission-project','Admission project',1,'t','t')`)
+	retirementUpgradeExec(t, s.db, `INSERT INTO product_projects(product_id,project_id,role) VALUES('admission-product','admission-project','primary')`)
+	retirementUpgradeExec(t, s.db, `INSERT INTO work_projects(work_id,project_id,role) VALUES('admission-corpus','admission-project','primary')`)
+	retirementUpgradeExec(t, s.db, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state) VALUES('admission-corpus','workflow.research',?,'findings','running')`, "sha256:"+strings.Repeat("a", 64))
+	retirementUpgradeExec(t, s.db, `DELETE FROM write_guard`)
+	receipts := retirementUpgradeRows(t, s.db, `SELECT * FROM effect_receipts ORDER BY effect_seq`)
+	if _, err := Upgrade(t.Context(), s.path, nil); err != nil {
 		t.Fatal(err)
 	}
-	step := workflowStep(pinnedWorkflowDefinitionForTest(t, s, work), "repair")
-	for i, tc := range []struct {
-		kind   string
-		fields map[string]any
-	}{
-		{WorkflowActionStarted, map[string]any{"action_id": "checkpoint_context", "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "admission-migration-start"}},
-		{WorkflowActionCheckpointed, map[string]any{"step_kind": string(step.Kind), "checkpoint_payload": map[string]any{}, "request_id": "admission-migration-checkpoint"}},
-		{WorkflowActionFailed, map[string]any{"failure_kind": "timeout", "recoverable": true}},
-	} {
-		version := readWorkVersion(t, s, work)
-		p := tc.fields
-		p["work_id"], p["expected_version"], p["resulting_version"] = work, version, version+1
-		p["step_id"], p["attempt_epoch"], p["actor_ref"] = "repair", 1, actor
-		event := workflowEventWithActor(fmt.Sprintf("admission-migration-real-%d", i), tc.kind, work, actor, p)
-		event.OccurredAt = time.Date(2027, 1, 1, 0, 0, i, 0, time.UTC)
-		if err := applyWorkflowTestOperationDirect(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(work, version)}); err != nil {
-			t.Fatalf("real %s fold: %v", tc.kind, err)
-		}
-		var seq int64
-		if err := s.db.QueryRow(`SELECT effect_seq FROM effect_receipts WHERE event_id=?`, event.EventID).Scan(&seq); err != nil {
-			t.Fatal(err)
-		}
-		if got := admissionMigrationCurrentFacts(t, s).actors[admissionMigrationActorKey{work, actor}]; got != (admissionMigrationDisplay{seq, fmt.Sprint(p["action_id"]), event.OccurredAt.Format(time.RFC3339Nano)}) {
-			// Checkpoints and failures inherit the action display when the member is absent.
-			action, _ := p["action_id"].(string)
-			if action == "" {
-				action = tc.kind
-			}
-			if got != (admissionMigrationDisplay{seq, action, event.OccurredAt.Format(time.RFC3339Nano)}) {
-				t.Fatalf("real %s coordinator writer=%+v", tc.kind, got)
-			}
-		}
+	if got := retirementUpgradeRows(t, s.db, `SELECT * FROM effect_receipts ORDER BY effect_seq`); !reflect.DeepEqual(got, receipts) {
+		t.Fatalf("upgrade changed receipts: before=%v after=%v", receipts, got)
 	}
-	assertAdmissionExplicitCorpus(t)
+	if got := admissionMigrationCurrentFacts(t, s); len(got.exits) != 0 || len(got.actors) != 0 {
+		t.Fatalf("parked workflow retained step admission state: %+v", got)
+	}
+	if got := retirementUpgradeRows(t, s.db, `SELECT instance_state,workflow_type,step_plan FROM workflow_instances WHERE work_id='admission-corpus'`); !reflect.DeepEqual(got, [][]any{{"intake", nil, nil}}) {
+		t.Fatalf("historical workflow did not park at intake: %v", got)
+	}
+	retirementUpgradeExec(t, s.db, `INSERT INTO write_guard VALUES(1)`)
+	retirementUpgradeExec(t, s.db, `INSERT INTO workflow_completed_exits VALUES('admission-corpus','family','step','action',1)`)
+	retirementUpgradeExec(t, s.db, `INSERT INTO workflow_coordinator_actions VALUES('admission-corpus','actor/guard',1,'action','2026-01-01T00:00:00Z')`)
+	retirementUpgradeExec(t, s.db, `DELETE FROM write_guard`)
+	admissionMigrationGuards(t, s, "admission-corpus", "write-seam-only")
+	retirementUpgradeHealthy(t, s.db)
 }
 
 func admissionMigrationGuards(t *testing.T, s *Store, work, refusal string) {
@@ -198,4 +188,94 @@ func TestWorkflowAdmissionMigration149RejectsMissingCompletedClass(t *testing.T)
 			}
 		})
 	}
+}
+
+func TestWorkflowAdmissionCutoverPreservesWorkAndLinearIdentity(t *testing.T) {
+	useStampedBuild(t)
+	ctx := t.Context()
+	db, path := retirementUpgradeFixture(t)
+	advanceHistoricalPrefix(t, db, 182)
+	actor := "actor:" + strings.Repeat("a", 64)
+	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
+	retirementUpgradeExec(t, db, `UPDATE work_items SET lifecycle='in_progress' WHERE id='work-upgrade-from'`)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,started_at) VALUES('work-upgrade-from','workflow.implementation',?,'release','running',?,?)`, "sha256:"+strings.Repeat("b", 64), actor, retirementUpgradeTime)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,started_at) VALUES('work-upgrade-to','workflow.implementation',?,'release','running',?,?)`, "sha256:"+strings.Repeat("b", 64), actor, retirementUpgradeTime)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_delivery_state(work_id,assertion_seq,assertion_id,actor,occurred_at,payload_version,payload) VALUES('work-upgrade-to',23,'event-upgrade-4','operator',?,1,'{"delivery_artifact":"https://example.com/change/1"}')`, retirementUpgradeTime)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_predicate_verdicts(work_id,contract_version,predicate_id,verdict_seq,actor,payload) VALUES('work-upgrade-from',1,'predicate:retained',23,?,'{ "verdict": "pass", "evidence": ["ref:proof"] }')`, actor)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch) VALUES('work-upgrade-from','release',1)`)
+	retirementUpgradeExec(t, db, `INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,created_at,updated_at) VALUES('work-upgrade-from','uuid-confirmed','CON-1','https://linear.app/x/issue/CON-1',?,?)`, retirementUpgradeTime, retirementUpgradeTime)
+	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
+	work := retirementUpgradeRows(t, db, `SELECT * FROM work_items WHERE id='work-upgrade-from'`)
+	links := retirementUpgradeRows(t, db, `SELECT * FROM linear_issue_links ORDER BY work_id`)
+	receipts := retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts ORDER BY effect_seq`)
+	actors := retirementUpgradeRows(t, db, `SELECT * FROM workflow_actors ORDER BY actor_ref`)
+	verdicts := retirementUpgradeRows(t, db, `SELECT * FROM workflow_predicate_verdicts ORDER BY work_id,predicate_id`)
+	delivery := retirementUpgradeRows(t, db, `SELECT * FROM workflow_delivery_state ORDER BY work_id`)
+	snapshot := filepath.Join(t.TempDir(), "before-cutover.db")
+	manifest, err := BackupDatabase(ctx, path, snapshot)
+	if err != nil {
+		t.Fatalf("snapshot predecessor: %v", err)
+	}
+	if _, err := Upgrade(ctx, path, nil); err != nil {
+		t.Fatalf("upgrade predecessor: %v", err)
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT * FROM work_items WHERE id='work-upgrade-from'`); !reflect.DeepEqual(got, work) {
+		t.Fatalf("work identity changed: before=%v after=%v", work, got)
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT * FROM linear_issue_links ORDER BY work_id`); !reflect.DeepEqual(got, links) {
+		t.Fatalf("Linear identity changed: before=%v after=%v", links, got)
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts ORDER BY effect_seq`); !reflect.DeepEqual(got, receipts) {
+		t.Fatalf("effect receipts changed: before=%v after=%v", receipts, got)
+	}
+	for query, want := range map[string][][]any{
+		`SELECT * FROM workflow_actors ORDER BY actor_ref`:                        actors,
+		`SELECT * FROM workflow_predicate_verdicts ORDER BY work_id,predicate_id`: verdicts,
+		`SELECT * FROM workflow_delivery_state ORDER BY work_id`:                  delivery,
+	} {
+		if got := retirementUpgradeRows(t, db, query); !reflect.DeepEqual(got, want) {
+			t.Errorf("retained facts changed for %s: before=%v after=%v", query, want, got)
+		}
+	}
+	var state string
+	var planType, plan, owner sql.NullString
+	if err := db.QueryRowContext(ctx, `SELECT instance_state,workflow_type,step_plan,execution_actor_ref FROM workflow_instances WHERE work_id='work-upgrade-from'`).Scan(&state, &planType, &plan, &owner); err != nil {
+		t.Fatal(err)
+	}
+	if state != "intake" || planType.Valid || plan.Valid || owner.Valid {
+		t.Fatalf("undelivered workflow did not return to intake: state=%q type=%v plan=%v owner=%v", state, planType, plan, owner)
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT w.lifecycle,i.instance_state,i.workflow_type,i.step_plan,i.execution_actor_ref FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id='work-upgrade-to'`); !reflect.DeepEqual(got, [][]any{{"completed", "completed", nil, nil, actor}}) {
+		t.Fatalf("delivered workflow did not complete: %v", got)
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT * FROM workflow_step_epochs`); len(got) != 0 {
+		t.Fatalf("retired step epochs survived: %v", got)
+	}
+	verified, err := VerifyBackup(ctx, snapshot)
+	if err != nil || verified.DBChecksum != manifest.DBChecksum || verified.SchemaVersion != 182 {
+		t.Fatalf("predecessor snapshot changed: %+v %v", verified, err)
+	}
+}
+
+func TestWorkflowAdmissionCutoverRollback(t *testing.T) {
+	useStampedBuild(t)
+	db, path := retirementUpgradeFixture(t)
+	advanceHistoricalPrefix(t, db, 182)
+	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch) VALUES('work-upgrade-from','release',1)`)
+	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
+	retirementUpgradeExec(t, db, `CREATE TRIGGER cutover_rollback_witness BEFORE DELETE ON workflow_step_epochs BEGIN SELECT RAISE(ABORT,'cutover rollback witness'); END`)
+	before := retirementUpgradeSnapshot(t, db)
+	_, err := Upgrade(t.Context(), path, nil)
+	if err == nil || !strings.Contains(err.Error(), "cutover rollback witness") {
+		t.Fatalf("upgrade did not reach rollback witness: %v", err)
+	}
+	if got := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(got, before) {
+		t.Fatal("failed cutover changed predecessor schema or rows")
+	}
+	retirementUpgradeExec(t, db, `DROP TRIGGER cutover_rollback_witness`)
+	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+		t.Fatal(err)
+	}
+	retirementUpgradeHealthy(t, db)
 }

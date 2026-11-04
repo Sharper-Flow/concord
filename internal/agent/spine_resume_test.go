@@ -177,7 +177,7 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 	capture := map[string]any{
 		"title": "Resume a checked value change", "value_statement": "Fresh sessions must recover actionable checked work.",
 		"task": "The synthetic value needs a checked implementation; close when its predicate passes.",
-		"kind": "task", "project_ids": []string{"project-1"}, "workflow_type_ref": family, "idempotency_key": "spine-capture",
+		"kind": "task", "project_ids": []string{"project-1"}, "idempotency_key": "spine-capture",
 	}
 	if family == "workflow.break_fix" {
 		capture["kind"] = "bug"
@@ -194,10 +194,14 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 		t.Fatal(err)
 	}
 	if family == "workflow.break_fix" {
+		spineOK(t, f.action(t, "record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false}))
+		spineOK(t, f.action(t, "pick_type", map[string]any{"type": "fix", "reason": "The work repairs a defect."}))
 		spineOK(t, f.action(t, "record_diagnosis", map[string]any{
 			"reproduction": "Run the declared value check.", "root_cause": "The value implementation needs a checked repair.",
 			"searched": "The isolated fixture has no related repair.", "outcome": "none_found",
 		}))
+		spineOK(t, f.action(t, "complete_step", map[string]any{"step_id": "diagnose", "note": "Diagnosis recorded."}))
+		spineOK(t, f.action(t, "record_plan", agentPlanFields()))
 	} else {
 		advanceCapturedWorkToContract(t, s, service, f.env, f.work, "spine")
 	}
@@ -206,14 +210,8 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
 	fields["required_evidence"] = []string{"verification"}
 	spineOK(t, f.action(t, "approve_contract", fields))
-	if family == "workflow.implementation" {
-		recordApprovedWorkDesign(t, s, service, f.env, f.work, "spine-design")
-	}
-	entry := "start_execution"
-	if family == "workflow.break_fix" {
-		entry = "checkpoint_repair"
-	}
-	spineOK(t, f.action(t, entry, map[string]any{}))
+	spineOK(t, f.action(t, "complete_step", map[string]any{"step_id": "plan", "note": "Plan approved."}))
+	spineOK(t, f.action(t, "start_execution", map[string]any{}))
 	return f
 }
 
@@ -242,11 +240,17 @@ func (f *spineFixture) review(t *testing.T, disposition, proof string) {
 	spineOK(t, f.action(t, "record_review", map[string]any{"review": report}))
 }
 
+func (f *spineFixture) completeReview(t *testing.T) {
+	t.Helper()
+	review := f.read(t).Pinned.Pin.Review
+	spineOK(t, f.action(t, "complete_step", map[string]any{"step_id": "review", "note": "Final review passed.", "reviewer": "concord-review", "result": "pass", "commit": review.Candidate.Commit, "link": review.Accepted.ReportRef}))
+}
+
 func TestSpineFreshSessionResumesCurrentState(t *testing.T) {
 	f := newSpineFixture(t)
 	f.advanceToAcceptance(t)
 	before := f.read(t)
-	if before.Pinned.Step != "acceptance" || before.Pinned.Pin.Lifecycle != "in_progress" {
+	if before.Pinned.Step != "review" || before.Pinned.Pin.Lifecycle != "in_progress" {
 		t.Fatalf("unexpected resumable position: %+v", before.Pinned.Pin)
 	}
 	if before.Pinned.Contract == nil || len(before.Pinned.Contract.OutcomePredicates) != 1 || before.Pinned.Contract.OutcomePredicates[0].PredicateID != "predicate:primary" {
@@ -288,19 +292,18 @@ func TestSpineFreshSessionResumesCurrentState(t *testing.T) {
 	}}}))
 }
 
-// Reaching acceptance proves execution, refine, and delivery have exited;
-// evaluation and premise confirmation still remain before completion.
+// Reaching review leaves evaluation and premise confirmation before completion.
 func (f *spineFixture) advanceToAcceptance(t *testing.T) {
 	t.Helper()
 	delivery := map[string]any{"delivery_artifact": "artifact:spine-value", "delivery_state": "asserted"}
-	if step := f.read(t).Pinned.Step; step != "execution" && step != "repair" {
+	if step := f.read(t).Pinned.Step; step != "implement" {
 		t.Fatalf("ready Review moved the producing step to %q", step)
 	}
-	spineOK(t, f.action(t, "record_delivery", delivery))
-	if step := f.read(t).Pinned.Step; step != "refine" {
-		t.Fatalf("producer delivery left the step at %q, want refine", step)
+	report := f.read(t).Pinned.Pin.Review.Accepted.ReportRef
+	spineOK(t, f.action(t, "complete_step", map[string]any{"step_id": "implement", "note": "Implementation reviewed.", "reviewer": "concord-review", "result": "pass", "commit": f.proofCommit, "link": report}))
+	if step := f.read(t).Pinned.Step; step != "review" {
+		t.Fatalf("implementation completion left the step at %q, want review", step)
 	}
-	spineOK(t, f.action(t, "checkpoint_refine", map[string]any{}))
 	f.proof = f.verify(t)
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "artifact", "evidence_ref": "commit:" + f.proofCommit}))
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))

@@ -11,14 +11,14 @@ import (
 )
 
 // This test derives the action-to-field reads from dispatcher control flow and
-// compares them with the current registry contracts. It contains no duplicate
+// compares them with the current catalog contracts. It contains no duplicate
 // expected field inventory. The only exclusions are the singular approval
 // compatibility fields.
 func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
 	t.Parallel()
 	files := map[string]*ast.File{}
 	fset := token.NewFileSet()
-	for _, name := range []string{"workflow_dispatch.go", "workflow_action_guards.go"} {
+	for _, name := range []string{"workflow_dispatch.go", "workflow_action_guards.go", "workflow_event_constructors.go"} {
 		file, err := parser.ParseFile(fset, name, nil, 0)
 		if err != nil {
 			t.Fatalf("parse %s: %v", name, err)
@@ -68,8 +68,8 @@ func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
 		actions []string
 	}{
 		{"workflow_dispatch.go", "workflowCompletionEventForDefinition", []string{"complete"}},
-		{"workflow_dispatch.go", "workflowContractOutcomePredicates", []string{"approve_contract"}},
-		{"workflow_action_guards.go", "guardEvidenceBindingMembership", []string{"bind_evidence"}},
+		{"workflow_event_constructors.go", "workflowContractContent", []string{"approve_contract"}},
+		{"workflow_action_guards.go", "guardEvidenceBindingContract", []string{"bind_evidence"}},
 		{"workflow_action_guards.go", "guardForwardLinkOnly", []string{"link_successor"}},
 		{"workflow_action_guards.go", "guardNoRestartDispatch", []string{"cross_context_boundary"}},
 	} {
@@ -84,7 +84,7 @@ func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
 		name string
 	}{
 		{"workflow_dispatch.go", "workflowActionEvidenceRefs"},
-		{"workflow_action_guards.go", "appendGenericWorkflowCompletion"},
+		{"workflow_action_guards.go", "assemblePlanWorkflowActionEventsTx"},
 	} {
 		function := workflowTestFunction(t, files[binding.file], binding.name)
 		ast.Inspect(function.Body, func(node ast.Node) bool {
@@ -106,14 +106,14 @@ func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
 	}
 
 	declared := map[string]map[string]bool{}
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		for _, action := range definition.ActionDefinitions {
-			if declared[action.ID] == nil {
-				declared[action.ID] = map[string]bool{}
-			}
-			for _, field := range action.Payload.Fields {
-				declared[action.ID][field.Name] = true
-			}
+	for id := range builtinWorkflowActionCatalog() {
+		action, err := catalogAction(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		declared[action.ID] = map[string]bool{}
+		for _, field := range action.Payload.Fields {
+			declared[action.ID][field.Name] = true
 		}
 	}
 	var missing []string

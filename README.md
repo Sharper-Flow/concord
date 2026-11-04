@@ -228,9 +228,9 @@ Complex agent workflows cannot fit into a single directed acyclic graph (DAG) wi
 1. **Task coordination graph (`blocks`, `depends_on`)**
    - *Why*: Manages inter-task dependencies and parallel execution queues.
    - *How*: Directed relations from the [relation vocabulary](contracts/relation-vocabulary.v1.json) filter tasks from the [ready queue](internal/store/query.go). When concurrent tasks touch the same Domain, the later agent merges the earlier change and an [overlap resolution](internal/store/workflow_domain_overlap.go) can record their order.
-2. **State execution graph (Workflow state machines)**
-   - *Why*: Real engineering requires retries, rollbacks, and recovery paths that break strict DAG acyclicity.
-   - *How*: Workflow definitions link execution stages through directed graphs with explicit cycle validation. Retry and record correction use ordinary actions without a separate recovery-route registry. Inspect the [graph validator](internal/store/workflow_registry.go) and [action admission](internal/store/workflow_admission.go).
+2. **Per-item step plans (Workflow execution)**
+   - *Why*: Real engineering needs inserted send-back steps, conditional clarify, and repeated attempts that a fixed chain cannot express.
+   - *How*: Every workflow starts with intake, then picks a type — change, fix, research, or removal — whose required steps are copied from the [template contract](contracts/workflow-step-templates.v1.json) into one JSON plan stored on the item's workflow row. Steps may be inserted between required steps; the plan stays a DAG because a send-back is a new step after the current one, never a backwards edge. One plan-write check guards every write; inspect the [plan module](internal/store/workflow_step_plan.go) and [action admission](internal/store/workflow_preflight.go).
 3. **Architectural authority graph (Domains and specifications)**
    - *Why*: Tracks how specifications and codebases relate across multi-repository projects.
    - *How*: Law relations model refinement, supersession, and conflict across specifications. Domain relations declare boundary dependencies, shared contracts, and replacements. Inspect the [committed law-folder snapshot](internal/store/law_snapshot.go) and [law validation](internal/store/law_boundary.go).

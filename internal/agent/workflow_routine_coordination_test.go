@@ -36,10 +36,6 @@ func routineCoordinationFixture(t *testing.T) (*store.Store, *Service, CallEnvel
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	definition, err := store.BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	for _, workID := range []string{"work-1", "work-2"} {
 		verified, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
@@ -47,7 +43,7 @@ func routineCoordinationFixture(t *testing.T) (*store.Store, *Service, CallEnvel
 			t.Fatal(err)
 		}
 		if err := s.Transact(verified, func(tx *store.Transaction) error {
-			return store.InitializeWorkflowTx(verified, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: fixedTime()})
+			return store.InitializeWorkflowTx(verified, tx, store.WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: fixedTime()})
 		}); err != nil {
 			t.Fatalf("initialize %s: %v", workID, err)
 		}
@@ -108,17 +104,21 @@ func routineCoordinationDriveWorkflow(t *testing.T, s *store.Store, workID strin
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := store.AuthorizeWorkflowActionAtBoundaryTx(verified, s, store.BuiltinWorkflowRegistry(), preflight, nil, func(tx *store.Transaction) error {
-			_, err := store.ApplyWorkflowActionTx(verified, tx, store.BuiltinWorkflowRegistry(), request)
+		if err := store.AuthorizeWorkflowActionAtBoundaryTx(verified, s, preflight, nil, func(tx *store.Transaction) error {
+			_, err := store.ApplyWorkflowActionTx(verified, tx, request)
 			return err
 		}); err != nil {
 			t.Fatalf("%s %s at v%d: %v", workID, actionID, version, err)
 		}
 	}
+	act("record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false})
+	act("pick_type", map[string]any{"type": "fix", "reason": "The work repairs a defect."})
 	act("record_diagnosis", map[string]any{
 		"reproduction": "The bounded defect reproduction statement.",
 		"searched":     "The bounded backlog search statement.", "outcome": "none_found", "root_cause": "The bounded root cause statement.",
 	})
+	act("complete_step", map[string]any{"step_id": "diagnose", "note": "Diagnosis recorded."})
+	act("record_plan", agentPlanFields())
 	fields := workflowContractFieldsFixture()
 	binding := workflowArchitectureBindingForSeededRegistry(t, s)
 	binding["domain_modifies"] = []string{binding["home_domain_id"].(string)}
@@ -130,7 +130,8 @@ func routineCoordinationDriveWorkflow(t *testing.T, s *store.Store, workID strin
 	if !enterExecution {
 		return
 	}
-	act("checkpoint_repair", map[string]any{})
+	act("complete_step", map[string]any{"step_id": "plan", "note": "Plan approved."})
+	act("start_execution", map[string]any{})
 	var started any
 	if err := s.DatabaseForTesting().QueryRow(`SELECT execution_started_at FROM workflow_instances WHERE work_id=?`, workID).Scan(&started); err != nil || started == nil {
 		t.Fatalf("fixture %s carries no durable execution start: %v", workID, err)
@@ -289,10 +290,6 @@ func crossProductRoutineCoordinationFixture(t *testing.T, capabilities []agentco
 	s, service, grant := crossProductDispatchFixture(t, capabilities)
 	seedRoutineCoordinationPrimaryProjectFixture(t, s, ctx)
 	seedRoutineCoordinationDomainFixture(t, s, ctx)
-	definition, err := store.BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	for _, workID := range []string{"work-1", "work-2"} {
 		verified, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
@@ -300,7 +297,7 @@ func crossProductRoutineCoordinationFixture(t *testing.T, capabilities []agentco
 			t.Fatal(err)
 		}
 		if err := s.Transact(verified, func(tx *store.Transaction) error {
-			return store.InitializeWorkflowTx(verified, tx, store.WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: actor, Now: fixedTime()})
+			return store.InitializeWorkflowTx(verified, tx, store.WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: fixedTime()})
 		}); err != nil {
 			t.Fatalf("initialize %s: %v", workID, err)
 		}

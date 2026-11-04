@@ -55,7 +55,7 @@ func TestWorktreeRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	retained := retirementUpgradeSnapshot(t, db)
 	ordinaryRecordsUpgradeExpectations(t, db, retained)
 	retainedBindings := retirementUpgradeRows(t, db, `SELECT work_id,contract_version,product_id,home_domain_id,projection_hash FROM workflow_architecture_bindings ORDER BY rowid`)
-	retainedContracts := retainedWorkflowContractRows(t, db)
+	retainedContracts := cutoverContractRows(t, db)
 	if s, err := Open(t.Context(), path); err == nil {
 		s.Close()
 		t.Fatal("ordinary open crossed the breaking ownership retirement")
@@ -101,7 +101,7 @@ func TestWorktreeRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 		switch table {
 		case "schema", "schema_migrations", "store_revision", "workflow_contract_law_revisions":
 			continue
-		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions":
+		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions", "workflow_step_completions":
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' AND name=?`, table); len(rows) != 0 {
 				t.Errorf("retired table %s survives: %v", table, rows)
 			}
@@ -116,7 +116,7 @@ func TestWorktreeRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 		case "workflow_architecture_bindings":
 			want = retainedBindings
 		case "workflow_contracts":
-			if got := retainedWorkflowContractRows(t, db); !reflect.DeepEqual(got, retainedContracts) {
+			if got := cutoverContractRows(t, db); !reflect.DeepEqual(got, retainedContracts) {
 				t.Error("current contract facts changed")
 			}
 			continue

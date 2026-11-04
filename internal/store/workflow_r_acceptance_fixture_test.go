@@ -1,7 +1,11 @@
 package store
 
 import (
+	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
+	"time"
 )
 
 // rAcceptance seeds a workflow.implementation item at acceptance through the
@@ -12,7 +16,7 @@ import (
 // decision-bearing successor.
 func rAcceptance(t *testing.T, workID string, domains []string, associate bool) acceptanceRecoveryFixture {
 	t.Helper()
-	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, "workflow.implementation"), "execution", []string{"verification"}, []string{"verification", "review", "artifact"})
+	route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", []string{"verification"}, []string{"verification", "review", "artifact"})
 	t.Cleanup(func() { _ = route.store.Close() })
 	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
 	if len(domains) > 0 {
@@ -39,7 +43,7 @@ func rReviseContract(t *testing.T, s *Store, workID, actorRef string, domains []
 		DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 		VerificationObligations: []WorkflowVerificationObligation{},
 	}
-	if err := reviseContractRecord(t, s, workID, actor, successor, version, nil); err != nil {
+	if err := reviseContractRecord(t, s, workID, actor, successor, version); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -47,23 +51,21 @@ func rReviseContract(t *testing.T, s *Store, workID, actorRef string, domains []
 // rComplete runs the ordinary public completion as the executing coordinator.
 func rComplete(t *testing.T, f acceptanceRecoveryFixture) error {
 	t.Helper()
-	return runCoordinatorActionTx(t, f.store, BuiltinWorkflowRegistry(), f.workID, "complete", f.owner, `{"impact_verdict":"non-breaking"}`)
-}
-
-// rAcceptanceModel is the abstract admission state of an rAcceptance item:
-// one active contract, the recorded Review of the current candidate with its
-// criterion association (the model's ok verdict).
-func rAcceptanceModel() admissionModelState {
-	state := admissionModelState{
-		step: "acceptance", contracts: 1, verdict: "ok",
-		review: admissionModelReview{accepted: "ready_for_final_proof", candidate: true, current: true},
+	ctx, err := f.store.PrepareWorkflowActionProof(t.Context(), "complete", f.workID)
+	if err != nil {
+		return err
 	}
-	entry, ok := BuiltinWorkflowRegistry().Current("workflow.implementation")
-	if !ok {
-		panic("implementation definition missing")
+	version := readWorkVersion(t, f.store, f.workID)
+	id := fmt.Sprintf("complete-%s-%d", f.workID, version)
+	request := WorkflowActionExecutionRequest{
+		WorkID: f.workID, ExpectedVersion: version, ActionID: "complete", Actor: f.owner,
+		Payload:              json.RawMessage(`{"impact_verdict":"non-breaking"}`),
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), IdempotencyIdentity: id, OperationID: id,
+		PrincipalRef: f.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: id,
+		RequestID: "request:" + id, ContractDigest: testManifestDigest, Now: time.Unix(13, 0).UTC(),
 	}
-	for _, action := range []string{"record_alignment", "record_delivery", "record_design", "record_proposal", "record_review", "record_verdict"} {
-		state.records |= admissionRecordBit(entry.Definition, action)
-	}
-	return state
+	return f.store.Transact(ctx, func(tx *Transaction) error {
+		_, err := ApplyWorkflowActionTx(ctx, tx, request)
+		return err
+	})
 }

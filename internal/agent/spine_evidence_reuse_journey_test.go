@@ -16,21 +16,22 @@ func TestCriterion13ProducerFactsSurviveStageExitAndFreshSession(t *testing.T) {
 	f.proof = f.verify(t)
 	producer := f.read(t)
 	f.review(t, "ready_for_final_proof", f.proof)
-	if step := f.read(t).Pinned.Step; step != "execution" {
+	// Workflow engine contract §5.1: typed record actions hold the frontier.
+	if step := f.read(t).Pinned.Step; step != producer.Pinned.Step || step != "implement" {
 		t.Fatalf("Review moved the producing step to %q", step)
 	}
+	report := f.read(t).Pinned.Pin.Review.Accepted.ReportRef
+	spineOK(t, f.action(t, "complete_step", map[string]any{"step_id": "implement", "note": "Implementation reviewed.", "reviewer": "concord-review", "result": "pass", "commit": f.proofCommit, "link": report}))
 	delivery := map[string]any{"delivery_artifact": "artifact:spine-value", "delivery_state": "asserted"}
 	spineOK(t, f.action(t, "record_delivery", delivery))
 	before := f.read(t)
-	if producer.Pinned.Step != "execution" || before.Pinned.Step != "refine" || before.Pinned.Pin.Review == nil || before.Pinned.Pin.Review.Accepted == nil {
+	if before.Pinned.Step != "review" || before.Pinned.Pin.Review == nil || before.Pinned.Pin.Review.Accepted == nil {
 		t.Fatal("producer delivery did not preserve Review for its accepting consumer")
 	}
-	spineOK(t, f.action(t, "checkpoint_refine", map[string]any{}))
-	spineOK(t, f.action(t, "record_delivery", delivery))
 	spineOK(t, f.action(t, "record_delivery", delivery))
 	before = f.read(t)
-	if before.Pinned.Step != "acceptance" {
-		t.Fatalf("proof consumer = %q, want acceptance", before.Pinned.Step)
+	if before.Pinned.Step != "review" {
+		t.Fatalf("proof consumer = %q, want review", before.Pinned.Step)
 	}
 	database := f.s.Path()
 	if err := f.s.Close(); err != nil {

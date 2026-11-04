@@ -268,12 +268,10 @@ recovery instructions. After recovery, prepare a newer release that declares the
 protocol if needed. The installer does not infer support from the release version
 or send the new inputs to an older core.
 
-The command never confirms or cancels on the operator's behalf. If an installed
+The command never confirms on the operator's behalf. If an installed
 tree cannot honor the fence, inspect the named trees and use
-`--confirm-sessions-stopped` only after confirming none runs a session. If the
-authoring-cutover gate names pinned work, `--cancel-cutover-pinned-work` explicitly
-requests the existing snapshot-backed cancellation of every selected item.
-Without those flags, the original refusals remain in force.
+`--confirm-sessions-stopped` only after confirming none runs a session.
+Without that confirmation, the session fence remains in force.
 
 Only one maintenance command runs at a time: the migration command and every
 installer command share one lock. A second command refuses with `another

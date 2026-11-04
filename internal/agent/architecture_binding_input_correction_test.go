@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/store"
 )
 
 func TestInvokeResearchArchitectureBindingCorrection(t *testing.T) {
@@ -32,9 +33,7 @@ func TestInvokeResearchArchitectureBindingCorrection(t *testing.T) {
 		}
 		return response
 	}
-	if framed := action("frame_research", map[string]any{}, "binding-frame"); framed.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("frame research: %+v", framed.Error)
-	}
+	seedAgentPlanFrontier(t, s, workID, store.WorkflowStepPlanResearch, "frame")
 	snapshot := func() [3]int64 {
 		t.Helper()
 		state := [3]int64{workVersion(t, s, workID)}
@@ -74,11 +73,11 @@ func TestInvokeResearchArchitectureBindingCorrection(t *testing.T) {
 	if corrected := action("approve_contract", fields, "binding-approve"); corrected.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("correcting only architecture_binding under unchanged authority failed: %+v", corrected.Error)
 	}
-	var workflowRef, step, premise string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT i.definition_ref,i.current_step,c.premise FROM workflow_instances i JOIN workflow_contracts c ON c.work_id=i.work_id WHERE i.work_id=?`, workID).Scan(&workflowRef, &step, &premise); err != nil {
+	var workflowType, premise string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT i.workflow_type,c.premise FROM workflow_instances i JOIN workflow_contracts c ON c.work_id=i.work_id WHERE i.work_id=?`, workID).Scan(&workflowType, &premise); err != nil {
 		t.Fatal(err)
 	}
-	if workflowRef != "workflow.research" || step != "investigate" || premise != fields["premise"] || snapshot()[2] != 1 {
-		t.Fatalf("correction changed research scope: workflow=%s step=%s premise=%s", workflowRef, step, premise)
+	if workflowType != "research" || premise != fields["premise"] || snapshot()[2] != 1 {
+		t.Fatalf("correction changed research scope: workflow=%s premise=%s", workflowType, premise)
 	}
 }

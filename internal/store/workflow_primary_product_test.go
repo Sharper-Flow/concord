@@ -22,10 +22,6 @@ func crossProductBindingApprovalFixture(t *testing.T, workID string) (*Store, Wo
 	seedWorkflowLaw(t, s)
 	seedSecondaryProductMembership(t, s, workID)
 	actor := WorkflowActor{PrincipalRef: "principal:" + workID, ClientRef: "client:" + workID, AgentRef: "agent:" + workID, SessionRef: "session:" + workID, ActorClass: ActorAgent}
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
 	if err != nil {
 		t.Fatal(err)
@@ -34,7 +30,7 @@ func crossProductBindingApprovalFixture(t *testing.T, workID string) (*Store, Wo
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC)}); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -46,10 +42,9 @@ func crossProductBindingApprovalFixture(t *testing.T, workID string) (*Store, Wo
 
 func crossProductBindingApproval(t *testing.T, s *Store, workID string, actor WorkflowActor) {
 	t.Helper()
-	version := int64(4)
-	for _, action := range []string{"record_proposal", "record_alignment"} {
-		version = issue31WorkflowAction(t, s, workID, version, action, "cross-product-"+workID+"-"+action, actor)
-	}
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
+	version := readWorkVersion(t, s, workID)
+	version = issue31WorkflowActionWithPayload(t, s, workID, version, "record_plan", "cross-product-"+workID+"-plan", actor, json.RawMessage(testWorkflowPlanDocument))
 	approval := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
 	issue31WorkflowActionWithPayload(t, s, workID, version, "approve_contract", "cross-product-"+workID+"-approve", actor, approval)
 }
@@ -65,13 +60,9 @@ func TestWorkflowBindingProductFollowsThePrimaryMembership(t *testing.T) {
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)
 	seedSecondaryProductMembership(t, s, workID)
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
 	// The binding validation reads the committed Domain registry inside the
 	// transaction; the source-set proof is established before it opens.
-	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	ctx, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +79,7 @@ func TestWorkflowBindingProductFollowsThePrimaryMembership(t *testing.T) {
 		t.Fatalf("binding Product = %q, want the primary Product product", productID)
 	}
 	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
-	if err := validateArchitectureBindingTx(ctx, tx, workID, registered.Definition, &binding, []string{}, []string{}); err != nil {
+	if err := validateArchitectureBindingTx(ctx, tx, workID, WorkflowStepPlanChange, &binding, []string{}, []string{}); err != nil {
 		t.Fatalf("cross-Product work refused architecture binding validation: %v", err)
 	}
 }

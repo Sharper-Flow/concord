@@ -28,8 +28,7 @@ type projectHandoffFixture struct {
 	sourceTree    string
 	targetTree    string
 	sourceRepo    string
-	// finalWorkVersion is the shared work item's version once the fixture
-	// finishes: 3 after the work op and 4 contract-seed events.
+	// finalWorkVersion is the shared work item's version once the fixture finishes.
 	finalWorkVersion int64
 }
 
@@ -97,7 +96,7 @@ func setupProjectHandoffFixture(t *testing.T) projectHandoffFixture {
 		t.Fatal(err)
 	}
 	seedProjectHandoffLaw(t, s, "product-w", "project-w")
-	seedProjectHandoffContract(t, s, workID, 3)
+	seedProjectHandoffContract(t, s, workID)
 	treeW := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-w", workID)
 	treeE := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-e", workID)
 	for _, tree := range []string{treeW, treeE} {
@@ -112,7 +111,7 @@ func setupProjectHandoffFixture(t *testing.T) projectHandoffFixture {
 		sourceProject: "project-w", targetProject: "project-e",
 		sourceSession: "session/source", targetSession: "session/target",
 		sourceTree: treeW, targetTree: treeE, sourceRepo: repoW,
-		finalWorkVersion: 7,
+		finalWorkVersion: readWorkVersion(t, s, workID),
 	}
 }
 
@@ -146,32 +145,30 @@ func seedProjectHandoffLaw(t *testing.T, s *Store, productID, projectID string) 
 
 // seedProjectHandoffContract initializes the shared work item's research
 // workflow before recording its active contract.
-func seedProjectHandoffContract(t *testing.T, s *Store, workID string, workVersion int64) {
+func seedProjectHandoffContract(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/coordinator", SessionRef: "session/source", ActorClass: ActorAgent}
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, ok := BuiltinWorkflowRegistry().Current("workflow.research")
-	if !ok {
-		t.Fatal("workflow.research v5 is not registered")
-	}
 	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), workID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: owner, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)})
+		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: owner, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)})
 	}); err != nil {
 		t.Fatal(err)
 	}
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanResearch, currentWorkflowPlanFixture(t, WorkflowStepPlanResearch).Steps[0].ID)
+	workVersion := readWorkVersion(t, s, workID)
 	setup := []Event{
-		workflowEventWithActor("ph-contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion + 2, "resulting_version": workVersion + 3, "contract_version": 1, "premise": "cross-project handoff fixture", "decision_domains": []string{}, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:handoff-fixture-exit", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}}, "required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
-		workflowActionCompletedFixture("ph-approval-"+workID, workID, ownerRef, workVersion+3, "frame", "approve_contract"),
+		workflowEventWithActor("ph-contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion, "resulting_version": workVersion + 1, "contract_version": 1, "premise": "cross-project handoff fixture", "decision_domains": []string{}, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:handoff-fixture-exit", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}}, "required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
+		workflowActionCompletedFixture("ph-approval-"+workID, workID, ownerRef, workVersion+1, "frame", "approve_contract"),
 	}
-	setup[0].PayloadVersion = eventKindRegistry[WorkflowContractApproved].CurrentVersion
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): workVersion + 2}}); err != nil {
+	setup[0] = pOverlapContractFacts(t, s, setup[0])
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): workVersion}}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -183,7 +180,7 @@ func seedReplacementProjectHandoffContract(t *testing.T, s *Store, workID string
 	t.Helper()
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/coordinator", SessionRef: "session/source", ActorClass: ActorAgent}
 	successor := pContractSuccessor(t, s, workID, "cross-project handoff fixture v2")
-	if err := reviseContractRecord(t, s, workID, owner, successor, workVersion, nil); err != nil {
+	if err := reviseContractRecord(t, s, workID, owner, successor, workVersion); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -887,8 +884,9 @@ func TestRetirementUnfinishedActionBlocksReadiness(t *testing.T) {
 	recorded := recordHandoff(t, f, f.sourceTree)
 	consumeHandoff(t, f, recorded.HandoffID)
 	// An unmatched action start with no known actor must block retirement.
-	execInFold(t, f.store, `INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload)
-		VALUES('work-h','retirement-test',1,900000000,'retirement-test-start','{}')`)
+	step := currentWorkflowPlanFixture(t, WorkflowStepPlanResearch).Steps[0].ID
+	execInFold(t, f.store, fmt.Sprintf(`INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload)
+		VALUES('work-h','%s',1,900000000,'retirement-test-start','{}')`, step))
 	retirement, err := EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession, f.sourceTree)
 	if err != nil {
 		t.Fatal(err)
@@ -901,7 +899,7 @@ func TestRetirementUnfinishedActionBlocksReadiness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	execInFold(t, f.store, fmt.Sprintf(`UPDATE workflow_step_epochs SET latest_start_payload=json_object('actor_ref','%s') WHERE work_id='work-h' AND step_id='retirement-test'`, actorRef))
+	execInFold(t, f.store, fmt.Sprintf(`UPDATE workflow_step_epochs SET latest_start_payload=json_object('actor_ref','%s') WHERE work_id='work-h' AND step_id='%s'`, actorRef, step))
 	retirement, err = EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession, f.sourceTree)
 	if err != nil {
 		t.Fatal(err)
@@ -916,14 +914,14 @@ func TestRetirementUnfinishedActionBlocksReadiness(t *testing.T) {
 	}
 	execInFold(t, f.store,
 		fmt.Sprintf(`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES('%s','principal/operator','client/concord-1','agent/coordinator','session/foreign','agent','2026-09-30T00:00:00Z')`, foreignRef),
-		fmt.Sprintf(`UPDATE workflow_step_epochs SET latest_start_payload=json_object('actor_ref','%s') WHERE work_id='work-h' AND step_id='retirement-test'`, foreignRef))
+		fmt.Sprintf(`UPDATE workflow_step_epochs SET latest_start_payload=json_object('actor_ref','%s') WHERE work_id='work-h' AND step_id='%s'`, foreignRef, step))
 	retirement, err = EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession, f.sourceTree)
 	if err != nil || retirement.State != RetirementReady {
 		t.Fatalf("retirement=%+v err=%v, want another session's action to leave readiness intact", retirement, err)
 	}
 	execInFold(t, f.store,
-		fmt.Sprintf(`UPDATE workflow_step_epochs SET latest_start_payload=json_object('actor_ref','%s') WHERE work_id='work-h' AND step_id='retirement-test'`, actorRef),
-		`INSERT INTO workflow_step_completions(work_id,step_id,completion_seq) VALUES('work-h','retirement-test',900000001)`)
+		fmt.Sprintf(`UPDATE workflow_step_epochs SET latest_start_payload=json_object('actor_ref','%s') WHERE work_id='work-h' AND step_id='%s'`, actorRef, step),
+		`UPDATE workflow_instances SET step_plan=json_set(step_plan,'$.steps[0].attempts',json('[{"note":"settled","completed_at":"2026-09-30T00:00:00Z","completion_seq":900000001}]')) WHERE work_id='work-h'`)
 	retirement, err = EvaluateProjectSessionRetirement(context.Background(), f.store, f.workID, f.sourceProject, f.sourceSession, f.sourceTree)
 	if err != nil || retirement.State != RetirementReady {
 		t.Fatalf("retirement=%+v err=%v, want readiness after the action settles", retirement, err)
@@ -1365,7 +1363,7 @@ func TestProjectHandoffIdentityStaysWithinThePublishedIDBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedProjectHandoffLaw(t, s, "product-id", longSource)
-	seedProjectHandoffContract(t, s, longWork, readWorkVersion(t, s, longWork))
+	seedProjectHandoffContract(t, s, longWork)
 	req := RecordProjectHandoffRequest{
 		WorkID: longWork, SourceProjectID: longSource, TargetProjectID: longTarget,
 		SourceSessionRef: "session/" + strings.Repeat("n", 120),

@@ -32,13 +32,25 @@ func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowAction
 	if !WorkflowActionOpensHeldAttempt(action) {
 		return nil, nil
 	}
-	var step string
-	if err := q.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, workflowProjectionError(err, "cannot read the current workflow step for the takeover")
+	plan, err := readWorkflowPlanTx(ctx, q, workID)
+	if err != nil {
+		return nil, err
 	}
+	if plan == nil {
+		var hasStart bool
+		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_step_epochs WHERE work_id=? AND latest_start_seq>0)`, workID).Scan(&hasStart); err != nil {
+			return nil, workflowProjectionError(err, "cannot inspect intake workflow starts")
+		}
+		if hasStart {
+			return nil, newFailure(KindInvariantViolation, "workflow_action", "intake workflow has an unexpected held start", false, "restore a verified backup")
+		}
+		return nil, nil
+	}
+	frontier := WorkflowStepPlanFrontier(*plan)
+	if len(frontier) == 0 {
+		return nil, nil
+	}
+	step := frontier[0].ID
 	startEvent, err := readWorkflowActionStartTx(ctx, q, workID, step)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -51,15 +63,26 @@ func workflowStartTakeover(ctx context.Context, q queryer, action WorkflowAction
 		return nil, newFailure(KindInvariantViolation, "workflow_action", "workflow action start payload is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
 	var left bool
-	if err := q.QueryRowContext(ctx, `SELECT
-		EXISTS(SELECT 1 FROM workflow_step_epochs WHERE work_id=? AND step_id<>? AND latest_start_seq>?) OR
-		EXISTS(SELECT 1 FROM workflow_step_completions WHERE work_id=? AND step_id<>? AND completion_seq>?)`, workID, step, startEvent.Seq, workID, step, startEvent.Seq).Scan(&left); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_step_epochs WHERE work_id=? AND step_id<>? AND latest_start_seq>?)`, workID, step, startEvent.Seq).Scan(&left); err != nil {
 		return nil, workflowProjectionError(err, "cannot inspect whether the held attempt's step was left")
+	}
+	for _, other := range plan.Steps {
+		if other.ID != step && workflowPlanCompletionSeq(other) > startEvent.Seq {
+			left = true
+			break
+		}
 	}
 	if left || start.ActorRef == "" || start.ActorRef == callerActorRef {
 		return nil, nil
 	}
 	return &WorkflowStartTakeover{HeldEpoch: start.AttemptEpoch, HolderActorRef: start.ActorRef}, nil
+}
+
+func workflowPlanCompletionSeq(step WorkflowPlanStep) int64 {
+	if len(step.Attempts) == 0 {
+		return 0
+	}
+	return step.Attempts[len(step.Attempts)-1].CompletionSeq
 }
 
 func guardStartTakeover(ctx context.Context, q queryer, action WorkflowActionDefinition, workID, actorRef string, expected *WorkflowStartTakeover) error {

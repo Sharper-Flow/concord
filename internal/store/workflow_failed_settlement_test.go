@@ -17,7 +17,16 @@ func TestWorkflowFailedActionSettlementFrontier(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			start, err := readWorkflowActionStartTx(t.Context(), s.db, work, "proposal")
+			startEvent := workflowEventWithActor("failed-settlement-start", WorkflowActionStarted, work, ref, map[string]any{
+				"work_id": work, "expected_version": version, "resulting_version": version + 1,
+				"step_id": "plan", "action_id": "approve_contract", "attempt_epoch": 1,
+				"accepted_inputs_digest": "sha256:failed-settlement", "idempotency_identity": "failed-settlement-start", "actor_ref": ref, "execution_model": "model:fixture",
+			})
+			if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{startEvent}, ExpectedVersions: workVersion(work, version)}); err != nil {
+				t.Fatal(err)
+			}
+			version++
+			start, err := readWorkflowActionStartTx(t.Context(), s.db, work, "plan")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -29,7 +38,7 @@ func TestWorkflowFailedActionSettlementFrontier(t *testing.T) {
 			before := workerFactsQueryRows(t, s, outputs)
 			event := workflowEventWithActor("failed-settlement", WorkflowActionFailed, work, ref, map[string]any{
 				"work_id": work, "expected_version": version, "resulting_version": version + 1,
-				"step_id": "proposal", "attempt_epoch": 1, "actor_ref": ref,
+				"step_id": "plan", "attempt_epoch": 1, "actor_ref": ref,
 				"failure_kind": "timeout", "recoverable": recoverable,
 			})
 			op := Operation{Events: []Event{event}, ExpectedVersions: workVersion(work, version)}
@@ -40,17 +49,14 @@ func TestWorkflowFailedActionSettlementFrontier(t *testing.T) {
 			if err != nil || !stopped {
 				t.Fatalf("failed ordinary attempt remains outstanding: stopped=%t err=%v", stopped, err)
 			}
-			var settlement, receipt int64
-			if err := s.db.QueryRow(`SELECT completion_seq FROM workflow_step_completions WHERE work_id=? AND step_id='proposal'`, work).Scan(&settlement); err != nil {
-				t.Fatal(err)
-			}
+			var receipt int64
 			if err := s.db.QueryRow(`SELECT effect_seq FROM effect_receipts WHERE event_id=? AND kind=?`, event.EventID, WorkflowActionFailed).Scan(&receipt); err != nil {
 				t.Fatal(err)
 			}
-			if settlement != receipt || settlement <= start.Seq {
-				t.Fatalf("settlement=%d failure receipt=%d start=%d", settlement, receipt, start.Seq)
+			if receipt <= start.Seq {
+				t.Fatalf("failure receipt=%d start=%d", receipt, start.Seq)
 			}
-			afterStart, err := readWorkflowActionStartTx(t.Context(), s.db, work, "proposal")
+			afterStart, err := readWorkflowActionStartTx(t.Context(), s.db, work, "plan")
 			if err != nil || !reflect.DeepEqual(afterStart, start) {
 				t.Fatalf("failure changed immutable start: got %+v err=%v want %+v", afterStart, err, start)
 			}
@@ -91,7 +97,7 @@ func TestWorkflowFailedActionCannotSettleLaterAttempt(t *testing.T) {
 	version := readWorkVersion(t, s, work)
 	start := workflowEventWithActor("settlement-retry", WorkflowActionStarted, work, ref, map[string]any{
 		"work_id": work, "expected_version": version, "resulting_version": version + 1,
-		"step_id": "proposal", "action_id": "record_proposal", "attempt_epoch": 2,
+		"step_id": "plan", "action_id": "approve_contract", "attempt_epoch": 2,
 		"accepted_inputs_digest": "sha256:settlement-retry", "idempotency_identity": "settlement-retry", "actor_ref": ref,
 	})
 	if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{start}, ExpectedVersions: workVersion(work, version)}); err != nil {
@@ -104,7 +110,7 @@ func TestWorkflowFailedActionCannotSettleLaterAttempt(t *testing.T) {
 	version++
 	event := workflowEventWithActor("settlement-stale-failure", WorkflowActionFailed, work, ref, map[string]any{
 		"work_id": work, "expected_version": version, "resulting_version": version + 1,
-		"step_id": "proposal", "attempt_epoch": 1, "actor_ref": ref, "failure_kind": "timeout", "recoverable": false,
+		"step_id": "plan", "attempt_epoch": 1, "actor_ref": ref, "failure_kind": "timeout", "recoverable": false,
 	})
 	before := outsideRepairDatabaseSnapshot(t, s)
 	err = applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(work, version)})
@@ -120,13 +126,13 @@ func TestWorkflowFailedActionLeavesUnrelatedStartOutstanding(t *testing.T) {
 	actor, _ := continuityTestWorkflow(t, s, work)
 	// A prior step can still have an unmatched start in current state. Failure
 	// of the current step must not settle it, even when its sequence is older.
+	outsideRepairSettleAction(t, s, work, actor, WorkflowActionFailed)
 	if _, err := s.db.Exec(`INSERT INTO write_guard VALUES(1);
 		INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload)
-		SELECT work_id,'execution',attempt_epoch,latest_start_seq,latest_start_event_id||':unrelated',json_set(latest_start_payload,'$.step_id','execution')
-		FROM workflow_step_epochs WHERE work_id=? AND step_id='proposal'; DELETE FROM write_guard`, work); err != nil {
+		SELECT work_id,'implement',attempt_epoch,latest_start_seq+2,latest_start_event_id||':unrelated',json_set(latest_start_payload,'$.step_id','implement')
+		FROM workflow_step_epochs WHERE work_id=? AND step_id='plan'; DELETE FROM write_guard`, work); err != nil {
 		t.Fatal(err)
 	}
-	outsideRepairSettleAction(t, s, work, actor, WorkflowActionFailed)
 	for _, session := range []string{"", actor.SessionRef} {
 		stopped, err := workExecutionStoppedTx(t.Context(), s.db, work, session)
 		if err != nil || stopped {

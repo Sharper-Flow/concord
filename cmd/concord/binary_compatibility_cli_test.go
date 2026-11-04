@@ -1,44 +1,7 @@
 package main
 
-import (
-	"context"
-	"path/filepath"
-	"strings"
-	"testing"
-)
-
-func TestCLIRefusesBinarySkewBeforeMutation(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "concord.db")
-	t.Setenv(dbOverrideEnv, path)
-	s := mustOpenStore(t, path)
-	repo := initLocatorRepo(t)
-	seedLocatorAuthority(t, s, repo)
-	seedCLISessionWorktree(t, s, repo)
-	db := s.DatabaseForTesting()
-	digest := "sha256:" + strings.Repeat("a", 64)
-	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
-		UPDATE workflow_instances SET definition_ref='workflow.future_definition',definition_digest=?;
-		DELETE FROM write_guard;
-		INSERT INTO runtime_state_writers(surface,definition_ref,knowledge_projection_version,digest,binary_version)
-		SELECT 'workflow',definition_ref,0,definition_digest,'v99.0.0' FROM workflow_instances GROUP BY definition_ref,definition_digest`, digest); err != nil {
-		t.Fatal(err)
-	}
-	before, err := s.Revision(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	binary := buildCoreFrom(t, repoSourceDir(t), "v11.0.0-con411-serving")
-	code, out, diagnostic := runRelease(t, binary, path, "client-revoke", `{"client_ref":"client-con411"}`)
-	if code != 1 || out != "" {
-		t.Fatalf("incompatible binary must refuse before command output: code=%d out=%q stderr=%q", code, out, diagnostic)
-	}
-	for _, want := range []string{"binary compatibility refused", "v11.0.0-con411-serving", "v99.0.0", "stop traffic", "drain incompatible binaries"} {
-		if !strings.Contains(diagnostic, want) {
-			t.Fatalf("operator diagnostic omitted %q: %q", want, diagnostic)
-		}
-	}
-	after, err := s.Revision(context.Background())
-	if err != nil || after != before {
-		t.Fatalf("refused command changed the store revision: before=%d after=%d error=%v", before, after, err)
-	}
-}
+// The workflow-surface binary-skew refusal retired with the definition
+// authority: migration 183 deletes the workflow rows of runtime_state_writers
+// and no production path records or checks them (workflow-engine-contract
+// §§2.1, 5.1 and 11). The knowledge-surface schema guard keeps its own
+// refusal paths.

@@ -7,14 +7,14 @@ import (
 
 func TestLawDeletionLeavesLateVerdictAdmitted(t *testing.T) {
 	const workID = "law-deletion-late-verdict"
-	fixture := seedWorkflowReturnRouteFixtureWithSource(t, workID, currentFixtureDefinition(t, "workflow.research"), "complete", []string{"verification"}, []string{"verification", "review", "artifact"}, func(s *Store) {
+	fixture := seedWorkflowReturnRouteFixtureWithSource(t, workID, WorkflowStepPlanResearch, "conclude", []string{"verification"}, []string{"verification", "review", "artifact"}, func(s *Store) {
 		home := lawChangeFixtureHome(t, s)
 		removeCommittedFixtureLaw(t, home)
 		commitFixtureLawFile(t, home, "spec:two", fixtureLawFolderLaw("spec:two"))
 	})
 	s, owner := fixture.store, fixture.owner
 	defer s.Close()
-	if got := currentStep(t, s, workID); got != "complete" {
+	if got := workflowPlanFixtureFrontier(t, s, workID); got != "conclude" {
 		t.Fatalf("step=%q", got)
 	}
 	f := workContextFixture{store: s, workID: workID, owner: owner}
@@ -57,7 +57,7 @@ func TestLawDeletionLeavesLateVerdictAdmitted(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_predicate_verdicts WHERE work_id=? AND contract_version=1`, workID).Scan(&recorded); err != nil || recorded != 1 {
 		t.Fatalf("verdicts=%d err=%v", recorded, err)
 	}
-	if got := currentStep(t, s, workID); got != "complete" {
+	if got := workflowPlanFixtureFrontier(t, s, workID); got != "conclude" {
 		t.Fatalf("step=%q", got)
 	}
 	if got, active := activeContractState(t, s, workID); got != 1 || active != 1 {

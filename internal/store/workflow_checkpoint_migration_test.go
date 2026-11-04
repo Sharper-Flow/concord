@@ -9,6 +9,9 @@ import (
 	"testing"
 )
 
+const retainedContextCheckpoints = `SELECT work_id,work_version,checkpoint_sequence,checkpoint_id,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions,workflow_ref,actor_ref,request_id,recorded_at FROM workflow_context_checkpoints ORDER BY work_id,checkpoint_sequence`
+const retainedContextBoundaries = `SELECT work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,actor_ref,request_id,recorded_at FROM workflow_context_boundaries ORDER BY work_id,boundary_sequence`
+
 func checkpointV168(t *testing.T) *sql.DB {
 	t.Helper()
 	db := openMigratedTo(t, filepath.Join(t.TempDir(), "checkpoint.db"), 168)
@@ -23,6 +26,9 @@ func checkpointV168(t *testing.T) *sql.DB {
 	for i, kind := range []string{"internal_sqlite", "cross_authority", "external_effect", "human_checkpoint"} {
 		retirementUpgradeExec(t, db, `INSERT INTO workflow_checkpoints VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, "work-checkpoint", fmt.Sprintf("checkpoint-%d", i), fmt.Sprintf("step-%d", i), kind, i+1, fmt.Sprintf("digest-%d", i), `["evidence:one"]`, fmt.Sprintf("cursor-%d", i), fmt.Sprintf("identity-%d", i), actor, fmt.Sprintf("request-%d", i), "2026-01-02T03:04:05Z")
 	}
+	digest := "sha256:" + strings.Repeat("a", 64)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_context_checkpoints(work_id,work_version,checkpoint_sequence,checkpoint_id,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions,workflow_ref,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES('work-checkpoint',1,1,'context-checkpoint','step-0',1,'unit:one','retained hypothesis','retained diagnosis','retained strategy','[ "ref:one" ]','[ "evidence:one" ]','[ "question:one" ]','[]','workflow.legacy',?,?,'request:context','now')`, digest, actor)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES('work-checkpoint',1,1,1,'context-boundary','summary','context-checkpoint',1,1,'Retain boundary bytes','workflow.legacy',?,?,'request:boundary','now')`, digest, actor)
 	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
 	return db
 }
@@ -39,9 +45,7 @@ func TestCheckpointKindMigrationPreservesRowsAndConstraints(t *testing.T) {
 	if got := retirementUpgradeRows(t, db, `SELECT * FROM workflow_checkpoints ORDER BY checkpoint_id`); !reflect.DeepEqual(got, before) {
 		t.Fatalf("refused open changed rows: %#v", got)
 	}
-	if err := Migrate(t.Context(), db); err != nil {
-		t.Fatal(err)
-	}
+	advanceHistoricalPrefix(t, db, 169)
 	var breaking int
 	if err := db.QueryRow(`SELECT breaking FROM schema_migrations WHERE version=169`).Scan(&breaking); err != nil || breaking != 1 {
 		t.Fatalf("migration 169 breaking bit = %d: %v", breaking, err)
@@ -77,11 +81,25 @@ func TestCheckpointKindMigrationPreservesRowsAndConstraints(t *testing.T) {
 	if got := retirementUpgradeRows(t, db, `PRAGMA foreign_key_check`); len(got) != 0 {
 		t.Fatalf("foreign keys: %#v", got)
 	}
-	if err := Migrate(t.Context(), db); err != nil {
-		t.Fatal(err)
-	}
+	advanceHistoricalPrefix(t, db, 169)
 	if got := retirementUpgradeRows(t, db, `SELECT * FROM workflow_checkpoints ORDER BY checkpoint_id`); !reflect.DeepEqual(got, before) {
 		t.Fatalf("second migration changed rows: %#v", got)
+	}
+	contexts := retirementUpgradeRows(t, db, retainedContextCheckpoints)
+	boundaries := retirementUpgradeRows(t, db, retainedContextBoundaries)
+	if len(contexts) != 1 || len(boundaries) != 1 {
+		t.Fatalf("context witnesses missing: checkpoints=%v boundaries=%v", contexts, boundaries)
+	}
+	if err := Migrate(t.Context(), db); err != nil {
+		t.Fatalf("full upgrade: %v", err)
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT * FROM workflow_checkpoints ORDER BY checkpoint_id`); len(got) != 0 {
+		t.Fatalf("full upgrade retained step checkpoints: %#v", got)
+	}
+	for query, want := range map[string][][]any{retainedContextCheckpoints: contexts, retainedContextBoundaries: boundaries} {
+		if got := retirementUpgradeRows(t, db, query); !reflect.DeepEqual(got, want) {
+			t.Fatalf("full upgrade changed retained context: got %#v want %#v", got, want)
+		}
 	}
 }
 
@@ -93,6 +111,8 @@ func TestCheckpointKindMigrationFailureAndSnapshotRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := retirementUpgradeRows(t, db, `SELECT * FROM workflow_checkpoints ORDER BY checkpoint_id`)
+	contexts := retirementUpgradeRows(t, db, retainedContextCheckpoints)
+	boundaryRows := retirementUpgradeRows(t, db, retainedContextBoundaries)
 	snapshot := filepath.Join(t.TempDir(), "snapshot.db")
 	manifest, err := BackupDatabase(t.Context(), source, snapshot)
 	if err != nil || manifest.SchemaVersion != 168 {
@@ -113,6 +133,11 @@ func TestCheckpointKindMigrationFailureAndSnapshotRecovery(t *testing.T) {
 	if err := Migrate(t.Context(), db); err != nil {
 		t.Fatalf("retry: %v", err)
 	}
+	for query, want := range map[string][][]any{retainedContextCheckpoints: contexts, retainedContextBoundaries: boundaryRows} {
+		if got := retirementUpgradeRows(t, db, query); !reflect.DeepEqual(got, want) {
+			t.Fatalf("upgrade changed retained context: got %#v want %#v", got, want)
+		}
+	}
 	if _, err := VerifyBackup(t.Context(), snapshot); err != nil {
 		t.Fatalf("verify retained snapshot: %v", err)
 	}
@@ -122,6 +147,11 @@ func TestCheckpointKindMigrationFailureAndSnapshotRecovery(t *testing.T) {
 	}
 	if got := retirementUpgradeRows(t, snapshotDB, `SELECT * FROM workflow_checkpoints ORDER BY checkpoint_id`); !reflect.DeepEqual(got, before) {
 		t.Fatalf("snapshot changed pre-upgrade rows: %#v", got)
+	}
+	for query, want := range map[string][][]any{retainedContextCheckpoints: contexts, retainedContextBoundaries: boundaryRows} {
+		if got := retirementUpgradeRows(t, snapshotDB, query); !reflect.DeepEqual(got, want) {
+			t.Fatalf("snapshot changed context: got %#v want %#v", got, want)
+		}
 	}
 	if err := snapshotDB.Close(); err != nil {
 		t.Fatal(err)
@@ -135,14 +165,20 @@ func TestCheckpointKindMigrationFailureAndSnapshotRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer recovered.Close()
-	before[3][3] = "internal_sqlite"
-	if got := retirementUpgradeRows(t, recovered, `SELECT * FROM workflow_checkpoints ORDER BY checkpoint_id`); !reflect.DeepEqual(got, before) {
-		t.Fatalf("restored migrated rows changed: %#v", got)
+	if got := retirementUpgradeRows(t, recovered, `SELECT * FROM workflow_checkpoints ORDER BY checkpoint_id`); len(got) != 0 {
+		t.Fatalf("restored upgrade retained retired step checkpoints: %#v", got)
+	}
+	for query, want := range map[string][][]any{retainedContextCheckpoints: contexts, retainedContextBoundaries: boundaryRows} {
+		if got := retirementUpgradeRows(t, recovered, query); !reflect.DeepEqual(got, want) {
+			t.Fatalf("restored upgrade changed retained context: got %#v want %#v", got, want)
+		}
 	}
 	if err := Migrate(t.Context(), recovered); err != nil {
 		t.Fatalf("upgrade restored store: %v", err)
 	}
-	if got := retirementUpgradeRows(t, recovered, `SELECT * FROM workflow_checkpoints ORDER BY checkpoint_id`); !reflect.DeepEqual(got, before) {
-		t.Fatalf("recovered upgrade changed rows: %#v", got)
+	for query, want := range map[string][][]any{retainedContextCheckpoints: contexts, retainedContextBoundaries: boundaryRows} {
+		if got := retirementUpgradeRows(t, recovered, query); !reflect.DeepEqual(got, want) {
+			t.Fatalf("recovered upgrade changed retained context: got %#v want %#v", got, want)
+		}
 	}
 }

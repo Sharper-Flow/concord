@@ -195,29 +195,29 @@ infrastructure, options research, evidence research, architectural decisions,
 RCA, and static-analysis runs. These are business work categories, not the
 operator-kind vocabulary.
 
-Operator kinds (task, bug, research, decision, other) and workflow families
-are two closed vocabularies, kept separate (CD-0077 D1). The capture defaults
-map operator kinds to families: tasks → `workflow.implementation`, bugs →
-`workflow.break_fix`, research → `workflow.research`; decision and other
-operator kinds require an explicit retained family (CD-0218 D1). Definitions
-are plain Go values (§7; CD-0229 D1). Work has no size class.
+Operator kinds (task, bug, research, decision, other) and workflow types are
+two closed vocabularies, kept separate (CD-0077 D1). The kind stays capture
+metadata: after intake the driving agent picks the type — `change`, `fix`,
+`research`, or `removal` — and Concord copies that type's required steps from
+the template contract (CD-0218 D1; CD-0229 D1). Work has no size class.
 
 A single workflow can spawn another: research may surface a defect, which
 matures into a break-fix workflow, which may become an implementation change.
 
 ---
 
-## 4. Example workflow types
+## 4. Workflow types
 
-| Family | Captures | Shape |
-|---|---|---|
-| **`workflow.implementation`** | Tasks default here | Declares the family's mandatory steps, including refine. The outcome contract, review acceptance and closure apply to every item (CD-0229 D4; CD-0242 D4). |
-| **`workflow.break_fix`** | Bugs default here | One typed diagnosis with required reproduction, backlog-search, and root-cause sections, then repair, the mandatory refine pass, and verification (CD-0242 D4; CD-0138 D1). |
-| **`workflow.research`** | Research defaults here | Records findings, conclusions, and recommendations; may conclude `no_change`; outcome predicates only (CD-0218 D1). [CD-0215](../law/decisions/CD-0215-retained-research-context.md) owns the research-pack capability. |
-
-The retired families — `architecture_spike`, `ops_runbook`, `static_analysis`,
-`generic_one_off` — select no new execution, and no alias maps a retired
-family to a retained one (CD-0218 D1).
+Every workflow starts with intake, clarifies only when intake found open
+questions, then picks a type. Each type's ordered required steps — with each
+step's skill, helper, reviewed flag and admitted actions — are listed once in
+the machine-readable template contract
+[`contracts/workflow-step-templates.v1.json`](../../contracts/workflow-step-templates.v1.json);
+docs hold no hand-written copy. Research records findings, conclusions and
+recommendations, may conclude `no_change`, and takes outcome predicates only
+(CD-0218 D1). [CD-0215](../law/decisions/CD-0215-retained-research-context.md)
+owns the research-pack capability. The retired family refs select no new
+execution, and no alias maps a retired ref to a type (CD-0218 D1).
 [CD-0215 D2](../law/decisions/CD-0215-retained-research-context.md) requires
 an architecture spike to resolve through a separate reviewed and accepted
 decision; CD-0218 assigns that obligation to the cutover owner's approved
@@ -233,15 +233,10 @@ the declared scope, report, and evidence (§5).
 ## 5. Coordinating external analysis tools
 
 Analysis tooling is an external native authority. Concord does not implement
-or ship scanners. Tracked analysis work runs in a retained family and records
-the external run's scope, report, and evidence in the steps its definition
-declares; that output is advisory input, not a verdict (CD-0138 D3).
-Break-fix and implementation keep the mandatory `refine` step (CD-0242 D4).
-The refine proof rule is
-[CD-0192](../law/decisions/CD-0192-the-refine-pass-proves-a-declared-analysis-ran.md),
-which amends
-[CD-0138 D3](../law/decisions/CD-0138-mandatory-refinement-pass.md).
-Host-owned methodology selects the tool and analysis procedure. This boundary
+or ship scanners. Tracked analysis work records the external run's scope,
+report, and evidence in the steps its plan declares; that output is advisory
+input, not a verdict. Host-owned methodology selects the tool and analysis
+procedure. This boundary
 follows
 [CD-0043 D1](../law/decisions/CD-0043-host-owned-lane-methodology.md#d1-methodology-is-not-durable-coordination-state),
 and [CD-0055 D4](../law/decisions/CD-0055-repository-check-authority.md#d4-heuristic-judgment-warns-it-never-blocks).

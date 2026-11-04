@@ -183,8 +183,8 @@ func inputBound(pointer string) outputBoundSource {
 // (repo-relative file plus JSON pointer). The node is read live from the
 // document. When the node carries both a character and a byte guard, both
 // apply: their intersection is the source, not the character bound alone.
-func schemaBound(file, pointer string) outputBoundSource {
-	return outputBoundSource{kind: "schema", file: file, pointer: pointer}
+func schemaBound(pointer string) outputBoundSource {
+	return outputBoundSource{kind: "schema", file: "contracts/agent-tool-surface-payloads.schema.json", pointer: pointer}
 }
 
 // goCallBound cites a numeric guard argument passed to callee inside function
@@ -1552,19 +1552,13 @@ func buildCensus(rt *ledgerRuntime, extraRoots, inputRoots []censusRootRequest) 
 	return census, failures
 }
 
-// ledgerPayloadInputRoots are the payload schema definitions every registered
-// workflow definition version and the canonical recovery actions declare.
-// Action payload admission validates every declared field against its schema
-// in the published document (workflow_preflight.go), so each is an input root
-// exactly like a manifest input, though the manifest does not list it. A live
-// call validates against the published document whatever the pin's age
-// (workflowLivePayloadSchemaDocument), so retained versions count too. A
-// declared name the published document no longer carries refuses every live
-// call (validateWorkflowPayloadSchema), so it admits nothing and roots nothing.
+// ledgerPayloadInputRoots collects the live action catalog's schema references.
+// Admission validates these against the published payload document. Missing
+// references admit nothing because validation refuses them.
 func ledgerPayloadInputRoots() []censusRootRequest {
 	names := map[string]bool{}
-	add := func(action WorkflowActionDefinition) {
-		for _, field := range action.Payload.Fields {
+	add := func(payload WorkflowPayloadDefinition) {
+		for _, field := range payload.Fields {
 			for _, ref := range []string{field.SchemaRef, field.ItemRef} {
 				if ref != "" {
 					names[ref] = true
@@ -1572,11 +1566,17 @@ func ledgerPayloadInputRoots() []censusRootRequest {
 			}
 		}
 	}
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		for _, action := range definition.ActionDefinitions {
-			add(action)
+	for id := range builtinWorkflowActionCatalog() {
+		action, err := WorkflowPlanActionContract(id)
+		if err != nil {
+			panic(err)
+		}
+		add(action.Payload)
+		if action.PublicPayload != nil {
+			add(*action.PublicPayload)
 		}
 	}
+	add(WorkflowPlanContractUpdatePayload())
 	sorted := make([]string, 0, len(names))
 	document := workflowLivePayloadSchemaDocument()
 	for name := range names {
@@ -2291,10 +2291,10 @@ func TestLedgerRefTraversal(t *testing.T) {
 	rt.docs[surfaceManifestFile] = manifest
 	rt.docs[payloadSchemaFile] = payload()
 	census, _ = buildCensus(rt, nil, nil)
-	if _, err := rt.evaluateSource(schemaBound(payloadSchemaFile, "/$defs/out/properties/items/maxItems"), census); err == nil {
+	if _, err := rt.evaluateSource(schemaBound("/$defs/out/properties/items/maxItems"), census); err == nil {
 		t.Fatal("an output-only payload node was accepted as a producer source")
 	}
-	if _, err := rt.evaluateSource(schemaBound(payloadSchemaFile, "/$defs/in/properties/note/maxLength"), census); err != nil {
+	if _, err := rt.evaluateSource(schemaBound("/$defs/in/properties/note/maxLength"), census); err != nil {
 		t.Fatalf("an input-reachable payload node was refused: %v", err)
 	}
 	external := payload()

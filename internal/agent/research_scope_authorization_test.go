@@ -73,14 +73,32 @@ func researchScopeFixture(t *testing.T, capabilities []agentcontract.Capability,
 	}
 	seedResearchScopePack(t, s, researchScopePackB, researchScopeOwnerB, researchScopeMarkerB+" research question", researchScopeMarkerB+" finding statement")
 	seedResearchScopePack(t, s, researchScopePackA, researchScopeOwnerA, researchScopeMarkerA+" research question", researchScopeMarkerA+" finding statement")
-	definition, err := store.BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: researchScopeConsumer, Definition: definition, Actor: store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1", ActorClass: store.ActorAgent}, Now: fixedTime()})
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: researchScopeConsumer, Actor: store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1", ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
+	}
+	actor := store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1", ActorClass: store.ActorAgent}
+	for _, action := range []struct {
+		id     string
+		fields map[string]any
+	}{
+		{"record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false}},
+		{"pick_type", map[string]any{"type": "change", "reason": "The work changes behavior."}},
+	} {
+		version := workVersion(t, s, researchScopeConsumer)
+		payload := retryJSON(action.fields)
+		request := store.WorkflowActionExecutionRequest{WorkID: researchScopeConsumer, ExpectedVersion: version, ActionID: action.id, Payload: payload, Actor: actor,
+			AcceptedInputsDigest: "sha256:" + strings.Repeat("2", 64), IdempotencyIdentity: "scope-" + action.id, OperationID: "scope-op-" + action.id,
+			PrincipalRef: "human-1", Tool: "concord-test", IdempotencyKey: "scope-key-" + action.id, RequestID: "scope-request-" + action.id,
+			AcceptedScope: `{"project":"project-a"}`, ContractDigest: agentcontract.ManifestDigest, Now: fixedTime()}
+		preflight := store.WorkflowActionPreflightRequest{WorkID: researchScopeConsumer, ExpectedVersion: version, ActionID: action.id, Payload: payload, Actor: actor}
+		if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, preflight, nil, func(tx *store.Transaction) error {
+			_, err := store.ApplyWorkflowActionTx(ctx, tx, request)
+			return err
+		}); err != nil {
+			t.Fatalf("scope fixture %s: %v", action.id, err)
+		}
 	}
 	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", capabilities, products, []string{"project-a"}, store.ProjectResolution{ProjectID: "project-a"})
 	return researchScopeEnv{store: s, service: service, grant: grant}
@@ -254,7 +272,7 @@ func researchScopeSnapshot(t *testing.T, s *store.Store, packID string) research
 	load(`SELECT count(*),COALESCE(group_concat(x),'') FROM (SELECT revision||'|'||source_id||'|'||kind||'|'||locator||'|'||title||'|'||accessed_at AS x FROM active_research_sources WHERE pack_id=? ORDER BY revision,source_id)`, []any{packID}, &e.sourceCount, &e.sources)
 	load(`SELECT count(*),COALESCE(group_concat(x),'') FROM (SELECT pack_id||'/'||consumer_work_id||'/'||revision||'/'||use_role||'/'||required||'/'||accepted_at AS x FROM active_research_consumers ORDER BY pack_id,consumer_work_id,revision)`, nil, &e.pinCount, &e.pins)
 	load(`SELECT version FROM work_items WHERE id=?`, []any{researchScopeConsumer}, &e.consumerVersion)
-	load(`SELECT current_step FROM workflow_instances WHERE work_id=?`, []any{researchScopeConsumer}, &e.consumerStep)
+	load(`SELECT COALESCE(step_plan,'') FROM workflow_instances WHERE work_id=?`, []any{researchScopeConsumer}, &e.consumerStep)
 	load(`SELECT last FROM store_sequences WHERE name='effect'`, nil, &e.events)
 	load(`SELECT effect_seq FROM work_items WHERE id=?`, []any{researchScopeConsumer}, &e.consumerEvents)
 	load(`SELECT count(*) FROM idempotency_records`, nil, &e.receipts)
@@ -292,14 +310,13 @@ func researchScopeAssertRefused(t *testing.T, read agentcontract.Envelope, wantK
 }
 
 // researchScopeBindingAction builds a workflow_action input at the consumer's
-// current version. record_proposal carries its retained required fields;
-// record_work_context is the retained hold-step action with an empty
-// declaration, so a follow-up action never advances or retires the proposal.
+// current version. record_plan carries its required fields; record_work_context
+// is the retained hold-step action with an empty declaration.
 func researchScopeBindingAction(t *testing.T, f researchScopeEnv, action, key string, bindings []map[string]any) map[string]any {
 	t.Helper()
 	fields := map[string]any{}
-	if action == "record_proposal" {
-		fields = map[string]any{"problem": "Synthetic bounded change", "affected": []string{"Synthetic users"}, "stakes": "Preserve the test boundary", "user_outcomes": []string{"A bounded verified result"}}
+	if action == "record_plan" {
+		fields = agentPlanFields()
 	}
 	input := map[string]any{"work_id": researchScopeConsumer, "expected_version": workVersion(t, f.store, researchScopeConsumer), "action_id": action, "idempotency_key": key, "fields": fields}
 	if bindings != nil {
@@ -479,7 +496,7 @@ func TestResearchScopeBindingRefusesForeignPack(t *testing.T) {
 				}
 			}
 			before := researchScopeSnapshot(t, f.store, researchScopePackB)
-			input := researchScopeBindingAction(t, f, "record_proposal", "bind-"+test.name, []map[string]any{test.binding(researchScopePackB)})
+			input := researchScopeBindingAction(t, f, "record_plan", "bind-"+test.name, []map[string]any{test.binding(researchScopePackB)})
 			read := researchScopeInvoke(t, f, "workflow_action", input)
 			researchScopeAssertRefused(t, read, test.wantKind, researchScopePackB, researchScopeOwnerB, researchScopeMarkerB)
 			if test.wantNoDetail != "" && strings.Contains(read.Error.Message, test.wantNoDetail) {
@@ -499,7 +516,7 @@ func TestResearchScopeBindingReplacementAndBatchRefuseAtomically(t *testing.T) {
 	t.Parallel()
 	t.Run("replacement_by_foreign_declaration", func(t *testing.T) {
 		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition", "research"}, []string{"product-a"})
-		pinned := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_proposal", "pin-a", []map[string]any{researchScopeBinding(researchScopePackA, 1, true)}))
+		pinned := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_plan", "pin-a", []map[string]any{researchScopeBinding(researchScopePackA, 1, true)}))
 		if pinned.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("in-scope pin failed: %+v", pinned.Error)
 		}
@@ -525,7 +542,7 @@ func TestResearchScopeBindingReplacementAndBatchRefuseAtomically(t *testing.T) {
 		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		beforeA := researchScopeSnapshot(t, f.store, researchScopePackA)
 		beforeB := researchScopeSnapshot(t, f.store, researchScopePackB)
-		refused := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_proposal", "mixed-batch", []map[string]any{
+		refused := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_plan", "mixed-batch", []map[string]any{
 			researchScopeBinding(researchScopePackA, 1, true),
 			researchScopeBinding(researchScopePackB, 1, true),
 		}))
@@ -537,7 +554,7 @@ func TestResearchScopeBindingReplacementAndBatchRefuseAtomically(t *testing.T) {
 		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		pack := "pack-scope-moved"
 		seedResearchScopePack(t, f.store, pack, "owner-move", researchScopeMarkerA+" moved question", researchScopeMarkerA+" moved finding")
-		initial := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_proposal", "pin-moved", []map[string]any{researchScopeBinding(pack, 1, true)}))
+		initial := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_plan", "pin-moved", []map[string]any{researchScopeBinding(pack, 1, true)}))
 		if initial.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("initial in-scope pin failed: %+v", initial.Error)
 		}
@@ -641,7 +658,7 @@ func TestResearchScopePolicyMatrix(t *testing.T) {
 				}
 			})
 			t.Run("bind", func(t *testing.T) {
-				binding := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_proposal", "bind-matrix", []map[string]any{researchScopeBinding(researchScopePackB, 1, true)}))
+				binding := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_plan", "bind-matrix", []map[string]any{researchScopeBinding(researchScopePackB, 1, true)}))
 				if test.bindOK != (binding.Outcome == agentcontract.OutcomeOK) {
 					t.Fatalf("bind outcome %q error %+v, want ok=%t", binding.Outcome, binding.Error, test.bindOK)
 				}
@@ -682,7 +699,7 @@ func TestResearchScopeSpecialOwners(t *testing.T) {
 		if read.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("secondary-membership read failed: %+v", read.Error)
 		}
-		bound := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_proposal", "bind-mixed", []map[string]any{researchScopeBinding(pack, 1, true)}))
+		bound := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_plan", "bind-mixed", []map[string]any{researchScopeBinding(pack, 1, true)}))
 		if bound.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("secondary-membership bind failed: %+v", bound.Error)
 		}
@@ -699,7 +716,7 @@ func TestResearchScopeSpecialOwners(t *testing.T) {
 		before := researchScopeSnapshot(t, f.store, pack)
 		read := researchScopeInvoke(t, f, "research", map[string]any{"product_id": "product-a", "pack_id": pack, "result_version": 2})
 		researchScopeAssertRefused(t, read, "unknown_scope")
-		bound := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_proposal", "bind-orphan", []map[string]any{researchScopeBinding(pack, 1, true)}))
+		bound := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_plan", "bind-orphan", []map[string]any{researchScopeBinding(pack, 1, true)}))
 		researchScopeAssertRefused(t, bound, "unknown_scope")
 		authored := researchScopeInvoke(t, f, "research_freshness_set", map[string]any{"pack_id": pack, "expected_version": before.packVersion, "freshness": "stale", "idempotency_key": "sc-orphan-fresh"})
 		researchScopeAssertRefused(t, authored, "unknown_scope")
@@ -709,7 +726,7 @@ func TestResearchScopeSpecialOwners(t *testing.T) {
 		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition", "research"}, []string{"product-a"})
 		read := researchScopeInvoke(t, f, "research", map[string]any{"product_id": "product-a", "pack_id": "pack-absent", "result_version": 2})
 		researchScopeAssertRefused(t, read, "unknown_scope")
-		bound := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_proposal", "bind-absent", []map[string]any{researchScopeBinding("pack-absent", 1, true)}))
+		bound := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_plan", "bind-absent", []map[string]any{researchScopeBinding("pack-absent", 1, true)}))
 		researchScopeAssertRefused(t, bound, "unknown_scope")
 		for _, operation := range researchScopeAuthoringInputs() {
 			authored := researchScopeInvoke(t, f, operation.name, operation.input("pack-absent", 1))
@@ -725,7 +742,7 @@ func TestResearchScopeSpecialOwners(t *testing.T) {
 		if read.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("terminal-owner read failed: %+v", read.Error)
 		}
-		bound := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_proposal", "bind-done", []map[string]any{researchScopeBinding(pack, 1, true)}))
+		bound := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_plan", "bind-done", []map[string]any{researchScopeBinding(pack, 1, true)}))
 		if bound.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("terminal-owner bind failed: %+v", bound.Error)
 		}
@@ -747,7 +764,7 @@ func TestResearchScopeBindingReplayAndRetainedPins(t *testing.T) {
 	t.Parallel()
 	t.Run("allowed_replay_bumps_once_then_narrowed_grant", func(t *testing.T) {
 		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition", "cross_scope"}, []string{"product-a", "product-b"})
-		input := researchScopeBindingAction(t, f, "record_proposal", "bind-replay", []map[string]any{researchScopeBinding(researchScopePackB, 1, true)})
+		input := researchScopeBindingAction(t, f, "record_plan", "bind-replay", []map[string]any{researchScopeBinding(researchScopePackB, 1, true)})
 		first := researchScopeInvoke(t, f, "workflow_action", input)
 		if first.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("allowed bind failed: %+v", first.Error)
@@ -768,7 +785,7 @@ func TestResearchScopeBindingReplayAndRetainedPins(t *testing.T) {
 	})
 	t.Run("forbidden_call_leaves_no_replay_receipt", func(t *testing.T) {
 		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
-		input := researchScopeBindingAction(t, f, "record_proposal", "bind-forbidden-replay", []map[string]any{researchScopeBinding(researchScopePackB, 1, true)})
+		input := researchScopeBindingAction(t, f, "record_plan", "bind-forbidden-replay", []map[string]any{researchScopeBinding(researchScopePackB, 1, true)})
 		refused := researchScopeInvoke(t, f, "workflow_action", input)
 		researchScopeAssertRefused(t, refused, "unauthorized", researchScopeMarkerB)
 		var receipts int

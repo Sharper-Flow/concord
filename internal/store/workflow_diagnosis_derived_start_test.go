@@ -469,3 +469,24 @@ func runWorkflowActionWithIdentity(t *testing.T, s *Store, workID, action string
 	}
 	return tx.Commit()
 }
+
+// CD-0198 D2 keeps the search beside the analysis: a Fix item's diagnose
+// step completes only after its typed diagnosis record exists.
+func TestDiagnoseStepCompletionRequiresRecordedDiagnosis(t *testing.T) {
+	const workID = "diagnose-document-gate"
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanFix, "diagnose", []string{}, nil)
+	before := readWorkVersion(t, f.store, workID)
+	err := runVerdictActionAs(t, f.store, workID, "complete_step", mustJSONValue(map[string]any{"step_id": "diagnose", "note": "no diagnosis recorded"}), 0, f.owner)
+	if !hasFailureKind(err, KindMissingEvidence) {
+		t.Fatalf("diagnose completion without a record = %v, want missing_evidence", err)
+	}
+	if readWorkVersion(t, f.store, workID) != before {
+		t.Fatal("refused diagnose completion changed the work version")
+	}
+	if err := runVerdictActionAs(t, f.store, workID, "record_diagnosis", mustJSONValue(map[string]any{"reproduction": "Repro", "searched": "Search", "outcome": "none_found", "root_cause": "Cause"}), 0, f.owner); err != nil {
+		t.Fatalf("record diagnosis: %v", err)
+	}
+	if err := runVerdictActionAs(t, f.store, workID, "complete_step", mustJSONValue(map[string]any{"step_id": "diagnose", "note": "diagnosis recorded"}), 0, f.owner); err != nil {
+		t.Fatalf("diagnose completion with a record: %v", err)
+	}
+}

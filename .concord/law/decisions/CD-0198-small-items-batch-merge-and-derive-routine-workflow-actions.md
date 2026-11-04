@@ -49,21 +49,23 @@ Concord attests no subagent identity.
 root-cause sections, each retaining its fields and guards. The search
 includes `searched`, `outcome` and `related_ids`. It writes the same
 alignment declaration and creates no relation. An outcome of found-nothing
-is distinct from not searched. Under per-item step plans (CON-1574) the
-record holds the diagnose step; the step completes only through
-`complete_step`, and the plan's alignment read replaces the retired
+is distinct from not searched. The record holds the diagnose step; the
+step completes only through `complete_step` with the typed diagnosis
+recorded, and the plan's alignment read replaces the retired
 implementation alignment step. Analysis cannot complete without the search
 beside it.
 
 ### D3. Repair and refine starts derive from the first action
 
-The first action at the item's implement step derives the step-start fact
-in its own transaction. The first recorded action wins, opens the epoch and
-binds the fence from its actor. Delivery requires the accepted Review and a
-recorded verification report for the current candidate; no lease
-acquisition, live Git freshness or exact tooling argv comparison is
-required. Current rows own these facts; per-item plans copy one canonical
-template contract (CON-1574).
+The fenced `start_execution` at the item's implement step derives the
+step-start fact in its own transaction. The first start wins, opens the
+epoch and binds the fence from its actor. Delivery no longer requires that
+start: that fenced-delivery requirement retired with the step-exit
+mechanics (workflow-engine-contract §7/§12 superseding CD-0112 D2), and
+delivery now requires the accepted Review and a recorded verification
+report for the current candidate; no lease acquisition, live Git freshness
+or exact tooling argv comparison is required. Current rows own these facts;
+per-item plans copy one canonical template contract.
 
 Whole-work delivery uses `record_delivery` and its complete admission. A Review
 outcome is recorded separately through `record_review`; it does not combine

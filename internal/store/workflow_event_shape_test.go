@@ -245,8 +245,3 @@ func TestEveryActionDeclaresOneKnownEventShape(t *testing.T) {
 			`with request.ActionID != "complete", which admits exactly one action`, completion)
 	}
 }
-
-// TestEvidenceBinderCaseArmMatchesTheProducerTable retired with the fixed
-// definitions' reachability walk (CON-1574, workflow-engine-contract
-// §§2.1/12): the dispatcher case arm is a literal list with no producer
-// table to mirror.

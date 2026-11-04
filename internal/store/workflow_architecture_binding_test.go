@@ -56,6 +56,99 @@ func TestWorkflowArchitectureBindingStrictShape(t *testing.T) {
 	}
 }
 
+// approveQualifiedAdditionAtSeam drives one Product-changing contract
+// approval through the real event-application seam (the same fold the
+// approve_contract workflow action dispatches) and returns the fold error, if
+// any. The Product's knowledge home is the fixture home: home Project
+// "project" carrying the committed spec:one law.
+func approveQualifiedAdditionAtSeam(t *testing.T, s *Store, workID string, mandate []string, additions []WorkflowLawAddition) error {
+	t.Helper()
+	seedWork(t, s, workID)
+	actor := WorkflowActor{PrincipalRef: "principal:qualified-addition", ClientRef: "client:qualified-addition", AgentRef: "agent:qualified-addition", SessionRef: "session:" + workID, ActorClass: ActorAgent}
+	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 11, 4, 0, 0, 0, 0, time.UTC)}); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
+	version := readWorkVersion(t, s, workID)
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: additions, VerificationObligations: []WorkflowVerificationObligation{}}
+	fields := map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "premise": "qualified addition admission", "legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": []string{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
+	}
+	event := workflowEventWithActor("qualified-addition-approval-"+workID, WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), fields)
+	event = pOverlapContractFacts(t, s, event)
+	return applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
+}
+
+// TestQualifiedOwnHomeLawAdditionReuseRefusedAtApprovalSeam pins the reuse
+// refusal at the approval seam. The bare ID and the own-home qualified
+// reference name the same verified law identity — spec:one committed at the
+// Product's home Project "project" — so both forms must receive the existing
+// reuse refusal. Two boundaries stay as they are: an own-home qualified
+// reference to an unpublished ID is a legitimate addition, and a qualified
+// reference naming another home stays a foreign identity the own-home
+// snapshot cannot verify, so the Product-law reuse refusal does not apply to
+// it.
+func TestQualifiedOwnHomeLawAdditionReuseRefusedAtApprovalSeam(t *testing.T) {
+	s := openTemp(t)
+	seedWork(t, s, "qualified-addition-home-bootstrap")
+	seedWorkflowLaw(t, s)
+	commitWorkflowFixtureRegistry(t, KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}, workflowArchitectureFixtureRegistry)
+	cases := []struct {
+		name       string
+		mandate    []string
+		additionID string
+		refused    bool
+	}{
+		{name: "bare existing ID", mandate: []string{"spec:one"}, additionID: "spec:one", refused: true},
+		{name: "own-home qualified existing ID", mandate: []string{"project/spec:one"}, additionID: "project/spec:one", refused: true},
+		{name: "own-home qualified unpublished ID", mandate: []string{"project/law:new"}, additionID: "project/law:new", refused: false},
+		{name: "foreign-home qualified ID", mandate: []string{"other/law:new"}, additionID: "other/law:new", refused: false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			workID := "qualified-addition-" + strings.ReplaceAll(testCase.name, " ", "-")
+			err := approveQualifiedAdditionAtSeam(t, s, workID, testCase.mandate, []WorkflowLawAddition{{LawID: testCase.additionID, HomeDomainID: "root"}})
+			if testCase.refused {
+				var failure *Failure
+				if !failureAs(err, &failure) || failure.Kind != KindProjectionConflict || failure.Op != "workflow_architecture_binding" {
+					t.Fatalf("reuse refusal=%+v err=%v, want typed projection conflict", failure, err)
+				}
+				if !strings.Contains(err.Error(), "law addition reuses an existing Product law ID") {
+					t.Fatalf("wrong addition refusal: %v", err)
+				}
+				var contracts int
+				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&contracts); err != nil || contracts != 0 {
+					t.Fatalf("refused approval left contracts=%d err=%v", contracts, err)
+				}
+				var reserved int
+				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_law_addition_reservations WHERE law_id=?`, testCase.additionID).Scan(&reserved); err != nil || reserved != 0 {
+					t.Fatalf("refused approval reserved %q: rows=%d err=%v", testCase.additionID, reserved, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("legitimate addition refused: %v", err)
+			}
+			var reserved int
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_law_addition_reservations WHERE law_id=?`, testCase.additionID).Scan(&reserved); err != nil || reserved != 1 {
+				t.Fatalf("admitted addition reservation rows=%d err=%v", reserved, err)
+			}
+		})
+	}
+}
+
 func architectureValidationFixture(t *testing.T, workID string) (*Store, WorkflowStepPlanType, WorkflowArchitectureBinding, []string) {
 	t.Helper()
 	s := openTemp(t)

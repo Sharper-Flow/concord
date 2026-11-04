@@ -305,7 +305,7 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 	if err := validateArchitectureBindingLawModifiesTx(snapshot, affected, lawModifies); err != nil {
 		return err
 	}
-	if err := validateArchitectureBindingLawAdditionsTx(snapshot, affected, binding.LawAdditions, specMandate, lawModifies); err != nil {
+	if err := validateArchitectureBindingLawAdditionsTx(snapshot, homeProjectID, affected, binding.LawAdditions, specMandate, lawModifies); err != nil {
 		return err
 	}
 	remaining, err := architectureBindingCurrentMandate(specMandate, binding.LawAdditions)
@@ -427,8 +427,12 @@ func validateArchitectureBindingLawModifiesTx(snapshot *lawFolderSnapshot, affec
 
 // validateArchitectureBindingLawAdditionsTx refuses law additions that the
 // spec mandate does not authorize, that overlap law_modifies, whose home
-// Domain the binding does not affect, or that reuse an existing Product law ID.
-func validateArchitectureBindingLawAdditionsTx(snapshot *lawFolderSnapshot, affected map[string]struct{}, additions []WorkflowLawAddition, specMandate, lawModifies []string) error {
+// Domain the binding does not affect, or that reuse an existing Product law
+// ID. A qualified reference naming the Product's own home is the same
+// verified law identity as its bare form, so the reuse probe reads the bare
+// ID; a qualified reference naming another home stays a foreign identity
+// this snapshot cannot verify.
+func validateArchitectureBindingLawAdditionsTx(snapshot *lawFolderSnapshot, homeProjectID string, affected map[string]struct{}, additions []WorkflowLawAddition, specMandate, lawModifies []string) error {
 	for _, addition := range additions {
 		if _, inMandate := stringSet(specMandate)[addition.LawID]; !inMandate {
 			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "law addition is outside spec_mandate", false, "authorize every law addition in spec_mandate")
@@ -439,11 +443,25 @@ func validateArchitectureBindingLawAdditionsTx(snapshot *lawFolderSnapshot, affe
 		if _, ok := affected[addition.HomeDomainID]; !ok {
 			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "law addition home Domain is outside affected_domain_ids", false, "include each added law home Domain")
 		}
-		if _, exists := snapshot.Law(addition.LawID); exists {
+		if _, exists := snapshot.Law(ownHomeLawAdditionReuseID(homeProjectID, addition.LawID)); exists {
 			return newFailure(KindProjectionConflict, "workflow_architecture_binding", "law addition reuses an existing Product law ID", false, "use a new law ID or modify the existing law")
 		}
 	}
 	return nil
+}
+
+// ownHomeLawAdditionReuseID resolves the snapshot identity a law addition's
+// reuse probe names. A parseable qualified reference whose project names the
+// Product's own home resolves to that home's bare law ID; every other form
+// keeps its raw spelling, the same way the mandate path treats unparseable
+// references (bareLawID), so a foreign home's identity is never resolved
+// against this snapshot.
+func ownHomeLawAdditionReuseID(homeProjectID, additionLawID string) string {
+	projectID, lawID, qualified, err := parseQualifiedKnowledgeID("workflow_architecture_binding", additionLawID)
+	if err != nil || !qualified || projectID != homeProjectID {
+		return additionLawID
+	}
+	return lawID
 }
 
 // validateArchitectureBindingObligationsTx refuses verification obligations

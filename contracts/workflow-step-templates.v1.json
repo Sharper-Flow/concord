@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "contract": "Each work item carries its own step plan. When the driving agent picks the type, Concord copies that type's required steps from this contract into one JSON plan stored on the item's workflow row. Between required steps the agent may insert steps. A step passes only as recorded here: a note, plus the reviewer, result, commit and link for a reviewed step. This file is the single authority for each type's ordered required steps and the stored plan's schema; code reads it, and law and docs hold no hand-written copy. Changes to this contract ride the law route.",
+  "contract": "Each work item carries its own step plan. When the driving agent picks the type, Concord copies that type's required steps from this contract into one JSON plan stored on the item's workflow row. Between required steps the agent may insert steps. A step passes only as recorded here: a note, plus the reviewer, result, commit and link for a reviewed step. Final review accounts for each lasting architectural plan output using concord-architecture-writing; a missing required destination or unsupported reason for no update is a finding that blocks delivery. Work without architectural outputs requires no architecture documents solely for this review. This file is the single authority for each type's ordered required steps and the stored plan's schema; code reads it, and law and docs hold no hand-written copy. Changes to this contract ride the law route.",
   "types": [
     {
       "id": "change",

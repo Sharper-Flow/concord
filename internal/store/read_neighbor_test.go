@@ -38,6 +38,20 @@ type readNeighborCase struct {
 func TestReadEntryPointsWithNeighbor(t *testing.T) {
 	ctx := context.Background()
 	s := seedQueryFixture(t)
+	if err := ApplyOperation(ctx, s, Operation{
+		Events: []Event{
+			productCreatedEvent("product", "create-product"),
+			projectCreatedEvent("project", "create-project"),
+			operationEvent("product-project", "product_project.added", SubjectProduct, "product", map[string]any{
+				"product_id": "product", "project_id": "project", "role": "primary", "reason": "test",
+				"expected_version": 1, "resulting_version": 2,
+			}),
+		},
+		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product"): 0, VersionRef(SubjectProject, "project"): 0},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	seedWork(t, s, "work-1")
 	actor, version := continuityTestWorkflow(t, s, "neighbor-work")
 	seedWorkflowLaw(t, s)
 	if _, err := s.db.Exec(`INSERT INTO durable_operations(op_id,work_id,workflow_type_ref,step_id,accepted_inputs_digest,principal_ref,request_id,observed_at,contract_digest) VALUES('neighbor-result','work-1','fixture.atomic','execute',?,'agent-1','request:neighbor','2026-08-07T00:00:00Z',?)`, testDigest("inputs"), testManifestDigest); err != nil {

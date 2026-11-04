@@ -407,7 +407,7 @@ func assertOutcomeTransferRollback(t *testing.T, db *sql.DB, cause string) {
 	}
 }
 
-func TestOutcomeRetirementEmptyContractsSnapshotUpgrade(t *testing.T) {
+func TestOutcomeRetirementEvidenceDeclarationsRequireSnapshot(t *testing.T) {
 	previous := version.Value
 	version.Value = "v-test"
 	t.Cleanup(func() { version.Value = previous })
@@ -479,6 +479,48 @@ func TestOutcomeRetirementSnapshotDriftRefused(t *testing.T) {
 				t.Fatalf("migration recorded despite refusal: count=%d error=%v", count, err)
 			}
 		})
+	}
+}
+
+// A migration attempt retried after lock contention verifies the snapshot
+// again; an earlier attempt's match never admits a store that changed since.
+func TestOutcomeRetirementSnapshotReverifiedOnRetry(t *testing.T) {
+	previous := version.Value
+	version.Value = "v-test"
+	t.Cleanup(func() { version.Value = previous })
+	path, db := outcomeRetirementFixture(t)
+	seedRetirementPredicate(t, db, 1, 0, "exists", []string{"spec:valid"})
+	snapshot := filepath.Join(t.TempDir(), "snapshot.db")
+	if _, err := BackupDatabase(t.Context(), path, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	ctx, err := prepareOutcomeRetirementSnapshot(t.Context(), snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied, err := legacyManifestMigrations(ctx, tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyOutcomeRetirementSnapshot(ctx, tx, migrateForUpgrade, applied); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET title='Changed' WHERE id='work-one'; DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err == nil || !strings.Contains(err.Error(), "store changed after the verified snapshot") {
+		t.Fatalf("drift after an earlier verified attempt admitted: %v", err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM schema_migrations WHERE version=185`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("migration recorded despite refusal: count=%d error=%v", count, err)
 	}
 }
 

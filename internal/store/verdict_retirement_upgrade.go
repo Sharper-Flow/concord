@@ -64,6 +64,9 @@ func verifyOutcomeRetirementSnapshot(ctx context.Context, tx *sql.Tx, scope migr
 	if !ok {
 		return nil
 	}
+	// A retried migration transaction must not inherit an earlier attempt's
+	// result: the store may have changed between attempts.
+	proof.verified, proof.refusal = false, nil
 	checksum, err := fileSHA256(proof.snapshot)
 	if err != nil || checksum != proof.checksum {
 		proof.refusal = newFailure(KindUpgradeBlocked, "migrate", "outcome retirement snapshot changed after verification", false, "create a fresh verified snapshot")

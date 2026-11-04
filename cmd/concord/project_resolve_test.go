@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/gittest"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -123,7 +124,10 @@ func TestProjectResolveVersionedRemoteAndPathOnlyOrigins(t *testing.T) {
 	for _, raw := range []string{"https://github.com/owner/repo.git", "file:///srv/owner/repo.git"} {
 		t.Run(raw, func(t *testing.T) {
 			repo := initLocatorRepo(t)
-			cmd := exec.Command("git", "-C", repo, "remote", "set-url", "origin", raw)
+			cmd, err := gittest.Command(repo, "remote", "set-url", "origin", raw)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if output, err := cmd.CombinedOutput(); err != nil {
 				t.Fatalf("set origin: %v\n%s", err, output)
 			}

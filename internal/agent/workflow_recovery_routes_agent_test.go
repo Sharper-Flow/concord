@@ -3,10 +3,10 @@ package agent
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
+	"github.com/sharper-flow/concord/internal/gittest"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -29,12 +29,20 @@ func recoveryDomainRepository(t *testing.T, s *store.Store) string {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"add", ".concord/tooling.v1.json"}, {"commit", "--quiet", "-m", "declare fixture verification tooling"}} {
-		if output, err := exec.Command("git", append([]string{"-C", home.RepoPath}, args...)...).CombinedOutput(); err != nil {
+		cmd, err := gittest.Command(home.RepoPath, args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("fixture tooling: %v: %s", err, output)
 		}
 	}
 	for _, args := range [][]string{{"remote", "add", "origin", "https://example.invalid/fixture.git"}, {"update-ref", "refs/remotes/origin/main", "HEAD"}, {"symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"}} {
-		if output, err := exec.Command("git", append([]string{"-C", home.RepoPath}, args...)...).CombinedOutput(); err != nil {
+		cmd, err := gittest.Command(home.RepoPath, args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("fixture repository: %v: %s", err, output)
 		}
 	}

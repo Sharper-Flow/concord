@@ -4,20 +4,24 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/gittest"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
 func fixtureClaimSubject(t *testing.T, path string) {
 	t.Helper()
+	command, err := gittest.Command(path, "rev-parse", "--verify", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := exec.Command("git", "-C", path, "rev-parse", "--verify", "HEAD").Run(); err == nil {
+	if err := command.Run(); err == nil {
 		return
 	}
 	gitRun(t, path, "init", "--quiet", "--initial-branch=main")
@@ -51,7 +55,11 @@ func oAgentFixture(t *testing.T, s *store.Store, service *Service, env CallEnvel
 		gitRun(t, canonical, "add", ".concord/tooling.v1.json")
 		gitRun(t, canonical, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture declared checks")
 	}
-	if err := exec.Command("git", "-C", canonical, "remote", "get-url", "origin").Run(); err != nil {
+	command, err := gittest.Command(canonical, "remote", "get-url", "origin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := command.Run(); err != nil {
 		seedClaimOrigin(t, canonical)
 	} else {
 		gitRun(t, canonical, "push", "-q", "origin", "HEAD:main")

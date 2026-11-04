@@ -57,6 +57,12 @@ func TestPlanCompleteUnconfirmedItemHasConfirmationRoute(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT contract_version FROM workflow_premise_confirmations WHERE work_id=?`, id).Scan(&active); err != nil || active != 1 {
 		t.Fatalf("recorded confirmation version=%d err=%v", active, err)
 	}
+	// The route closes once the confirmation is recorded: availability tracks
+	// the missing confirmation, not the completed plan.
+	repeatErr := f.run(t.Context(), "confirm_premise", "confirm-repeat", f.version(t.Context(), t), nil, nil)
+	if !hasFailureKind(repeatErr, KindIllegalLifecycleTransition) || !strings.Contains(errDetail(repeatErr), "action is not declared on a frontier step") {
+		t.Fatalf("repeated plan-complete confirmation refusal=%v, want the frontier bound", repeatErr)
+	}
 	if err := f.run(t.Context(), "complete", "complete-confirmed", f.version(t.Context(), t), mustJSONValue(map[string]any{"impact_verdict": "non-breaking"}), nil); err != nil {
 		t.Fatalf("completion after confirmation refused: %v", err)
 	}

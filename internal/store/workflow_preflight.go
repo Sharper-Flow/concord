@@ -231,6 +231,32 @@ func workflowPlanTerminalAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 	return step, newFailure(KindInvalidOperation, "workflow_action", "terminal workflow cannot change", false, "reread the work item")
 }
 
+// workflowPlanCompleteConfirmationTx reports the declaring step that carries
+// the plan-level premise confirmation (CON-1701) and whether the active
+// contract's confirmation is already recorded. A completed plan has no
+// frontier, yet completion requires that confirmation, so the declaring step
+// keeps the action while the confirmation is missing. Admission uses the step
+// while it is missing; the action_completed fold uses it once the paired
+// premise_confirmed event has recorded it. Every other action, any incomplete
+// plan, and a work with no active contract return no step.
+func workflowPlanCompleteConfirmationTx(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, actionID string) (string, bool, error) {
+	if plan == nil || actionID != "confirm_premise" || !WorkflowStepPlanComplete(*plan) {
+		return "", false, nil
+	}
+	version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	var confirmed bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=?)`, workID, version).Scan(&confirmed); err != nil {
+		return "", false, wrapFailure(KindUnavailable, "workflow_action", "cannot read the premise confirmation", true, "retry once the database is readable", err)
+	}
+	return workflowPlanDeclaringStep(plan, actionID), confirmed, nil
+}
+
 func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, actionID, step string, plan *WorkflowStepPlan, fields map[string]json.RawMessage) (string, error) {
 	switch actionID {
 	case "record_intake", "record_clarify", "pick_type", "insert_step":
@@ -250,7 +276,14 @@ func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 		}
 	default:
 		if !workflowPlanAllowsAction(plan, step, actionID) {
-			owner := ""
+			owner, confirmed, err := workflowPlanCompleteConfirmationTx(ctx, tx, workID, plan, actionID)
+			if err != nil {
+				return step, err
+			}
+			if owner != "" && !confirmed {
+				return owner, nil
+			}
+			owner = ""
 			if workflowRecordAction(actionID) && plan != nil {
 				owner = workflowPlanDeclaringStep(plan, actionID)
 			}

@@ -268,6 +268,13 @@ Ordinary `bind_evidence` also remains available after the workflow reaches or
 passes a step declaring it, under one active contract and the same evidence,
 membership, actor, lifecycle, version and idempotency checks. Prior bindings do
 not prevent binding fresh independent evidence.
+`confirm_premise` also remains available once the plan completes while the
+active contract's confirmation is missing: a completed plan has no frontier
+step to declare it, yet completion requires that confirmation, so its
+declaring step keeps admitting the action for the active contract under the
+same coordinator-actor, contract-version, version and idempotency checks.
+This route supplies the confirmation; it never bypasses the completion gate,
+which still refuses without the recorded confirmation.
 A record-only replacement holds the current step, instance state and lifecycle;
 it does not repeat the original forward transition. In particular,
 `record_delivery` replaces a completed item's reported delivery links without

@@ -28,7 +28,7 @@ func hostOrchestratorIdentity(_ context.Context, dir string, host hostCommandRes
 	return handle, nil
 }
 
-// DeriveSessionBoot reads the canonical continuity projection and renders the
+// DeriveSessionBoot reads the stored resume plan and handoff frontier and renders the
 // deterministic session boot packet shared by session transports.
 func DeriveSessionBoot(ctx context.Context, database, productID, workID, projectID string) (packet []byte, errResult error) {
 	s, err := openStoreForCommand(ctx, database)
@@ -41,9 +41,9 @@ func DeriveSessionBoot(ctx context.Context, database, productID, workID, project
 			errResult = closeErr
 		}
 	}()
-	snapshot, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: workID, Limit: 1, ProjectID: projectID})
+	snapshot, err := store.ReadSessionResume(ctx, s, workID, projectID)
 	if err != nil {
 		return nil, err
 	}
-	return sessionboot.Build(productID, snapshot)
+	return sessionboot.Build(productID, projectID, snapshot)
 }

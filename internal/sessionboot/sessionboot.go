@@ -1,13 +1,13 @@
-// Package sessionboot derives the bounded operator-session packet from the
-// canonical CD-0016 continuity projection. It owns no workflow derivation.
+// Package sessionboot renders the stored resume plan and handoff frontier.
+// It owns no workflow derivation or retained projection.
 package sessionboot
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"slices"
 
-	"github.com/sharper-flow/concord/internal/agent"
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
@@ -16,52 +16,90 @@ import (
 const (
 	SchemaVersion          = "1.0"
 	SessionType            = "operator"
-	SessionContractVersion = "1.0"
+	SessionContractVersion = "2.0"
+	MaxBootPacketBytes     = 65536
 )
 
-// MaxBootPacketBytes is the session boot packet's own cap. The boot packet is
-// its own bounded population, not a request or a result envelope: the cap
-// keeps the size the boot packet has always carried, named here so the boot
-// population never moves when the request or response budgets change.
-const MaxBootPacketBytes = 65536
-
 type Packet struct {
-	SchemaVersion          string         `json:"schema_version"`
-	SessionType            string         `json:"session_type"`
-	SessionContractVersion string         `json:"session_contract_version"`
-	ManifestDigest         string         `json:"manifest_digest"`
-	ProductID              string         `json:"product_id"`
-	WorkID                 string         `json:"work_id"`
-	Continuity             map[string]any `json:"continuity"`
+	SchemaVersion          string          `json:"schema_version"`
+	SessionType            string          `json:"session_type"`
+	SessionContractVersion string          `json:"session_contract_version"`
+	ManifestDigest         string          `json:"manifest_digest"`
+	ProductID              string          `json:"product_id"`
+	ProjectID              string          `json:"project_id"`
+	WorkID                 string          `json:"work_id"`
+	Watermark              string          `json:"watermark"`
+	WorkflowInstance       string          `json:"workflow_instance"`
+	Resume                 json.RawMessage `json:"resume"`
+	PendingProjectHandoff  json.RawMessage `json:"pending_project_handoff,omitempty"`
 }
 
-func Build(productID string, snapshot store.ContinuitySnapshot) ([]byte, error) {
+// Build preserves the captured documents inline whenever the complete packet
+// fits. References require reconstruction through the existing current reads;
+// source drift requires preparing another packet, never historical replay.
+func Build(productID, projectID string, snapshot store.SessionResumeRead) ([]byte, error) {
 	if !slices.Contains(snapshot.ProductIdentity, productID) {
 		return nil, fmt.Errorf("session boot Product identity %q is not bound to work %q", productID, snapshot.WorkID)
 	}
-	// The boot read pages boundaries from the start, so the fit needs only
-	// the work identity to derive a boundary cursor. The packet carries the
-	// inline projection whenever its measured complete-prefix fit fits the
-	// boot packet's own cap; no smaller fixed payload cap sits below it.
-	raw, size, err := agent.FitContinuity(snapshot, store.ContinuityRequest{Work: snapshot.WorkID}, MaxBootPacketBytes, func(fitted store.ContinuitySnapshot) ([]byte, int, error) {
-		raw, err := json.Marshal(bootPacket(productID, fitted.WorkID, agent.ContinuityPayload(fitted)))
-		return raw, len(raw), err
-	})
-	if err != nil {
-		return nil, err
+	packet := Packet{
+		SchemaVersion: SchemaVersion, SessionType: SessionType,
+		SessionContractVersion: SessionContractVersion, ManifestDigest: agentcontract.ManifestDigest,
+		ProductID: productID, ProjectID: projectID, WorkID: snapshot.WorkID,
+		Watermark:        fmt.Sprintf("seq:%d", snapshot.SourceVersionWatermark),
+		WorkflowInstance: store.WorkflowInstancePresent, Resume: json.RawMessage("null"),
 	}
-	if size > MaxBootPacketBytes {
-		// CD-0031: a fixed projection no complete-prefix reduction can
-		// shrink travels as the closed deterministic projection reference of
-		// the original captured snapshot, never of a reduced candidate. The
-		// reference names the exact work, the canonical digest and length,
-		// and the canonical initial continuity read; it mints no timestamp
-		// and no signature.
-		reference, err := agent.ContinuityProjectionReference(snapshot)
+	if snapshot.WorkflowInstanceAbsent {
+		if snapshot.Resume != nil {
+			return nil, fmt.Errorf("session boot absent workflow carries a resume document")
+		}
+		packet.WorkflowInstance = store.WorkflowInstanceAbsent
+	} else {
+		if snapshot.Resume == nil || snapshot.Resume.WorkID != snapshot.WorkID || snapshot.Resume.SourceVersionWatermark != snapshot.SourceVersionWatermark {
+			return nil, fmt.Errorf("session boot resume identity or watermark mismatch")
+		}
+		raw, err := json.Marshal(snapshot.Resume)
 		if err != nil {
 			return nil, err
 		}
-		raw, err = json.Marshal(bootPacket(productID, snapshot.WorkID, reference))
+		if err := payloadschema.Validate("resume_read_document", raw); err != nil {
+			return nil, err
+		}
+		packet.Resume = raw
+	}
+	if snapshot.PendingProjectHandoff != nil {
+		raw, err := json.Marshal(snapshot.PendingProjectHandoff)
+		if err != nil {
+			return nil, err
+		}
+		if err := payloadschema.Validate("continuity_pending_project_handoff", raw); err != nil {
+			return nil, err
+		}
+		packet.PendingProjectHandoff = raw
+	}
+	raw, err := json.Marshal(packet)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > MaxBootPacketBytes {
+		if !snapshot.WorkflowInstanceAbsent {
+			packet.Resume, err = reference(packet.Resume, map[string]any{
+				"tool": "concord_work_trace", "operation": "resume",
+				"input": map[string]any{"work_id": snapshot.WorkID},
+			}, "")
+			if err != nil {
+				return nil, err
+			}
+		}
+		if snapshot.PendingProjectHandoff != nil {
+			packet.PendingProjectHandoff, err = reference(packet.PendingProjectHandoff, map[string]any{
+				"tool": "concord_work_browse", "operation": "list",
+				"input": map[string]any{"product_id": productID, "project_ids": []string{projectID}, "work_ids": []string{snapshot.WorkID}, "detail": "full"},
+			}, "items[0].pending_project_handoff")
+			if err != nil {
+				return nil, err
+			}
+		}
+		raw, err = json.Marshal(packet)
 		if err != nil {
 			return nil, err
 		}
@@ -72,14 +110,15 @@ func Build(productID string, snapshot store.ContinuitySnapshot) ([]byte, error) 
 	return raw, nil
 }
 
-func bootPacket(productID, workID string, continuity map[string]any) Packet {
-	return Packet{
-		SchemaVersion: SchemaVersion, SessionType: SessionType,
-		SessionContractVersion: SessionContractVersion,
-		ManifestDigest:         agentcontract.ManifestDigest,
-		ProductID:              productID, WorkID: workID,
-		Continuity: continuity,
+func reference(document []byte, pointer map[string]any, path string) (json.RawMessage, error) {
+	value := map[string]any{
+		"projection_omitted": true, "digest": fmt.Sprintf("sha256:%x", sha256.Sum256(document)),
+		"total_bytes": len(document), "read_pointer": pointer,
 	}
+	if path != "" {
+		value["projection_path"] = path
+	}
+	return json.Marshal(value)
 }
 
 func Validate(raw []byte) error {
@@ -98,6 +137,47 @@ func Validate(raw []byte) error {
 	}
 	if packet.ManifestDigest != agentcontract.ManifestDigest {
 		return fmt.Errorf("session boot manifest digest mismatch")
+	}
+	if packet.WorkflowInstance == store.WorkflowInstancePresent {
+		if err := validateDocumentIdentity(packet.Resume, packet, false); err != nil {
+			return err
+		}
+	}
+	if len(packet.PendingProjectHandoff) != 0 {
+		return validateDocumentIdentity(packet.PendingProjectHandoff, packet, true)
+	}
+	return nil
+}
+
+func validateDocumentIdentity(raw json.RawMessage, packet Packet, handoff bool) error {
+	var document struct {
+		WorkID            string `json:"work_id"`
+		ProjectionOmitted bool   `json:"projection_omitted"`
+		ReadPointer       struct {
+			Input struct {
+				WorkID     string   `json:"work_id"`
+				ProductID  string   `json:"product_id"`
+				WorkIDs    []string `json:"work_ids"`
+				ProjectIDs []string `json:"project_ids"`
+			} `json:"input"`
+		} `json:"read_pointer"`
+	}
+	if err := json.Unmarshal(raw, &document); err != nil {
+		return err
+	}
+	if !document.ProjectionOmitted {
+		if document.WorkID != packet.WorkID {
+			return fmt.Errorf("session boot document work identity mismatch")
+		}
+		return nil
+	}
+	input := document.ReadPointer.Input
+	if handoff {
+		if input.ProductID != packet.ProductID || !slices.Equal(input.WorkIDs, []string{packet.WorkID}) || !slices.Equal(input.ProjectIDs, []string{packet.ProjectID}) {
+			return fmt.Errorf("session boot handoff read identity mismatch")
+		}
+	} else if input.WorkID != packet.WorkID {
+		return fmt.Errorf("session boot resume read identity mismatch")
 	}
 	return nil
 }

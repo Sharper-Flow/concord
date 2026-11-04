@@ -2,27 +2,44 @@ package sessionboot
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/sharper-flow/concord/internal/agent"
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func testSnapshot() store.ContinuitySnapshot {
-	return store.ContinuitySnapshot{
-		WorkID: "work-1", ProductIdentity: []string{"product-1"}, WorkflowStep: "planning",
-		SpecMandate: []string{"law-1"}, Boundaries: []store.ContextBoundary{},
-		Watermark: "seq:42", RestartUnavailableReason: "typed restart is deliberately excluded",
+func testSnapshot() store.SessionResumeRead {
+	return store.SessionResumeRead{
+		WorkID: "work-1", ProductIdentity: []string{"product-1"}, SourceVersionWatermark: 42,
+		Resume: &store.WorkflowResumeRead{WorkID: "work-1", SourceVersionWatermark: 42, Version: 3, State: "intake", OpeningSteps: []string{"intake", "pick_type"}},
 	}
 }
 
-func TestBuildMatchesCanonicalContinuityPayload(t *testing.T) {
-	raw, err := Build("product-1", testSnapshot())
+func testHandoff() *store.ProjectHandoff {
+	return &store.ProjectHandoff{HandoffID: "handoff-1", WorkID: "work-1", ContractVersion: 1,
+		SourceProjectID: "source-1", TargetProjectID: "project-1", SourceSessionRef: "session-1",
+		BoundedJob: "job", Changes: []string{}, Verification: []string{}, ArtifactRefs: []string{},
+		Blockers: []string{}, NextAction: "act", State: "recorded", RecordedAt: "2026-01-01T00:00:00Z"}
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func buildPacket(t *testing.T, s store.SessionResumeRead) ([]byte, Packet) {
+	t.Helper()
+	raw, err := Build("product-1", "project-1", s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,390 +50,217 @@ func TestBuildMatchesCanonicalContinuityPayload(t *testing.T) {
 	if err := json.Unmarshal(raw, &packet); err != nil {
 		t.Fatal(err)
 	}
-	if packet.SchemaVersion != "1.0" || packet.SessionType != "operator" || packet.SessionContractVersion != "1.0" {
+	return raw, packet
+}
+
+func TestBuildMatchesPublicResumeDocument(t *testing.T) {
+	s := testSnapshot()
+	s.PendingProjectHandoff = testHandoff()
+	raw, packet := buildPacket(t, s)
+	if packet.SchemaVersion != "1.0" || packet.SessionType != "operator" || packet.SessionContractVersion != "2.0" || packet.ManifestDigest != agentcontract.ManifestDigest || packet.Watermark != "seq:42" {
 		t.Fatalf("packet identity = %#v", packet)
 	}
-	if packet.ManifestDigest != agentcontract.ManifestDigest {
-		t.Fatalf("packet manifest digest = %s", packet.ManifestDigest)
+	if want := mustJSON(t, s.Resume); !bytes.Equal(packet.Resume, want) {
+		t.Fatalf("resume = %s, want %s", packet.Resume, want)
 	}
-	want, _ := json.Marshal(agent.ContinuityPayload(testSnapshot()))
-	got, _ := json.Marshal(packet.Continuity)
-	if string(got) != string(want) {
-		t.Fatalf("continuity mismatch\n got: %s\nwant: %s", got, want)
+	if want := mustJSON(t, s.PendingProjectHandoff); !bytes.Equal(packet.PendingProjectHandoff, want) {
+		t.Fatalf("handoff = %s, want %s", packet.PendingProjectHandoff, want)
 	}
-}
-
-func TestBuildAllowsPreContractWorkflow(t *testing.T) {
-	snapshot := testSnapshot()
-	snapshot.Contract = nil
-	raw, err := Build("product-1", snapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := Validate(raw); err != nil {
-		t.Fatalf("pre-contract packet rejected: %v", err)
-	}
-}
-
-// TestBuildAcceptsFullyPinnedContract holds the packet against a work item that
-// carries every contract field a Product-changing workflow can pin. The
-// pre-contract case above passes on an absent contract, so only a populated
-// contract exercises the workflow_contract schema.
-func TestBuildAcceptsFullyPinnedContract(t *testing.T) {
-	snapshot := testSnapshot()
-	snapshot.Contract = &store.WorkflowReadContract{
-		Version: 2, Premise: "the premise", OutcomePredicates: []store.WorkflowReadPredicate{{PredicateID: "predicate:primary", Ordinal: 0, OutcomeKind: "artifact", OutcomePayload: "the outcome"}},
-		RequiredEvidence: []string{"verification"}, RouteConventions: []string{"route-1"},
-		SpecMandate: []string{"law-1"}, LawModifies: []string{"law-1"},
-		RigorClass: "prototype_internal", ChangesProductTruth: new(true),
-		ArchitectureBinding: &store.WorkflowArchitectureBinding{
-			HomeDomainID:      "child",
-			AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{"child"},
-			DomainRelationModifies:  []store.WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}},
-			LawAdditions:            []store.WorkflowLawAddition{{LawID: "law-2", HomeDomainID: "child"}},
-			VerificationObligations: []store.WorkflowVerificationObligation{{LawID: "law-1", ObligationID: "verification"}},
-		},
-	}
-	raw, err := Build("product-1", snapshot)
-	if err != nil {
-		t.Fatalf("pinned-contract packet rejected: %v", err)
-	}
-	if err := Validate(raw); err != nil {
-		t.Fatalf("pinned-contract packet rejected: %v", err)
-	}
-}
-
-func TestBuildRejectsProductMismatch(t *testing.T) {
-	if _, err := Build("product-2", testSnapshot()); err == nil || !strings.Contains(err.Error(), "Product identity") {
-		t.Fatalf("product mismatch err = %v", err)
-	}
-}
-
-// TestBuildWithUnavailableWorkContext boots a snapshot whose strict
-// work-context read refused on a bound: the typed marker rides both pinned
-// locations, neither carries the available view, two builds of one snapshot
-// have identical bytes, and the packet's continuity stays the canonical
-// CD-0016 projection for that snapshot.
-func TestBuildWithUnavailableWorkContext(t *testing.T) {
-	snapshot := testSnapshot()
-	obligations := []string{}
-	// A minimal ordinary managed pin: the required members and the typed
-	// marker instead of a view.
-	snapshot.WorkPin = &store.WorkPin{
-		WorkID:                  "work-1",
-		Title:                   "fixture",
-		LinearIssueKey:          "CON-0000",
-		ProjectID:               "project-1",
-		ProjectDisplayName:      "fixture",
-		Version:                 1,
-		Lifecycle:               "in_progress",
-		CancelledInstanceCloses: 0,
-		WorkflowType:            "fix",
-		Step:                    "plan",
-		Watermark:               "seq:42",
-		Obligations:             &obligations,
-		NextValidIntents:        []store.WorkPinIntent{},
-		DrivingSessions:         []store.WorkPinDrivingSession{},
-		WorkContextUnavailable:  &store.WorkContextUnavailable{Reason: string(store.KindLimitExceeded)},
-	}
-	snapshot.WorkContextUnavailable = &store.WorkContextUnavailable{Reason: string(store.KindLimitExceeded)}
-	raw, err := Build("product-1", snapshot)
-	if err != nil {
-		t.Fatalf("unavailable-context boot packet refused: %v", err)
-	}
-	if err := Validate(raw); err != nil {
-		t.Fatalf("unavailable-context packet rejected: %v", err)
-	}
-	var decoded map[string]any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		t.Fatal(err)
-	}
-	continuity := decoded["continuity"].(map[string]any)
-	pinned := continuity["pinned"].(map[string]any)
-	marker, ok := pinned["work_context_unavailable"].(map[string]any)
-	if !ok || marker["reason"] != string(store.KindLimitExceeded) {
-		t.Fatalf("pinned marker = %#v, want the exact %s reason", pinned["work_context_unavailable"], store.KindLimitExceeded)
-	}
-	if _, present := pinned["work_context"]; present {
-		t.Fatal("the boot packet carried the available view beside the pinned marker")
-	}
-	pinValue, ok := pinned["work_pin"].(map[string]any)
-	if !ok {
-		t.Fatalf("pinned work_pin type = %T", pinned["work_pin"])
-	}
-	pinMarker, ok := pinValue["work_context_unavailable"].(map[string]any)
-	if !ok || pinMarker["reason"] != string(store.KindLimitExceeded) {
-		t.Fatalf("embedded pin marker = %#v, want the exact %s reason", pinValue["work_context_unavailable"], store.KindLimitExceeded)
-	}
-	if _, present := pinValue["work_context"]; present {
-		t.Fatal("the embedded pin carried the available view beside its marker")
-	}
-	again, err := Build("product-1", snapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
+	again, _ := buildPacket(t, s)
 	if !bytes.Equal(raw, again) {
-		t.Fatal("two boot builds of one unavailable-context snapshot differ in bytes")
-	}
-	got, err := json.Marshal(continuity)
-	if err != nil {
-		t.Fatal(err)
-	}
-	canonical, err := json.Marshal(agent.ContinuityPayload(snapshot))
-	if err != nil {
-		t.Fatal(err)
-	}
-	// ContinuityPayload marshals nested structs in field order, while the
-	// packet's continuity round-trips through JSON as sorted maps, so the
-	// comparison normalizes both through one decode before the byte check.
-	var normalized any
-	if err := json.Unmarshal(canonical, &normalized); err != nil {
-		t.Fatal(err)
-	}
-	want, err := json.Marshal(normalized)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != string(want) {
-		t.Fatalf("continuity mismatch\n got: %s\nwant: %s", got, want)
+		t.Fatal("build is not deterministic")
 	}
 }
 
-// TestBuildStatesWorkflowAbsenceForInstanceLessWork holds the typed absence
-// the boot packet states for an imported work item: the packet validates and
-// names the workflow absence instead of carrying a fabricated step.
 func TestBuildStatesWorkflowAbsenceForInstanceLessWork(t *testing.T) {
-	snapshot := store.ContinuitySnapshot{
-		WorkID: "import-advance-work-one", ProductIdentity: []string{"corded"},
-		WorkflowInstance: store.WorkflowInstanceAbsent,
-		SpecMandate:      []string{},
-		Boundaries:       []store.ContextBoundary{}, Watermark: "seq:2",
-		RestartUnavailableReason: "typed restart is deliberately excluded",
+	s := testSnapshot()
+	s.Resume = nil
+	s.WorkflowInstanceAbsent = true
+	_, packet := buildPacket(t, s)
+	if packet.WorkflowInstance != store.WorkflowInstanceAbsent || string(packet.Resume) != "null" {
+		t.Fatalf("absence = %#v", packet)
 	}
-	raw, err := Build("corded", snapshot)
-	if err != nil {
-		t.Fatalf("instance-less boot packet refused: %v", err)
-	}
-	if err := Validate(raw); err != nil {
-		t.Fatalf("instance-less boot packet failed validation: %v", err)
-	}
-	var packet struct {
-		Continuity struct {
-			Pinned map[string]any `json:"pinned"`
-		} `json:"continuity"`
-	}
-	if err := json.Unmarshal(raw, &packet); err != nil {
-		t.Fatal(err)
-	}
-	if packet.Continuity.Pinned["workflow_instance"] != store.WorkflowInstanceAbsent {
-		t.Fatalf("boot packet does not name the workflow absence: pinned=%v", packet.Continuity.Pinned)
-	}
-	step, present := packet.Continuity.Pinned["workflow_step"]
-	if !present || step != nil {
-		t.Fatalf("workflow_step=%v present=%v, want a present null", step, present)
+}
+
+func TestBuildRejectsInconsistentSnapshot(t *testing.T) {
+	for name, mutate := range map[string]func(*store.SessionResumeRead){
+		"product":            func(s *store.SessionResumeRead) { s.ProductIdentity = []string{"product-2"} },
+		"work":               func(s *store.SessionResumeRead) { s.Resume.WorkID = "work-2" },
+		"watermark":          func(s *store.SessionResumeRead) { s.Resume.SourceVersionWatermark++ },
+		"missing resume":     func(s *store.SessionResumeRead) { s.Resume = nil },
+		"absent with resume": func(s *store.SessionResumeRead) { s.WorkflowInstanceAbsent = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := testSnapshot()
+			mutate(&s)
+			if _, err := Build("product-1", "project-1", s); err == nil {
+				t.Fatal("inconsistent snapshot accepted")
+			}
+		})
 	}
 }
 
 func TestValidateRejectsOversizePacket(t *testing.T) {
-	raw := bytes.Repeat([]byte("x"), MaxBootPacketBytes+1)
-	if err := Validate(raw); err == nil || !strings.Contains(err.Error(), "exceeds") {
-		t.Fatalf("oversize packet err = %v", err)
+	if err := Validate(bytes.Repeat([]byte("x"), MaxBootPacketBytes+1)); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversize err = %v", err)
 	}
 }
 
-func TestValidateRejectsUnknownSessionIdentityRemovedSurfaceMetadataAndContractDrift(t *testing.T) {
-	raw, err := Build("product-1", testSnapshot())
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestValidateRejectsUnknownSessionIdentityAndManifest(t *testing.T) {
+	raw, _ := buildPacket(t, testSnapshot())
 	for name, mutate := range map[string]func(map[string]any){
-		"session type":                       func(v map[string]any) { v["session_type"] = "generic" },
-		"session contract":                   func(v map[string]any) { v["session_contract_version"] = "9.0" },
-		"removed surface metadata rejection": func(v map[string]any) { v["surface_version"] = "9.0.0" },
-		"digest":                             func(v map[string]any) { v["manifest_digest"] = "sha256:" + strings.Repeat("0", 64) },
+		"schema version": func(v map[string]any) { v["schema_version"] = "9.0" },
+		"session type":   func(v map[string]any) { v["session_type"] = "generic" },
+		"old contract":   func(v map[string]any) { v["session_contract_version"] = "1.0" },
+		"manifest":       func(v map[string]any) { v["manifest_digest"] = "sha256:" + strings.Repeat("0", 64) },
 	} {
 		t.Run(name, func(t *testing.T) {
-			var value map[string]any
-			if err := json.Unmarshal(raw, &value); err != nil {
+			var v map[string]any
+			if err := json.Unmarshal(raw, &v); err != nil {
 				t.Fatal(err)
 			}
-			mutate(value)
-			tampered, _ := json.Marshal(value)
-			if err := Validate(tampered); err == nil {
+			mutate(v)
+			if err := Validate(mustJSON(t, v)); err == nil {
 				t.Fatal("tampered packet accepted")
 			}
 		})
 	}
 }
 
-// readSchemaSizePredicates builds count synthetic exists predicates at the
-// published read shape's size: each outcome_payload is the exact JSON text
-// of a real exists object — kind, surface, and one hundred bounded subject
-// strings — as a contract read carries it. This serializer fixture tests
-// read shape and size, not admission: no workflow write path sees these
-// records, and none of its bounds claims admission reachability. It holds
-// only that each payload fits the published read bound.
-func readSchemaSizePredicates(count int) []store.WorkflowReadPredicate {
-	subjects := make([]string, 100)
-	for j := range subjects {
-		subjects[j] = fmt.Sprintf("subject:%s%03d", strings.Repeat("s", 116), j)
+func largeResume(count int) *store.WorkflowResumeRead {
+	r := testSnapshot().Resume
+	r.State = "running"
+	r.Type = "change"
+	r.OpeningSteps = nil
+	for i := 0; i < count; i++ {
+		r.Steps = append(r.Steps, store.WorkflowPlanStep{ID: fmt.Sprintf("step-%d", i), Required: true, After: []string{}, Reason: strings.Repeat("x", 2048)})
 	}
-	predicates := make([]store.WorkflowReadPredicate, count)
-	for i := range predicates {
-		payload, err := json.Marshal(map[string]any{
-			"kind": "exists", "surface": fmt.Sprintf("fixture:surface-%d", i), "subjects": subjects,
+	return r
+}
+
+func largeHandoff() *store.ProjectHandoff {
+	h := testHandoff()
+	h.BoundedJob = strings.Repeat("<", 4000)
+	h.NextAction = strings.Repeat("<", 1000)
+	for i := 0; i < 16; i++ {
+		h.Changes = append(h.Changes, strings.Repeat("<", 512))
+		h.Verification = append(h.Verification, strings.Repeat("<", 512))
+		h.Blockers = append(h.Blockers, strings.Repeat("<", 512))
+	}
+	return h
+}
+
+func assertReference(t *testing.T, raw json.RawMessage, doc []byte, pointer map[string]any, path string) {
+	t.Helper()
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"projection_omitted": true, "digest": fmt.Sprintf("sha256:%x", sha256.Sum256(doc)), "total_bytes": float64(len(doc)), "read_pointer": pointer}
+	if path != "" {
+		want["projection_path"] = path
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("reference = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildReferencesLargeDocuments(t *testing.T) {
+	for _, which := range []string{"resume", "handoff", "both"} {
+		t.Run(which, func(t *testing.T) {
+			s := testSnapshot()
+			if which != "handoff" {
+				s.Resume = largeResume(40)
+			}
+			if which != "resume" {
+				s.PendingProjectHandoff = largeHandoff()
+			}
+			resume := mustJSON(t, s.Resume)
+			if err := payloadschema.Validate("resume_read_document", resume); err != nil {
+				t.Fatalf("resume fixture: %v", err)
+			}
+			if which != "handoff" && len(resume) <= MaxBootPacketBytes {
+				t.Fatalf("resume only %d bytes", len(resume))
+			}
+			var handoff []byte
+			if s.PendingProjectHandoff != nil {
+				handoff = mustJSON(t, s.PendingProjectHandoff)
+				if err := payloadschema.Validate("continuity_pending_project_handoff", handoff); err != nil {
+					t.Fatalf("handoff fixture: %v", err)
+				}
+				if len(handoff) <= MaxBootPacketBytes {
+					t.Fatalf("handoff only %d bytes", len(handoff))
+				}
+			}
+			raw, packet := buildPacket(t, s)
+			if len(raw) > MaxBootPacketBytes {
+				t.Fatalf("packet size = %d", len(raw))
+			}
+			assertReference(t, packet.Resume, resume, map[string]any{"tool": "concord_work_trace", "operation": "resume", "input": map[string]any{"work_id": "work-1"}}, "")
+			if handoff != nil {
+				assertReference(t, packet.PendingProjectHandoff, handoff, map[string]any{"tool": "concord_work_browse", "operation": "list", "input": map[string]any{"product_id": "product-1", "project_ids": []any{"project-1"}, "work_ids": []any{"work-1"}, "detail": "full"}}, "items[0].pending_project_handoff")
+			}
+			again, _ := buildPacket(t, s)
+			if !bytes.Equal(raw, again) {
+				t.Fatal("reference output is not deterministic")
+			}
 		})
-		if err != nil {
-			panic(err)
-		}
-		predicates[i] = store.WorkflowReadPredicate{
-			PredicateID:    fmt.Sprintf("predicate:overflow-%d", i),
-			Ordinal:        i,
-			OutcomeKind:    "exists",
-			OutcomePayload: string(payload),
-		}
-	}
-	return predicates
-}
-
-// schemaSizeContract builds the synthetic contract a schema-size fixture
-// rides: minimal required members, with the always-marshaling law members
-// set to their empty schema-valid values.
-func schemaSizeContract(predicates []store.WorkflowReadPredicate) *store.WorkflowReadContract {
-	return &store.WorkflowReadContract{
-		Version: 2, Premise: "the premise", OutcomePredicates: predicates,
-		RequiredEvidence: []string{"verification"}, RouteConventions: []string{"route-1"},
-		SpecMandate: []string{"law-1"}, LawModifies: []string{},
-		RigorClass:          "prototype_internal",
-		ChangesProductTruth: new(true),
 	}
 }
 
-// TestBuildReferencesOversizedFixedProjection holds boot to the CD-0031
-// reference branch: a snapshot whose fixed projection cannot fit the packet's
-// own cap travels as the closed projection reference of the original captured
-// snapshot — exact work, digest, and byte length, the canonical initial
-// continuity read, no projection member, and no timestamp or signature — and
-// two builds of one snapshot have identical bytes.
-func TestBuildReferencesOversizedFixedProjection(t *testing.T) {
-	snapshot := testSnapshot()
-	snapshot.WorkflowInstance = store.WorkflowInstancePresent
-	snapshot.Contract = schemaSizeContract(readSchemaSizePredicates(8))
-	full, _ := json.Marshal(agent.ContinuityPayload(snapshot))
-	// The fixture is shape-valid against the published read schema, so size
-	// is the only reason the projection cannot ride inline: the reference
-	// branch must not hide an unrelated shape invalidity.
-	if err := payloadschema.Validate("continuity_snapshot", full); err != nil {
-		t.Fatalf("oversized fixture is not a schema-valid continuity snapshot: %v", err)
-	}
-	// The bound is the session boot packet's own cap, and the fixture's fixed
-	// projection, which no complete-prefix reduction can shrink, alone
-	// overflows it.
-	if len(full) <= MaxBootPacketBytes {
-		t.Fatalf("fixture does not overflow the packet: %d bytes", len(full))
-	}
-	raw, err := Build("product-1", snapshot)
-	if err != nil {
-		t.Fatalf("oversized fixed projection refused instead of referenced: %v", err)
-	}
-	if err := Validate(raw); err != nil {
-		t.Fatalf("reference packet rejected: %v", err)
-	}
-	if len(raw) > MaxBootPacketBytes {
-		t.Fatalf("reference packet measured %d bytes against the %d-byte cap", len(raw), MaxBootPacketBytes)
-	}
-	again, err := Build("product-1", snapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(raw, again) {
-		t.Fatal("two boot builds of one snapshot differ in bytes")
-	}
-	var packet struct {
-		Continuity map[string]any `json:"continuity"`
-	}
-	if err := json.Unmarshal(raw, &packet); err != nil {
-		t.Fatal(err)
-	}
-	reference := packet.Continuity
-	want, err := agent.ContinuityProjectionReference(snapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantBytes, _ := json.Marshal(want)
-	gotBytes, _ := json.Marshal(reference)
-	if string(gotBytes) != string(wantBytes) {
-		t.Fatalf("continuity = %s\nwant the shared reference %s", gotBytes, wantBytes)
-	}
-	if reference["work_id"] != "work-1" || reference["workflow_instance"] != store.WorkflowInstancePresent || reference["workflow_step"] != "planning" {
-		t.Fatalf("reference header = %#v", reference)
-	}
-	doc, digest, err := agent.ContinuityCanonicalDocument(snapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reference["digest"] != digest {
-		t.Fatalf("reference digest %v, want %s", reference["digest"], digest)
-	}
-	total, ok := reference["total_bytes"].(float64)
-	if !ok || int(total) != len(doc) {
-		t.Fatalf("reference total_bytes %v, want %d", reference["total_bytes"], len(doc))
-	}
-	if reference["projection_omitted"] != true {
-		t.Fatal("the reference must state its omitted projection exactly")
-	}
-	pointer, _ := reference["read_pointer"].(map[string]any)
-	input, _ := pointer["input"].(map[string]any)
-	page, _ := input["page"].(map[string]any)
-	limit, _ := page["limit"].(float64)
-	if pointer["tool"] != "concord_work_trace" || pointer["operation"] != "continuity" || input["work_id"] != "work-1" || page["cursor"] != nil || limit != 20 {
-		t.Fatalf("read pointer is not the canonical initial continuity read: %+v", pointer)
-	}
-	for _, member := range []string{"pinned", "projection_page", "observations", "freshness", "signature"} {
-		if _, present := reference[member]; present {
-			t.Fatalf("the boot reference carries the member %q", member)
-		}
-	}
-}
-
-// TestBuildKeepsMidBandPacketInline holds the measured-cap inline rule: a
-// complete boot packet above 32 KiB and below the boot packet's own cap
-// stays typed and inline, with no bound claimed between the two, so no
-// smaller fixed payload budget can silently replace the measured cap.
 func TestBuildKeepsMidBandPacketInline(t *testing.T) {
-	snapshot := testSnapshot()
-	snapshot.WorkflowInstance = store.WorkflowInstancePresent
-	snapshot.Contract = schemaSizeContract(readSchemaSizePredicates(3))
-	full, _ := json.Marshal(agent.ContinuityPayload(snapshot))
-	if len(full) <= 32768 || len(full) > MaxBootPacketBytes {
-		t.Fatalf("fixture measured %d bytes, want inside the (32768, %d] inline band", len(full), MaxBootPacketBytes)
+	for _, which := range []string{"resume", "handoff"} {
+		t.Run(which, func(t *testing.T) {
+			s := testSnapshot()
+			s.PendingProjectHandoff = testHandoff()
+			if which == "resume" {
+				s.Resume = largeResume(18)
+			} else {
+				s.PendingProjectHandoff.BoundedJob = strings.Repeat("<", 4000)
+				for i := 0; i < 4; i++ {
+					s.PendingProjectHandoff.Changes = append(s.PendingProjectHandoff.Changes, strings.Repeat("<", 512))
+				}
+			}
+			raw, packet := buildPacket(t, s)
+			if len(raw) <= 32768 || len(raw) > MaxBootPacketBytes {
+				t.Fatalf("packet size = %d", len(raw))
+			}
+			if want := mustJSON(t, s.Resume); !bytes.Equal(packet.Resume, want) {
+				t.Fatal("resume did not remain byte-exact inline")
+			}
+			if want := mustJSON(t, s.PendingProjectHandoff); !bytes.Equal(packet.PendingProjectHandoff, want) {
+				t.Fatal("handoff did not remain byte-exact inline")
+			}
+		})
 	}
-	raw, err := Build("product-1", snapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := Validate(raw); err != nil {
-		t.Fatalf("mid-band packet rejected: %v", err)
-	}
-	var packet struct {
-		Continuity map[string]any `json:"continuity"`
-	}
-	if err := json.Unmarshal(raw, &packet); err != nil {
-		t.Fatal(err)
-	}
-	if _, referenced := packet.Continuity["projection_omitted"]; referenced {
-		t.Fatal("mid-band packet carried the projection reference")
-	}
-	got, _ := json.Marshal(packet.Continuity)
-	// ContinuityPayload marshals nested structs in field order, while the
-	// packet's continuity round-trips through JSON as sorted maps, so the
-	// comparison normalizes both through one decode before the byte check.
-	var want any
-	if err := json.Unmarshal(full, &want); err != nil {
-		t.Fatal(err)
-	}
-	normalized, _ := json.Marshal(want)
-	if string(got) != string(normalized) {
-		t.Fatalf("mid-band packet did not stay inline\n got: %s\nwant: %s", got, normalized)
+}
+
+func TestValidateRejectsTamperedReferenceIdentity(t *testing.T) {
+	s := testSnapshot()
+	s.Resume = largeResume(40)
+	s.PendingProjectHandoff = largeHandoff()
+	raw, _ := buildPacket(t, s)
+	for _, tc := range []struct {
+		doc, key string
+		value    any
+	}{
+		{"resume", "work_id", "work-2"},
+		{"pending_project_handoff", "product_id", "product-2"},
+		{"pending_project_handoff", "project_ids", []string{"project-2"}},
+		{"pending_project_handoff", "work_ids", []string{"work-2"}},
+	} {
+		t.Run(tc.doc+"/"+tc.key, func(t *testing.T) {
+			var v map[string]any
+			if err := json.Unmarshal(raw, &v); err != nil {
+				t.Fatal(err)
+			}
+			doc := v[tc.doc].(map[string]any)
+			pointer := doc["read_pointer"].(map[string]any)
+			input := pointer["input"].(map[string]any)
+			input[tc.key] = tc.value
+			if err := Validate(mustJSON(t, v)); err == nil {
+				t.Fatal("tampered reference accepted")
+			}
+		})
 	}
 }

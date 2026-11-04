@@ -125,7 +125,7 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, hostCo
 		writeOperatorDiagnostic(errOut, "session-prepare", diagnosticText(err))
 		return sessionPrepareFailureExit(err, 1)
 	}
-	prompt := "Concord session boot packet (core-derived authority at its watermark; reread concord_work_trace.continuity before consequential action):\n" + string(packet)
+	prompt := "Concord session boot packet (core-derived at its watermark; reread concord_work_trace.resume and item-scoped concord_work_browse.list detail=full before consequential action. Reconstruct referenced documents and verify digest/length before use; if changed or unavailable, re-prepare boot):\n" + string(packet)
 	if input.Task != "" {
 		prompt += "\nTask: " + input.Task
 	}

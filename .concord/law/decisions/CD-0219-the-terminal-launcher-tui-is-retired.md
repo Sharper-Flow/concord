@@ -53,9 +53,9 @@
   The public pull request
   carries its delivery evidence. This record creates no managed workflow
   record. Its authority tier is `derived` under CD-0159 D3.
-- **Related:** CD-0014, CD-0031, CD-0048, CD-0078, CD-0108, CD-0222,
+- **Related:** CD-0014, CD-0252, CD-0048, CD-0078, CD-0108, CD-0222,
   CD-0163, CD-0176, C14, C17
-- **Preserves:** CD-0078 D1 through D3, CD-0093, CD-0031, CD-0016, CD-0163
+- **Preserves:** CD-0078 D1 through D3, CD-0093, CD-0252, CD-0016, CD-0163
   D1, CD-0176 D3, and the store-write-free session-preparation boundary
 
 ## Context
@@ -84,7 +84,7 @@ renderer ships.
 `terminal-launcher-entry-contract.md`, and
 .concord/scenarios/launcher-portfolio.v1.json are deleted. Their
 surviving statements keep their owning records: the identity-only handoff
-(CD-0031, CD-0163), the no-durable-write boundary (CD-0108 D4), and the bounded
+(CD-0252, CD-0163), the no-durable-write boundary (CD-0108 D4), and the bounded
 store reads (the store query contracts).
 
 ### D3. Obligations whose subject was the TUI are vacated
@@ -99,7 +99,7 @@ store reads (the store query contracts).
 ### D4. Kept clauses keep their surviving owners
 
 CD-0078 D1 through D3,
-CD-0163 D1, CD-0176 D3, CD-0093, and CD-0031 bind host-started managed
+CD-0163 D1, CD-0176 D3, CD-0093, and CD-0252 bind host-started managed
 sessions through session preparation and explicit work-context reads. The
 context, identity, registry-probe, and terminal-placement proofs live with
 the surfaces that own those behaviors. Host tools own worktree lifecycle
@@ -139,5 +139,5 @@ first-usable floor criterion.
 - `python3 scripts/check-doc-links.py` proves no document links a retired
   artifact.
 - `go test ./cmd/concord/ -run
-  TestSessionPrepare` proves the directory, context and probe obligations that CD-0093, CD-0176, CD-0031
+  TestSessionPrepare` proves the directory, context and probe obligations that CD-0093, CD-0176, CD-0252
   and CD-0189 keep.

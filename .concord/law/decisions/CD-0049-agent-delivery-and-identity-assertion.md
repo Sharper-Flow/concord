@@ -24,7 +24,7 @@
 - **Approval:** Operator accepted the drafted decision on 2026-08-21; the public
   record is [issue #257](https://github.com/Sharper-Flow/concord/issues/257)
 - **Related:** CD-0016 (context continuity and typed session identity),
-  CD-0031 (core-derived session context), CD-0061 (orchestrator identity),
+  CD-0252 (core-derived session boot), CD-0061 (orchestrator identity),
   CD-0154 (host-owned numbered agents)
 
 ## Context

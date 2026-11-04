@@ -154,16 +154,17 @@ DELETE FROM write_guard;`); err != nil {
 				t.Fatalf("boot prompt has no packet: %q", prepared.Prompt)
 			}
 			var boot struct {
-				Continuity struct {
-					Pinned struct {
-						Handoff *store.ProjectHandoff `json:"pending_project_handoff"`
-					} `json:"pinned"`
-				} `json:"continuity"`
+				Handoff                *store.ProjectHandoff `json:"pending_project_handoff"`
+				Resume                 json.RawMessage       `json:"resume"`
+				SessionContractVersion string                `json:"session_contract_version"`
 			}
 			if err := json.Unmarshal([]byte(packet), &boot); err != nil {
 				t.Fatal(err)
 			}
-			handoff := boot.Continuity.Pinned.Handoff
+			if boot.SessionContractVersion != "2.0" || len(boot.Resume) == 0 {
+				t.Fatalf("boot must carry the fixed resume and session contract 2.0: %s", packet)
+			}
+			handoff := boot.Handoff
 			if project.id == "project-wl-b" {
 				if handoff == nil || handoff.HandoffID != "handoff:boot" || handoff.TargetProjectID != project.id || handoff.BoundedJob != "verify the receiving repository" {
 					t.Fatalf("receiving boot lost consumed addressed frontier: %+v", handoff)

@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:13fad597b482f1a587fb604a2daaf0a7764148d9e781b98b1849b0339877e464"
+const ManifestDigest = "sha256:36f8fe080c8cf5601c20bdd378fa6c36c889531c659c8ad4d8fc9b05b4fa9b62"
 
 type OperationKind string
 
@@ -78,7 +78,8 @@ type GeneratedPayloadRule struct {
 var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"architecture_binding":                                  {Required: []string{"home_domain_id", "affected_domain_ids", "domain_modifies", "domain_relation_modifies", "law_additions", "verification_obligations"}, Properties: []string{"home_domain_id", "affected_domain_ids", "domain_modifies", "domain_relation_modifies", "law_additions", "verification_obligations"}},
 	"blocked_work_page":                                     {Required: []string{"items", "nodes", "edges"}, Properties: []string{"items", "nodes", "edges", "next_cursor"}},
-	"continuity_boot_projection_reference":                  {Required: []string{"work_id", "workflow_instance", "workflow_step", "watermark", "digest", "total_bytes", "projection_omitted", "read_pointer"}, Properties: []string{"work_id", "work_version", "workflow_instance", "workflow_step", "watermark", "digest", "total_bytes", "projection_omitted", "read_pointer"}},
+	"boot_handoff_reference":                                {Required: []string{"projection_omitted", "digest", "total_bytes", "read_pointer", "projection_path"}, Properties: []string{"projection_omitted", "digest", "total_bytes", "projection_path", "read_pointer"}},
+	"boot_resume_reference":                                 {Required: []string{"projection_omitted", "digest", "total_bytes", "read_pointer"}, Properties: []string{"projection_omitted", "digest", "total_bytes", "read_pointer"}},
 	"continuity_boundary":                                   {Required: []string{"boundary_id", "sequence", "kind", "checkpoint_id", "checkpoint_sequence", "summary", "recorded_at"}, Properties: []string{"boundary_id", "sequence", "kind", "checkpoint_id", "checkpoint_sequence", "summary", "recorded_at"}},
 	"continuity_checkpoint":                                 {Required: []string{"checkpoint_id", "work_version", "sequence", "step_id", "attempt_epoch", "active_unit", "hypothesis", "diagnosis", "strategy", "touched_refs", "evidence_refs", "pending_questions", "pending_decisions"}, Properties: []string{"checkpoint_id", "work_version", "sequence", "step_id", "attempt_epoch", "active_unit", "hypothesis", "diagnosis", "strategy", "touched_refs", "evidence_refs", "pending_questions", "pending_decisions"}},
 	"continuity_pending_project_handoff":                    {Required: []string{"handoff_id", "work_id", "contract_version", "source_project_id", "target_project_id", "source_session_ref", "bounded_job", "changes", "verification", "artifact_refs", "blockers", "next_action", "state", "recorded_at"}, Properties: []string{"handoff_id", "work_id", "contract_version", "source_project_id", "target_project_id", "source_session_ref", "bounded_job", "changes", "verification", "artifact_refs", "blockers", "next_action", "state", "consumed_by_session_ref", "consumed_at", "recorded_at"}},
@@ -125,7 +126,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"retained_worker_oracle_finding":                        {Required: []string{"classification"}, Properties: []string{"classification", "owner_id", "failure_family", "predicate_ids", "law_bindings", "case_ids", "control_ids", "evidence_refs", "entry_point", "continues_finding_id", "variant_of"}},
 	"retained_workflow_law_context":                         {Required: []string{"laws", "domains"}, Properties: []string{"laws", "domains", "registry_path"}},
 	"retained_workflow_law_context_law":                     {Required: []string{"roles", "law_id"}, Properties: []string{"roles", "law_id", "obligation_ids", "kind", "status", "title", "path", "criteria"}},
-	"session_boot_packet":                                   {Required: []string{"schema_version", "session_type", "session_contract_version", "manifest_digest", "product_id", "work_id", "continuity"}, Properties: []string{"schema_version", "session_type", "session_contract_version", "manifest_digest", "product_id", "work_id", "continuity"}},
+	"session_boot_packet":                                   {Required: []string{"schema_version", "session_type", "session_contract_version", "manifest_digest", "product_id", "project_id", "work_id", "watermark", "workflow_instance", "resume"}, Properties: []string{"schema_version", "session_type", "session_contract_version", "manifest_digest", "product_id", "project_id", "work_id", "watermark", "workflow_instance", "resume", "pending_project_handoff"}},
 	"work_browse_blocked_input":                             {Required: []string{}, Properties: []string{"product_id", "project_id", "work_id", "kind", "depth", "page", "limit", "requested_budget_seconds"}},
 	"work_browse_list_input":                                {Required: []string{}, Properties: []string{"product_id", "project_ids", "work_ids", "lifecycle", "kind", "tag_ids", "priority_min", "priority_max", "detail", "terminal_since", "page", "limit", "requested_budget_seconds"}},
 	"work_browse_list_result":                               {Required: []string{}, Properties: []string{"items", "next_cursor", "readiness_evidence", "encoding", "digest", "total_bytes", "offset", "data", "fragment_bytes", "document_complete", "next_kind"}},

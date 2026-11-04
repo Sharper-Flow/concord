@@ -564,12 +564,12 @@ class GeneratorWithoutBunTests(unittest.TestCase):
 
 
 class ProducerFailureStderrBoundTests(unittest.TestCase):
-    """CON-1168: a failed Go producer surfaces its stderr, bounded.
+    """A failed Go producer surfaces its stderr, bounded.
 
-    The generator's failure message is the first place a merging agent looks.
-    An unbounded stderr print buries the one-line root cause (for example
+    An unbounded print buries the one-line root cause (for example
     `undefined: containsString`) under every compiler error a broken merge
-    produced, so the print keeps a bounded head and says when it truncated.
+    produced, so the failure message keeps a bounded head and says when it
+    truncated.
     """
 
     CAUSE = "internal/store/workflow_operator.go:438:12: undefined: containsString"

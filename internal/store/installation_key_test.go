@@ -267,3 +267,45 @@ func TestInstallationKeyCancellationDuringInsertReportsTruthfulSettlement(t *tes
 		t.Fatalf("cancellation during insert created %d keys", count)
 	}
 }
+
+// A commit error is not a refusal proof: the fault connector lands the real
+// SQLite commit and then fails, so the cursor key and the revision advance
+// persist while the creation reports failure. The envelope must report the
+// possible effect and keep the commit cause.
+func TestInstallationKeyCommitFailureReportsLandedEffect(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	if _, err := s.db.Exec(`DELETE FROM agent_installation_keys`); err != nil {
+		t.Fatal(err)
+	}
+	before := revisionValue(t, s.db)
+	if err := s.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	connector := &restoreFaultConnector{dsn: dataSourceName(s.Path())}
+	connector.failCommit.Store(true)
+	db := sql.OpenDB(connector)
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	err := ensureInstallationKey(t.Context(), db)
+	var failure *Failure
+	if !errors.As(err, &failure) || !failure.EffectPossible || failure.RetrySafe || failure.RecoveryAction != "reconcile database state before retrying" {
+		t.Fatalf("landed commit reported a provably effect-free refusal: %v", err)
+	}
+	if failure.Detail != "cannot prove the installation cursor key committed" {
+		t.Fatalf("landed commit did not keep its commit envelope: %+v", failure)
+	}
+	if !strings.Contains(err.Error(), "injected failure after SQLite commit") {
+		t.Fatalf("landed commit lost its cause: %v", err)
+	}
+	var leaked *sqlitedb.Error
+	if errors.As(err, &leaked) {
+		t.Fatalf("mechanism error escaped the store envelope: %v", err)
+	}
+	if count := cursorKeyCount(t, db); count != 1 {
+		t.Fatalf("landed commit did not persist the cursor key: %d", count)
+	}
+	if after := revisionValue(t, db); after != before+1 {
+		t.Fatalf("landed commit did not advance the revision: %d -> %d", before, after)
+	}
+}

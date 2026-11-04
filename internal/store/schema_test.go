@@ -2177,9 +2177,6 @@ func TestMigrateV47ToV48RenamesResearchScopeComponentToDomain(t *testing.T) {
 	}
 	// Replay the populated historical table through the schema before its retirement.
 	for _, m := range migrations[48:] {
-		if m.Version > 182 {
-			break
-		}
 		if err := applyMigration(ctx, db, m); err != nil {
 			t.Fatalf("migration %d (%s): %v", m.Version, m.Name, err)
 		}
@@ -2194,7 +2191,7 @@ func TestMigrateV47ToV48RenamesResearchScopeComponentToDomain(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&latest); err != nil {
 		t.Fatalf("read schema version: %v", err)
 	}
-	if want := 182; latest != want {
+	if want := migrations[len(migrations)-1].Version; latest != want {
 		t.Fatalf("replay ended at version %d, want %d", latest, want)
 	}
 }

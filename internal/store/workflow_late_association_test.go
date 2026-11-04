@@ -129,6 +129,17 @@ func TestCriterionAssociationSurvivesUnchangedContractDigest(t *testing.T) {
 			if association.ContractVersion != 1 {
 				t.Fatal("association provenance was rewritten")
 			}
+			err := verifyWorkflowCriterionAssociation(t.Context(), f.store.db, workID, association)
+			if tc.count == 2 && err != nil {
+				t.Fatalf("unchanged criterion lost its original proof: %v", err)
+			}
+			// A changed sibling criterion breaks report currency for the whole
+			// contract, so the unchanged criterion no longer fully verifies. Its
+			// own proof must stay original: the refusal must be report currency,
+			// never a rewritten criterion digest.
+			if tc.count != 2 && !hasFailureKind(err, KindMissingEvidence) {
+				t.Fatalf("contract %d: unchanged criterion proof = %v", tc.version, err)
+			}
 		}
 		err = runVerdictActionAs(t, f.store, workID, "confirm_premise", json.RawMessage(`{}`), 0, f.owner)
 		if tc.count == 2 && err != nil {

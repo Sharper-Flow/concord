@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 )
 
 const researchRetirementMigration = "retire_research_aggregate"
@@ -69,7 +68,7 @@ func verifyResearchRetirement(ctx context.Context, tx *sql.Tx) error {
 		return err
 	}
 	if current.digest != proof.digest {
-		return fmt.Errorf("research rows changed after the verified snapshot; no migration was applied")
+		return newFailure(KindUpgradeBlocked, "migrate", "research rows changed after the verified snapshot; no migration was applied", false, "re-run concord upgrade with a fresh verified snapshot and export")
 	}
 	if proof.export != "" {
 		checksum, err := fileSHA256(proof.snapshot)
@@ -77,7 +76,7 @@ func verifyResearchRetirement(ctx context.Context, tx *sql.Tx) error {
 			return err
 		}
 		if checksum != proof.snapshotChecksum {
-			return fmt.Errorf("research retirement snapshot changed after verification; no migration was applied")
+			return newFailure(KindUpgradeBlocked, "migrate", "research retirement snapshot changed after verification; no migration was applied", false, "re-run concord upgrade with a fresh verified snapshot and export")
 		}
 		return verifyResearchExportFiles(proof.export, packs)
 	}

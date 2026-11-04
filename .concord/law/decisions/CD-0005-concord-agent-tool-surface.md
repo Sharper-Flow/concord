@@ -60,7 +60,7 @@ Binding: [`../specs/agent-tool-surface-budget.md`](../specs/agent-tool-surface-b
 
 ```text
 concord_product_view   resolve | snapshot
-concord_work_browse    list | ready | blocked | scope
+concord_work_browse    list
 concord_work_trace     history | relations
 ```
 

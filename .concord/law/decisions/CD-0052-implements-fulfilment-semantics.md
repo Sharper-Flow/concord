@@ -3,9 +3,7 @@
   "id": "CD-0052",
   "title": "implements declares fulfilment-link semantics, display-only",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "work-coordination",
   "applies_to_domain_ids": []
@@ -55,8 +53,8 @@ unowned.
 
 `B implements A` records that work item B fulfils work item A, where A is
 typically a `decision`-kind item. The edge is directional, non-blocking, and
-non-hierarchical: it never removes a target from the ready query, participates
-in no PM1.Q5 `blocks` exclusion, and asserts no parent-child structure. It is
+non-hierarchical: it never makes a target unready, participates
+in no readiness `blocks` exclusion, and asserts no parent-child structure. It is
 cycle-exempt by design — the exemption is the structural signature of a
 many-to-one linkage, not an oversight. It carries the common relation evidence
 (`actor`, `reason`, expected/resulting versions) of a plain relation, with no

@@ -10,7 +10,7 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "scenario": "Q5-ready-ranking"
+      "exemption": "No scenario covers coordination-view ranking. TestOverlapBlocksRemovesWorkFromReady (internal/store/planning_operation_retirement_test.go) proves the list readiness and relation facts, not a rendered view."
     }
   ]
 }
@@ -45,12 +45,12 @@ projections remain subordinate coordination views.
 [CD-0219 D3](../decisions/CD-0219-the-terminal-launcher-tui-is-retired.md#d3-obligations-whose-subject-was-the-tui-are-vacated)
 vacates launcher-rendering obligations, not the underlying query contracts.
 [CD-0224](../decisions/CD-0224-ten-planning-and-browsing-operations-are-retired-from-the-agent-surface.md)
-preserves the PM1.Q4 and PM1.Q5 readiness gates.
+preserves the effect of live `blocks` relations on list readiness.
 
 ## Contract
 
 The binding contract is sections 2, 3, and 5: the two accepted modes — the
-Q8 relation tree with structural grouping and the Q5/Q4 ranked work table —
+Q8 relation tree with structural grouping and the Q3 ranked work table —
 the reliance and coverage discipline, and the anti-requirements. Sections 1,
 4, and 6 through 10 record the gap, what the contract does not change, the
 read-path bounds, acceptance tests, sequencing, risks, and falsifiers, and
@@ -87,22 +87,23 @@ it carries no authority and is not stable across two renders of unchanged state.
 
 ### Mode 2 — Ranked work table
 
-Source: Q5, highest-priority ready work, joined with Q4, explain blocked work.
+Source: Q3 work list and Q8 relations for blocker explanation.
 
 | Column | Source | Rule |
 |---|---|---|
-| Work ID and title | Q5 | Title truncates before identity or priority meaning is lost |
-| Priority | Q5 explicit priority rank | Stored value, never computed or inferred |
-| Lifecycle | Q5 | Displayed for rigor, never silently rewrites business priority |
-| Blocked | Q4, derived | Derived from canonical `blocks` edges and blocker terminality |
-| Blocker | Q4 blocker nodes | Blocker identity, blocker authority, blocker age, external-blocker marker |
+| Work ID and title | Q3 | Title truncates before identity or priority meaning is lost |
+| Priority | Q3 explicit priority rank | Stored value, never computed or inferred |
+| Lifecycle | Q3 | Displayed for rigor, never silently rewrites business priority |
+| Blocked | Q3 readiness and lifecycle | A needed item with `ready` absent or false is blocked |
+| Blocker | Q8 relations | Blocker identity, blocker authority, blocker age, external-blocker marker |
 | Project count | PM5 | Breadth signal only, no repository list |
 
-Order follows the Q5 contract exactly: explicit priority rank, then created time, then
+Order follows the Q3 contract: explicit priority rank, relevant lifecycle time, then
 stable work ID.
 
-Blocked is two-valued. PM4 derives blocked from canonical `blocks` edges and blocker
-terminality and defines no stored blocked flag, so no third state may be introduced.
+List `work_summary.ready` is true exactly when lifecycle is `needed` and no live
+blocker holds the item. A needed item with `ready` absent or false is blocked;
+the relations read supplies the cause. No public `blocked` flag exists.
 
 ## 3. Reliance and coverage
 
@@ -145,8 +146,7 @@ unstable across runs.
 
 - One bounded query per mode, with no per-work fan-out.
 - Q8 depth capped at 3 with node and edge caps.
-- Q5 paged by limit and cursor.
-- Q4 relation depth default 1, maximum 3.
+- Q3 paged by limit and cursor.
 - Both modes derive from the same typed projections and authority watermark as PM1.
 
 ## 7. Acceptance tests
@@ -175,9 +175,9 @@ This contract depends only on already-accepted contracts, so it does not block o
 law. Its implementation depends on the named bounded reads being available through
 the production query surface. A practical order is:
 
-1. Q4, Q5, and Q8 read paths exist against real storage.
+1. Q3 and Q8 read paths exist against real storage.
 2. The Product surface this view drills from renders.
-3. This view is built as the first drill-down consumer, which also exercises Q4, Q5,
+3. This view is built as the first drill-down consumer, which also exercises Q3
    and Q8 against a real corpus.
 
 ## 9. Risks
@@ -211,8 +211,7 @@ This contract must be revised or superseded when:
 
 ## Verification
 
-- Criterion 1 is proved by the bound `Q5-ready-ranking` scenario of
-  `.concord/scenarios/product-memory-query.v1.json`, executed by
-  `TestAcceptedQ1ToQ8AndDomainCorpus`
-  (`internal/store/query_corpus_test.go`).
-  Section 10 records the falsifiers for each guarantee.
+- Criterion 1 has no rendered-view proof. `TestOverlapBlocksRemovesWorkFromReady`
+  (`internal/store/planning_operation_retirement_test.go`) proves the list
+  readiness and relation facts, not the ranking of a rendered view. Section 10
+  records the falsifiers for each guarantee.

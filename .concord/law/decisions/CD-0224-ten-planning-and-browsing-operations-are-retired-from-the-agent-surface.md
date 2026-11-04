@@ -43,7 +43,7 @@
   relation writers, the lesson publication route,
   the surviving Domain reads, and the closed relation kinds;
   [Concord (CON) issue 927](https://linear.app/sharper-flow/issue/CON-927)
-- **Preserves:** The PM1.Q4 and PM1.Q5 readiness gates, the relation
+- **Preserves:** The effect of live `blocks` relations on readiness, the relation
   vocabulary, the `domain_observations` store, and ordinary contract updates
   through `revise_intent`; relation writes are current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))
 - **Related:** CD-0005, CD-0213,
@@ -113,8 +113,8 @@ Three writers create work-to-work relations, each scoped to its own kinds.
 
 The `blocks` readiness gates are unchanged: a `blocks` row from
 `resolve_overlap`, and an existing link-made `blocks` row, hold a work item
-out of PM1.Q5 ready and hold it visible in PM1.Q4 while the blocker is not
-terminal.
+unready while the blocker is not terminal. List reports readiness and relations
+provide the blocker graph.
 
 A lesson is authored as the lesson markdown under `.concord/docs/lessons/`,
 committed in
@@ -182,7 +182,7 @@ are, and relation changes write current rows in one transaction.
   proves `resolve_overlap` refuses a second successor for an already
   superseded or merged predecessor.
 - `internal/store.TestOverlapBlocksRemovesWorkFromReady` proves a
-  `resolve_overlap` `blocks` row holds the blocked item out of PM1.Q5 ready.
+  `resolve_overlap` `blocks` row holds the blocked item unready in the list.
 - `internal/store.TestRelationKindsEnforceTheirOwnGraphRules` proves the
   surviving relation kinds keep their own graph rules.
 - Committed law-folder snapshot validation binds the authored metadata and

@@ -3,9 +3,7 @@
   "id": "CD-0018",
   "title": "Declared urgency and provenance for parallel-eligible work",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "work-coordination",
   "applies_to_domain_ids": [
@@ -40,14 +38,14 @@ An agent working one work item needs to raise a second item that the operator ca
 to another agent immediately and concurrently. R7 established four things:
 
 1. The ranking path is already complete. `priority` is the primary `ORDER BY` key on
-   every ready, list, and blocked query. An agent can raise top-of-queue work today.
+   the work list. An agent can raise top-of-queue work today.
 2. The `[-100, 100]` priority integer has no named bands and no written convention.
    Two agents raising equally urgent work choose different numbers. Every surveyed
    tracker (Kanban, Jira, Linear, Azure DevOps, GitLab, Asana, GitHub Projects) uses a
    closed 3–5 value band as its primary urgency field; unbounded numerics appear only
    as an auxiliary stack-rank beneath named fields.
 3. No existing `relation_kind` records provenance. `blocks` is actively wrong — it
-   removes the target from the ready query (PM1.Q5). `parent` asserts decomposition
+   holds the target out of readiness. `parent` asserts decomposition
    that did not occur. `supersedes` asserts a replacement that has not happened. So
    "B was raised while working on A" is unrecordable. No surveyed system records this
    as a typed edge at all; R7 argues that absence follows from those systems being
@@ -87,7 +85,7 @@ even though Kanban's WIP-override mechanism does not (Concord has no WIP limit).
 
 ### D2. Ranking prepends urgency; priority becomes the within-band tiebreak
 
-Every ready, list, and blocked query prepends `urgency` to its existing
+The work list prepends `urgency` to its existing
 `ORDER BY`. An `expedite` item outranks every `standard` item regardless of
 `priority`; within each band, the existing `priority ASC, created_at DESC, id ASC`
 ordering applies.
@@ -100,9 +98,8 @@ orders on `priority`. No model computes an importance score from other signals.
 
 A new `relation_kind` member `raised_from` records that one work item was raised while
 working on another. The edge is directional: `B raised_from A` means B was raised
-during work on A. It is non-blocking: it does NOT participate in the PM1.Q5
-`NOT EXISTS … kind='blocks'` exclusion and never removes the target from the ready
-query. It is acyclic — an item cannot raise itself, and `relationWouldCycle` enforces
+during work on A. It is non-blocking: it does not participate in the `blocks`
+readiness exclusion and never makes the target unready. It is acyclic — an item cannot raise itself, and `relationWouldCycle` enforces
 this the same way it enforces `parent`. It carries a non-empty `reason` like every
 other relation.
 
@@ -171,12 +168,11 @@ happen to be in the same area — the edge records provenance, not topic similar
 1. Every work item has exactly one `urgency` value, either `standard` or `expedite`.
 2. `urgency` is declared at capture or revise and is never derived from any other
    signal.
-3. `expedite` items sort above all `standard` items in every ready, list, and
-   blocked query.
+3. `expedite` items sort above all `standard` items in the work list.
 4. Within each band, the existing `priority ASC, created_at DESC, id ASC` ordering is
    preserved.
 5. `raised_from` is a directional, acyclic, non-blocking relation.
-6. `raised_from` never participates in the PM1.Q5 ready-query blocking exclusion.
+6. `raised_from` never participates in the readiness blocking exclusion.
 7. No owner, assignee, claim, lease, executor, or per-work-item concurrency fence is
    introduced.
 8. `urgency` and `raised_from` evolve only through the accepted TS8 versioning
@@ -204,7 +200,7 @@ happen to be in the same area — the edge records provenance, not topic similar
   `scripts/generate-agent-contracts.py`, and digest re-pin. The generated current
   manifest remains the only pre-go-live surface identity.
 - A schema migration adds `urgency` to `work_items` with default `standard`.
-- Every ready, list, and blocked query's `ORDER BY` changes.
+- The work list's `ORDER BY` changes.
 
 ## Rejected alternatives
 
@@ -214,8 +210,8 @@ happen to be in the same area — the edge records provenance, not topic similar
 - **Three or more bands:** a middle "elevated" band is the priority-inflation trap.
   The existing priority integer already provides within-band granularity. Adding a
   band later is a MINOR extension; starting small is safer.
-- **`blocks` for provenance:** actively wrong — it removes the target from the ready
-  query, the opposite of the intent.
+- **`blocks` for provenance:** actively wrong — it holds the target out of readiness,
+  the opposite of the intent.
 - **`parent` for provenance:** asserts decomposition that did not occur.
 - **`supersedes` for the stopgap/durable pair:** asserts a replacement that has not
   happened yet; `supersedes` is a composite-operation-only kind.
@@ -230,12 +226,10 @@ happen to be in the same area — the edge records provenance, not topic similar
   digest-pinned.
 - `work_items.urgency` column added by a forward migration with default `standard`;
   the decode rejects events with an unknown urgency value.
-- Every ready (PM1.Q5), list (PM1.Q3), and blocked (PM1.Q4) query prepends urgency
-  to its `ORDER BY`; deterministic tests assert expedite sorts above standard and
-  within-band ordering is preserved.
+- The work list prepends urgency to its `ORDER BY`; deterministic tests assert
+  expedite sorts above standard and within-band ordering is preserved.
 - `raised_from` is created by capture's `raised_from_work_id` input inside the
-  capture transaction and is confirmed NOT to
-  exclude the target from PM1.Q5.
+  capture transaction and is confirmed not to block the target's readiness.
 - Deterministic tests assert: an agent capturing with `urgency: expedite` and
   `raised_from` provenance produces an item that sorts above standard items in the
   ready queue and carries a queryable provenance edge.

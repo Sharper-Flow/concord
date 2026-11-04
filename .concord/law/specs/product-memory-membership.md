@@ -10,7 +10,7 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "scenario": "Q6-cross-project"
+      "exemption": "TestPM5InvariantsPrimaryRolesAndDerivedOrdering (internal/store/membership_test.go) checks the two memberships and their canonical work identity."
     },
     {
       "criterion": 2,
@@ -18,7 +18,7 @@
     },
     {
       "criterion": 3,
-      "scenario": "Q6-project-to-work"
+      "exemption": "TestInitiativeRetirementUpgrade (internal/store/initiative_retirement_upgrade_test.go) checks the Project-filtered work list."
     },
     {
       "criterion": 4,
@@ -139,7 +139,7 @@ because cross-Product work is allowed: changing Product↔Project membership is 
 authoritative scope change, not drift from a separately stored Product owner.
 
 - Product-scoped Q2/Q3 queries join memberships and return `DISTINCT work_item`.
-- Q6 returns one canonical work record with all Project memberships.
+- Item-scoped full-detail Q3 returns one canonical work record with its Project memberships.
 - A work item spanning multiple Products appears once in each applicable Product's
   view, with `cross_product=true` and the complete bounded Product/Project scope.
 - Ambient context never guesses a unique Product for cross-Product mutation. TS5
@@ -229,7 +229,7 @@ reassign memberships first; no cascade silently removes work scope.
 - `COUNT(DISTINCT work_id)` is mandatory for Product-level counts.
 - Lifecycle/filter/order values come from the one canonical work row.
 
-### Q6 — Cross-Project work
+### Q3 — Cross-Project work
 
 - Return one canonical work record and its ordered memberships: primary first if
   present, then secondary, then stable Project ID.
@@ -273,7 +273,7 @@ fixture has no work item attached to a Project shared by multiple Products.
 
 ### One copied work item per Project
 
-Rejected. It duplicates identity/status, needs reconciliation, and violates PM1 Q6.
+Rejected. It duplicates identity/status, needs reconciliation, and violates canonical work identity.
 
 ### Stored per-Project status or `required`
 
@@ -282,7 +282,7 @@ delivery uses child work items; readiness/sequencing uses PM4 relations.
 
 ### Stored `merge_order`
 
-Rejected. Q6 display order is role then Project ID; delivery sequencing belongs to
+Rejected. Membership display order is role then Project ID; delivery sequencing belongs to
 workflow execution or PM4 `blocks` edges.
 
 ### Stored `work_items.product_id`
@@ -356,12 +356,13 @@ operator choices, and the falsifiers above remain controlling.
 
 ## Verification
 
-- Criterion 1 is proved by the bound `Q6-cross-project` scenario, whose
-  fixture carries two Project memberships and asserts one canonical record.
+- Criterion 1 is exercised by `TestPM5InvariantsPrimaryRolesAndDerivedOrdering`
+  (`internal/store/membership_test.go`), which reads two memberships for one work ID.
 - Criterion 2 is proved by the bound `Q1-project-to-product` scenario, which
   resolves a Project to its Product through the authoritative join.
-- Criterion 3 is proved by the bound `Q6-project-to-work` scenario, which
-  lists work through Project membership.
+- Criterion 3 is exercised by `TestInitiativeRetirementUpgrade`
+  (`internal/store/initiative_retirement_upgrade_test.go`), which reads the
+  Project-filtered work list.
 - Criterion 4 has no corpus scenario; it is proved by the store test
   `TestMembershipReplacementReplacesTheWholeSet`
   (internal/store/lifecycle_relations_test.go), which replaces a two-member

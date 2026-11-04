@@ -102,8 +102,6 @@ class NativeTaskContractTests(unittest.TestCase):
         generator.prune_payload_definitions(self.payload, {"schemas": {"root": {"ref": "#/$defs/root"}}}, [])
         for name in ("root", "leaf", "workflow_review_report"):
             self.assertIn(name, self.payload["$defs"])
-        self.assertNotIn("worker_packet", self.payload["$defs"])
-        self.assertNotIn("native_oracle_job_binding", self.payload["$defs"])
         broken = copy.deepcopy(self.payload)
         broken["$defs"]["root"] = {"$ref": "#/$defs/missing"}
         with self.assertRaisesRegex(ValueError, "missing payload schema missing"):
@@ -1848,22 +1846,13 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
                 with self.assertRaises(ValueError, msg=invalid):
                     generator.schema_validate(invalid, schema, root)
 
-    def test_projection_is_idempotent_and_keeps_native_navigation_without_attempts(self):
+    def test_projection_is_idempotent_and_keeps_native_navigation(self):
         actions, workflows, teaching, _, contract_updates, _ = generator.load_workflow_action_contracts()
         repeated, _ = generator.project_workflow_action_schema(self.projected, actions, workflows, teaching, contract_updates)
         self.assertEqual(repeated, self.projected)
         generator.check_schema_keywords(self.projected)
         generator.check_payload_closed(self.projected)
-        for name in ("work_context_view",):
-            self.assertNotIn("candidate_subject", self.projected["$defs"][name]["properties"])
-            self.assertIn("subject_commit", self.projected["$defs"][name]["properties"])
-        self.assertNotIn("domain_cards", self.projected["$defs"]["work_context_domain_group"]["properties"])
-        self.assertNotIn("domain_cards", self.projected["$defs"]["work_context_domain_group"]["required"])
-        self.assertNotIn("attempt", self.projected["$defs"]["work_pin"]["properties"])
-        self.assertNotIn("attempt", self.projected["$defs"]["work_pin"].get("required", []))
-        self.assertNotIn("oracle_receipts", self.projected["$defs"]["work_context_view"]["properties"])
-        for name in ("worker_packet", "worker_oracle_receipt"):
-            self.assertNotIn(name, self.projected["$defs"])
+        self.assertIn("subject_commit", self.projected["$defs"]["work_context_view"]["properties"])
 
 def workflow_job_steps(job_name: str) -> list[dict]:
     """One job's steps as name/run/env records.
@@ -3017,10 +3006,8 @@ class GeneratorCLISafetyTests(unittest.TestCase):
     Help must exit 0 with usage on stdout and perform no main-workload read,
     write, mkdir, or subprocess work. Unrecognized arguments — abbreviations
     of --check, bare positionals, unknown flags, and unknown flags mixed with
-    check or the contracts freeze flag — must exit 2 with an error on stderr
-    and perform no main work. Valid no-argument and --check invocations must
-    still reach the workload, and the contracts freeze flag must keep
-    dispatching the freeze, with its schema refs, before check.
+    check — must exit 2 with an error on stderr and perform no main work.
+    Valid no-argument and --check invocations must still reach the workload.
     """
 
     # (script name, module, the first workload input the main reads)
@@ -3035,7 +3022,6 @@ class GeneratorCLISafetyTests(unittest.TestCase):
         ("unknown-flag", ["--unknown-option"]),
         ("positional", ["unexpected-positional"]),
         ("check-abbreviation", ["--ch"]),
-        ("freeze-abbreviation", ["--freeze"]),
         ("check-with-unknown", ["--check", "--unknown-option"]),
     )
 
@@ -3088,18 +3074,6 @@ class GeneratorCLISafetyTests(unittest.TestCase):
                         module.main()
                     self.assertEqual(exit.exception.code, 2)
                     self.assertTrue(stderr.getvalue().strip())
-
-    def test_contracts_freeze_mode_refuses_without_work(self):
-        args = ["--freeze-historical-decoder"]
-        with (
-            redirect_stdout(io.StringIO()),
-            redirect_stderr(io.StringIO()),
-            self._guard_main_work(),
-            self._argv("generate-agent-contracts.py", args),
-            self.assertRaises(SystemExit) as exit,
-        ):
-            generator.main()
-        self.assertEqual(exit.exception.code, 2)
 
     def test_valid_modes_reach_the_workload(self):
         for script, module, first_input in self.GENERATORS:

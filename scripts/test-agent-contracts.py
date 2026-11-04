@@ -1109,9 +1109,9 @@ class EnvelopeOperationVocabularyTests(unittest.TestCase):
         self.assertTrue(any("unsatisfiable" in f and "concord_work_trace.continuity" in f for f in found), found)
 
     def test_operation_removed_from_the_next_intent_enum_is_rejected(self):
-        value = copy.deepcopy(envelope_schema); value["$defs"]["nextIntent"]["properties"]["operation"]["enum"].remove("ready")
+        value = copy.deepcopy(envelope_schema); value["$defs"]["nextIntent"]["properties"]["operation"]["enum"].remove("list")
         found = self.findings(value)
-        self.assertTrue(any("nextIntent" in f and "concord_work_browse.ready" in f for f in found), found)
+        self.assertTrue(any("nextIntent" in f and "concord_work_browse.list" in f for f in found), found)
 
     def test_new_tool_operation_pair_without_an_enum_entry_is_rejected(self):
         value = copy.deepcopy(envelope_schema)
@@ -1127,7 +1127,7 @@ class EnvelopeOperationVocabularyTests(unittest.TestCase):
         value = copy.deepcopy(envelope_schema)
         value["$defs"]["toolOperation"]["oneOf"].append({
             "required": ["tool", "operation", "query_id"],
-            "properties": {"tool": {"const": "concord_work_browse"}, "operation": {"const": "scope"}, "query_id": {"const": "PM1.Q99"}},
+            "properties": {"tool": {"const": "concord_work_browse"}, "operation": {"const": "list"}, "query_id": {"const": "PM1.Q99"}},
         })
         found = self.findings(value)
         self.assertTrue(any("query_id" in f and "PM1.Q99" in f for f in found), found)
@@ -1144,7 +1144,7 @@ class EnvelopeOperationVocabularyTests(unittest.TestCase):
         self.assertTrue(any("missing $defs/toolOperation/oneOf" in f for f in self.findings(value)))
 
     def test_duplicated_enum_token_is_rejected(self):
-        value = copy.deepcopy(envelope_schema); value["$defs"]["base"]["properties"]["operation"]["enum"].append("scope")
+        value = copy.deepcopy(envelope_schema); value["$defs"]["base"]["properties"]["operation"]["enum"].append("list")
         self.assertTrue(any("duplicate-free" in f for f in self.findings(value)))
 
     def test_uncompilable_query_id_pattern_is_rejected(self):

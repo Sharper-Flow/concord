@@ -139,31 +139,6 @@ type workListInput struct {
 	Page          pageInput `json:"page"`
 	Limit         int       `json:"limit,omitempty"`
 }
-type workReadyInput struct {
-	ProductID string    `json:"product_id"`
-	ProjectID string    `json:"project_id"`
-	Kind      string    `json:"kind"`
-	Page      pageInput `json:"page"`
-	Limit     int       `json:"limit,omitempty"`
-}
-type workBlockedInput struct {
-	ProductID string    `json:"product_id"`
-	ProjectID string    `json:"project_id"`
-	WorkID    string    `json:"work_id"`
-	Kind      string    `json:"kind"`
-	Depth     int       `json:"depth"`
-	Page      pageInput `json:"page"`
-	Limit     int       `json:"limit,omitempty"`
-}
-type workScopeInput struct {
-	ProductID string    `json:"product_id"`
-	ProjectID string    `json:"project_id"`
-	WorkID    string    `json:"work_id"`
-	Page      pageInput `json:"page"`
-	Limit     int       `json:"limit,omitempty"`
-	OneOf     string    `json:"one_of"`
-}
-
 type historyInput struct {
 	WorkID          string    `json:"work_id"`
 	Direction       string    `json:"direction"`
@@ -938,12 +913,6 @@ func (r runtime) readResult(ctx context.Context, base agentcontract.Envelope, in
 		return r.readProductSnapshot(ctx, base, input)
 	case "concord_work_browse.list":
 		return r.readWorkList(ctx, base, input)
-	case "concord_work_browse.ready":
-		return r.readWorkReady(ctx, base, input)
-	case "concord_work_browse.blocked":
-		return r.readWorkBlocked(ctx, base, input)
-	case "concord_work_browse.scope":
-		return r.readWorkScope(ctx, base, input)
 	case "concord_work_trace.history":
 		return r.readTraceHistory(ctx, base, input)
 	case "concord_work_trace.continuity":
@@ -1170,52 +1139,6 @@ func (r runtime) q3(base agentcontract.Envelope, q store.Q3Result) (agentcontrac
 	}
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"items": items})
 }
-func (r runtime) q5(base agentcontract.Envelope, q store.Q5Result) (agentcontract.Envelope, error) {
-	items := make([]workSummary, 0, len(q.Items))
-	for _, w := range q.Items {
-		items = append(items, summary(w))
-	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"items": items})
-}
-func (r runtime) q4(base agentcontract.Envelope, q store.Q4Result) (agentcontract.Envelope, error) {
-	items := make([]workSummary, 0, len(q.Items))
-	// nodes carries the unresolved blockers and items carries the blocked work.
-	// They must not share a backing array: `nodes := items` copies the slice
-	// header, so appending to one overwrites the elements of the other.
-	nodes := []workSummary{}
-	edges := []map[string]string{}
-	seen := map[string]bool{}
-	for _, w := range q.Items {
-		items = append(items, summary(w))
-		seen[w.ID] = true
-		for _, b := range w.Blockers {
-			if !seen[b.ID] {
-				nodes = append(nodes, summary(b))
-				seen[b.ID] = true
-			}
-			edges = append(edges, map[string]string{"from": w.ID, "to": b.ID, "kind": "blocks"})
-		}
-	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"items": items, "nodes": nodes, "edges": edges})
-}
-func (r runtime) q6(base agentcontract.Envelope, q store.Q6Result) (agentcontract.Envelope, error) {
-	if q.Work != nil {
-		payload := map[string]any{"work": summary(*q.Work), "memberships": func() []map[string]string {
-			out := []map[string]string{}
-			for _, p := range q.Work.Projects {
-				out = append(out, map[string]string{"project_id": p.ID, "role": p.Role})
-			}
-			return out
-		}(), "items": []workSummary{}}
-		return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
-	}
-	items := []workSummary{}
-	for _, w := range q.Items {
-		items = append(items, summary(w))
-	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"items": items})
-}
-
 func (r runtime) q7(base agentcontract.Envelope, q store.Q7Result) (agentcontract.Envelope, error) {
 	entries := q.Entries
 	if entries == nil {

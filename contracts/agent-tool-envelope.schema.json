@@ -135,60 +135,6 @@
           ],
           "properties": {
             "tool": {
-              "const": "concord_work_browse"
-            },
-            "operation": {
-              "const": "blocked"
-            },
-            "query_id": {
-              "const": "PM1.Q4"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_work_browse"
-            },
-            "operation": {
-              "const": "ready"
-            },
-            "query_id": {
-              "const": "PM1.Q5"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_work_browse"
-            },
-            "operation": {
-              "const": "scope"
-            },
-            "query_id": {
-              "const": "PM1.Q6"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
               "const": "concord_work_trace"
             },
             "operation": {
@@ -410,7 +356,6 @@
         "operation": {
           "enum": [
             "",
-            "blocked",
             "capture",
             "continuity",
             "detail",
@@ -419,13 +364,11 @@
             "lifecycle",
             "list",
             "mutation_result",
-            "ready",
             "relations",
             "resume",
             "resolve",
             "resolve_overlap",
             "revise_intent",
-            "scope",
             "set_memberships",
             "snapshot",
             "remove",
@@ -438,7 +381,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-36]|[1-9])|CD-0020\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult|Resume)|C22\\.Domain(List|Detail))$"
+          "pattern": "^(PM1\\.Q(1[0-36]|[1-3789])|CD-0020\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult|Resume)|C22\\.Domain(List|Detail))$"
         },
         "outcome": {
           "enum": [
@@ -852,7 +795,6 @@
         },
         "operation": {
           "enum": [
-            "blocked",
             "capture",
             "continuity",
             "detail",
@@ -861,13 +803,11 @@
             "lifecycle",
             "list",
             "mutation_result",
-            "ready",
             "relations",
             "resume",
             "resolve",
             "resolve_overlap",
             "revise_intent",
-            "scope",
             "set_memberships",
             "snapshot",
             "remove",
@@ -880,7 +820,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-36]|[1-9])|CD-0020\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult|Resume)|C22\\.Domain(List|Detail))$"
+          "pattern": "^(PM1\\.Q(1[0-36]|[1-3789])|CD-0020\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult|Resume)|C22\\.Domain(List|Detail))$"
         },
         "reason_code": {
           "type": "string",

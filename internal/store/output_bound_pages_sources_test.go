@@ -954,9 +954,6 @@ func pkStructFieldType(goS *goSource, structName, field string) string {
 
 func init() {
 
-	registerOutputBound("/$defs/blocked_work_page/properties/edges/maxItems", goConstantBound("internal/store/query.go", "q4MaxEdgeLimit", boundItems))
-	registerOutputBound("/$defs/blocked_work_page/properties/items/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
-	registerOutputBound("/$defs/blocked_work_page/properties/nodes/maxItems", goConstantBound("internal/store/query.go", "q4MaxNodeLimit", boundItems))
 
 	// The folds store the caller text that parseRFC3339 admitted: the Go
 	// standard library takes any number of fractional-second digits
@@ -1036,8 +1033,6 @@ func init() {
 	registerOutputBound("/$defs/work_relation_graph/properties/edges/maxItems", unboundedOutput("internal/store/query.go:readRelationDepth and readQ8DirectEdges apply no LIMIT and the relations table caps nothing per work, so a depth-1 read returns one edge per related work without bound", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_relation_graph/properties/nodes/maxItems", pkEmptyLiteralItemsBound("internal/agent/runtime.go", "q8", "nodes"))
 
-	registerOutputBound("/$defs/work_scope/properties/items/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
-	registerOutputBound("/$defs/work_scope/properties/memberships/maxItems", unboundedOutput("internal/store/query.go:readWorkProjects reads every work_projects row with no LIMIT and the membership folds enforce only unique edges and a single primary, never a per-work count", "internal/agent/runtime.go:readSizeRefusal"))
 
 	registerOutputBound("/$defs/work_summary/properties/narrative/maxLength", unboundedOutput("the narrative writer is retired (initiative.narrative_revised registers under EventAppendAuthorityRetired, internal/store/operation.go:249) and retained work_items.narrative rows project verbatim (internal/store/query.go:1323, internal/store/worker_packet_binding.go:108) with only CHECK(length(narrative) <= 16384), a NUL-terminated prefix count that bounds no complete string; no full-string guard exists on any current writer", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_summary/properties/project_ids/maxItems", unboundedOutput("internal/store/query.go:attachWorkMemberships appends one entry per work_projects row with no LIMIT; a page LIMIT does not bound per-item memberships", "internal/agent/runtime.go:readSizeRefusal"))

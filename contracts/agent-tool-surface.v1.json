@@ -29,12 +29,9 @@
     },
     {
       "id": "concord_work_browse",
-      "description": "Browse current, ready, blocked, and scoped work.",
+      "description": "Browse current work.",
       "operations": [
-        "concord_work_browse.list",
-        "concord_work_browse.ready",
-        "concord_work_browse.blocked",
-        "concord_work_browse.scope"
+        "concord_work_browse.list"
       ]
     },
     {
@@ -138,66 +135,6 @@
       "consequence": "read",
       "metadata": {
         "context": "ambient",
-        "idempotency": "request_id",
-        "pagination": "cursor",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_browse.blocked",
-      "tool": "concord_work_browse",
-      "kind": "read",
-      "query_id": "PM1.Q4",
-      "input_schema": "#/schemas/work_browse_blocked_input",
-      "result_schema": "#/schemas/blocked_work_page",
-      "capability": "product_read",
-      "consequence": "read",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "request_id",
-        "pagination": "cursor",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_browse.ready",
-      "tool": "concord_work_browse",
-      "kind": "read",
-      "query_id": "PM1.Q5",
-      "input_schema": "#/schemas/work_browse_ready_input",
-      "result_schema": "#/schemas/work_page",
-      "capability": "product_read",
-      "consequence": "read",
-      "metadata": {
-        "context": "ambient",
-        "idempotency": "request_id",
-        "pagination": "cursor",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_browse.scope",
-      "tool": "concord_work_browse",
-      "kind": "read",
-      "query_id": "PM1.Q6",
-      "input_schema": "#/schemas/work_browse_scope_input",
-      "result_schema": "#/schemas/work_scope",
-      "capability": "product_read",
-      "consequence": "read",
-      "metadata": {
-        "context": "explicit",
         "idempotency": "request_id",
         "pagination": "cursor",
         "output_bytes": 51200,
@@ -590,10 +527,6 @@
       "ref": "contracts/agent-tool-envelope.schema.json#/$defs/base",
       "closed": true
     },
-    "blocked_work_page": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/blocked_work_page",
-      "closed": true
-    },
     "continuity_read_result": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/continuity_read_result",
       "closed": true
@@ -654,20 +587,8 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/session_boot_packet",
       "closed": true
     },
-    "work_browse_blocked_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_blocked_input",
-      "closed": true
-    },
     "work_browse_list_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_list_input",
-      "closed": true
-    },
-    "work_browse_ready_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_ready_input",
-      "closed": true
-    },
-    "work_browse_scope_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_browse_scope_input",
       "closed": true
     },
     "work_define_capture_input": {
@@ -700,10 +621,6 @@
     },
     "work_relation_graph": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relation_graph",
-      "closed": true
-    },
-    "work_scope": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_scope",
       "closed": true
     },
     "work_trace_continuity_input": {
@@ -797,6 +714,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:da1ee4d250db3510dab7d8d3dfa97e1ac31191f20856a8b63242d0dd8a05eb4e",
-  "digest": "sha256:2ccbd4aeb9402dfd9e776005b7efef0b1dafa9dbf84292c75fa535567475987c"
+  "payload_digest": "sha256:f0d77fdeb0c49aa056c9af3a512fea0305052778c4c7610661c39a5841f64355",
+  "digest": "sha256:4685483969ba89909f53f6c6b867ae19f8d748581ce5a8564a698eda671197cd"
 }

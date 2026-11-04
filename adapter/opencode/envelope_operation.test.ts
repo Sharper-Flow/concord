@@ -62,7 +62,7 @@ test("continuity and its controls validate", () => {
   // become permissive rather than correct, which is the way a green run of the
   // repaired operations above could otherwise lie.
   const repaired = ["concord_work_trace.continuity"]
-  const controls = ["concord_work_trace.history", "concord_work_browse.scope"]
+  const controls = ["concord_work_trace.history", "concord_work_browse.list"]
   for (const name of [...repaired, ...controls]) {
     const pair = declaredPairs.find((item) => `${item.tool}.${item.operation}` === name)
     expect(pair, `${name} is not declared in $defs/toolOperation`).toBeDefined()

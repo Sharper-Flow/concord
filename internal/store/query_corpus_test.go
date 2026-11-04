@@ -74,14 +74,12 @@ func TestAcceptedQ1ToQ8AndDomainCorpus(t *testing.T) {
 		}
 		results[scenario.ID] = encoded
 	}
-	if run != 21 {
-		t.Fatalf("retained Q1-Q8 and C22 corpus scenarios executed = %d, want 21", run)
+	if run != 17 {
+		t.Fatalf("retained PM1 and C22 corpus scenarios executed = %d, want 17", run)
 	}
 }
 
-// q1ToQ8AndDomains selects the retained corpus scenarios: the Q1-Q8 read
-// family and the C22 Domain reads. PM1.Q9 and PM1.Q10 scenarios retired with
-// the knowledge search and its served-projection surface.
+// q1ToQ8AndDomains selects the retained work and Domain reads.
 func q1ToQ8AndDomains(id string) bool {
 	if strings.HasPrefix(id, "C22.") {
 		return true
@@ -90,7 +88,7 @@ func q1ToQ8AndDomains(id string) bool {
 		return false
 	}
 	n, err := strconv.Atoi(strings.TrimPrefix(id, "PM1.Q"))
-	return err == nil && n >= 1 && n <= 8
+	return err == nil && (n >= 1 && n <= 3 || n == 7 || n == 8)
 }
 
 func asFailure(err error, target **store.Failure) bool {
@@ -135,12 +133,6 @@ func executeCorpusQuery(ctx context.Context, s *store.Store, id string, input ma
 		return s.QueryQ2(ctx, store.Q2Request{Product: stringInput(input, "product"), PreviewLimit: intInput(input, "preview_limit")})
 	case "PM1.Q3":
 		return s.QueryQ3(ctx, store.Q3Request{Product: stringInput(input, "product"), Project: stringInput(input, "project"), LifecycleStates: stringSliceInput(input, "lifecycle_states"), Limit: intInput(input, "limit"), Cursor: stringInput(input, "cursor")})
-	case "PM1.Q4":
-		return s.QueryQ4(ctx, store.Q4Request{Product: stringInput(input, "product"), Limit: intInput(input, "limit")})
-	case "PM1.Q5":
-		return s.QueryQ5(ctx, store.Q5Request{Product: stringInput(input, "product"), Limit: intInput(input, "limit")})
-	case "PM1.Q6":
-		return s.QueryQ6(ctx, store.Q6Request{Product: stringInput(input, "product"), Project: stringInput(input, "project"), Work: stringInput(input, "work")})
 	case "PM1.Q7":
 		return s.QueryQ7(ctx, store.Q7Request{Work: stringInput(input, "work"), Direction: stringInput(input, "direction"), RecordKinds: stringSliceInput(input, "record_kinds"), Limit: intInput(input, "limit"), Cursor: stringInput(input, "cursor")})
 	case "PM1.Q8":

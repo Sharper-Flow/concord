@@ -186,42 +186,6 @@ func pageBinding[T any](in T, clearCursor func(*T)) string {
 	return string(binding)
 }
 
-func (r runtime) readWorkReady(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
-	var in workReadyInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	return pagedQuery(r, ctx, base, in.Page, effectiveLimit(in.Limit, in.Page), pageBinding(in, func(p *workReadyInput) { p.Page.Cursor = nil }),
-		func(inner string, limit int) store.Q5Request {
-			return store.Q5Request{Product: in.ProductID, Project: in.ProjectID, Kind: in.Kind, Limit: limit, Cursor: inner}
-		},
-		r.Store.QueryQ5, r.q5)
-}
-
-func (r runtime) readWorkBlocked(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
-	var in workBlockedInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	return pagedQuery(r, ctx, base, in.Page, effectiveLimit(in.Limit, in.Page), pageBinding(in, func(p *workBlockedInput) { p.Page.Cursor = nil }),
-		func(inner string, limit int) store.Q4Request {
-			return store.Q4Request{Product: in.ProductID, Project: in.ProjectID, Work: in.WorkID, Kind: in.Kind, Depth: in.Depth, Limit: limit, Cursor: inner}
-		},
-		r.Store.QueryQ4, r.q4)
-}
-
-func (r runtime) readWorkScope(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
-	var in workScopeInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	return pagedQuery(r, ctx, base, in.Page, effectiveLimit(in.Limit, in.Page), pageBinding(in, func(p *workScopeInput) { p.Page.Cursor = nil }),
-		func(inner string, limit int) store.Q6Request {
-			return store.Q6Request{Product: in.ProductID, Project: in.ProjectID, Work: in.WorkID, Limit: limit, Cursor: inner}
-		},
-		r.Store.QueryQ6, r.q6)
-}
-
 func (r runtime) readTraceHistory(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
 	var in historyInput
 	if err := decodeOperationInput(input, &in); err != nil {

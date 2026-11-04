@@ -162,7 +162,7 @@ func workflowContractFieldsFixture() map[string]any {
 	return map[string]any{
 		"architecture_binding": workflowArchitectureBindingFixture(),
 		"premise":              "The operator stated this premise.",
-		"outcome_predicates":   []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:fixture", "immutable_subject_ref": "commit:fixture", "expected_result": "pass"}}},
+		"legislative_subjects": []string{},
 		"spec_mandate":         []string{},
 		"law_modifies":         []string{},
 		// Empty decision domains declare engineering work.
@@ -262,7 +262,7 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 		"fields": map[string]any{
 			"architecture_binding": binding,
 			"premise":              "The operator stated this premise.",
-			"outcome_predicates":   workflowContractFieldsFixture()["outcome_predicates"],
+			"legislative_subjects": workflowContractFieldsFixture()["legislative_subjects"],
 			"spec_mandate":         []string{lawID},
 			"law_modifies":         []string{lawID},
 			"decision_domains":     []string{},
@@ -281,7 +281,7 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 		invalid["affected_domain_ids"] = []string{invalidDomainID}
 		payload, err := json.Marshal(map[string]any{
 			"work_id": "work-1", "expected_version": 7, "action_id": "approve_contract",
-			"fields":          map[string]any{"architecture_binding": invalid, "premise": "The operator stated this premise.", "outcome_predicates": workflowContractFieldsFixture()["outcome_predicates"], "spec_mandate": []string{}, "law_modifies": []string{}, "decision_domains": []string{}},
+			"fields":          map[string]any{"architecture_binding": invalid, "premise": "The operator stated this premise.", "legislative_subjects": workflowContractFieldsFixture()["legislative_subjects"], "spec_mandate": []string{}, "law_modifies": []string{}, "decision_domains": []string{}},
 			"idempotency_key": "invalid-domain-id",
 		})
 		if err != nil {
@@ -293,10 +293,10 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 	}
 }
 
-func TestApproveContractSchemaAcceptsExplicitEvidenceAndRigor(t *testing.T) {
+func TestApproveContractSchemaAcceptsLegislativeSubjectsAndRigor(t *testing.T) {
 	t.Parallel()
 	fields := workflowContractFieldsFixture()
-	fields["required_evidence"] = []string{"verification", "review"}
+	fields["legislative_subjects"] = []string{"spec:example", "decision:example"}
 	fields["rigor_class"] = "prototype_internal"
 	payload := func(key string) []byte {
 		t.Helper()
@@ -313,14 +313,14 @@ func TestApproveContractSchemaAcceptsExplicitEvidenceAndRigor(t *testing.T) {
 		return raw
 	}
 	if err := payloadschema.Validate("work_transition_action_input", payload("complete-approve-contract-fields")); err != nil {
-		t.Fatalf("approve_contract evidence or rigor rejected: %v", err)
+		t.Fatalf("approve_contract legislative subjects or rigor rejected: %v", err)
 	}
 
-	fields["required_evidence"] = []string{"unknown"}
-	if err := payloadschema.Validate("work_transition_action_input", payload("unknown-evidence-kind")); err == nil {
-		t.Fatal("approve_contract schema accepted an unknown evidence kind")
+	fields["legislative_subjects"] = []string{"invalid subject"}
+	if err := payloadschema.Validate("work_transition_action_input", payload("invalid-legislative-subject")); err == nil {
+		t.Fatal("approve_contract schema accepted an invalid legislative subject")
 	}
-	fields["required_evidence"] = []string{"verification", "review"}
+	fields["legislative_subjects"] = []string{"spec:example", "decision:example"}
 	fields["rigor_class"] = "unknown"
 	if err := payloadschema.Validate("work_transition_action_input", payload("unknown-rigor-class")); err == nil {
 		t.Fatal("approve_contract schema accepted an unknown rigor class")
@@ -333,7 +333,7 @@ func TestApproveContractSchemaAcceptsExplicitEvidenceAndRigor(t *testing.T) {
 }
 
 // seedAgentPlanFrontier installs a real template with a synthetic completed
-// prefix. It does not create the Review or evidence receipts needed by gates.
+// prefix. It does not create evidence receipts.
 func seedAgentPlanFrontier(t testing.TB, s *store.Store, workID string, planType store.WorkflowStepPlanType, target string) {
 	t.Helper()
 	raw := agentPlanFixtureJSON(t, planType, target)

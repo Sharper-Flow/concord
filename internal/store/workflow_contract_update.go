@@ -14,11 +14,10 @@ func BuiltinWorkflowContractUpdateFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		actionIntegerField("contract_version", true),
 		actionPremiseField(),
-		actionArrayField("outcome_predicates", true, 8, "workflow_action_outcome_predicates"),
-		actionEnumListField("required_evidence", true, 7, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"),
 		actionListField("route_conventions", true, 0, 16),
 		actionLawListField("spec_mandate", true),
 		actionLawListField("law_modifies", true),
+		actionListField("legislative_subjects", true, 0, 800),
 		actionEnumField("rigor_class", true, "prototype_internal", "prototype_trusted", "prototype_public", "prototype_safety_critical", "production_internal", "production_trusted", "production_public", "production_safety_critical", "critical_internal", "critical_trusted", "critical_public", "critical_safety_critical"),
 		actionObjectField("architecture_binding", false, "architecture_binding"),
 	}
@@ -94,5 +93,5 @@ func reviseWorkflowContractTx(ctx context.Context, tx *sql.Tx, event Event, _ *w
 	if _, err := tx.ExecContext(ctx, `UPDATE workflow_contracts SET superseded_by=? WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, contract.ContractVersion, event.SubjectID, previous); err != nil {
 		return workflowProjectionError(err, "cannot retain the previous contract version")
 	}
-	return refreshWorkflowHealthySequence(ctx, tx, event.SubjectID, contract.ContractVersion, true)
+	return nil
 }

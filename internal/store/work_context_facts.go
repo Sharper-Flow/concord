@@ -15,7 +15,7 @@ func writeWorkContextFacts(ctx context.Context, q migrationRunner, event Event) 
 	if !workContextSourceHoldsFindings(event.Kind) {
 		return nil
 	}
-	generic, ranked, ok := workContextTerminalFindingsAtEvent(event)
+	generic, ok := workContextTerminalFindingsAtEvent(event)
 	if !ok {
 		return workContextFailure(KindInvariantViolation, "work_context", "the admitted context findings are malformed", "restore a verified backup")
 	}
@@ -40,66 +40,50 @@ func writeWorkContextFacts(ctx context.Context, q migrationRunner, event Event) 
 			return err
 		}
 	}
-	for ordinal, finding := range ranked {
-		if err := write(len(generic)+ordinal, "ranked", finding); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
-func readWorkContextFindingSource(ctx context.Context, q queryer, workID string, seq int64) (Event, []WorkContextFinding, []ReviewFinding, error) {
+func readWorkContextFindingSource(ctx context.Context, q queryer, workID string, seq int64) (Event, []WorkContextFinding, error) {
 	var source Event
 	err := q.QueryRowContext(ctx, `SELECT event_id,kind FROM effect_receipts WHERE effect_seq=? AND subject_type='work_item' AND subject_id=?`, seq, workID).Scan(&source.EventID, &source.Kind)
 	if err != nil {
-		return source, nil, nil, err
+		return source, nil, err
 	}
 	rows, err := q.QueryContext(ctx, `SELECT finding_class,finding FROM work_context_findings WHERE work_id=? AND source_seq=? ORDER BY ordinal`, workID, seq)
 	if err != nil {
-		return source, nil, nil, err
+		return source, nil, err
 	}
 	defer rows.Close()
 	var generic []WorkContextFinding
-	var ranked []ReviewFinding
 	for rows.Next() {
 		var class, raw string
 		if err := rows.Scan(&class, &raw); err != nil {
-			return source, nil, nil, err
+			return source, nil, err
 		}
-		if class == "generic" {
-			var finding WorkContextFinding
-			if err := json.Unmarshal([]byte(raw), &finding); err != nil {
-				return source, nil, nil, workContextFailure(KindInvariantViolation, "work_context_read", "stored context finding facts are malformed", "restore a verified backup into a new path with concord restore, then swap")
-			}
-			generic = append(generic, finding)
-		} else {
-			var finding ReviewFinding
-			if err := json.Unmarshal([]byte(raw), &finding); err != nil {
-				return source, nil, nil, workContextFailure(KindInvariantViolation, "work_context_read", "stored context finding facts are malformed", "restore a verified backup into a new path with concord restore, then swap")
-			}
-			ranked = append(ranked, finding)
+		if class != "generic" {
+			continue
 		}
+		var finding WorkContextFinding
+		if err := json.Unmarshal([]byte(raw), &finding); err != nil {
+			return source, nil, workContextFailure(KindInvariantViolation, "work_context_read", "stored context finding facts are malformed", "restore a verified backup into a new path with concord restore, then swap")
+		}
+		generic = append(generic, finding)
 	}
-	return source, generic, ranked, rows.Err()
+	return source, generic, rows.Err()
 }
 
 func workContextSourceHoldsFindings(kind string) bool {
 	return kind == WorkflowWorkContextRecorded || kind == WorkflowActionCompleted || kind == "worker.completed" || kind == "worker.failed"
 }
 
-func workContextTerminalFindingsAtEvent(event Event) ([]WorkContextFinding, []ReviewFinding, bool) {
+func workContextTerminalFindingsAtEvent(event Event) ([]WorkContextFinding, bool) {
 	var payload struct {
 		ContextFindings []WorkContextFinding `json:"context_findings"`
-		Review          *ReviewBlock         `json:"review"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return nil, nil, false
+		return nil, false
 	}
-	var ranked []ReviewFinding
-	if payload.Review != nil {
-		ranked = payload.Review.Findings
-	}
-	return payload.ContextFindings, ranked, true
+	return payload.ContextFindings, true
 }
 
 // Only migration148 reads source envelopes. Live readers use claims and the

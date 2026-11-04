@@ -148,13 +148,13 @@ and a linked record; missing evidence remains unknown.
 
 The verifier must not edit files, repair failures, wait on CI, write planning or
 Concord state, commit, publish or contact the operator. The caller owns waits,
-evidence binding, verdicts and delivery. The verifier may read Concord law and
+evidence binding, review and delivery. The verifier may read Concord law and
 work context and delegate only to exploration and external lookup utilities.
 Its profile denies editing tools, CI watch and workflow writers, and declares
 no bash wildcard rule that could replace inherited host safety denies. Command-
 text restrictions are conduct controls, not a sandbox; connected tool exposure
-and model selection remain host-owned. Its result alone is not a bound
-verification report. Utility boundaries remain unchanged.
+and model selection remain host-owned. Its result alone is not an evidence
+binding. Utility boundaries remain unchanged.
 
 `concord-implement` uses the same generated native Task distribution boundary
 for one bounded Change, Fix or Removal in the caller's worktree. Its assignment

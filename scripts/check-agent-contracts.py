@@ -88,11 +88,9 @@ SKILL_REFERENCE = re.compile(r"https://github\.com/Sharper-Flow/concord/(?:tree|
 HOST_PIN = ROOT / ".concord/docs/adapter-host-pin.v1.json"
 HOST_PIN_SCHEMA = ROOT / "contracts/adapter-host-pin.schema.json"
 CURRENT_SCENARIO_IDS = [
-    "WF01-capture-late-outcome", "WF02-planning-requires-outcome",
-    "WF04-weaker-delivery", "WF05-stronger-delivery",
+    "WF01-capture-late-outcome", "WF05-stronger-delivery",
     "WF19-completion-one-transaction",
     "WF37-action-availability-before-register",
-    "WF50-one-conjunct-weaker",
 ]
 DIAGNOSTIC = re.compile(r"^(?P<path>[^(\n]+)\((?P<line>\d+),(?P<column>\d+)\): error (?P<code>TS\d+):")
 
@@ -295,20 +293,13 @@ def _derive_actor_ref(fields: list[tuple[str, str]], separator: str = "\0") -> s
     body = "".join(f"{name}={len(value.encode('utf-8'))}:{value}|" for name, value in fields)
     return "actor:" + hashlib.sha256(("actor-v1" + separator + body).encode("utf-8")).hexdigest()
 
-def _actor_oracle_check(corpus: dict, fixtures: dict) -> list[str]:
+def _actor_oracle_check(corpus: dict) -> list[str]:
     findings: list[str] = []
-    derived: dict[tuple[str, str, str, str], str] = {}
     for actor in corpus["fixtures"]["actors"]:
         fields = tuple(actor[key] for key in ("principal_ref", "client_ref", "agent_ref", "session_ref"))
         expected = _derive_actor_ref(list(zip(("principal_ref", "client_ref", "agent_ref", "session_ref"), fields)))
-        derived[fields] = expected
         if actor["actor_ref"] != expected:
             findings.append(f"actor-ID derivation mismatch: expected {expected}, corpus has {actor['actor_ref']}")
-    reviewer = ("principal:operator", "client:concord-1", "agent-reviewer", "session-reviewer")
-    expected_reviewer = derived[reviewer]
-    outcome = next(case for case in fixtures["cases"] if case["id"] == "outcome-spike-record-valid")
-    if outcome["instance"]["decision_record"]["reviewer_actor_ref"] != expected_reviewer:
-        findings.append(f"actor-ID derivation mismatch: expected {expected_reviewer}, outcome reviewer differs")
     return findings
 
 def _structured_scenario_check(corpus: dict) -> list[str]:
@@ -328,7 +319,6 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
     required = {
         "capture": {"payload", "title", "value_statement", "project_ids"},
         "approve_contract": {"premise", "decision_domains"},
-        "record_verdict": {"verdicts"},
         "confirm_premise": set(),
         "complete": {"impact_verdict"},
     }
@@ -400,23 +390,6 @@ def _validate_instance(schema_path: Path, value: object) -> str | None:
         return str(exc)
     return None
 
-def _validate_predicate_against_family(work_kind: str, predicate: dict) -> str | None:
-    rules = {
-        "change": ({"exists", "absent", "check"}, set()),
-        "fix": ({"exists", "absent", "check"}, set()),
-        "research": ({"outcome"}, {"no_change", "resolved", "report_recorded"}),
-        "removal": ({"exists", "absent", "check"}, set()),
-    }
-    allowed_kinds, allowed_tokens = rules[work_kind]
-    kind = predicate.get("kind")
-    if kind not in allowed_kinds:
-        return "predicate kind not allowed"
-    if kind == "outcome":
-        tokens = set(predicate.get("allowed", []))
-        if not tokens.issubset(allowed_tokens):
-            return "outcome token not allowed"
-    return None
-
 def _current_scenario_carrier_check(corpus: dict) -> list[str]:
     """Keep current authoring disjoint from history and released pin inputs."""
     current = next((item for item in corpus["scenarios"] if "current_state" in item.get("setup", {})), None)
@@ -457,13 +430,11 @@ def _current_scenario_carrier_check(corpus: dict) -> list[str]:
 
 def check_workflow_contracts() -> list[str]:
     findings = []
-    for schema_path in (ROOT / "contracts/workflow-outcome.schema.json", ROOT / "contracts/workflow-engine-scenarios.schema.json"):
+    for schema_path in (ROOT / "contracts/workflow-engine-scenarios.schema.json",):
         try:
             _generator.check_schema_keywords(_load_json(schema_path), str(schema_path.relative_to(ROOT)))
         except (OSError, json.JSONDecodeError, ValueError) as exc:
             findings.append(f"{schema_path.relative_to(ROOT)}: unsupported or invalid schema keyword: {exc}")
-    outcome = ROOT / "contracts/workflow-outcome.schema.json"
-    findings += _check_closed_schema(outcome, set())
     scenario_schema = ROOT / "contracts/workflow-engine-scenarios.schema.json"
     findings += _check_closed_schema(scenario_schema, {"$schema", "schema_version", "contract", "contract_status", "engine_status", "pending_amendments", "fixtures", "assertion_contract", "runner_requirements", "scenarios"})
     fixture_path = ROOT / "contracts/workflow-engine.fixtures.json"
@@ -479,17 +450,6 @@ def check_workflow_contracts() -> list[str]:
             findings.append(f".concord/scenarios/workflow-engine.v1.json: expected scenarios {expected_ids}, got {[item.get('id') for item in corpus['scenarios']]}")
             return findings
         fixtures = _load_json(fixture_path)
-        for case in fixtures["cases"]:
-            schema_path = ROOT / "contracts" / case["schema"]
-            error = _validate_instance(schema_path, case["instance"])
-            if case["valid"] and error:
-                findings.append(f"{case['id']}: expected valid instance: {error}")
-            if not case["valid"] and (error is None or case.get("expected_error") not in error):
-                findings.append(f"{case['id']}: wrong validation reason: {error}")
-        for case in fixtures.get("predicate_negative_cases", []):
-            predicate_error = _validate_predicate_against_family(case["work_kind"], case["predicate"])
-            if predicate_error is None or case["expected_error"] not in predicate_error:
-                findings.append(f"{case['id']}: wrong predicate validation reason: {predicate_error}")
         negative_scenario = copy.deepcopy(corpus)
         negative_scenario["scenarios"][0]["scenario_number"] = 0
         negative_error = _validate_instance(scenario_schema, negative_scenario)
@@ -497,7 +457,7 @@ def check_workflow_contracts() -> list[str]:
             findings.append(f"scenario-negative-number: wrong validation reason: {negative_error}")
         error_findings = _scenario_error_check(corpus)
         findings.extend(error_findings)
-        findings.extend(_actor_oracle_check(corpus, fixtures))
+        findings.extend(_actor_oracle_check(corpus))
         for case in fixtures.get("scenario_negative_cases", []):
             mutated = copy.deepcopy(corpus)
             if case["mutation"] == "actor_ref":
@@ -505,8 +465,8 @@ def check_workflow_contracts() -> list[str]:
             elif case["mutation"] == "invalid_float":
                 mutated["scenarios"][0]["initial_state"]["invalid_float"] = 1.5
             elif case["mutation"] == "unknown_error_kind":
-                planning = next(item for item in mutated["scenarios"] if item["id"] == "WF02-planning-requires-outcome")
-                planning["expected"]["assertions"][0]["value"] = "not_a_real_error_kind"
+                completion = next(item for item in mutated["scenarios"] if item["id"] == "WF19-completion-one-transaction")
+                completion["expected"]["assertions"][0]["value"] = "not_a_real_error_kind"
             elif case["mutation"] == "removed_surface_version_rejection":
                 # Rejection test: removed agent-surface metadata must remain unknown.
                 mutated["surface_version"] = "5.0.0"
@@ -521,7 +481,7 @@ def check_workflow_contracts() -> list[str]:
             elif scenario_error is not None:
                 findings.append(f"{case['id']}: mutation should reach semantic checks, got schema error: {scenario_error}")
             else:
-                semantic_findings = _scenario_error_check(mutated) + _actor_oracle_check(mutated, fixtures)
+                semantic_findings = _scenario_error_check(mutated) + _actor_oracle_check(mutated)
                 if not any(case["expected_error"] in finding for finding in semantic_findings):
                     findings.append(f"{case['id']}: wrong validation reason: {semantic_findings}")
         for case in fixtures.get("structured_scenario_negative_cases", []):

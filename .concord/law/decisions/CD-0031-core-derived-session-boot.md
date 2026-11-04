@@ -59,7 +59,7 @@ projection digest, length, and canonical continuity read. It claims no complete
 contract, question, intent set, or evidence and changes no reading obligation.
 
 A workflow may exist before contract approval. In that state `contract` is
-`null`; premise and required end-state appear once the operator approves the
+`null`; the premise appears once the coordinator records the
 contract. Missing state is represented, never invented.
 
 ## Boundaries

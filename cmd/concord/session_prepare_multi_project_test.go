@@ -112,8 +112,6 @@ func TestSessionPrepareMultiProject(t *testing.T) {
 INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate)
 SELECT 'work-wl',1,'bounded repository job','internal_sqlite','[]','[]','2026-08-09T00:00:00Z',actor_ref,'[]' FROM workflow_actors LIMIT 1;
-INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
-VALUES('work-wl',1,'predicate:handoff',0,'outcome','{"kind":"outcome","allowed":["report_recorded"]}');
 INSERT INTO project_handoffs(handoff_id,work_id,contract_version,source_project_id,target_project_id,source_session_ref,bounded_job,changes,verification,artifact_refs,blockers,next_action,state,consumed_by_session_ref,consumed_at,recorded_at)
 VALUES('handoff:boot','work-wl',1,'project-wl','project-wl-b','session/source','verify the receiving repository','[]','[]','[]','[]','run the bounded job','consumed','session/receiver','2026-08-09T00:00:01Z','2026-08-09T00:00:00Z');
 DELETE FROM write_guard;`); err != nil {

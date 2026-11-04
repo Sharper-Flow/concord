@@ -105,9 +105,8 @@ func TestWorkContextFactsAnchorSelectionBackfillAndLogBlind(t *testing.T) {
 	recordDeclaration(map[string]any{"context_findings": []WorkContextFinding{contextFindingFixture()}})
 	reportSeq := recordTerminal("worker.completed", map[string]any{
 		"context_findings": []WorkContextFinding{contextFindingFixture()},
-		"review":           map[string]any{"findings": []ReviewFinding{{FindingID: "review:one", Severity: "high", Detail: "ranked claim", Status: "open"}}},
 	})
-	selected := fmt.Sprintf("finding:%d:1", reportSeq)
+	selected := fmt.Sprintf("finding:%d:0", reportSeq)
 	recordDeclaration(map[string]any{"finding_refs": []string{selected}, "context_findings": []map[string]any{workContextFinding(workContextTestChild, "direction", "current declaration", "")}})
 	failedSeq := recordTerminal("worker.failed", map[string]any{"context_findings": []WorkContextFinding{contextFindingFixture()}})
 	emptySeq := recordTerminal("worker.completed", map[string]any{})

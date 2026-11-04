@@ -1,9 +1,7 @@
 package store
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -25,99 +23,6 @@ func recordVerdictParityResolve(defs map[string]any, node map[string]any) map[st
 		return target
 	}
 	return node
-}
-
-// recordVerdictParityPublishedFields resolves the published record_verdict
-// fields node from the current production action-discriminated variant.
-func recordVerdictParityPublishedFields(t *testing.T, document map[string]any) map[string]any {
-	t.Helper()
-	defs, ok := document["$defs"].(map[string]any)
-	if !ok {
-		t.Fatal("generated payload schema document carries no definitions")
-	}
-	variant, ok := defs["work_transition_action_variant_record_verdict"].(map[string]any)
-	if !ok {
-		t.Fatal("published document carries no current record_verdict variant")
-	}
-	properties, _ := variant["properties"].(map[string]any)
-	fields, ok := properties["fields"].(map[string]any)
-	if !ok {
-		t.Fatal("published record_verdict variant carries no fields schema")
-	}
-	return recordVerdictParityResolve(defs, fields)
-}
-
-func TestRecordVerdictReceiptPublicationMatchesCurrentAdmission(t *testing.T) {
-	document := payloadschema.Document()
-	publishedFields := recordVerdictParityPublishedFields(t, document)
-	entry := func(refs []any) map[string]any {
-		return map[string]any{"predicate_id": "predicate:primary", "receipt_refs": refs}
-	}
-	batch := func(value any) map[string]any { return map[string]any{"verdicts": value} }
-	for _, tc := range []struct {
-		name   string
-		fields map[string]any
-		want   bool
-	}{
-		{"one receipt", batch([]any{entry([]any{"receipt:captured"})}), true},
-		{"multiple receipts", batch([]any{entry([]any{"receipt:first", "receipt:second"})}), true},
-		{"missing batch", map[string]any{}, false},
-		{"empty batch", batch([]any{}), false},
-		{"null batch", batch(nil), false},
-		{"missing receipt field", batch([]any{map[string]any{"predicate_id": "predicate:primary"}}), false},
-		{"empty receipts", batch([]any{entry([]any{})}), false},
-		{"null receipts", batch([]any{entry(nil)}), false},
-		{"empty receipt reference", batch([]any{entry([]any{""})}), false},
-		{"scalar form", map[string]any{"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []any{"receipt:captured"}}, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			_, core := validateWorkflowPlanActionPayload("record_verdict", mustJSONRaw(t, tc.fields))
-			published := payloadschema.ValidateValue(recordVerdictParityDecode(t, tc.fields), publishedFields, document, "fields")
-			if (core == nil) != tc.want || (published == nil) != tc.want {
-				t.Fatalf("core=%v publication=%v, want admission %v", core, published, tc.want)
-			}
-		})
-	}
-	for _, bounds := range []struct {
-		criteria, receipts int
-		want               bool
-	}{{8, 1, true}, {9, 1, false}, {1, 32, true}, {1, 33, false}} {
-		var entries []any
-		for i := 0; i < bounds.criteria; i++ {
-			var refs []any
-			for j := 0; j < bounds.receipts; j++ {
-				refs = append(refs, fmt.Sprintf("receipt:captured-%d", j))
-			}
-			value := entry(refs)
-			value["predicate_id"] = fmt.Sprintf("predicate:criterion-%d", i)
-			entries = append(entries, value)
-		}
-		fields := batch(entries)
-		_, core := validateWorkflowPlanActionPayload("record_verdict", mustJSONRaw(t, fields))
-		published := payloadschema.ValidateValue(recordVerdictParityDecode(t, fields), publishedFields, document, "fields")
-		if (core == nil) != bounds.want || (published == nil) != bounds.want {
-			t.Errorf("%d criteria with %d receipts: core=%v publication=%v, want admission %v", bounds.criteria, bounds.receipts, core, published, bounds.want)
-		}
-	}
-	for _, name := range []string{"predicate_id", "verdict_kind", "evaluation_evidence", "incomparable_with_approved"} {
-		for _, nested := range []bool{false, true} {
-			value := entry([]any{"receipt:captured"})
-			fields := batch([]any{value})
-			if nested {
-				if name == "predicate_id" {
-					continue
-				}
-				value[name] = "forbidden"
-			} else {
-				fields[name] = "forbidden"
-			}
-			_, core := validateWorkflowPlanActionPayload("record_verdict", mustJSONRaw(t, fields))
-			published := payloadschema.ValidateValue(recordVerdictParityDecode(t, fields), publishedFields, document, "fields")
-			if core == nil || published == nil {
-				t.Errorf("field %s (nested=%v) escaped the closed receipt schema: core=%v publication=%v", name, nested, core, published)
-			}
-		}
-	}
 }
 
 // TestMultibyteStringBoundsKeepCoreAndPublicationAligned pins the repaired
@@ -236,19 +141,6 @@ func TestMultibyteStringBoundsKeepCoreAndPublicationAligned(t *testing.T) {
 	if err := payloadschema.ValidateValue(insideBounds, searchedNode, document, "searched"); err != nil {
 		t.Fatalf("published bounds refused a core-admitted multibyte string: %v", err)
 	}
-}
-
-// recordVerdictParityDecode round-trips a value through UseNumber decoding,
-// the numeric form the payload schema validator walks.
-func recordVerdictParityDecode(t *testing.T, value any) any {
-	t.Helper()
-	decoder := json.NewDecoder(bytes.NewReader(mustJSONRaw(t, value)))
-	decoder.UseNumber()
-	var decoded any
-	if err := decoder.Decode(&decoded); err != nil {
-		t.Fatal(err)
-	}
-	return decoded
 }
 
 func mustJSONRaw(t *testing.T, value any) []byte {

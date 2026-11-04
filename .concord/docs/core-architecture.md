@@ -168,7 +168,7 @@ details; this table does not duplicate them.
 | Adapter transport and host context | `adapter/opencode/concord.ts`, `adapter/opencode/concord-plugin.ts` | Adjacent adapter tests |
 | SQLite connection and admission mechanism | `internal/store/internal/sqlitedb/connection.go`, `internal/store/internal/sqlitedb/read.go`, `internal/store/internal/sqlitedb/write.go` | One pooled connection and durable commit; adjacent tests, `internal/store/txbegin_guard_test.go` |
 | SQLite current-state and effect-receipt authority | `internal/store/doc.go`, `internal/store/store.go`, `internal/store/transaction.go`, `internal/store/events.go` | Transaction-scoped access; `txscope_test.go`, `tx_subprocess_guard_test.go` |
-| Work context and evidence | `internal/store/work_context.go`, `internal/store/workflow_review.go`, `internal/store/workflow_verification_report.go` | Declared sources, recorded subject, Review outcomes and verification reports; adjacent tests |
+| Work context and evidence | `internal/store/work_context.go` | Declared sources, recorded subjects and evidence bindings; adjacent tests |
 | Workflow action and protected writes | `internal/store/workflow_dispatch.go`, `internal/store/workflow_preflight.go`, `internal/store/workflow_domain_overlap.go` | Approved scope, law revision, and work-relation resolution |
 | Project handoff | `internal/store/project_handoffs.go` | Directory-resolved receiving Project and authenticated handoff provenance; host tools own checkout inspection and lifecycle; Concord retains no worktree locator metadata |
 | Knowledge law | `internal/store/law_boundary.go` | Version and source identity, accepted-law lookup |

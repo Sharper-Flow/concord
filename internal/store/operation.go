@@ -193,7 +193,6 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowActionCompleted:                   workflowScopedRegistration[workflowActionCompletedPayload](8, foldWorkflowActionCompleted),
 	WorkflowActionFailed:                      workflowScopedRegistration[workflowActionFailedPayload](1, foldWorkflowActionFailed),
 	WorkflowEvidenceBound:                     workflowRegistration[workflowEvidenceBoundPayload](1, foldWorkflowEvidenceBound),
-	WorkflowVerdictRecorded:                   workflowRegistration[workflowVerdictRecordedPayload](2, foldWorkflowVerdictRecorded),
 	WorkflowPremiseConfirmed:                  workflowScopedRegistration[workflowPremiseConfirmedPayload](2, foldWorkflowPremiseConfirmed),
 	WorkflowSuccessorLinked:                   workflowRegistration[workflowSuccessorLinkedPayload](3, foldWorkflowSuccessorLinked),
 	WorkflowContextCheckpointed:               workflowRegistration[workflowContextCheckpointedPayload](1, foldWorkflowContextCheckpointed),

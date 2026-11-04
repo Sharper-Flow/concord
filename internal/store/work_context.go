@@ -145,9 +145,7 @@ func decodeStrictKnowledgeJSON(data []byte, target any) error {
 
 // WorkContextFindingView is one assembled finding of the current view. The
 // finding wire is the shared WorkContextFinding; the identity fields are
-// core-derived from the source event, never authored. SourceKind is empty
-// for a generic context finding and review_finding for a ranked review
-// finding, whose Oracle tie and lifecycle the Review state owns.
+// core-derived from the source event, never authored.
 type WorkContextFindingView struct {
 	FindingID            string   `json:"finding_id"`
 	Kind                 string   `json:"kind"`
@@ -161,12 +159,6 @@ type WorkContextFindingView struct {
 	SourceEventID        string   `json:"source_event_id"`
 	SourceEventSeq       int64    `json:"source_event_seq"`
 	Ordinal              int      `json:"ordinal"`
-	// SourceKind separates the ranked review findings from the
-	// generic claim notebook: a ranked entry carries
-	// review_finding here, its Oracle tie below, and generic claim fields
-	// projected from the finding.
-	SourceKind string               `json:"source_kind,omitempty"`
-	Oracle     *ReviewOracleFinding `json:"oracle,omitempty"`
 }
 
 // WorkContextDomainGroup partitions the current view's readings and findings
@@ -488,7 +480,7 @@ func validateWorkContextFindingRefs(ctx context.Context, tx *sql.Tx, workID stri
 		if seq > frontier {
 			return workContextFailure(KindInvalidPayload, "work_context", "finding ref "+ref+" names a finding no event has recorded", "select earlier findings by their exact ids")
 		}
-		event, findings, ranked, err := readWorkContextFindingSource(ctx, tx, workID, seq)
+		event, findings, err := readWorkContextFindingSource(ctx, tx, workID, seq)
 		if err != nil {
 			var failure *Failure
 			if failureAs(err, &failure) && failure.Kind == KindInvariantViolation {
@@ -502,7 +494,7 @@ func validateWorkContextFindingRefs(ctx context.Context, tx *sql.Tx, workID stri
 		if !workContextSourceHoldsFindings(event.Kind) {
 			return workContextFailure(KindInvalidPayload, "work_context", "finding ref "+ref+" names an event kind that holds no findings", "select findings from declarations or terminal worker reports")
 		}
-		if ordinal >= len(findings)+len(ranked) {
+		if ordinal >= len(findings) {
 			return workContextFailure(KindInvalidPayload, "work_context", "finding ref "+ref+" names an ordinal the event does not hold", "select earlier findings by their exact ids")
 		}
 	}
@@ -665,13 +657,6 @@ func workContextOriginForKind(kind string) string {
 // nil.
 func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkContextView, error) {
 	view := WorkContextView{RequiredReading: []WorkContextReading{}, Findings: []WorkContextFindingView{}, DomainGroups: []WorkContextDomainGroup{}}
-	review, reviewErr := readWorkflowReviewFacts(ctx, q, workID)
-	if reviewErr != nil {
-		return nil, reviewErr
-	}
-	if review.Candidate != nil {
-		view.SubjectCommit = review.Candidate.Commit
-	}
 	var prepareErr error
 	view.SourceEventFrontier, prepareErr = readWorkContextSourceFrontier(ctx, q, workID)
 	if prepareErr != nil {
@@ -698,18 +683,15 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 			return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the latest work context declaration payload is malformed", "restore a verified backup into a new path with concord restore, then swap")
 		}
 		view.RequiredReading = append(view.RequiredReading, payload.RequiredReading...)
-		if err := appendWorkContextAnchorFindings(ctx, q, workID, anchor, anchorSeq, payload, &review, addFinding); err != nil {
+		if err := appendWorkContextAnchorFindings(ctx, q, workID, anchor, anchorSeq, payload, addFinding); err != nil {
 			return nil, err
 		}
 	}
 	if err := appendWorkContextReportFindings(ctx, q, workID, anchorSeq, addFinding); err != nil {
 		return nil, err
 	}
-	if err := projectOpenReviewContextFindings(review, addFinding); err != nil {
-		return nil, err
-	}
 	if len(order) > WorkContextViewFindingsMax {
-		return nil, workContextFailure(KindLimitExceeded, "work_context_read", fmt.Sprintf("the current work context holds %d finding slots across its generic and ranked entries; the view bound is %d and the read refuses instead of truncating", len(order), WorkContextViewFindingsMax), workContextOverflowRecovery())
+		return nil, workContextFailure(KindLimitExceeded, "work_context_read", fmt.Sprintf("the current work context holds %d finding slots; the view bound is %d and the read refuses instead of truncating", len(order), WorkContextViewFindingsMax), workContextOverflowRecovery())
 	}
 	for _, id := range order {
 		view.Findings = append(view.Findings, byID[id])
@@ -735,14 +717,14 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	return &view, nil
 }
 
-func appendWorkContextAnchorFindings(ctx context.Context, q queryer, workID string, anchor Event, anchorSeq int64, payload workflowWorkContextRecordedPayload, review *WorkflowReviewState, addFinding func(WorkContextFindingView)) error {
+func appendWorkContextAnchorFindings(ctx context.Context, q queryer, workID string, anchor Event, anchorSeq int64, payload workflowWorkContextRecordedPayload, addFinding func(WorkContextFindingView)) error {
 	for ordinal, finding := range payload.ContextFindings {
 		addFinding(workContextFindingView(finding, WorkContextOriginDeclaration, anchor.EventID, anchorSeq, ordinal))
 	}
 	// Resolve the anchor's selected earlier findings through one query
 	// per distinct referenced sequence, bounded by the selection bound.
 	for _, ref := range payload.FindingRefs {
-		finding, err := readSelectedWorkContextFinding(ctx, q, workID, ref, review)
+		finding, err := readSelectedWorkContextFinding(ctx, q, workID, ref)
 		if err != nil {
 			return err
 		}
@@ -751,12 +733,12 @@ func appendWorkContextAnchorFindings(ctx context.Context, q queryer, workID stri
 	return nil
 }
 
-func readSelectedWorkContextFinding(ctx context.Context, q queryer, workID, ref string, review *WorkflowReviewState) (WorkContextFindingView, error) {
+func readSelectedWorkContextFinding(ctx context.Context, q queryer, workID, ref string) (WorkContextFindingView, error) {
 	seq, ordinal, ok := parseWorkContextFindingRef(ref)
 	if !ok {
 		return WorkContextFindingView{}, workContextFailure(KindInvariantViolation, "work_context_read", "the stored declaration carries a malformed finding ref "+ref, "restore a verified backup into a new path with concord restore, then swap")
 	}
-	event, generic, ranked, sourceErr := readWorkContextFindingSource(ctx, q, workID, seq)
+	event, generic, sourceErr := readWorkContextFindingSource(ctx, q, workID, seq)
 	if sourceErr != nil {
 		var failure *Failure
 		if failureAs(sourceErr, &failure) && failure.Kind == KindInvariantViolation {
@@ -773,10 +755,6 @@ func readSelectedWorkContextFinding(ctx context.Context, q queryer, workID, ref 
 	switch {
 	case ordinal < len(generic):
 		return workContextFindingView(generic[ordinal], workContextOriginForKind(event.Kind), event.EventID, seq, ordinal), nil
-	case ordinal < len(generic)+len(ranked):
-		// A selected ranked finding projects with its tie and
-		// source kind, never into the generic claim notebook.
-		return rankedFindingView(ranked[ordinal-len(generic)], event.Kind, event.EventID, seq, ordinal, review), nil
 	default:
 		return WorkContextFindingView{}, workContextFailure(KindInvariantViolation, "work_context_read", "the stored declaration selects finding "+ref+" the source event does not hold", "restore a verified backup into a new path with concord restore, then swap")
 	}
@@ -814,7 +792,7 @@ func appendWorkContextReportFindings(ctx context.Context, q queryer, workID stri
 	rows.Close()
 	for i := len(reportRows) - 1; i >= 0; i-- {
 		row := reportRows[i]
-		_, findings, _, sourceErr := readWorkContextFindingSource(ctx, q, workID, row.seq)
+		_, findings, sourceErr := readWorkContextFindingSource(ctx, q, workID, row.seq)
 		if sourceErr != nil {
 			var failure *Failure
 			if failureAs(sourceErr, &failure) && failure.Kind == KindInvariantViolation {

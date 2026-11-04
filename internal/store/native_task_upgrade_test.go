@@ -50,10 +50,9 @@ func nativeTaskUpgradeFixture(t *testing.T) (*sql.DB, string, []histEventRow) {
 			"fields": workflowCorrectionCompletionFields{ActionID: "request_correction", CorrectionDiagnosis: "candidate misses its obligation", CorrectionStrategy: "correct the candidate", CorrectionPredicates: []string{"predicate:primary"}, CorrectionEvidence: []string{"evidence:native"}},
 		}},
 	}))
-	report := reviewBlockFixture()
-	report.InputCandidate.ProjectID, report.OutputCandidate.ProjectID = "project-upgrade", "project-upgrade"
-	state := WorkflowReviewState{Candidate: &report.OutputCandidate, Findings: report.Findings, Accepted: &WorkflowAcceptedReview{ReportRef: "native-review", ReportDigest: reviewDigest(report), ActorRef: actor, Report: *report}}
-	if err := writeWorkflowReviewFacts(t.Context(), db, "work-upgrade-from", state); err != nil {
+	report := legacyReviewBlock{InputCandidate: legacyReviewCandidate{ProjectID: "project-upgrade", Commit: commit, Tree: tree}, OutputCandidate: legacyReviewCandidate{ProjectID: "project-upgrade", Commit: commit, Tree: tree}, Findings: []legacyReviewFinding{{FindingID: "finding:one", Status: "open", InScope: true, Blocking: true}}}
+	state := legacyReviewState{Candidate: &report.OutputCandidate, Findings: report.Findings, Accepted: &legacyAcceptedReview{ReportRef: "native-review", ReportDigest: legacyReviewDigest(report), ActorRef: actor, Report: report}}
+	if err := writeLegacyReviewFacts(t.Context(), db, "work-upgrade-from", state); err != nil {
 		t.Fatal(err)
 	}
 	retirementUpgradeExec(t, db, `INSERT INTO work_context_findings VALUES('work-upgrade-from',32,0,'ranked',?)`, workflowJSON(report.Findings[0]))
@@ -148,11 +147,7 @@ func TestNativeTaskPopulatedUpgradePreservesCurrentData(t *testing.T) {
 			t.Fatalf("preservation witness %s is empty", table)
 		}
 	}
-	review, err := readWorkflowReviewFacts(t.Context(), db, "work-upgrade-from")
-	if err != nil {
-		t.Fatal(err)
-	}
-	report, err := Upgrade(t.Context(), path, nil)
+	report, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot})
 	var wantApplied []int
 	for version := m.Version; version <= CurrentSchemaVersion(); version++ {
 		wantApplied = append(wantApplied, version)
@@ -183,14 +178,6 @@ func TestNativeTaskPopulatedUpgradePreservesCurrentData(t *testing.T) {
 		}
 	}
 	assertWorktreeTablesAbsent(t, db)
-	afterReview, err := readWorkflowReviewFacts(t.Context(), db, "work-upgrade-from")
-	if err != nil || !reflect.DeepEqual(afterReview.Candidate, review.Candidate) || !reflect.DeepEqual(afterReview.Accepted, review.Accepted) || !reflect.DeepEqual(afterReview.Findings, review.Findings) {
-		t.Fatalf("candidate, accepted report or open blocker changed: before=%+v after=%+v err=%v", review, afterReview, err)
-	}
-	source := afterReview.findingSources["finding:one"]
-	if source.CanonicalID != "finding:32:0" || source.DomainID != "domain:upgrade" || source.EventID != "native-review" || source.Kind != WorkflowActionCompleted || source.Seq != 32 || source.Ordinal != 0 || source.Oracle == nil || len(source.Oracle.Cases) != 1 || source.Oracle.Cases[0].CaseID != "case:upgrade" {
-		t.Fatalf("retained blocker lost exact source identity/inventory: %+v", source)
-	}
 	if got := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name='workflow_correction_state'`); len(got) != 0 {
 		t.Fatalf("retired correction state remains: %v", got)
 	}
@@ -296,7 +283,7 @@ func TestNativeTaskPopulatedUpgradeRollsBackDestructiveDDL(t *testing.T) {
 		t.Fatalf("failed upgrade damaged verified predecessor snapshot: %+v err=%v", verified, err)
 	}
 	retirementUpgradeExec(t, db, `DROP VIEW native_cutover_failure`)
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
 		t.Fatalf("retry after removing injected failure: %v", err)
 	}
 	assertHistoricalReceipts(t, db, historical)

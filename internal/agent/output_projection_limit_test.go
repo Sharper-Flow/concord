@@ -15,30 +15,27 @@ func TestWorkflowReadLargeFixedProjectionRefusesTypedBytesNotFieldSchema(t *test
 	t.Parallel()
 	s, service, _, _, _ := workflowEngineFixture(t, "")
 	const workID = "work-1"
-	subjects := make([]string, 100)
+	subjects := make([]string, 800)
 	for i := range subjects {
 		prefix := fmt.Sprintf("subject:%03d:", i)
 		subjects[i] = prefix + strings.Repeat("x", 128-len(prefix))
+		// The seeded list stays within the production bound: at most 800
+		// unique subjects, each satisfying the shared reference rule.
+		if !store.ValidReference(subjects[i]) {
+			t.Fatalf("large legislative subject must satisfy production bounds: %q", subjects[i])
+		}
 	}
-	payload, err := json.Marshal(map[string]any{"kind": "absent", "surface": "behavior:defect", "subjects": subjects, "distinguish_from": []string{"disabled"}})
+	payload, err := json.Marshal(subjects)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if _, err := store.DecodeWorkflowPredicate(payload); err != nil {
-		t.Fatalf("large predicate must satisfy production bounds: %v", err)
 	}
 	tx, err := s.DatabaseForTesting().BeginTx(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM workflow_contract_predicates WHERE work_id=?`, workID); err != nil {
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contracts SET legislative_subjects=? WHERE work_id=? AND contract_version=1`, string(payload), workID); err != nil {
 		t.Fatal(err)
-	}
-	for i := 0; i < 8; i++ {
-		if _, err := tx.Exec(`INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,?,?,'absent',?)`, workID, fmt.Sprintf("predicate:%d", i), i, string(payload)); err != nil {
-			t.Fatal(err)
-		}
 	}
 	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)

@@ -252,7 +252,7 @@ law_additions[]                   # reserved law IDs + home Domain
 verification_obligations[]        # law_id + workflow obligation ID
 ```
 
-The binding composes with, rather than duplicates, the outcome contract,
+The binding composes with, rather than duplicates, the contract,
 `spec_mandate`, `law_modifies`, and evidence policy:
 
 - `home_domain_id` says where the work belongs;
@@ -298,8 +298,7 @@ owns each authoritative workflow mutation. They apply at:
 - contract approval and revision;
 - execution action;
 - checkpoint and evidence binding;
-- recorded candidate results and attributed verification reports;
-- verdict and premise confirmation;
+- recorded candidate results and premise confirmation;
 - any Concord-authorized merge/ship decision or acceptance of its result; and
 - completion.
 

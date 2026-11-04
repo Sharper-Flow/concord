@@ -61,17 +61,7 @@ func pContractSuccessor(t *testing.T, s *Store, id, premise string) map[string]a
 	if err != nil {
 		t.Fatal(err)
 	}
-	predicates := make([]any, len(contract.OutcomePredicates))
-	for i, predicate := range contract.OutcomePredicates {
-		var outcome map[string]any
-		decoder := json.NewDecoder(strings.NewReader(predicate.OutcomePayload))
-		decoder.UseNumber()
-		if err := decoder.Decode(&outcome); err != nil {
-			t.Fatal(err)
-		}
-		predicates[i] = map[string]any{"predicate_id": predicate.PredicateID, "ordinal": predicate.Ordinal, "outcome_kind": predicate.OutcomeKind, "outcome_payload": outcome}
-	}
-	payload := map[string]any{"contract_version": version + 1, "premise": premise, "outcome_predicates": predicates, "required_evidence": contract.RequiredEvidence, "route_conventions": contract.RouteConventions, "spec_mandate": contract.SpecMandate, "law_modifies": contract.LawModifies, "rigor_class": contract.RigorClass}
+	payload := map[string]any{"contract_version": version + 1, "premise": premise, "legislative_subjects": contract.LegislativeSubjects, "route_conventions": contract.RouteConventions, "spec_mandate": contract.SpecMandate, "law_modifies": contract.LawModifies, "rigor_class": contract.RigorClass}
 	if contract.DecisionDomains != nil {
 		payload["decision_domains"] = contract.DecisionDomains
 	}
@@ -119,11 +109,9 @@ func latestStepStartEpoch(t *testing.T, s *Store, workID, stepID string) int64 {
 func seedDuplicateContractProjection(t *testing.T, s *Store, workID, ownerRef string) {
 	t.Helper()
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
-SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,?,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=1;
-INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
-SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1;
-DELETE FROM write_guard`, ownerRef, workID, workID); err != nil {
+INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,legislative_subjects)
+SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,?,spec_mandate,law_modifies,law_boundary_version,rigor_class,legislative_subjects FROM workflow_contracts WHERE work_id=? AND contract_version=1;
+DELETE FROM write_guard`, ownerRef, workID); err != nil {
 		t.Fatal(err)
 	}
 	var active int

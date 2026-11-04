@@ -38,12 +38,11 @@
     {
       "id": "WF01-capture-late-outcome",
       "scenario_number": 1,
-      "mechanism": "capture permits missing end-state; planning supplies it",
-      "initial_state": {"work": "new", "outcome": null},
+      "mechanism": "capture records a needed item before its plan is chosen",
+      "initial_state": {"work": "new"},
       "action": "capture",
       "expected": {"assertions": [
         {"target": "state", "path": "work.lifecycle", "op": "eq", "value": "needed"},
-        {"target": "state", "path": "work.outcome_contract", "op": "absent"},
         {"target": "communication", "path": "error", "op": "absent"},
         {"target": "effects", "path": "work.created_event", "op": "nonempty"}
       ]},
@@ -56,7 +55,7 @@
         "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
         "workflow_type": null,
         "action_id": "capture",
-        "fields": {"payload": {"work": "new", "outcome": null}, "title": "WF01-capture-late-outcome title", "value_statement": "fixture value statement", "project_ids": ["project"]},
+        "fields": {"payload": {"work": "new"}, "title": "WF01-capture-late-outcome title", "value_statement": "fixture value statement", "project_ids": ["project"]},
         "idempotency": {"key": "wf01-capture-late-outcome-key", "request_id": "wf01-capture-late-outcome-request", "operation_id": "wf01-capture-late-outcome-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
         "grant": {"principal_ref": "principal:operator", "client_ref": "client:concord-1", "agent_ref": "agent-engineer", "session_ref": "session-executor", "capability": "workflow_action", "scope": "project"},
         "operation": {"op_id": "wf01-capture-late-outcome-operation"}
@@ -67,62 +66,9 @@
       ]}
     },
     {
-      "id": "WF02-planning-requires-outcome", "scenario_number": 2,
-      "mechanism": "planning refuses an omitted end-state without recording a contract or changing the pre-approval instance",
-      "initial_state": {"work": "work-alpha", "outcome": null}, "action": "approve_contract",
-      "setup": {
-        "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad"], "workflow_types": ["change"], "evidence": [], "relations": []},
-        "current_state": {"step": "plan", "proof_case": "planning_without_outcome"}, "faults": []
-      },
-      "request": {
-        "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad", "workflow_type": "change", "action_id": "approve_contract",
-        "fields": {"premise": "The fixture needs a decidable approved end-state.", "decision_domains": []},
-        "idempotency": {"key": "wf02-key", "request_id": "wf02-request", "operation_id": "wf02-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
-        "grant": {"principal_ref": "principal:operator", "client_ref": "client:concord-1", "agent_ref": "agent-engineer", "session_ref": "session-executor", "capability": "workflow_action", "scope": "project"},
-        "operation": {"op_id": "wf02-operation"}
-      },
-      "expected": {"assertions": [
-        {"target": "communication", "path": "error.kind", "op": "eq", "value": "invalid_input"},
-        {"target": "communication", "path": "error.detail", "op": "eq", "value": "workflow action payload field \"outcome_predicates\" is required for action \"approve_contract\""},
-        {"target": "state", "path": "work.outcome_contract", "op": "absent"},
-        {"target": "state", "path": "work-alpha.state", "op": "eq", "value": "running"},
-        {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
-        {"target": "effects", "path": "workflow.contract_approved", "op": "absent"},
-        {"target": "effects", "path": "events.order", "op": "eq", "value": []}
-      ]},
-      "observations": {"expected_reads": [{"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "plan"}]}
-    },
-    {
-      "id": "WF04-weaker-delivery", "scenario_number": 4,
-      "mechanism": "an accepted mismatch Review supplies no passing criterion proof, so premise confirmation refuses without advancing verification",
-      "initial_state": {"work": "work-alpha", "assessment": "mismatch"}, "action": "confirm_premise",
-      "setup": {
-        "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7"], "workflow_types": ["change"], "evidence": [], "relations": []},
-        "current_state": {"step": "review", "proof_case": "weaker_delivery"}, "faults": []
-      },
-      "request": {
-        "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "workflow_type": "change", "action_id": "confirm_premise", "fields": {},
-        "idempotency": {"key": "wf04-key", "request_id": "wf04-request", "operation_id": "wf04-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
-        "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/owner", "session_ref": "session/work-alpha", "capability": "workflow_action", "scope": "project"},
-        "operation": {"op_id": "wf04-operation"}
-      },
-      "expected": {"assertions": [
-        {"target": "communication", "path": "error.kind", "op": "eq", "value": "missing_evidence"},
-        {"target": "communication", "path": "error.detail", "op": "eq", "value": "premise confirmation requires proof for every approved predicate: missing predicate:return-route"},
-        {"target": "state", "path": "review.assessments.predicate:return-route", "op": "eq", "value": "mismatch"},
-        {"target": "state", "path": "work.lifecycle", "op": "eq", "value": "in_progress"},
-        {"target": "state", "path": "verdicts.predicate:return-route", "op": "absent"},
-        {"target": "state", "path": "work.terminal_metadata", "op": "absent"},
-        {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
-        {"target": "effects", "path": "workflow.completed", "op": "absent"},
-        {"target": "effects", "path": "events.order", "op": "eq", "value": []}
-      ]},
-      "observations": {"expected_reads": [{"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "review"}]}
-    },
-    {
       "id": "WF05-stronger-delivery", "scenario_number": 5,
-      "mechanism": "proof satisfying every approved criterion permits premise confirmation without changing the approved contract",
-      "initial_state": {"work": "work-alpha", "assessment": "supported"}, "action": "confirm_premise",
+      "mechanism": "premise confirmation records the terminal premise fact without changing the approved contract",
+      "initial_state": {"work": "work-alpha"}, "action": "confirm_premise",
       "setup": {
         "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7"], "workflow_types": ["change"], "evidence": [], "relations": []},
         "current_state": {"step": "review", "proof_case": "satisfied_delivery"}, "faults": []
@@ -193,35 +139,6 @@
         {"target": "effects", "path": "events.order", "op": "eq", "value": []}
       ]},
       "observations": {"expected_reads": [{"target": "state", "path": "work.outcome_contract", "op": "absent"}]}
-    },
-    {
-      "id": "WF50-one-conjunct-weaker", "scenario_number": 50,
-      "mechanism": "one supported conjunct cannot compensate for an accepted mismatch on another; premise confirmation refuses missing criterion proof",
-      "initial_state": {"work": "work-alpha", "supported": "predicate:present", "mismatch": "predicate:absent"}, "action": "confirm_premise",
-      "setup": {
-        "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7"], "workflow_types": ["change"], "evidence": [], "relations": []},
-        "current_state": {"step": "review", "proof_case": "one_conjunct_weaker"}, "faults": []
-      },
-      "request": {
-        "actor_ref": "actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7", "workflow_type": "change", "action_id": "confirm_premise", "fields": {},
-        "idempotency": {"key": "wf50-key", "request_id": "wf50-request", "operation_id": "wf50-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
-        "grant": {"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/owner", "session_ref": "session/work-alpha", "capability": "workflow_action", "scope": "project"},
-        "operation": {"op_id": "wf50-operation"}
-      },
-      "expected": {"assertions": [
-        {"target": "communication", "path": "error.kind", "op": "eq", "value": "missing_evidence"},
-        {"target": "communication", "path": "error.detail", "op": "eq", "value": "premise confirmation requires proof for every approved predicate: missing predicate:absent"},
-        {"target": "state", "path": "review.assessments.predicate:present", "op": "eq", "value": "supported"},
-        {"target": "state", "path": "review.assessments.predicate:absent", "op": "eq", "value": "mismatch"},
-        {"target": "state", "path": "work.lifecycle", "op": "eq", "value": "in_progress"},
-        {"target": "state", "path": "verdicts.predicate:present", "op": "nonempty"},
-        {"target": "state", "path": "verdicts.predicate:absent", "op": "absent"},
-        {"target": "state", "path": "work.terminal_metadata", "op": "absent"},
-        {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
-        {"target": "effects", "path": "workflow.completed", "op": "absent"},
-        {"target": "effects", "path": "events.order", "op": "eq", "value": []}
-      ]},
-      "observations": {"expected_reads": [{"target": "state", "path": "work-alpha.current_step", "op": "eq", "value": "review"}]}
     }
   ]
 }

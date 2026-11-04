@@ -1,19 +1,52 @@
 package agent
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/gittest"
+	"github.com/sharper-flow/concord/internal/store"
 )
 
-func agentBindVerificationReport(t *testing.T, f *spineFixture, commit, result, runRef string) string {
+func seedAgentEvidenceProducer(t *testing.T, s *store.Store, workID, principal, ref, runRef, watermark string) {
+	t.Helper()
+	refs, err := json.Marshal([]string{ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	_, err = tx.Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,result_kind,evidence_refs,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		runRef, 1, workID, "fix", "sha256:"+strings.Repeat("a", 64), "implement", "internal_sqlite", "sha256:"+strings.Repeat("b", 64), "", principal, watermark, "2026-09-17T00:00:00Z", "completed", string(refs), "sha256:"+strings.Repeat("c", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func agentBindVerificationReport(t *testing.T, f *spineFixture, commit, runRef string) string {
 	t.Helper()
 	ref := "commit:" + commit
+	watermark := fmt.Sprintf("request:producer-%d", f.request)
+	seedAgentEvidenceProducer(t, f.s, f.work, f.env.PrincipalRef, ref, runRef, watermark)
 	spineOK(t, f.action(t, "bind_evidence", map[string]any{
 		"evidence_kind": "verification", "immutable_subject_ref": ref,
-		"verification_report": map[string]any{"source": "local", "commit": commit, "result": result, "run_ref": runRef},
+		"producer_id": f.env.PrincipalRef, "producer_run_ref": runRef, "producer_watermark": watermark,
 	}))
 	return ref
 }

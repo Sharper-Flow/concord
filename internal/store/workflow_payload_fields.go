@@ -19,7 +19,6 @@ var premiseFloor = withPayloadFieldRevision("premise", func(field WorkflowPayloa
 var (
 	confirmPremisePayload     = withClosedPayload(confirmPremiseActionFields)
 	proposalOutOfScopePayload = withClosedPayload(proposalOutOfScopeActionFields)
-	canonicalVerdictPayload   = withClosedPayload(canonicalVerdictActionFields)
 	openFindingsCorrection    = withAppendedPayloadField(workflowOpenFindingsCorrectionField)
 )
 
@@ -37,25 +36,4 @@ func proposalOutOfScopeActionFields() []WorkflowPayloadField {
 
 func workflowOpenFindingsCorrectionField() WorkflowPayloadField {
 	return actionIDListField("open_finding_ids", false, 1, 32)
-}
-
-func canonicalVerdictActionFields() []WorkflowPayloadField {
-	return []WorkflowPayloadField{
-		actionIntegerField("contract_version", false),
-		actionItemArrayField("verdicts", true, 1, 8, "workflow_verdict_batch_entry"),
-	}
-}
-
-// The engine cross-field declaration covers both scalar and batch inputs;
-// current publication projects its rules onto the batch-only action fields.
-func verdictBatchActionFields() []WorkflowPayloadField {
-	return []WorkflowPayloadField{
-		actionIntegerField("contract_version", false),
-		actionRefField("predicate_id", false),
-		actionEnumField("verdict_kind", false, "ok", "outcome_mismatch", "insufficient_evidence"),
-		actionStringField("verdict_actor_ref", false, 70),
-		actionListField("evaluation_evidence", false, 1, 32),
-		{Name: "incomparable_with_approved", ValueType: PayloadBoolean},
-		actionItemArrayField("verdicts", false, 1, 8, "workflow_verdict_batch_entry"),
-	}
 }

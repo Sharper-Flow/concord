@@ -68,15 +68,11 @@ func testContractRevisionDispatch(t *testing.T, stage string) {
 		"contract_version":     2,
 		"premise":              "corrected premise",
 		"architecture_binding": successorBinding,
-		"outcome_predicates": []map[string]any{{
-			"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check",
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:workflow", "expected_result": "pass"},
-		}},
-		"required_evidence": []string{"verification"},
-		"route_conventions": []string{},
-		"spec_mandate":      []string{},
-		"law_modifies":      []string{},
-		"rigor_class":       "prototype_internal",
+		"legislative_subjects": []string{},
+		"route_conventions":    []string{},
+		"spec_mandate":         []string{},
+		"law_modifies":         []string{},
+		"rigor_class":          "prototype_internal",
 	}
 	approvedRaw := contractRevisionInput(t, s, "work-1", version, fields, "contract-revision-dispatch")
 	var stale map[string]any

@@ -28,16 +28,16 @@
 
 Scope: Declared-tool and scenario bindings; applicable-check evidence in existing verification and Review.
 
-This decision refines CD-0074. Verification reports
-follow the workflow engine contract and CD-0242 D8.
+This decision refines CD-0074. Evidence binding follows the workflow engine
+contract and CD-0242 D8.
 
 ## Decision
 
 1. Each applicable typed footprint check names a declared command and an existing executable owner. Existing repository validators check that relation. A missing, conflicting, deferred or nonexistent owner fails validation. Source structure establishes a binding, not successful execution or semantic adequacy.
 2. A scenario binding names its exact corpus entry and the test or harness that consumes that id. Review checks that its assertions uphold the scenario. Required scenario witnesses must be observed executing and passing; a missing, skipped, failed or incomplete witness remains unproved.
-3. Applicable checks are selected from approved scope and the final change. Local verification and required CI supply execution evidence. Bound reports state a result and recorded commit; they are attributed claims, not execution attestation. A selected test result is not a whole-package result.
-4. Accepted Review records this rule, the applicable checks, the evidence inspected and any remaining obligation. Review must not declare the change ready while required checks lack adequate evidence. A Project without required CI supplies the applicable local execution evidence; the absence of CI waives no check.
-5. Outcome-contract, criterion-proof and accepted-Review gates retain their owners. Recorded commits must agree; no native-provenance, live-Git freshness or exact-declared-command gate is required. This adds no automatic footprint refusal at delivery or completion. No worker-job binding supplies proof under CD-0242 D8.
+3. Applicable checks are selected from approved scope and the final change. Local verification and required CI supply execution evidence. Evidence identifies its subject and result; binding is an attributed claim, not execution attestation. A selected test result is not a whole-package result.
+4. The linked independent Review result accounts for applicable checks, evidence inspected and remaining obligations. Review must not declare the change ready while required checks lack adequate evidence. A Project without required CI supplies the applicable local execution evidence; the absence of CI waives no check.
+5. Proof applies to the subject it names; no native-provenance, live-Git freshness or exact-declared-command gate is required. This adds no automatic footprint refusal at delivery or completion. No worker-job binding supplies proof under CD-0242 D8.
 6. Coverage becomes satisfied only after checked bindings, observed passing execution and independent Review establish their assertions. A local delivery record is not evidence of passing required CI, merge or release.
 
 ## Alternatives considered
@@ -63,4 +63,3 @@ Existing tooling and evidence-anchor validators uphold structural bindings. Focu
 [CD-0074](CD-0074-project-tooling-declaration.md) ·
 [CD-0229](CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md) ·
 [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) ·
-

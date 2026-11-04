@@ -65,31 +65,6 @@ func TestWorkflowPlanMandateRecoveryAdditionPublication(t *testing.T) {
 	}
 }
 
-func TestWorkflowPlanMandateRecoveryForExistingLaw(t *testing.T) {
-	const workID = "plan-mandate-existing-law"
-	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", []string{}, nil)
-	setAdmissionMandates(t, f.store, workID, []string{"spec:one"})
-	version := readWorkVersion(t, f.store, workID)
-	failure := planAdmissionFailure(t, planMandateVerdictAdmission(t, f, workID), KindMissingEvidence)
-	if failure.Detail != `spec mandate law "spec:one" is not bound` || failure.RecoveryAction != "run bind_evidence on a frontier step before record_verdict" {
-		t.Fatalf("existing-law refusal=%+v", failure)
-	}
-	request := planAdmissionRequest(workID, "bind_evidence", version, f.owner, json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"spec:one"}`))
-	if err := planAdmissionPreflight(t, f.store, request); err != nil {
-		t.Fatalf("binding recovery preflight: %v", err)
-	}
-	if err := planAdmissionDispatch(t, f.store, request); err != nil {
-		t.Fatalf("binding recovery dispatch: %v", err)
-	}
-	if err := planMandateVerdictAdmission(t, f, workID); err != nil {
-		t.Fatalf("bound law still blocks shared admission: %v", err)
-	}
-	bound, err := workflowEvidenceReferenceBound(t.Context(), f.store.db, workID, "spec:one", "test")
-	if err != nil || !bound || readWorkVersion(t, f.store, workID) <= version {
-		t.Fatalf("binding not recorded: bound=%v err=%v", bound, err)
-	}
-}
-
 func TestWorkflowPlanMandateRecoveryPropagatesQueryFailure(t *testing.T) {
 	const workID = "plan-mandate-query-failure"
 	f := planMandateRecoveryFixture(t, workID, true)

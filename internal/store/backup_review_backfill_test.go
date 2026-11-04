@@ -67,10 +67,9 @@ func TestBackupOlderSchemaWithAcceptedImplementationJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer restoredDB.Close()
-	state, err := readWorkflowReviewFacts(ctx, restoredDB, "work-backup")
-	want := ReviewCandidate{ProjectID: "project-backup", Commit: strings.Repeat("a", 40), Tree: strings.Repeat("b", 40)}
-	if err != nil || state.Candidate == nil || *state.Candidate != want {
-		t.Fatalf("restored candidate = %+v, %v; want %+v", state, err, want)
+	var title string
+	if err := restoredDB.QueryRowContext(ctx, `SELECT title FROM work_items WHERE id='work-backup'`).Scan(&title); err != nil || title != "Backup witness" {
+		t.Fatalf("restored work = %q, %v", title, err)
 	}
 	if got := manifestMax(t, source); got != 135 {
 		t.Fatalf("backup migrated live source to %d", got)

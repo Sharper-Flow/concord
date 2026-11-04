@@ -75,14 +75,12 @@ func completeReviewedPlanForTerminalTest(t *testing.T, s *Store, workID string, 
 		}
 		step := frontier[0]
 		payload := map[string]any{"step_id": step.ID, "note": "completed for delivery"}
+		action := "complete_step"
 		if step.Reviewed {
-			state, err := loadWorkflowReviewState(t.Context(), s.db, workID)
-			if err != nil || state.Accepted == nil || state.Candidate == nil {
-				t.Fatalf("read accepted review: %+v, %v", state, err)
-			}
-			payload["reviewer"], payload["result"], payload["commit"], payload["link"] = "concord-review", "pass", state.Candidate.Commit, state.Accepted.ReportRef
+			action = "record_review"
+			payload["reviewer"], payload["result"], payload["commit"], payload["link"] = "concord-review", "pass", "commit:fixture", "https://example.com/review"
 		}
-		if err := runVerdictActionAs(t, s, workID, "complete_step", mustJSONValue(payload), 0, actor); err != nil {
+		if err := runVerdictActionAs(t, s, workID, action, mustJSONValue(payload), 0, actor); err != nil {
 			t.Fatalf("complete step %s: %v", step.ID, err)
 		}
 	}

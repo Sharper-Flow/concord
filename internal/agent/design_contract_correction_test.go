@@ -23,7 +23,6 @@ func TestContractReassessmentPreservesDesignAndRefusesInlineReplacement(t *testi
 	spineOK(t, dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_plan", "fields": plan, "idempotency_key": "design-plan"})}, env))
 	version = workOneVersion(t, s)
 	fields := workflowContractFieldsForSeededRegistry(t, s)
-	fields["required_evidence"] = []string{"verification"}
 	fields["route_conventions"] = []string{}
 	fields["rigor_class"] = "prototype_internal"
 	approved, _ := approvedWorkflowContract(t, s, service, env, version, fields, "design-correction-approve")

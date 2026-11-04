@@ -103,12 +103,8 @@ func TestWorkflowPlanCoordinatorConfirmationAndCompletion(t *testing.T) {
 	if err := approvalPlanAction(t, f, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:terminal","delivery_state":"asserted"}`)); err != nil {
 		t.Fatalf("record delivery before completion: %v", err)
 	}
-	review, err := loadWorkflowReviewState(t.Context(), f.store.db, workID)
-	if err != nil || review.Accepted == nil || review.Candidate == nil {
-		t.Fatalf("read accepted Review: %+v, %v", review, err)
-	}
-	attempt := mustJSONValue(map[string]any{"step_id": "review", "note": "reviewed", "reviewer": "concord-review", "result": "pass", "commit": review.Candidate.Commit, "link": review.Accepted.ReportRef})
-	if err := approvalPlanAction(t, f, "complete_step", attempt); err != nil {
+	attempt := mustJSONValue(map[string]any{"step_id": "review", "note": "reviewed", "reviewer": "concord-review", "result": "pass", "commit": "commit:fixture", "link": "https://example.com/review"})
+	if err := approvalPlanAction(t, f, "record_review", attempt); err != nil {
 		t.Fatalf("reviewed plan step: %v", err)
 	}
 	if err := approvalPlanAction(t, f, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`)); err != nil {
@@ -122,16 +118,6 @@ func TestWorkflowPlanCoordinatorConfirmationAndCompletion(t *testing.T) {
 		t.Fatal("completion changed the actor or fabricated approval evidence")
 	}
 	assertNoFoldGuardRows(t, f.store)
-}
-
-func TestWorkflowPlanConfirmationRequiresCriterionProof(t *testing.T) {
-	const workID = "plan-confirmation-no-verdict"
-	f := qBuildAcceptance(t, workID, "", false)
-	version, events := readWorkVersion(t, f.store, workID), approvalEventCount(t, f.store, workID)
-	request := planAdmissionRequest(workID, "confirm_premise", version, f.owner, json.RawMessage(`{}`))
-	_ = planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindMissingEvidence)
-	_ = planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindMissingEvidence)
-	assertApprovalRefusalUnchanged(t, f, version, events)
 }
 
 // The fold owns the same two terminal facts the admission checks: a raw

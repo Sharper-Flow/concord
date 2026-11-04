@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -24,8 +25,7 @@ func TestPre148ReviewFindingSourceSurvivesNativeCutover(t *testing.T) {
 			oracle := AcceptanceOracle{Owners: []OracleOwner{{OwnerID: "owner:original", DomainID: "domain:original"}}, Cases: []OracleCase{}, Controls: []OracleControl{}}
 			digest := "sha256:" + strings.Repeat("a", 64)
 			retirementUpgradeExec(t, db, `INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,project_scope,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,digest,state,recorded_at,recorded_payload) VALUES('work:review','job:original',1,1,'Retain original finding','Source retained','project:original','[]','[]','[]','[]','[]',?,'recorded',?,?)`, digest, retirementUpgradeTime, workflowJSON(map[string]any{"project_scope": "project:original", "acceptance_oracle": oracle}))
-			report := reviewBlockFixture()
-			report.Findings[0].Oracle = &ReviewOracleFinding{Classification: OracleClassificationDeliveryBlocker, OwnerID: test.owner, ControlIDs: []string{"control:original"}}
+			report := &legacyReviewBlock{Findings: []legacyReviewFinding{{FindingID: "finding:original", Status: "open", Oracle: &legacyReviewOracleFinding{Classification: "delivery_blocker", OwnerID: test.owner, ControlIDs: []string{"control:original"}}}}}
 			job := map[string]any{"job_id": "job:original", "revision": 1, "digest": "sha256:" + strings.Repeat(test.digest, 64)}
 			if test.digest == "" {
 				job = nil
@@ -60,18 +60,18 @@ func TestPre148ReviewFindingSourceSurvivesNativeCutover(t *testing.T) {
 			if err := db.QueryRow(`SELECT count(*) FROM worker_oracle_finding_facts`).Scan(&legacyCount); err != nil || legacyCount != 0 {
 				t.Fatalf("fixture unexpectedly relies on retired finding aggregate: %d, %v", legacyCount, err)
 			}
-			retained, err := readWorkflowReviewFacts(t.Context(), db, "work:review")
-			if err != nil || retained.Accepted == nil || len(retained.Findings) != 1 {
+			var raw string
+			if err := db.QueryRow(`SELECT state FROM workflow_review_state WHERE work_id=?`, "work:review").Scan(&raw); err != nil {
+				t.Fatal(err)
+			}
+			var retained legacyReviewState
+			if err := json.Unmarshal([]byte(raw), &retained); err != nil || retained.Accepted == nil || len(retained.Findings) != 1 {
 				t.Fatalf("historical accepted Review=%+v err=%v", retained, err)
 			}
 			if err := Migrate(t.Context(), db); err != nil {
 				t.Fatal(err)
 			}
-			after, err := readWorkflowReviewFacts(t.Context(), db, "work:review")
-			if err != nil || !reflect.DeepEqual(retained.Candidate, after.Candidate) || !reflect.DeepEqual(retained.Accepted, after.Accepted) || !reflect.DeepEqual(retained.Findings, after.Findings) {
-				t.Fatalf("native cutover changed retained Review: before=%+v after=%+v err=%v", retained, after, err)
-			}
-			source := after.findingSources[report.Findings[0].FindingID]
+			source := retained.Sources[report.Findings[0].FindingID]
 			if source.CanonicalID != "finding:3:1" || source.DomainID != test.domain || source.EventID != "review-source:3" || source.Kind != "worker.completed" || source.Seq != 3 || source.Ordinal != 1 {
 				t.Fatalf("original finding source lost: %+v; want Domain %s", source, test.domain)
 			}

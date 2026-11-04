@@ -27,11 +27,7 @@ CD-0012 D1–D11 (outcome contract).
 [CD-0229](CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md)
 amends this record's D1 (plain Go workflow definitions);
 [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
-amends D9 (law-change approval follows CD-0243 D2);
-[CD-0235](CD-0235-the-independent-verdict-is-the-outcome-strength-evaluation.md)
-amends D4's strength comparison paragraph (the independent verdict is the outcome
-strength evaluation); [CD-0236](CD-0236-vacuity-is-judged-at-review.md) amends
-outcome-contract acceptance criterion 3 (vacuity is judged at review).
+amends D9 (law-change approval follows CD-0243 D2).
 **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D7, D11, D13, D14
 **Issue:** <https://github.com/Sharper-Flow/concord/issues/28>
 
@@ -39,8 +35,8 @@ outcome-contract acceptance criterion 3 (vacuity is judged at review).
 
 CD-0006 D3 commits Concord to a full workflow coordination engine with native-effect
 preservation. CD-0008 commits to current-state resumption, expected versions, immutable
-evidence binding and schema evolution. CD-0012 commits a three-part outcome contract
-and a strengthening-only delivery comparison; Review reports one disposition and Main records its acceptance ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
+evidence binding and schema evolution. CD-0012 retains the contract premise and
+independent Review ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
 The accepted law already defines:
 
@@ -53,8 +49,6 @@ The accepted law already defines:
 
 The accepted law does **not** yet:
 
-- name a predicate representation that two workflows can compare for strength;
-- name the actor identity that records a review disposition; review reports one disposition and Main records its acceptance ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls))
 - name the durable shape a workflow instance, definition, contract, evidence, and
   checkpoint occupy in SQLite;
 - name how each workflow mutation persists; the store keeps current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))
@@ -79,50 +73,6 @@ Workflow state lives as current rows on the work item, written in one transactio
 ### D3. Each mutation writes current rows
 
 The engine records each mutation as a current row in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-
-### D4. Outcome predicates use a closed union, never an expression language
-
-A required end-state is one of four closed predicate kinds:
-
-```text
-exists:
-  surface: <ground-truth authority>
-  subjects: [<stable ids>]
-
-absent:
-  surface: <ground-truth authority>
-  subjects: [<stable ids>]
-  distinguish_from:
-    - archived
-    - relocated
-    - renamed
-    - disabled
-
-outcome:
-  allowed:
-    - <workflow outcome token>
-
-check:
-  check_ref: <registered evaluator>
-  immutable_subject_ref: <commit/artifact/version>
-  expected_result: <closed value>
-```
-
-Research uses `outcome` with `no_change`, `resolved`, or `report_recorded`.
-Change, fix and removal use only `exists`, `absent`, and `check`
-([CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution)).
-
-An `outcome` token is never self-satisfying. The contract's `required_evidence` must
-name the artifact that makes the token true, and premise confirmation refuses
-until that evidence is bound. Research reports do not enact binding Product law.
-
-Predicates are not nested. Strength comparison is mechanical for `exists`/`absent`
-(set-theoretic inclusion), trivial for `outcome` (membership in allowed set), and
-delegated to a registered `check` evaluator for behavioral checks. A `check` whose
-evaluator returns `incomparable_with_approved=true` does not qualify as passing
-proof at verification (CD-0012 D4).
-
-The registry is closed. Adding a new predicate kind requires an accepted CD-NNNN.
 
 ### D5. Actor identity is the existing authenticated tuple
 
@@ -161,14 +111,13 @@ The approved contract carries:
 
 - `spec_mandate` — exact spec IDs the change is authorized to modify
   (CD-0006 D10);
-- `outcome_kind` + `outcome_payload` — the CD-0012 outcome;
-- `required_evidence` — closed evidence kinds required at premise confirmation;
+- `legislative_subjects` — subjects whose inclusion establishes legislative
+  standing under CD-0159 D2;
 - `route_conventions` — declared conventions that determine the operative verb
   (CD-0012 D8);
 - `rigor_class` — the maturity × audience composition from CD-0006 D4.
 
-Modifications to specs outside the mandate route back to planning under CD-0006 D10;
-modifications to the outcome fail authorship fencing under CD-0012 D7.
+Modifications to specs outside the mandate route back to planning under CD-0006 D10.
 
 ### D10. Completion commits terminal state atomically
 
@@ -179,15 +128,9 @@ authenticated actor, idempotency and atomic rollback remain required under
 [workflow-engine contract §7](../specs/workflow-engine-contract.md#7-ordered-completion-gate).
 Completion requires the active contract's recorded premise confirmation and, for
 change, fix and removal, a recorded delivery assertion. It does not re-evaluate
-evidence, candidate scope or mandates, criterion proof, verdicts, current Review,
-staleness or commit drift.
-Their verification-stage obligations remain with their owning actions.
+evidence, candidate scope or mandates, Review or commit drift.
+Required plan steps and applicable approvals retain their own obligations.
 
-CD-0012 D3 requires a *typed* outcome mismatch rather than a generic error. The
-closed error enum in `contracts/agent-tool-envelope.schema.json` carries
-`outcome_mismatch`, paired with recovery `contact_operator`, for proof or a
-delivery that answers a criterion the active contract does not approve. A weaker or
-incomparable delivery has no criterion proof at verification (CD-0235 D1).
 D11 and TS8 govern changes to the current generated surface.
 
 ### D11. Workflow actions use the current generated agent surface
@@ -212,20 +155,19 @@ earlier operator decision. The field describes the contract; operator approval
 remains conversational under CD-0243. Every workflow records a valid contract
 and premise confirmation.
 
-Contract updates, correction, verdicts and acceptance records preserve evidence,
-version, source, scope, current-step and recovery checks at their owning actions.
+Contract updates and corrections preserve version, source, scope,
+current-step and recovery checks at their owning actions.
 Completion follows D10. Recovery follows CD-0243 D5: the operator may approve
 explained irreversible loss, and customer-data loss remains reserved.
 Contract updates grant no legislative authority or automatic overlap exemption.
 The ordinary update and its version-addressed provenance follow
 [workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates).
 
-Independent native Task Review inspects the accumulated solution and reports
-one disposition that Main records against its exact subject and dependencies
-without Concord attesting a subagent producer ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
+Independent native Task Review inspects the accumulated solution. Main records
+its reviewed-step result, reviewer, commit and actual link without Concord
+attesting a subagent producer ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
-A premise confirmation records the authenticated coordinator after
-acceptance deliverables pass. A UI/UX change requiring
+A premise confirmation records the authenticated coordinator. A UI/UX change requiring
 approval retains the operator's review and acceptance at the current contract
 version; contract approval alone does not satisfy that acceptance. Minor
 corrections introducing no new design or interaction need no fresh UI/UX
@@ -265,17 +207,14 @@ advancement is not accepted.
 discriminants, including `outcome_mismatch`, governed before go-live by
 [CD-0042 D3–D4](CD-0042-pre-go-live-single-path.md#d3-superseded-development-paths-are-deleted).
 
-### D12. Staleness is structurally evaluated at consequential boundaries
+### D12. Proof remains bound to its subject
 
-A record is stale exactly when a revision, candidate, or input digest it depended on has changed, checked at the stage's admission ([CD-0242 D7](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d7-a-revision-invalidates-only-what-depended-on-it)).
+A record about an earlier subject does not authorize a changed one. Applicable
+proof stays bound to the candidate and inputs it judges (CD-0242 D7).
 
 ### D13. Recovery restores a verified snapshot
 
 Recovery uses verified snapshots with tested restore and reconciles current rows with Git, worktrees, artifacts, and external effects ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-
-### D14. Workflow types bind to concrete predicate forms
-
-The picked type determines the allowed predicate forms under [CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution). Adding a type or a default predicate form requires an accepted decision.
 
 ## Required conformance scenarios
 
@@ -283,34 +222,11 @@ The implementation acceptance suite must exercise:
 
 ### Outcome contract (CD-0012 binding)
 
-1. Capture accepts a work item without a required end-state; planning records one
-   beside the spec mandate; verification uses the recorded approved contract.
-2. A change contract with no required end-state is refused at planning.
-3. A change contract whose required end-state already holds before execution is
-   refused as vacuous.
-4. A weaker delivery gains no passing criterion proof at verification.
-5. A stronger delivery is accepted.
-6. An absence end-state is satisfied by removal; relocation is refused.
-7. Candidate-set revision records current rows in one transaction and leaves
-   premise + end-state byte-identical.
-8. A premise revision uses the ordinary record update and preserves earlier
-   version-addressed content and evidence.
-9. An in-place write to an earlier version's required end-state is refused.
-10. Mid-execution discovery outside the approved end-state forward-links as successor
-    work and does not close the current item.
-11. A complete contract update appends the next retained version atomically,
-    without resetting the step; current criteria and candidate still need valid proof.
-12. The executing agent cannot author, replace, or disable its own end-state check.
-13. Review's corrective edits are accepted without further review, and Main's
-    recorded acceptance of the review disposition, not a distinct verdict actor,
-    completes the item.
-14. A delivery route relying on an undeclared convention is refused at approval.
-15. The lowest maturity × audience band still requires an approved contract; only
-    proof depth differs.
-16. Research `no_change` satisfies the required end-state.
-18. Premise confirmation requires the recorded verdict and required evidence.
-19. Terminal metadata, lifecycle change, reported delivery links and the completion
-    record commit in one transaction.
+1. A premise revision appends a retained version without changing earlier content.
+2. Work discovered outside the approved scope forward-links as successor work.
+3. Independent Review may correct its candidate; final review requires a clean pass.
+4. Premise confirmation and the reported delivery remain terminal facts.
+5. Terminal metadata, lifecycle change and delivery links commit atomically.
 
 ### Current-state mutations (CD-0008 binding)
 
@@ -344,11 +260,8 @@ The implementation acceptance suite must exercise:
 
 ### Staleness
 
-40. A stage record is stale at its admission exactly when a revision, candidate,
-    or input digest it depended on has changed; a record whose depended-on
-    digests are unchanged is not stale.
-41. Staleness is evaluated only at the consequential boundary's admission; no
-    polling, timer daemon, or heuristic re-scan exists.
+Proof remains bound to its recorded subject. A changed candidate needs applicable
+proof; no polling, timer daemon, or heuristic re-scan substitutes for it.
 
 ### Retained CD-0008 obligations
 
@@ -375,7 +288,6 @@ This decision produces:
   decision to concrete Go/storage/agent/CLI behavior;
 - `contracts/workflow-step-templates.v1.json` — closed template contract for
   the workflow types and the stored step plan schema;
-- `contracts/workflow-outcome.schema.json` — closed outcome payload schema;
 - `.concord/scenarios/workflow-engine.v1.json` — the conformance scenario carriers listed
   above;
 - typed Go support for the four workflow types and their plans;
@@ -386,13 +298,7 @@ This decision produces:
 ### Positive
 
 - The workflow engine gains one state authority (current rows and finite
-  snapshots), one template authority (one canonical contract), one predicate
-  authority (closed union), and one
-  evaluator authority (authenticated tuple) — no second authority is introduced.
-- CD-0012 deferred items 1–5 collapse to design choices this decision makes
-  concrete; the remaining open items (cross-item outcome attribution, downstream
-  notice class for end-state revisions) become behavior of the impact-propagation
-  machinery.
+  snapshots) and one template authority (one canonical contract).
 - The four workflow types use per-item plans through `workflow_action`, backed by
   ordinary atomic versioned mutations, operations and effect receipts.
 - Recovery uses verified snapshots with tested restore; workflow state lives only as current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
@@ -410,21 +316,14 @@ This decision produces:
 
 - A separate workflow DSL is rejected.
 - Workflow state outside current rows is rejected (CD-0242 D2).
-- A second evaluator authority (e.g. a human-only completion bypass) is rejected.
 - A timer-driven or polling-driven staleness resolver is rejected.
-- A change to the closed predicate union without an accepted CD-NNNN is rejected.
 
 ## Deferred to implementation design
 
 1. **Per-family action enumeration.** Each family's available action list and the
    exact step graph are implementation work, not part of this decision. The
    decision fixes the shape; the implementation fills it.
-2. **Registered check catalog.** The `check` predicate's evaluator catalog is
-   implementation work; each registered check must bind an immutable subject
-   authority and a closed expected-result set.
-3. **Ground-truth surface registry.** The set of valid `surface` values for
-   `exists`/`absent` predicates and their authorities is implementation work.
-4. **Audience commitment storage.** Runtime audience band storage and the
+2. **Audience commitment storage.** Runtime audience band storage and the
    effective-rigor evaluation routine are implementation work.
 
 ## Supersession and amendments
@@ -434,12 +333,10 @@ This decision extends:
 - CD-0006 D3 by fixing the engine's mechanical shape and definition authority;
 - CD-0008 D2, D4, D5, D6 by fixing workflow checkpoint and state recording,
   evidence binding and recovery;
-- CD-0012 by collapsing deferred items 1–4 into concrete predicate, actor, and
-  state-recording choices;
+- CD-0012 through actor and state-recording choices;
 - CD-0005 by keeping `workflow_action` reserved until the engine ships.
 
-It does **not** weaken any accepted decision. A revised definition form, predicate
-kind, or actor tuple requires an accepted CD-NNNN.
+It does not waive other accepted decisions.
 
 ## Relationship to existing artifacts
 
@@ -450,14 +347,14 @@ Retry and correction use the owning action under
 Record-only replacements hold step and lifecycle. Actor, version, idempotency,
 evidence, subject and approval checks remain required. Native execution stays
 host-owned under CD-0242 D6; it supplies no delivery or verdict authority.
-Verification and premise confirmation retain their own proof requirements;
+Review and premise confirmation retain their own requirements;
 completion follows D10.
 
 | Artifact | Change |
 |---|---|
 | `.concord/law/decisions/CD-0006-concord-root-product-policy.md` | Extends D3, D4, D5, D10 with engine-shaped definitions, rigor, and spec mandate enforcement. |
 | `.concord/law/decisions/CD-0008-concord-mechanism-hardening.md` | Extends D2, D4, D5, D6 with workflow evidence, checkpoints, conditions, and recovery. |
-| `.concord/law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md` | Collapses deferred items 1–4; preserves the contract, Main-recorded review verdicts, and strengthening-only comparison. |
+| `.concord/law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md` | Preserves the contract premise, independent Review and forward-linking. |
 | `.concord/law/decisions/CD-0005-concord-agent-tool-surface.md` | Keeps `workflow_action` reserved; promotes `WorkflowActionAvailable` to registered-engine check. |
 | `.concord/docs/workflows.md` | Resolves the live-family shape with a single machine contract. |
 | `.concord/law/constitution/priorities.md` | New decision-tracker row; no priority reordering. |

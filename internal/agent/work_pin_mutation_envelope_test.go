@@ -10,7 +10,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func TestMutationEnvelopePublishesActiveContractObligations(t *testing.T) {
+func TestMutationEnvelopePublishesCompleteWorkPin(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
@@ -41,9 +41,15 @@ func TestMutationEnvelopePublishesActiveContractObligations(t *testing.T) {
 	if err := json.Unmarshal(response.Result, &payload); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"review", "verification"}
-	if len(payload.WorkPins) != 1 || payload.WorkPins[0].WorkID != "work-1" || payload.WorkPins[0].WorkflowType != "change" || payload.WorkPins[0].Obligations == nil || !reflect.DeepEqual(*payload.WorkPins[0].Obligations, want) {
-		t.Fatalf("mutation work pins=%+v, want change plan and obligations %v", payload.WorkPins, want)
+	if err := agentcontract.ValidateOperationPayload("concord_work_transition", "workflow_action", response.Result, true); err != nil {
+		t.Fatalf("mutation result did not satisfy its published schema: %v", err)
+	}
+	current, err := store.ReadWorkPin(ctx, s, "work-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.WorkPins) != 1 || payload.WorkPins[0].WorkID != "work-1" || payload.WorkPins[0].WorkflowType != "change" || !reflect.DeepEqual(payload.WorkPins[0], current) {
+		t.Fatalf("mutation work pins=%+v, want current complete work pin %+v", payload.WorkPins, current)
 	}
 	var raw struct {
 		WorkPins []map[string]json.RawMessage `json:"work_pins"`
@@ -51,8 +57,16 @@ func TestMutationEnvelopePublishesActiveContractObligations(t *testing.T) {
 	if err := json.Unmarshal(response.Result, &raw); err != nil || len(raw.WorkPins) != 1 {
 		t.Fatalf("raw mutation work pins=%+v err=%v", raw.WorkPins, err)
 	}
-	var obligations []string
-	if err := json.Unmarshal(raw.WorkPins[0]["obligations"], &obligations); err != nil || !reflect.DeepEqual(obligations, want) {
-		t.Fatalf("raw obligations=%v err=%v, want %v", obligations, err, want)
+	encoded, err := json.Marshal(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expected map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &expected); err != nil || !reflect.DeepEqual(raw.WorkPins[0], expected) {
+		t.Fatalf("wire work pin=%v, want complete current pin %s: %v", raw.WorkPins[0], encoded, err)
+	}
+	var count int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM workflow_contract_verification_obligations WHERE work_id='work-1' AND contract_version=1 AND law_id='law:fixture' AND obligation_id IN ('review','verification')`).Scan(&count); err != nil || count != 2 {
+		t.Fatalf("active contract verification obligations count=%d, want 2: %v", count, err)
 	}
 }

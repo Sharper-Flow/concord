@@ -117,7 +117,7 @@ into another record.
 A declaration refuses without effects if its resulting shared view exceeds the bounds. The
 check runs once in the live action transaction that records the declaration. A
 declaration that restores a bounded view remains admissible.
-Recorded Review outcomes, blockers, acceptance and bound verification reports remain retained even
+Recorded Review outcomes, blockers and bound evidence remain retained even
 when the resulting view exceeds its read bound.
 
 When the shared reader refuses with `limit_exceeded`, the work pin and continuity

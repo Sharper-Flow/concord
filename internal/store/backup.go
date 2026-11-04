@@ -250,6 +250,12 @@ func RestoreBackup(ctx context.Context, source, destination string) (RestoreRepo
 		return RestoreReport{}, wrapFailure(KindUnavailable, "restore_backup", "restore was cancelled before it started", true, "retry the restore", err)
 	}
 	var researchExport string
+	if manifest.SchemaVersion < 185 {
+		ctx, err = prepareOutcomeRetirementSnapshot(ctx, source)
+		if err != nil {
+			return RestoreReport{}, err
+		}
+	}
 	if manifest.SchemaVersion < 184 {
 		ctx, researchExport, err = prepareResearchRetirement(ctx, source, destination+".research")
 		if err != nil {
@@ -332,6 +338,9 @@ func verifyBackupRestore(ctx context.Context, snapshot string, manifest BackupMa
 		return err
 	}
 	ctx = context.WithValue(ctx, researchRetirementProofKey{}, proof)
+	if manifest.SchemaVersion < 185 {
+		ctx = context.WithValue(ctx, outcomeRetirementProofKey{}, outcomeRetirementProof{snapshot: snapshot, checksum: manifest.DBChecksum, digest: manifest.currentStateDigest})
+	}
 	_, err = verifyRestoredStage(ctx, stage, manifest)
 	return err
 }

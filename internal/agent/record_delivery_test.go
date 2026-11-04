@@ -114,13 +114,10 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 		t.Fatalf("cross_context_boundary moved the step to %q", step)
 	}
 
-	f.review(t, "ready_for_final_proof", f.proof)
 	delivery := map[string]any{"delivery_artifact": "artifact:repair", "delivery_state": "asserted"}
-	if step := currentStep(); step != "implement" {
-		t.Fatalf("ready Review moved the step to %q, want implement", step)
-	}
-	report := f.read(t).Pinned.Pin.Review.Accepted.ReportRef
-	if err := try("complete_step", map[string]any{"step_id": "implement", "note": "Implementation reviewed.", "reviewer": "concord-review", "result": "pass", "commit": f.proofCommit, "link": report}); err != nil {
+	// complete_step keeps its reviewed-attempt interface beside record_review;
+	// both write the same step attempt.
+	if err := try("complete_step", map[string]any{"step_id": "implement", "note": "Implementation reviewed.", "reviewer": "concord-review", "result": "pass", "commit": gitRun(t, f.path, "rev-parse", "HEAD"), "link": "https://example.com/review/repair"}); err != nil {
 		t.Fatalf("complete implement refused: %v", err)
 	}
 	if step := currentStep(); step != "review" {

@@ -105,6 +105,9 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 	if m.Name == "native_task_cutover" {
 		return applyNativeTaskCutover(ctx, q, m.SQL)
 	}
+	if m.Name == "outcome_contract_retirement" {
+		return retireOutcomeContract(ctx, q, m.SQL)
+	}
 	if err := beforeMigrationSQL(ctx, q, m); err != nil {
 		return err
 	}
@@ -8775,6 +8778,15 @@ DROP TABLE active_research_revisions;
 DROP TABLE active_research_packs;
 `,
 	},
+	{
+		Version: 185, Name: "outcome_contract_retirement", Breaking: true, FoldMaintained: "advance",
+		SQL: `
+ALTER TABLE workflow_contracts ADD COLUMN legislative_subjects TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(legislative_subjects) AND json_type(legislative_subjects)='array');
+DROP TABLE workflow_contract_predicates;
+DROP TABLE workflow_predicate_verdicts;
+DROP TABLE workflow_review_state;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any
@@ -9163,6 +9175,19 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, lawIndex
 		}
 		if err := preflightRemoteLocatorUpgrade(ctx, tx); err != nil {
 			return rollback(err)
+		}
+		var manifestExists bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='schema_migrations')`).Scan(&manifestExists); err != nil {
+			return rollback(err)
+		}
+		if manifestExists {
+			applied, err := legacyManifestMigrations(ctx, tx)
+			if err != nil {
+				return rollback(err)
+			}
+			if err := verifyOutcomeRetirementSnapshot(ctx, tx, scope, applied); err != nil {
+				return rollback(err)
+			}
 		}
 	}
 	if _, err := tx.ExecContext(ctx, schemaManifestDDL); err != nil {

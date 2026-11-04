@@ -109,7 +109,8 @@ export const work_transition = recordingTool("concord_work_transition", {
   args:{request:tool.schema.strictObject({operation:tool.schema.literal("workflow_action"), input:tool.schema.strictObject({
     work_id:tool.schema.string(), expected_version:tool.schema.number().int(), action_id:tool.schema.string().optional(),
     idempotency_key:tool.schema.string().optional(),
-    fields:tool.schema.strictObject({review:tool.schema.unknown()}).optional(),
+    fields:tool.schema.strictObject({step_id:tool.schema.string(), note:tool.schema.string(), reviewer:tool.schema.string(),
+      result:tool.schema.enum(["pass", "fixed"]), commit:tool.schema.string(), link:tool.schema.string()}).optional(),
   })})},
   async execute(args) {
     const data = args.request.input;

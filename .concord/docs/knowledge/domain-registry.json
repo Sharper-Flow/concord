@@ -36,7 +36,7 @@
       "domain_id": "workflow-engine",
       "name": "Workflow engine",
       "parent_domain_id": "product-root:concord",
-      "purpose": "Owns work lifecycle: workflow types and their contracts, workflow actions and transitions, completion predicates and verdicts, evidence binding, architecture overlap resolution, and terminal-state law.",
+      "purpose": "Owns work lifecycle: workflow types and their contracts, workflow actions and transitions, reviewed steps, evidence binding, architecture overlap resolution, and terminal-state law.",
       "status": "current"
     },
     {
@@ -50,8 +50,7 @@
         },
         {
           "governing_law_ids": [
-            "CD-0013",
-            "CD-0023"
+            "CD-0013"
           ],
           "kind": "depends_on",
           "target_domain_id": "workflow-engine"
@@ -85,7 +84,7 @@
           "target_domain_id": "durable-authority"
         },
         {
-          "governing_law_ids": ["CD-0013", "CD-0023"],
+          "governing_law_ids": ["CD-0013"],
           "kind": "depends_on",
           "target_domain_id": "workflow-engine"
         },

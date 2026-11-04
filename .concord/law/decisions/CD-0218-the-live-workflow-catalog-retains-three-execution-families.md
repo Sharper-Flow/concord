@@ -43,7 +43,7 @@ Research conclusions do not enact binding Product law.
 
 ## Decision
 
-The store keeps current state, finite snapshots, and attribution facts ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Review inspects the accumulated solution, verifies the corrected candidate, and reports one disposition that Main records; completion and premise confirmation use their real authorized coordinators ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)). No retired family gains a new authoring route.
+The store keeps current state, finite snapshots, and attribution facts ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Review inspects the accumulated solution and verifies the corrected candidate; Main records the reviewed step and actual link. Completion and premise confirmation use their authorized coordinators. No retired family gains a new authoring route.
 
 ### D1. Four workflow types own new execution
 
@@ -55,12 +55,6 @@ workflow-engine-contract §2). There is no per-kind family default: the work
 kind stays capture metadata and the driving agent picks the type. No
 compatibility alias maps a retired family ref to a type. A retired ref refuses
 before any capture or contract write.
-
-Implementation and break-fix allow exists, absent, and check predicates. Research
-allows outcome predicates with no_change, resolved, and report_recorded tokens.
-New authoring does not admit a decision_record or accepted_decision,
-insufficient_evidence, remediated, completed, or operator_defined outcome token.
-The independent insufficient_evidence verdict remains a truthful refusal.
 
 Research reports about architecture or analysis do not enact legislation.
 Product-law changes require the existing operator-approved Git law route.
@@ -77,9 +71,8 @@ steps; insertion never removes or rewrites a required step.
 ### D3. Ordinary writes preserve authority and proof
 
 Attributed contract recording and premise confirmation remain separate from
-independent verdict evidence. Immutable job revisions, attempts, subject commits,
-packet/report identities, actor/session/Project/worktree bindings, and
-operation/idempotency keys remain executable admission facts.
+independent Review. Actor/session/Project/worktree bindings and operation and
+idempotency keys remain executable admission facts.
 
 One admission owner serves ordinary writes and closure; admission validates current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Host preauthorization remains at its own
 boundaries. No caller-supplied echo replaces dispatch-owned provenance.
@@ -89,13 +82,12 @@ Contract content changes use the ordinary record update in
 preserving version-addressed provenance and current-proof validity without a
 step reset. Existing records are replaced through their ordinary actions under
 [workflow-engine contract §4.2](../specs/workflow-engine-contract.md#42-ordinary-retry-and-record-correction),
-without moving the current step or lifecycle. Evidence binding can discharge an unverdicted
-active predicate through its existing owner. No acceptance-step bypass, stale
-design heuristic, or weakened evidence-kind check replaces that route.
+without moving the current step or lifecycle. Ordinary evidence binding remains
+available with its producer watermark.
 
 Law and registry changes require no contract re-pin; they reconcile through
-Git under CD-0036. An ordinary update supplies no fresh Review, healthy verdict
-or authority to bypass completion requirements.
+Git under CD-0036. An ordinary update supplies no fresh Review or authority to
+bypass completion requirements.
 
 Exact shared-write conflicts, exclusive step claims, host-owned session/worktree
 placement under CD-0088 D1,
@@ -117,7 +109,7 @@ The cutover is one documented migration that inventories what survives, preserve
 The candidate supersession set names records, not clause-level runtime overrides.
 Before publication, carry every unaffected obligation from those records into
 the accepted successor text or an approved coherent successor set. Retain the
-bootstrap/platform floor, explicit end-state and independent-verdict rules,
+bootstrap/platform floor and independent Review,
 vocabulary ownership, the identities active work
 needs, mandatory backlog search and CD-0198's evidence and approval floors.
 Native Task remains host-owned; workflow result recording keeps scope and

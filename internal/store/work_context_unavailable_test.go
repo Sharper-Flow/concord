@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -234,13 +235,8 @@ func TestWorkContextUnavailableSurvivesReopen(t *testing.T) {
 	}
 }
 
-// Native custody behind the strict refusal: the mandatory native evidence at
-// both qualified overflow edges refuses the strict read with the detail
-// naming its own bound — the whole view past the 64 KiB canonical JSON bound
-// inside the 32-slot bound at 24 blockers, the shared slot count itself at
-// 33 — while the open ranked lineage holds exactly the seeded blockers, the
-// attributed native runs stay readable, and compound reads leave every event
-// row byte-identical.
+// Overflow must retain ordinary findings and native runs while compound reads
+// report unavailability without changing event receipts.
 func TestWorkContextUnavailableNativeCustody(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -257,7 +253,7 @@ func TestWorkContextUnavailableNativeCustody(t *testing.T) {
 			s := fixture.store
 			seedMandatoryNativeEvidence(t, fixture, tc.blockers)
 			id := "run:native-custody-" + fmt.Sprint(tc.blockers)
-			event, err := buildNativeRunEvent(id, fixture.workID, fixture.owner, time.Unix(1, 0).UTC(), readWorkVersion(t, s, fixture.workID), "start", id, "routing://fixture", "started", "https://evidence.invalid/runs/fixture", nativeDigest([]byte(id)), "2026-10-10T00:00:00Z")
+			event, err := buildNativeRunEvent(id, fixture.workID, fixture.owner, time.Unix(1, 0).UTC(), readWorkVersion(t, s, fixture.workID), "start", id, "routing://fixture", "started", "https://evidence.invalid/runs/fixture", fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(id))), "2026-10-10T00:00:00Z")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -269,12 +265,8 @@ func TestWorkContextUnavailableNativeCustody(t *testing.T) {
 			if view != nil || !errors.As(viewErr, &failure) || failure.Kind != KindLimitExceeded || !strings.Contains(failure.Detail, tc.detail) || strings.Contains(failure.Detail, tc.otherDetail) {
 				t.Fatalf("blocker-%d strict read = (%+v, %v), want %s naming %q and not %q", tc.blockers, view, viewErr, KindLimitExceeded, tc.detail, tc.otherDetail)
 			}
-			lineage, lineageErr := readWorkflowReviewFacts(context.Background(), s.DatabaseForTesting(), fixture.workID)
-			if lineageErr != nil {
-				t.Fatal(lineageErr)
-			}
-			if got := len(lineage.Findings); got != tc.blockers {
-				t.Fatalf("open ranked lineage = %d, want the seeded %d blockers", got, tc.blockers)
+			if got := countRows(t, s, "work_context_findings"); got != tc.blockers {
+				t.Fatalf("retained context findings = %d, want %d", got, tc.blockers)
 			}
 			continuity, continuityErr := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: fixture.workID})
 			if continuityErr != nil {

@@ -1207,46 +1207,13 @@ func (r runtime) q6(base agentcontract.Envelope, q store.Q6Result) (agentcontrac
 			}
 			return out
 		}(), "items": []workSummary{}}
-		verdict, redacted, verdictErr := r.verdictFor(q.Work.ID)
-		if verdictErr != nil {
-			return failureEnvelope(base, verdictErr), nil
-		}
-		if verdict != nil && !redacted {
-			payload["verdict"] = verdict
-		}
-		envelope, err := r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
-		if err != nil {
-			return envelope, err
-		}
-		if redacted {
-			envelope.Omissions = append(envelope.Omissions, agentcontract.Notice{Kind: "redacted", SourceID: q.Work.ID, Details: map[string]any{"field": "verdict", "reason": "executing_actor_verdict_read_scope"}})
-		}
-		return envelope, nil
+		return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
 	}
 	items := []workSummary{}
 	for _, w := range q.Items {
 		items = append(items, summary(w))
 	}
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"items": items})
-}
-
-// verdictFor applies CD-0023: the recorded verdict of a terminal work item
-// is readable by every authority except the actor recorded as executing it.
-// redacted is true when the reader is that executing actor; the omission is
-// the caller's to record.
-func (r runtime) verdictFor(workID string) (*store.WorkflowReadVerdict, bool, error) {
-	verdict, err := store.ReadWorkflowVerdict(context.Background(), r.Store, workID)
-	if err != nil || verdict == nil {
-		return nil, false, err
-	}
-	agentRef, sessionRef, found, err := store.WorkflowExecutingIdentity(context.Background(), r.Store, workID)
-	if err != nil || !found {
-		return verdict, false, err
-	}
-	if r.Reader.AgentRef == agentRef && r.Reader.SessionRef == sessionRef {
-		return nil, true, nil
-	}
-	return verdict, false, nil
 }
 
 func (r runtime) q7(base agentcontract.Envelope, q store.Q7Result) (agentcontract.Envelope, error) {

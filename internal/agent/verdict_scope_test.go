@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	cryptorand "crypto/rand"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -15,18 +14,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
-// CD-0023: the recorded acceptance verdict of a terminal work item is
-// readable by every authority except the actor recorded as executing it.
-
-func verdictScopeFixture(t *testing.T) (*store.Store, *Service, ed25519.PrivateKey, ed25519.PrivateKey) {
-	t.Helper()
-	s, service, execKey, otherKey, _ := workflowEngineFixture(t, "")
-	execRef := store.DeriveWorkflowActorRef("human-1", "client-session-exec-aaaa", "agent-exec", "session-exec-aaaa")
-	seedVerdictEvent(t, s.DatabaseForTesting(), execRef)
-	return s, service, execKey, otherKey
-}
-
-// workflowEngineFixture seeds the verdict-scope workflow with an optional
+// workflowEngineFixture seeds a workflow with an optional
 // contract premise override and returns an engine closure that applies
 // further workflow actions at the work item's current version. The premise
 // override exists so the bound round-trip test can approve the legal maximum.
@@ -115,9 +103,7 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 	engine("complete_step", map[string]any{"step_id": "diagnose", "note": "Diagnosis recorded."})
 	engine("record_plan", agentPlanFields())
 	contractFields := workflowContractFieldsForSeededRegistry(t, s)
-	contractFields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "absent", "outcome_payload": map[string]any{
-		"kind": "absent", "surface": "behavior:defect", "subjects": []string{"work-1"}, "distinguish_from": []string{"disabled"},
-	}}}
+	contractFields["legislative_subjects"] = []string{"work-1"}
 	if premise != "" {
 		contractFields["premise"] = premise
 	}
@@ -125,136 +111,4 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 	engine("complete_step", map[string]any{"step_id": "plan", "note": "Plan approved."})
 	engine("start_execution", map[string]any{})
 	return s, service, keys[0], keys[1], engine
-}
-
-// seedVerdictEvent seeds the current terminal verdict without driving the
-// workflow's unrelated completion gates.
-func seedVerdictEvent(t *testing.T, db *sql.DB, execActorRef string) {
-	t.Helper()
-	payload, _ := json.Marshal(map[string]any{
-		"work_id": "work-1", "terminal_state": "completed", "final_verdict_kind": "ok",
-		"verdict_actor_ref": execActorRef, "premise_confirmed": true, "evidence_count": 1,
-		"changed_refs_digest": "sha256:" + strings.Repeat("1", 64), "impact_verdict": "non-breaking",
-	})
-	tx, err := db.BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	agentSeedReceipt(t, tx, "verdict-seed-completed", store.WorkflowCompleted, "work-1", execActorRef, 1, payload)
-	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1);
-		UPDATE workflow_instances SET
-			completion_payload=?,
-			completion_occurred_at='2026-08-14T00:01:00Z'
-		WHERE work_id='work-1';
-		DELETE FROM write_guard`, string(payload)); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func scopeReadFor(t *testing.T, s *store.Store, service *Service, privateKey ed25519.PrivateKey, nonce, session, agent, client string) agentcontract.Envelope {
-	t.Helper()
-	ctx := context.Background()
-	_ = privateKey
-	_ = nonce
-	grant, err := service.Authorize(ctx, Invocation{ClientRef: client, PrincipalRef: "human-1", SessionRef: session, AgentRef: agent, Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_browse", Operation: "scope", Input: json.RawMessage(`{"product_id":"product-1","work_id":"work-1"}`)}, mutationEnvelope(grant, scopeVersion))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return response
-}
-
-func TestExecutingSessionCannotReadItsOwnVerdict(t *testing.T) {
-	t.Parallel()
-	s, service, execKey, _ := verdictScopeFixture(t)
-
-	response := scopeReadFor(t, s, service, execKey, "verdict-exec-nonce-0001", "session-exec-aaaa", "agent-exec", "client-session-exec-aaaa")
-	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("executing-session read failed: %+v", response.Error)
-	}
-	raw, _ := json.Marshal(response.Result)
-	if strings.Contains(string(raw), "final_verdict_kind") || strings.Contains(string(raw), "verdict_actor_ref") {
-		t.Fatalf("executing session must not read the verdict, got: %s", raw)
-	}
-	redacted := false
-	for _, omission := range response.Omissions {
-		if omission.Kind == "redacted" && omission.SourceID == "work-1" {
-			redacted = true
-		}
-	}
-	if !redacted {
-		t.Fatalf("expected an explicit redaction omission, got %+v", response.Omissions)
-	}
-}
-
-func TestDistinctSessionReadsTheVerdict(t *testing.T) {
-	t.Parallel()
-	s, service, _, otherKey := verdictScopeFixture(t)
-
-	response := scopeReadFor(t, s, service, otherKey, "verdict-distinct-nonce-2", "session-other-bbbb", "agent-other", "client-session-other-bbbb")
-	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("distinct-session read failed: %+v", response.Error)
-	}
-	raw, _ := json.Marshal(response.Result)
-	if !strings.Contains(string(raw), `"final_verdict_kind":"ok"`) {
-		t.Fatalf("distinct session must read the verdict, got: %s", raw)
-	}
-	if len(response.Omissions) != 0 {
-		t.Fatalf("distinct session must not see redaction, got %+v", response.Omissions)
-	}
-}
-
-func TestVerdictReadScopeRequiresBothRecordedIdentityRefs(t *testing.T) {
-	for _, tc := range []struct {
-		name, agent, session string
-	}{
-		{"different session", "agent-exec", "session-other-bbbb"},
-		{"different agent", "agent-other", "session-exec-aaaa"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			s, service, execKey, _ := verdictScopeFixture(t)
-			response := scopeReadFor(t, s, service, execKey, "verdict-tuple-nonce", tc.session, tc.agent, "client-session-exec-aaaa")
-			if response.Outcome != agentcontract.OutcomeOK {
-				t.Fatalf("scope read failed: %+v", response.Error)
-			}
-			raw, err := json.Marshal(response.Result)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(string(raw), `"final_verdict_kind":"ok"`) || len(response.Omissions) != 0 {
-				t.Fatalf("only the exact recorded agent+session tuple may be redacted: result=%s omissions=%+v", raw, response.Omissions)
-			}
-		})
-	}
-}
-
-func TestVerdictReadScopeDoesNotInferMissingInstanceIdentity(t *testing.T) {
-	s, service, execKey, _ := verdictScopeFixture(t)
-	// Isolate the read owner from the execution writer: the selection event
-	// remains, but no current executing tuple is recorded on the instance.
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET execution_actor_ref=NULL WHERE work_id='work-1'; DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-	response := scopeReadFor(t, s, service, execKey, "verdict-current-identity", "session-exec-aaaa", "agent-exec", "client-session-exec-aaaa")
-	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("scope read failed: %+v", response.Error)
-	}
-	raw, err := json.Marshal(response.Result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(raw), `"final_verdict_kind":"ok"`) || len(response.Omissions) != 0 {
-		t.Fatalf("scope read inferred an identity outside the current instance: result=%s omissions=%+v", raw, response.Omissions)
-	}
 }

@@ -11,7 +11,7 @@ import (
 
 func TestWorkContextMandatoryBounds(t *testing.T) {
 	t.Parallel()
-	t.Run("mandatory-only view one byte over includes framing in recovery", func(t *testing.T) {
+	t.Run("context view one byte over includes framing in recovery", func(t *testing.T) {
 		buildView := func(commonRefLen, firstRefLen int) WorkContextView {
 			view := WorkContextView{SourceEventFrontier: 7}
 			for i := 0; i < 24; i++ {
@@ -26,9 +26,9 @@ func TestWorkContextMandatoryBounds(t *testing.T) {
 					refs = append(refs, fmt.Sprintf("evidence:boundary-%02d-%s", i, strings.Repeat("e", length-21)))
 				}
 				view.Findings = append(view.Findings, WorkContextFindingView{
-					FindingID: fmt.Sprintf("finding:%d:0", 100+i), Statement: fmt.Sprintf("the mandatory boundary blocker %02d carries its sized detail ", i) + strings.Repeat("m", 455),
+					FindingID: fmt.Sprintf("finding:%d:0", 100+i), Statement: fmt.Sprintf("the retained context finding %02d carries its sized detail ", i) + strings.Repeat("m", 455),
 					SubjectRef: "owner:repair", EvidenceRefs: refs, DomainID: workContextTestChild, Origin: WorkContextOriginWorkerReport,
-					Status: WorkContextFindingStatusOpen, SourceEventID: "source:event", SourceEventSeq: int64(100 + i), Ordinal: 0, SourceKind: WorkContextSourceKindReviewFinding,
+					Status: WorkContextFindingStatusReported, SourceEventID: "source:event", SourceEventSeq: int64(100 + i), Ordinal: 0,
 				})
 			}
 			return view
@@ -54,9 +54,7 @@ func TestWorkContextMandatoryBounds(t *testing.T) {
 		}
 		unframed := len(mustJSONValue(view.SubjectCommit))
 		for _, finding := range view.Findings {
-			if finding.Status == WorkContextFindingStatusOpen {
-				unframed += len(mustJSONValue(finding))
-			}
+			unframed += len(mustJSONValue(finding))
 		}
 		if unframed > WorkContextCombinedMaxBytes {
 			t.Fatalf("unframed mandatory sum = %d bytes, want at most 65536 so the framing bytes carry the overflow", unframed)
@@ -69,7 +67,7 @@ func TestWorkContextMandatoryBounds(t *testing.T) {
 			t.Fatalf("boundary recovery text = %q, want the mandatory contract update or stop route explicitly conditional", recovery)
 		}
 	})
-	t.Run("33 open ranked slots name mandatory recovery", func(t *testing.T) {
+	t.Run("33 ordinary finding slots refuse without truncation", func(t *testing.T) {
 		fixture := seedWorkContextFixture(t, "ctx-count-mandatory-regression")
 		defer fixture.store.Close()
 		seedMandatoryNativeEvidence(t, fixture, 33)
@@ -82,7 +80,7 @@ func TestWorkContextMandatoryBounds(t *testing.T) {
 			t.Fatalf("33-open-slot refusal remedy = %q, want the mandatory contract update or stop route", failure.RecoveryAction)
 		}
 	})
-	t.Run("mandatory native overflow retains evidence and refuses atomically", func(t *testing.T) {
+	t.Run("context overflow retains findings and refuses atomically", func(t *testing.T) {
 		fixture := seedWorkContextFixture(t, "ctx-mandatory-native-regression")
 		defer fixture.store.Close()
 		seedMandatoryNativeEvidence(t, fixture, 24)
@@ -91,10 +89,7 @@ func TestWorkContextMandatoryBounds(t *testing.T) {
 		if readErr == nil || !errors.As(readErr, &failure) || failure.Kind != KindLimitExceeded || !strings.Contains(failure.RecoveryAction, "revise_intent with complete contract content") {
 			t.Fatalf("mandatory-only read = %v, want %s naming the ordinary contract update or stop remedy", readErr, KindLimitExceeded)
 		}
-		var retained string
-		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT state FROM workflow_review_state WHERE work_id=?`, fixture.workID).Scan(&retained); err != nil {
-			t.Fatal(err)
-		}
+		retained := countRows(t, fixture.store, "work_context_findings")
 		version, events := readWorkVersion(t, fixture.store, fixture.workID), declarationEventCount(t, fixture)
 		before := outsideRepairDatabaseSnapshot(t, fixture.store)
 		declErr := fixture.recordWorkContext(t, map[string]any{"finding_refs": []string{}, "context_findings": []map[string]any{}})
@@ -110,12 +105,8 @@ func TestWorkContextMandatoryBounds(t *testing.T) {
 		if outsideRepairDatabaseSnapshot(t, fixture.store) != before {
 			t.Fatal("refused declaration changed durable state")
 		}
-		var after string
-		if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT state FROM workflow_review_state WHERE work_id=?`, fixture.workID).Scan(&after); err != nil {
-			t.Fatal(err)
-		}
-		if after != retained {
-			t.Fatal("retained review state lost its recorded bytes")
+		if after := countRows(t, fixture.store, "work_context_findings"); after != retained {
+			t.Fatal("retained context findings changed")
 		}
 	})
 }

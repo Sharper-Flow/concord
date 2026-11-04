@@ -199,19 +199,6 @@ func workflowPlanActionAdmissionTx(ctx context.Context, tx *sql.Tx, workID strin
 	if err != nil {
 		return action, plan, step, err
 	}
-	if err := guardPlanMandate(ctx, tx, workID, plan, step, action); err != nil {
-		return action, plan, step, err
-	}
-	if actionID == "bind_evidence" {
-		if err := guardEvidenceBindingContract(ctx, tx, workID); err != nil {
-			return action, plan, step, err
-		}
-	}
-	if actionID == "record_delivery" {
-		if err := guardPlanDelivery(ctx, tx, workID); err != nil {
-			return action, plan, step, err
-		}
-	}
 	return action, plan, step, nil
 }
 
@@ -233,9 +220,6 @@ func workflowPlanTerminalAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 			records["record_delivery"] = exists
 		}
 		if owner != "" && records["record_delivery"] {
-			if err := guardPlanDelivery(ctx, tx, workID); err != nil {
-				return owner, err
-			}
 			return owner, nil
 		}
 	}
@@ -245,14 +229,17 @@ func workflowPlanTerminalAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, actionID, step string, plan *WorkflowStepPlan, fields map[string]json.RawMessage) (string, error) {
 	switch actionID {
 	case "record_intake", "record_clarify", "pick_type", "insert_step":
-	case "complete_step":
+	case "complete_step", "record_review":
 		step, _ = workflowFieldString(fields, "step_id")
 		if plan == nil {
 			return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow has no plan", false, "pick a workflow type")
 		}
 		item, found := stepByID(plan.Steps, step)
-		if !found || (len(item.Attempts) == 0 && !workflowPlanAllowsAction(plan, step, actionID)) {
+		if !found || (len(item.Attempts) == 0 && !workflowPlanAllowsAction(plan, step, "complete_step")) {
 			return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "step is not a frontier or completed step", false, "reread the workflow plan")
+		}
+		if actionID == "record_review" && !item.Reviewed {
+			return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "step does not require review", false, "record review only for a reviewed step")
 		}
 	case "complete":
 		if plan == nil || !WorkflowStepPlanComplete(*plan) {
@@ -299,9 +286,6 @@ func workflowActionPreflightCoreTx(ctx context.Context, tx *sql.Tx, request Work
 	if request.StepID != "" && request.StepID != currentStep {
 		return action, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action request does not match the current plan step", false, "reread the workflow plan")
 	}
-	if err := validateWorkflowReviewRequest(ctx, tx, request.WorkID, request.ActionID, request.Payload); err != nil {
-		return action, err
-	}
 	if err := ValidateWorkflowActor(request.Actor); err != nil {
 		return action, err
 	}
@@ -318,22 +302,6 @@ func workflowActionPreflightCoreTx(ctx context.Context, tx *sql.Tx, request Work
 			return action, err
 		}
 		if _, err := workflowConfirmationAdmissionTx(ctx, tx, plan.Type, request.WorkID, actor, fields); err != nil {
-			return action, err
-		}
-	}
-	if request.ActionID == "record_verdict" {
-		fields, err := workflowActionObject(request.Payload)
-		if err != nil {
-			return action, err
-		}
-		actor, err := WorkflowActorRef(request.Actor)
-		if err != nil {
-			return action, err
-		}
-		if _, err := workflowVerdictReceiptAssociations(ctx, tx, request.WorkID, actor, fields); err != nil {
-			return action, err
-		}
-		if err := guardLateCriterionAssociations(ctx, tx, request.WorkID, plan.Type, currentStep, fields); err != nil {
 			return action, err
 		}
 	}

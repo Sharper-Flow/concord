@@ -75,7 +75,6 @@ func unavailableWorkPin(view, marker any) (map[string]any, error) {
 		"workflow_type": "fix", "step": "planning",
 		"driving_sessions": []any{},
 		"watermark":        "seq:1", "next_valid_intents": []any{},
-		"obligations": []any{},
 	}
 	setUnavailableMember(pin, "work_context", view)
 	setUnavailableMember(pin, "work_context_unavailable", marker)

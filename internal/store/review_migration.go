@@ -2,10 +2,163 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 )
+
+func legacyReviewDigest(value any) string {
+	raw, _ := json.Marshal(value)
+	canonical, err := canonicalJSON(raw)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(canonical)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+type legacyReviewCandidate struct {
+	ProjectID string `json:"project_id"`
+	Commit    string `json:"commit"`
+	Tree      string `json:"tree"`
+}
+
+type legacyReviewCriterion struct {
+	PredicateID   string `json:"predicate_id"`
+	ContentDigest string `json:"content_digest"`
+}
+
+type legacyReviewDependencies struct {
+	Criteria                  []legacyReviewCriterion `json:"criteria"`
+	ArchitectureDigest        string                  `json:"architecture_digest,omitempty"`
+	ArchitectureNotApplicable bool                    `json:"architecture_not_applicable"`
+}
+
+type legacyReviewAssessment struct {
+	PredicateID string   `json:"predicate_id"`
+	Assessment  string   `json:"assessment"`
+	ReceiptRefs []string `json:"receipt_refs"`
+}
+
+type legacyReviewObligation struct {
+	ObligationID string `json:"obligation_id"`
+	OwnerRef     string `json:"owner_ref"`
+	SubjectRef   string `json:"subject_ref"`
+	InputDigest  string `json:"input_digest"`
+	NeededProof  string `json:"needed_proof"`
+}
+
+type legacyReviewFinding struct {
+	FindingID    string                     `json:"finding_id"`
+	Severity     string                     `json:"severity"`
+	Confidence   string                     `json:"confidence"`
+	Detail       string                     `json:"detail"`
+	InScope      bool                       `json:"in_scope"`
+	Blocking     bool                       `json:"blocking"`
+	Status       string                     `json:"status"`
+	EvidenceRefs []string                   `json:"evidence_refs"`
+	ClosureRefs  []string                   `json:"closure_refs"`
+	Oracle       *legacyReviewOracleFinding `json:"oracle,omitempty"`
+}
+
+type legacyReviewOracleFinding struct {
+	Classification     string                         `json:"classification"`
+	OwnerID            string                         `json:"owner_id,omitempty"`
+	FailureFamily      string                         `json:"failure_family,omitempty"`
+	PredicateIDs       []string                       `json:"predicate_ids,omitempty"`
+	LawBindings        []legacyReviewOracleLawBinding `json:"law_bindings,omitempty"`
+	CaseIDs            []string                       `json:"case_ids,omitempty"`
+	ControlIDs         []string                       `json:"control_ids,omitempty"`
+	EvidenceRefs       []string                       `json:"evidence_refs,omitempty"`
+	EntryPoint         string                         `json:"entry_point,omitempty"`
+	ContinuesFindingID string                         `json:"continues_finding_id,omitempty"`
+	VariantOf          string                         `json:"variant_of,omitempty"`
+}
+
+type legacyReviewOracleLawSource struct {
+	Kind        string `json:"kind"`
+	SourceID    string `json:"source_id"`
+	LawID       string `json:"law_id"`
+	ContentHash string `json:"content_hash"`
+}
+
+type legacyReviewOracleLawBinding struct {
+	Source legacyReviewOracleLawSource `json:"source"`
+	Clause string                      `json:"clause"`
+}
+
+type legacyReviewResolution struct {
+	FindingID     string   `json:"finding_id"`
+	EvidenceRefs  []string `json:"evidence_refs,omitempty"`
+	JudgedCaseIDs []string `json:"judged_case_ids,omitempty"`
+}
+
+type legacyReviewBlock struct {
+	Disposition          string                   `json:"disposition"`
+	InputCandidate       legacyReviewCandidate    `json:"input_candidate"`
+	OutputCandidate      legacyReviewCandidate    `json:"output_candidate"`
+	Dependencies         legacyReviewDependencies `json:"dependencies"`
+	Assessments          []legacyReviewAssessment `json:"assessments"`
+	Findings             []legacyReviewFinding    `json:"findings"`
+	RemainingObligations []legacyReviewObligation `json:"remaining_obligations"`
+	ResolvedFindings     []legacyReviewResolution `json:"resolved_findings,omitempty"`
+}
+
+type legacyAcceptedReview struct {
+	ReportRef    string            `json:"report_ref"`
+	ReportDigest string            `json:"report_digest"`
+	ActorRef     string            `json:"actor_ref"`
+	Report       legacyReviewBlock `json:"report"`
+}
+
+type legacyReviewFindingSource struct {
+	CanonicalID string            `json:"canonical_id"`
+	DomainID    string            `json:"domain_id"`
+	EventID     string            `json:"event_id"`
+	Kind        string            `json:"kind"`
+	Seq         int64             `json:"seq"`
+	Ordinal     int               `json:"ordinal"`
+	Oracle      *AcceptanceOracle `json:"oracle,omitempty"`
+}
+
+type legacyReviewState struct {
+	Candidate *legacyReviewCandidate               `json:"candidate"`
+	Accepted  *legacyAcceptedReview                `json:"accepted"`
+	Findings  []legacyReviewFinding                `json:"findings"`
+	Sources   map[string]legacyReviewFindingSource `json:"finding_sources,omitempty"`
+}
+
+func legacyReviewFindingMap(state legacyReviewState) map[string]legacyReviewFinding {
+	findings := map[string]legacyReviewFinding{}
+	for _, finding := range state.Findings {
+		findings[finding.FindingID] = finding
+	}
+	return findings
+}
+
+func setLegacyReviewFindings(state *legacyReviewState, findings map[string]legacyReviewFinding) {
+	ids := make([]string, 0, len(findings))
+	for id := range findings {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	state.Findings = make([]legacyReviewFinding, 0, len(ids))
+	for _, id := range ids {
+		state.Findings = append(state.Findings, findings[id])
+	}
+}
+
+func writeLegacyReviewFacts(ctx context.Context, q migrationRunner, work string, state legacyReviewState) error {
+	raw, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	_, err = q.ExecContext(ctx, `INSERT INTO workflow_review_state(work_id,state) VALUES(?,?) ON CONFLICT(work_id) DO UPDATE SET state=excluded.state`, work, string(raw))
+	return err
+}
 
 type legacyReviewJob struct {
 	JobID    string `json:"job_id"`
@@ -18,17 +171,17 @@ type legacyReviewAuthorization struct {
 	Job        *legacyReviewJob `json:"worker_job"`
 	Retained   *struct {
 		State struct {
-			Candidate ReviewCandidate `json:"candidate"`
+			Candidate legacyReviewCandidate `json:"candidate"`
 		} `json:"state"`
-		Input ReviewCandidate `json:"input"`
+		Input legacyReviewCandidate `json:"input"`
 	} `json:"worker_retained_review"`
 }
 
 type legacyReviewResult struct {
-	Attempt         string            `json:"attempt_id"`
-	Job             *legacyReviewJob  `json:"worker_job"`
-	ContextFindings []json.RawMessage `json:"context_findings"`
-	Review          *ReviewBlock      `json:"review"`
+	Attempt         string             `json:"attempt_id"`
+	Job             *legacyReviewJob   `json:"worker_job"`
+	ContextFindings []json.RawMessage  `json:"context_findings"`
+	Review          *legacyReviewBlock `json:"review"`
 	Observed        *struct {
 		Commit string `json:"commit"`
 		Tree   string `json:"tree"`
@@ -66,7 +219,7 @@ func backfillWorkflowReviewFacts(ctx context.Context, q migrationRunner) error {
 	if err != nil {
 		return err
 	}
-	states := map[string]WorkflowReviewState{}
+	states := map[string]legacyReviewState{}
 	auths := map[string]legacyReviewAuthorization{}
 	results := map[string]legacyReviewResult{}
 	refs := map[string]string{}
@@ -110,7 +263,7 @@ func backfillWorkflowReviewFacts(ctx context.Context, q migrationRunner) error {
 		states[r.work] = state
 	}
 	for work, state := range states {
-		if err := writeWorkflowReviewFacts(ctx, q, work, state); err != nil {
+		if err := writeLegacyReviewFacts(ctx, q, work, state); err != nil {
 			return err
 		}
 	}
@@ -119,7 +272,7 @@ func backfillWorkflowReviewFacts(ctx context.Context, q migrationRunner) error {
 
 // Preserve minting coordinates and the exact recorded job's owner inventory
 // before the log retires. Later reports cannot reassign a retained local ID.
-func retainLegacyReviewSources(ctx context.Context, q migrationRunner, work string, state *WorkflowReviewState, result legacyReviewResult, ref string, seq int64) error {
+func retainLegacyReviewSources(ctx context.Context, q migrationRunner, work string, state *legacyReviewState, result legacyReviewResult, ref string, seq int64) error {
 	if result.Review == nil || len(result.Review.Findings) == 0 {
 		return nil
 	}
@@ -127,15 +280,15 @@ func retainLegacyReviewSources(ctx context.Context, q migrationRunner, work stri
 	if err != nil {
 		return err
 	}
-	if state.findingSources == nil {
-		state.findingSources = map[string]reviewFindingSource{}
+	if state.Sources == nil {
+		state.Sources = map[string]legacyReviewFindingSource{}
 	}
 	for index, finding := range result.Review.Findings {
-		if _, retained := state.findingSources[finding.FindingID]; retained || finding.FindingID == "" {
+		if _, retained := state.Sources[finding.FindingID]; retained || finding.FindingID == "" {
 			continue
 		}
 		ordinal := len(result.ContextFindings) + index
-		source := reviewFindingSource{CanonicalID: fmt.Sprintf("finding:%d:%d", seq, ordinal), DomainID: "unresolved", EventID: ref, Kind: "worker.completed", Seq: seq, Ordinal: ordinal, Oracle: oracle}
+		source := legacyReviewFindingSource{CanonicalID: fmt.Sprintf("finding:%d:%d", seq, ordinal), DomainID: "unresolved", EventID: ref, Kind: "worker.completed", Seq: seq, Ordinal: ordinal, Oracle: oracle}
 		if finding.Oracle != nil && oracle != nil {
 			for _, owner := range oracle.Owners {
 				if owner.OwnerID == finding.Oracle.OwnerID && owner.DomainID != "" {
@@ -143,7 +296,7 @@ func retainLegacyReviewSources(ctx context.Context, q migrationRunner, work stri
 				}
 			}
 		}
-		state.findingSources[finding.FindingID] = source
+		state.Sources[finding.FindingID] = source
 	}
 	return nil
 }
@@ -167,9 +320,9 @@ func legacyReviewSourceOracle(ctx context.Context, q queryer, work string, job *
 	return oracle, nil
 }
 
-func acceptLegacyReviewResult(ctx context.Context, q migrationRunner, work, actor string, state *WorkflowReviewState, result legacyReviewResult, auth legacyReviewAuthorization, ref string) error {
+func acceptLegacyReviewResult(ctx context.Context, q migrationRunner, work, actor string, state *legacyReviewState, result legacyReviewResult, auth legacyReviewAuthorization, ref string) error {
 	if result.Review != nil && auth.Capability == "review" {
-		findings := workflowReviewFindingMap(*state)
+		findings := legacyReviewFindingMap(*state)
 		// Historical acceptance only applies proposed closures. Observation
 		// already merged findings; accepting an older report cannot reopen them.
 		for _, finding := range result.Review.Findings {
@@ -179,11 +332,10 @@ func acceptLegacyReviewResult(ctx context.Context, q migrationRunner, work, acto
 				findings[finding.FindingID] = previous
 			}
 		}
-		state.Accepted = &WorkflowAcceptedReview{ReportRef: ref, ReportDigest: reviewDigest(result.Review), ActorRef: actor, Report: *result.Review}
+		state.Accepted = &legacyAcceptedReview{ReportRef: ref, ReportDigest: legacyReviewDigest(result.Review), ActorRef: actor, Report: *result.Review}
 		candidate := result.Review.OutputCandidate
 		state.Candidate = &candidate
-		state.DependenciesCurrent = state.Dependencies != nil && sameReviewDependencies(result.Review.Dependencies, *state.Dependencies)
-		setWorkflowReviewFindings(state, findings)
+		setLegacyReviewFindings(state, findings)
 		return nil
 	}
 	if result.Observed == nil || result.Observed.State != "clean" {
@@ -195,18 +347,18 @@ func acceptLegacyReviewResult(ctx context.Context, q migrationRunner, work, acto
 			return err
 		}
 	}
-	state.Candidate = &ReviewCandidate{ProjectID: project, Commit: result.Observed.Commit, Tree: result.Observed.Tree}
+	state.Candidate = &legacyReviewCandidate{ProjectID: project, Commit: result.Observed.Commit, Tree: result.Observed.Tree}
 	return nil
 }
 
 // observeLegacyReviewReport keeps the historical terminal walk: a report on a
 // different input accumulates findings only through its retained base, a
 // terminal never closes a finding, and only acceptance installs a candidate.
-func observeLegacyReviewReport(state *WorkflowReviewState, report *ReviewBlock, retainedBase bool) {
+func observeLegacyReviewReport(state *legacyReviewState, report *legacyReviewBlock, retainedBase bool) {
 	if state.Candidate != nil && *state.Candidate != report.InputCandidate && !retainedBase {
 		return
 	}
-	findings := workflowReviewFindingMap(*state)
+	findings := legacyReviewFindingMap(*state)
 	for _, finding := range report.Findings {
 		if previous, found := findings[finding.FindingID]; found {
 			if previous.Oracle != nil {
@@ -223,5 +375,5 @@ func observeLegacyReviewReport(state *WorkflowReviewState, report *ReviewBlock, 
 		}
 		findings[finding.FindingID] = finding
 	}
-	setWorkflowReviewFindings(state, findings)
+	setLegacyReviewFindings(state, findings)
 }

@@ -51,7 +51,6 @@ const GeneratedWorkflowStepTemplatesDocument = `{
           "actions": [
             "record_review",
             "record_delivery",
-            "record_verdict",
             "confirm_premise",
             "complete_step",
             "complete",
@@ -118,7 +117,6 @@ const GeneratedWorkflowStepTemplatesDocument = `{
           "actions": [
             "record_review",
             "record_delivery",
-            "record_verdict",
             "confirm_premise",
             "complete_step",
             "complete",
@@ -171,7 +169,6 @@ const GeneratedWorkflowStepTemplatesDocument = `{
             "record_conclusion",
             "record_report",
             "link_successor",
-            "record_verdict",
             "confirm_premise",
             "record_review",
             "record_delivery",
@@ -227,7 +224,6 @@ const GeneratedWorkflowStepTemplatesDocument = `{
           "actions": [
             "record_review",
             "record_delivery",
-            "record_verdict",
             "confirm_premise",
             "complete_step",
             "complete",

@@ -174,15 +174,12 @@ subagents, package prompts, or read their results into Concord evidence.
 
 The coordinator obtains independent review through native Task, then records
 `record_review` through `concord_work_transition.workflow_action` with
-`fields: { review: <typed Review report> }`. The workflow checks the current
-candidate, dependencies, findings, and disposition. Concord does not attest
-which subagent produced the review; the coordinator owns that independence claim.
+`fields` containing `step_id`, `note`, `reviewer`, `result`, `commit`, and
+`link`. The link points to the native Task review result. Concord does not
+attest which subagent produced it; the coordinator owns that independence claim.
 The [payload schema](../../contracts/agent-tool-surface-payloads.schema.json)
-owns the typed report.
-
-The coordinator binds a verification report with its source, commit, result,
-and run reference. Independent Review judges whether the evidence is adequate;
-required CI remains external and mandatory.
+owns the reviewed-step shape. Independent Review judges whether evidence is
+adequate; required CI remains external and mandatory.
 
 ### Session scope
 

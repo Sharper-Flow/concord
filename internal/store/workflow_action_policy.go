@@ -121,8 +121,7 @@ type WorkflowPayloadKindMatch struct {
 // field group: the payload completes exactly one group, a field of any
 // other group stays absent, and Forbids names declared fields that cannot
 // ride beside this group even though no group claims them — an
-// unconditional member of the payload under another group (record_verdict's
-// entry-level fields beside the batch, CD-0198 D1). Remedy optionally
+// unconditional member of the payload under another group. Remedy optionally
 // states the refusal remedy for a payload that carries a forbidden field
 // beside the group (CON-412).
 type WorkflowPayloadAlternative struct {
@@ -196,16 +195,6 @@ func ValidReference(value string) bool {
 	return true
 }
 
-func uniqueStrings(values []string) bool {
-	seen := map[string]bool{}
-	for _, value := range values {
-		if seen[value] {
-			return false
-		}
-		seen[value] = true
-	}
-	return true
-}
 func evidenceStrings(values []EvidenceKind) []string {
 	out := make([]string, len(values))
 	for i, value := range values {
@@ -215,9 +204,6 @@ func evidenceStrings(values []EvidenceKind) []string {
 }
 func validEvidence(value EvidenceKind) bool {
 	return slices.Contains(evidenceStrings(workflowEvidenceKinds), string(value))
-}
-func validPredicateKind(value PredicateKind) bool {
-	return value == PredicateExists || value == PredicateAbsent || value == PredicateOutcome || value == PredicateCheck
 }
 
 // validateCrossFieldDeclaration holds the shape of an engine policy's
@@ -349,9 +335,7 @@ func validateEngineCrossFieldDeclarations() error {
 			continue
 		}
 		fields := policy.Payload.Fields
-		if id == "record_verdict" {
-			fields = verdictBatchActionFields()
-		} else if current, err := catalogAction(id); err == nil {
+		if current, err := catalogAction(id); err == nil {
 			fields = current.Payload.Fields
 		}
 		if !validateCrossFieldDeclaration(fields, *policy.CrossField) {
@@ -433,15 +417,6 @@ func actionPolicy(consequence ActionConsequence, mode ActionExecutionMode, shape
 // per-value branches from (CON-412).
 func actionPolicyWithCombinations(policy builtinActionPolicy, combinations ...WorkflowPayloadCombination) builtinActionPolicy {
 	policy.CrossField = &WorkflowActionCrossField{Combinations: combinations}
-	return policy
-}
-
-// actionPolicyWithAlternatives attaches the action's cross-field mutually
-// exclusive field groups to its engine policy declaration: the one typed
-// declaration core validation enforces and the published variants generate
-// their closed per-group branches from (CON-412).
-func actionPolicyWithAlternatives(policy builtinActionPolicy, alternatives ...WorkflowPayloadAlternative) builtinActionPolicy {
-	policy.CrossField = &WorkflowActionCrossField{Alternatives: alternatives}
 	return policy
 }
 
@@ -614,7 +589,6 @@ func evidenceBindingActionFields() []WorkflowPayloadField {
 		actionRefField("producer_id", false),
 		actionRefField("producer_run_ref", false),
 		actionRefField("producer_watermark", false),
-		actionObjectField("verification_report", false, "workflow_verification_report"),
 	}
 }
 
@@ -657,38 +631,24 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionListField("required_route_conventions", false, 0, 16),
 		actionIntegerField("contract_version", false),
 		actionPremiseField(),
-		actionArrayField("outcome_predicates", true, 8, "workflow_action_outcome_predicates"),
-		actionEnumListField("required_evidence", false, 7, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"),
 		actionLawListField("spec_mandate", false),
 		actionLawListField("law_modifies", false),
+		actionListField("legislative_subjects", false, 0, 800),
 		actionEnumField("rigor_class", false, "prototype_internal", "prototype_trusted", "prototype_public", "prototype_safety_critical", "production_internal", "production_trusted", "production_public", "production_safety_critical", "critical_internal", "critical_trusted", "critical_public", "critical_safety_critical"),
 		actionObjectField("architecture_binding", false, "architecture_binding"),
 	),
 	"start_execution":      actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
 	"checkpoint_execution": actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
-	"bind_evidence":        actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped, evidenceBindingActionFields()...),
+	"bind_evidence":        actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped, append(evidenceBindingActionFields()[:5], actionRefField("producer_watermark", true))...),
 	"link_successor": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
 		actionEnumField("relation", false, "forward_link"), actionObjectField("relation_data", false, "workflow_forward_relation"), actionRefField("successor_work_id", true),
-	),
-	"record_verdict": actionPolicyWithAlternatives(actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
-		actionIntegerField("contract_version", false), actionRefField("predicate_id", true),
-		actionEnumField("verdict_kind", false, "ok", "outcome_mismatch", "insufficient_evidence"),
-		actionStringField("verdict_actor_ref", false, 70), actionListField("evaluation_evidence", false, 1, 32),
-		WorkflowPayloadField{Name: "incomparable_with_approved", ValueType: PayloadBoolean},
-	),
-		WorkflowPayloadAlternative{Fields: []string{"predicate_id"}},
-		WorkflowPayloadAlternative{
-			Fields:  []string{"verdicts"},
-			Forbids: []string{"verdict_kind", "evaluation_evidence", "incomparable_with_approved"},
-			Remedy:  "move the field into the verdicts entries",
-		},
 	),
 	"confirm_premise": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
 		actionIntegerField("contract_version", false),
 	),
 	"complete": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventCompletion,
 		actionStringField("evidence_commit", false, 128), actionStringField("current_commit", false, 128),
-		actionObjectField("payload", false, "workflow_completion_payload"), actionStringField("verdict_actor_ref", false, 70),
+		actionObjectField("payload", false, "workflow_completion_payload"),
 		actionEnumField("impact_verdict", true, "breaking", "non-breaking"), actionListField("evidence_refs", false, 1, 32),
 	),
 	"record_reproduction": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric),
@@ -818,7 +778,10 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		WorkflowPayloadField{Name: "note", ValueType: PayloadString, Required: false, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
 	),
 	"record_review": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
-		actionObjectField("review", true, "workflow_review_report"),
+		actionRefField("step_id", true),
+		WorkflowPayloadField{Name: "note", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
+		actionRefField("reviewer", true), actionEnumField("result", true, "pass", "fixed"),
+		actionRefField("commit", true), actionRefField("link", true),
 	),
 }
 

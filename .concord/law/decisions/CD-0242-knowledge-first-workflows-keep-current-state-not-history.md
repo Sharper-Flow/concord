@@ -34,10 +34,6 @@
     },
     {
       "kind": "refines",
-      "target_id": "CD-0197"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0213"
     },
     {
@@ -55,10 +51,6 @@
     {
       "kind": "refines",
       "target_id": "CD-0230"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0235"
     },
     {
       "kind": "refines",
@@ -187,9 +179,7 @@ when an exit is missing, rejected, stale, or recorded by an actor without
 authority, and the refusal names the requirement and an admitted next action.
 
 The core decides structural requirements. A semantic judgment, such as whether
-an architecture meets its criteria, needs an attributed review bound to its
-exact inputs. Schema validity is not semantic adequacy. A common requirement
-has one implementation that every family reuses.
+an architecture meets its criteria, needs an attributed reviewed-step result. Schema validity is not semantic adequacy. A common requirement has one implementation that every family reuses.
 
 ### D4. Families compose shared stages, and rules set the minimum
 
@@ -226,18 +216,13 @@ into one candidate and obtains independent Review through the host's native
 Task. Review inspects the accumulated solution, may commit corrective changes,
 verifies the corrected candidate, and reports.
 
-A review report names its input and output candidates, the criteria and
-architecture revisions it judged, its findings, its remaining obligations, and
-one disposition: continue, correction required, revision required, or ready
-for final proof. Main records the typed report through `record_review`, with
-`review` as its payload and no attempt, lane, or job binding. The coordinator
-owns that claim; Concord checks the current subject and depended-on revisions,
-not which subagent produced it. A new assignment group needs an accepted
-disposition of continue bound to the current integrated candidate; members of
-one group need no Review between them. A late or duplicate result never
-replaces a newer accepted candidate. Leaving execution needs an accepted disposition of ready for final
-proof bound to the current candidate. An open in-scope blocking finding
-blocks both.
+Main records a reviewed attempt through `record_review`, naming `step_id`,
+`note`, `reviewer`, `result`, `commit`, and the actual native Task result `link`.
+It uses the same step-attempt writer as `complete_step`. The linked review
+result accounts for its outputs and findings; Concord does not maintain a
+separate typed review report. An intermediate review may record a fixed result.
+The final review stays open until a clean pass is recorded on the candidate.
+The recorded tuple does not execute Review.
 
 Implement cannot accept its own result. Review's corrective edits belong to its
 pass and need no further review. No separate final evaluator, and no executing
@@ -263,29 +248,16 @@ ownership, and safety checks remain.
 
 ### D7. A revision invalidates only what depended on it
 
-Each exit, review, and proof records the digests of the revisions, candidate,
-and inputs it depended on. It is stale exactly when one of those digests has
-changed. The dependency order is criteria, architecture, plan, assignment, and
-separately candidate to proof. A record about an earlier subject stays true of
-that subject and authorizes nothing about a changed one.
-
-Law and Domain registry freshness hashes are not contract dependencies. Their
-amendment or deletion alone invalidates no exit, Review or proof. A changed
-candidate or actual recorded input still requires the proof applicable to that
-subject; Git reconciliation does not relabel earlier evidence.
-
-The one-time retirement of law pins changes the Review dependency encoding.
-It preserves accepted reports and their receipt bindings without rewriting them
-or retaining a runtime compatibility decoder. Affected active work uses its
-existing same-candidate re-review route. If an affected delivery-family item has no
-admitted re-review route, upgrade refuses without changes; complete or cancel
-that item with the installed release before retrying. This encoding cutover is
-not invalidation by later law drift.
+A review or proof about an earlier subject stays true of that subject and does
+not authorize a changed one. A changed candidate or actual recorded input needs
+the proof applicable to that subject; Git reconciliation does not relabel
+prior evidence. Law or Domain registry amendment or deletion alone does not
+invalidate proof.
 
 A changed requirement first re-evaluates the existing candidate. Code changes
-are required only when the candidate no longer satisfies it. A contract
-version change, a relaunch, or a corrected admission request invalidates
-nothing by itself. No step requires a no-op commit or repeated production.
+are required only when the candidate no longer satisfies it. A contract version
+change, a relaunch, or a corrected admission request invalidates nothing by
+itself. No step requires a no-op commit or repeated production.
 
 A revision within unchanged approved scope has a supported route. A change to
 the approved outcome, a security boundary, or another operator decision needs
@@ -293,29 +265,22 @@ its approval. A revision never erases an unresolved finding.
 
 ### D8. Evidence is captured by its producer and bound to its subject
 
-The coordinator binds a verification report through `bind_evidence`. The report
-contains only `source` (`local` or `required_ci`), full `commit`, `result`
-(`pass` or `fail`), and `run_ref` (1–512 bytes). The authenticated binding
-operation supplies attribution. `immutable_subject_ref` is the evidence
-reference; the report's `commit` names the recorded candidate. No Git or
-GitHub read validates the report. It is an attributed claim, not attestation
-that a test ran.
-
-Consumers compare recorded commits. Failed or unresolved reports and mixed
-recorded candidates cannot qualify. Independent Review judges whether the
-evidence and checks are adequate. Required CI remains external and mandatory.
-Concord does not run, isolate, lease, or retain output of repository tests,
-issue native verification receipts, or establish Review or acceptance freshness
-by live Git observation. The verified snapshot route remains mandatory before
-retiring stored execution data; no old receipt becomes a report by conversion.
+The coordinator binds ordinary evidence through `bind_evidence`, with an
+`immutable_subject_ref` and a required `producer_watermark`. The authenticated
+binding operation supplies attribution. A binding is an attributed claim, not
+attestation that a test ran. Concord does not inspect Git or GitHub to validate
+it, execute repository tests, or issue native verification receipts.
+Independent Review judges the adequacy of evidence. Required CI remains
+external and mandatory. The verified snapshot route remains mandatory before
+retiring stored execution data.
 
 ### D9. Verification owns proof; completion records delivery
 
-Verification, Review, delivery-stage admission and premise confirmation keep
-their required proof, current-candidate bindings and applicable approvals.
-Completion does not recheck criterion proof, current ready Review, blocking
-findings, acceptance evidence or premise confirmation. Its terminal mutation
-follows [workflow-engine contract §7](../specs/workflow-engine-contract.md#7-ordered-completion-gate).
+Required plan steps include independent Review and applicable verification.
+Premise confirmation and delivery remain recorded terminal facts. Completion
+does not recheck criterion proof, Review reports, acceptance evidence or
+premise confirmation. Its terminal mutation follows
+[workflow-engine contract §7](../specs/workflow-engine-contract.md#7-ordered-completion-gate).
 
 A change under rule U needs the operator's approval of a development preview
 of the final candidate before it is pushed to a shared remote or merged. A

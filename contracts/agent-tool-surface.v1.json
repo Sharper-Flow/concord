@@ -43,6 +43,7 @@
       "operations": [
         "concord_work_trace.history",
         "concord_work_trace.continuity",
+        "concord_work_trace.resume",
         "concord_work_trace.mutation_result",
         "concord_work_trace.relations",
         "concord_work_trace.project_retirement",
@@ -260,6 +261,26 @@
       "query_id": "C19.Continuity",
       "input_schema": "#/schemas/work_trace_continuity_input",
       "result_schema": "#/schemas/continuity_read_result",
+      "capability": "product_read",
+      "consequence": "read",
+      "metadata": {
+        "context": "explicit",
+        "idempotency": "request_id",
+        "pagination": "cursor",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_work_trace.resume",
+      "tool": "concord_work_trace",
+      "kind": "read",
+      "query_id": "C19.Resume",
+      "input_schema": "#/schemas/work_trace_resume_input",
+      "result_schema": "#/schemas/resume_read_result",
       "capability": "product_read",
       "consequence": "read",
       "metadata": {
@@ -724,6 +745,18 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/continuity_read_result",
       "closed": true
     },
+    "resume_read_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/resume_read_result",
+      "closed": true
+    },
+    "resume_read_document": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/resume_read_document",
+      "closed": true
+    },
+    "work_trace_resume_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_resume_input",
+      "closed": true
+    },
     "continuity_snapshot": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/continuity_snapshot",
       "closed": true
@@ -953,6 +986,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:9c8751a007de812df995ff7e3ced693ea42940e8a3a2d8e1bcfcc9aae6cf189d",
-  "digest": "sha256:bef1b5c8b4b2eff45fdb7007256b07812e00ad709b4e2b4d6472efef323a5730"
+  "payload_digest": "sha256:181e43e40698d13fdd3ea842fb68f2083dcef71d9c5b30b5d4990ec20228f242",
+  "digest": "sha256:2b787ca1cdfa9dbbc8b734deb7ad2eb43dd885c860ad40830c4dde7e99a9bedf"
 }

@@ -394,6 +394,17 @@ func init() {
 	registerOutputBound("/$defs/workflow_plan_attempt/properties/note/maxLength",
 		goInlineBound("internal/store/workflow_step_plan.go", "validateStepPlanAttemptsShape", "len(attempt.Note)", boundBytes))
 
+	// Resume read (C19.Resume): the read returns the stored plan exactly as
+	// written, so the stored-plan shape guard bounds the steps and, because
+	// the frontier selects among those steps, the derived next-step ids too.
+	// The opening steps are fixed slice literals.
+	registerOutputBound("/$defs/resume_read_document/properties/steps/maxItems",
+		goInlineBound("internal/store/workflow_step_plan.go", "validateStepPlanShape", "len(plan.Steps)", boundItems))
+	registerOutputBound("/$defs/resume_read_document/properties/next_steps/maxItems",
+		goInlineBound("internal/store/workflow_step_plan.go", "validateStepPlanShape", "len(plan.Steps)", boundItems)) // one id per stored step at most
+	registerOutputBound("/$defs/resume_read_document/properties/opening_steps/maxItems",
+		workflowReturnLiteralsMaxItemsBound("internal/store/workflow_resume_read.go", "workflowOpeningSteps"))
+
 	// Design decision: the admitted record_design shape, re-admitted by the
 	// fold with the same numbers (internal/store/workflow_design.go:23-28).
 	registerOutputBound("/$defs/workflow_design_decision/properties/choice/maxLength",
@@ -950,9 +961,13 @@ func workflowAppendChainItemsBound(file, function, target string) outputBoundSou
 	})
 }
 
-// workflowReturnSliceItemsBound counts the elements of the one slice
-// composite literal a named function returns.
-func workflowReturnSliceItemsBound(file, function string) outputBoundSource {
+// workflowReturnLiteralsMaxItemsBound derives the widest slice composite
+// literal among a named function's returns. Every return statement must
+// return exactly one unkeyed slice composite literal: while all outputs are
+// fixed literals, the widest literal is the emitted count. Any other return,
+// or an indexed element that could widen a literal past its element count,
+// fails closed instead of being ignored.
+func workflowReturnLiteralsMaxItemsBound(file, function string) outputBoundSource {
 	return workflowDerived(func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
 		_, fn, err := workflowFunctionDecl(rt, file, function)
 		if err != nil {
@@ -965,18 +980,32 @@ func workflowReturnSliceItemsBound(file, function string) outputBoundSource {
 			}
 			return true
 		})
-		if len(returns) != 1 || len(returns[0].Results) != 1 {
-			return evaluatedBound{}, fmt.Errorf("workflow return slice %s:%s must carry exactly one return with one result", file, function)
+		if len(returns) == 0 {
+			return evaluatedBound{}, fmt.Errorf("workflow return literals %s:%s declares no return statements", file, function)
 		}
-		lit, ok := returns[0].Results[0].(*ast.CompositeLit)
-		if !ok {
-			return evaluatedBound{}, fmt.Errorf("workflow return slice %s:%s returns a non-composite value", file, function)
+		widest := int64(0)
+		for _, returned := range returns {
+			if len(returned.Results) != 1 {
+				return evaluatedBound{}, fmt.Errorf("workflow return literals %s:%s must return exactly one result per return", file, function)
+			}
+			lit, ok := returned.Results[0].(*ast.CompositeLit)
+			if !ok {
+				return evaluatedBound{}, fmt.Errorf("workflow return literals %s:%s returns a non-composite value", file, function)
+			}
+			if array, isArray := lit.Type.(*ast.ArrayType); !isArray || array.Len != nil {
+				return evaluatedBound{}, fmt.Errorf("workflow return literals %s:%s returns a non-slice composite", file, function)
+			}
+			for _, elt := range lit.Elts {
+				if _, keyed := elt.(*ast.KeyValueExpr); keyed {
+					return evaluatedBound{}, fmt.Errorf("workflow return literals %s:%s returns an indexed slice literal", file, function)
+				}
+			}
+			if int64(len(lit.Elts)) > widest {
+				widest = int64(len(lit.Elts))
+			}
 		}
-		if _, ok := lit.Type.(*ast.ArrayType); !ok {
-			return evaluatedBound{}, fmt.Errorf("workflow return slice %s:%s returns a non-slice composite", file, function)
-		}
-		from := fmt.Sprintf("workflow construction %s:%s returns a %d-element slice literal", file, function, len(lit.Elts))
-		return workflowItemsEvaluated(int64(len(lit.Elts)), from), nil
+		from := fmt.Sprintf("workflow construction %s:%s returns one of %d slice literals, widest %d elements", file, function, len(returns), widest)
+		return workflowItemsEvaluated(widest, from), nil
 	})
 }
 

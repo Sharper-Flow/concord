@@ -977,6 +977,7 @@ func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]str
 		"concord_work_trace.history":            `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
 		"concord_work_trace.relations":          `{"work_id":"` + fx.workID + `"}`,
 		"concord_work_trace.continuity":         `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
+		"concord_work_trace.resume":             `{"work_id":"` + fx.workID + `"}`,
 		"concord_work_trace.mutation_result":    `{"source_tool":"concord_work_transition","source_operation":"workflow_action","idempotency_key":"population-checkpoint","digest":"` + mutationDocumentDigest([]byte(record.ResultPayload)) + `"}`,
 		"concord_work_trace.project_retirement": `{"work_id":"` + fx.workID + `"}`,
 		"concord_work_trace.research":           `{"product_id":"prod-alpha","work_id":"` + fx.workID + `","result_version":2,"page":{"cursor":null,"limit":20}}`,
@@ -990,6 +991,18 @@ func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]str
 // fixture seeds specific rows names them here; a producer that drops those rows
 // fails the test even though its payload still validates.
 var readPopulationWitnesses = map[string]func(t *testing.T, result json.RawMessage){
+	"concord_work_trace.resume": func(t *testing.T, result json.RawMessage) {
+		var page struct {
+			Type      string   `json:"type"`
+			NextSteps []string `json:"next_steps"`
+		}
+		if err := json.Unmarshal(result, &page); err != nil {
+			t.Fatal(err)
+		}
+		if page.Type != "change" || len(page.NextSteps) != 1 || page.NextSteps[0] != "plan" {
+			t.Fatalf("resume read lost the seeded plan frontier: %s", result)
+		}
+	},
 	"concord_work_trace.research": func(t *testing.T, result json.RawMessage) {
 		var page researchOwnerReadV2
 		if err := json.Unmarshal(result, &page); err != nil {
@@ -1049,6 +1062,7 @@ var readPopulationRows = map[string][]string{
 	"concord_work_trace.history":            {"entries"},
 	"concord_work_trace.relations":          {"edges"},
 	"concord_work_trace.continuity":         {"boundaries.items"},
+	"concord_work_trace.resume":             {"steps"},
 	"concord_work_trace.project_retirement": {"blockers"},
 	"concord_work_trace.research":           {"packs"},
 	"concord_domain.list":                   {"domains"},

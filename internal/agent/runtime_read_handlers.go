@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/payloadschema"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -312,6 +313,106 @@ func (r runtime) readTraceContinuity(ctx context.Context, base agentcontract.Env
 		return r.continuityProjectionPage(ctx, base, string(binding), limit, continuityProjectionCursor{Version: 2, Work: in.WorkID, BoundaryCursor: inner}, &snapshot)
 	}
 	return response, nil
+}
+
+type resumeInput struct {
+	WorkID string    `json:"work_id"`
+	Page   pageInput `json:"page"`
+	Limit  int       `json:"limit,omitempty"`
+}
+
+type resumeCursor struct {
+	Digest    string `json:"digest"`
+	Watermark int64  `json:"watermark"`
+	Offset    int    `json:"offset"`
+}
+
+func (r runtime) readTraceResume(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
+	var in resumeInput
+	if err := decodeOperationInput(input, &in); err != nil {
+		return base, err
+	}
+	// Like mutation_result, the TS3 §3 limit alias is query identity for the
+	// fragment transport, not a fragment size: pageBinding marshals the whole
+	// input with the cursor cleared, so a continuation that changes the limit
+	// refuses alongside principal, work and document drift.
+	bindingData, _ := json.Marshal([]string{r.Reader.PrincipalRef, pageBinding(in, func(p *resumeInput) { p.Page.Cursor = nil })})
+	binding := string(bindingData)
+	inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), binding, "resume")
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	var cursor resumeCursor
+	if inner != "" {
+		if json.Unmarshal([]byte(inner), &cursor) != nil || !agentcontract.ValidSHA256Proof(cursor.Digest) || cursor.Offset <= 0 {
+			return coreError(base, "invalid_cursor", "resume cursor is malformed", "restart_query", false), nil
+		}
+	}
+	resume, err := store.ReadWorkflowResume(ctx, r.Store, in.WorkID)
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	meta := store.ResultMeta{QueryID: "C19.Resume", ContractVersion: "C19/1.0", ResolvedScope: store.ResolvedScope{WorkID: in.WorkID}, SourceVersionWatermark: resume.SourceVersionWatermark, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: r.Authority.now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"plan:" + in.WorkID}}
+	doc, err := json.Marshal(resume)
+	if err != nil {
+		return base, err
+	}
+	if err := payloadschema.Validate("resume_read_document", doc); err != nil {
+		return base, err
+	}
+	digest := mutationDocumentDigest(doc)
+	if inner != "" && (cursor.Digest != digest || cursor.Watermark != resume.SourceVersionWatermark || cursor.Offset >= len(doc) || !utf8.RuneStart(doc[cursor.Offset])) {
+		return coreError(base, "invalid_cursor", "resume document or source version changed; restart the read", "restart_query", false), nil
+	}
+	if inner == "" {
+		response, err := r.resultEnvelope(base, meta, r.scope(store.ResultMeta{}), resume)
+		if err != nil {
+			return response, err
+		}
+		size, err := readEnvelopeSize(response)
+		if err != nil {
+			return base, err
+		}
+		if size <= agentcontract.MaxResultEnvelopeBytes {
+			return response, nil
+		}
+	}
+	offset := cursor.Offset
+	render := func(n int) (agentcontract.Envelope, int, error) {
+		end := offset + n
+		page := mutationFragmentPage{"json-fragment", digest, len(doc), offset, string(doc[offset:end]), n, end == len(doc)}
+		pageMeta := meta
+		if end < len(doc) {
+			token, err := json.Marshal(resumeCursor{digest, resume.SourceVersionWatermark, end})
+			if err != nil {
+				return base, 0, err
+			}
+			next := string(token)
+			pageMeta.NextCursor = &next
+		}
+		response, err := r.resultEnvelope(base, pageMeta, r.scope(store.ResultMeta{}), page)
+		if err != nil {
+			return base, 0, err
+		}
+		response, err = r.wrapCursor(ctx, response, binding, "resume")
+		if err != nil {
+			return base, 0, err
+		}
+		size, err := readEnvelopeSize(response)
+		return response, size, err
+	}
+	length, err := continuityFragmentLength(doc, offset, func(n int) (bool, error) {
+		_, size, err := render(n)
+		return size <= agentcontract.MaxResultEnvelopeBytes, err
+	})
+	if err != nil {
+		return base, err
+	}
+	if length == 0 {
+		return coreError(base, "limit_exceeded", "resume fragment frame exceeds the envelope cap", "contact_operator", false), nil
+	}
+	response, _, err := render(length)
+	return response, err
 }
 
 // continuityProjectionPage renders one page of the canonical continuity

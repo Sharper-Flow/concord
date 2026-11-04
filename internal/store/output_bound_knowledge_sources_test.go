@@ -1,7 +1,7 @@
 package store
 
 // Output-bound ledger rows for the knowledge family: the durable
-// knowledge surface (domain registry, law, git notes, research
+// knowledge surface (domain registry, law, git notes,
 // packs, architecture bindings of contract scope, and domain observations).
 //
 // Every finite row cites a live source: a published schema node, a Go
@@ -107,18 +107,9 @@ func init() {
 	// ------------------------------------------------------------------
 
 	// Every store producer of a domain_id-typed value enforces the same
-	// 256: declared registry Domains carry the maxManifestID code-point
-	// parse guard and the domains CHECK; workflow contract Domain tables
-	// carry CHECK length 1..256 in the final DDL; archived Work Domain
-	// rows carry the same CHECK; compaction scope arrays re-run
-	// validManifestID on replay; research scope IDs are bounded at 256 by
-	// an inline guard in validateResearchScopes. The two expressible
-	// sources are composed; the rest agree at the same value.
+	// 256-character bound through registry and storage validation.
 	registerOutputBound("/$defs/domain_id/maxLength",
-		maxBound(
-			goInlineBound("internal/store/knowledge_record.go", "validManifestID", "utf8.RuneCountInString(value)", boundCharacters),
-			goInlineBound("internal/store/research_operations.go", "validateResearchScopes", "utf8.RuneCountInString(id)", boundCharacters),
-		))
+		goInlineBound("internal/store/knowledge_record.go", "validManifestID", "utf8.RuneCountInString(value)", boundCharacters))
 
 	// ------------------------------------------------------------------
 	// domain law record (embedded in C22.DomainDetail current law)
@@ -228,194 +219,4 @@ func init() {
 	// the manifest parse guard (maxManifestSummary code points) applies
 	// the same value before projection.
 	registerOutputBound("/$defs/domain_summary/properties/purpose/maxLength", goInlineBound("internal/store/knowledge_record.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Purpose)", boundCharacters))
-
-	// ------------------------------------------------------------------
-	// research finding (PM1 research content)
-	// ------------------------------------------------------------------
-
-	// The store write path inserts every declared citation with no count
-	// guard and the link table carries no count CHECK, so the recorded
-	// citation list is byte-ceiling only; the read limit is caller
-	// supplied and refuses, never truncates, so it is not a producer
-	// bound.
-	registerOutputBound("/$defs/research_finding/properties/source_ids/maxItems",
-		unboundedOutput("internal/store/research_mutations.go:RecordResearchFindingWithinTxUpsert inserts every req.Finding.SourceIDs entry with no count guard and active_research_finding_sources carries no count CHECK in the final DDL, so the recorded citation list grows with the write and projects verbatim", "internal/agent/runtime.go:readSizeRefusal"))
-
-	// The finding statement has no upper bound on any writer: validateFinding
-	// requires non-empty only (internal/store/research_operations.go:127-132),
-	// active_research_findings CHECKs length > 0 only, and
-	// copyResearchRevisionContent (research_operations.go:364) plus the
-	// research rebuild carry retained rows to new revisions without
-	// revalidation — the same raw persisted text the work-context view embeds
-	// verbatim. Byte-ceiling only.
-	registerOutputBound("/$defs/research_finding/properties/statement/maxLength",
-		unboundedOutput("validateFinding (internal/store/research_operations.go:127-132) requires the statement non-empty only, active_research_findings CHECKs length > 0 only, and copyResearchRevisionContent (research_operations.go:364) plus the research rebuild carry retained rows without revalidation, so the persisted statement projects verbatim with no complete-text bound", "internal/agent/runtime.go:readSizeRefusal"))
-
-	// ------------------------------------------------------------------
-	// research pack (PM1.Q11)
-	// ------------------------------------------------------------------
-
-	// Consumer accepted_at values are RFC3339Nano UTC strings written at
-	// the bind site in replaceResearchConsumerPinTx; the fixed layout
-	// renders at most 35 characters.
-	registerOutputBound("/$defs/research_pack/properties/consumers/items/properties/accepted_at/maxLength",
-		pkTimeLayoutWidthBound("internal/store/research_reliance.go", "replaceResearchConsumerPinTx", "time.RFC3339Nano"))
-
-	// The consumers page holds at most the admitted read limit:
-	// ReadResearchPack clamps req.Limit at 1000 and readResearchPackTx
-	// refuses a page beyond the limit instead of truncating. The consumer
-	// maximum below must rise to admit the 1000 the clamp admits.
-	registerOutputBound("/$defs/research_pack/properties/consumers/maxItems",
-		goInlineBound("internal/store/research_reads.go", "ReadResearchPack", "req.Limit", boundItems))
-
-	// Pack created_at is the RFC3339Nano UTC render at the create site.
-	registerOutputBound("/$defs/research_pack/properties/created_at/maxLength",
-		pkTimeLayoutWidthBound("internal/store/research_mutations.go", "createResearchPackWithinRawTx", "time.RFC3339Nano"))
-
-	// The revisions page holds at most the admitted read limit, clamped
-	// and refused the same way as the consumers page.
-	registerOutputBound("/$defs/research_pack/properties/revisions/maxItems",
-		goInlineBound("internal/store/research_reads.go", "ReadResearchPack", "req.Limit", boundItems))
-
-	// Pack updated_at is the RFC3339Nano UTC render at the bump site.
-	registerOutputBound("/$defs/research_pack/properties/updated_at/maxLength",
-		pkTimeLayoutWidthBound("internal/store/research_operations.go", "bumpResearchPack", "time.RFC3339Nano"))
-
-	// ------------------------------------------------------------------
-	// research pack descriptor (PM1.Q11 owner pages)
-	// ------------------------------------------------------------------
-
-	// Descriptor created_at reads active_research_packs.created_at,
-	// written at the create site.
-	registerOutputBound("/$defs/research_pack_descriptor/properties/created_at/maxLength",
-		pkTimeLayoutWidthBound("internal/store/research_mutations.go", "createResearchPackWithinRawTx", "time.RFC3339Nano"))
-
-	// Descriptor updated_at reads active_research_packs.updated_at,
-	// written at the bump site.
-	registerOutputBound("/$defs/research_pack_descriptor/properties/updated_at/maxLength",
-		pkTimeLayoutWidthBound("internal/store/research_operations.go", "bumpResearchPack", "time.RFC3339Nano"))
-
-	// ------------------------------------------------------------------
-	// research read result (PM1.Q11)
-	// ------------------------------------------------------------------
-
-	// The v2 owner page holds at most the clamped limit:
-	// ResearchPacksByOwner clamps limit at 1000 and truncates to it. The
-	// consumer maximum below must rise to admit the clamp.
-	registerOutputBound("/$defs/research_read_result/oneOf/2/properties/packs/maxItems",
-		goInlineBound("internal/store/research_reads.go", "ResearchPacksByOwner", "limit", boundItems))
-
-	// Consumer accepted_at in the v2 pack shape: the same bind-site render.
-	registerOutputBound("/$defs/research_read_result/properties/consumers/items/properties/accepted_at/maxLength",
-		pkTimeLayoutWidthBound("internal/store/research_reliance.go", "replaceResearchConsumerPinTx", "time.RFC3339Nano"))
-
-	// Consumers page in the v2 pack shape: the same clamp and refusal.
-	registerOutputBound("/$defs/research_read_result/properties/consumers/maxItems",
-		goInlineBound("internal/store/research_reads.go", "ReadResearchPack", "req.Limit", boundItems))
-
-	// Pack created_at in the v2 shape: the same create-site render.
-	registerOutputBound("/$defs/research_read_result/properties/created_at/maxLength",
-		pkTimeLayoutWidthBound("internal/store/research_mutations.go", "createResearchPackWithinRawTx", "time.RFC3339Nano"))
-
-	// The v2 owner packs page: the same clamp and slice.
-	registerOutputBound("/$defs/research_read_result/properties/packs/maxItems",
-		goInlineBound("internal/store/research_reads.go", "ResearchPacksByOwner", "limit", boundItems))
-
-	// Revisions page: full pack reads refuse above the clamped limit and
-	// single-revision selections return exactly one.
-	registerOutputBound("/$defs/research_read_result/properties/revisions/maxItems",
-		goInlineBound("internal/store/research_reads.go", "ReadResearchPack", "req.Limit", boundItems))
-
-	// Pack updated_at in the v2 shape: the same bump-site render.
-	registerOutputBound("/$defs/research_read_result/properties/updated_at/maxLength",
-		pkTimeLayoutWidthBound("internal/store/research_operations.go", "bumpResearchPack", "time.RFC3339Nano"))
-
-	// ------------------------------------------------------------------
-	// research retire result
-	// ------------------------------------------------------------------
-
-	// One result per admitted candidate in request order; the write
-	// admission bounds candidates at 100 on research_retire's input
-	// (uniqueItems) and the store refuses outside 1..100.
-	registerOutputBound("/$defs/research_retire_result/properties/candidates/maxItems",
-		schemaBound("/$defs/work_define_research_retire_input/properties/candidates/maxItems"))
-
-	// The research-retire result keeps its own evidence, separate from the
-	// audit-reclaim rows: RetireResearchPacksResult declares no members for
-	// either key, so marshaling the struct can never emit them.
-	registerOutputBound("/$defs/research_retire_result/properties/next_valid_intents/maxItems",
-		pkStructWithoutFieldBound("internal/store/research_retirement.go", "RetireResearchPacksResult", "next_valid_intents"))
-	registerOutputBound("/$defs/research_retire_result/properties/work_pins/maxItems",
-		pkStructWithoutFieldBound("internal/store/research_retirement.go", "RetireResearchPacksResult", "work_pins"))
-
-	// ------------------------------------------------------------------
-	// research revision (PM1.Q11 content)
-	// ------------------------------------------------------------------
-
-	// Revision created_at is the RFC3339Nano UTC render at the create and
-	// append sites; both carry the same fixed layout.
-	registerOutputBound("/$defs/research_revision/properties/created_at/maxLength",
-		maxBound(
-			pkTimeLayoutWidthBound("internal/store/research_mutations.go", "createResearchPackWithinRawTx", "time.RFC3339Nano"),
-			pkTimeLayoutWidthBound("internal/store/research_mutations.go", "appendResearchRevisionWithinRawTx", "time.RFC3339Nano"),
-		))
-
-	// The findings page holds at most the clamped read limit and
-	// readFindingsTx refuses beyond it.
-	registerOutputBound("/$defs/research_revision/properties/findings/maxItems",
-		goInlineBound("internal/store/research_reads.go", "ReadResearchPack", "req.Limit", boundItems))
-
-	// The revision question has no upper bound on any writer:
-	// normalizeRevision requires question and method non-empty only
-	// (internal/store/research_operations.go:74-76), the CHECK is length > 0
-	// only, and carry-forward/rebuild re-project retained revisions without
-	// revalidation. Byte-ceiling only.
-	registerOutputBound("/$defs/research_revision/properties/question/maxLength",
-		unboundedOutput("normalizeRevision (internal/store/research_operations.go:74-76) requires the question non-empty only, active_research_revisions CHECKs length > 0 only, and copyResearchRevisionContent plus the research rebuild carry retained revisions without revalidation, so the persisted question projects verbatim with no complete-text bound", "internal/agent/runtime.go:readSizeRefusal"))
-
-	// The sources page holds at most the clamped read limit and
-	// readSourcesTx refuses beyond it.
-	registerOutputBound("/$defs/research_revision/properties/sources/maxItems",
-		goInlineBound("internal/store/research_reads.go", "ReadResearchPack", "req.Limit", boundItems))
-
-	// ------------------------------------------------------------------
-	// research scopes (finding scope, read and natively embedded)
-	// ------------------------------------------------------------------
-
-	// The store guard validateResearchScopes refuses the 101st scope ID of
-	// a kind through its inline comparison, so the store admits 100 per
-	// kind and the retained twin the reads replay carries that maximum. The
-	// wire admission on research_scopes_input bounds the agent surface only;
-	// the shared definition keeps the cap packet dispatch admits.
-	registerRetainedTwinBound("/$defs/research_scopes/properties/domain_ids/maxItems",
-		goInlineBound("internal/store/research_operations.go", "validateResearchScopes", "len(*pair.values)", boundItems))
-	registerRetainedTwinBound("/$defs/research_scopes/properties/product_ids/maxItems",
-		goInlineBound("internal/store/research_operations.go", "validateResearchScopes", "len(*pair.values)", boundItems))
-	registerRetainedTwinBound("/$defs/research_scopes/properties/project_ids/maxItems",
-		goInlineBound("internal/store/research_operations.go", "validateResearchScopes", "len(*pair.values)", boundItems))
-	registerRetainedTwinBound("/$defs/research_scopes/properties/tag_ids/maxItems",
-		goInlineBound("internal/store/research_operations.go", "validateResearchScopes", "len(*pair.values)", boundItems))
-
-	// ------------------------------------------------------------------
-	// research source (PM1.Q11 content)
-	// ------------------------------------------------------------------
-
-	// Source fields are the retained record projected verbatim:
-	// validateSource checks the text fields non-empty only and the table
-	// CHECKs are length > 0, so no admission bounds any retained field,
-	// and copyResearchRevisionContent plus the research rebuild carry
-	// retained sources without revalidation; only the envelope byte
-	// ceilings apply, shared by the read and mutation refusals.
-
-	researchSourceFields := unboundedOutput("validateSource (internal/store/research_operations.go:133-138) checks the source text fields non-empty only, active_research_sources CHECKs length > 0 only, and copyResearchRevisionContent plus the research rebuild carry retained sources without revalidation, so the persisted text projects verbatim with no complete-text bound", "internal/agent/runtime.go:readSizeRefusal", "internal/agent/mutations.go:mutationResult")
-
-	registerRetainedTwinBound("/$defs/research_source/properties/accessed_at/maxLength", researchSourceFields)
-
-	registerRetainedTwinBound("/$defs/research_source/properties/locator/maxLength", researchSourceFields)
-
-	registerRetainedTwinBound("/$defs/research_source/properties/published_at/maxLength", researchSourceFields)
-
-	registerRetainedTwinBound("/$defs/research_source/properties/publisher_or_author/maxLength", researchSourceFields)
-
-	registerRetainedTwinBound("/$defs/research_source/properties/title/maxLength", researchSourceFields)
 }

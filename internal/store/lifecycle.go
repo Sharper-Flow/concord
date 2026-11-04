@@ -155,17 +155,6 @@ func isTerminalLifecycle(v string) bool {
 	return false
 }
 
-// terminalLifecycleSQLList renders the terminal set as a parenthesised SQL
-// list of quoted literals for an IN clause. The values are the closed set
-// above, never caller input.
-func terminalLifecycleSQLList() string {
-	quoted := make([]string, len(terminalLifecycles))
-	for i, v := range terminalLifecycles {
-		quoted[i] = "'" + v + "'"
-	}
-	return "(" + strings.Join(quoted, ",") + ")"
-}
-
 // The ordinary transition table deliberately excludes supersession and reopen.
 // Those composite operations have extra relation and terminality invariants.
 var ordinaryTransitions = map[string]map[string]bool{
@@ -450,12 +439,6 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *w
 	if err := updateWorkLifecycle(ctx, tx, event, payload.To, current.version, payload.ResultingVersion); err != nil {
 		return err
 	}
-	if isTerminalLifecycle(payload.To) {
-		if err := removeTerminalResearchBindings(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
-			return err
-		}
-		return nil
-	}
 	return nil
 }
 
@@ -559,9 +542,6 @@ func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
 		if err := updateWorkVersionByID(ctx, tx, payload.Successor, successor.version, payload.SuccessorResultingVer, event.OccurredAt); err != nil {
 			return err
 		}
-	}
-	if err := removeTerminalResearchBindings(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
-		return err
 	}
 	return nil
 }

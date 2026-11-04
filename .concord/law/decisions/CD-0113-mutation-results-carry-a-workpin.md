@@ -80,8 +80,7 @@ counts as admitted, so the pin names that route
 ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)).
 A result that carries a pin takes its intents from the pin
 alone, so no hand-written intent reaches it. A result without a pin keeps the
-intents its operation writes, if any: reads that verify the write, or
-research-pack mutations, never a work mutation.
+intents its operation writes, if any: reads that verify the write, never a work mutation.
 
 ### D4. Reads embed the same pin
 

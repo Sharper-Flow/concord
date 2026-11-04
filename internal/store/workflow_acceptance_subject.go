@@ -4,13 +4,6 @@ import "context"
 
 // workflowAcceptanceSubjectCurrent compares recorded reports with the Review.
 func workflowAcceptanceSubjectCurrent(ctx context.Context, q queryer, workID string, candidate *ReviewCandidate, evidenceRefs []string) error {
-	research, err := workflowResearchCriterionFamily(ctx, q, workID)
-	if err != nil {
-		return err
-	}
-	if research {
-		return nil
-	}
 	if candidate == nil {
 		return nil
 	}

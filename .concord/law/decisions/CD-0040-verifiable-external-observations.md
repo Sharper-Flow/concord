@@ -23,7 +23,7 @@
 - **Date:** 2026-08-17
 - **Scope:** External-state provenance, verification, scope completeness, and consumption; issue #89
 - **Approval:** Operator approved the carrier, probe, freshness, divergence, consumption, absence, decision-vehicle, and writer choices on 2026-08-17
-- **Related:** CD-0008 D2/D3/D5, CD-0014, CD-0022,
+- **Related:** CD-0008 D2/D3/D5, CD-0014,
   CD-0036 D3/D4, CD-0039, issues #87, #88, #174, TS3
   ([`agent-read-tool-contract.md`](../specs/agent-read-tool-contract.md)), TS7
   ([`agent-result-envelope.md`](../specs/agent-result-envelope.md))
@@ -68,7 +68,7 @@ conditions, and backup validation do not collapse into one generic status table.
 
 ### D2. Applicability and examined universe are different axes
 
-CD-0022's `home|explicit` scope tuple answers where a finding or record applies.
+An applicability scope answers where a finding or record applies.
 It does not answer what an observation examined. An external observation carries
 both when applicability matters:
 

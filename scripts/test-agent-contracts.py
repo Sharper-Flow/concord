@@ -660,7 +660,7 @@ class ToolDescriptionTests(unittest.TestCase):
 class ResultRequirednessTests(unittest.TestCase):
     def validate_result(self, result):
         payload = copy.deepcopy(payload_schema)
-        payload["$defs"]["research_read_result"] = result
+        payload["$defs"]["product_context"] = result
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "payload.json"
             path.write_text(json.dumps(payload))
@@ -668,16 +668,22 @@ class ResultRequirednessTests(unittest.TestCase):
                 return generator.validate(manifest)
 
     def test_versioned_branches_without_a_common_field_are_required(self):
-        self.validate_result(payload_schema["$defs"]["research_read_result"])
+        self.validate_result(self.result_union())
+
+    def result_union(self):
+        return {"type": "object", "additionalProperties": False, "properties": {}, "oneOf": [
+            {"type": "object", "additionalProperties": False, "required": ["left"], "properties": {"left": {"type": "string"}}},
+            {"type": "object", "additionalProperties": False, "required": ["right"], "properties": {"right": {"type": "string"}}},
+        ]}
 
     def test_one_branch_without_required_fields_is_refused(self):
-        result = copy.deepcopy(payload_schema["$defs"]["research_read_result"])
+        result = self.result_union()
         result["oneOf"][1].pop("required")
         with self.assertRaisesRegex(ValueError, "result schema lacks required fields"):
             self.validate_result(result)
 
     def test_root_without_required_fields_or_branches_is_refused(self):
-        result = copy.deepcopy(payload_schema["$defs"]["research_read_result"])
+        result = self.result_union()
         result.pop("oneOf")
         with self.assertRaisesRegex(ValueError, "result schema lacks required fields"):
             self.validate_result(result)
@@ -689,7 +695,7 @@ class ResultRequirednessTests(unittest.TestCase):
             with self.subTest(branch=branch):
                 self.assertFalse(generator.union_result_branch_requires(branch, payload_schema["$defs"]))
         self.assertTrue(generator.union_result_branch_requires(
-            {"$ref": "#/$defs/research_pack"}, payload_schema["$defs"]))
+            {"$ref": "#/$defs/product_context"}, payload_schema["$defs"]))
 
 
 class EvidenceFixedBudgetCeilingTests(unittest.TestCase):
@@ -2972,51 +2978,20 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
         return properties.get(key, {"type": "string"})
 
 
-class ResearchContextProjectionTests(unittest.TestCase):
-    """Live and retained context use the shared selected-research contract."""
+class WorkContextProjectionTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
         cls.projected = copy.deepcopy(payload_schema)
         generator.install_retained_output_twins(cls.projected["$defs"])
 
-    def validate(self, value, name):
-        generator.schema_validate(value, self.projected["$defs"][name], self.projected)
-
-    def test_live_and_retained_research_views_reference_the_shared_owner(self):
-        member = self.projected["$defs"]["work_context_view"]["properties"]["research_findings"]
-        self.assertEqual(member["items"], {"$ref": "#/$defs/work_context_research_finding_view"})
-        retained = copy.deepcopy(member)
-        retained["items"]["$ref"] = "#/$defs/" + generator.retained_twin_name("work_context_research_finding_view")
-        twin = self.projected["$defs"][generator.retained_twin_name("work_context_view")]
-        self.assertEqual(twin["properties"]["research_findings"], retained)
-        retained_scopes = self.projected["$defs"][generator.retained_twin_name("research_scopes")]
-        for kind in ("product_ids", "project_ids", "domain_ids", "tag_ids"):
-            self.assertEqual(self.projected["$defs"]["research_scopes"]["properties"][kind]["items"], {"$ref": "#/$defs/id"})
-            self.assertEqual(retained_scopes["properties"][kind]["items"], {"$ref": "#/$defs/knowledge_id"})
-
-    def test_a_canonical_research_change_lands_on_regeneration(self):
-        regenerated = copy.deepcopy(payload_schema)
-        shared = regenerated["$defs"]["work_context_research_selection"]
-        shared["properties"]["revision"]["minimum"] = 2
-        generator.install_retained_output_twins(regenerated["$defs"])
-        selection = {"pack_id": "pack-schema", "revision": 1, "finding_id": "f-schema", "domain_id": "root"}
-        generator.schema_validate(selection, payload_schema["$defs"]["work_context_research_selection"], payload_schema)
-        entry = {"selection": selection, "view_id": "research:9:0", "selection_event_id": "event:9:semantic",
-                 "selection_event_seq": 9, "ordinal": 0, "required": True, "state": "missing"}
-        for name in ("work_context_research_finding_view", "retained_work_context_research_finding_view"):
-            generator.schema_validate(entry, self.projected["$defs"][name], self.projected)
-            with self.subTest(name=name), self.assertRaises(ValueError):
-                generator.schema_validate(entry, regenerated["$defs"][name], regenerated)
-
-    def test_an_unprojected_research_reference_fails_loudly(self):
+    def test_unresolved_context_reference_fails_loudly(self):
         canonical = copy.deepcopy(payload_schema)
-        canonical["$defs"]["work_context_research_finding"]["properties"]["scopes"] = {"$ref": "#/$defs/missing_research_scope"}
-        with self.assertRaises(ValueError) as ctx:
-            generator.prune_payload_definitions(canonical, {"schemas": {"research": {"ref": "#/$defs/work_context_research_finding"}}}, [])
-        self.assertIn("missing_research_scope", str(ctx.exception))
+        canonical["$defs"]["work_context_view"]["properties"]["domain_groups"]["items"] = {"$ref": "#/$defs/missing_group"}
+        with self.assertRaisesRegex(ValueError, "missing_group"):
+            generator.prune_payload_definitions(canonical, {"schemas": {"context": {"ref": "#/$defs/work_context_view"}}}, [])
 
-    def test_current_research_identity_matches_its_declared_source(self):
+    def test_current_context_identity_matches_its_declared_source(self):
         declared = payload_schema["$defs"]
         for name in ("work_context_view", "work_context_domain_group"):
             self.assertEqual(self.projected["$defs"][name], declared[name],
@@ -3025,37 +3000,7 @@ class ResearchContextProjectionTests(unittest.TestCase):
         self.assertEqual(group_ref, "#/$defs/work_context_domain_group")
         self.assertEqual(
             self.projected["$defs"]["work_context_domain_group"]["properties"]["finding_ids"]["items"]["pattern"],
-            "^(finding|research):[0-9]+:[0-9]+$")
-
-    def test_the_closed_research_entry_branches_decide_the_verdict(self):
-        selection = {"pack_id": "pack-schema", "revision": 1, "finding_id": "f-schema", "domain_id": "root"}
-        self.validate(selection, "work_context_research_selection")
-        with self.assertRaises(ValueError):
-            self.validate(selection | {"unknown_member": True}, "work_context_research_selection")
-        provenance = {"selection": selection, "view_id": "research:9:0", "selection_event_id": "event:9:semantic",
-                      "selection_event_seq": 9, "ordinal": 0, "required": True}
-        finding = {"pack_id": "pack-schema", "revision": 1, "finding_id": "f-schema", "kind": "observation",
-                   "statement": "the selected finding", "confidence": "high", "freshness": "current",
-                   "status": "active", "scopes": {"mode": "home"}}
-        source = {"pack_id": "pack-schema", "revision": 1, "source_id": "src-schema", "kind": "source_code",
-                  "locator": "internal/store", "title": "the selected source",
-                  "publisher_or_author": "concord", "accessed_at": "2026-01-01T00:00:00Z"}
-        self.validate(provenance | {"state": "resolved", "finding": finding, "sources": [source]},
-                      "work_context_research_finding_view")
-        self.validate(provenance | {"state": "missing"}, "work_context_research_finding_view")
-        for invalid in (
-            # A resolved-state entry without its body, and an unresolved-state
-            # entry carrying a body, are outside the closed branches.
-            provenance | {"state": "resolved"},
-            provenance | {"state": "missing", "finding": finding, "sources": []},
-            provenance | {"state": "fabricated"},
-            # An unsourced native finding stays accurate: sources may be
-            # empty, but the scopes member the Go reader always serializes
-            # can never drop off the finding.
-            provenance | {"state": "resolved", "finding": {k: v for k, v in finding.items() if k != "scopes"}, "sources": []},
-        ):
-            with self.assertRaises(ValueError):
-                self.validate(invalid, "work_context_research_finding_view")
+            "^finding:[0-9]+:[0-9]+$")
 
 
 class _WorkloadReached(Exception):

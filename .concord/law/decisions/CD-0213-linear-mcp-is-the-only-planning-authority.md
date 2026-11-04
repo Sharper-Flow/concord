@@ -140,7 +140,7 @@ terminal lifecycle alone does not retire them.
   retired Initiative records and their owned projections while preserving
   actionable work, idempotency records and a verified predecessor snapshot.
 - The Initiative retirement rollback tests exercise atomic refusal when
-  research or foreign-owned dependencies remain or a deletion fails.
+  foreign-owned dependencies remain or a deletion fails.
 - `internal/store.TestInitiativeRetirementTerminalAlignment` exercises removal
   of only the retired match, native snapshot/restore, and preservation of the
   terminal owner's declaration, other matches, work and evidence.

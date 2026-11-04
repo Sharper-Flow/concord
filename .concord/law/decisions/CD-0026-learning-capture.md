@@ -18,8 +18,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-15
 - **Scope:** Agent tool surface; lesson publication
-- **Related:** CD-0215 (D7 publication destinations),
-  PM6 and compaction-retention-policy compaction
+- **Related:** PM6 and compaction-retention-policy compaction
 - **Issue:** #108 (fc6, learning-capture group)
 
 ## Context
@@ -28,8 +27,7 @@ Two learning outcomes were previously uncovered. Lessons were already a
 first-class kind, but every
 lesson was human-authored JSON plus git: no agent operation could record one,
 and nothing captured post-completion learning. Standalone wisdom capture had
-been left open; CD-0215 D7 names the lesson
-as a publication destination without implementing it.
+been left open.
 
 ## Decision
 
@@ -61,8 +59,7 @@ invariants) is scanner work: heuristic, external, and excluded from
 Concord's authority.
 
 **Operator-only lesson authoring** would leave per-change learning
-unrecordable by the sessions that produced it, contradicting CD-0215 D7's
-publication destination.
+unrecordable by the sessions that produced it.
 
 ## Consequences
 

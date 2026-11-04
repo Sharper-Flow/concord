@@ -79,9 +79,6 @@ func TestEveryMutationResultGuardsWorkPins(t *testing.T) {
 		if changed[0].EntityKind != "work_item" {
 			continue
 		}
-		if op.ID == "concord_work_define.research_retire" {
-			continue // Retirement reports pack results, never work-item refs.
-		}
 		t.Run(op.ID, func(t *testing.T) {
 			raw, err := json.Marshal(schemaFixtureValue(t, defs[op.ResultSchema], defs, 0))
 			if err != nil {

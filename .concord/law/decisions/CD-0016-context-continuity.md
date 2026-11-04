@@ -100,24 +100,18 @@ carries at least one code point, so reconstruction always advances.
 The next version of each built-in definition adds the closed, unapproved
 `record_work_context` action to every step except the delivery gates. The
 action records the work-context state with ordered required reading,
-references to earlier findings, selected research references, and new typed
-findings. A reading source is a
+references to earlier findings, and new typed findings. A reading source is a
 repository file pinned by Project, path, and commit OID, or a law revision
 pinned by source, law ID, and content hash. Each reading and finding names a
 registry Domain.
 
 One transaction-scoped reader assembles the current work-context view from
-these records, recorded Review findings, and exact research
-selections resolved from the research authority. The reader
+these records and recorded Review findings. The reader
 adds no table and no migration. The work pin and the continuity snapshot carry
 the view. The view holds at most 32 readings and 32 findings within 64 KiB. A
 view past these bounds refuses the read and leaves the records unchanged. Each
 recorded finding keeps its source record and ordinal and stays a reported
-claim. A research entry keeps its selection record and ordinal, exact pack,
-revision, finding identity, native finding fields, and complete linked source
-descriptors. Research entries and event-owned findings share the 32-finding
-bound. A research selection stores references, never corpus content, in the store.
-Completion, checkpoints, and context boundaries copy no work-context content
+claim. Completion, checkpoints, and context boundaries copy no work-context content
 into another record.
 
 A declaration refuses without effects if its resulting shared view exceeds the bounds. The
@@ -132,15 +126,6 @@ member instead of `work_context`. The two members are mutually exclusive. A
 successfully evaluated absent context emits neither member. Other reader errors
 propagate. The ambiguous-contract partial-pin exit remains unchanged.
 Strict readers still refuse the over-bound view.
-
-The shared reader reports missing, stale, rebound, or inactive research
-selections as typed entries without content. A required unresolved selection
-refuses required reliance. Optional unresolved selections stay
-visible without content and do not create a required reliance blocker.
-A missing consumer binding cannot establish optional reliance and refuses
-reliance. Later revisions never replace selected content. Research body or
-selection-state changes participate in the existing full-view equality,
-not a second context watermark or digest.
 
 Declared readings retain exact source identity. A repository-file
 reading resolves in the declared Project's own repository: the pinned commit

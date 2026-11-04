@@ -65,8 +65,8 @@ Concord already holds most of the parts. CD-0006 D10 established the pattern: pl
 approves a **spec mandate** listing exactly which specs a change may modify, and
 execution is bounded by it. CD-0006 D5 places conflict resolution and scope
 decisions at planning under human authority. CD-0006 R1 provides forward-linked successor
-work. CD-0215 D7 forbids automatic conversion of a research conclusion into a binding
-decision. [`specs-as-laws.md`](../../docs/specs-as-laws.md) forbids silent scope *contraction*
+work. Research conclusions do not automatically become binding decisions.
+[`specs-as-laws.md`](../../docs/specs-as-laws.md) forbids silent scope *contraction*
 under spec-law pressure.
 
 What is missing is the object. D10's mandate delimits *which specs may be touched*, not
@@ -219,8 +219,7 @@ resolution under CD-0006 D5. After that resolution, an ordinary contract update
 records any changed plan; conflict resolution does not require a workflow-step
 reset. A contract update neither resolves law by itself nor permits a silent
 scope substitution. Decisions reserved by CD-0243 remain with the operator.
-CD-0215 D7's ban on automatic conversion of research conclusions into binding
-decisions remains required for in-flight discoveries.
+Research conclusions do not automatically become binding decisions for in-flight discoveries.
 
 ### D7. Verification is independent of the executing agent
 

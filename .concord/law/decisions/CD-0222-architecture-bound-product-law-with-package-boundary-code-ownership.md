@@ -30,7 +30,7 @@
   [CD-0213](CD-0213-linear-mcp-is-the-only-planning-authority.md), [CD-0219](CD-0219-the-terminal-launcher-tui-is-retired.md),
   and [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md).
 - **Preserves:** CD-0002 and CD-0011 storage authority and falsifiers;
-  CD-0215 D2 to D8 research-pack authority; CD-0036 breaking cutovers; the
+  CD-0036 breaking cutovers; the
   surviving store query bounds and authority over exact Domain-detail reads;
   `applies_to_domain_ids` as optional.
 [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
@@ -338,10 +338,8 @@ not own Domain identity, law placement, dependency truth, conflict resolution,
 or the primary browse path. Shared grouping never makes two work items
 architecturally compatible.
 
-CD-0215 D2–D8 govern research: independent research is ordinary research work,
-embedded research stays with its owner, packs remain retained
-SQLite context until explicit retirement, and durable promotion keeps its accepted destinations.
-Ordinary work owns research packs; consumers bind exact revisions.
+Independent research is ordinary research work; embedded research stays with its
+owner. Durable promotion keeps its accepted destinations.
 
 ### D9. Migration reaches the clean vocabulary; compatibility is bounded
 
@@ -443,7 +441,7 @@ their governing law.
 
 Shared context preserves explicit immutable readings and findings. Dispatch,
 authorization, independent review and verification, retries, session tenancy,
-research-pack reliance, and cross-repository recovery do not depend on a
+and cross-repository recovery do not depend on a
 graph. Product law approval does not authorize live-state cutover.
 
 ## Required conformance

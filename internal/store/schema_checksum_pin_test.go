@@ -196,6 +196,7 @@ var migrationChecksumPins = map[int]string{
 	181: "69d53af0ec29933bf849249d6983707047f85cd4e97fc651940b131b6808c78f",
 	182: "a232db33ef50058d00aa0db66026fffe9887f6185d952a312b62aa1879562e3c",
 	183: "d5a5490f569e4eb1601e8045f119a4c33fa03e227f2bd2095de6b2b74f08d0cb",
+	184: "e27346ceb20cb1736a965999bf59ca8d221c0197521c661c11d4345a836b5711",
 }
 
 func TestMigrationChecksumPinsMatchDefinitions(t *testing.T) {

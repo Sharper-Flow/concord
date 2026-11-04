@@ -93,80 +93,6 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 	}
 }
 
-// fullyPopulatedResearchPack authors a pack through the store's own mutation API
-// and reads it back through the same call the research read uses, so the fixture
-// is what the store actually produces rather than a literal that can drift from
-// it. Scopes are explicit and name every scope kind the store persists, including
-// the component kind, which no agent input can reach today.
-func fullyPopulatedResearchPack(t *testing.T) store.ResearchPack {
-	t.Helper()
-	ctx := context.Background()
-	s, _, _, _ := researchSurfaceFixture(t)
-	pack, err := createResearchPack(ctx, s, store.CreateResearchPackRequest{
-		OwnerWorkID: "work-1",
-		Freshness:   store.ResearchCurrent,
-		Revision: store.ResearchRevisionInput{
-			Question: "does the read surface accept every stored scope kind?",
-			ScopeIn:  json.RawMessage(`[]`),
-			ScopeOut: json.RawMessage(`[]`),
-			DoneWhen: json.RawMessage(`[]`),
-			Method:   "source_code",
-		},
-	})
-	if err != nil {
-		t.Fatalf("create research pack: %v", err)
-	}
-	if err := recordResearchSource(ctx, s, store.ResearchSourceRequest{
-		PackID: pack.PackID, ExpectedVersion: 1,
-		Source: store.ResearchSource{
-			SourceID: "source-1", Kind: store.SourceCode, Locator: "internal/store/research_types.go",
-			Title: "research types", PublisherOrAuthor: "concord", PublishedAt: "2026-01-01T00:00:00Z",
-			AccessedAt: "2026-01-02T00:00:00Z",
-		},
-	}); err != nil {
-		t.Fatalf("add research source: %v", err)
-	}
-	if err := recordResearchFinding(ctx, s, store.ResearchFindingRequest{
-		PackID: pack.PackID, ExpectedVersion: 2,
-		Finding: store.ResearchFinding{
-			FindingID: "finding-1", Kind: store.FindingObservation, Statement: "component scope is persisted",
-			Confidence: store.ConfidenceHigh, Freshness: store.ResearchCurrent, Status: store.FindingActive,
-			SourceIDs: []string{"source-1"},
-			Scopes: store.ResearchScopes{
-				Mode:       "explicit",
-				ProductIDs: []string{"product-1"}, ProjectIDs: []string{"project-1"},
-				DomainIDs: []string{"component-1"}, TagIDs: []string{"tag-1"},
-			},
-		},
-	}); err != nil {
-		t.Fatalf("add research finding: %v", err)
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.BindResearchRelianceTx(ctx, tx, "work-1", []store.ResearchBindingDeclaration{{PackID: pack.PackID, Revision: 1, UseRole: store.UseContext, Required: true}}, time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)); err != nil {
-		_ = tx.Rollback()
-		t.Fatalf("bind research consumer: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	got, err := s.ReadResearchPack(ctx, store.ResearchReadRequest{PackID: pack.PackID, Limit: 100})
-	if err != nil {
-		t.Fatalf("read research pack: %v", err)
-	}
-	for _, revision := range got.Revisions {
-		for _, finding := range revision.Findings {
-			if len(finding.Scopes.DomainIDs) > 0 {
-				return got
-			}
-		}
-	}
-	t.Fatal("fixture lost its domain scope before validation")
-	return store.ResearchPack{}
-}
-
 // domainReadPayloads holds one wire payload per Domain read, each projected
 // from what the store actually returned.
 type domainReadPayloads struct {
@@ -275,7 +201,6 @@ func TestFullyPopulatedResultPayloadsValidate(t *testing.T) {
 		payload   any
 	}{
 		{name: "work_trace continuity", tool: "concord_work_trace", operation: "continuity", payload: ContinuityPayload(fullyPopulatedContinuitySnapshot())},
-		{name: "work_trace research", tool: "concord_work_trace", operation: "research", payload: fullyPopulatedResearchPack(t)},
 		{name: "domain list", tool: "concord_domain", operation: "list", payload: domain.list},
 		{name: "domain detail", tool: "concord_domain", operation: "detail", payload: domain.detail},
 	} {
@@ -500,7 +425,6 @@ var fixtureStringCandidates = []string{
 	"actor:" + strings.Repeat("0", 64),
 	"7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e",
 	"finding:1:0",
-	"research:1:0",
 	"case:conformance",
 	"control:conformance",
 	"owner:conformance",
@@ -980,7 +904,6 @@ func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]str
 		"concord_work_trace.resume":             `{"work_id":"` + fx.workID + `"}`,
 		"concord_work_trace.mutation_result":    `{"source_tool":"concord_work_transition","source_operation":"workflow_action","idempotency_key":"population-checkpoint","digest":"` + mutationDocumentDigest([]byte(record.ResultPayload)) + `"}`,
 		"concord_work_trace.project_retirement": `{"work_id":"` + fx.workID + `"}`,
-		"concord_work_trace.research":           `{"product_id":"prod-alpha","work_id":"` + fx.workID + `","result_version":2,"page":{"cursor":null,"limit":20}}`,
 		"concord_domain.list":                   `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_domain.detail":                 `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
 	}
@@ -1001,15 +924,6 @@ var readPopulationWitnesses = map[string]func(t *testing.T, result json.RawMessa
 		}
 		if page.Type != "change" || len(page.NextSteps) != 1 || page.NextSteps[0] != "plan" {
 			t.Fatalf("resume read lost the seeded plan frontier: %s", result)
-		}
-	},
-	"concord_work_trace.research": func(t *testing.T, result json.RawMessage) {
-		var page researchOwnerReadV2
-		if err := json.Unmarshal(result, &page); err != nil {
-			t.Fatal(err)
-		}
-		if page.ResultVersion != 2 || len(page.Packs) != 1 || page.Packs[0].OwnerWorkID != readPopulationWork || page.Packs[0].CurrentRevision != 1 {
-			t.Fatalf("research owner page lost seeded pack identity: %s", result)
 		}
 	},
 	"concord_work_trace.mutation_result": func(t *testing.T, result json.RawMessage) {
@@ -1064,7 +978,6 @@ var readPopulationRows = map[string][]string{
 	"concord_work_trace.continuity":         {"boundaries.items"},
 	"concord_work_trace.resume":             {"steps"},
 	"concord_work_trace.project_retirement": {"blockers"},
-	"concord_work_trace.research":           {"packs"},
 	"concord_domain.list":                   {"domains"},
 	"concord_domain.detail":                 {"current_law", "relations", "observations"},
 }
@@ -1152,16 +1065,6 @@ func TestAllReadEnvelopesValidateAtPopulationScale(t *testing.T) {
 			for _, path := range rows {
 				if populationRowPathLength(t, response.Result, op.ID, path) == 0 {
 					t.Fatalf("%s answers an empty row collection at %q; extend seedReadPopulationFixture or exempt the read with a reason", op.ID, path)
-				}
-			}
-			if op.ID == "concord_work_trace.research" {
-				var page researchOwnerReadV2
-				if err := json.Unmarshal(response.Result, &page); err != nil {
-					t.Fatal(err)
-				}
-				pack, err := fx.store.ReadResearchPack(context.Background(), store.ResearchReadRequest{PackID: page.Packs[0].PackID})
-				if err != nil || len(pack.Revisions) != 1 || len(pack.Revisions[0].Findings) == 0 || len(pack.Revisions[0].Sources) == 0 {
-					t.Fatalf("descriptor no longer resolves seeded research content: %+v %v", pack, err)
 				}
 			}
 		})

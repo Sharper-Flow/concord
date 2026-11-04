@@ -52,7 +52,7 @@ choices remain binding.
 
 The binding contract is sections 1 through 4: the explicit typed core decision,
 the stable conceptual object set, the authority and current-state pattern
-including the retention-bounded active-context exception, and the extension
+and the extension
 rule with its forbidden patterns. Sections 5 through 10 record rejected
 alternatives, external validation, deferred scope, falsifiers, supersession
 scope, and sources, and carry no obligation.
@@ -87,7 +87,6 @@ PM4/PM5 semantics (now settled separately).
 | `labels` / tagging | typed many-to-many categorical extension | Q3 tags | exact label governance |
 | `external_refs` | opaque typed locator for PR/commit/upstream/URL | Q8 links | provider-specific validation |
 | store state | current rows and finite verified snapshots; no event log, fold, upcaster, or replay exists (CD-0242 D2) | Q2–Q8 current-state reads | none |
-| active research context | CD-0215 direct SQLite tables for packs/revisions/findings/sources/consumers; never Git knowledge | work context | delete only by explicit retirement; PM8 still excludes blobs |
 | `artifacts` | other small structured/markdown content only | work context | PM8 excludes a v1 blob/evidence store |
 
 ### Minimum typed fields
@@ -107,16 +106,6 @@ writes current rows in one transaction checked by an expected version, no event
 log, fold, upcaster, or replay exists, and recovery uses verified snapshot
 restore with reconciliation
 ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-
-### 3.1a Retention-bounded active-context exception
-
-CD-0215 D4 makes direct pack tables the sole authority for research-pack content and consumer links.
-Research packs are versioned context, not Product/work history.
-Nonterminal owners may author them; terminal owners retain read-only content for authorized exact-revision reuse under CD-0215 and CD-0216.
-Publication, archive, terminal execution cleanup, work removal and foreign-key cascades never delete retained research.
-Only explicit eligible research_retire deletes a pack aggregate under CD-0216 and CD-0217.
-Releasing a consumer pin never deletes its pack.
-Product/work state and retention follow CD-0242 D2; no other fact type inherits research-pack retention by analogy.
 
 ### 3.1b Worktree state belongs to the host
 

@@ -215,6 +215,7 @@ type RestoredDatabaseInventory struct {
 type RestoreReport struct {
 	SourceSnapshot   BackupManifest            `json:"source_snapshot"`
 	RestoredDatabase RestoredDatabaseInventory `json:"restored_database"`
+	ResearchExport   string                    `json:"research_export,omitempty"`
 }
 
 // RestoreBackup verifies a snapshot, restores it into a clean staging file
@@ -247,6 +248,13 @@ func RestoreBackup(ctx context.Context, source, destination string) (RestoreRepo
 	}
 	if err := contextErr(ctx); err != nil {
 		return RestoreReport{}, wrapFailure(KindUnavailable, "restore_backup", "restore was cancelled before it started", true, "retry the restore", err)
+	}
+	var researchExport string
+	if manifest.SchemaVersion < 184 {
+		ctx, researchExport, err = prepareResearchRetirement(ctx, source, destination+".research")
+		if err != nil {
+			return RestoreReport{}, fmt.Errorf("research preservation at %s failed; keep the snapshot and choose a new restore destination: %w", destination+".research", err)
+		}
 	}
 
 	stageFile, err := os.CreateTemp(filepath.Dir(destination), ".concord-restore-*")
@@ -284,7 +292,7 @@ func RestoreBackup(ctx context.Context, source, destination string) (RestoreRepo
 		_ = os.Remove(destination)
 		return RestoreReport{}, wrapFailure(KindUnavailable, "restore_backup", "cannot remove promoted restore staging name", true, "retry the restore", err)
 	}
-	return RestoreReport{SourceSnapshot: manifest, RestoredDatabase: inventory}, nil
+	return RestoreReport{SourceSnapshot: manifest, RestoredDatabase: inventory, ResearchExport: researchExport}, nil
 }
 
 // verifyBackupRestore proves a snapshot promotes only when this binary can
@@ -313,6 +321,17 @@ func verifyBackupRestore(ctx context.Context, snapshot string, manifest BackupMa
 	// fires before verification so a cancelled backup discards a complete
 	// clone and leaves the retained snapshot untouched.
 	notifyRestoreStageReady(ctx, stage)
+	// This clone is disposable and cannot promote. Its source snapshot remains
+	// intact; the real restore and live upgrade must also preserve an export.
+	packs, err := readResearchExport(ctx, stage)
+	if err != nil {
+		return err
+	}
+	proof, err := researchProof(packs)
+	if err != nil {
+		return err
+	}
+	ctx = context.WithValue(ctx, researchRetirementProofKey{}, proof)
 	_, err = verifyRestoredStage(ctx, stage, manifest)
 	return err
 }

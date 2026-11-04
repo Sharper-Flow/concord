@@ -4,10 +4,12 @@ import "testing"
 
 func TestResearchPlanRecordsReview(t *testing.T) {
 	const workID = "research-review-current"
-	fixture, _ := seedCriterionAssociationAtStep(t, workID, "conclude")
+	fixture, receipt := seedCriterionAssociationAtStep(t, workID, "conclude")
 	s := fixture.store
-	reviewSubjectClaim(t, s, workID)
 	report := currentReviewBlockForTest(t, s, workID, "ready_for_final_proof")
+	for _, criterion := range report.Dependencies.Criteria {
+		report.Assessments = append(report.Assessments, ReviewAssessment{PredicateID: criterion.PredicateID, Assessment: "supported", ReceiptRefs: []string{receipt}})
+	}
 	if err := recordReviewForTest(t, s, workID, fixture.owner, report); err != nil {
 		t.Fatalf("record research Review: %v", err)
 	}

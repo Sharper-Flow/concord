@@ -44,13 +44,11 @@ const (
 const (
 	durableMixedScenario            = "durable_mixed"
 	durableMixedIterations          = 8
-	durableMixedReadsPerIteration   = 3
+	durableMixedReadsPerIteration   = 2
 	durableMixedReadBacksPerWorker  = 1
 	durableMixedDurableOpsPerWorker = 2
 	durableMixedProbeOp             = "conformance-durable-mixed-probe"
 	durableMixedProbeProduct        = "conformance-durable-mixed-probe-product"
-	durableMixedResearchOwner       = "conformance-durable-mixed-owner"
-	durableMixedResearchPackID      = "conformance-durable-mixed-pack"
 	mixedSampleProfileRead          = "mixed_read"
 	mixedSampleProfileDurable       = "mixed_durable"
 )
@@ -674,22 +672,13 @@ func durableMixedWorkerPlan(worker int) (Operation, Operation) {
 
 // prepareDurableMixedFixtures seeds the read targets the durable_mixed
 // children use: a completed operation for the result read, a probe product
-// for the membership read, and a research pack for the canonical research
-// read. Everything lands in the temporary conformance database.
+// for the membership read. Everything lands in the temporary conformance database.
 func prepareDurableMixedFixtures(t *testing.T, ctx context.Context, s *Store) error {
 	t.Helper()
 	if _, err := ApplyOperationWithResult(ctx, s, conformanceCreationOperation(durableMixedProbeProduct, durableMixedProbeProduct+"-membership")); err != nil {
 		return fmt.Errorf("durable_mixed probe product: %w", err)
 	}
 	terminalCleanupSQL(t, s, fmt.Sprintf(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,step_id,step_kind,accepted_inputs_digest,principal_ref,request_id,observed_at,contract_digest,result_kind) VALUES('%s',1,'work-1','fixture.atomic','probe','internal_sqlite','%s','operator','probe-request','2026-08-07T00:00:00Z','%s','completed')`, durableMixedProbeOp, testDigest("probe"), testManifestDigest))
-	seedResearchWork(t, s, durableMixedResearchOwner)
-	if _, err := createResearchPack(ctx, s, CreateResearchPackRequest{
-		PackID:      durableMixedResearchPackID,
-		OwnerWorkID: durableMixedResearchOwner,
-		Revision:    ResearchRevisionInput{Question: "conformance", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "source"},
-	}); err != nil {
-		return fmt.Errorf("durable_mixed research pack: %w", err)
-	}
 	return nil
 }
 
@@ -713,10 +702,6 @@ func runDurableMixedScenario(ctx context.Context, s *Store, worker int) WorkerRe
 			return result
 		}
 		_, err = s.ProjectsForProduct(ctx, durableMixedProbeProduct)
-		if !appendMixedSample(&result, mixedSampleProfileRead, err) {
-			return result
-		}
-		_, err = s.ReadResearchPack(ctx, ResearchReadRequest{PackID: durableMixedResearchPackID, Limit: 100})
 		if !appendMixedSample(&result, mixedSampleProfileRead, err) {
 			return result
 		}
@@ -772,8 +757,7 @@ func appendMixedSample(result *WorkerResult, profile string, err error) bool {
 
 // verifyDurableMixedEffects proves from the parent handle that each worker's
 // durable commits landed and their effects are visible to a fresh read: the
-// products have their recorded memberships, and the probe research pack
-// still reads current.
+// products have their recorded memberships.
 func verifyDurableMixedEffects(t *testing.T, ctx context.Context, s *Store, workers int) error {
 	t.Helper()
 	for worker := 0; worker < workers; worker++ {
@@ -784,13 +768,6 @@ func verifyDurableMixedEffects(t *testing.T, ctx context.Context, s *Store, work
 				return fmt.Errorf("durable_mixed worker %d effect read: projects=%v err=%v", worker, projects, err)
 			}
 		}
-	}
-	pack, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: durableMixedResearchPackID, Limit: 100})
-	if err != nil {
-		return fmt.Errorf("durable_mixed probe pack read: %w", err)
-	}
-	if pack.OwnerWorkID != durableMixedResearchOwner || pack.CurrentRevision != 1 {
-		return fmt.Errorf("durable_mixed probe pack = owner %q revision %d, want owner %q revision 1", pack.OwnerWorkID, pack.CurrentRevision, durableMixedResearchOwner)
 	}
 	return nil
 }

@@ -37,12 +37,6 @@ func TestMutationInputSchemasBindDecodingStructs(t *testing.T) {
 	decodeTargets := map[string]any{
 		"concord_work_define.capture":                     captureMutationInput{},
 		"concord_work_define.issue_link_record":           issueLinkRecordInput{},
-		"concord_work_define.research_finding_record":     researchFindingMutation{},
-		"concord_work_define.research_freshness_set":      researchFreshnessMutation{},
-		"concord_work_define.research_retire":             researchRetireMutation{},
-		"concord_work_define.research_pack_create":        researchPackCreateMutation{},
-		"concord_work_define.research_revision_append":    researchRevisionMutation{},
-		"concord_work_define.research_source_record":      researchSourceMutation{},
 		"concord_work_define.revise_intent":               reviseMutationInput{},
 		"concord_work_relate.resolve_overlap":             resolveOverlapMutationInput{},
 		"concord_work_relate.set_memberships":             membershipsMutationInput{},

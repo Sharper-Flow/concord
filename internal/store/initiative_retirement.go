@@ -9,8 +9,6 @@ import (
 
 func retireInitiativeWork(ctx context.Context, q migrationRunner) error {
 	checks := []struct{ table, query string }{
-		{"active_research_packs", `SELECT owner_work_id,owner_work_id FROM active_research_packs WHERE owner_work_id IN (SELECT id FROM work_items WHERE kind='initiative') ORDER BY owner_work_id LIMIT 1`},
-		{"active_research_consumers", `SELECT consumer_work_id,consumer_work_id FROM active_research_consumers WHERE consumer_work_id IN (SELECT id FROM work_items WHERE kind='initiative') ORDER BY consumer_work_id LIMIT 1`},
 		{"workflow_impact_edges", `SELECT target_work_id,work_id FROM workflow_impact_edges WHERE target_work_id IN (SELECT id FROM work_items WHERE kind='initiative') AND work_id NOT IN (SELECT id FROM work_items WHERE kind='initiative') ORDER BY target_work_id,work_id LIMIT 1`},
 		{"workflow_backlog_alignment", `SELECT alignment.related_work_id,alignment.work_id
 FROM workflow_backlog_alignment alignment JOIN work_items owner ON owner.id=alignment.work_id
@@ -32,7 +30,7 @@ ORDER BY alignment.related_work_id,alignment.work_id LIMIT 1`},
 			return fmt.Errorf("initiative retirement: inspect %s: %w", check.table, err)
 		}
 		return newFailure(KindUpgradeBlocked, "migrate",
-			fmt.Sprintf("initiative retirement: %s contains a research or foreign-owned dependency for initiative %s, owner work %s; no migration was applied", check.table, initiative, owner), false,
+			fmt.Sprintf("initiative retirement: %s contains a foreign-owned dependency for initiative %s, owner work %s; no migration was applied", check.table, initiative, owner), false,
 			"keep the installed release and report the named dependency to the Concord maintainer before retrying concord upgrade")
 	}
 	rows, err := q.QueryContext(ctx, `SELECT id FROM work_items WHERE kind='initiative' ORDER BY id`)
@@ -55,6 +53,9 @@ ORDER BY alignment.related_work_id,alignment.work_id LIMIT 1`},
 	}
 	if _, err := q.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		return fmt.Errorf("initiative retirement: open write guard: %w", err)
+	}
+	if err := retireInitiativeResearch(ctx, q); err != nil {
+		return err
 	}
 	for _, id := range ids {
 		if err := deleteWorkOwnedProjections(ctx, q, id); err != nil {

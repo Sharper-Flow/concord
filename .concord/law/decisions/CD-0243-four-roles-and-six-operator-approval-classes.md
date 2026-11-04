@@ -38,10 +38,6 @@
     },
     {
       "kind": "refines",
-      "target_id": "CD-0215"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0217"
     },
     {
@@ -201,9 +197,9 @@ required-review checks.
 | CD-0230 D4, D5 | Law-change authority, approval classes, listed gaps, recovery |
 | CD-0013 D11 | Conversational operator decisions and routine actions |
 | CD-0006 D5, D10; CD-0159 D4; CD-0218 D1; CD-0222 D1, D4, D5 | Law mandates and enactment require approval only under D2 |
-| CD-0122; CD-0198; CD-0215; CD-0217; CD-0222 D6; CD-0229 | Operator consent for their operations applies only under D2; D5 governs recovery |
+| CD-0122; CD-0198; CD-0217; CD-0222 D6; CD-0229 | Operator consent for their operations applies only under D2; D5 governs recovery |
 | CD-0154 D2 | Four roles, optional RTE and Planner, direct operator routing |
-| TS1, TS4, TS9 contracts; TS5 §5; clarifications TS1–TS9 binding; PM9 contract | Retained approval gaps for overlap, cancellation, removal, repair, reconciliation, and research deletion apply only under D2 |
+| TS1, TS4, TS9 contracts; TS5 §5; clarifications TS1–TS9 binding; PM9 contract | Retained approval gaps for overlap, cancellation, removal, repair, and reconciliation apply only under D2 |
 
 An operation that grants access
 still requires security approval; routine work management does not acquire
@@ -227,7 +223,6 @@ requires operator consent only when a D2 class applies.
 | CD-0018 D4; CD-0224 Decision and its overlap criteria | Merger and supersession do not independently require operator approval; a governing-requirement scope cut follows D2 and D3's Concord deletion exemption |
 | CD-0094 D2, D3 and terminal-transition claims | Completion, cancellation, and destructive-effect approval follows D2, not terminal status alone |
 | CD-0142 Consequences; PM4 and compaction-retention-policy removal clauses | Per-item execution removal may be agent-directed within the assigned scope; its planning destination and preparation fences remain required |
-| CD-0216 retirement contract | Physical research-pack deletion requires operator consent only under D2 |
 | CD-0218 D2 | Recovery consent follows D2; current admission and safety requirements remain |
 | `priorities.md` quality and visibility clauses | Law-change and contract-update approval follows D2, not seriousness |
 | TS4 operation rows and overlap criteria; TS8 overlap proofs; TS1 and clarifications overlap summaries | Version-pinned overlap resolutions retain their scope checks; conversational operator approval follows D2 |

@@ -212,7 +212,7 @@ finally:
 	}
 	snapshots := 0
 	for _, entry := range entries {
-		if !strings.HasPrefix(entry.Name(), "pre-upgrade-") || strings.HasSuffix(entry.Name(), ".json") || strings.HasSuffix(entry.Name(), "-wal") || strings.HasSuffix(entry.Name(), "-shm") {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "pre-upgrade-") || strings.HasSuffix(entry.Name(), ".json") || strings.HasSuffix(entry.Name(), "-wal") || strings.HasSuffix(entry.Name(), "-shm") {
 			continue
 		}
 		snapshot := filepath.Join(paths.dataRoot, "backups", entry.Name())

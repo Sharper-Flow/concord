@@ -49,11 +49,14 @@ func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 	}
 	contracts := cutoverContractRows(t, db)
 	instances := cutoverInstanceExpectations(t, db, "")
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
 		t.Fatal(err)
 	}
 	retired := map[string]bool{"work_messages": true, "work_observations": true, "workflow_law_baselines": true, "workflow_artifact_actions": true, "workflow_correction_state": true, "workflow_step_completions": true}
 	for table, want := range retained {
+		if retirementUpgradeResearchTable(t, db, table) {
+			continue
+		}
 		if retired[table] {
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name=? OR tbl_name=?`, table, table); len(rows) != 0 {
 				t.Errorf("retired schema survives: %v", rows)

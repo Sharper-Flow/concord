@@ -120,20 +120,17 @@ func readResumePreludeTx(ctx context.Context, tx *sql.Tx, workID string) (*workf
 }
 
 // workflowOpeningSteps derives the remaining opening steps from the recorded
-// prelude: intake first, clarify only while intake found open questions and no
+// prelude through the same admission predicates the prelude folds enforce:
+// intake first, clarify only while intake found open questions and no
 // clarification is recorded, then picking the type. The outcomes that end or
 // replace the item without a type pick leave no opening step.
 func workflowOpeningSteps(prelude *workflowPreludeState) []string {
-	if prelude == nil {
+	switch {
+	case prelude == nil:
 		return []string{"intake", "pick_type"}
-	}
-	switch prelude.Intake.Outcome {
-	case WorkflowIntakeProceed:
-		return []string{"pick_type"}
-	case WorkflowIntakeClarify:
-		if prelude.Clarify == nil {
-			return []string{"clarify", "pick_type"}
-		}
+	case workflowPreludeAdmitsClarify(prelude):
+		return []string{"clarify", "pick_type"}
+	case workflowPreludeAdmitsTypePick(prelude):
 		return []string{"pick_type"}
 	default:
 		return []string{}

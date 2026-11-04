@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 
@@ -45,19 +44,9 @@ func dispatchWorkflowActionResult(t *testing.T, s *store.Store, service *Service
 	return resp, newVersion
 }
 
-// AJ8-health-failure-rollback: an approved production routing change is
-// applied, its health check fails, and the declared rollback runs. Concord
-// never calls the provider (CD-0039 D9): the native authority reports each
-// phase through typed workflow-action fields, Concord folds one attributed
-// native-run event per phase, and the logical operation completes partial —
-// the native steps succeeded, the approved change did not.
-// bindAJ8HealthFailureRollback carries the AJ8 corpus row's retired
-// ops-runbook authoring into its CD-0218 disposition: the native
-// start/health/rollback choreography left the live catalog with its family,
-// so the corpus witness becomes the archived-family refusal — the nonterminal
-// retired instance a serving release leaves behind refuses every public
-// workflow action with zero effects, and the retained native-run reader keeps
-// the recorded-history shape the frozen journals cover.
+// AJ8 checks retired actions refuse on an intake-parked item with no effects.
+// Workflow-engine-contract §§2.1, 5.1, 11 and 12 retire definition pins and
+// admit actions from the current plan instead.
 func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
@@ -68,27 +57,21 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 
-	// No archived family registers a definition (CD-0242 D14), so the
-	// nonterminal archived instance is the recorded projection a pre-cutover
-	// store carries: a current instance whose pin names the archived family.
-	registered, err := store.BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx := agentWorkflowSourceProof(t, context.Background(), s, "work-1")
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {
 		t.Fatalf("initialize the instance: %v", err)
 	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-		UPDATE workflow_instances SET definition_ref='workflow.ops_runbook' WHERE work_id='work-1';
-		DELETE FROM write_guard`); err != nil {
-		t.Fatalf("pin the archived family: %v", err)
+	version := workVersion(t, s, "work-1")
+	intake, version := dispatchWorkflowActionResult(t, s, service, env, version, "record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false}, "aj8-intake")
+	if intake.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("record intake: %+v", intake.Error)
 	}
-	version := int64(0)
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
-		t.Fatal(err)
+	var stateName string
+	var workflowType *string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state,workflow_type FROM workflow_instances WHERE work_id='work-1'`).Scan(&stateName, &workflowType); err != nil || stateName != "intake" || workflowType != nil {
+		t.Fatalf("expected untyped intake instance: state=%s type=%v err=%v", stateName, workflowType, err)
 	}
 
 	const runID = "run-routing-1"
@@ -108,9 +91,7 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 		return map[string]any{"run_id": runID, "native_subject_ref": "routing-provider:prod-edge", "status": status, "evidence_ref": "https://evidence.invalid/runs/" + runID + "/" + phase, "evidence_digest": "sha256:" + strings.Repeat(digit, 64), "asserted_at": fixedTime().Format("2006-01-02T15:04:05Z")}
 	}
 
-	// Every public action on the nonterminal archived instance refuses with
-	// the archived-family answer and commits nothing — the approval-gated
-	// contract first, then the retired native actions by id.
+	// Contract approval and the retired native actions refuse without effects.
 	baselineEvents, baselineContracts := state()
 	baselineEffects := agentCurrentEffects(t, s)
 	refuse := func(actionID string, fields map[string]any, key string) {
@@ -121,12 +102,10 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 		}
 		challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env)
 		if challenge.Outcome != agentcontract.OutcomeError || challenge.Error == nil {
-			t.Fatalf("%s on the archived instance = %+v, want a refusal", actionID, challenge.Error)
+			t.Fatalf("%s on intake = %+v, want a refusal", actionID, challenge.Error)
 		}
-		// A live action id reaches the archived-family gate and names it; a
-		// retired id refuses at the closed union before any authority read.
-		if actionID == "approve_contract" && !strings.Contains(challenge.Error.Message, "workflow.ops_runbook is archived") {
-			t.Fatalf("approve_contract on the archived instance = %+v, want the archived-family refusal", challenge.Error)
+		if actionID == "approve_contract" && challenge.Error.Kind != "invalid_transition" {
+			t.Fatalf("approve_contract on intake = %+v, want invalid_transition", challenge.Error)
 		}
 		events, contracts := state()
 		if events != baselineEvents || contracts != baselineContracts {
@@ -142,17 +121,8 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 	refuse("record_health", nativeFields("health", "failed"), "aj8-rollback-health")
 	refuse("rollback_run", nativeFields("rollback", "rolled_back"), "aj8-rollback-run")
 
-	// No replayed journal reader survives (CD-0242 D2), and no archived
-	// definition is registered (D14): the workflow read names the archived
-	// family and its migration route instead of an unexplained absence (D13).
-	_, err = store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: "work-1", Limit: 20})
-	var failure *store.Failure
-	if !errors.As(err, &failure) || failure.Kind != store.KindInvariantViolation || !strings.Contains(failure.Detail, "workflow.ops_runbook is archived") {
-		t.Fatalf("continuity read on the archived instance = %v, want the archived-family answer", err)
-	}
-
 	obs := envelopeToObservation(agentcontract.Envelope{Outcome: agentcontract.OutcomeOK})
-	obs.State = map[string]any{"archived_family": "workflow.ops_runbook", "refused_actions": "approve_contract,approve_operation,start_run,record_health,rollback_run", "zero_effects": true}
+	obs.State = map[string]any{"refused_actions": "approve_contract,approve_operation,start_run,record_health,rollback_run", "zero_effects": true}
 	obs.Effects["adapter_domain_logic"] = probedAbsent{
 		Evidence: "the retired authoring refuses before any write; no adapter inference path exists to probe because no native action is authorable",
 	}

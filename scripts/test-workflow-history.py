@@ -52,6 +52,13 @@ class HistoricalReplayTest(unittest.TestCase):
         archive = subprocess.check_output(["git", "archive", BASELINE_COMMIT], cwd=ROOT)
         with tarfile.open(fileobj=io.BytesIO(archive)) as source:
             source.extractall(cls.baseline, filter="data")
+        # The released definition API and the current plan API differ. Both
+        # adapters receive the same assertion inputs; the baseline adapter maps
+        # the plan fields to the released design action without changing the
+        # decision array or invalid object under test.
+        adapter = (ROOT / "scripts/testdata/workflow-history-adapter.go.txt").read_bytes()
+        (cls.baseline / "internal/store/zz_workflow_history_adapter_test.go").write_bytes(adapter)
+        cls.baseline_adapter_sha256 = hashlib.sha256(adapter).hexdigest()
 
     def execute(self, label, root, command, source, owner, failing):
         result = subprocess.run(command, cwd=root, capture_output=True, text=True, check=False)
@@ -60,6 +67,7 @@ class HistoricalReplayTest(unittest.TestCase):
             "source_commit": BASELINE_COMMIT if root == self.baseline else self.head,
             "checkout_clean": root == self.baseline or self.checkout_clean,
             "fixture_sha256": hashlib.sha256(source).hexdigest(),
+            "baseline_adapter_sha256": self.baseline_adapter_sha256,
             "fixture_owner": owner,
             "expected_result": "named-assertion-failures" if failing else "pass",
             "command": command,
@@ -84,6 +92,9 @@ class HistoricalReplayTest(unittest.TestCase):
                 if label == "before":
                     adapted = re.sub(rb"\Apackage [a-z]+", b"package " + owner.encode(), source, count=1)
                     (root / "internal" / owner / "zz_workflow_history_test.go").write_bytes(adapted)
+                    adapter = ROOT / "scripts/testdata/workflow-history-adapter.go.txt"
+                    if owner == "store" and adapter.exists():
+                        (root / "internal" / owner / "zz_workflow_history_adapter_test.go").write_bytes(adapter.read_bytes())
                 else:
                     adapted = source
                 command = ["go", "test", "./internal/" + owner, "-run", selected,
@@ -113,12 +124,12 @@ class HistoricalReplayTest(unittest.TestCase):
     def test_store_contracts(self):
         self.go_pair("internal/store/workflow_historical_regression_test.go", "store", True)
 
-    def test_shared_validator(self):
-        self.go_pair("internal/payloadschema/historical_validation_test.go", "agent", True)
-
     def test_array_compatibility(self):
         # Valid arrays are a compatibility control on the released baseline.
         self.go_pair("internal/store/workflow_array_regression_test.go", "store", False)
+
+    def test_shared_validator(self):
+        self.go_pair("internal/payloadschema/historical_validation_test.go", "agent", True)
 
     def test_adapter_contracts(self):
         relative = "adapter/opencode/historical_validation.test.ts"

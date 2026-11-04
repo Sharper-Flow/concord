@@ -170,7 +170,7 @@ func TestG32ChangedDependenciesRetainRecordedReview(t *testing.T) {
 			if change == "criterion" {
 				payload := pContractSuccessor(t, j.s, j.workID, "The same outcome needs a revised criterion.")
 				payload["outcome_predicates"].([]any)[0].(map[string]any)["outcome_payload"].(map[string]any)["expected_result"] = "fail"
-				if err := reviseContractRecord(t, j.s, j.workID, j.fixture.owner, payload, readWorkVersion(t, j.s, j.workID), nil); err != nil {
+				if err := reviseContractRecord(t, j.s, j.workID, j.fixture.owner, payload, readWorkVersion(t, j.s, j.workID)); err != nil {
 					t.Fatal(err)
 				}
 			} else {

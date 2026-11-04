@@ -3,44 +3,19 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 )
 
-// seedLanelessResearchItem records a current research report and conclusion
-// without a worker dispatch, so the WorkPin evidence read has a bound artifact.
+// seedLanelessResearchItem binds an artifact without a worker dispatch.
 func seedLanelessResearchItem(t *testing.T, workID string) (*Store, WorkflowActor) {
 	t.Helper()
-	ctx := context.Background()
-	s := openTemp(t)
-	seedWork(t, s, workID)
-	seedWorkflowLaw(t, s)
-	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/researcher", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, "investigate", []string{"artifact"}, nil)
+	if err := runVerdictActionAs(t, f.store, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"evidence:research-report"}`), 0, f.owner); err != nil {
+		t.Fatalf("bind research artifact: %v", err)
 	}
-	definition, ok := BuiltinWorkflowRegistry().Current("workflow.research")
-	if !ok {
-		t.Fatal("current workflow.research is not registered")
-	}
-	setup := []Event{
-		workflowEventWithActor("laneless-actor-"+workID, WorkflowActorRecorded, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEventWithActor("laneless-definition-"+workID, WorkflowDefinitionSelected, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": definition.Definition.Ref, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
-		workflowEventWithActor("laneless-contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "contract_version": 1, "premise": "record the research report", "decision_domains": []string{}, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:research-report-exit", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}}, "required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
-		workflowActionCompletedFixture("laneless-approval-"+workID, workID, ownerRef, 5, "frame", "approve_contract"),
-		workflowActionCompletedFixture("laneless-finding-"+workID, workID, ownerRef, 6, "investigate", "record_finding"),
-	}
-	setup[2].PayloadVersion = eventKindRegistry[WorkflowContractApproved].CurrentVersion
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := runVerdictActionAs(t, s, workID, "record_report", json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"evidence:research-report"}`), 0, owner); err != nil {
-		t.Fatalf("record research report: %v", err)
-	}
-	if err := runVerdictActionAs(t, s, workID, "record_conclusion", json.RawMessage(`{}`), 0, owner); err != nil {
-		t.Fatalf("record research conclusion: %v", err)
-	}
-	return s, owner
+	moveWorkflowPlanFixtureFrontier(t, f.store, workID, "conclude")
+	return f.store, f.owner
 }
 
 // The WorkPin exposes the bound evidence set with kinds at a step that
@@ -91,38 +66,14 @@ func TestWorkPinExposesBoundVerdictEvidenceAtVerdictSteps(t *testing.T) {
 // record_verdict.
 func seedLanelessResearchItemAtFrame(t *testing.T, workID string) *Store {
 	t.Helper()
-	ctx := context.Background()
-	s := openTemp(t)
-	seedWork(t, s, workID)
-	seedWorkflowLaw(t, s)
-	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/researcher", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition, ok := BuiltinWorkflowRegistry().Current("workflow.research")
-	if !ok {
-		t.Fatal("workflow.research v5 is not registered")
-	}
-	setup := []Event{
-		workflowEventWithActor("frame-actor-"+workID, WorkflowActorRecorded, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEventWithActor("frame-definition-"+workID, WorkflowDefinitionSelected, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": definition.Definition.Ref, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
-	}
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
-		t.Fatal(err)
-	}
-	return s
+	return seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, "frame", []string{}, nil).store
 }
 
 func stepDeclaresActionByName(t *testing.T, s *Store, workID, stepID, actionID string) bool {
 	t.Helper()
-	var pin WorkflowDefinitionPin
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Digest); err != nil {
-		t.Fatal(err)
+	plan, err := readWorkflowPlanTx(t.Context(), s.db, workID)
+	if err != nil || plan == nil {
+		t.Fatalf("read workflow plan: %v", err)
 	}
-	registered, err := VerifyWorkflowDefinitionPin(BuiltinWorkflowRegistry(), pin)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return stepDeclaresAction(registered.Definition, stepID, actionID)
+	return slices.Contains(WorkflowStepPlanTemplateActions(plan.Type, stepID), actionID)
 }

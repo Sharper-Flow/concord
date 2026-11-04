@@ -33,97 +33,57 @@ func TestWorkflowActorReferenceUsesDocumentedCanonicalNULEncoding(t *testing.T) 
 
 func TestWorkflowEventsFoldAtomically(t *testing.T) {
 	t.Parallel()
-	s := openTemp(t)
-	ctx := context.Background()
-	seedWork(t, s, "workflow-work")
-	actor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/runner", "session/1")
-	implementationDigest := workflowFixtureDigest(t)
-	base := int64(2)
-	events := []Event{
-		workflowEvent("actor", WorkflowActorRecorded, "workflow-work", map[string]any{
-			"work_id": "workflow-work", "expected_version": base, "resulting_version": base + 1,
-			"actor_ref": actor, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/runner", "session_ref": "session/1", "actor_class": "agent",
-		}),
-		workflowEvent("definition", WorkflowDefinitionSelected, "workflow-work", map[string]any{
-			"work_id": "workflow-work", "expected_version": 3, "resulting_version": 4,
-			"ref": workflowFixtureRef, "version": 1, "digest": implementationDigest, "work_kind": workflowFixtureWorkKind,
-		}),
-		workflowEventWithActor("contract", WorkflowContractApproved, "workflow-work", actor, map[string]any{
-			"work_id": "workflow-work", "expected_version": 4, "resulting_version": 5,
-			"contract_version": 1, "premise": "delivery is required", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:abc", "expected_result": "pass"}, "required_evidence": []string{"verification"}, "route_conventions": []string{"test"}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-		}),
-		workflowEventWithActor("start", WorkflowActionStarted, "workflow-work", actor, map[string]any{
-			"work_id": "workflow-work", "expected_version": 5, "resulting_version": 6, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64), "idempotency_identity": "operation-1",
-			"actor_ref": actor,
-		}),
-		workflowEventWithActor("checkpoint", WorkflowActionCheckpointed, "workflow-work", actor, map[string]any{
-			"work_id": "workflow-work", "expected_version": 6, "resulting_version": 7, "step_id": "execution", "step_kind": "external_effect", "attempt_epoch": 1, "checkpoint_payload": map[string]any{"action_id": "checkpoint_execution", "cursor": "one"}, "resume_cursor": "cursor:one", "actor_ref": actor, "request_id": "request:one", "checkpoint_id": "checkpoint:one", "accepted_inputs_digest": "sha256:" + strings.Repeat("c", 64), "idempotency_identity": "operation-checkpoint", "result_evidence_refs": []string{"evidence:one"},
-		}),
-		workflowEvent("operator", WorkflowActorRecorded, "workflow-work", map[string]any{
-			"work_id": "workflow-work", "expected_version": 7, "resulting_version": 8, "actor_ref": DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/operator"), "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/operator", "session_ref": "session/operator", "actor_class": "agent",
-		}),
-		workflowEventWithActor("premise", WorkflowPremiseConfirmed, "workflow-work", DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/operator"), map[string]any{
-			"work_id": "workflow-work", "expected_version": 8, "resulting_version": 9, "contract_version": 1, "confirming_actor_ref": DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/operator"), "confirmation_authority": "coordinator",
-		}),
-		workflowEventWithActor("candidate", WorkflowCandidateSetRevised, "workflow-work", actor, map[string]any{
-			"work_id": "workflow-work", "expected_version": 9, "resulting_version": 10, "contract_version": 1, "candidate_kind": "work_item", "candidate_ref": "candidate:one", "added": []string{"candidate:one"}, "removed": []string{},
-		}),
+	const workID = "workflow-work"
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, "investigate", []string{}, []string{})
+	s := f.store
+	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/runner", SessionRef: "session/atomic", ActorClass: ActorAgent}
+	actorRef, ownerRef := mustActorRef(t, actor), mustActorRef(t, f.owner)
+	base := readWorkVersion(t, s, workID)
+	actorEvent := workflowEventWithActor("atomic-actor", WorkflowActorRecorded, workID, actorRef, map[string]any{"work_id": workID, "expected_version": base, "resulting_version": base + 1, "actor_ref": actorRef, "principal_ref": actor.PrincipalRef, "client_ref": actor.ClientRef, "agent_ref": actor.AgentRef, "session_ref": actor.SessionRef, "actor_class": actor.ActorClass})
+	candidate := func(added []string) Event {
+		return workflowEventWithActor("atomic-candidate", WorkflowCandidateSetRevised, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": base + 1, "resulting_version": base + 2, "contract_version": 1, "candidate_kind": "work_item", "candidate_ref": "candidate:one", "added": added, "removed": []string{}})
 	}
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "workflow-work"): base}}); err != nil {
+	operation := func(event Event) Operation {
+		return Operation{Events: []Event{actorEvent, event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): base}}
+	}
+	if err := applyWorkflowTestOperation(t.Context(), s, operation(candidate([]string{}))); err == nil {
+		t.Fatal("invalid candidate unexpectedly committed")
+	}
+	var actors int
+	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&actors); err != nil || actors != 0 {
+		t.Fatalf("failed operation retained actor: count=%d err=%v", actors, err)
+	}
+	if got := readWorkVersion(t, s, workID); got != base {
+		t.Fatalf("failed operation advanced version to %d, want %d", got, base)
+	}
+	if err := applyWorkflowTestOperation(t.Context(), s, operation(candidate([]string{"candidate:one"}))); err != nil {
 		t.Fatalf("workflow operation: %v", err)
 	}
-	var advances int
-	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id='workflow-work' AND kind=? AND event_id LIKE 'workflow-work:fixture-walk:%'`, WorkflowActionCompleted).Scan(&advances); err != nil {
-		t.Fatal(err)
+	if got := readWorkVersion(t, s, workID); got != base+2 {
+		t.Fatalf("workflow operation version=%d, want %d", got, base+2)
 	}
-	if advances != 4 {
-		t.Fatalf("workflow fixture step advances=%d, want 4", advances)
-	}
-	if got := readWorkVersion(t, s, "workflow-work"); got != 14 {
-		t.Fatalf("workflow operation version=%d, want 14", got)
+	var candidates int
+	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_candidate_sets WHERE work_id=? AND contract_version=1 AND candidate_ref='candidate:one'`, workID).Scan(&candidates); err != nil || candidates != 1 {
+		t.Fatalf("candidate count=%d err=%v", candidates, err)
 	}
 }
 
 func TestWorkflowPremiseConfirmationReentryUpdatesProjectionRow(t *testing.T) {
-	s := openTemp(t)
-	workID := "workflow-premise-reentry"
-	seedWork(t, s, workID)
-	seedWorkflowLaw(t, s)
-	ctx := context.Background()
-	owner := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/runner", "session/1")
-	operator := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/operator", "session/operator")
-	digest := workflowFixtureDigest(t)
+	const workID = "workflow-premise-reentry"
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, "conclude", []string{}, []string{})
+	s := f.store
+	coordinator := mustActorRef(t, f.owner)
+	base := readWorkVersion(t, s, workID)
 	confirmation := func(id string, expected int64, occurredAt time.Time) Event {
-		event := workflowEventWithActor(id, WorkflowPremiseConfirmed, workID, operator, map[string]any{
+		event := workflowEventWithActor(id, WorkflowPremiseConfirmed, workID, coordinator, map[string]any{
 			"work_id": workID, "expected_version": expected, "resulting_version": expected + 1,
-			"contract_version": 1, "confirming_actor_ref": operator, "confirmation_authority": "coordinator",
+			"contract_version": 1, "confirming_actor_ref": coordinator, "confirmation_authority": "coordinator",
 		})
 		event.OccurredAt = occurredAt
 		return event
 	}
-	events := []Event{
-		workflowEvent("reentry-actor", WorkflowActorRecorded, workID, map[string]any{
-			"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": owner,
-			"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/runner", "session_ref": "session/1", "actor_class": "agent",
-		}),
-		workflowEvent("reentry-operator", WorkflowActorRecorded, workID, map[string]any{
-			"work_id": workID, "expected_version": 3, "resulting_version": 4, "actor_ref": operator,
-			"principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/operator", "session_ref": "session/operator", "actor_class": "agent",
-		}),
-		workflowEventWithActor("reentry-definition", WorkflowDefinitionSelected, workID, owner, map[string]any{
-			"work_id": workID, "expected_version": 4, "resulting_version": 5,
-			"ref": workflowFixtureRef, "version": 1, "digest": digest, "work_kind": workflowFixtureWorkKind,
-		}),
-		workflowEventWithActor("reentry-contract", WorkflowContractApproved, workID, owner, map[string]any{
-			"work_id": workID, "expected_version": 5, "resulting_version": 6,
-			"contract_version": 1, "premise": "delivery is required", "outcome_kind": "check",
-			"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:reentry", "expected_result": "pass"},
-			"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-		}),
-		confirmation("reentry-confirm-first", 6, time.Unix(10, 0).UTC()),
-		confirmation("reentry-confirm-second", 7, time.Unix(20, 0).UTC()),
-	}
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
+	events := []Event{confirmation("reentry-confirm-first", base, time.Unix(10, 0).UTC()), confirmation("reentry-confirm-second", base+1, time.Unix(20, 0).UTC())}
+	if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): base}}); err != nil {
 		t.Fatalf("re-entered premise confirmation: %v", err)
 	}
 
@@ -132,7 +92,7 @@ func TestWorkflowPremiseConfirmationReentryUpdatesProjectionRow(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*), max(confirmed_by), max(confirmed_at) FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=1`, workID).Scan(&rows, &confirmedBy, &confirmedAt); err != nil {
 		t.Fatal(err)
 	}
-	if rows != 1 || confirmedBy != operator || confirmedAt != "1970-01-01T00:00:20Z" {
+	if rows != 1 || confirmedBy != coordinator || confirmedAt != "1970-01-01T00:00:20Z" {
 		t.Fatalf("premise projection rows=%d confirmed_by=%q confirmed_at=%q", rows, confirmedBy, confirmedAt)
 	}
 }
@@ -194,7 +154,7 @@ func TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses(t *testin
 	beforeReplay := s.DurableCommits()
 	replayRan := false
 	replay := WorkflowActionPreflightRequest{WorkID: "complete-work", ExpectedVersion: finalVersion, ActionID: "complete"}
-	if err := AuthorizeWorkflowActionAtBoundaryWithPreflightTx(context.Background(), s, BuiltinWorkflowRegistry(), replay, func(transaction *Transaction) (bool, error) {
+	if err := AuthorizeWorkflowActionAtBoundaryWithPreflightTx(context.Background(), s, replay, func(transaction *Transaction) (bool, error) {
 		tx, err := transactionSQL(transaction, "completion-replay")
 		if err != nil {
 			return false, err
@@ -250,10 +210,6 @@ func TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict(t *testing.T) {
 }
 
 func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage) (Event, error) {
-	_, err := VerifyWorkflowInstanceDefinitionTx(ctx, tx, BuiltinWorkflowRegistry(), request.WorkID)
-	if err != nil {
-		return Event{}, err
-	}
 	return workflowCompletionEventForDefinition(ctx, tx, request, actor, raw)
 }
 
@@ -421,7 +377,7 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 			extra = append(extra, kind)
 		}
 	}
-	f := qBuildAcceptance(t, workID, "", testCase.includeVerdict, extra...)
+	f := qBuildAcceptance(t, workID, "artifact:gate-case", testCase.includeVerdict, extra...)
 	s := f.store
 	executor, err := WorkflowActorRef(f.owner)
 	if err != nil {
@@ -433,11 +389,7 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 		}
 	}
 	if !testCase.omitClosure {
-		// Clause tests may deliberately leave verdict or premise absent. Arrange
-		// close before binding, then fault the specific gate inputs below.
-		if err := advanceWorkflowTestInstanceToStep(t.Context(), s, workID, "release", executor); err != nil {
-			t.Fatal(err)
-		}
+		completeWorkflowPlanFixture(t, s, workID)
 	}
 	// Fault the mutable gate inputs only after the real current Review and
 	// proof path has run. Captured receipts and immutable events stay intact.
@@ -501,7 +453,7 @@ func TestWorkflowEvidenceBindingRejectsCrossWorkAndProducerIdentityLaundering(t 
 
 func seedWorkflowAuthority(t *testing.T, s *Store, opID, workID, principal, requestID string, evidence []string) {
 	t.Helper()
-	_, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,?,'workflow.test',?,'evidence','internal_sqlite','digest','{}','completed','{}',?,'[]',?,?,?,? ,?)`, opID, workID, mustBuiltinDefinition(t, workflowFixtureRef).Digest, workflowJSON(evidence), principal, requestID, "2026-08-09T00:00:00Z", "2026-08-09T00:00:01Z", testManifestDigest)
+	_, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,?,'fixture','verify','internal_sqlite','digest','{}','completed','{}',?,'[]',?,?,?,? ,?)`, opID, workID, workflowJSON(evidence), principal, requestID, "2026-08-09T00:00:00Z", "2026-08-09T00:00:01Z", testManifestDigest)
 	if err != nil {
 		t.Fatalf("seed durable workflow authority: %v", err)
 	}
@@ -564,8 +516,8 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 	t.Parallel()
 	s := openTemp(t)
 	expectedColumns := map[string][]string{
-		"workflow_instances":             {"work_id", "definition_ref", "definition_digest", "current_step", "instance_state", "execution_actor_ref", "execution_model", "started_at", "completed_at", "last_checkpoint_at", "execution_started_at", "completion_payload", "completion_occurred_at"},
-		"workflow_contracts":             {"work_id", "contract_version", "premise", "consequence_class", "required_evidence", "route_conventions", "approved_at", "approved_by", "superseded_by", "spec_mandate", "rigor_class", "law_modifies", "law_boundary_version", "self_repair_json", "definition_ref", "definition_digest", "supersession_seq", "last_healthy_seq", "decision_domains"},
+		"workflow_instances":             {"work_id", "workflow_type", "step_plan", "prelude_state", "instance_state", "execution_actor_ref", "execution_model", "started_at", "completed_at", "last_checkpoint_at", "execution_started_at", "completion_payload", "completion_occurred_at"},
+		"workflow_contracts":             {"work_id", "contract_version", "premise", "consequence_class", "required_evidence", "route_conventions", "approved_at", "approved_by", "superseded_by", "spec_mandate", "rigor_class", "law_modifies", "law_boundary_version", "self_repair_json", "supersession_seq", "last_healthy_seq", "decision_domains", "changes_product_truth"},
 		"workflow_contract_predicates":   {"work_id", "contract_version", "predicate_id", "ordinal", "outcome_kind", "outcome_payload"},
 		"workflow_candidate_sets":        {"work_id", "contract_version", "candidate_kind", "candidate_ref", "candidate_role", "candidate_scope", "recorded_at", "recorded_by"},
 		"workflow_actors":                {"actor_ref", "principal_ref", "client_ref", "agent_ref", "session_ref", "actor_class", "first_seen_at"},
@@ -588,7 +540,7 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 		"workflow_decision_records": {{"work_id", "question"}}, "workflow_design_records": {{"work_id", "work_version"}}, "workflow_premise_confirmations": {{"work_id", "contract_version"}},
 	}
 	enumFragments := map[string][]string{
-		"workflow_instances": {"'planned'", "'superseded'", "'completed'"}, "workflow_contracts": {}, "workflow_contract_predicates": {"'exists'", "'check'"},
+		"workflow_instances": {"'intake'", "'superseded'", "'completed'", "'change'", "'fix'", "'research'", "'removal'", "json_valid(step_plan)"}, "workflow_contracts": {}, "workflow_contract_predicates": {"'exists'", "'check'"},
 		"workflow_candidate_sets": {"'work_item'", "candidate_role IN ('include')"}, "workflow_actors": {"'agent'", "'operator'"},
 		"workflow_checkpoints":      {"'internal_sqlite'", "'cross_authority'", "'external_effect'"},
 		"workflow_impact_edges":     {"'depends_on'", "'work_item'"},
@@ -922,24 +874,14 @@ func workflowEventWithActor(id, kind, workID, actor string, payload map[string]a
 	return event
 }
 
-func currentFixtureDefinition(t testing.TB, ref string) RegisteredDefinition {
+// withPlanDecisionFact declares the engineering decision-domain fact on a
+// seeded contract approval or its successor contract.
+func withPlanDecisionFact(t *testing.T, planType WorkflowStepPlanType, event Event) Event {
 	t.Helper()
-	entry, ok := BuiltinWorkflowRegistry().Current(ref)
-	if !ok {
-		t.Fatalf("%s has no current definition", ref)
-	}
-	return entry
-}
-
-// withPinnedDecisionFact declares the explicit engineering decision-domain
-// fact on a seeded contract approval, or on a seeded supersession's successor
-// contract, when the pinned definition answers consent under consequence_v1,
-// at the payload version that carries the fact. A legacy pin keeps the seeded
-// bytes.
-func withPinnedDecisionFact(t *testing.T, definition WorkflowDefinition, event Event) Event {
-	t.Helper()
-	if !workflowDeclaresDecisionDomains(definition) {
-		return event
+	switch planType {
+	case WorkflowStepPlanChange, WorkflowStepPlanFix, WorkflowStepPlanResearch, WorkflowStepPlanRemoval:
+	default:
+		t.Fatalf("unknown workflow plan type %q", planType)
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {

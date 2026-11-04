@@ -3,7 +3,6 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
@@ -12,15 +11,18 @@ import (
 
 func TestWorkPinOutstandingEvidenceKindsTypedEnvelope(t *testing.T) {
 	for _, present := range []bool{false, true} {
+		workflowType, step := "", "intake"
+		if present {
+			workflowType, step = "change", "review"
+		}
 		pin := map[string]any{
 			"work_id": "work-1", "title": "Evidence debt", "linear_issue_key": "",
 			"project_id": "project-fixture", "project_display_name": "Fixture",
 			"version": 3, "lifecycle": "in_progress", "cancelled_instance_closes": 0,
-			"workflow_type": "workflow.implementation", "step": "acceptance",
+			"workflow_type": workflowType, "step": step,
 			"driving_sessions": []any{},
 			"watermark":        "seq:3", "next_valid_intents": []any{},
-			"workflow_definition_digest": "sha256:" + strings.Repeat("0", 64),
-			"obligations":                []string{"verification"},
+			"obligations": []string{"verification"},
 		}
 		if present {
 			pin["outstanding_evidence_kinds"] = []string{"approval", "artifact", "commit", "durable_note", "native_run", "review", "verification"}

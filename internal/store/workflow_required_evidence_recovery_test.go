@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -23,36 +22,6 @@ const (
 	wf04OutstandingKind = "commit"
 	wf04RecoveryRef     = "commit:3333333333333333333333333333333333333333333333333333333333333333"
 )
-
-func TestBreakFixCurrentVerifyEvidenceRouteIsHoldOnly(t *testing.T) {
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var verify WorkflowStep
-	for _, candidate := range registered.Definition.StepGraph.Steps {
-		if candidate.ID == "verify" {
-			verify = candidate
-			break
-		}
-	}
-	if !slices.Contains(verify.Actions, "bind_evidence") {
-		t.Fatalf("verify actions = %v, want bind_evidence", verify.Actions)
-	}
-	policies := map[string]WorkflowActionDefinition{}
-	for _, action := range registered.Definition.ActionDefinitions {
-		policies[action.ID] = action
-	}
-	if policies["bind_evidence"].ExecutionMode != ActionHold {
-		t.Fatalf("bind_evidence execution mode = %q, want %q", policies["bind_evidence"].ExecutionMode, ActionHold)
-	}
-	if policies["confirm_premise"].ExecutionMode != ActionAdvance {
-		t.Fatalf("confirm_premise execution mode = %q, want %q", policies["confirm_premise"].ExecutionMode, ActionAdvance)
-	}
-	if policies["record_verdict"].ExecutionMode != ActionHold {
-		t.Fatalf("record_verdict execution mode = %q, want %q", policies["record_verdict"].ExecutionMode, ActionHold)
-	}
-}
 
 type acceptanceRecoveryFixture struct {
 	store    *Store
@@ -92,10 +61,10 @@ func (f acceptanceRecoveryFixture) run(ctx context.Context, actionID, label stri
 	if err != nil {
 		return err
 	}
-	invoking, operator := f.actors()
+	invoking, _ := f.actors()
 	request := WorkflowActionExecutionRequest{
 		WorkID: f.workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, EvidenceRefs: evidenceRefs,
-		Actor: invoking, OperationID: f.workID + ":" + label, PrincipalRef: operator.PrincipalRef, Tool: "concord_work_transition",
+		Actor: invoking, OperationID: f.workID + ":" + label, PrincipalRef: invoking.PrincipalRef, Tool: "concord_work_transition",
 		IdempotencyKey: f.workID + ":" + label, IdempotencyIdentity: f.workID + ":" + label, RequestID: f.workID + ":" + label,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), ContractDigest: testManifestDigest,
 		Now: time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC),
@@ -105,7 +74,7 @@ func (f acceptanceRecoveryFixture) run(ctx context.Context, actionID, label stri
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, actionErr := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), request); actionErr != nil {
+	if _, actionErr := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), request); actionErr != nil {
 		return actionErr
 	}
 	if err := leaveWrite(ctx, tx); err != nil {
@@ -169,7 +138,7 @@ func runRecoveryAction(ctx context.Context, t *testing.T, s *Store, workID, acti
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), ContractDigest: testManifestDigest,
 		Now: time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC),
 	}
-	if _, actionErr := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), request); actionErr != nil {
+	if _, actionErr := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), request); actionErr != nil {
 		return actionErr
 	}
 	return tx.Commit()
@@ -187,9 +156,7 @@ func (f acceptanceRecoveryFixture) boundCount(t *testing.T, kind, reference stri
 func (f acceptanceRecoveryFixture) authority(t *testing.T) (step string, contractVersion int64, verdicts int) {
 	t.Helper()
 	db := f.store.DatabaseForTesting()
-	if err := db.QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, f.workID).Scan(&step); err != nil {
-		t.Fatal(err)
-	}
+	step = workflowPlanFixtureFrontier(t, f.store, f.workID)
 	if err := db.QueryRow(`SELECT MAX(contract_version) FROM workflow_contracts WHERE work_id=?`, f.workID).Scan(&contractVersion); err != nil {
 		t.Fatal(err)
 	}
@@ -228,6 +195,10 @@ func TestAcceptanceRecoversMissingRequiredEvidenceKind(t *testing.T) {
 	if !strings.Contains(detail, wf04OutstandingKind) {
 		t.Fatalf("confirmation refusal = %q, want it to name the missing %s kind", detail, wf04OutstandingKind)
 	}
+	_, preflightErr := WorkflowActionDefinitionFor(ctx, f.store, WorkflowActionPreflightRequest{WorkID: f.workID, ExpectedVersion: f.version(ctx, t), ActionID: "confirm_premise", Payload: json.RawMessage(`{}`), Actor: f.owner})
+	if got := requireRecoveryFailure(t, preflightErr, KindMissingEvidence, "preflight with an unbound required kind"); got != detail {
+		t.Fatalf("preflight detail = %q, want %q", got, detail)
+	}
 
 	if err := f.bind(ctx, "recover-outstanding", f.version(ctx, t), wf04OutstandingKind, wf04RecoveryRef); err != nil {
 		t.Fatalf("recovery binding for the outstanding kind refused: %v", err)
@@ -259,15 +230,16 @@ func TestAcceptanceRecoversMissingRequiredEvidenceKind(t *testing.T) {
 	}
 }
 
-func TestAcceptanceBindingEnforcesMembershipAndVersion(t *testing.T) {
+func TestAcceptanceBindingAllowsAdditionalEvidenceAndEnforcesVersion(t *testing.T) {
 	ctx := context.Background()
 	f := newAcceptanceRecoveryFixture(ctx, t, wf04OutstandingKind)
 
 	const unrelated = "artifact:unrelated-recovery-subject"
-	unrelatedErr := f.bind(ctx, "unrelated-kind", f.version(ctx, t), "approval", unrelated)
-	requireRecoveryFailure(t, unrelatedErr, KindIllegalLifecycleTransition, "recovery binding for an unrequired kind")
-	if got := f.boundCount(t, "approval", unrelated); got != 0 {
-		t.Fatalf("refused unrelated binding count = %d, want 0", got)
+	if err := f.bind(ctx, "unrelated-kind", f.version(ctx, t), "approval", unrelated); err != nil {
+		t.Fatalf("additional binding refused: %v", err)
+	}
+	if got := f.boundCount(t, "approval", unrelated); got != 1 {
+		t.Fatalf("additional binding count = %d, want 1", got)
 	}
 
 	staleErr := f.bind(ctx, "stale-version", f.version(ctx, t)-1, wf04OutstandingKind, wf04RecoveryRef)
@@ -312,7 +284,6 @@ func TestAcceptedWorkerRecoveryCompletesWithoutChangingAuthority(t *testing.T) {
 	beforeAttempts := countWorkflowEvents(t, s, WorkflowActionCompleted)
 	beforeEvidence := countWorkflowEvents(t, s, WorkflowEvidenceBound)
 	beforeDecisions := countWorkflowEvents(t, s, WorkflowPremiseConfirmed)
-	beforeDefinition := readDefinitionIdentity(t, s, workID)
 	missing := f.run(ctx, "confirm_premise", "confirm-missing", f.version(ctx, t), nil, nil)
 	requireRecoveryFailure(t, missing, KindMissingEvidence, "confirmation after an accepted worker result")
 
@@ -337,9 +308,6 @@ func TestAcceptedWorkerRecoveryCompletesWithoutChangingAuthority(t *testing.T) {
 	if got := countWorkflowEvents(t, s, WorkflowPremiseConfirmed); got != beforeDecisions {
 		t.Fatalf("recovery changed operator decision count=%d, want %d", got, beforeDecisions)
 	}
-	if got := readDefinitionIdentity(t, s, workID); got != beforeDefinition {
-		t.Fatalf("recovery changed the released workflow definition from %q to %q", beforeDefinition, got)
-	}
 	if got := countWorkflowEvents(t, s, WorkflowActionCompleted); got != beforeAttempts+1 {
 		t.Fatalf("recovery action history count=%d, want %d", got, beforeAttempts+1)
 	}
@@ -347,6 +315,7 @@ func TestAcceptedWorkerRecoveryCompletesWithoutChangingAuthority(t *testing.T) {
 	if err := f.run(ctx, "confirm_premise", "confirm-recovered", f.version(ctx, t), nil, nil); err != nil {
 		t.Fatalf("operator confirmation after recovery refused: %v", err)
 	}
+	completeWorkflowPlanFixture(t, s, workID)
 	if err := f.run(ctx, "complete", "complete", f.version(ctx, t), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil); err != nil {
 		t.Fatalf("normal workflow completion after recovery refused: %v", err)
 	}
@@ -361,13 +330,10 @@ func TestAcceptedWorkerRecoveryCompletesWithoutChangingAuthority(t *testing.T) {
 
 func readRecoveryAuthority(t *testing.T, s *Store, workID string) (string, int64, int) {
 	t.Helper()
-	var step string
+	step := workflowPlanFixtureFrontier(t, s, workID)
 	var contract int64
 	var verdicts int
 	db := s.DatabaseForTesting()
-	if err := db.QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
-		t.Fatal(err)
-	}
 	if err := db.QueryRow(`SELECT MAX(contract_version) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&contract); err != nil {
 		t.Fatal(err)
 	}
@@ -393,15 +359,6 @@ func countEvidenceBinding(t *testing.T, s *Store, workID, kind, reference string
 		t.Fatal(err)
 	}
 	return count
-}
-
-func readDefinitionIdentity(t *testing.T, s *Store, workID string) string {
-	t.Helper()
-	var identity string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref||':'||definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&identity); err != nil {
-		t.Fatal(err)
-	}
-	return identity
 }
 
 func TestAcceptanceRecoveryRefusesTerminalWorkflowWithoutBindingEvidence(t *testing.T) {

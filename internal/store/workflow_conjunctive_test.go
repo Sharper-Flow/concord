@@ -20,7 +20,7 @@ var conjunctiveVerdicts = []conjunctiveVerdict{{"predicate:present", "ok", "", f
 func seedConjunctiveCompletion(t *testing.T, verdicts []conjunctiveVerdict) (*Store, Event, error) {
 	t.Helper()
 	const workID = "conjunctive-work"
-	f := qBuildAcceptancePredicates(t, workID, "", false, []string{"review"},
+	f := qBuildAcceptancePredicates(t, workID, "", false, []string{"review"}, false,
 		map[string]any{"predicate_id": "predicate:present", "ordinal": 0, "outcome_kind": "exists", "outcome_payload": map[string]any{"kind": "exists", "surface": "surface:one", "subjects": []string{"subject:one"}}},
 		map[string]any{"predicate_id": "predicate:absent", "ordinal": 1, "outcome_kind": "absent", "outcome_payload": map[string]any{"kind": "absent", "surface": "surface:two", "subjects": []string{"subject:two"}, "distinguish_from": []string{"archived"}}},
 	)
@@ -46,9 +46,7 @@ func seedConjunctiveCompletion(t *testing.T, verdicts []conjunctiveVerdict) (*St
 	if err != nil {
 		return f.store, Event{}, err
 	}
-	if err := advanceWorkflowTestInstanceToStep(t.Context(), f.store, workID, "release", actor); err != nil {
-		return f.store, Event{}, err
-	}
+	completeWorkflowPlanFixture(t, f.store, workID)
 	version := f.version(t.Context(), t)
 	completion := workflowEventWithActor("conjunctive-completion", WorkflowCompleted, workID, actor, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": actor,
@@ -69,6 +67,35 @@ func TestPinnedConjunctiveContractCompletes(t *testing.T) {
 	var count int
 	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_contract_predicates WHERE work_id='conjunctive-work' AND contract_version=1`).Scan(&count); err != nil || count != 2 {
 		t.Fatalf("approved conjunct count = %d, want 2: %v", count, err)
+	}
+	verdicts, err := latestWorkflowVerdicts(t.Context(), s.db, "conjunctive-work", 1)
+	if err != nil || len(verdicts) != 2 {
+		t.Fatalf("conjunct verdicts = %+v, want both: %v", verdicts, err)
+	}
+	for _, expected := range conjunctiveVerdicts {
+		found := false
+		for _, verdict := range verdicts {
+			if verdict.PredicateID == expected.predicateID {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("missing verdict for %s: %+v", expected.predicateID, verdicts)
+		}
+	}
+}
+
+func TestConjunctiveConfirmationRequiresEveryVerdict(t *testing.T) {
+	f := qBuildAcceptancePredicates(t, "conjunctive-missing-verdict", "", false, []string{"review"}, false,
+		map[string]any{"predicate_id": "predicate:present", "ordinal": 0, "outcome_kind": "exists", "outcome_payload": map[string]any{"kind": "exists", "surface": "surface:one", "subjects": []string{"subject:one"}}},
+		map[string]any{"predicate_id": "predicate:absent", "ordinal": 1, "outcome_kind": "absent", "outcome_payload": map[string]any{"kind": "absent", "surface": "surface:two", "subjects": []string{"subject:two"}, "distinguish_from": []string{"archived"}}},
+	)
+	if err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", criterionAssociationPayload(f.receipt, "predicate:present"), 0, f.owner); err != nil {
+		t.Fatal(err)
+	}
+	err := f.run(t.Context(), "confirm_premise", "partial", f.version(t.Context(), t), nil, nil)
+	if !hasFailureKind(err, KindMissingEvidence) {
+		t.Fatalf("confirmation with one missing conjunct = %v, want missing_evidence", err)
 	}
 }
 

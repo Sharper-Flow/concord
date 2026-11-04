@@ -51,7 +51,7 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 			}
 			version = readWorkVersion(t, s, workID)
 			before := contractRecordEffectSnapshot(t, s, workID)
-			err := reviseContractRecord(t, s, workID, actor, fields, version, nil)
+			err := reviseContractRecord(t, s, workID, actor, fields, version)
 			if scenario.refused {
 				var failure *Failure
 				if !failureAs(err, &failure) || !strings.Contains(failure.Detail, "may revise only derived law") {

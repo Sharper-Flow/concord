@@ -1,9 +1,7 @@
 package store
 
 import (
-	"database/sql"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 )
@@ -108,74 +106,5 @@ func TestWorkflowAdmissionCompletedExitsLogBlind(t *testing.T) {
 	}
 	if err := tx.QueryRowContext(t.Context(), `SELECT count(*) FROM workflow_completed_exits WHERE work_id='other-work'`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("other work exit count = %d, %v; want none", count, err)
-	}
-}
-
-func TestWorkflowAdmissionDefinitionFamilyLogBlind(t *testing.T) {
-	for _, tc := range []struct {
-		name, target string
-		started      bool
-	}{
-		{"no-start-change-family", "workflow.research", false},
-		{"started-change-family", "workflow.research", true},
-		{"started-same-family", "workflow.implementation", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			s := openTemp(t)
-			const work = "admission-exits"
-			seedStepWork(t, s, work)
-			initial, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-			if err != nil {
-				t.Fatal(err)
-			}
-			initializeStepWorkflow(t, s, work, initial.Definition)
-			if tc.started {
-				startStepFixtureAction(t, s, work, "record_proposal")
-			}
-			var epochs int
-			var executionStarted sql.NullString
-			if err := s.db.QueryRow(`SELECT (SELECT count(*) FROM workflow_step_epochs WHERE work_id=?),execution_started_at FROM workflow_instances WHERE work_id=?`, work, work).Scan(&epochs, &executionStarted); err != nil {
-				t.Fatal(err)
-			}
-			if (epochs != 0) != tc.started || executionStarted.Valid {
-				t.Fatalf("proposal start facts = %d epochs, external execution %v; want started=%t without external execution", epochs, executionStarted, tc.started)
-			}
-			var version int64
-			if err := s.db.QueryRow(`SELECT version FROM work_items WHERE id=?`, work).Scan(&version); err != nil {
-				t.Fatal(err)
-			}
-			target, err := BuiltinWorkflowDefinitionForRef(tc.target)
-			if err != nil {
-				t.Fatal(err)
-			}
-			frontierWriteOnlyLog(t, s)
-			err = s.Transact(t.Context(), func(tx *Transaction) error {
-				return RepinWorkflowTx(t.Context(), tx, WorkflowRepinRequest{WorkID: work, EventID: "admission-repin", Definition: target, Actor: stepFixtureActor(), Now: time.Unix(11, 0).UTC()})
-			})
-			wantRef, wantStep := tc.target, "proposal"
-			if tc.started && tc.target != initial.Definition.Ref {
-				assertFailureKind(t, err, KindInvalidOperation)
-				if !strings.Contains(err.Error(), "definition cannot change after execution starts") {
-					t.Fatalf("family change refusal = %v; want execution-start refusal", err)
-				}
-				wantRef = initial.Definition.Ref
-			} else {
-				if err != nil {
-					t.Fatalf("permitted family selection without log: %v", err)
-				}
-				version++
-				if tc.target == "workflow.research" {
-					wantStep = "frame"
-				}
-			}
-			var ref, step string
-			var gotVersion int64
-			if err := s.db.QueryRow(`SELECT i.definition_ref,i.current_step,w.version FROM workflow_instances i JOIN work_items w ON w.id=i.work_id WHERE i.work_id=?`, work).Scan(&ref, &step, &gotVersion); err != nil {
-				t.Fatal(err)
-			}
-			if ref != wantRef || step != wantStep || gotVersion != version {
-				t.Fatalf("repin state = %s/%s v%d; want %s/%s v%d", ref, step, gotVersion, wantRef, wantStep, version)
-			}
-		})
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -12,40 +13,23 @@ import (
 func continuityTestWorkflow(t *testing.T, s *Store, workID string) (WorkflowActor, int64) {
 	t.Helper()
 	seedWork(t, s, workID)
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
 	actor := WorkflowActor{PrincipalRef: "principal:continuity", ClientRef: "client:continuity", AgentRef: "agent:continuity", SessionRef: "session:continuity", ActorClass: ActorAgent}
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)}); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
 	var version int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	actorRef, err := WorkflowActorRef(actor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	start := workflowEventWithActor("continuity-start-"+workID, WorkflowActionStarted, workID, actorRef, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"step_id": "proposal", "action_id": "record_proposal", "attempt_epoch": 1,
-		"accepted_inputs_digest": "sha256:continuity-start", "idempotency_identity": "continuity-start:" + workID,
-		"actor_ref": actorRef,
-	})
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		t.Fatal(err)
-	}
-	version++
 	return actor, version
 }
 
@@ -56,10 +40,7 @@ func continuityAction(t *testing.T, s *Store, workID string, version int64, acti
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(fields)
-	if actionID == "record_proposal" && len(fields) == 0 {
-		payload = json.RawMessage(`{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`)
-	}
-	result, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor, AcceptedInputsDigest: "sha256:continuity", IdempotencyIdentity: operationID, OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)})
+	result, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor, AcceptedInputsDigest: "sha256:continuity", IdempotencyIdentity: operationID, OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)})
 	if actionErr != nil {
 		_ = tx.Rollback()
 		return 0, actionErr
@@ -79,11 +60,11 @@ func TestContinuityStepActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"record_proposal", "checkpoint_context", "cross_context_boundary", "record_work_context"}
+	want := append([]string{"insert_step", "pick_type"}, WorkflowStepPlanTemplateActions(WorkflowStepPlanChange, "plan")...)
 	if !reflect.DeepEqual(snapshot.StepActions, want) {
 		t.Fatalf("step actions=%v, want %v", snapshot.StepActions, want)
 	}
-	if snapshot.WorkPin == nil || snapshot.WorkPin.WorkID != "continuity-actions" || snapshot.WorkPin.WorkflowType == "" || snapshot.WorkPin.Step != "proposal" || snapshot.WorkPin.Version == 0 || snapshot.WorkPin.Watermark == "" {
+	if snapshot.WorkPin == nil || snapshot.WorkPin.WorkID != "continuity-actions" || snapshot.WorkPin.WorkflowType != string(WorkflowStepPlanChange) || snapshot.WorkPin.Step != "plan" || snapshot.WorkPin.Version == 0 || snapshot.WorkPin.Watermark == "" {
 		t.Fatalf("work pin=%+v", snapshot.WorkPin)
 	}
 
@@ -97,6 +78,27 @@ func TestContinuityStepActions(t *testing.T) {
 	}
 	if empty.StepActions == nil || len(empty.StepActions) != 0 {
 		t.Fatalf("empty workflow step actions=%v, want empty non-nil slice", empty.StepActions)
+	}
+}
+
+func TestContinuityProductTruthAfterTypeSwitch(t *testing.T) {
+	const work = "continuity-truth-switch"
+	f := seedWorkflowReturnRouteFixture(t, work, WorkflowStepPlanChange, "plan")
+	ctx := t.Context()
+	before, err := ReadWorkflowProjection(ctx, f.store, WorkflowReadRequest{WorkID: work})
+	if err != nil || before.Contract == nil || before.Contract.ChangesProductTruth == nil || !*before.Contract.ChangesProductTruth {
+		t.Fatalf("approved change contract: %+v: %v", before.Contract, err)
+	}
+	if _, err := continuityAction(t, f.store, work, readWorkVersion(t, f.store, work), "pick_type", "truth-switch", map[string]any{"type": "research", "reason": "investigation needed"}, f.owner); err != nil {
+		t.Fatal(err)
+	}
+	read, err := ReadWorkflowProjection(ctx, f.store, WorkflowReadRequest{WorkID: work})
+	if err != nil || read.Plan == nil || read.Plan.Type != WorkflowStepPlanResearch || !read.ChangesProductTruth {
+		t.Fatalf("workflow read: %+v: %v", read, err)
+	}
+	continuity, err := ReadWorkflowContinuity(ctx, f.store, ContinuityRequest{Work: work})
+	if err != nil || continuity.Contract == nil || continuity.Contract.ChangesProductTruth == nil || !*continuity.Contract.ChangesProductTruth || continuity.ChangesProductTruth != read.ChangesProductTruth {
+		t.Fatalf("continuity: %+v: %v", continuity, err)
 	}
 }
 
@@ -181,11 +183,23 @@ func TestContextContinuityCheckpointBoundaryAndCanonicalRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.LatestCheckpoint == nil || snapshot.LatestCheckpoint.ActiveUnit != "unit:implementation" {
+	if snapshot.LatestCheckpoint == nil || snapshot.LatestCheckpoint.ActiveUnit != "unit:implementation" || snapshot.LatestCheckpoint.WorkVersion != checkpointVersion || snapshot.LatestCheckpoint.StepID != "plan" {
 		t.Fatalf("checkpoint=%+v", snapshot.LatestCheckpoint)
 	}
-	if snapshot.BoundaryCount != 1 || len(snapshot.Boundaries) != 1 || snapshot.Boundaries[0].Summary == "" {
+	if snapshot.BoundaryCount != 1 || len(snapshot.Boundaries) != 1 || snapshot.Boundaries[0].Summary != "unit complete; resume from durable checkpoint" || snapshot.Boundaries[0].CheckpointID != snapshot.LatestCheckpoint.CheckpointID {
 		t.Fatalf("boundaries=%+v count=%d", snapshot.Boundaries, snapshot.BoundaryCount)
+	}
+	actorRef, err := WorkflowActorRef(actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checkpointActor, boundaryActor string
+	var recordedBoundaryVersion int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT c.actor_ref,b.actor_ref,b.work_version FROM workflow_context_checkpoints c JOIN workflow_context_boundaries b ON b.work_id=c.work_id AND b.checkpoint_id=c.checkpoint_id WHERE c.work_id=?`, "continuity-work").Scan(&checkpointActor, &boundaryActor, &recordedBoundaryVersion); err != nil {
+		t.Fatal(err)
+	}
+	if checkpointActor != actorRef || boundaryActor != actorRef || recordedBoundaryVersion != boundaryVersion {
+		t.Fatalf("checkpoint actor=%q boundary actor=%q version=%d, want actor=%q version=%d", checkpointActor, boundaryActor, recordedBoundaryVersion, actorRef, boundaryVersion)
 	}
 	if snapshot.RestartAvailable || snapshot.RestartUnavailableReason == "" {
 		t.Fatalf("restart availability=%+v", snapshot)
@@ -247,7 +261,10 @@ func TestContextContinuityUsesRegisteredPayloadAndExactCheckpointVersion(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	advanced, err := continuityAction(t, s, "continuity-binding", checkpointVersion, "record_proposal", "binding-intervening", map[string]any{}, actor)
+	advanced, err := continuityAction(t, s, "continuity-binding", checkpointVersion, "checkpoint_context", "binding-intervening", map[string]any{
+		"active_unit": "unit:next", "hypothesis": "hypothesis:next", "diagnosis": "diagnosis:next", "strategy": "strategy:next",
+		"touched_refs": []string{"ref:file"}, "evidence_refs": []string{"evidence:binding"}, "pending_questions": []string{}, "pending_decisions": []string{},
+	}, actor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,11 +327,7 @@ func TestV22ContinuityTablesAreFoldOnlyAndImmutable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES('continuity-v22-guards',5,1,1,'v22-forged','summary','v22-checkpoint:context-checkpoint',1,1,'forged','workflow.implementation',?,?, 'request:v22','2026-08-11T00:00:00Z')`, definition.Digest, actorRef); err == nil {
-		t.Fatal("context boundary insert bypassed write guard")
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,actor_ref,request_id,recorded_at) VALUES('continuity-v22-guards',5,1,1,'v22-forged','summary','v22-checkpoint:context-checkpoint',1,1,'forged','change',?, 'request:v22','2026-08-11T00:00:00Z')`, actorRef); err == nil || !strings.Contains(err.Error(), "workflow_context_boundaries is write-seam-only") {
+		t.Fatalf("context boundary insert guard error = %v", err)
 	}
 }

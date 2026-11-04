@@ -47,7 +47,7 @@ func TestNonProductChangingLawRevision(t *testing.T) {
 				fields = pContractSuccessor(t, s, workID, "Preserve the approved derived-law revision.")
 				fields["law_modifies"] = modifies
 				version = readWorkVersion(t, s, workID)
-				if err := reviseContractRecord(t, s, workID, actor, fields, version, nil); err != nil {
+				if err := reviseContractRecord(t, s, workID, actor, fields, version); err != nil {
 					t.Fatalf("live successor fold: %v", err)
 				}
 			}

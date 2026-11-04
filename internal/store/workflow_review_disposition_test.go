@@ -9,7 +9,8 @@ import (
 func TestBlockingReviewDispositionRecordsWithoutAdvancing(t *testing.T) {
 	for _, disposition := range []string{"correction_required", "revision_required"} {
 		t.Run(disposition, func(t *testing.T) {
-			j := pReturnReviewFixture(t, "review-hold-"+disposition, "workflow.implementation", "")
+			j := pReturnReviewFixture(t, "review-hold-"+disposition, WorkflowStepPlanChange, "")
+			moveWorkflowPlanFixtureFrontier(t, j.s, j.workID, "review")
 			step := currentStep(t, j.s, j.workID)
 			report := currentReviewBlockForTest(t, j.s, j.workID, disposition)
 			before := j.effects(t)
@@ -29,21 +30,32 @@ func TestBlockingReviewDispositionRecordsWithoutAdvancing(t *testing.T) {
 			if currentStep(t, j.s, j.workID) != step || pin.Review == nil || pin.Review.Accepted == nil || pin.Review.Accepted.Report.Disposition != disposition {
 				t.Fatalf("recording lost the disposition or advanced execution: %+v", pin.Review)
 			}
-			if workPinContainsAction(pin.NextValidIntents, "record_delivery") || !workPinContainsAction(pin.NextValidIntents, "record_review") {
-				t.Fatalf("corrective Review lost its hold or engineering recovery: %+v", pin.NextValidIntents)
+			if !workPinContainsAction(pin.NextValidIntents, "record_delivery") || !workPinContainsAction(pin.NextValidIntents, "record_review") {
+				t.Fatalf("corrective Review lost declared routes: %+v", pin.NextValidIntents)
+			}
+			blocked := j.effects(t)
+			payload := json.RawMessage(`{"delivery_artifact":"artifact:blocked-review","delivery_state":"asserted"}`)
+			_, err = WorkflowActionDefinitionFor(t.Context(), j.s, WorkflowActionPreflightRequest{WorkID: j.workID, ExpectedVersion: readWorkVersion(t, j.s, j.workID), ActionID: "record_delivery", Payload: payload, Actor: j.fixture.owner})
+			if !hasFailureKind(err, KindMissingEvidence) {
+				t.Fatalf("blocked delivery preflight = %v", err)
+			}
+			if err := j.action(t, "record_delivery", payload, j.fixture.owner); !hasFailureKind(err, KindMissingEvidence) {
+				t.Fatalf("blocked delivery = %v", err)
+			}
+			if j.effects(t) != blocked {
+				t.Fatal("refused delivery changed durable state")
 			}
 			if disposition == "revision_required" {
 				contract := contractRecordUpdate(t, j.s, j.workID)
-				if err := reviseContractRecord(t, j.s, j.workID, j.fixture.owner, contract, pin.Version, nil); err != nil {
+				if err := reviseContractRecord(t, j.s, j.workID, j.fixture.owner, contract, pin.Version); err != nil {
 					t.Fatalf("ordinary revision after blocking Review: %v", err)
 				}
 				updated := issue1013Pin(t, j.s, j.workID)
-				if updated.Step != step || updated.Review == nil || updated.Review.Accepted == nil || updated.Review.Accepted.Report.Disposition != disposition || workPinContainsAction(updated.NextValidIntents, "record_delivery") {
+				if updated.Step != step || updated.Review == nil || updated.Review.Accepted == nil || updated.Review.Accepted.Report.Disposition != disposition {
 					t.Fatalf("contract update lost the blocking Review or advanced execution: %+v", updated)
 				}
 			}
 			acceptCurrentReviewForTest(t, j.fixture, "ready_for_final_proof")
-			reviewGateStartStep(t, j.s, j.workID, step, "start_execution", j.fixture.owner)
 			verification := j.observeRun(t, "review-ready-delivery")
 			j.bindVerification(t, verification)
 			pin, err = ReadWorkPin(t.Context(), j.s, j.workID)
@@ -61,10 +73,11 @@ func TestBlockingReviewDispositionRecordsWithoutAdvancing(t *testing.T) {
 }
 
 func TestPreflightAndMutationRequireAcceptedReadyDisposition(t *testing.T) {
-	j := pReturnReviewFixture(t, "review-disposition-preflight", "workflow.implementation", "correction_required")
+	j := pReturnReviewFixture(t, "review-disposition-preflight", WorkflowStepPlanChange, "correction_required")
+	moveWorkflowPlanFixtureFrontier(t, j.s, j.workID, "review")
 	before := j.effects(t)
 	deliveryPayload := json.RawMessage(`{"delivery_artifact":"artifact:review-preflight","delivery_state":"asserted"}`)
-	preflightErr := WorkflowActionPreflightWithRegistry(t.Context(), j.s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: j.workID, ExpectedVersion: readWorkVersion(t, j.s, j.workID), ActionID: "record_delivery", Payload: deliveryPayload, Actor: j.fixture.owner})
+	_, preflightErr := WorkflowActionDefinitionFor(t.Context(), j.s, WorkflowActionPreflightRequest{WorkID: j.workID, ExpectedVersion: readWorkVersion(t, j.s, j.workID), ActionID: "record_delivery", Payload: deliveryPayload, Actor: j.fixture.owner})
 	var failure *Failure
 	if preflightErr == nil || !failureAs(preflightErr, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "ready_for_final_proof") || failure.RecoveryAction == "" {
 		t.Fatalf("preflight lost the readiness requirement or recovery: %v", preflightErr)
@@ -78,15 +91,15 @@ func TestPreflightAndMutationRequireAcceptedReadyDisposition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if workPinContainsAction(pin.NextValidIntents, "record_delivery") || j.effects(t) != before {
-		t.Fatal("refused delivery was advertised or changed durable state")
+	if !workPinContainsAction(pin.NextValidIntents, "record_delivery") || j.effects(t) != before {
+		t.Fatal("declared delivery route missing or refused delivery changed durable state")
 	}
 }
 
 func TestReadyReviewRecordsBesideASharedDomainWriter(t *testing.T) {
 	const workID = "ready-review-overlap"
 	const peerID = "ready-review-overlap-peer"
-	j := pReturnReviewFixture(t, workID, "workflow.break_fix", "")
+	j := pReturnReviewFixture(t, workID, WorkflowStepPlanFix, "")
 	s := j.s
 	report := currentReviewBlockForTest(t, s, workID, "ready_for_final_proof")
 	ownerRef := mustActorRef(t, j.fixture.owner)
@@ -96,5 +109,5 @@ func TestReadyReviewRecordsBesideASharedDomainWriter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ready Review beside a shared Domain writer = %v, want admitted", err)
 	}
-	reviewGateRequireStep(t, s, workID, "repair")
+	reviewGateRequireStep(t, s, workID, "implement")
 }

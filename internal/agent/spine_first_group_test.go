@@ -24,8 +24,8 @@ func TestSpineFirstGroupResumeDoesNotRestoreFirstEntry(t *testing.T) {
 	assertHeld := func() {
 		t.Helper()
 		refused := f.action(t, "record_delivery", map[string]any{"delivery_artifact": "artifact:first-group", "delivery_state": "asserted"})
-		if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "missing_evidence" {
-			t.Fatalf("a progressed execution reopened its first group: %+v", refused)
+		if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_transition" {
+			t.Fatalf("a progressed implementation admitted delivery: %+v", refused.Error)
 		}
 		after := f.read(t).Pinned.Pin
 		if after.Version != before.Version || after.Lifecycle != before.Lifecycle || !reflect.DeepEqual(after.Review, before.Review) || !reflect.DeepEqual(after.WorkContext, before.WorkContext) {

@@ -33,8 +33,8 @@ func TestLawIndexSchema168RetiredLawSnapshotAndUpgrade(t *testing.T) {
 	})
 	seedLawIndexLegacyProof(t, db)
 	before := retirementUpgradeSnapshot(t, db)
-	retainedContracts := retainedWorkflowContractRows(t, db)
-	preserved := append(append([]string{}, lawIndexPreservedTables...), "effect_receipts", "workflow_contracts", "workflow_step_completions")
+	retainedContracts := cutoverContractRows(t, db)
+	preserved := append(append([]string{}, lawIndexPreservedTables...), "effect_receipts", "workflow_contracts")
 	if _, err := PlanUpgradeReadiness(t.Context(), path); err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestLawIndexSchema168RetiredLawSnapshotAndUpgrade(t *testing.T) {
 	assertLawIndexRetired(t, db)
 	for _, table := range preserved {
 		if table == "workflow_contracts" {
-			if got := retainedWorkflowContractRows(t, db); !reflect.DeepEqual(got, retainedContracts) {
+			if got := cutoverContractRows(t, db); !reflect.DeepEqual(got, retainedContracts) {
 				t.Error("current contract facts changed")
 			}
 			continue

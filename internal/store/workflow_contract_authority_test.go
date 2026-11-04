@@ -67,7 +67,7 @@ func TestContractRecordUpdateRefusesDuplicateActiveProjection(t *testing.T) {
 	seedDuplicateContractProjection(t, s, workID, ownerRef)
 	version := readWorkVersion(t, s, workID)
 	before := contractRecordEffectSnapshot(t, s, workID)
-	err = reviseContractRecord(t, s, workID, owner, contract, version, nil)
+	err = reviseContractRecord(t, s, workID, owner, contract, version)
 	if !hasFailureKind(err, KindInvariantViolation) || !strings.Contains(err.Error(), "multiple active contracts") {
 		t.Fatalf("duplicate active revision = %v", err)
 	}

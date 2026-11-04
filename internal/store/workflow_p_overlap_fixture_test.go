@@ -11,7 +11,10 @@ import (
 // decision under CD-0243.
 func pOverlapContractFacts(t *testing.T, s *Store, event Event) Event {
 	t.Helper()
-	definition := pinnedWorkflowDefinitionForTest(t, s, event.SubjectID)
+	plan, err := readWorkflowPlanTx(t.Context(), s.db, event.SubjectID)
+	if err != nil || plan == nil {
+		t.Fatalf("read workflow plan: plan=%v err=%v", plan, err)
+	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(event.Payload, &fields); err != nil {
 		t.Fatal(err)
@@ -21,17 +24,15 @@ func pOverlapContractFacts(t *testing.T, s *Store, event Event) Event {
 		if err := json.Unmarshal(fields["contract"], &contract); err != nil {
 			t.Fatal(err)
 		}
-		if workflowDeclaresDecisionDomains(definition) {
-			if _, declared := contract["decision_domains"]; !declared {
-				contract["decision_domains"] = mustJSONValue([]string{})
-			}
+		if _, declared := contract["decision_domains"]; !declared {
+			contract["decision_domains"] = mustJSONValue([]string{})
 		}
 		fields["contract"] = mustJSONValue(contract)
 		event.Payload = mustJSONValue(fields)
 		event.PayloadVersion = CurrentEventPayloadVersion(event.Kind)
 		return event
 	}
-	event = withPinnedDecisionFact(t, definition, event)
+	event = withPlanDecisionFact(t, plan.Type, event)
 	if err := json.Unmarshal(event.Payload, &fields); err != nil {
 		t.Fatal(err)
 	}

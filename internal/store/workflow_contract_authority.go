@@ -29,9 +29,6 @@ func activeWorkflowContractVersion(ctx context.Context, q queryer, workID, subje
 
 // Admission reads can expose an ambiguous projection without granting it
 // contract authority. Writers still require one active contract.
-func workflowDuplicateContractProjection(err error) bool {
-	return workflowProjectionInvariant(err, "workflow contract projection has multiple active contracts")
-}
 
 func workflowProjectionInvariant(err error, detail string) bool {
 	for err != nil {

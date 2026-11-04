@@ -213,20 +213,15 @@ func (f workContextFixture) knowledgeReading() map[string]any {
 	return map[string]any{"domain_id": workContextTestChild, "reason": "the law reading carries the bounded reason", "source": map[string]any{"kind": "knowledge", "source_id": f.sources.lawProject, "law_id": f.sources.lawID, "content_hash": f.sources.lawHash}}
 }
 
-// seedWorkContextFixture seeds one break-fix work item whose approved
-// contract affects root and child-alpha, advanced to the repair step, with
+// seedWorkContextFixture seeds one fix work item whose approved
+// contract affects root and child-alpha, advanced to implement, with
 // the registry fixture above installed.
 func seedWorkContextFixture(t *testing.T, workID string) workContextFixture {
 	t.Helper()
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return seedWorkContextFixtureWithDefinition(t, workID, registered)
+	return seedWorkContextFixtureWithPlan(t, workID, WorkflowStepPlanFix, "implement")
 }
 
-// Initialization retains the registered identity supplied by the caller.
-func seedWorkContextFixtureWithDefinition(t *testing.T, workID string, registered RegisteredDefinition) workContextFixture {
+func seedWorkContextFixtureWithPlan(t *testing.T, workID string, planType WorkflowStepPlanType, frontier string) workContextFixture {
 	t.Helper()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -248,21 +243,24 @@ func seedWorkContextFixtureWithDefinition(t *testing.T, workID string, registere
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: owner, Now: time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: owner, Now: time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)}); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	version := int64(4)
+	plan := currentWorkflowPlanFixture(t, planType)
+	seedWorkflowPlanFrontier(t, s, workID, plan.Type, frontier)
+	initialVersion := readWorkVersion(t, s, workID)
+	version := initialVersion
 	events := []Event{workflowEventWithActor("ctx-actor-"+workID, WorkflowActorRecorded, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef,
 		"agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": string(owner.ActorClass),
 	})}
 	version++
-	events = append(events, workflowTypedEvent("ctx-contract-"+workID, WorkflowContractApproved, workID, ownerRef, time.Unix(5, 0).UTC(), version, map[string]any{
+	contract := map[string]any{
 		"contract_version": 1, "premise": "deliver the checked change", "decision_domains": []string{},
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:work-context", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:work-context", "immutable_subject_ref": "commit:" + workContextTestCommit(), "expected_result": "pass"}}},
 		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
@@ -271,11 +269,13 @@ func seedWorkContextFixtureWithDefinition(t *testing.T, workID string, registere
 			HomeDomainID: workContextTestRoot, AffectedDomainIDs: []string{workContextTestRoot, workContextTestChild},
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
 		},
-	}))
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
-		t.Fatal(err)
 	}
-	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "repair", ownerRef); err != nil {
+	if planType == WorkflowStepPlanResearch {
+		delete(contract, "architecture_binding")
+		contract["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:work-context", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"resolved"}}}}
+	}
+	events = append(events, withPlanDecisionFact(t, planType, workflowTypedEvent("ctx-contract-"+workID, WorkflowContractApproved, workID, ownerRef, time.Unix(5, 0).UTC(), version, contract)))
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): initialVersion}}); err != nil {
 		t.Fatal(err)
 	}
 	return workContextFixture{store: s, workID: workID, owner: owner, operator: operator, sources: sources}
@@ -342,8 +342,8 @@ func TestRecordWorkContextAppendsTypedDeclaration(t *testing.T) {
 	if got := readWorkVersion(t, fixture.store, fixture.workID); got <= versionBefore {
 		t.Fatalf("work version after declaration = %d, want past %d", got, versionBefore)
 	}
-	if got := currentStep(t, fixture.store, fixture.workID); got != "repair" {
-		t.Fatalf("step after declaration = %q, want repair (hold)", got)
+	if got := workflowPlanFixtureFrontier(t, fixture.store, fixture.workID); got != "implement" {
+		t.Fatalf("step after declaration = %q, want implement (hold)", got)
 	}
 }
 
@@ -823,9 +823,10 @@ func (f workContextFixture) rawWorkContextEvent(t *testing.T, content map[string
 	}
 	version := readWorkVersion(t, f.store, f.workID)
 	resulting := version + 1
-	var stepID, workflowRef, digest string
+	stepID := workflowPlanFixtureFrontier(t, f.store, f.workID)
+	var workflowRef string
 	var attemptEpoch int64
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT current_step,definition_ref,definition_digest,(SELECT COALESCE(MAX(attempt_epoch),1) FROM durable_operations WHERE work_id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, f.workID).Scan(&stepID, &workflowRef, &digest, &attemptEpoch); err != nil {
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT workflow_type,(SELECT COALESCE(MAX(attempt_epoch),1) FROM durable_operations WHERE work_id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, f.workID).Scan(&workflowRef, &attemptEpoch); err != nil {
 		t.Fatal(err)
 	}
 	content["work_id"] = f.workID
@@ -834,7 +835,6 @@ func (f workContextFixture) rawWorkContextEvent(t *testing.T, content map[string
 	content["step_id"] = stepID
 	content["attempt_epoch"] = attemptEpoch
 	content["workflow_ref"] = workflowRef
-	content["workflow_definition_digest"] = digest
 	content["actor_ref"] = ownerRef
 	content["request_id"] = "request:raw-work-context"
 	if _, present := content["required_reading"]; !present {
@@ -908,17 +908,19 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	}
 	repo, _ := reviewSubjectClaim(t, fixture.store, fixture.workID)
 	journey := &candidateJourney{fixture: fixture, s: fixture.store, workID: fixture.workID, repo: repo}
-	if err := journey.action(t, "checkpoint_repair", map[string]any{}, fixture.owner); err != nil {
-		t.Fatalf("start ordinary repair: %v", err)
+	if err := journey.action(t, "start_execution", map[string]any{}, fixture.owner); err != nil {
+		t.Fatalf("start ordinary implementation: %v", err)
 	}
 	conformanceImplementChange(t, journey, "ctx-no-promotion-candidate")
 	proof := journey.observeRun(t, "ctx-no-promotion-proof")
 	journey.bindVerification(t, proof)
 	retained := []WorkContextFinding{{Kind: "observation", Statement: workerMarker, SubjectRef: "internal/store/work_context.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
 	seedContextFactTerminal(t, fixture, "worker.completed", map[string]any{"context_findings": retained})
-	completeCurrentReviewForTest(t, fixture, "ready_for_final_proof", func(report *ReviewBlock) {
-		report.Assessments = []ReviewAssessment{{PredicateID: "predicate:work-context", Assessment: "supported", ReceiptRefs: []string{proof.OperationRef}}}
-	})
+	report := currentReviewBlockForTest(t, fixture.store, fixture.workID, "ready_for_final_proof")
+	report.Assessments = []ReviewAssessment{{PredicateID: "predicate:work-context", Assessment: "supported", ReceiptRefs: []string{proof.OperationRef}}}
+	if err := recordReviewForTest(t, fixture.store, fixture.workID, fixture.owner, report); err != nil {
+		t.Fatalf("record implementation review: %v", err)
+	}
 	// The compaction-draft-adjacent boundary: a durable checkpoint and a
 	// summary boundary carry only their own content, before the terminal
 	// completion freezes the instance.
@@ -936,14 +938,9 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	// Main associates the captured proof and completes through the declared
 	// exits. Context claims cannot stand in for criterion evidence.
 	delivery := map[string]any{"delivery_artifact": "commit:" + journey.head(t), "delivery_state": "asserted"}
-	for _, action := range []string{"record_delivery", "checkpoint_refine", "record_delivery", "record_delivery"} {
-		fields := delivery
-		if action == "checkpoint_refine" {
-			fields = map[string]any{}
-		}
-		if err := journey.action(t, action, fields, fixture.owner); err != nil {
-			t.Fatalf("current completion route %s: %v", action, err)
-		}
+	moveWorkflowPlanFixtureFrontier(t, fixture.store, fixture.workID, "review")
+	if err := journey.action(t, "record_delivery", delivery, fixture.owner); err != nil {
+		t.Fatalf("record delivery: %v", err)
 	}
 	if err := journey.action(t, "bind_evidence", map[string]any{"evidence_kind": "artifact", "evidence_ref": delivery["delivery_artifact"]}, fixture.owner); err != nil {
 		t.Fatalf("bind delivered artifact: %v", err)
@@ -962,11 +959,12 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 		PrincipalRef: fixture.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "ctx-no-promotion-confirm", RequestID: "request:ctx-no-promotion-confirm", ContractDigest: testManifestDigest, Now: time.Now().UTC(),
 	}
 	if err := fixture.store.Transact(ctx, func(tx *Transaction) error {
-		_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), confirmation)
+		_, err := ApplyWorkflowActionTx(ctx, tx, confirmation)
 		return err
 	}); err != nil {
 		t.Fatalf("confirm the evidenced premise: %v", err)
 	}
+	completeWorkflowPlanFixture(t, fixture.store, fixture.workID)
 	if err := journey.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}, fixture.owner); err != nil {
 		t.Fatalf("completion after context records refused: %v", err)
 	}

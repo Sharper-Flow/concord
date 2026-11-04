@@ -31,7 +31,6 @@ func VersionRef(subjectType SubjectType, id string) SubjectRef {
 type Operation struct {
 	Events           []Event
 	ExpectedVersions map[SubjectRef]int64
-	Registry         DefinitionRegistry `json:"-"`
 }
 
 // MembershipImpact describes canonical work whose derived Product scope may
@@ -177,6 +176,13 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"domain.observation_recorded":             registerEventKind[domainObservationRecordedPayload](1, EventAppendAuthorityGeneric, foldDomainObservationRecorded, nil),
 	"domain.observation_dismissed":            registerEventKind[domainObservationDismissedPayload](1, EventAppendAuthorityGeneric, foldDomainObservationDismissed, nil),
 	WorkflowDefinitionSelected:                workflowScopedRegistration[workflowDefinitionSelectedPayload](1, foldWorkflowDefinitionSelected),
+	WorkflowIntakeRecorded:                    workflowRegistration[workflowIntakeRecordedPayload](1, foldWorkflowIntakeRecorded),
+	WorkflowClarifyRecorded:                   workflowRegistration[workflowClarifyRecordedPayload](1, foldWorkflowClarifyRecorded),
+	WorkflowTypePicked:                        workflowRegistration[workflowTypePickedPayload](1, foldWorkflowTypePicked),
+	WorkflowStepInserted:                      workflowRegistration[workflowStepInsertedPayload](1, foldWorkflowStepInserted),
+	WorkflowStepCompleted:                     workflowRegistration[workflowStepCompletedPayload](1, foldWorkflowStepCompleted),
+	WorkflowPlanRecorded:                      workflowRegistration[workflowPlanRecordedPayload](1, foldWorkflowPlanRecorded),
+	WorkflowRemovalScopeRecorded:              workflowRegistration[workflowRemovalScopeRecordedPayload](1, foldWorkflowRemovalScopeRecorded),
 	WorkflowContractApproved:                  workflowScopedRegistration[workflowContractApprovedPayload](workflowContractPayloadVersion, foldWorkflowContractApproved),
 	WorkflowOverlapResolved:                   workflowRegistration[workflowOverlapResolvedPayload](2, foldWorkflowOverlapResolved),
 	WorkflowNativeRunRecorded:                 registerEventKind[nativeRunPayload](2, EventAppendAuthorityGeneric, foldNativeRunRecorded, validateNativeRunPayload),
@@ -329,11 +335,6 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scop
 	if scope == nil {
 		return output, newFailure(KindInvalidOperation, "apply_operation", "write scope is required", false, "open the write scope with beginWrite")
 	}
-	if operation.Registry != nil {
-		if err := scope.bindRegistry(tx, operation.Registry); err != nil {
-			return output, err
-		}
-	}
 	if len(operation.Events) == 0 {
 		return output, newFailure(KindInvalidOperation, "apply_operation", "operation has no events", false, "supply at least one accepted event")
 	}
@@ -474,11 +475,6 @@ func applyOperationWithResult(ctx context.Context, s *Store, operation Operation
 	scope, err := beginWrite(ctx, tx.Tx)
 	if err != nil {
 		return output, rollback(err)
-	}
-	if operation.Registry != nil {
-		if err := scope.bindRegistry(tx.Tx, operation.Registry); err != nil {
-			return output, rollback(err)
-		}
 	}
 	startReceipt := len(scope.eventIDs)
 

@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func reviseContractRecord(t *testing.T, s *Store, workID string, owner WorkflowActor, contract map[string]any, expected int64, registry DefinitionRegistry) error {
+func reviseContractRecord(t *testing.T, s *Store, workID string, owner WorkflowActor, contract map[string]any, expected int64) error {
 	t.Helper()
 	actor, err := WorkflowActorRef(owner)
 	if err != nil {
@@ -34,7 +34,6 @@ func reviseContractRecord(t *testing.T, s *Store, workID string, owner WorkflowA
 	err = ApplyOperation(ctx, s, Operation{
 		Events:           []Event{{EventID: fmt.Sprintf("record-update-%s-%d", workID, expected), Kind: "work.intent_revised", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actor, OccurredAt: time.Unix(40, expected).UTC(), PayloadVersion: 1, Payload: payload}},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): expected},
-		Registry:         registry,
 	})
 	return err
 }
@@ -67,7 +66,7 @@ func TestContractRecordUpdatePreservesProofAndProvenance(t *testing.T) {
 				}
 				intermediate := contractRecordUpdate(t, s, f.workID)
 				intermediate["route_conventions"] = []string{}
-				if err := reviseContractRecord(t, s, f.workID, f.owner, intermediate, readWorkVersion(t, s, f.workID), nil); err != nil {
+				if err := reviseContractRecord(t, s, f.workID, f.owner, intermediate, readWorkVersion(t, s, f.workID)); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -87,7 +86,7 @@ func TestContractRecordUpdatePreservesProofAndProvenance(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			step := currentStep(t, s, f.workID)
+			step := workflowPlanFixtureFrontier(t, s, f.workID)
 			expected := readWorkVersion(t, s, f.workID)
 			contract := contractRecordUpdate(t, s, f.workID)
 			if change == "empty-requirements" {
@@ -100,7 +99,7 @@ func TestContractRecordUpdatePreservesProofAndProvenance(t *testing.T) {
 			if change == "subject" {
 				predicate["immutable_subject_ref"] = "commit:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 			}
-			if err := reviseContractRecord(t, s, f.workID, f.owner, contract, expected, nil); err != nil {
+			if err := reviseContractRecord(t, s, f.workID, f.owner, contract, expected); err != nil {
 				t.Fatal(err)
 			}
 			active, err := activeWorkflowContractVersion(t.Context(), s.db, f.workID, "test")
@@ -117,7 +116,7 @@ func TestContractRecordUpdatePreservesProofAndProvenance(t *testing.T) {
 			if got := readWorkVersion(t, s, f.workID); got != expected+1 {
 				t.Fatalf("ordinary update advanced work version to %d, want %d", got, expected+1)
 			}
-			if got := currentStep(t, s, f.workID); got != step {
+			if got := workflowPlanFixtureFrontier(t, s, f.workID); got != step {
 				t.Fatalf("ordinary update reset step %s to %s", step, got)
 			}
 			after, err := readWorkflowContractVersion(t.Context(), s.db, f.workID, previous)
@@ -160,16 +159,14 @@ func contractRecordBindingSnapshot(t *testing.T, s *Store, workID string) string
 }
 
 func TestContractRecordUpdateRefusalsAreAtomic(t *testing.T) {
-	for _, mutant := range []string{"malformed", "missing premise", "unknown field", "null", "current version", "skipped version", "stale work version", "unregistered pin"} {
+	for _, mutant := range []string{"malformed", "missing premise", "unknown field", "null", "current version", "skipped version", "stale work version"} {
 		t.Run(mutant, func(t *testing.T) {
-			f := seedWorkContextFixture(t, "record-refusal-"+fmt.Sprint(len(mutant)))
+			workID := "record-refusal-" + fmt.Sprint(len(mutant))
+			f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanFix, "plan", []string{"verification"}, nil)
 			defer f.store.Close()
-			expected := readWorkVersion(t, f.store, f.workID)
-			contract := contractRecordUpdate(t, f.store, f.workID)
-			var registry DefinitionRegistry
+			expected := readWorkVersion(t, f.store, workID)
+			contract := contractRecordUpdate(t, f.store, workID)
 			switch mutant {
-			case "unregistered pin":
-				registry = NewWorkflowDefinitionRegistry()
 			case "missing premise":
 				delete(contract, "premise")
 			case "unknown field":
@@ -185,14 +182,14 @@ func TestContractRecordUpdateRefusalsAreAtomic(t *testing.T) {
 			case "stale work version":
 				expected--
 			}
-			before := contractRecordEffectSnapshot(t, f.store, f.workID)
-			if err := reviseContractRecord(t, f.store, f.workID, f.owner, contract, expected, registry); err == nil {
+			before := contractRecordEffectSnapshot(t, f.store, workID)
+			if err := reviseContractRecord(t, f.store, workID, f.owner, contract, expected); err == nil {
 				t.Fatal("invalid record update succeeded")
 			}
-			if after := contractRecordEffectSnapshot(t, f.store, f.workID); after != before {
+			if after := contractRecordEffectSnapshot(t, f.store, workID); after != before {
 				t.Fatalf("refused update had effects: %s -> %s", before, after)
 			}
-			version, err := activeWorkflowContractVersion(t.Context(), f.store.db, f.workID, "test")
+			version, err := activeWorkflowContractVersion(t.Context(), f.store.db, workID, "test")
 			if err != nil || version != 1 {
 				t.Fatalf("refused update changed active contract to %d, %v", version, err)
 			}

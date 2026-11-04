@@ -48,7 +48,7 @@ func recordReviewForTest(t *testing.T, s *Store, workID string, actor WorkflowAc
 	version := readWorkVersion(t, s, workID)
 	id := fmt.Sprintf("fixture-review-%s-%d", workID, version)
 	return s.Transact(ctx, func(tx *Transaction) error {
-		_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		_, err := ApplyWorkflowActionTx(ctx, tx, WorkflowActionExecutionRequest{
 			WorkID: workID, ExpectedVersion: version, ActionID: "record_review", Payload: mustJSONValue(map[string]any{"review": report}), Actor: actor,
 			AcceptedInputsDigest: nativeDigest([]byte(id)), IdempotencyIdentity: id, OperationID: id,
 			PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: id, RequestID: id, ContractDigest: testManifestDigest, Now: time.Now().UTC(),

@@ -19,10 +19,6 @@
     {
       "kind": "refines",
       "target_id": "CD-0089"
-    },
-    {
-      "kind": "refines",
-      "target_id": "CD-0166"
     }
   ],
   "product_wide_rationale": "Rapid-development phases change the source coordination target and delivery evidence across all Domains while preserving full main-branch verification and automated releases."

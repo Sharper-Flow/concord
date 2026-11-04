@@ -73,7 +73,7 @@ func TestReviewRouteGuidanceAdmission(t *testing.T) {
 }
 
 func TestReviewRouteGuidanceAcceptance(t *testing.T) {
-	j := pReturnReviewFixture(t, "review-route-acceptance", "workflow.break_fix", "ready_for_final_proof")
+	j := pReturnReviewFixture(t, "review-route-acceptance", "fix", "ready_for_final_proof")
 	for _, tc := range []struct {
 		name, detail, recovery string
 		change                 func(*ReviewBlock)

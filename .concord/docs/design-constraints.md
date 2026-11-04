@@ -58,7 +58,7 @@ authority are forbidden.
 not retained historical definitions.
 
 **Direction.** [`workflows.md`](./workflows.md) owns the current family and
-composition model. [CD-0218 D1](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution)
+composition model. [CD-0218 D1](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution)
 owns the live family boundary; CD-0242 D14 owns generated definitions.
 
 ---

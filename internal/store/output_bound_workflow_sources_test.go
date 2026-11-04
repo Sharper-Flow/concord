@@ -961,41 +961,12 @@ func workflowAppendChainItemsBound(file, function, target string) outputBoundSou
 	})
 }
 
-// workflowReturnSliceItemsBound counts the elements of the one slice
-// composite literal a named function returns.
-func workflowReturnSliceItemsBound(file, function string) outputBoundSource {
-	return workflowDerived(func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
-		_, fn, err := workflowFunctionDecl(rt, file, function)
-		if err != nil {
-			return evaluatedBound{}, err
-		}
-		var returns []*ast.ReturnStmt
-		ast.Inspect(fn, func(n ast.Node) bool {
-			if returned, ok := n.(*ast.ReturnStmt); ok {
-				returns = append(returns, returned)
-			}
-			return true
-		})
-		if len(returns) != 1 || len(returns[0].Results) != 1 {
-			return evaluatedBound{}, fmt.Errorf("workflow return slice %s:%s must carry exactly one return with one result", file, function)
-		}
-		lit, ok := returns[0].Results[0].(*ast.CompositeLit)
-		if !ok {
-			return evaluatedBound{}, fmt.Errorf("workflow return slice %s:%s returns a non-composite value", file, function)
-		}
-		if _, ok := lit.Type.(*ast.ArrayType); !ok {
-			return evaluatedBound{}, fmt.Errorf("workflow return slice %s:%s returns a non-slice composite", file, function)
-		}
-		from := fmt.Sprintf("workflow construction %s:%s returns a %d-element slice literal", file, function, len(lit.Elts))
-		return workflowItemsEvaluated(int64(len(lit.Elts)), from), nil
-	})
-}
-
 // workflowReturnLiteralsMaxItemsBound derives the widest slice composite
 // literal among a named function's returns. Every return statement must
-// return exactly one slice composite literal: while all outputs are fixed
-// literals, the widest literal is the emitted count, and any non-literal
-// return fails closed instead of being ignored.
+// return exactly one unkeyed slice composite literal: while all outputs are
+// fixed literals, the widest literal is the emitted count. Any other return,
+// or an indexed element that could widen a literal past its element count,
+// fails closed instead of being ignored.
 func workflowReturnLiteralsMaxItemsBound(file, function string) outputBoundSource {
 	return workflowDerived(func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
 		_, fn, err := workflowFunctionDecl(rt, file, function)
@@ -1021,8 +992,13 @@ func workflowReturnLiteralsMaxItemsBound(file, function string) outputBoundSourc
 			if !ok {
 				return evaluatedBound{}, fmt.Errorf("workflow return literals %s:%s returns a non-composite value", file, function)
 			}
-			if _, isArray := lit.Type.(*ast.ArrayType); !isArray {
+			if array, isArray := lit.Type.(*ast.ArrayType); !isArray || array.Len != nil {
 				return evaluatedBound{}, fmt.Errorf("workflow return literals %s:%s returns a non-slice composite", file, function)
+			}
+			for _, elt := range lit.Elts {
+				if _, keyed := elt.(*ast.KeyValueExpr); keyed {
+					return evaluatedBound{}, fmt.Errorf("workflow return literals %s:%s returns an indexed slice literal", file, function)
+				}
 			}
 			if int64(len(lit.Elts)) > widest {
 				widest = int64(len(lit.Elts))

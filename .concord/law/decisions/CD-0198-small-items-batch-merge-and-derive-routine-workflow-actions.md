@@ -55,16 +55,14 @@ recorded, and the plan's alignment read replaces the retired
 implementation alignment step. Analysis cannot complete without the search
 beside it.
 
-### D3. Repair and refine starts derive from the first action
+### D3. The fenced implement start derives the step-start fact
 
 The fenced `start_execution` at the item's implement step derives the
 step-start fact in its own transaction. The first start wins, opens the
-epoch and binds the fence from its actor. Delivery no longer requires that
-start: that fenced-delivery requirement retired with the step-exit
-mechanics (workflow-engine-contract §7/§12 superseding CD-0112 D2), and
-delivery now requires the accepted Review and a recorded verification
-report for the current candidate; no lease acquisition, live Git freshness
-or exact tooling argv comparison is required. Current rows own these facts;
+epoch and binds the fence from its actor. Delivery requires the accepted
+Review and a recorded verification report for the current candidate; no
+step start, lease acquisition, live Git freshness or exact tooling argv
+comparison is required. Current rows own these facts;
 per-item plans copy one canonical template contract.
 
 Whole-work delivery uses `record_delivery` and its complete admission. A Review

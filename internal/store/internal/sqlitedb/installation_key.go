@@ -13,7 +13,8 @@ import (
 // installations must avoid it when another writer holds the lock. Idempotent
 // insertion lets concurrent first opens converge on one key. A rollback that
 // cannot be proved reports a possible effect: state admission may have
-// committed the revision.
+// committed the revision. A commit error reports a possible effect too: the
+// commit may have landed before the error surfaced.
 func EnsureInstallationKey(ctx context.Context, db *sql.DB, createdAt time.Time) (err error) {
 	var exists int
 	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM agent_installation_keys WHERE key_name='cursor')`).Scan(&exists); err != nil {
@@ -63,8 +64,13 @@ func EnsureInstallationKey(ctx context.Context, db *sql.DB, createdAt time.Time)
 		return nil
 	}
 	if err := write.Commit(); err != nil {
-		return failure(Unavailable, "open", "cannot commit the installation cursor key", true,
-			"retry once the database is writable", err)
+		// A returned commit error is not a refusal proof: the commit may
+		// have landed before the error surfaced, so the envelope reports a
+		// possible effect instead of a clean retry.
+		f := failure(Unavailable, "open", "cannot prove the installation cursor key committed", false,
+			"reconcile database state before retrying", err)
+		f.EffectPossible = true
+		return f
 	}
 	return nil
 }

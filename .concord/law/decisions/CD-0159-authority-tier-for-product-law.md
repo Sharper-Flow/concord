@@ -89,9 +89,14 @@ heuristic as sole authority for correctness.
 ### D2. The deliverable sets the tier, not the presence of an approval
 
 Outside the closed D5 cohort, the named operator-approved contract version
-must pin a definition with `changes_product_truth=true`. This test applies
-CD-0222 D5. A non-Product-changing contract never establishes legislative
-standing, whatever field names the law.
+must carry the approval's recorded Product-truth fact: the contract row's
+`changes_product_truth` is true, or the contract predates that column and the
+version's retained architecture binding supplies the fact — the approval fold
+persisted a binding exactly for Product-changing contracts and refused one on
+every other, so a historical NULL column with a binding is true and without
+one is false. This test applies CD-0222 D5. A contract whose recorded
+approval is not Product-changing never establishes legislative standing,
+whatever field names the law.
 
 A decision or constitutional record is `legislated` when that contract
 version names its `law_id` in an `exists` or `absent` predicate's `subjects`,

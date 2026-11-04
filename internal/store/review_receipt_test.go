@@ -8,6 +8,41 @@ import (
 	"time"
 )
 
+// verifyCriterionAssociationRows checks every recorded criterion association
+// for one work item: exact proof and current criterion content, the calling
+// Main identity, acceptance substantiation, and refusal of an unrecorded actor.
+func verifyCriterionAssociationRows(t *testing.T, store *Store, workID, ref string, actor WorkflowActor, count int) {
+	t.Helper()
+	for index := 0; index < count; index++ {
+		var raw []byte
+		if err := store.db.QueryRow(`SELECT payload FROM workflow_predicate_verdicts WHERE work_id=? ORDER BY verdict_seq LIMIT 1 OFFSET ?`, workID, index).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		var association workflowVerdictRecordedPayload
+		if err := json.Unmarshal(raw, &association); err != nil {
+			t.Fatal(err)
+		}
+		if association.Candidate == nil || association.CriterionDigest == "" || len(association.EvaluationEvidence) != 1 || association.EvaluationEvidence[0] != ref {
+			t.Fatalf("association did not retain exact proof and current criterion content: %+v", association)
+		}
+		if association.VerdictActorRef != DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef) {
+			t.Fatal("criterion association did not retain the calling Main identity")
+		}
+		if err := verifyWorkflowCriterionAssociation(t.Context(), store.db, workID, association); err != nil {
+			t.Fatalf("recorded criterion association cannot substantiate acceptance: %v", err)
+		}
+		unrecorded := actor
+		unrecorded.SessionRef += ":unrecorded"
+		association.VerdictActorRef = mustActorRef(t, unrecorded)
+		if countWorkflowActor(t, store, association.VerdictActorRef) != 0 {
+			t.Fatal("negative association fixture already recorded its actor")
+		}
+		if err := verifyWorkflowCriterionAssociation(t.Context(), store.db, workID, association); !hasFailureKind(err, KindProjectionNotFound) {
+			t.Fatalf("stored association admitted an unrecorded actor: %v", err)
+		}
+	}
+}
+
 func TestCriterionReceiptBatchIsExplicitAndAtomic(t *testing.T) {
 	entry := func(predicate, ref string) map[string]any {
 		return map[string]any{"predicate_id": predicate, "receipt_refs": []string{ref}}
@@ -152,34 +187,7 @@ func TestCriterionReceiptBatchIsExplicitAndAtomic(t *testing.T) {
 				if err := f.store.db.QueryRow(`SELECT (SELECT effect_seq FROM effect_receipts WHERE subject_id=? AND actor=? AND kind=?),(SELECT min(verdict_seq) FROM workflow_predicate_verdicts WHERE work_id=? AND actor=?)`, workID, actorRef, WorkflowActorRecorded, workID, actorRef).Scan(&actorSeq, &verdictSeq); err != nil || actorSeq >= verdictSeq {
 					t.Fatalf("actor registration must precede its verdict: actor=%d verdict=%d err=%v", actorSeq, verdictSeq, err)
 				}
-				for index := 0; index < tc.count; index++ {
-					var raw []byte
-					if err := f.store.db.QueryRow(`SELECT payload FROM workflow_predicate_verdicts WHERE work_id=? ORDER BY verdict_seq LIMIT 1 OFFSET ?`, workID, index).Scan(&raw); err != nil {
-						t.Fatal(err)
-					}
-					var association workflowVerdictRecordedPayload
-					if err := json.Unmarshal(raw, &association); err != nil {
-						t.Fatal(err)
-					}
-					if association.Candidate == nil || association.CriterionDigest == "" || len(association.EvaluationEvidence) != 1 || association.EvaluationEvidence[0] != ref {
-						t.Fatalf("association did not retain exact proof and current criterion content: %+v", association)
-					}
-					if association.VerdictActorRef != DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef) {
-						t.Fatal("criterion association did not retain the calling Main identity")
-					}
-					if err := verifyWorkflowCriterionAssociation(t.Context(), f.store.db, workID, association); err != nil {
-						t.Fatalf("recorded criterion association cannot substantiate acceptance: %v", err)
-					}
-					unrecorded := actor
-					unrecorded.SessionRef += ":unrecorded"
-					association.VerdictActorRef = mustActorRef(t, unrecorded)
-					if countWorkflowActor(t, f.store, association.VerdictActorRef) != 0 {
-						t.Fatal("negative association fixture already recorded its actor")
-					}
-					if err := verifyWorkflowCriterionAssociation(t.Context(), f.store.db, workID, association); !hasFailureKind(err, KindProjectionNotFound) {
-						t.Fatalf("stored association admitted an unrecorded actor: %v", err)
-					}
-				}
+				verifyCriterionAssociationRows(t, f.store, workID, ref, actor, tc.count)
 			}
 			plan, err := readWorkflowPlanTx(t.Context(), f.store.db, workID)
 			if err != nil || plan == nil {
@@ -197,34 +205,7 @@ func TestCriterionReceiptBatchIsExplicitAndAtomic(t *testing.T) {
 			if err := f.store.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowEvidenceBound).Scan(&evidenceAfter); err != nil || evidenceAfter != evidenceBefore {
 				t.Fatalf("criterion association minted or rebound evidence: before=%d after=%d err=%v", evidenceBefore, evidenceAfter, err)
 			}
-			for index := 0; index < tc.count; index++ {
-				var raw []byte
-				if err := f.store.db.QueryRow(`SELECT payload FROM workflow_predicate_verdicts WHERE work_id=? ORDER BY verdict_seq LIMIT 1 OFFSET ?`, workID, index).Scan(&raw); err != nil {
-					t.Fatal(err)
-				}
-				var association workflowVerdictRecordedPayload
-				if err := json.Unmarshal(raw, &association); err != nil {
-					t.Fatal(err)
-				}
-				if association.Candidate == nil || association.CriterionDigest == "" || len(association.EvaluationEvidence) != 1 || association.EvaluationEvidence[0] != ref {
-					t.Fatalf("association did not retain exact proof and current criterion content: %+v", association)
-				}
-				if association.VerdictActorRef != DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef) {
-					t.Fatal("criterion association did not retain the calling Main identity")
-				}
-				if err := verifyWorkflowCriterionAssociation(t.Context(), f.store.db, workID, association); err != nil {
-					t.Fatalf("recorded criterion association cannot substantiate acceptance: %v", err)
-				}
-				unrecorded := actor
-				unrecorded.SessionRef += ":unrecorded"
-				association.VerdictActorRef = mustActorRef(t, unrecorded)
-				if countWorkflowActor(t, f.store, association.VerdictActorRef) != 0 {
-					t.Fatal("negative association fixture already recorded its actor")
-				}
-				if err := verifyWorkflowCriterionAssociation(t.Context(), f.store.db, workID, association); !hasFailureKind(err, KindProjectionNotFound) {
-					t.Fatalf("stored association admitted an unrecorded actor: %v", err)
-				}
-			}
+			verifyCriterionAssociationRows(t, f.store, workID, ref, actor, tc.count)
 		})
 	}
 }

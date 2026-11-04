@@ -155,17 +155,6 @@ func isTerminalLifecycle(v string) bool {
 	return false
 }
 
-// terminalLifecycleSQLList renders the terminal set as a parenthesised SQL
-// list of quoted literals for an IN clause. The values are the closed set
-// above, never caller input.
-func terminalLifecycleSQLList() string {
-	quoted := make([]string, len(terminalLifecycles))
-	for i, v := range terminalLifecycles {
-		quoted[i] = "'" + v + "'"
-	}
-	return "(" + strings.Join(quoted, ",") + ")"
-}
-
 // The ordinary transition table deliberately excludes supersession and reopen.
 // Those composite operations have extra relation and terminality invariants.
 var ordinaryTransitions = map[string]map[string]bool{

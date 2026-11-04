@@ -119,6 +119,7 @@ var historicalOutcomeSubject = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{
 var historicalOutcomeSurface = regexp.MustCompile(`^[a-z][a-z0-9_.:/-]{1,127}$`)
 var historicalOutcomeCheck = regexp.MustCompile(`^check:[a-z][a-z0-9_.:/-]{1,127}$`)
 var historicalOutcomeActor = regexp.MustCompile(`^actor:[0-9a-f]{64}$`)
+var historicalOutcomeApproval = regexp.MustCompile(`^approval:[a-z0-9][a-z0-9_.:/-]{1,127}$`)
 
 func retireOutcomeContract(ctx context.Context, q migrationRunner, migrationSQL string) error {
 	if err := requireOutcomeRetirementSnapshot(ctx, q); err != nil {
@@ -368,19 +369,22 @@ func validateHistoricalNonPresence(kind string, fields map[string]json.RawMessag
 		seen[token] = true
 	}
 	// A JSON null decision_record decoded to an absent record historically.
+	// Writers before the approval challenge retirement required
+	// operator_approval_ref; later writers omitted it. Both shapes are stored.
 	var decision *struct {
-		Question          string   `json:"question"`
-		OptionsConsidered []string `json:"options_considered"`
-		Decision          string   `json:"decision"`
-		Rationale         string   `json:"rationale"`
-		Consequences      []string `json:"consequences"`
-		Inputs            []string `json:"inputs"`
-		POCFindings       string   `json:"poc_findings"`
-		Supersedes        *string  `json:"supersedes"`
-		SupersededBy      *string  `json:"superseded_by"`
-		Unknowns          []string `json:"unknowns"`
-		RequiredToDecide  []string `json:"required_to_decide"`
-		ReviewerActorRef  string   `json:"reviewer_actor_ref"`
+		Question            string          `json:"question"`
+		OptionsConsidered   []string        `json:"options_considered"`
+		Decision            string          `json:"decision"`
+		Rationale           string          `json:"rationale"`
+		Consequences        []string        `json:"consequences"`
+		Inputs              []string        `json:"inputs"`
+		POCFindings         string          `json:"poc_findings"`
+		Supersedes          *string         `json:"supersedes"`
+		SupersededBy        *string         `json:"superseded_by"`
+		Unknowns            []string        `json:"unknowns"`
+		RequiredToDecide    []string        `json:"required_to_decide"`
+		ReviewerActorRef    string          `json:"reviewer_actor_ref"`
+		OperatorApprovalRef json.RawMessage `json:"operator_approval_ref"`
 	}
 	if raw, exists := fields["decision_record"]; exists {
 		decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -399,6 +403,7 @@ func validateHistoricalNonPresence(kind string, fields map[string]json.RawMessag
 			len(decision.POCFindings) < 1 || len(decision.POCFindings) > 4096 ||
 			len(decision.Unknowns) > 16 || len(decision.RequiredToDecide) > 16 ||
 			!historicalOutcomeActor.MatchString(decision.ReviewerActorRef) ||
+			!historicalApprovalRef(decision.OperatorApprovalRef) ||
 			(decision.Decision == "insufficient_evidence" && (len(decision.Unknowns) == 0 || len(decision.RequiredToDecide) == 0)) ||
 			(len(tokens) == 1 && tokens[0] != decision.Decision) {
 			return fmt.Errorf("invalid decision record")
@@ -412,4 +417,12 @@ func validateHistoricalNonPresence(kind string, fields map[string]json.RawMessag
 		}
 	}
 	return nil
+}
+
+func historicalApprovalRef(raw json.RawMessage) bool {
+	if raw == nil {
+		return true
+	}
+	var ref string
+	return !bytes.Equal(raw, []byte("null")) && json.Unmarshal(raw, &ref) == nil && historicalOutcomeApproval.MatchString(ref)
 }

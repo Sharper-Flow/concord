@@ -567,8 +567,8 @@ func paddedHistoricalPresence(size int) string {
 	return head + strings.Repeat(" ", size-len(head)-1) + `}`
 }
 
-// Each case states what the pre-185 DecodeWorkflowPredicate decided for the
-// same stored bytes; migration 185 must decide the same.
+// Each case states whether some pre-185 writer could have stored the same
+// bytes; migration 185 admits exactly those.
 func TestOutcomeRetirementHistoricalDecoderParity(t *testing.T) {
 	check := func(subject string) string {
 		return `{"kind":"check","check_ref":"check:ci/build","immutable_subject_ref":"` + subject + `","expected_result":"pass"}`
@@ -591,7 +591,10 @@ func TestOutcomeRetirementHistoricalDecoderParity(t *testing.T) {
 		{name: "outcome with null decision record", kind: "outcome", payload: outcome("null")},
 		{name: "decision question at 4096 bytes", kind: "outcome", payload: outcome(historicalDecisionRecord(t, strings.Repeat("é", 2048), nil))},
 		{name: "decision question above 4096 bytes within 4096 code points", kind: "outcome", payload: outcome(historicalDecisionRecord(t, strings.Repeat("é", 2049), nil)), refused: true},
-		{name: "decision record with retired approval field", kind: "outcome", payload: outcome(historicalDecisionRecord(t, "Which?", map[string]any{"operator_approval_ref": "approval:fixture"})), refused: true},
+		{name: "decision record with approval ref written before challenge retirement", kind: "outcome", payload: outcome(historicalDecisionRecord(t, "Which?", map[string]any{"operator_approval_ref": "approval:operator-in-session"}))},
+		{name: "decision record with malformed approval ref", kind: "outcome", payload: outcome(historicalDecisionRecord(t, "Which?", map[string]any{"operator_approval_ref": "operator-in-session"})), refused: true},
+		{name: "decision record with null approval ref", kind: "outcome", payload: outcome(historicalDecisionRecord(t, "Which?", map[string]any{"operator_approval_ref": nil})), refused: true},
+		{name: "decision record with non-string approval ref", kind: "outcome", payload: outcome(historicalDecisionRecord(t, "Which?", map[string]any{"operator_approval_ref": 7})), refused: true},
 		{name: "decision contradicting its only allowed token", kind: "outcome", payload: outcome(historicalDecisionRecord(t, "Which?", map[string]any{"decision": "insufficient_evidence", "unknowns": []string{"u"}, "required_to_decide": []string{"r"}})), refused: true},
 		{name: "check subject at 128 characters", kind: "check", payload: check("spec:" + strings.Repeat("a", 123))},
 		{name: "check subject above 128 characters", kind: "check", payload: check("spec:" + strings.Repeat("a", 124)), refused: true},

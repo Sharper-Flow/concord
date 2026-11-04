@@ -1581,8 +1581,92 @@
         "work_pin": {
           "$ref": "#/$defs/work_pin"
         },
+        "pending_project_handoff": {
+          "$ref": "#/$defs/continuity_pending_project_handoff"
+        },
+        "law_context": {
+          "$ref": "#/$defs/retained_workflow_law_context"
+        },
+        "native_runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/native_run_report"
+          }
+        },
         "liveness": {
           "$ref": "#/$defs/work_liveness"
+        }
+      }
+    },
+    "native_run_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "phase",
+        "status",
+        "event_id",
+        "reporting_authority_ref",
+        "actor_ref",
+        "native_subject_ref",
+        "subject_digest",
+        "evidence_ref",
+        "evidence_digest",
+        "asserted_at",
+        "recorded_at",
+        "observation_id",
+        "verification_state",
+        "unverified"
+      ],
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "phase": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "reporting_authority_ref": {
+          "type": "string"
+        },
+        "actor_ref": {
+          "type": "string"
+        },
+        "native_subject_ref": {
+          "type": "string",
+          "maxLength": 2048
+        },
+        "subject_digest": {
+          "type": "string"
+        },
+        "evidence_ref": {
+          "type": "string",
+          "maxLength": 2048
+        },
+        "evidence_digest": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "asserted_at": {
+          "type": "string"
+        },
+        "recorded_at": {
+          "type": "string"
+        },
+        "observation_id": {
+          "type": "string"
+        },
+        "verification_state": {
+          "type": "string"
+        },
+        "unverified": {
+          "type": "boolean"
         }
       }
     },
@@ -3426,12 +3510,28 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "work_id": {}, "version": {}, "state": {}, "type": {}, "steps": {}, "next_steps": {}, "opening_steps": {},
-        "encoding": {}, "digest": {}, "total_bytes": {}, "offset": {}, "data": {}, "fragment_bytes": {}, "document_complete": {}
+        "work_id": {},
+        "version": {},
+        "state": {},
+        "type": {},
+        "steps": {},
+        "next_steps": {},
+        "opening_steps": {},
+        "encoding": {},
+        "digest": {},
+        "total_bytes": {},
+        "offset": {},
+        "data": {},
+        "fragment_bytes": {},
+        "document_complete": {}
       },
       "oneOf": [
-        {"$ref": "#/$defs/resume_read_document"},
-        {"$ref": "#/$defs/json_fragment_page"}
+        {
+          "$ref": "#/$defs/resume_read_document"
+        },
+        {
+          "$ref": "#/$defs/json_fragment_page"
+        }
       ]
     },
     "resume_read_document": {

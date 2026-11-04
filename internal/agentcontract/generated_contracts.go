@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:2b787ca1cdfa9dbbc8b734deb7ad2eb43dd885c860ad40830c4dde7e99a9bedf"
+const ManifestDigest = "sha256:1bc9710b70f1a4a9bc0dae48e3997b9a3233291e97628fea380b04915c075198"
 
 type OperationKind string
 
@@ -114,6 +114,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"mutation_changed_ref":                                  {Required: []string{"entity_kind", "id", "version"}, Properties: []string{"entity_kind", "id", "version"}},
 	"mutation_projection_reference_result":                  {Required: []string{"projection_reference"}, Properties: []string{"projection_reference"}},
 	"mutation_result":                                       {Required: []string{"changed_refs", "next_valid_intents"}, Properties: []string{"changed_refs", "next_valid_intents", "work_pins", "operation_id", "delivery"}},
+	"native_run_report":                                     {Required: []string{"run_id", "phase", "status", "event_id", "reporting_authority_ref", "actor_ref", "native_subject_ref", "subject_digest", "evidence_ref", "evidence_digest", "asserted_at", "recorded_at", "observation_id", "verification_state", "unverified"}, Properties: []string{"run_id", "phase", "status", "event_id", "reporting_authority_ref", "actor_ref", "native_subject_ref", "subject_digest", "evidence_ref", "evidence_digest", "asserted_at", "recorded_at", "observation_id", "verification_state", "unverified"}},
 	"next_valid_intent":                                     {Required: []string{"tool", "operation", "reason_code"}, Properties: []string{"tool", "operation", "reason_code", "action_id", "required_fields", "expected_version"}},
 	"page":                                                  {Required: []string{}, Properties: []string{"cursor", "limit"}},
 	"product_context":                                       {Required: []string{"product_id", "projects"}, Properties: []string{"product_id", "stage", "projects", "candidates", "next_cursor"}},
@@ -184,7 +185,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_relation_graph":                                   {Required: []string{"nodes", "edges"}, Properties: []string{"nodes", "edges", "replacement_state"}},
 	"work_removal_handoff":                                  {Required: []string{"findings", "remaining_scope", "blockers", "artifacts", "renewal_conditions"}, Properties: []string{"findings", "remaining_scope", "blockers", "artifacts", "renewal_conditions"}},
 	"work_scope":                                            {Required: []string{"items"}, Properties: []string{"work", "memberships", "items", "next_cursor", "verdict"}},
-	"work_summary":                                          {Required: []string{"id", "kind", "title", "lifecycle", "version"}, Properties: []string{"id", "kind", "title", "task", "value_statement", "tags", "workflow_type_ref", "lifecycle", "version", "priority", "urgency", "project_ids", "ready", "narrative", "terminal_at", "created_at", "work_pin", "liveness"}},
+	"work_summary":                                          {Required: []string{"id", "kind", "title", "lifecycle", "version"}, Properties: []string{"id", "kind", "title", "task", "value_statement", "tags", "workflow_type_ref", "lifecycle", "version", "priority", "urgency", "project_ids", "ready", "narrative", "terminal_at", "created_at", "work_pin", "pending_project_handoff", "law_context", "native_runs", "liveness"}},
 	"work_trace_continuity_input":                           {Required: []string{"work_id"}, Properties: []string{"work_id", "page", "limit", "requested_budget_seconds"}},
 	"work_trace_history_input":                              {Required: []string{"work_id"}, Properties: []string{"work_id", "direction", "record_kinds", "page", "limit", "requested_budget_seconds", "contract_version"}},
 	"work_trace_mutation_result_input":                      {Required: []string{"source_tool", "source_operation", "idempotency_key", "digest"}, Properties: []string{"source_tool", "source_operation", "idempotency_key", "digest", "page", "limit", "requested_budget_seconds"}},

@@ -231,15 +231,9 @@ func continuityReadManagedHistoryTx(ctx context.Context, tx *sql.Tx, req Continu
 	}
 	// The handoff rides the snapshot when present; the absent field keeps a
 	// handoff-free work's bytes unchanged.
-	out.PendingProjectHandoff, err = addressedProjectHandoffFrontierTx(ctx, tx, req.Work, req.ProjectID, activeContractVersion)
+	out.PendingProjectHandoff, err = selectProjectHandoffTx(ctx, tx, req.Work, req.ProjectID, activeContractVersion)
 	if err != nil {
 		return err
-	}
-	if out.PendingProjectHandoff == nil {
-		out.PendingProjectHandoff, err = PendingProjectHandoffTx(ctx, tx, req.Work)
-		if err != nil {
-			return err
-		}
 	}
 	out.DesignRecord, err = readCurrentWorkflowDesign(ctx, tx, req.Work)
 	if err != nil {
@@ -260,6 +254,14 @@ func continuityReadManagedHistoryTx(ctx context.Context, tx *sql.Tx, req Continu
 	}
 	out.WorkContext, out.WorkContextUnavailable = view, unavailable
 	return nil
+}
+
+func selectProjectHandoffTx(ctx context.Context, tx *sql.Tx, work, project string, version int64) (*ProjectHandoff, error) {
+	handoff, err := addressedProjectHandoffFrontierTx(ctx, tx, work, project, version)
+	if err != nil || handoff != nil {
+		return handoff, err
+	}
+	return PendingProjectHandoffTx(ctx, tx, work)
 }
 
 // continuityReadContractTx reads the one active contract and every enrichment

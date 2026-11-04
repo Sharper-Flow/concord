@@ -60,6 +60,7 @@ type Q2Request struct {
 type Q3Request struct {
 	Product         string
 	Project         string
+	AmbientProject  string
 	ProjectIDs      []string
 	WorkIDs         []string
 	LifecycleStates []string
@@ -169,29 +170,32 @@ type Q3Result struct {
 // from a recorded empty array, and WorkflowTypeRef comes from the stored
 // intent only, never from a pinned workflow instance.
 type WorkItem struct {
-	ID              string              `json:"id"`
-	Kind            string              `json:"kind"`
-	Title           string              `json:"title"`
-	Lifecycle       string              `json:"lifecycle"`
-	Version         int64               `json:"version"`
-	Priority        int64               `json:"priority"`
-	Urgency         string              `json:"urgency"`
-	CreatedAt       string              `json:"created_at"`
-	UpdatedAt       string              `json:"updated_at"`
-	TerminalAt      string              `json:"terminal_at,omitempty"`
-	Task            string              `json:"task,omitempty"`
-	ValueStatement  string              `json:"value_statement,omitempty"`
-	Tags            []string            `json:"tags,omitzero"`
-	WorkflowTypeRef string              `json:"workflow_type_ref,omitempty"`
-	Narrative       string              `json:"narrative,omitempty"`
-	Projects        []ProjectMembership `json:"projects,omitempty"`
-	Blocked         bool                `json:"blocked"`
-	Ready           bool                `json:"ready"`
-	Active          bool                `json:"active"`
-	Terminal        bool                `json:"terminal"`
-	Liveness        *WorkLiveness       `json:"liveness,omitempty"`
-	Blockers        []WorkItem          `json:"blockers,omitempty"`
-	WorkPin         *WorkPin            `json:"work_pin,omitempty"`
+	ID                    string              `json:"id"`
+	Kind                  string              `json:"kind"`
+	Title                 string              `json:"title"`
+	Lifecycle             string              `json:"lifecycle"`
+	Version               int64               `json:"version"`
+	Priority              int64               `json:"priority"`
+	Urgency               string              `json:"urgency"`
+	CreatedAt             string              `json:"created_at"`
+	UpdatedAt             string              `json:"updated_at"`
+	TerminalAt            string              `json:"terminal_at,omitempty"`
+	Task                  string              `json:"task,omitempty"`
+	ValueStatement        string              `json:"value_statement,omitempty"`
+	Tags                  []string            `json:"tags,omitzero"`
+	WorkflowTypeRef       string              `json:"workflow_type_ref,omitempty"`
+	Narrative             string              `json:"narrative,omitempty"`
+	Projects              []ProjectMembership `json:"projects,omitempty"`
+	Blocked               bool                `json:"blocked"`
+	Ready                 bool                `json:"ready"`
+	Active                bool                `json:"active"`
+	Terminal              bool                `json:"terminal"`
+	Liveness              *WorkLiveness       `json:"liveness,omitempty"`
+	Blockers              []WorkItem          `json:"blockers,omitempty"`
+	WorkPin               *WorkPin            `json:"work_pin,omitempty"`
+	PendingProjectHandoff *ProjectHandoff     `json:"pending_project_handoff,omitempty"`
+	LawContext            *WorkflowLawContext `json:"law_context,omitempty"`
+	NativeRuns            []NativeRunReport   `json:"native_runs,omitempty"`
 }
 
 type Q4Result struct {
@@ -708,6 +712,18 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	args = append(args, stateArgs...)
 	args = append(args, cursorArgs...)
 	args = append(args, limit+1)
+	proofs := map[string]context.Context{}
+	if req.Detail == "full" && len(req.WorkIDs) > 0 {
+		for _, id := range req.WorkIDs {
+			if _, ok := proofs[id]; ok {
+				continue
+			}
+			proofs[id], err = s.PrepareWorkLawProof(ctx, id)
+			if err != nil {
+				return out, err
+			}
+		}
+	}
 	tx, err := beginRead(ctx, s, "PM1.Q3")
 	if err != nil {
 		return out, err
@@ -727,6 +743,34 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	if req.Detail == "full" {
 		if err := attachQ3FullDetail(ctx, tx, items); err != nil {
 			return out, err
+		}
+		if len(req.WorkIDs) > 0 {
+			for i := range items {
+				item := &items[i]
+				itemCtx := proofs[item.ID]
+				version, err := activeWorkflowContractVersion(itemCtx, tx, item.ID, "PM1.Q3")
+				if err != nil && err != sql.ErrNoRows {
+					return out, err
+				}
+				item.PendingProjectHandoff, err = selectProjectHandoffTx(itemCtx, tx, item.ID, req.AmbientProject, version)
+				if err != nil {
+					return out, err
+				}
+				contract, err := readWorkflowContractVersion(itemCtx, tx, item.ID, version)
+				if err != nil && err != sql.ErrNoRows {
+					return out, err
+				}
+				if err == nil {
+					item.LawContext, err = readWorkflowLawContext(itemCtx, tx, item.ID, &contract)
+					if err != nil {
+						return out, err
+					}
+				}
+				item.NativeRuns, err = readWorkflowNativeRunsTx(itemCtx, tx, item.ID)
+				if err != nil {
+					return out, err
+				}
+			}
 		}
 	}
 	out.Items = items

@@ -128,9 +128,6 @@ This route neither closes the planning goal nor enacts outside effects. It grant
   projection removal, audit retention, and idempotent retry.
 - `internal/store.TestWorkRemovalRefusesMissingSafetyEvidence` verifies a required
   removal gate.
-- `go test ./internal/store -run 'TestWorkRemoval'` verifies removal. The
-  former `TestMigrateV80` half of this selection retired with the
-  migration-shape test family under CON-1681 (CON-1502 end state 2);
-  migration coverage is the fresh-store and released-store upgrade proofs.
+- `go test ./internal/store -run 'TestWorkRemoval'` verifies removal.
 - `python3 scripts/generate-agent-contracts.py --check` verifies generated
   contract projections after this decision is indexed.

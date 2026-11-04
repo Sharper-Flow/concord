@@ -59,10 +59,10 @@ beside it.
 
 The fenced `start_execution` at the item's implement step derives the
 step-start fact in its own transaction. The first start wins, opens the
-epoch and binds the fence from its actor. Delivery requires the accepted
-Review and a recorded verification report for the current candidate; no
-step start, lease acquisition, live Git freshness or exact tooling argv
-comparison is required. Current rows own these facts;
+epoch and binds the fence from its actor. Delivery requires the accepted Review and, when the active contract
+requires verification evidence, a passing verification report covering the
+current reviewed candidate; no step start, lease acquisition, live Git
+freshness or exact tooling argv comparison is required. Current rows own these facts;
 per-item plans copy one canonical template contract.
 
 Whole-work delivery uses `record_delivery` and its complete admission. A Review
@@ -84,7 +84,7 @@ No worker-failure record, combined worker acceptance or retry launcher exists.
 ## Verification
 
 - `go test ./internal/store ./internal/agent` checks batching, duplicate and
-  omitted predicates, diagnosis completeness, first-action starts and delivery
+  omitted predicates, diagnosis completeness, fenced `start_execution` starts and delivery
   refusal for missing, failed, unresolved or mixed-candidate verification.
 - Committed law-folder snapshot validation checks the record's identity and
   content digest.

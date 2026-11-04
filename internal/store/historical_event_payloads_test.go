@@ -9,30 +9,6 @@ import (
 	"time"
 )
 
-// These recorded values seed the one-time projection migration, not a replay.
-const (
-	historicalResearchLaneDigest  = "sha256:3969ceda54cc6be1532877e6d5b1dc5530c280ff77835f43286c4a0ad37e861b"
-	historicalRoutingPolicyToken  = "routing-v1"
-	historicalRoutingPolicyDigest = "sha256:34718d4f686c90b4806533ad1cc9eb1eab7c3cce0f4e732dcdaa70d73aa9f736"
-)
-
-func histDispatchEvent(t *testing.T, eventID, attemptID string, version int, occurredAt time.Time, members map[string]any) Event {
-	t.Helper()
-	payload := map[string]any{
-		"attempt_id": attemptID, "lane_id": "research", "lane_version": 1,
-		"lane_digest": historicalResearchLaneDigest, "capability_class": "research",
-		"packet_schema_version": "1.0", "report_schema_version": "1.0",
-	}
-	for member, value := range members {
-		payload[member] = value
-	}
-	return Event{EventID: eventID, Kind: "worker.dispatched", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "host:fixture", OccurredAt: occurredAt, PayloadVersion: version, Payload: mustJSONValue(payload)}
-}
-
-func histDeclaredHostProvenance() map[string]any {
-	return map[string]any{"digest": "sha256:" + strings.Repeat("ab", 32), "sources": []any{map[string]any{"kind": "agents_md", "path": "AGENTS.md", "sha256": "sha256:" + strings.Repeat("cd", 32)}}}
-}
-
 type histEventRow struct {
 	Seq                                                      int64
 	EventID, Kind, SubjectType, SubjectID, Actor, OccurredAt string

@@ -630,6 +630,7 @@ RETAINED_OUTPUT_RETYPES = {}
 # definitions it references directly.
 RETAINED_OUTPUT_PARENTS = {
     "continuity_snapshot": ("workflow_law_context", "work_context_view"),
+    "work_summary": ("workflow_law_context",),
     "work_pin": ("work_context_view",),
 }
 

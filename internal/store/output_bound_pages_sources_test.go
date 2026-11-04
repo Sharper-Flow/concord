@@ -1024,6 +1024,13 @@ func init() {
 	registerOutputBound("/$defs/work_event_page/properties/entries/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
 
 	registerOutputBound("/$defs/work_page/properties/items/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
+	registerOutputBound("/$defs/work_summary/properties/native_runs/maxItems", unboundedOutput("internal/store/native_runs.go:readWorkflowNativeRunsTx reads every workflow_native_runs row for the work without LIMIT; upsertWorkflowNativeRunTx and the primary key in internal/store/schema.go do not cap the number of run IDs", "internal/agent/runtime.go:readSizeRefusal"))
+	// readWorkflowNativeRunsTx projects the rows written by upsertWorkflowNativeRunTx;
+	// validateNativeRunShape bounds the corresponding native-run input strings.
+	registerOutputBound("/$defs/native_run_report/properties/run_id/maxLength", goInlineBound("internal/store/native_runs.go", "validateNativeRunShape", "len(payload.RunID)", boundBytes))
+	registerOutputBound("/$defs/native_run_report/properties/native_subject_ref/maxLength", goInlineBound("internal/store/native_runs.go", "validateNativeRunShape", "len(payload.NativeSubjectRef)", boundBytes))
+	registerOutputBound("/$defs/native_run_report/properties/evidence_ref/maxLength", goInlineBound("internal/store/native_runs.go", "validateNativeRunShape", "len(payload.EvidenceRef)", boundBytes))
+	registerOutputBound("/$defs/native_run_report/properties/evidence_digest/maxLength", goInlineBound("internal/store/native_runs.go", "validateNativeRunShape", "len(payload.EvidenceDigest)", boundBytes))
 	registerOutputBound("/$defs/work_page/properties/readiness_evidence/maxItems", pkFieldNeverWrittenBound("readiness_evidence", boundItems, "internal/agent/runtime.go", "internal/agent/runtime_read_handlers.go"))
 
 	registerOutputBound("/$defs/work_relation_graph/properties/edges/maxItems", unboundedOutput("internal/store/query.go:readRelationDepth and readQ8DirectEdges apply no LIMIT and the relations table caps nothing per work, so a depth-1 read returns one edge per related work without bound", "internal/agent/runtime.go:readSizeRefusal"))

@@ -420,6 +420,7 @@ func payloadSchemaDefs(t *testing.T) map[string]map[string]any {
 // looks like.
 var fixtureStringCandidates = []string{
 	"sha256:" + strings.Repeat("0", 64),
+	"sha256:" + strings.Repeat("0", 64) + ":/conformance",
 	"check:mutation.result.conformance",
 	"approval:conformance",
 	"actor:" + strings.Repeat("0", 64),

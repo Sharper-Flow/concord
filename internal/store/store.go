@@ -195,16 +195,9 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema, options ...Upg
 	if err != nil {
 		return UpgradeReport{}, fmt.Errorf("research export failed; no migration was applied: %w", err)
 	}
-	if _, done := before[185]; !done {
-		for _, option := range options {
-			if option.SnapshotPath != "" {
-				ctx, err = prepareOutcomeRetirementSnapshot(ctx, option.SnapshotPath)
-				if err != nil {
-					return UpgradeReport{}, err
-				}
-				break
-			}
-		}
+	ctx, err = prepareOutcomeRetirementUpgrade(ctx, before, options)
+	if err != nil {
+		return UpgradeReport{}, err
 	}
 	if version.Value == version.Development && !unstampedFresh {
 		after = before

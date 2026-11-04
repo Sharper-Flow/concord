@@ -28,7 +28,7 @@ type workListTestFragment struct {
 func TestFullWorkListProjectionMixedEnumeration(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _, _, _, _ := workflowEngineFixture(t, "mixed projection list")
+	s, _, _ := workflowEngineFixture(t, "mixed projection list")
 	for i := 2; i <= 3; i++ {
 		id := fmt.Sprintf("work-%d", i)
 		priority := 1
@@ -73,7 +73,7 @@ func TestFullWorkListProjectionMixedEnumeration(t *testing.T) {
 func TestFullWorkListProjectionCursorIntegrity(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _, _, _, _ := workflowEngineFixture(t, "projection cursor")
+	s, _, _ := workflowEngineFixture(t, "projection cursor")
 	intent, _ := json.Marshal(map[string]any{"task": strings.Repeat("<", 8192), "value_statement": "value", "workflow_type_ref": "workflow.break_fix"})
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1); UPDATE work_items SET intent_json=? WHERE id='work-1'; DELETE FROM write_guard`, string(intent)); err != nil {
 		t.Fatal(err)
@@ -172,7 +172,7 @@ func TestFullWorkListProjectionCursorIntegrity(t *testing.T) {
 func TestFullWorkListProjectionMultibyteEnvelopeFit(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _, _, _, _ := workflowEngineFixture(t, "multibyte projection")
+	s, _, _ := workflowEngineFixture(t, "multibyte projection")
 	task := strings.Repeat("界😀", 4096)
 	intent, _ := json.Marshal(map[string]any{"task": task, "workflow_type_ref": "workflow.break_fix"})
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1); UPDATE work_items SET intent_json=? WHERE id='work-1'; DELETE FROM write_guard`, string(intent)); err != nil {
@@ -237,7 +237,7 @@ func TestFullWorkListProjectionMultibyteEnvelopeFit(t *testing.T) {
 
 func TestFullWorkListProjectionUnshrinkableFrameNamesProducerRepair(t *testing.T) {
 	t.Parallel()
-	s, _, _, _, _ := workflowEngineFixture(t, "unshrinkable list frame")
+	s, _, _ := workflowEngineFixture(t, "unshrinkable list frame")
 	r := runtime{Store: s, Tool: "concord_work_browse", Operation: "list", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
 	base := agentcontract.NewBase("unshrinkable-list", r.Tool, r.Operation)
 	for range 32 {
@@ -256,7 +256,7 @@ func TestFullWorkListProjectionUnshrinkableFrameNamesProducerRepair(t *testing.T
 func TestFullWorkListProjectionFitsCapturedPageWithoutReread(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _, _, _, _ := workflowEngineFixture(t, "captured projection")
+	s, _, _ := workflowEngineFixture(t, "captured projection")
 	intent, _ := json.Marshal(map[string]any{"task": strings.Repeat("<", 8192), "workflow_type_ref": "workflow.break_fix"})
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1); UPDATE work_items SET intent_json=? WHERE id='work-1'; DELETE FROM write_guard`, string(intent)); err != nil {
 		t.Fatal(err)

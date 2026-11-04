@@ -14,7 +14,18 @@ func issue31WorkflowAction(t *testing.T, s *Store, workID string, version int64,
 
 func issue31WorkflowActionWithPayload(t *testing.T, s *Store, workID string, version int64, actionID, operationID string, actor WorkflowActor, payload json.RawMessage) int64 {
 	t.Helper()
-	payload = testApprovalPayload(t, s, workID, actionID, payload)
+	if actionID == "approve_contract" {
+		var fields map[string]any
+		if err := json.Unmarshal(payload, &fields); err != nil {
+			t.Fatal(err)
+		}
+		fields["premise"] = "The operator stated this premise."
+		fields["decision_domains"] = []string{}
+		if _, ok := fields["architecture_binding"]; !ok {
+			fields["architecture_binding"] = WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+		}
+		payload = mustJSONValue(fields)
+	}
 	ctx, err := s.PrepareWorkflowActionProof(context.Background(), actionID, workID)
 	if err != nil {
 		t.Fatal(err)
@@ -24,7 +35,7 @@ func issue31WorkflowActionWithPayload(t *testing.T, s *Store, workID string, ver
 		t.Fatal(err)
 	}
 	result, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor,
+		WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor, EvidenceRefs: actionEvidenceRefs(actionID, payload),
 		AcceptedInputsDigest: "sha256:issue31", IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,
 		RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC),
@@ -98,7 +109,8 @@ func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing
 		t.Fatalf("approve_contract resulting version=%d, want %d", version, initialVersion+4)
 	}
 	moveWorkflowPlanFixtureFrontier(t, s, "workflow-issue31-actions", "implement")
-	version = issue31WorkflowActionWithPayload(t, s, "workflow-issue31-actions", version, "bind_evidence", "issue31-evidence", actor, json.RawMessage(`{"evidence_kind":"artifact","evidence_ref":"artifact:issue31"}`))
+	seedWorkflowAuthority(t, s, "issue31-producer", "workflow-issue31-actions", "principal:issue31", "request:issue31-producer", []string{"artifact:issue31"})
+	version = issue31WorkflowActionWithPayload(t, s, "workflow-issue31-actions", version, "bind_evidence", "issue31-evidence", actor, json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"artifact:issue31","producer_id":"principal:issue31","producer_run_ref":"issue31-producer","producer_watermark":"request:issue31-producer"}`))
 	if version != initialVersion+6 {
 		t.Fatalf("bind_evidence resulting version=%d, want %d", version, initialVersion+6)
 	}
@@ -129,16 +141,16 @@ func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing
 	}
 }
 
-func TestApproveContractPersistsEvidenceAndRigor(t *testing.T) {
+func TestApproveContractPersistsSubjectsAndRigor(t *testing.T) {
 	t.Parallel()
 	for _, testCase := range []struct {
-		name             string
-		extraFields      string
-		requiredEvidence string
-		rigorClass       string
+		name        string
+		extraFields string
+		subjects    string
+		rigorClass  string
 	}{
-		{name: "explicit", extraFields: `"required_evidence":["artifact"],"rigor_class":"critical_public",`, requiredEvidence: `["artifact"]`, rigorClass: "critical_public"},
-		{name: "defaults", requiredEvidence: `["verification","review","artifact"]`, rigorClass: "prototype_internal"},
+		{name: "explicit", extraFields: `"legislative_subjects":["law:future"],"rigor_class":"critical_public",`, subjects: `["law:future"]`, rigorClass: "critical_public"},
+		{name: "defaults", subjects: `[]`, rigorClass: "prototype_internal"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			s := openTemp(t)
@@ -165,12 +177,12 @@ func TestApproveContractPersistsEvidenceAndRigor(t *testing.T) {
 			version := readWorkVersion(t, s, workID)
 			approval := json.RawMessage(`{` + testCase.extraFields + `"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
 			issue31WorkflowActionWithPayload(t, s, workID, version, "approve_contract", "contract-fields-"+testCase.name+"-approve", actor, approval)
-			var requiredEvidence, rigorClass string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT required_evidence,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&requiredEvidence, &rigorClass); err != nil {
+			var subjects, rigorClass string
+			if err := s.DatabaseForTesting().QueryRow(`SELECT legislative_subjects,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&subjects, &rigorClass); err != nil {
 				t.Fatal(err)
 			}
-			if requiredEvidence != testCase.requiredEvidence || rigorClass != testCase.rigorClass {
-				t.Fatalf("stored contract fields=(%s,%s), want (%s,%s)", requiredEvidence, rigorClass, testCase.requiredEvidence, testCase.rigorClass)
+			if subjects != testCase.subjects || rigorClass != testCase.rigorClass {
+				t.Fatalf("stored contract fields=(%s,%s), want (%s,%s)", subjects, rigorClass, testCase.subjects, testCase.rigorClass)
 			}
 		})
 	}
@@ -248,7 +260,7 @@ func issue31ActorSetup(t *testing.T, workID string) (*Store, WorkflowActor, int6
 	return s, executor, version + 1
 }
 
-func TestWorkflowAuthenticatedActorBindingRejectsSpoofedVerdictAndPremise(t *testing.T) {
+func TestWorkflowAuthenticatedActorBindingRejectsSpoofedPremise(t *testing.T) {
 	t.Parallel()
 	spoofed := []struct {
 		name  string
@@ -258,79 +270,23 @@ func TestWorkflowAuthenticatedActorBindingRejectsSpoofedVerdictAndPremise(t *tes
 		{name: "same principal different process", actor: WorkflowActor{PrincipalRef: "principal:issue31", ClientRef: "client:other", AgentRef: "agent:other", SessionRef: "session:other", ActorClass: ActorAgent}},
 		{name: "unknown actor", actor: WorkflowActor{PrincipalRef: "principal:unknown", ClientRef: "client:unknown", AgentRef: "agent:unknown", SessionRef: "session:unknown", ActorClass: ActorAgent}},
 	}
-	for _, testCase := range spoofed {
-		t.Run("verdict "+testCase.name, func(t *testing.T) {
-			s, executor, version := issue31ActorSetup(t, "spoof-verdict-"+strings.ReplaceAll(testCase.name, " ", "-"))
-			spoofRef, err := WorkflowActorRef(testCase.actor)
-			if err != nil {
-				t.Fatal(err)
-			}
-			event := workflowEventWithActor("spoof-verdict", WorkflowVerdictRecorded, "spoof-verdict-"+strings.ReplaceAll(testCase.name, " ", "-"), mustActorRef(t, executor), map[string]any{"work_id": "spoof-verdict-" + strings.ReplaceAll(testCase.name, " ", "-"), "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "predicate_id": "predicate:spoof", "verdict_kind": "ok", "verdict_actor_ref": spoofRef, "evaluation_evidence": []string{"evidence:spoof"}, "incomparable_with_approved": false})
-			if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, event.SubjectID): version}}); err == nil {
-				t.Fatal("spoofed verdict was accepted")
-			}
-			assertIssue31VersionAndNoVerdict(t, s, event.SubjectID, version)
-		})
-	}
-
-	// The fold checks the actor binding before criterion proof, so the
-	// accepted control needs a current reviewed candidate while the spoofed
-	// verdicts above refuse on their actor alone.
-	valid := qBuildAcceptance(t, "valid-evaluator", "", false)
-	validVersion := readWorkVersion(t, valid.store, "valid-evaluator")
-	if err := runVerdictActionAs(t, valid.store, "valid-evaluator", "record_verdict", qAssociationPayload(t, valid), 0, valid.owner); err != nil {
-		t.Fatalf("valid recorded evaluator rejected: %v", err)
-	}
-	assertIssue31VersionAndVerdict(t, valid.store, "valid-evaluator", readWorkVersion(t, valid.store, "valid-evaluator"))
-	if after := readWorkVersion(t, valid.store, "valid-evaluator"); after <= validVersion {
-		t.Fatalf("valid verdict left version %d, want it advanced past %d", after, validVersion)
-	}
-
-	version := readWorkVersion(t, valid.store, valid.workID)
-	ownerRef := mustActorRef(t, valid.owner)
+	const workID = "valid-evaluator"
+	store, owner := seedItemAtAcceptance(t, workID)
+	version := readWorkVersion(t, store, workID)
+	ownerRef := mustActorRef(t, owner)
 	for _, testCase := range spoofed {
 		spoofRef := mustActorRef(t, testCase.actor)
-		premise := workflowEventWithActor("spoof-premise-"+strings.ReplaceAll(testCase.name, " ", "-"), WorkflowPremiseConfirmed, valid.workID, ownerRef, map[string]any{"work_id": valid.workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "confirming_actor_ref": spoofRef, "confirmation_authority": "coordinator"})
-		if err := applyWorkflowTestOperation(context.Background(), valid.store, Operation{Events: []Event{premise}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, valid.workID): version}}); err == nil {
+		premise := workflowEventWithActor("spoof-premise-"+strings.ReplaceAll(testCase.name, " ", "-"), WorkflowPremiseConfirmed, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "confirming_actor_ref": spoofRef, "confirmation_authority": "coordinator"})
+		if err := applyWorkflowTestOperation(context.Background(), store, Operation{Events: []Event{premise}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err == nil {
 			t.Fatalf("spoofed premise accepted for %s", testCase.name)
 		}
 		var confirmations int
-		if err := valid.store.db.QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=?`, valid.workID).Scan(&confirmations); err != nil || confirmations != 0 || readWorkVersion(t, valid.store, valid.workID) != version {
+		if err := store.db.QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=?`, workID).Scan(&confirmations); err != nil || confirmations != 0 || readWorkVersion(t, store, workID) != version {
 			t.Fatalf("spoofed premise changed state: confirmations=%d err=%v", confirmations, err)
 		}
 	}
-	premise := workflowEventWithActor("valid-premise", WorkflowPremiseConfirmed, valid.workID, ownerRef, map[string]any{"work_id": valid.workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "confirming_actor_ref": ownerRef, "confirmation_authority": "coordinator"})
-	if err := applyWorkflowTestOperation(context.Background(), valid.store, Operation{Events: []Event{premise}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, valid.workID): version}}); err != nil {
+	premise := workflowEventWithActor("valid-premise", WorkflowPremiseConfirmed, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "confirming_actor_ref": ownerRef, "confirmation_authority": "coordinator"})
+	if err := applyWorkflowTestOperation(context.Background(), store, Operation{Events: []Event{premise}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("valid authenticated coordinator rejected: %v", err)
-	}
-}
-
-func assertIssue31VersionAndNoVerdict(t *testing.T, s *Store, workID string, want int64) {
-	t.Helper()
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	var verdicts int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&verdicts); err != nil {
-		t.Fatal(err)
-	}
-	if version != want || verdicts != 0 {
-		t.Fatalf("spoof changed state: version=%d verdict_projection=%d, want version=%d and no verdict projection", version, verdicts, want)
-	}
-}
-
-func assertIssue31VersionAndVerdict(t *testing.T, s *Store, workID string, want int64) {
-	t.Helper()
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&events); err != nil {
-		t.Fatal(err)
-	}
-	if version != want || events != 1 {
-		t.Fatalf("valid evaluator state: version=%d verdict_events=%d", version, events)
 	}
 }

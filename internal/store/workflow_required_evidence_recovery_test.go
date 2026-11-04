@@ -8,21 +8,6 @@ import (
 	"time"
 )
 
-// A healthy delivery can reach acceptance with a contract-required evidence
-// kind still unbound. Ordinary binding holds the step; acceptance checks the
-// outstanding requirements.
-//
-// The corpus scenario WF05 carries a healthy verdict and an empty law mandate,
-// so these tests isolate evidence requirements without a stale artifact.
-
-// wf04OutstandingKind is a contract-required evidence kind the replayed
-// history never binds, which is the live shape this repair addresses: an
-// accepted delivery whose contract demands a kind no binding satisfies.
-const (
-	wf04OutstandingKind = "commit"
-	wf04RecoveryRef     = "commit:3333333333333333333333333333333333333333333333333333333333333333"
-)
-
 type acceptanceRecoveryFixture struct {
 	store    *Store
 	workID   string
@@ -32,11 +17,9 @@ type acceptanceRecoveryFixture struct {
 	receipt  string
 }
 
-// newAcceptanceRecoveryFixture parks a current, proved candidate at acceptance
-// with only the named additional evidence kinds outstanding.
-func newAcceptanceRecoveryFixture(_ context.Context, t *testing.T, extraRequiredKinds ...string) acceptanceRecoveryFixture {
+func newAcceptanceRecoveryFixture(_ context.Context, t *testing.T) acceptanceRecoveryFixture {
 	t.Helper()
-	return qCurrentAcceptance(t, "work-alpha", extraRequiredKinds...)
+	return qCurrentAcceptance(t, "work-alpha")
 }
 
 func (f acceptanceRecoveryFixture) version(ctx context.Context, t *testing.T) int64 {
@@ -48,23 +31,14 @@ func (f acceptanceRecoveryFixture) version(ctx context.Context, t *testing.T) in
 	return version
 }
 
-func (f acceptanceRecoveryFixture) actors() (WorkflowActor, WorkflowActor) {
-	return f.owner, f.operator
-}
-
-// run applies one declared action through the real action layer. Engineering
-// confirmation uses Main's choice.
 func (f acceptanceRecoveryFixture) run(ctx context.Context, actionID, label string, version int64, payload json.RawMessage, evidenceRefs []string) error {
-	// The owning boundary prepares the knowledge-source proof before its
-	// transaction opens; this raw action transaction does the same.
 	ctx, err := f.store.PrepareWorkflowActionProof(ctx, actionID, f.workID)
 	if err != nil {
 		return err
 	}
-	invoking, _ := f.actors()
 	request := WorkflowActionExecutionRequest{
 		WorkID: f.workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, EvidenceRefs: evidenceRefs,
-		Actor: invoking, OperationID: f.workID + ":" + label, PrincipalRef: invoking.PrincipalRef, Tool: "concord_work_transition",
+		Actor: f.owner, OperationID: f.workID + ":" + label, PrincipalRef: f.owner.PrincipalRef, Tool: "concord_work_transition",
 		IdempotencyKey: f.workID + ":" + label, IdempotencyIdentity: f.workID + ":" + label, RequestID: f.workID + ":" + label,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), ContractDigest: testManifestDigest,
 		Now: time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC),
@@ -74,8 +48,8 @@ func (f acceptanceRecoveryFixture) run(ctx context.Context, actionID, label stri
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, actionErr := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), request); actionErr != nil {
-		return actionErr
+	if _, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), request); err != nil {
+		return err
 	}
 	if err := leaveWrite(ctx, tx); err != nil {
 		return err
@@ -83,311 +57,54 @@ func (f acceptanceRecoveryFixture) run(ctx context.Context, actionID, label stri
 	return tx.Commit()
 }
 
-func (f acceptanceRecoveryFixture) bind(ctx context.Context, label string, version int64, kind, reference string) error {
-	payload := json.RawMessage(`{"evidence_kind":"` + kind + `","immutable_subject_ref":"` + reference + `"}`)
-	return f.run(ctx, "bind_evidence", label, version, payload, []string{reference})
-}
-
-func setRequiredEvidenceKinds(t *testing.T, s *Store, workID string, kinds ...string) {
-	t.Helper()
-	required, err := json.Marshal(kinds)
-	if err != nil {
-		t.Fatal(err)
+func TestOrdinaryEvidenceBindingEnforcesVersionAndPreservesAuthority(t *testing.T) {
+	const id, ref = "ordinary-binding-version", "evidence:ordinary-binding"
+	route := seedWorkflowReturnRouteFixture(t, id, WorkflowStepPlanChange, "implement")
+	f := acceptanceRecoveryFixture{store: route.store, workID: id, owner: route.owner, operator: route.operator}
+	seedWorkflowAuthority(t, f.store, "ordinary-binding-producer", id, "principal/ordinary", "request/ordinary", []string{ref})
+	payload := mustJSONValue(map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": ref, "producer_id": "principal/ordinary", "producer_run_ref": "ordinary-binding-producer", "producer_watermark": "request/ordinary"})
+	before := contractCorrectionEffectSnapshot(t, f.store, id)
+	version := f.version(t.Context(), t)
+	if err := f.run(t.Context(), "bind_evidence", "stale", version-1, payload, []string{ref}); !hasFailureKind(err, KindVersionConflict) {
+		t.Fatalf("stale binding=%v, want version conflict", err)
 	}
-	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
+	if after := contractCorrectionEffectSnapshot(t, f.store, id); after != before {
+		t.Fatalf("refused binding changed state: %s -> %s", before, after)
 	}
-	if _, err := db.Exec(`UPDATE workflow_contracts SET required_evidence=? WHERE work_id=? AND superseded_by IS NULL`, string(required), workID); err != nil {
-		t.Fatal(err)
+	if err := f.run(t.Context(), "bind_evidence", "bind", version, payload, []string{ref}); err != nil {
+		t.Fatalf("ordinary binding: %v", err)
 	}
-	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
+	afterBinding := contractCorrectionEffectSnapshot(t, f.store, id)
+	if err := f.run(t.Context(), "bind_evidence", "bind", f.version(t.Context(), t), payload, []string{ref}); !hasFailureKind(err, KindIdempotencyConflict) {
+		t.Fatalf("binding identity reused at a different version=%v", err)
 	}
-}
-
-func setWorkflowInstanceState(t *testing.T, s *Store, workID, state string) {
-	t.Helper()
-	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
+	if after := contractCorrectionEffectSnapshot(t, f.store, id); after != afterBinding {
+		t.Fatalf("conflicting replay changed state: %s -> %s", afterBinding, after)
 	}
-	if _, err := db.Exec(`UPDATE workflow_instances SET instance_state=? WHERE work_id=?`, state, workID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func runRecoveryAction(ctx context.Context, t *testing.T, s *Store, workID, actionID, operationID string, version int64, payload json.RawMessage, actor WorkflowActor) error {
-	t.Helper()
-	ctx, err := prepareTerminalTestContext(ctx, s, workID, actionID)
-	if err != nil {
-		return err
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	request := WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor,
-		OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition",
-		IdempotencyKey: operationID, IdempotencyIdentity: operationID, RequestID: operationID,
-		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), ContractDigest: testManifestDigest,
-		Now: time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC),
-	}
-	if _, actionErr := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), request); actionErr != nil {
-		return actionErr
-	}
-	return tx.Commit()
-}
-
-func (f acceptanceRecoveryFixture) boundCount(t *testing.T, kind, reference string) int {
-	t.Helper()
 	var count int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, f.workID, kind, reference).Scan(&count); err != nil {
+	if err := f.store.db.QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=? AND json_extract(payload,'$.producer_watermark')=?`, id, ref, "request/ordinary").Scan(&count); err != nil || count != 1 {
+		t.Fatalf("bindings=%d err=%v", count, err)
+	}
+	active, err := activeWorkflowContractVersion(t.Context(), f.store.db, id, "test")
+	if err != nil || active != 1 || workflowPlanFixtureFrontier(t, f.store, id) != "implement" {
+		t.Fatalf("binding changed plan or contract: active=%d err=%v", active, err)
+	}
+}
+
+func TestTerminalWorkflowRefusesEvidenceBindingWithoutEffects(t *testing.T) {
+	const id, ref = "terminal-binding-refusal", "evidence:terminal-binding"
+	route := seedWorkflowReturnRouteFixture(t, id, WorkflowStepPlanChange, "review")
+	f := acceptanceRecoveryFixture{store: route.store, workID: id, owner: route.owner}
+	seedWorkflowAuthority(t, f.store, "terminal-binding-producer", id, "principal/terminal", "request/terminal", []string{ref})
+	if _, err := f.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET instance_state='completed' WHERE work_id=?; DELETE FROM write_guard`, id); err != nil {
 		t.Fatal(err)
 	}
-	return count
-}
-
-func (f acceptanceRecoveryFixture) authority(t *testing.T) (step string, contractVersion int64, verdicts int) {
-	t.Helper()
-	db := f.store.DatabaseForTesting()
-	step = workflowPlanFixtureFrontier(t, f.store, f.workID)
-	if err := db.QueryRow(`SELECT MAX(contract_version) FROM workflow_contracts WHERE work_id=?`, f.workID).Scan(&contractVersion); err != nil {
-		t.Fatal(err)
+	payload := mustJSONValue(map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": ref, "producer_id": "principal/terminal", "producer_run_ref": "terminal-binding-producer", "producer_watermark": "request/terminal"})
+	before := contractCorrectionEffectSnapshot(t, f.store, id)
+	if err := f.run(t.Context(), "bind_evidence", "terminal", f.version(t.Context(), t), payload, []string{ref}); err == nil {
+		t.Fatal("terminal workflow accepted evidence binding")
 	}
-	if err := db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind=?`, f.workID, WorkflowVerdictRecorded).Scan(&verdicts); err != nil {
-		t.Fatal(err)
-	}
-	return step, contractVersion, verdicts
-}
-
-// requireRecoveryFailure asserts the refusal kind and returns its detail. It
-// returns the detail rather than the failure so that callers never hold an
-// error value they do not check.
-func requireRecoveryFailure(t *testing.T, err error, want FailureKind, context string) string {
-	t.Helper()
-	if err == nil {
-		t.Fatalf("%s passed, want %s", context, want)
-	}
-	var failure *Failure
-	if !failureAs(err, &failure) || failure.Kind != want {
-		t.Fatalf("%s error = %v, want %s", context, err, want)
-	}
-	return failure.Detail
-}
-
-// The whole typed path: an accepted delivery whose contract-required kind was
-// never bound refuses confirmation, recovers through the declared
-// bind_evidence route, and then confirms. Recovery holds the step and
-// preserves the contract and the recorded verdict.
-func TestAcceptanceRecoversMissingRequiredEvidenceKind(t *testing.T) {
-	ctx := context.Background()
-	f := newAcceptanceRecoveryFixture(ctx, t, wf04OutstandingKind)
-
-	beforeStep, beforeContract, beforeVerdicts := f.authority(t)
-	confirmErr := f.run(ctx, "confirm_premise", "confirm-missing", f.version(ctx, t), nil, nil)
-	detail := requireRecoveryFailure(t, confirmErr, KindMissingEvidence, "confirmation with an unbound required kind")
-	if !strings.Contains(detail, wf04OutstandingKind) {
-		t.Fatalf("confirmation refusal = %q, want it to name the missing %s kind", detail, wf04OutstandingKind)
-	}
-	_, preflightErr := WorkflowActionDefinitionFor(ctx, f.store, WorkflowActionPreflightRequest{WorkID: f.workID, ExpectedVersion: f.version(ctx, t), ActionID: "confirm_premise", Payload: json.RawMessage(`{}`), Actor: f.owner})
-	if got := requireRecoveryFailure(t, preflightErr, KindMissingEvidence, "preflight with an unbound required kind"); got != detail {
-		t.Fatalf("preflight detail = %q, want %q", got, detail)
-	}
-
-	if err := f.bind(ctx, "recover-outstanding", f.version(ctx, t), wf04OutstandingKind, wf04RecoveryRef); err != nil {
-		t.Fatalf("recovery binding for the outstanding kind refused: %v", err)
-	}
-	if got := f.boundCount(t, wf04OutstandingKind, wf04RecoveryRef); got != 1 {
-		t.Fatalf("recovered binding count = %d, want 1", got)
-	}
-
-	afterStep, afterContract, afterVerdicts := f.authority(t)
-	if afterStep != beforeStep {
-		t.Fatalf("recovery moved the workflow step %q to %q", beforeStep, afterStep)
-	}
-	if afterContract != beforeContract {
-		t.Fatalf("recovery changed the contract version %d to %d", beforeContract, afterContract)
-	}
-	if afterVerdicts != beforeVerdicts {
-		t.Fatalf("recovery changed the recorded verdict count %d to %d", beforeVerdicts, afterVerdicts)
-	}
-
-	if err := f.run(ctx, "confirm_premise", "confirm-recovered", f.version(ctx, t), nil, nil); err != nil {
-		t.Fatalf("confirmation after recovery refused: %v", err)
-	}
-	var confirmed int
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind=?`, f.workID, WorkflowPremiseConfirmed).Scan(&confirmed); err != nil {
-		t.Fatal(err)
-	}
-	if confirmed != 1 {
-		t.Fatalf("premise confirmation count = %d, want 1", confirmed)
-	}
-}
-
-func TestAcceptanceBindingAllowsAdditionalEvidenceAndEnforcesVersion(t *testing.T) {
-	ctx := context.Background()
-	f := newAcceptanceRecoveryFixture(ctx, t, wf04OutstandingKind)
-
-	const unrelated = "artifact:unrelated-recovery-subject"
-	if err := f.bind(ctx, "unrelated-kind", f.version(ctx, t), "approval", unrelated); err != nil {
-		t.Fatalf("additional binding refused: %v", err)
-	}
-	if got := f.boundCount(t, "approval", unrelated); got != 1 {
-		t.Fatalf("additional binding count = %d, want 1", got)
-	}
-
-	staleErr := f.bind(ctx, "stale-version", f.version(ctx, t)-1, wf04OutstandingKind, wf04RecoveryRef)
-	requireRecoveryFailure(t, staleErr, KindVersionConflict, "recovery binding at a stale version")
-	if got := f.boundCount(t, wf04OutstandingKind, wf04RecoveryRef); got != 0 {
-		t.Fatalf("stale-version binding count = %d, want 0", got)
-	}
-
-	if err := f.bind(ctx, "recover-outstanding", f.version(ctx, t), wf04OutstandingKind, wf04RecoveryRef); err != nil {
-		t.Fatalf("recovery binding for the outstanding kind refused: %v", err)
-	}
-	if err := f.bind(ctx, "recover-again", f.version(ctx, t), wf04OutstandingKind, wf04RecoveryRef); err != nil {
-		t.Fatalf("binding a satisfied kind: %v", err)
-	}
-	if got := f.boundCount(t, wf04OutstandingKind, wf04RecoveryRef); got != 2 {
-		t.Fatalf("binding count after replacement = %d, want 2", got)
-	}
-}
-
-func TestAcceptanceBindingWhenNoRequirementOutstanding(t *testing.T) {
-	ctx := context.Background()
-	f := newAcceptanceRecoveryFixture(ctx, t)
-	if err := f.bind(ctx, "extra-binding", f.version(ctx, t), "review", wf04RecoveryRef); err != nil {
-		t.Fatalf("binding with no outstanding requirement: %v", err)
-	}
-	if err := f.run(ctx, "confirm_premise", "confirm-satisfied", f.version(ctx, t), nil, nil); err != nil {
-		t.Fatalf("confirmation with every required kind bound refused: %v", err)
-	}
-}
-
-// The worker path can be accepted before a contract-required kind is found.
-// Recovery binds that kind, keeps the prior attempt and verdict history, and
-// lets the operator confirm and complete the unchanged workflow.
-func TestAcceptedWorkerRecoveryCompletesWithoutChangingAuthority(t *testing.T) {
-	ctx := context.Background()
-	const workID = "accepted-worker-recovery-completion"
-	f := qCurrentAcceptance(t, workID, wf04OutstandingKind)
-	s, owner := f.store, f.owner
-	defer s.Close()
-
-	beforeStep, beforeContract, beforeVerdicts := readRecoveryAuthority(t, s, workID)
-	beforeAttempts := countWorkflowEvents(t, s, WorkflowActionCompleted)
-	beforeEvidence := countWorkflowEvents(t, s, WorkflowEvidenceBound)
-	beforeDecisions := countWorkflowEvents(t, s, WorkflowPremiseConfirmed)
-	missing := f.run(ctx, "confirm_premise", "confirm-missing", f.version(ctx, t), nil, nil)
-	requireRecoveryFailure(t, missing, KindMissingEvidence, "confirmation after an accepted worker result")
-
-	bindVersion := readWorkVersion(t, s, workID)
-	bindPayload := json.RawMessage(`{"evidence_kind":"commit","immutable_subject_ref":"` + wf04RecoveryRef + `"}`)
-	if err := runRecoveryAction(ctx, t, s, workID, "bind_evidence", workID+":recover-commit", bindVersion, bindPayload, owner); err != nil {
-		t.Fatalf("late commit binding refused: %v", err)
-	}
-	replayErr := runRecoveryAction(ctx, t, s, workID, "bind_evidence", workID+":recover-commit", readWorkVersion(t, s, workID), bindPayload, owner)
-	requireRecoveryFailure(t, replayErr, KindIdempotencyConflict, "reused identity with changed expected version")
-	if got := countEvidenceBinding(t, s, workID, wf04OutstandingKind, wf04RecoveryRef); got != 1 {
-		t.Fatalf("recovery replay binding count=%d, want 1", got)
-	}
-
-	afterStep, afterContract, afterVerdicts := readRecoveryAuthority(t, s, workID)
-	if afterStep != beforeStep || afterContract != beforeContract || afterVerdicts != beforeVerdicts {
-		t.Fatalf("recovery changed authority: step %q/%q contract %d/%d verdicts %d/%d", beforeStep, afterStep, beforeContract, afterContract, beforeVerdicts, afterVerdicts)
-	}
-	if got := countWorkflowEvents(t, s, WorkflowEvidenceBound); got != beforeEvidence+1 {
-		t.Fatalf("recovery evidence history count=%d, want %d", got, beforeEvidence+1)
-	}
-	if got := countWorkflowEvents(t, s, WorkflowPremiseConfirmed); got != beforeDecisions {
-		t.Fatalf("recovery changed operator decision count=%d, want %d", got, beforeDecisions)
-	}
-	if got := countWorkflowEvents(t, s, WorkflowActionCompleted); got != beforeAttempts+1 {
-		t.Fatalf("recovery action history count=%d, want %d", got, beforeAttempts+1)
-	}
-
-	if err := f.run(ctx, "confirm_premise", "confirm-recovered", f.version(ctx, t), nil, nil); err != nil {
-		t.Fatalf("operator confirmation after recovery refused: %v", err)
-	}
-	completeWorkflowPlanFixture(t, s, workID)
-	if err := f.run(ctx, "complete", "complete", f.version(ctx, t), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil); err != nil {
-		t.Fatalf("normal workflow completion after recovery refused: %v", err)
-	}
-	var state string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state); err != nil {
-		t.Fatal(err)
-	}
-	if state != "completed" {
-		t.Fatalf("workflow state=%q, want completed", state)
-	}
-}
-
-func readRecoveryAuthority(t *testing.T, s *Store, workID string) (string, int64, int) {
-	t.Helper()
-	step := workflowPlanFixtureFrontier(t, s, workID)
-	var contract int64
-	var verdicts int
-	db := s.DatabaseForTesting()
-	if err := db.QueryRow(`SELECT MAX(contract_version) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&contract); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&verdicts); err != nil {
-		t.Fatal(err)
-	}
-	return step, contract, verdicts
-}
-
-func countWorkflowEvents(t *testing.T, s *Store, kind string) int {
-	t.Helper()
-	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, "accepted-worker-recovery-completion", kind).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	return count
-}
-
-func countEvidenceBinding(t *testing.T, s *Store, workID, kind, reference string) int {
-	t.Helper()
-	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, kind, reference).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	return count
-}
-
-func TestAcceptanceRecoveryRefusesTerminalWorkflowWithoutBindingEvidence(t *testing.T) {
-	ctx := context.Background()
-	for _, tc := range []struct {
-		name  string
-		state string
-		actor WorkflowActor
-		kind  FailureKind
-	}{
-		{name: "terminal workflow", state: "completed", actor: WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/terminal", ActorClass: ActorAgent}, kind: KindInvalidOperation},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			workID := "recovery-refusal-" + strings.ReplaceAll(tc.name, " ", "-")
-			s, owner, _ := seedItemAtAcceptance(t, workID)
-			defer s.Close()
-			setRequiredEvidenceKinds(t, s, workID, wf04OutstandingKind)
-			if tc.actor.AgentRef == "agent/owner" && tc.actor.SessionRef == "" {
-				tc.actor = owner
-			}
-			if tc.state != "" {
-				setWorkflowInstanceState(t, s, workID, tc.state)
-			}
-			version := readWorkVersion(t, s, workID)
-			err := runRecoveryAction(ctx, t, s, workID, "bind_evidence", workID+":refusal", version, json.RawMessage(`{"evidence_kind":"commit","immutable_subject_ref":"`+wf04RecoveryRef+`"}`), tc.actor)
-			requireRecoveryFailure(t, err, tc.kind, tc.name)
-			if got := countEvidenceBinding(t, s, workID, wf04OutstandingKind, wf04RecoveryRef); got != 0 {
-				t.Fatalf("refused recovery binding count=%d, want 0", got)
-			}
-		})
+	if after := contractCorrectionEffectSnapshot(t, f.store, id); after != before {
+		t.Fatalf("refused binding changed state: %s -> %s", before, after)
 	}
 }

@@ -50,10 +50,6 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 			tx.Rollback()
 			t.Fatal(err)
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check',?)`, workID, `{"kind":"check","check_ref":"check:overlap","immutable_subject_ref":"commit:overlap","expected_result":"pass"}`); err != nil {
-			tx.Rollback()
-			t.Fatal(err)
-		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES(?,?,?,?,?)`, workID, 1, "product", "child", hash); err != nil {
 			tx.Rollback()
 			t.Fatal(err)
@@ -142,9 +138,8 @@ func seedProductChangingContract(t *testing.T, s *Store, workID string, binding 
 	}
 	contract := workflowEventWithActor("overlap-contract-"+workID, WorkflowContractApproved, workID, actorRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1),
-		"premise": "coordinate Product-changing overlap", "outcome_kind": "check",
-		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:" + workID, "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-		"required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": []string{},
+		"premise": "coordinate Product-changing overlap", "legislative_subjects": []string{},
+		"route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": []string{},
 		"law_boundary_version": 1,
 		"rigor_class":          "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})

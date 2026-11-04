@@ -102,9 +102,7 @@ func TestSixClassMigrationPreservesContractsAndGuards(t *testing.T) {
 	if err := db.QueryRow(`SELECT group_concat(sql,';') FROM (SELECT sql FROM sqlite_schema WHERE name LIKE 'workflow_contracts_guard_%' ORDER BY name)`).Scan(&guardBefore); err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(context.Background(), db); err != nil {
-		t.Fatal(err)
-	}
+	advanceHistoricalPrefix(t, db, beforeOutcomeRetirement)
 	if got := sixClassSnapshot(t, db, tables...); !reflect.DeepEqual(got, before) {
 		t.Fatalf("migration changed existing rows: got %v, want %v", got, before)
 	}
@@ -144,7 +142,7 @@ func TestSixClassMigrationPreservesContractsAndGuards(t *testing.T) {
 func TestSixClassMigrationCanonicalConstraint(t *testing.T) {
 	t.Parallel()
 	db := seedSixClassMigration(t)
-	if err := Migrate(context.Background(), db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, context.Background(), db), db); err != nil {
 		t.Fatal(err)
 	}
 	execSixClassSQL(t, db, `INSERT INTO write_guard(active) VALUES(1)`)
@@ -186,7 +184,7 @@ func TestSixClassMigrationRollsBackAtomically(t *testing.T) {
 		t.Fatalf("rollback left %d guards: %v", guards, err)
 	}
 	execSixClassSQL(t, db, `DROP TRIGGER six_class_fail_restore`)
-	if err := Migrate(context.Background(), db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, context.Background(), db), db); err != nil {
 		t.Fatalf("retry after rollback: %v", err)
 	}
 }

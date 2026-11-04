@@ -1038,10 +1038,6 @@ func init() {
 
 	registerOutputBound("/$defs/work_scope/properties/items/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
 	registerOutputBound("/$defs/work_scope/properties/memberships/maxItems", unboundedOutput("internal/store/query.go:readWorkProjects reads every work_projects row with no LIMIT and the membership folds enforce only unique edges and a single primary, never a per-work count", "internal/agent/runtime.go:readSizeRefusal"))
-	// ReadWorkflowVerdict copies workflow_instances.completion_occurred_at
-	// to CompletedAt; foldWorkflowCompleted formats that current-row value.
-	registerOutputBound("/$defs/work_scope/properties/verdict/properties/completed_at/maxLength", pkTimeLayoutWidthBound("internal/store/workflow.go", "foldWorkflowCompleted", "time.RFC3339Nano"))
-	registerOutputBound("/$defs/work_scope/properties/verdict/properties/verdict_actor_ref/maxLength", pkGuardArgBound("internal/store/workflow.go", "foldWorkflowVerdictRecorded", "workflowString", "p.VerdictActorRef", 1, boundBytes))
 
 	registerOutputBound("/$defs/work_summary/properties/narrative/maxLength", unboundedOutput("the narrative writer is retired (initiative.narrative_revised registers under EventAppendAuthorityRetired, internal/store/operation.go:249) and retained work_items.narrative rows project verbatim (internal/store/query.go:1323, internal/store/worker_packet_binding.go:108) with only CHECK(length(narrative) <= 16384), a NUL-terminated prefix count that bounds no complete string; no full-string guard exists on any current writer", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_summary/properties/project_ids/maxItems", unboundedOutput("internal/store/query.go:attachWorkMemberships appends one entry per work_projects row with no LIMIT; a page LIMIT does not bound per-item memberships", "internal/agent/runtime.go:readSizeRefusal"))

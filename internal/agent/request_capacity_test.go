@@ -119,10 +119,7 @@ func TestRequestBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	// Quotes count: the reference serializes inside quotation marks.
 	findingRefMax := 2 + len("finding:") + 19 + 1 + 2
 	opt := schemawire.Options{
-		Defs: defs,
-		RefBounds: map[string]int{
-			"worker_acceptance_oracle": store.OracleCombinedMaxBytes,
-		},
+		Defs:          defs,
 		FindingRefMax: findingRefMax,
 	}
 	const variant = "work_transition_action_variant_record_review"

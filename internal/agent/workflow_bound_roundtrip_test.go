@@ -174,7 +174,7 @@ func TestBoundEvidenceReceiptsRoundTripThroughHistory(t *testing.T) {
 		t.Run(fmt.Sprintf("%d references", count), func(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
-			s, service, _, _, engine := workflowEngineFixture(t, "checkpoint evidence reaches history")
+			s, service, engine := workflowEngineFixture(t, "checkpoint evidence reaches history")
 			refs := make([]string, count)
 			for i := range refs {
 				prefix := fmt.Sprintf("artifact:checkpoint-%02d:", i)
@@ -234,7 +234,7 @@ func TestBoundEvidenceReceiptsRoundTripThroughHistory(t *testing.T) {
 func TestContinuityRoundTripLegalMaximum(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, _, _, engine := workflowEngineFixture(t, strings.Repeat("p", store.WorkflowPremiseMaxLength))
+	s, service, engine := workflowEngineFixture(t, strings.Repeat("p", store.WorkflowPremiseMaxLength))
 	engine("checkpoint_context", map[string]any{
 		"checkpoint_id": "checkpoint-roundtrip", "checkpoint_sequence": 1,
 		"active_unit": "internal/store and internal/agent", "hypothesis": "bounds agree on both sides", "diagnosis": "one shared bound source", "strategy": "round-trip the legal maximum",

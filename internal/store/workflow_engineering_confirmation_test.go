@@ -10,22 +10,15 @@ import (
 
 // Premise confirmation records the authenticated non-worker coordinator, with
 // no operator substitution. Every confirmation stays bound to its contract
-// version, and the acceptance deliverables stay required.
+// version.
 
 // engineeringConfirmationSeed parks a workflow.implementation item at
 // acceptance on the live journey and records the routine actors.
-func engineeringConfirmationSeed(t *testing.T, workID string) (s *Store, owner, reviewer, operator, coordinator WorkflowActor) {
+func engineeringConfirmationSeed(t *testing.T, workID string) (s *Store, operator, coordinator WorkflowActor) {
 	t.Helper()
-	return engineeringConfirmationFixture(t, workID, true)
-}
-
-// engineeringConfirmationFixture is engineeringConfirmationSeed with Main's
-// criterion association made optional.
-func engineeringConfirmationFixture(t *testing.T, workID string, associate bool) (s *Store, owner, reviewer, operator, coordinator WorkflowActor) {
-	t.Helper()
-	f := rAcceptance(t, workID, []string{}, associate)
+	f := rAcceptance(t, workID, []string{}, true)
 	actors := recordApprovalActors(t, f.store, workID)
-	return f.store, f.owner, actors.reviewer, actors.operator, actors.coordinator
+	return f.store, actors.operator, actors.coordinator
 }
 
 // seedRoutineReviewersForSelection records the reviewer/operator/coordinator
@@ -80,7 +73,7 @@ func TestEngineeringConfirmation(t *testing.T) {
 	t.Run("engineering coordinator confirmation succeeds", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-coordinator"
-		s, _, _, _, coordinator := engineeringConfirmationSeed(t, workID)
+		s, _, coordinator := engineeringConfirmationSeed(t, workID)
 		events, err := runEngineeringConfirmation(t, s, workID, ownerRefForTest(t, coordinator), nil)
 		if err != nil {
 			t.Fatalf("engineering coordinator confirmation refused: %v", err)
@@ -109,23 +102,10 @@ func TestEngineeringConfirmation(t *testing.T) {
 		}
 	})
 
-	t.Run("missing deliverables refuse through the constructor", func(t *testing.T) {
-		t.Parallel()
-		const workID = "engineering-confirm-deliverables"
-		s, _, _, _, coordinator := engineeringConfirmationFixture(t, workID, false)
-		// Main has not associated the accepted Review with the criteria, so
-		// the acceptance deliverables the confirmation requires are absent.
-		_, err := runEngineeringConfirmation(t, s, workID, ownerRefForTest(t, coordinator), nil)
-		var failure *Failure
-		if err == nil || !failureAs(err, &failure) || failure.Kind != KindMissingEvidence {
-			t.Fatalf("engineering confirmation without deliverables returned %v, want the missing-evidence refusal", err)
-		}
-	})
-
 	t.Run("engineering records the agent-class coordinator only", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-confirm-agent-class"
-		s, _, _, operator, _ := engineeringConfirmationSeed(t, workID)
+		s, operator, _ := engineeringConfirmationSeed(t, workID)
 		_, err := runEngineeringConfirmation(t, s, workID, ownerRefForTest(t, operator), nil)
 		var failure *Failure
 		if err == nil || !failureAs(err, &failure) || failure.Kind != KindInvalidOperation {
@@ -140,7 +120,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 	t.Run("class upgrade invalidates the engineering confirmation", func(t *testing.T) {
 		t.Parallel()
 		const workID = "engineering-upgrade-lifecycle"
-		route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", []string{}, []string{})
+		route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", []string{})
 		s := route.store
 		defer s.Close()
 		coordinator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/coordinator", SessionRef: "session/" + workID + "-coordinator", ActorClass: ActorAgent}

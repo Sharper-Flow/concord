@@ -8,7 +8,7 @@ import (
 // An operator stop cancels the workflow despite a standing correction.
 func TestCorrectionResolvesThroughOperatorStop(t *testing.T) {
 	const workID = "convergence-operator-stop"
-	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanFix, "review", []string{}, []string{})
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanFix, "review", []string{})
 	s := f.store
 	if err := runVerdictActionAs(t, s, workID, "record_review", mustJSONValue(map[string]any{"step_id": "review", "note": "review corrected the change", "reviewer": "concord-review", "result": "fixed", "commit": "commit:fixture", "link": "https://example.com/review"}), 0, f.owner); err != nil {
 		t.Fatal(err)

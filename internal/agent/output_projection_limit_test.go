@@ -13,7 +13,7 @@ import (
 
 func TestWorkflowReadLargeFixedProjectionRefusesTypedBytesNotFieldSchema(t *testing.T) {
 	t.Parallel()
-	s, service, _, _, _ := workflowEngineFixture(t, "")
+	s, service, _ := workflowEngineFixture(t, "")
 	const workID = "work-1"
 	subjects := make([]string, 800)
 	for i := range subjects {

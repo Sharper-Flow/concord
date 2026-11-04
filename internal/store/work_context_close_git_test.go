@@ -68,8 +68,8 @@ func TestWorkContextCloseGit(t *testing.T) {
 	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "implement")
 	closeGitWorkflowEvent(t, s, ownerRef, WorkflowContractApproved, map[string]any{
 		"contract_version": 1, "premise": "deliver a checked implementation",
-		"decision_domains":  []string{},
-		"required_evidence": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
+		"decision_domains":     []string{},
+		"legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 		"architecture_binding": WorkflowArchitectureBinding{
 			HomeDomainID: workContextTestRoot, AffectedDomainIDs: []string{workContextTestRoot, workContextTestChild},
@@ -103,7 +103,7 @@ func TestWorkContextCloseGit(t *testing.T) {
 	version := readWorkVersion(t, s, workID)
 	completion := workflowEventWithActor("close-git-workflow-completed", WorkflowCompleted, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed",
-		"impact_verdict": "non-breaking",
+		"impact_verdict": "non-breaking", "changed_refs_digest": testDigest("context-close"), "warnings": []string{},
 	})
 	completion.PayloadVersion = 2
 	beforeHome := snapshotCloseGit(t, repository)

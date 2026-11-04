@@ -15,9 +15,9 @@ func declarationEventCount(t *testing.T, f workContextFixture) int {
 	return count
 }
 
-func seedMandatoryNativeEvidence(t *testing.T, f workContextFixture, blockers int) {
+func seedWorkerContextFindings(t *testing.T, f workContextFixture, count int) {
 	t.Helper()
-	for i := 0; i < blockers; i++ {
+	for i := 0; i < count; i++ {
 		refs := make([]string, 0, 32)
 		for ref := 0; ref < 32; ref++ {
 			prefix := fmt.Sprintf("evidence:context-%02d-%02d-", i, ref)

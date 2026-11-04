@@ -135,7 +135,7 @@ func readWorkflowScenarioCorpus(t *testing.T) workflowScenarioCorpus {
 	if err := json.Unmarshal(raw, &corpus); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"WF01-capture-late-outcome", "WF02-planning-requires-outcome", "WF04-weaker-delivery", "WF05-stronger-delivery", "WF19-completion-one-transaction", "WF37-action-availability-before-register", "WF50-one-conjunct-weaker"}
+	want := []string{"WF01-capture-late-outcome", "WF05-stronger-delivery", "WF19-completion-one-transaction", "WF37-action-availability-before-register"}
 	if len(corpus.Scenarios) != len(want) {
 		t.Fatalf("scenario count=%d, want %d", len(corpus.Scenarios), len(want))
 	}
@@ -181,7 +181,7 @@ func runWorkflowScenarioCase(t *testing.T, scenario workflowScenario) {
 func executeWorkflowScenario(t *testing.T, action string, setup workflowCorpusSetup, request workflowCorpusRequest) (workflowObservation, error) {
 	t.Helper()
 	switch action {
-	case "capture", "approve_contract", "record_verdict", "confirm_premise", "complete":
+	case "capture", "approve_contract", "confirm_premise", "complete":
 	default:
 		return workflowObservation{}, fmt.Errorf("action %q is not in the current corpus action union", action)
 	}
@@ -274,7 +274,7 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 	t.Helper()
 	ctx := t.Context()
 	workID, proof := setup.FixtureRefs.WorkItem, setup.CurrentState.ProofCase
-	actions := map[string]string{"planning_without_outcome": "approve_contract", "weaker_delivery": "confirm_premise", "satisfied_delivery": "confirm_premise", "completion_rollback": "complete", "unpicked_plan": "confirm_premise", "one_conjunct_weaker": "confirm_premise"}
+	actions := map[string]string{"satisfied_delivery": "confirm_premise", "completion_rollback": "complete", "unpicked_plan": "confirm_premise"}
 	if proof != "" {
 		if action, ok := actions[proof]; !ok || action != request.ActionID {
 			return nil, fmt.Errorf("current fixture proof case %q does not prepare action %q", proof, request.ActionID)
@@ -285,7 +285,7 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 	var s *Store
 	var owner WorkflowActor
 	switch proof {
-	case "", "planning_without_outcome", "unpicked_plan":
+	case "", "unpicked_plan":
 		s = openTemp(t)
 		if err := seedCorpusProduct(ctx, s); err != nil {
 			return nil, err
@@ -293,18 +293,11 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 		if err := createCorpusCurrentWorkflow(ctx, s, workID, actor, request.Fields); err != nil {
 			return nil, err
 		}
-		if proof == "planning_without_outcome" {
-			if request.WorkflowType == nil {
-				return nil, fmt.Errorf("current fixture requires a picked workflow type")
-			}
-			seedWorkflowLaw(t, s)
-			seedWorkflowPlanFrontier(t, s, workID, *request.WorkflowType, "plan")
-		}
 	case "completion_rollback":
 		if request.WorkflowType == nil {
 			return nil, fmt.Errorf("current fixture requires a picked workflow type")
 		}
-		f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, *request.WorkflowType, "plan", []string{}, []string{})
+		f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, *request.WorkflowType, "plan", []string{})
 		s, owner = f.store, f.owner
 		completeWorkflowPlanFixture(t, s, workID)
 		version := readWorkVersion(t, s, workID)
@@ -315,41 +308,8 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 			return nil, err
 		}
 	case "satisfied_delivery":
-		f := qCurrentAcceptance(t, workID, "review")
+		f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", nil)
 		s, owner = f.store, f.owner
-	case "weaker_delivery", "one_conjunct_weaker":
-		predicates := []map[string]any{}
-		if proof == "one_conjunct_weaker" {
-			predicates = []map[string]any{
-				{"predicate_id": "predicate:present", "ordinal": 0, "outcome_kind": "exists", "outcome_payload": map[string]any{"kind": "exists", "surface": "surface:one", "subjects": []string{"subject:one"}}},
-				{"predicate_id": "predicate:absent", "ordinal": 1, "outcome_kind": "absent", "outcome_payload": map[string]any{"kind": "absent", "surface": "surface:two", "subjects": []string{"subject:two"}, "distinguish_from": []string{"archived"}}},
-			}
-		}
-		if request.WorkflowType == nil {
-			return nil, fmt.Errorf("current fixture requires a picked workflow type")
-		}
-		route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, *request.WorkflowType, "implement", []string{"verification", "review"}, []string{"verification", "review", "artifact"}, predicates...)
-		j := pReturnClaim(t, route, workID)
-		s, owner = route.store, route.owner
-		run := j.observeRun(t, "corpus-proof")
-		if proof == "one_conjunct_weaker" {
-			j.bindVerification(t, run)
-		}
-		completeCurrentReviewForTest(t, j.fixture, "ready_for_final_proof", func(report *ReviewBlock) {
-			for _, criterion := range report.Dependencies.Criteria {
-				assessment := ReviewAssessment{PredicateID: criterion.PredicateID, Assessment: "mismatch", ReceiptRefs: []string{}}
-				if proof == "one_conjunct_weaker" && criterion.PredicateID == "predicate:present" {
-					assessment.Assessment, assessment.ReceiptRefs = "supported", []string{run.OperationRef}
-				}
-				report.Assessments = append(report.Assessments, assessment)
-			}
-		})
-		moveWorkflowPlanFixtureFrontier(t, s, workID, "review")
-		if proof == "one_conjunct_weaker" {
-			if err := j.action(t, "record_verdict", criterionAssociationPayload(run.OperationRef, "predicate:present"), route.owner); err != nil {
-				return nil, err
-			}
-		}
 	default:
 		return nil, fmt.Errorf("current fixture has unknown proof case %q", proof)
 	}
@@ -379,12 +339,9 @@ func TestCorpusCurrentProofPreparationProfiles(t *testing.T) {
 	for _, tc := range []struct {
 		proof, step, action, kind string
 	}{
-		{"planning_without_outcome", "plan", "approve_contract", "invalid_input"},
-		{"weaker_delivery", "review", "confirm_premise", "missing_evidence"},
 		{"satisfied_delivery", "review", "confirm_premise", ""},
 		{"completion_rollback", "", "complete", "operation_conflict"},
 		{"unpicked_plan", "intake", "confirm_premise", "invalid_transition"},
-		{"one_conjunct_weaker", "review", "confirm_premise", "missing_evidence"},
 	} {
 		t.Run(tc.proof, func(t *testing.T) {
 			actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/work-alpha", ActorClass: ActorAgent}
@@ -417,10 +374,7 @@ func TestCorpusCurrentProofPreparationProfiles(t *testing.T) {
 				t.Fatalf("%v; communication=%+v", err, observation.Communication)
 			}
 			detail := map[string]string{
-				"planning_without_outcome": `workflow action payload field "outcome_predicates" is required for action "approve_contract"`,
-				"unpicked_plan":            "action is not declared on a frontier step",
-				"weaker_delivery":          "premise confirmation requires proof for every approved predicate: missing predicate:return-route",
-				"one_conjunct_weaker":      "premise confirmation requires proof for every approved predicate: missing predicate:absent",
+				"unpicked_plan": "action is not declared on a frontier step",
 			}[tc.proof]
 			if detail != "" {
 				if err := workflowObservationAssertionError(observation, workflowAssertion{Target: "communication", Path: "error.detail", Op: "eq", Value: detail}); err != nil {
@@ -493,7 +447,7 @@ func TestWorkflowScenarioCorpusMutationsRerunAgainstAuthoritativeState(t *testin
 
 func TestWorkflowScenarioCorpusUnavailableActionPrecedesAuthorization(t *testing.T) {
 	t.Parallel()
-	scenario := readWorkflowScenarioCorpus(t).Scenarios[5]
+	scenario := readWorkflowScenarioCorpus(t).Scenarios[3]
 	grant := scenario.Request.Grant
 	actor := WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: ActorAgent}
 	s, err := prepareWorkflowCorpusState(t, scenario.Setup, scenario.Request, actor)
@@ -562,20 +516,6 @@ func TestCorpusCurrentRequestRejectsActorScopeAndActionMutations(t *testing.T) {
 	}
 }
 
-func TestCorpusCurrentProofInputBindingsRejectMutations(t *testing.T) {
-	t.Parallel()
-	t.Run("receipt", func(t *testing.T) {
-		const workID = "corpus-receipt-binding"
-		f := qBuildAcceptance(t, workID, "", false)
-		assertRecoveryRefusalWithoutEffect(t, f.store, workID, KindMissingEvidence, func() error {
-			return runVerdictActionAs(t, f.store, workID, "record_verdict", criterionAssociationPayload("worktree_verify:unrelated", "predicate:return-route"), 0, f.owner)
-		})
-		if err := runVerdictActionAs(t, f.store, workID, "record_verdict", qAssociationPayload(t, f), 0, f.owner); err != nil {
-			t.Fatalf("captured receipt refused after unrelated receipt control: %v", err)
-		}
-	})
-}
-
 func TestCorpusCurrentSetupRefusesHistoricalInputs(t *testing.T) {
 	t.Parallel()
 	scenario := readWorkflowScenarioCorpus(t).Scenarios[0]
@@ -604,7 +544,7 @@ func TestCorpusCurrentSetupRefusesHistoricalInputs(t *testing.T) {
 }
 
 func TestCorpusCurrentStateChangeObservationUsesDurableRows(t *testing.T) {
-	current := readWorkflowScenarioCorpus(t).Scenarios[3]
+	current := readWorkflowScenarioCorpus(t).Scenarios[1]
 	for _, tc := range []struct {
 		action    string
 		fields    map[string]any
@@ -648,7 +588,7 @@ func TestCorpusCaptureObservationReadsApprovedContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	absent := scenario.Expected.Assertions[1]
+	absent := workflowAssertion{Target: "state", Path: "work.contract", Op: "absent"}
 	if err := workflowObservationAssertionError(observation, absent); err != nil {
 		t.Fatalf("capture fabricated an approved contract: %v", err)
 	}
@@ -736,8 +676,7 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 func corpusApprovalPayload(t *testing.T, s *Store, workID string) json.RawMessage {
 	t.Helper()
 	return testApprovalPayload(t, s, workID, "approve_contract", mustJSONValue(map[string]any{
-		"contract_version": 1, "premise": "deliver the checked change", "required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
-		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:corpus", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:corpus", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}}},
+		"contract_version": 1, "premise": "deliver the checked change", "legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
 	}))
 }
 
@@ -840,38 +779,14 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 	}
 	observation.State[workID] = map[string]any{"state": projection.State, "current_step": projection.CurrentStep}
 	if projection.Contract != nil {
-		work["outcome_contract"] = projection.Contract
-		review, err := loadWorkflowReviewState(ctx, s.db, workID)
-		if err != nil {
-			return observation, err
-		}
-		assessments := map[string]any{}
-		if review.Accepted != nil {
-			for _, assessment := range review.Accepted.Report.Assessments {
-				assessments[assessment.PredicateID] = assessment.Assessment
-			}
-		}
-		observation.State["review"] = map[string]any{"assessments": assessments}
-		verdicts, err := latestWorkflowVerdicts(ctx, s.db, workID, projection.Contract.Version)
-		if err != nil {
-			return observation, err
-		}
-		proofs := map[string]any{}
-		for _, verdict := range verdicts {
-			proofs[verdict.PredicateID] = map[string]any{"kind": verdict.VerdictKind, "actor_ref": verdict.VerdictActorRef, "evidence": verdict.EvaluationEvidence}
-		}
-		observation.State["verdicts"] = proofs
-	}
-	terminal, err := ReadWorkflowVerdict(ctx, s, workID)
-	if err != nil {
-		return observation, err
+		work["contract"] = projection.Contract
 	}
 	var terminalTime, completedAt sql.NullString
 	if err := s.db.QueryRowContext(ctx, `SELECT w.terminal_time,i.completed_at FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&terminalTime, &completedAt); err != nil {
 		return observation, err
 	}
-	if terminal != nil || terminalTime.Valid || completedAt.Valid {
-		work["terminal_metadata"] = map[string]any{"record": terminal, "terminal_time": terminalTime.String, "completed_at": completedAt.String}
+	if terminalTime.Valid || completedAt.Valid {
+		work["terminal_metadata"] = map[string]any{"terminal_time": terminalTime.String, "completed_at": completedAt.String}
 	}
 	rows, err := s.DatabaseForTesting().QueryContext(ctx, `SELECT kind FROM effect_receipts WHERE subject_type=? AND subject_id=? AND effect_seq>? ORDER BY effect_seq`, SubjectWorkItem, workID, beforeSeq)
 	if err != nil {

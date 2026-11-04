@@ -26,7 +26,7 @@ func seedPreQ7WorkCreated(t *testing.T, tx *sql.Tx, event Event) {
 func seedQ7CurrentRows(t *testing.T) (*Store, string) {
 	t.Helper()
 	const work = "q7-all-current-rows"
-	s, _ := seedCompletionGateCase(t, work, completionGateCase{requiredEvidence: []string{"verification", "review"}})
+	s, _ := seedCompletionGateCase(t, work, completionGateCase{})
 	seedWork(t, s, "q7-related")
 	version := readWorkVersion(t, s, work)
 	if err := applyWorkEvent(t, s, relationAddedEvent("q7-related-edge", "depends_on", work, "q7-related", version, version+1), workVersion(work, version)); err != nil {
@@ -196,7 +196,7 @@ func TestQ7CreationMetadataDoesNotUseUnrelatedFrom(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := Migrate(t.Context(), db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, t.Context(), db), db); err != nil {
 		t.Fatal(err)
 	}
 	got, err := (&Store{db: db, path: path}).QueryQ7(t.Context(), Q7Request{Work: work})

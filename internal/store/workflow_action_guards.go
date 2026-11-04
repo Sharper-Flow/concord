@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"time"
 )
 
@@ -86,34 +85,6 @@ func guardNoRestartDispatch(g *workflowActionGuardContext) error {
 		return newFailure(KindUnavailable, "workflow_action", "restart dispatch is not implemented and fails closed pending Concord issue #120", false, "contact_operator")
 	}
 	return nil
-}
-
-// workflowVerificationBindingsAfter lists the immutable subject refs bound as
-// verification evidence after afterSeq, the current refine epoch's start, in
-// binding order.
-func workflowVerificationBindingsAfter(ctx context.Context, q queryer, workID string, afterSeq int64, subject string) ([]string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.immutable_subject_ref') FROM workflow_evidence_bindings
-		WHERE work_id=? AND binding_seq>?
-		AND json_extract(payload,'$.evidence_kind')='verification'
-		ORDER BY binding_seq`, workID, afterSeq)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, subject, "cannot read the refine epoch's evidence bindings", true, "retry once the workflow evidence projection is readable", err)
-	}
-	defer rows.Close()
-	refs := make([]string, 0, 4)
-	for rows.Next() {
-		var ref string
-		if err := rows.Scan(&ref); err != nil {
-			return nil, wrapFailure(KindUnavailable, subject, "cannot scan the refine epoch's evidence bindings", true, "retry once the workflow evidence projection is readable", err)
-		}
-		if !slices.Contains(refs, ref) {
-			refs = append(refs, ref)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, wrapFailure(KindUnavailable, subject, "cannot enumerate the refine epoch's evidence bindings", true, "retry once the workflow evidence projection is readable", err)
-	}
-	return refs, nil
 }
 
 // defaultedPayload returns the action payload with an empty payload

@@ -1,12 +1,14 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -58,10 +60,15 @@ func seedRetirementWorkPredicate(t *testing.T, db *sql.DB, work string, version,
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedRetirementRawPredicate(t, db, work, version, ordinal, kind, string(payload))
+}
+
+func seedRetirementRawPredicate(t *testing.T, db *sql.DB, work string, version, ordinal int, kind, payload string) {
+	t.Helper()
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,?,?,?,?,?)`, work, version, fmt.Sprintf("predicate:item-%d", ordinal), ordinal, kind, string(payload)); err != nil {
+	if _, err := db.Exec(`INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,?,?,?,?,?)`, work, version, fmt.Sprintf("predicate:item-%d", ordinal), ordinal, kind, payload); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
@@ -85,9 +92,14 @@ func TestOutcomeRetirementPreservesAllContractVersions(t *testing.T) {
 	}
 	seedRetirementPredicate(t, db, 2, 0, "absent", []string{"spec:second", "decision:second", "constitution:second"})
 	seedRetirementWorkPredicate(t, db, "work-two", 1, 0, "exists", []string{"spec:other", "decision:other", "constitution:other"})
-	if _, err := Upgrade(t.Context(), path, nil); err == nil || !strings.Contains(err.Error(), "verified snapshot") {
+	before := retirementUpgradeSnapshot(t, db)
+	if _, err := Upgrade(t.Context(), path, nil); !hasFailureKind(err, KindUpgradeBlocked) || !strings.Contains(err.Error(), "outcome retirement requires a verified snapshot") {
 		t.Fatalf("upgrade without snapshot: %v", err)
 	}
+	if after := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(before, after) {
+		t.Fatal("snapshot refusal changed predecessor rows, schema or applied migrations")
+	}
+	retirementUpgradeHealthy(t, db)
 	snapshot := filepath.Join(t.TempDir(), "snapshot.db")
 	if _, err := BackupDatabase(t.Context(), path, snapshot); err != nil {
 		t.Fatal(err)
@@ -191,29 +203,58 @@ func TestOutcomeRetirementPreservesAllContractVersions(t *testing.T) {
 	}
 }
 
+// verifiedOutcomeRetirementContext stands in for the snapshot proof the
+// migration transaction verifies before it applies migration 185.
+func verifiedOutcomeRetirementContext(t *testing.T) context.Context {
+	return context.WithValue(t.Context(), outcomeRetirementProofKey{}, &outcomeRetirementProof{verified: true})
+}
+
+// beforeOutcomeRetirement is the last schema version that still holds
+// predicate rows. Tests of earlier migrations stop here because their
+// placeholder predicates are not decodable outcome contracts.
+const beforeOutcomeRetirement = 184
+
+// outcomeSnapshotContext records the snapshot proof concord upgrade supplies
+// before a historical fixture with outcome rows crosses migration 185: the
+// copy's checksum and the store's current-state digest. Call it after the
+// fixture's last write; the migration rechecks both before applying any step.
+// It copies with VACUUM INTO rather than Backup, whose restore gate refuses an
+// old store under the unstamped test build.
+func outcomeSnapshotContext(t *testing.T, ctx context.Context, db *sql.DB) context.Context {
+	t.Helper()
+	snapshot := filepath.Join(t.TempDir(), "outcome-retirement.db")
+	if _, err := db.ExecContext(ctx, `VACUUM INTO ?`, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	checksum, err := fileSHA256(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := sqlitedb.CurrentStateDigest(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return context.WithValue(ctx, outcomeRetirementProofKey{}, &outcomeRetirementProof{snapshot: snapshot, checksum: checksum, digest: digest})
+}
+
+// outcomeSnapshotOption takes the verified backup concord upgrade passes to
+// Upgrade. Backup's restore gate needs a stamped build.
+func outcomeSnapshotOption(t *testing.T, ctx context.Context, path string) UpgradeOptions {
+	t.Helper()
+	snapshot := filepath.Join(t.TempDir(), "outcome-retirement.db")
+	if _, err := BackupDatabase(ctx, path, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	return UpgradeOptions{SnapshotPath: snapshot}
+}
+
 func TestOutcomeRetirementMalformedSourceRollsBack(t *testing.T) {
 	_, db := outcomeRetirementFixture(t)
 	seedRetirementPredicate(t, db, 1, 0, "exists", []string{"spec:valid"})
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contract_predicates SET outcome_payload='{"kind":"exists","subjects":null}' WHERE contract_version=1; DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
-	tx, err := db.BeginTx(t.Context(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := applyMigration(t.Context(), tx, migrations[migrationPrefixBefore(t, "outcome_contract_retirement")]); err == nil {
-		t.Fatal("malformed source was accepted")
-	}
-	if err := tx.Rollback(); err != nil {
-		t.Fatal(err)
-	}
-	var count int
-	if err := db.QueryRow(`SELECT count(*) FROM workflow_contract_predicates`).Scan(&count); err != nil || count != 1 {
-		t.Fatalf("source not preserved: count=%d error=%v", count, err)
-	}
-	if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('workflow_contracts') WHERE name='legislative_subjects'`).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("column survived rollback: count=%d error=%v", count, err)
-	}
+	assertOutcomeTransferRollback(t, db, "malformed historical predicate")
 }
 
 func TestOutcomeRetirementFailedTransferRollsBack(t *testing.T) {
@@ -222,11 +263,17 @@ func TestOutcomeRetirementFailedTransferRollsBack(t *testing.T) {
 	if _, err := db.Exec(`CREATE TRIGGER reject_retirement_transfer BEFORE UPDATE ON workflow_contracts BEGIN SELECT RAISE(ABORT,'transfer refused'); END`); err != nil {
 		t.Fatal(err)
 	}
+	assertOutcomeTransferRollback(t, db, "transfer refused")
+}
+
+func assertOutcomeTransferRollback(t *testing.T, db *sql.DB, cause string) {
+	t.Helper()
+	before := retirementUpgradeSnapshot(t, db)
 	tx, err := db.BeginTx(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := applyMigration(t.Context(), tx, migrations[migrationPrefixBefore(t, "outcome_contract_retirement")]); err == nil || !strings.Contains(err.Error(), "transfer refused") {
+	if err := applyMigration(verifiedOutcomeRetirementContext(t), tx, migrations[migrationPrefixBefore(t, "outcome_contract_retirement")]); err == nil || !strings.Contains(err.Error(), cause) {
 		t.Fatalf("failed transfer = %v", err)
 	}
 	if err := tx.Rollback(); err != nil {
@@ -238,6 +285,27 @@ func TestOutcomeRetirementFailedTransferRollsBack(t *testing.T) {
 	}
 	if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('workflow_contracts') WHERE name='legislative_subjects'`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("column survived rollback: count=%d error=%v", count, err)
+	}
+	if after := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(before, after) {
+		t.Fatal("failed transfer changed predecessor schema, rows or applied migrations")
+	}
+}
+
+func TestOutcomeRetirementEmptyContractsSnapshotUpgrade(t *testing.T) {
+	previous := version.Value
+	version.Value = "v-test"
+	t.Cleanup(func() { version.Value = previous })
+	path, db := outcomeRetirementFixture(t)
+	report, err := Upgrade(t.Context(), path, nil, outcomeSnapshotOption(t, t.Context(), path))
+	if err != nil {
+		t.Fatalf("upgrade of contracts without outcome rows: %v", err)
+	}
+	if !reflect.DeepEqual(report.Applied, []int{185}) {
+		t.Fatalf("applied = %v", report.Applied)
+	}
+	var subjects string
+	if err := db.QueryRow(`SELECT group_concat(legislative_subjects) FROM workflow_contracts`).Scan(&subjects); err != nil || subjects != "[],[],[]" {
+		t.Fatalf("contracts after upgrade = %q, %v", subjects, err)
 	}
 }
 
@@ -298,10 +366,125 @@ func TestOutcomeRetirementDigestTransactionMatchesSnapshot(t *testing.T) {
 	}
 }
 
-func TestOutcomeRetirementHistoricalPayloadNotSizeLimited(t *testing.T) {
-	payload := `{"kind":"exists","surface":"fixture:source","subjects":["spec:valid"]` + strings.Repeat(" ", 70*1024) + `}`
-	got, err := historicalOutcomeSubjects("exists", []byte(payload))
-	if err != nil || !reflect.DeepEqual(got, []string{"spec:valid"}) {
-		t.Fatalf("large valid historical predicate = %v: %v", got, err)
+func historicalDecisionRecord(t *testing.T, question string, extra map[string]any) string {
+	t.Helper()
+	record := map[string]any{
+		"question": question, "options_considered": []string{"keep", "retire"}, "decision": "accepted_decision",
+		"rationale": "Fixture rationale", "consequences": []string{"Fixture consequence"}, "inputs": []string{"fixture:input"},
+		"poc_findings": "Fixture finding", "supersedes": nil, "superseded_by": nil, "unknowns": []string{}, "required_to_decide": []string{},
+		"reviewer_actor_ref": "actor:" + strings.Repeat("a", 64),
+	}
+	for key, value := range extra {
+		record[key] = value
+	}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded)
+}
+
+func paddedHistoricalPresence(size int) string {
+	head := `{"kind":"exists","surface":"fixture:source","subjects":["spec:valid"]`
+	return head + strings.Repeat(" ", size-len(head)-1) + `}`
+}
+
+// Each case states what the pre-185 DecodeWorkflowPredicate decided for the
+// same stored bytes; migration 185 must decide the same.
+func TestOutcomeRetirementHistoricalDecoderParity(t *testing.T) {
+	check := func(subject string) string {
+		return `{"kind":"check","check_ref":"check:ci/build","immutable_subject_ref":"` + subject + `","expected_result":"pass"}`
+	}
+	outcome := func(record string) string {
+		return `{"kind":"outcome","allowed":["accepted_decision"],"decision_record":` + record + `}`
+	}
+	for _, test := range []struct {
+		name, kind, payload string
+		want                []string
+		refused             bool
+	}{
+		{name: "presence at the 64 KiB bound", kind: "exists", payload: paddedHistoricalPresence(64 * 1024), want: []string{"spec:valid"}},
+		{name: "presence above the 64 KiB bound", kind: "exists", payload: paddedHistoricalPresence(64*1024 + 1), refused: true},
+		{name: "absent presence", kind: "absent", payload: `{"kind":"absent","surface":"fixture:source","subjects":["spec:gone"],"distinguish_from":["renamed"]}`, want: []string{"spec:gone"}},
+		{name: "exists with absent-only field", kind: "exists", payload: `{"kind":"exists","surface":"fixture:source","subjects":["spec:valid"],"distinguish_from":["renamed"]}`, refused: true},
+		{name: "stored kind differs from payload", kind: "absent", payload: `{"kind":"exists","surface":"fixture:source","subjects":["spec:valid"]}`, refused: true},
+		{name: "duplicate field", kind: "exists", payload: `{"kind":"exists","surface":"fixture:source","subjects":["spec:valid"],"subjects":["spec:other"]}`, refused: true},
+		{name: "outcome without decision record", kind: "outcome", payload: `{"kind":"outcome","allowed":["completed"]}`},
+		{name: "outcome with null decision record", kind: "outcome", payload: outcome("null")},
+		{name: "decision question at 4096 bytes", kind: "outcome", payload: outcome(historicalDecisionRecord(t, strings.Repeat("é", 2048), nil))},
+		{name: "decision question above 4096 bytes within 4096 code points", kind: "outcome", payload: outcome(historicalDecisionRecord(t, strings.Repeat("é", 2049), nil)), refused: true},
+		{name: "decision record with retired approval field", kind: "outcome", payload: outcome(historicalDecisionRecord(t, "Which?", map[string]any{"operator_approval_ref": "approval:fixture"})), refused: true},
+		{name: "decision contradicting its only allowed token", kind: "outcome", payload: outcome(historicalDecisionRecord(t, "Which?", map[string]any{"decision": "insufficient_evidence", "unknowns": []string{"u"}, "required_to_decide": []string{"r"}})), refused: true},
+		{name: "check subject at 128 characters", kind: "check", payload: check("spec:" + strings.Repeat("a", 123))},
+		{name: "check subject above 128 characters", kind: "check", payload: check("spec:" + strings.Repeat("a", 124)), refused: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := historicalOutcomeSubjects(test.kind, []byte(test.payload))
+			if test.refused {
+				if err == nil {
+					t.Fatalf("historically refused predicate admitted with subjects %v", got)
+				}
+				return
+			}
+			if err != nil || !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("historically admitted predicate = %v: %v", got, err)
+			}
+		})
+	}
+}
+
+// The pre-185 resolver admitted a law only when an exists or absent predicate
+// at the exact work and version named it; outcome and check predicates named
+// nothing, and a non-Product-changing contract admitted nothing.
+func TestOutcomeRetirementTransfersExactPresenceAdmission(t *testing.T) {
+	previous := version.Value
+	version.Value = "v-test"
+	t.Cleanup(func() { version.Value = previous })
+	path, db := outcomeRetirementFixture(t)
+	actor := DeriveWorkflowActorRef("principal:one", "client:one", "agent:one", "session:one")
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
+INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,changes_product_truth) VALUES('work-two',2,'Research','internal_sqlite','[]','[]','t',?,'[]',0);
+DELETE FROM write_guard;`, actor); err != nil {
+		t.Fatal(err)
+	}
+	seedRetirementWorkPredicate(t, db, "work-one", 1, 0, "exists", []string{"spec:alpha", "decision:alpha"})
+	seedRetirementRawPredicate(t, db, "work-one", 1, 1, "outcome", `{"kind":"outcome","allowed":["accepted_decision"],"decision_record":`+historicalDecisionRecord(t, "Which?", nil)+`}`)
+	seedRetirementRawPredicate(t, db, "work-one", 1, 2, "check", `{"kind":"check","check_ref":"check:ci/build","immutable_subject_ref":"spec:checked","expected_result":"pass"}`)
+	seedRetirementWorkPredicate(t, db, "work-one", 2, 0, "absent", []string{"constitution:beta", "spec:beta"})
+	seedRetirementRawPredicate(t, db, "work-one", 2, 1, "outcome", `{"kind":"outcome","allowed":["completed"],"decision_record":null}`)
+	seedRetirementWorkPredicate(t, db, "work-two", 1, 0, "exists", []string{"spec:other"})
+	seedRetirementRawPredicate(t, db, "work-two", 1, 1, "check", `{"kind":"check","check_ref":"check:ci/build","immutable_subject_ref":"decision:checked","expected_result":"pass"}`)
+	seedRetirementWorkPredicate(t, db, "work-two", 2, 0, "exists", []string{"spec:research"})
+	snapshot := filepath.Join(t.TempDir(), "snapshot.db")
+	if _, err := BackupDatabase(t.Context(), path, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
+		t.Fatal(err)
+	}
+	admitted := map[historicalOutcomeContract][]string{
+		{"work-one", 1}: {"spec:alpha", "decision:alpha"},
+		{"work-one", 2}: {"constitution:beta", "spec:beta"},
+		{"work-two", 1}: {"spec:other"},
+	}
+	ids := []string{"spec:alpha", "decision:alpha", "spec:checked", "constitution:beta", "spec:beta", "spec:other", "decision:checked", "spec:research"}
+	tx, err := db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	for _, contract := range []historicalOutcomeContract{{"work-one", 1}, {"work-one", 2}, {"work-two", 1}, {"work-two", 2}} {
+		for _, id := range ids {
+			kind, _, _ := strings.Cut(id, ":")
+			record := KnowledgeRecord{ID: id, Kind: kind, Authority: KnowledgeAuthority{Tier: "legislated", LegislatedBy: contract.work, ContractVersion: contract.version}}
+			unverified, err := resolveKnowledgeLegislatedAuthorityTx(t.Context(), tx, record)
+			if slices.Contains(admitted[contract], id) {
+				if err != nil || unverified {
+					t.Fatalf("%s at %s v%d not admitted: unverified=%v error=%v", id, contract.work, contract.version, unverified, err)
+				}
+			} else if !hasFailureKind(err, KindInvalidNoteProof) {
+				t.Fatalf("%s at %s v%d not held negative: unverified=%v error=%v", id, contract.work, contract.version, unverified, err)
+			}
+		}
 	}
 }

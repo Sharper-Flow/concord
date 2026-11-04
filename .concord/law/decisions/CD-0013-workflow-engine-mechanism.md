@@ -111,8 +111,9 @@ The approved contract carries:
 
 - `spec_mandate` — exact spec IDs the change is authorized to modify
   (CD-0006 D10);
-- `legislative_subjects` — subjects whose inclusion establishes legislative
-  standing under CD-0159 D2;
+- `legislative_subjects` — subjects recorded for the exact contract version;
+  legislative standing requires the operator-approved contract and the other
+  conditions in CD-0159 D2, not subject inclusion alone;
 - `route_conventions` — declared conventions that determine the operative verb
   (CD-0012 D8);
 - `rigor_class` — the maturity × audience composition from CD-0006 D4.
@@ -155,8 +156,8 @@ earlier operator decision. The field describes the contract; operator approval
 remains conversational under CD-0243. Every workflow records a valid contract
 and premise confirmation.
 
-Contract updates and corrections preserve version, source, scope,
-current-step and recovery checks at their owning actions.
+Contract updates and corrections preserve actor, evidence, subject, version,
+source, scope, current-step and recovery checks at their owning actions.
 Completion follows D10. Recovery follows CD-0243 D5: the operator may approve
 explained irreversible loss, and customer-data loss remains reserved.
 Contract updates grant no legislative authority or automatic overlap exemption.

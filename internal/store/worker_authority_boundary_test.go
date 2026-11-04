@@ -398,7 +398,7 @@ func seedOrdinaryExecutorAtExecution(t *testing.T, workID string) (*Store, strin
 
 func seedOrdinaryExecutorAtExecutionWithCheckpoint(t *testing.T, workID string, checkpoint bool) (*Store, string, WorkflowActor) {
 	t.Helper()
-	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", []string{}, []string{})
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", []string{})
 	s := f.store
 	executor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/executor", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	owner := f.owner

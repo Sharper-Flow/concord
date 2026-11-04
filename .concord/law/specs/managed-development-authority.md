@@ -106,7 +106,7 @@ creates or finds the issue in Linear. Concord makes no Linear call.
 
 Project work is permitted outside the workflow under host permissions and
 repository rules. Work outside the workflow creates no Concord workflow
-authority, evidence, verdict, or completion claim.
+authority, evidence, reviewed-step record, or completion claim.
 
 An authorized defect repair may proceed outside Concord workflow when a Concord
 defect blocks safe normal recording or execution. The repair uses an isolated
@@ -123,7 +123,7 @@ participation remain host-owned. This contract does not change host roles.
 | Planned work, defects, backlog, and grouping | Linear, through the Linear MCP server | The Linear issue or Project identity | Planning across Products |
 | Work found for another Product | That Product's Linear team, through the Linear MCP server | The Linear issue identity; no serving-Product Concord work unit | Work owned by another Product |
 | Managed work unit and its Linear issue link | Concord | Durable work identity and the recorded issue key, UUID, and URL | Explicitly managed participation |
-| Workflow transitions, verdicts, and completion | Concord | Session identity and typed operation records | Explicitly managed participation |
+| Workflow transitions, reviewed-step records, and completion | Concord | Session identity and typed operation records | Explicitly managed participation |
 | Main-branch review and merge | Repository pull requests and required checks | Review decisions, check results, merge record, and changed files | Main-branch delivery under this contract |
 | Eligible phase-local integration under CD-0241 | Coordinating agent under the declared phase | Rapid-branch merge commit and recorded local gate evidence digests | An operator-declared CD-0241 phase, not main-branch delivery |
 | Implementation isolation | Git branches and worktrees | Branch ancestry, worktree boundaries, and commits | Implementation, including outside-workflow repair |
@@ -176,7 +176,7 @@ The other boundaries retain their stated scope.
   When its pull request opens
   Then the body names the issue with one non-closing reference.
 
-- Given a workflow transition, verdict, or completion claim
+- Given a workflow transition, reviewed-step record, or completion claim
   When the operation succeeds
   Then Concord records the operation in its durable authority.
 

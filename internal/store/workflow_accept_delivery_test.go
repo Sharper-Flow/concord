@@ -37,7 +37,7 @@ func workflowLatestDeliveryAssertionSeq(ctx context.Context, s *Store, workID st
 
 func TestDeliveryAssertionReaders(t *testing.T) {
 	const workID = "delivery-assertion-readers"
-	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", []string{}, []string{})
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", []string{})
 	s := f.store
 	if err := runDeliveryAdmissionAction(t, s, workID, json.RawMessage(`{"delivery_artifact":"artifact:delivery","delivery_state":"asserted"}`), f.owner); err != nil {
 		t.Fatal(err)

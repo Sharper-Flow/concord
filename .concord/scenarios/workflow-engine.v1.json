@@ -67,7 +67,7 @@
     },
     {
       "id": "WF05-stronger-delivery", "scenario_number": 5,
-      "mechanism": "premise confirmation records the terminal premise fact without changing the approved contract",
+      "mechanism": "premise confirmation records the terminal premise fact without changing the approved contract; no delivery-strength comparison is performed",
       "initial_state": {"work": "work-alpha"}, "action": "confirm_premise",
       "setup": {
         "fixture_refs": {"work_item": "work-alpha", "actors": ["actor:4ab6e3a017f83a02b9575d8e3e21c22a32affb19f225040a29fa15336d5e2fa7"], "workflow_types": ["change"], "evidence": [], "relations": []},
@@ -82,9 +82,7 @@
       "expected": {"assertions": [
         {"target": "communication", "path": "error", "op": "absent"},
         {"target": "state", "path": "work.lifecycle", "op": "eq", "value": "in_progress"},
-        {"target": "state", "path": "work.outcome_contract", "op": "nonempty"},
-        {"target": "state", "path": "review.assessments.predicate:return-route", "op": "eq", "value": "supported"},
-        {"target": "state", "path": "verdicts.predicate:return-route", "op": "nonempty"},
+        {"target": "state", "path": "work.contract", "op": "nonempty"},
         {"target": "result", "path": "contract_unchanged", "op": "eq", "value": true},
         {"target": "effects", "path": "workflow.premise_confirmed", "op": "nonempty"}
       ]},
@@ -138,7 +136,7 @@
         {"target": "result", "path": "state_unchanged", "op": "eq", "value": true},
         {"target": "effects", "path": "events.order", "op": "eq", "value": []}
       ]},
-      "observations": {"expected_reads": [{"target": "state", "path": "work.outcome_contract", "op": "absent"}]}
+      "observations": {"expected_reads": [{"target": "state", "path": "work.contract", "op": "absent"}]}
     }
   ]
 }

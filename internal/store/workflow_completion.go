@@ -33,6 +33,9 @@ func workflowCompletionRequired() error {
 }
 
 func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, payload workflowCompletedPayload) error {
+	// The expected version is checked before any other read.  This is the lock/fence
+	// boundary described by the contract; every subsequent mutation uses the
+	// same transaction and therefore sees one consistent projection.
 	if err := workflowCompletionVersion(ctx, tx, event.SubjectID, payload.ExpectedVersion); err != nil {
 		return err
 	}
@@ -97,12 +100,22 @@ func appendWorkflowCompletionTx(ctx context.Context, tx *sql.Tx, event Event, sc
 	if err := advanceWorkEffectSeqTx(ctx, tx, completion); err != nil {
 		return workflowClauseError(err, 7)
 	}
+	// CD-0183 D3: the workflow's terminal state closes the work item
+	// lifecycle in this same transaction, so the lifecycle follows the
+	// workflow instead of stranding in_progress after a recorded completion.
+	// The completion fold has already marked the instance terminal, so the
+	// terminal-lifecycle close keeps that record. Replay folds the logged
+	// transition exactly as it folded here, because the event is part of the log.
 	if err := appendWorkflowTerminalLifecycleTx(ctx, tx, scope, completion, payload.TerminalState); err != nil {
 		return workflowClauseError(err, 7)
 	}
 	return nil
 }
 
+// appendWorkflowTerminalLifecycleTx appends and folds the work.transitioned
+// event that moves the work item to the workflow's terminal state. The
+// completion event must already be folded: the transition's fold keeps the
+// instance record only because the instance is terminal when it runs.
 func appendWorkflowTerminalLifecycleTx(ctx context.Context, tx *sql.Tx, scope *writeScope, completion Event, terminalState string) error {
 	var from string
 	var version int64

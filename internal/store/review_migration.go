@@ -115,13 +115,13 @@ type legacyAcceptedReview struct {
 }
 
 type legacyReviewFindingSource struct {
-	CanonicalID string            `json:"canonical_id"`
-	DomainID    string            `json:"domain_id"`
-	EventID     string            `json:"event_id"`
-	Kind        string            `json:"kind"`
-	Seq         int64             `json:"seq"`
-	Ordinal     int               `json:"ordinal"`
-	Oracle      *AcceptanceOracle `json:"oracle,omitempty"`
+	CanonicalID string          `json:"canonical_id"`
+	DomainID    string          `json:"domain_id"`
+	EventID     string          `json:"event_id"`
+	Kind        string          `json:"kind"`
+	Seq         int64           `json:"seq"`
+	Ordinal     int             `json:"ordinal"`
+	Oracle      json.RawMessage `json:"oracle,omitempty"`
 }
 
 type legacyReviewState struct {
@@ -276,7 +276,7 @@ func retainLegacyReviewSources(ctx context.Context, q migrationRunner, work stri
 	if result.Review == nil || len(result.Review.Findings) == 0 {
 		return nil
 	}
-	oracle, err := legacyReviewSourceOracle(ctx, q, work, result.Job)
+	oracle, owners, err := legacyReviewSourceOracle(ctx, q, work, result.Job)
 	if err != nil {
 		return err
 	}
@@ -290,7 +290,7 @@ func retainLegacyReviewSources(ctx context.Context, q migrationRunner, work stri
 		ordinal := len(result.ContextFindings) + index
 		source := legacyReviewFindingSource{CanonicalID: fmt.Sprintf("finding:%d:%d", seq, ordinal), DomainID: "unresolved", EventID: ref, Kind: "worker.completed", Seq: seq, Ordinal: ordinal, Oracle: oracle}
 		if finding.Oracle != nil && oracle != nil {
-			for _, owner := range oracle.Owners {
+			for _, owner := range owners {
 				if owner.OwnerID == finding.Oracle.OwnerID && owner.DomainID != "" {
 					source.DomainID = owner.DomainID
 				}
@@ -301,23 +301,69 @@ func retainLegacyReviewSources(ctx context.Context, q migrationRunner, work stri
 	return nil
 }
 
-func legacyReviewSourceOracle(ctx context.Context, q queryer, work string, job *legacyReviewJob) (*AcceptanceOracle, error) {
+type legacyReviewOracleOwner struct {
+	OwnerID   string `json:"owner_id"`
+	DomainID  string `json:"domain_id"`
+	Mechanism struct {
+		ProjectID  string `json:"project_id"`
+		Path       string `json:"path"`
+		EntryPoint string `json:"entry_point"`
+	} `json:"mechanism"`
+	Obligation   string   `json:"obligation"`
+	PredicateIDs []string `json:"predicate_ids"`
+	LawBindings  []struct {
+		Source WorkContextReadingSource `json:"source"`
+		Clause string                   `json:"clause"`
+	} `json:"law_bindings"`
+}
+
+type legacyReviewOracleCase struct {
+	CaseID        string   `json:"case_id"`
+	OwnerID       string   `json:"owner_id"`
+	EntryPoint    string   `json:"entry_point"`
+	InputClass    string   `json:"input_class"`
+	ExpectedState string   `json:"expected_state"`
+	ControlIDs    []string `json:"control_ids"`
+	Judge         string   `json:"judge"`
+}
+
+type legacyReviewOracleControl struct {
+	ControlID             string                   `json:"control_id"`
+	OwnerID               string                   `json:"owner_id"`
+	PredicateIDs          []string                 `json:"predicate_ids"`
+	CaseIDs               []string                 `json:"case_ids"`
+	RecipeSource          WorkContextReadingSource `json:"recipe_source"`
+	Argv                  []string                 `json:"argv"`
+	Cwd                   string                   `json:"cwd"`
+	ExpectedResult        string                   `json:"expected_result"`
+	RequiredEvidenceRole  string                   `json:"required_evidence_role"`
+	ReadinessEvidenceRefs []string                 `json:"readiness_evidence_refs"`
+}
+
+func legacyReviewSourceOracle(ctx context.Context, q queryer, work string, job *legacyReviewJob) (json.RawMessage, []legacyReviewOracleOwner, error) {
 	if job == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	var raw string
 	err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(recorded_payload,'$.acceptance_oracle'),'null') FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=? AND digest=?`, work, job.JobID, job.Revision, job.Digest).Scan(&raw)
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var oracle *AcceptanceOracle
+	var oracle *struct {
+		Owners   []legacyReviewOracleOwner   `json:"owners"`
+		Cases    []legacyReviewOracleCase    `json:"cases"`
+		Controls []legacyReviewOracleControl `json:"controls"`
+	}
 	if err := json.Unmarshal([]byte(raw), &oracle); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return oracle, nil
+	if oracle == nil {
+		return nil, nil, nil
+	}
+	return json.RawMessage(raw), oracle.Owners, nil
 }
 
 func acceptLegacyReviewResult(ctx context.Context, q migrationRunner, work, actor string, state *legacyReviewState, result legacyReviewResult, auth legacyReviewAuthorization, ref string) error {

@@ -134,8 +134,7 @@ func TestWorkflowCompletionFoldRequiresRecordedFacts(t *testing.T) {
 		t.Run(fault.name, func(t *testing.T) {
 			const workID = "completion-fold-facts"
 			s, completion := seedCompletionGateCase(t, workID, completionGateCase{
-				requiredEvidence: []string{"verification", "review"}, emptyMandate: true,
-				includeVerdict: true, includePremise: true, verdictKind: "ok", omitClosure: true,
+				emptyMandate: true, includePremise: true, omitClosure: true,
 			})
 			initialVersion := readWorkVersion(t, s, workID)
 			completeReviewedPlanForTerminalTest(t, s, workID, workflowActorForRef(t, s, completion.Actor))

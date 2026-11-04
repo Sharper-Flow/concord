@@ -210,12 +210,12 @@ func workPinReadPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *Work
 	}
 	pin.NextValidIntents = []WorkPinIntent{}
 	if plan != nil {
-		return workPinReadExistingPlanTx(ctx, tx, workID, pin, state, plan)
+		return workPinReadExistingPlanTx(pin, state, plan)
 	}
 	return workPinReadPreludeTx(ctx, tx, workID, pin, state)
 }
 
-func workPinReadExistingPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, state string, plan *WorkflowStepPlan) (string, error) {
+func workPinReadExistingPlanTx(pin *WorkPin, state string, plan *WorkflowStepPlan) (string, error) {
 	pin.WorkflowType = string(plan.Type)
 	frontier := WorkflowStepPlanFrontier(*plan)
 	if len(frontier) > 0 {

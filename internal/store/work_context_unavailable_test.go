@@ -251,7 +251,7 @@ func TestWorkContextUnavailableNativeCustody(t *testing.T) {
 			fixture := seedWorkContextFixture(t, fmt.Sprintf("ctx-native-custody-%d", tc.blockers))
 			defer fixture.store.Close()
 			s := fixture.store
-			seedMandatoryNativeEvidence(t, fixture, tc.blockers)
+			seedWorkerContextFindings(t, fixture, tc.blockers)
 			id := "run:native-custody-" + fmt.Sprint(tc.blockers)
 			event, err := buildNativeRunEvent(id, fixture.workID, fixture.owner, time.Unix(1, 0).UTC(), readWorkVersion(t, s, fixture.workID), "start", id, "routing://fixture", "started", "https://evidence.invalid/runs/fixture", fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(id))), "2026-10-10T00:00:00Z")
 			if err != nil {

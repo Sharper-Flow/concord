@@ -146,10 +146,10 @@ func seedAuthorityWork(t *testing.T, s *Store, workID string) {
 }
 
 // seedAuthorityContract inserts one historical contract row with its
-// predicate, the exact projection the admission reads, recording the
+// legislative subjects, the exact projection the admission reads, recording the
 // Product-truth fact the approval seam writes for the same plan type. This is
 // synthetic fixture evidence about the rule, never a claim of real approval.
-func seedAuthorityContract(t *testing.T, s *Store, workID string, version int64, planType WorkflowStepPlanType, lawModifies []string, existsSubjects []string) {
+func seedAuthorityContract(t *testing.T, s *Store, workID string, version int64, planType WorkflowStepPlanType, lawModifies []string, subjects []string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
@@ -170,6 +170,13 @@ func seedAuthorityContract(t *testing.T, s *Store, workID string, version int64,
 	if err != nil {
 		t.Fatal(err)
 	}
+	if subjects == nil {
+		subjects = []string{}
+	}
+	encodedSubjects, err := json.Marshal(subjects)
+	if err != nil {
+		t.Fatal(err)
+	}
 	plan, err := WorkflowStepPlanTemplate(planType)
 	if err != nil {
 		t.Fatal(err)
@@ -185,19 +192,8 @@ func seedAuthorityContract(t *testing.T, s *Store, workID string, version int64,
 	if planType != WorkflowStepPlanResearch {
 		truthValue = 1
 	}
-	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,changes_product_truth) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		workID, version, "Synthetic fixture premise for the authority resolver.", "internal_sqlite", `[]`, `[]`, "2026-10-11T00:00:00Z", authorityActorRef, `[]`, string(encodedModifies), 0, "prototype_internal", truthValue); err != nil {
-		t.Fatal(err)
-	}
-	outcomeKind, payload := "check", map[string]any{"kind": "check", "check_ref": "check:authority-fixture", "immutable_subject_ref": "commit:authority-fixture", "expected_result": "pass"}
-	if len(existsSubjects) > 0 {
-		outcomeKind, payload = "exists", map[string]any{"kind": "exists", "surface": "fixture:knowledge", "subjects": existsSubjects}
-	}
-	encodedPayload, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,?,?,?,?,?)`, workID, version, "predicate:authority-fixture", 0, outcomeKind, string(encodedPayload)); err != nil {
+	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,changes_product_truth,legislative_subjects) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		workID, version, "Synthetic fixture premise for the authority resolver.", "internal_sqlite", `[]`, `[]`, "2026-10-11T00:00:00Z", authorityActorRef, `[]`, string(encodedModifies), 0, "prototype_internal", truthValue, string(encodedSubjects)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -314,7 +310,7 @@ func TestLawEstablishmentAcceptsExactSubjectAdmissionForNonDecisionKind(t *testi
 	planType := authorityPlanType(t, true)
 	seedAuthorityContract(t, s, authoritySyntheticWork, 1, planType, nil, []string{"SPEC-8751"})
 	if err := establishAuthorityFixture(t, s, home); err != nil {
-		t.Fatalf("an admitted exists subject admits a non-decision law: %v", err)
+		t.Fatalf("an admitted legislative subject admits a non-decision law: %v", err)
 	}
 }
 
@@ -622,7 +618,7 @@ func TestAuthorityCorpusResolvesThroughSyntheticContracts(t *testing.T) {
 	home := KnowledgeHome{HomeProjectID: "authority-project", HomeLocatorID: "authority-locator", RepoPath: repo, HeadRef: "HEAD"}
 	authorizeKnowledgeProductHome(t, s, "authority-product", home, "authority-project")
 	// One synthetic Product-changing contract per declared (work, version)
-	// pair, admitting every record it names through the exact exists subject —
+	// pair, admitting every record it names through the exact legislative subject —
 	// a field every kind admits. law_modifies stays empty: its 32-entry bound
 	// cannot carry a whole work's corpus in one row.
 	planType := authorityPlanType(t, true)

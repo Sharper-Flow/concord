@@ -193,10 +193,8 @@ const workflowObligationMembershipTeaching = "Evidence obligations must name a k
 
 // WorkflowContractTeaching carries the typed descriptions of the relational
 // and live-context constraints the store enforces. Every rule is a
-// constant defined beside the owner that enforces it (the predicate ordinal
-// guard in workflow.go, the alignment combination declaration in
-// workflow_registry.go, and the mandate, Domain, and obligation collectors in
-// this file), so the generated publication and the refusal guidance cannot
+// constant defined beside its enforcing owner, so the generated publication
+// and the refusal guidance cannot
 // drift from admission. The projection in scripts/workflow-action-contracts
 // renders these strings into the published schema; no second policy enforces
 // them.

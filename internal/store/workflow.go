@@ -498,9 +498,9 @@ func workflowEvidenceRef(value string) bool { return len(value) >= 1 && len(valu
 // field of the payload was wrong. The list is a set: workflowActionEvidenceRefs
 // normalizes the merged refs before the event is written, so a duplicate here
 // is a projection fault rather than ordinary caller input.
-func workflowEvidenceRefsFault(values []string, upper int) string {
-	if len(values) > upper {
-		return fmt.Sprintf("the list holds %d references and the bound is 0 to %d", len(values), upper)
+func workflowEvidenceRefsFault(values []string) string {
+	if len(values) > workflowOperationEvidenceRefBound {
+		return fmt.Sprintf("the list holds %d references and the bound is 0 to %d", len(values), workflowOperationEvidenceRefBound)
 	}
 	seen := make(map[string]bool, len(values))
 	for _, value := range values {
@@ -1466,7 +1466,7 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 }
 
 func validateWorkflowCompletionResultFields(p workflowActionCompletedPayload) error {
-	if fault := workflowEvidenceRefsFault(p.ResultEvidenceRefs, workflowOperationEvidenceRefBound); fault != "" {
+	if fault := workflowEvidenceRefsFault(p.ResultEvidenceRefs); fault != "" {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed result_evidence_refs is invalid: "+fault, false, "correct the named evidence locator")
 	}
 	if (p.ActionID != "" && !workflowString(p.ActionID, 128)) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 || p.AttemptEpoch > 2147483647 || !workflowList(p.ChangedRefs, 32, 0) {

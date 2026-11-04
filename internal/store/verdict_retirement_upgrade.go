@@ -7,9 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
@@ -21,6 +21,22 @@ type outcomeRetirementProof struct {
 	snapshot string
 	checksum string
 	digest   string
+	verified bool
+}
+
+func withOutcomeRetirementProof(ctx context.Context, snapshot string, manifest BackupManifest) context.Context {
+	return context.WithValue(ctx, outcomeRetirementProofKey{}, &outcomeRetirementProof{snapshot: snapshot, checksum: manifest.DBChecksum, digest: manifest.currentStateDigest})
+}
+
+func prepareOutcomeRetirementUpgrade(ctx context.Context, before map[int]appliedMigration, options []UpgradeOptions) (context.Context, error) {
+	if _, done := before[185]; !done {
+		for _, option := range options {
+			if option.SnapshotPath != "" {
+				return prepareOutcomeRetirementSnapshot(ctx, option.SnapshotPath)
+			}
+		}
+	}
+	return ctx, nil
 }
 
 func prepareOutcomeRetirementSnapshot(ctx context.Context, path string) (context.Context, error) {
@@ -28,12 +44,12 @@ func prepareOutcomeRetirementSnapshot(ctx context.Context, path string) (context
 	if err != nil {
 		return ctx, err
 	}
-	proof := outcomeRetirementProof{snapshot: path, checksum: manifest.DBChecksum, digest: manifest.currentStateDigest}
-	return context.WithValue(ctx, outcomeRetirementProofKey{}, proof), nil
+	return withOutcomeRetirementProof(ctx, path, manifest), nil
 }
 
-// The comparison uses the same current-state digest as the backup verifier,
-// under the migration transaction, before any pending migration changes rows.
+// A supplied snapshot is compared with the same current-state digest as the
+// backup verifier, under the migration transaction, before any pending
+// migration changes rows. Migration 185 itself decides whether it needs one.
 func verifyOutcomeRetirementSnapshot(ctx context.Context, tx *sql.Tx, scope migrationScope, applied map[int]appliedMigration) error {
 	if scope != migrateForUpgrade || len(applied) == 0 {
 		return nil
@@ -41,9 +57,9 @@ func verifyOutcomeRetirementSnapshot(ctx context.Context, tx *sql.Tx, scope migr
 	if _, done := applied[185]; done {
 		return nil
 	}
-	proof, ok := ctx.Value(outcomeRetirementProofKey{}).(outcomeRetirementProof)
+	proof, ok := ctx.Value(outcomeRetirementProofKey{}).(*outcomeRetirementProof)
 	if !ok {
-		return newFailure(KindUpgradeBlocked, "migrate", "outcome retirement requires a verified snapshot", false, "run concord upgrade with a verified snapshot")
+		return nil
 	}
 	checksum, err := fileSHA256(proof.snapshot)
 	if err != nil || checksum != proof.checksum {
@@ -56,7 +72,28 @@ func verifyOutcomeRetirementSnapshot(ctx context.Context, tx *sql.Tx, scope migr
 	if digest != proof.digest || digest == "" {
 		return newFailure(KindUpgradeBlocked, "migrate", "store changed after the verified snapshot", false, "create a fresh verified snapshot")
 	}
+	proof.verified = true
 	return nil
+}
+
+// Migration 185 requires verified preservation of outcome rows. Empty tables
+// allow fresh creation and lower-level fixtures to apply the schema. The
+// upgrade command independently snapshots existing databases before breaking
+// migrations, regardless of the outcome tables' population.
+func requireOutcomeRetirementSnapshot(ctx context.Context, q migrationRunner) error {
+	var populated bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_contract_predicates)
+ OR EXISTS(SELECT 1 FROM workflow_predicate_verdicts)
+ OR EXISTS(SELECT 1 FROM workflow_review_state)`).Scan(&populated); err != nil {
+		return err
+	}
+	if !populated {
+		return nil
+	}
+	if proof, ok := ctx.Value(outcomeRetirementProofKey{}).(*outcomeRetirementProof); ok && proof.verified {
+		return nil
+	}
+	return newFailure(KindUpgradeBlocked, "migrate", "outcome retirement requires a verified snapshot", false, "run concord upgrade with a verified snapshot")
 }
 
 type historicalOutcomeContract struct {
@@ -70,6 +107,9 @@ var historicalOutcomeCheck = regexp.MustCompile(`^check:[a-z][a-z0-9_.:/-]{1,127
 var historicalOutcomeActor = regexp.MustCompile(`^actor:[0-9a-f]{64}$`)
 
 func retireOutcomeContract(ctx context.Context, q migrationRunner, migrationSQL string) error {
+	if err := requireOutcomeRetirementSnapshot(ctx, q); err != nil {
+		return err
+	}
 	rows, err := q.QueryContext(ctx, `SELECT work_id,contract_version,outcome_kind,outcome_payload FROM workflow_contract_predicates ORDER BY work_id,contract_version,ordinal`)
 	if err != nil {
 		return err
@@ -119,11 +159,7 @@ func retireOutcomeContract(ctx context.Context, q migrationRunner, migrationSQL 
 		return err
 	}
 	for key, set := range sets {
-		subjects := make([]string, 0, len(set))
-		for subject := range set {
-			subjects = append(subjects, subject)
-		}
-		sort.Strings(subjects)
+		subjects := slices.Sorted(maps.Keys(set))
 		encoded, err := json.Marshal(subjects)
 		if err != nil {
 			return err
@@ -143,10 +179,25 @@ func retireOutcomeContract(ctx context.Context, q migrationRunner, migrationSQL 
 	return err
 }
 
+// maxHistoricalPredicateBytes is the bound every pre-185 writer and reader
+// applied to one stored predicate; a larger row was never admitted.
+const maxHistoricalPredicateBytes = 64 * 1024
+
 // Historical decoding is confined to migration 185; it is not an authoring
 // interface or a compatibility path for new contracts.
 func historicalOutcomeSubjects(kind string, payload []byte) ([]string, error) {
-	if len(payload) == 0 {
+	fields, err := historicalOutcomeFields(kind, payload)
+	if err != nil {
+		return nil, err
+	}
+	if kind != "exists" && kind != "absent" {
+		return nil, validateHistoricalNonPresence(kind, fields)
+	}
+	return historicalPresenceSubjects(kind, fields)
+}
+
+func historicalOutcomeFields(kind string, payload []byte) (map[string]json.RawMessage, error) {
+	if len(payload) == 0 || len(payload) > maxHistoricalPredicateBytes {
 		return nil, fmt.Errorf("invalid predicate size")
 	}
 	structure := json.NewDecoder(bytes.NewReader(payload))
@@ -187,9 +238,10 @@ func historicalOutcomeSubjects(kind string, payload []byte) ([]string, error) {
 	if json.Unmarshal(fields["kind"], &encodedKind) != nil || encodedKind != kind {
 		return nil, fmt.Errorf("predicate kind mismatch")
 	}
-	if kind != "exists" && kind != "absent" {
-		return nil, validateHistoricalNonPresence(kind, fields)
-	}
+	return fields, nil
+}
+
+func historicalPresenceSubjects(kind string, fields map[string]json.RawMessage) ([]string, error) {
 	for key := range fields {
 		if key != "kind" && key != "surface" && key != "subjects" && !(kind == "absent" && key == "distinguish_from") {
 			return nil, fmt.Errorf("unexpected predicate field")
@@ -301,24 +353,30 @@ func validateHistoricalNonPresence(kind string, fields map[string]json.RawMessag
 		}
 		seen[token] = true
 	}
+	// A JSON null decision_record decoded to an absent record historically.
+	var decision *struct {
+		Question          string   `json:"question"`
+		OptionsConsidered []string `json:"options_considered"`
+		Decision          string   `json:"decision"`
+		Rationale         string   `json:"rationale"`
+		Consequences      []string `json:"consequences"`
+		Inputs            []string `json:"inputs"`
+		POCFindings       string   `json:"poc_findings"`
+		Supersedes        *string  `json:"supersedes"`
+		SupersededBy      *string  `json:"superseded_by"`
+		Unknowns          []string `json:"unknowns"`
+		RequiredToDecide  []string `json:"required_to_decide"`
+		ReviewerActorRef  string   `json:"reviewer_actor_ref"`
+	}
 	if raw, exists := fields["decision_record"]; exists {
-		var decision struct {
-			Question          string   `json:"question"`
-			OptionsConsidered []string `json:"options_considered"`
-			Decision          string   `json:"decision"`
-			Rationale         string   `json:"rationale"`
-			Consequences      []string `json:"consequences"`
-			Inputs            []string `json:"inputs"`
-			POCFindings       string   `json:"poc_findings"`
-			Supersedes        *string  `json:"supersedes"`
-			SupersededBy      *string  `json:"superseded_by"`
-			Unknowns          []string `json:"unknowns"`
-			RequiredToDecide  []string `json:"required_to_decide"`
-			ReviewerActorRef  string   `json:"reviewer_actor_ref"`
-		}
 		decoder := json.NewDecoder(bytes.NewReader(raw))
 		decoder.DisallowUnknownFields()
-		if decoder.Decode(&decision) != nil || len(decision.Question) < 1 || len(decision.Question) > 4096 ||
+		if decoder.Decode(&decision) != nil {
+			return fmt.Errorf("invalid decision record")
+		}
+	}
+	if decision != nil {
+		if len(decision.Question) < 1 || len(decision.Question) > 4096 ||
 			len(decision.OptionsConsidered) < 1 || len(decision.OptionsConsidered) > 16 ||
 			!slices.Contains([]string{"accepted_decision", "insufficient_evidence"}, decision.Decision) ||
 			len(decision.Rationale) < 1 || len(decision.Rationale) > 4096 ||

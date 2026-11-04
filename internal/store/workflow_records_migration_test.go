@@ -36,7 +36,7 @@ func TestOrdinaryRecordsMigrationPreservesEffectiveDelivery(t *testing.T) {
 	if err != nil || manifest.SchemaVersion != 180 {
 		t.Fatalf("verified snapshot=%+v err=%v", manifest, err)
 	}
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
 		t.Fatal(err)
 	}
 	current, err := workflowDeliveryAssertionRead(t.Context(), db, "work-upgrade-from")
@@ -84,8 +84,8 @@ func TestOrdinaryRecordsMigrationRefusesUnverifiableDelivery(t *testing.T) {
 			db, path := ordinaryRecordsMigrationFixture(t, tc.receipt, tc.artifact)
 			before := retirementUpgradeSnapshot(t, db)
 			_, err := Upgrade(t.Context(), path, nil)
-			if err == nil || !strings.Contains(err.Error(), "verified snapshot") {
-				t.Fatalf("unverifiable delivery upgrade=%v, want verified-snapshot refusal", err)
+			if !hasFailureKind(err, KindInvariantViolation) || !strings.Contains(err.Error(), "ordinary workflow records require verifiable delivery state and correction receipts") {
+				t.Fatalf("unverifiable delivery upgrade=%v, want migration 181 delivery refusal", err)
 			}
 			if after := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(before, after) {
 				t.Fatal("refused migration changed predecessor rows or manifest")
@@ -107,7 +107,7 @@ func TestOrdinaryRecordsMigrationRollsBackDestructiveFold(t *testing.T) {
 		t.Fatal("failed migration changed predecessor rows or manifest")
 	}
 	retirementUpgradeExec(t, db, `DROP TRIGGER ordinary_records_failure`)
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, outcomeSnapshotOption(t, t.Context(), path)); err != nil {
 		t.Fatal(err)
 	}
 	retirementUpgradeHealthy(t, db)
@@ -119,7 +119,7 @@ func TestOrdinaryRecordsMigrationRefusesMismatchedReceipt(t *testing.T) {
 	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1); UPDATE workflow_delivery_state SET correction_payload=json_set(correction_payload,'$.delivery_artifact','artifact:tampered') WHERE work_id='work-upgrade-from'; DELETE FROM write_guard`)
 	before := retirementUpgradeSnapshot(t, db)
 	_, err := Upgrade(t.Context(), path, nil)
-	if err == nil || !strings.Contains(err.Error(), "verified snapshot") {
+	if !hasFailureKind(err, KindInvariantViolation) || !strings.Contains(err.Error(), "ordinary workflow records require verifiable delivery state and correction receipts") {
 		t.Fatalf("mismatched receipt upgrade=%v", err)
 	}
 	if after := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(before, after) {
@@ -133,27 +133,11 @@ func TestOrdinaryRecordsMigrationRefusesPartialOverlay(t *testing.T) {
 	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1); UPDATE workflow_delivery_state SET correction_id=NULL WHERE work_id='work-upgrade-from'; DELETE FROM write_guard`)
 	before := retirementUpgradeSnapshot(t, db)
 	_, err := Upgrade(t.Context(), path, nil)
-	if err == nil || !strings.Contains(err.Error(), "verified snapshot") {
+	if !hasFailureKind(err, KindInvariantViolation) || !strings.Contains(err.Error(), "ordinary workflow records require verifiable delivery state and correction receipts") {
 		t.Fatalf("partial overlay upgrade=%v", err)
 	}
 	if after := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(before, after) {
 		t.Fatal("partial overlay refusal changed predecessor")
-	}
-}
-
-func TestOrdinaryRecordsDiscoverRetainedReviewWithoutExit(t *testing.T) {
-	useStampedBuild(t)
-	db, path, _, _ := lawPinUpgradeFixtureAt(t, 175)
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
-		t.Fatal(err)
-	}
-	work := "upgrade-review-1-true"
-	records, err := workflowCurrentRecords(t.Context(), db, work)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !records["record_review"] {
-		t.Fatalf("retained Review missing from current records: %v", records)
 	}
 }
 
@@ -162,11 +146,19 @@ func TestOrdinaryRecordsMigrationPreservesConsumedReview(t *testing.T) {
 	db, path := ordinaryRecordsMigrationFixture(t, true, "artifact:current")
 	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1); UPDATE workflow_review_state SET state=json_object('accepted',json_object('report_ref','review:one','report',json_object('disposition','correction_required')),'correction_funding',json_object('report_ref','review:one','correction_ref','correction:one')) WHERE work_id='work-upgrade-from'; DELETE FROM write_guard`)
 	before := retirementUpgradeRows(t, db, `SELECT json_extract(state,'$.accepted') FROM workflow_review_state`)
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
-		t.Fatal(err)
-	}
+	// Migration 185 later retires the Review aggregate; the ordinary-records
+	// step itself must still carry the accepted Review through.
+	advanceHistoricalPrefix(t, db, 181)
 	after := retirementUpgradeRows(t, db, `SELECT json_extract(state,'$.accepted') FROM workflow_review_state`)
 	if !reflect.DeepEqual(before, after) {
 		t.Fatalf("accepted Review changed: before=%v after=%v", before, after)
 	}
+	receipts := retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts ORDER BY effect_seq`)
+	if _, err := Upgrade(t.Context(), path, nil, outcomeSnapshotOption(t, t.Context(), path)); err != nil {
+		t.Fatal(err)
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts ORDER BY effect_seq`); !reflect.DeepEqual(got, receipts) {
+		t.Fatal("upgrade changed immutable receipts")
+	}
+	retirementUpgradeHealthy(t, db)
 }

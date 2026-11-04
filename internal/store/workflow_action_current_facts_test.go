@@ -75,18 +75,19 @@ func TestWorkflowActionStartCurrentFactsWithoutLog(t *testing.T) {
 }
 
 func TestWorkflowHeldReviewDoesNotRecordPhaseExit(t *testing.T) {
-	f := seedWorkflowReturnRouteFixtureWithPlan(t, "held-review-phase-exit", WorkflowStepPlanChange, "review", []string{}, []string{})
+	const workID = "held-review-phase-exit"
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", []string{})
 	var before int64
-	if err := f.store.db.QueryRow(`SELECT COALESCE(MAX(exit_seq),0) FROM workflow_phase_exits WHERE work_id=? AND action_id='record_review'`, f.workID).Scan(&before); err != nil {
+	if err := f.store.db.QueryRow(`SELECT COALESCE(MAX(exit_seq),0) FROM workflow_phase_exits WHERE work_id=? AND action_id='record_review'`, workID).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	if err := runVerdictActionAs(t, f.store, f.workID, "record_review", mustJSONValue(map[string]any{"step_id": "review", "note": "review corrected the change", "reviewer": "concord-review", "result": "fixed", "commit": "commit:fixture", "link": "https://example.com/review"}), 0, f.owner); err != nil {
+	if err := runVerdictActionAs(t, f.store, workID, "record_review", mustJSONValue(map[string]any{"step_id": "review", "note": "review corrected the change", "reviewer": "concord-review", "result": "fixed", "commit": "commit:fixture", "link": "https://example.com/review"}), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
 	assertNoExit := func() {
 		t.Helper()
 		var n int64
-		if err := f.store.db.QueryRow(`SELECT COALESCE(MAX(exit_seq),0) FROM workflow_phase_exits WHERE work_id=? AND action_id='record_review'`, f.workID).Scan(&n); err != nil {
+		if err := f.store.db.QueryRow(`SELECT COALESCE(MAX(exit_seq),0) FROM workflow_phase_exits WHERE work_id=? AND action_id='record_review'`, workID).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
 		if n != before {

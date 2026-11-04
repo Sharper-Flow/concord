@@ -207,26 +207,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "ReadWorkflowVerdict", run: func() error {
-			verdict, err := ReadWorkflowVerdict(ctx, s, "neighbor-work")
-			if err != nil {
-				return err
-			}
-			if verdict != nil {
-				return fmt.Errorf("unexpected verdict %+v", verdict)
-			}
-			return nil
-		}},
-		{name: "WorkflowExecutingIdentity", run: func() error {
-			_, _, found, err := WorkflowExecutingIdentity(ctx, s, "neighbor-work")
-			if err != nil {
-				return err
-			}
-			if !found {
-				return fmt.Errorf("no executing identity")
-			}
-			return nil
-		}},
 		{name: "WorkflowActionDefinitionFor", run: func() error {
 			_, err := WorkflowActionDefinitionFor(ctx, s, preflightRequest)
 			return err
@@ -418,7 +398,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 	for _, mode := range []neighbor.Mode{neighbor.Reader, neighbor.Writer} {
 		t.Run(string(mode)+"/WorkflowActionDefinitionForBindEvidenceWithAmbiguousContract", func(t *testing.T) {
 			workID := "neighbor-ambiguous"
-			f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", []string{}, nil)
+			f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", nil)
 			duplicateActiveWorkflowContract(ctx, t, f.store, workID)
 			version := readWorkVersion(t, f.store, workID)
 			if _, err := f.store.db.Exec("PRAGMA busy_timeout=50"); err != nil {
@@ -426,7 +406,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			neighbor.Start(t, f.store.Path(), mode)
 			started := time.Now()
-			_, err := WorkflowActionDefinitionFor(ctx, f.store, WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, ActionID: "bind_evidence", Payload: []byte(`{"evidence_kind":"artifact","immutable_subject_ref":"artifact:neighbor"}`), Actor: f.owner})
+			_, err := WorkflowActionDefinitionFor(ctx, f.store, WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, ActionID: "bind_evidence", Payload: []byte(`{"evidence_kind":"artifact","immutable_subject_ref":"artifact:neighbor","producer_id":"principal:neighbor","producer_run_ref":"run:neighbor","producer_watermark":"request:neighbor"}`), Actor: f.owner})
 			if err == nil || !hasFailureKind(err, KindInvariantViolation) || !strings.Contains(err.Error(), "multiple active contracts") {
 				t.Fatalf("bind_evidence preflight under %s neighbor: %v", mode, err)
 			}

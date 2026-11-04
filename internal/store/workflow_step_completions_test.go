@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -70,11 +71,22 @@ func TestWorkflowCompletionBackfillPreservesUnknownKeys(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_step_completions WHERE step_id IN ('orphan','unknown')`).Scan(&got); err != nil || got != 2 {
 		t.Fatalf("completion frontier rows=%d err=%v, want 2", got, err)
 	}
-	err := Migrate(t.Context(), s.db)
+	before := retirementUpgradeSnapshot(t, s.db)
+	err := Migrate(outcomeSnapshotContext(t, t.Context(), s.db), s.db)
 	assertFailureKind(t, err, KindInvariantViolation)
 	for _, ref := range []string{work, "missing-step-completion", "sequence"} {
 		if !strings.Contains(err.Error(), ref) {
 			t.Fatalf("missing completion-class refusal %v does not identify %q", err, ref)
 		}
+	}
+	if after := retirementUpgradeSnapshot(t, s.db); !reflect.DeepEqual(after, before) {
+		t.Fatal("failed migration changed predecessor")
+	}
+	var version, rows int
+	if err := s.db.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_step_completions WHERE step_id IN ('orphan','unknown')`).Scan(&rows); err != nil || version != 142 || rows != got {
+		t.Fatalf("failed migration changed predecessor: version=%d rows=%d err=%v", version, rows, err)
 	}
 }

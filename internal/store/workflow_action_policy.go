@@ -92,10 +92,6 @@ type WorkflowActionCrossField struct {
 	// discriminator value, Requires names fields the payload must carry and
 	// Forbids names fields it must omit.
 	Combinations []WorkflowPayloadCombination `json:"combinations,omitempty"`
-	// Alternatives declares mutually exclusive field groups of which the
-	// payload must supply exactly one — one complete group with no field of
-	// any other group present.
-	Alternatives []WorkflowPayloadAlternative `json:"alternatives,omitempty"`
 	// KindMatches declares nested discriminator equalities: when a scalar
 	// enum field and an object field are both present, the object's
 	// discriminator must hold the scalar's value — outcome_kind and
@@ -115,19 +111,6 @@ type WorkflowPayloadKindMatch struct {
 	Object        string `json:"object"`
 	Discriminator string `json:"discriminator"`
 	Remedy        string `json:"remedy,omitempty"`
-}
-
-// WorkflowPayloadAlternative declares one mutually exclusive alternative
-// field group: the payload completes exactly one group, a field of any
-// other group stays absent, and Forbids names declared fields that cannot
-// ride beside this group even though no group claims them — an
-// unconditional member of the payload under another group. Remedy optionally
-// states the refusal remedy for a payload that carries a forbidden field
-// beside the group (CON-412).
-type WorkflowPayloadAlternative struct {
-	Fields  []string `json:"fields"`
-	Forbids []string `json:"forbids,omitempty"`
-	Remedy  string   `json:"remedy,omitempty"`
 }
 
 // WorkflowPayloadCombination declares one cross-field legal input combination
@@ -212,20 +195,13 @@ func validEvidence(value EvidenceKind) bool {
 // A combination must discriminate on the payload's one enum field that
 // carries combinations, name only enum-admitted values, cover each value of
 // that enum exactly once (so the generated branches are total and mutually
-// exclusive), and require or forbid only declared fields. Alternatives must
-// name declared fields in pairwise-disjoint groups, and a group's Forbids
-// must name declared fields no group claims. One action cannot declare
-// both: no generated shape expresses the two rule families at once.
+// exclusive), and require or forbid only declared fields.
 func validateCrossFieldDeclaration(fields []WorkflowPayloadField, cross WorkflowActionCrossField) bool {
 	byName := make(map[string]*WorkflowPayloadField, len(fields))
 	for i := range fields {
 		byName[fields[i].Name] = &fields[i]
 	}
-	if len(cross.Combinations) != 0 && len(cross.Alternatives) != 0 {
-		return false
-	}
 	return validateCrossFieldCombinations(byName, cross.Combinations) &&
-		validateCrossFieldAlternatives(byName, cross.Alternatives) &&
 		validateCrossFieldKindMatches(byName, cross.KindMatches)
 }
 
@@ -270,36 +246,6 @@ func validateCrossFieldCombinationFields(byName map[string]*WorkflowPayloadField
 			if _, ok := byName[name]; !ok || name == combination.Field {
 				return false
 			}
-		}
-	}
-	return true
-}
-
-func validateCrossFieldAlternatives(byName map[string]*WorkflowPayloadField, alternatives []WorkflowPayloadAlternative) bool {
-	grouped := map[string]bool{}
-	for _, group := range alternatives {
-		if len(group.Fields) == 0 {
-			return false
-		}
-		seen := map[string]bool{}
-		for _, name := range group.Fields {
-			if _, ok := byName[name]; !ok || seen[name] || grouped[name] {
-				return false
-			}
-			seen[name] = true
-			grouped[name] = true
-		}
-	}
-	for _, group := range alternatives {
-		forbidden := map[string]bool{}
-		for _, name := range group.Forbids {
-			// A forbidden field must be declared and ungrouped: a
-			// group member is already excluded by the exactly-one
-			// rule, so forbidding it here would state no rule.
-			if _, ok := byName[name]; !ok || grouped[name] || forbidden[name] {
-				return false
-			}
-			forbidden[name] = true
 		}
 	}
 	return true
@@ -362,9 +308,6 @@ func sameStrings(a, b []string) bool {
 		}
 	}
 	return true
-}
-func validOutcomeToken(value string) bool {
-	return slices.Contains([]string{"no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"}, value)
 }
 
 // ActionEventShape names which event a completed action appends. The shape is a
@@ -448,9 +391,6 @@ func WorkflowActionCanonicalCrossFieldRules(actionID string, fields []WorkflowPa
 	}
 	cross := WorkflowActionCrossFieldRules(actionID)
 	projected := WorkflowActionCrossField{}
-	if len(cross.Combinations) != 0 && len(cross.Alternatives) != 0 {
-		return WorkflowActionCrossField{}, fmt.Errorf("action %s declares both cross-field rule families", actionID)
-	}
 	for _, combination := range cross.Combinations {
 		if !declared[combination.Field] {
 			continue
@@ -460,22 +400,6 @@ func WorkflowActionCanonicalCrossFieldRules(actionID string, fields []WorkflowPa
 			return WorkflowActionCrossField{}, err
 		}
 		projected.Combinations = append(projected.Combinations, projectedCombination)
-	}
-	for _, group := range cross.Alternatives {
-		switch workflowDeclaredFieldCount(declared, group.Fields) {
-		case 0:
-			continue
-		case len(group.Fields):
-			projectedGroup := WorkflowPayloadAlternative{Fields: group.Fields, Remedy: group.Remedy}
-			for _, name := range group.Forbids {
-				if declared[name] {
-					projectedGroup.Forbids = append(projectedGroup.Forbids, name)
-				}
-			}
-			projected.Alternatives = append(projected.Alternatives, projectedGroup)
-		default:
-			return WorkflowActionCrossField{}, fmt.Errorf("canonical cross-field projection for %s: alternative group %v partially overlaps the declared fields", actionID, group.Fields)
-		}
 	}
 	for _, match := range cross.KindMatches {
 		fieldDeclared, objectDeclared := declared[match.Field], declared[match.Object]
@@ -489,16 +413,6 @@ func WorkflowActionCanonicalCrossFieldRules(actionID string, fields []WorkflowPa
 		}
 	}
 	return projected, nil
-}
-
-func workflowDeclaredFieldCount(declared map[string]bool, names []string) int {
-	count := 0
-	for _, name := range names {
-		if declared[name] {
-			count++
-		}
-	}
-	return count
 }
 
 func workflowCanonicalCombination(actionID string, declared map[string]bool, combination WorkflowPayloadCombination) (WorkflowPayloadCombination, error) {
@@ -567,8 +481,8 @@ func actionEnumField(name string, required bool, values ...string) WorkflowPaylo
 	return WorkflowPayloadField{Name: name, ValueType: PayloadString, Required: required, Enum: values}
 }
 
-func actionObjectField(name string, required bool, schemaRef string) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadObject, Required: required, SchemaRef: schemaRef}
+func actionObjectField(name string, schemaRef string) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: name, ValueType: PayloadObject, Required: false, SchemaRef: schemaRef}
 }
 
 func actionArrayField(name string, required bool, upper int64, schemaRef string) WorkflowPayloadField {
@@ -635,20 +549,25 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionLawListField("law_modifies", false),
 		actionListField("legislative_subjects", false, 0, 800),
 		actionEnumField("rigor_class", false, "prototype_internal", "prototype_trusted", "prototype_public", "prototype_safety_critical", "production_internal", "production_trusted", "production_public", "production_safety_critical", "critical_internal", "critical_trusted", "critical_public", "critical_safety_critical"),
-		actionObjectField("architecture_binding", false, "architecture_binding"),
+		actionObjectField("architecture_binding", "architecture_binding"),
 	),
 	"start_execution":      actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
 	"checkpoint_execution": actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
-	"bind_evidence":        actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped, append(evidenceBindingActionFields()[:5], actionRefField("producer_watermark", true))...),
+	"bind_evidence": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
+		actionRefField("evidence_ref", false),
+		actionEnumField("evidence_kind", false, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"),
+		actionRefField("immutable_subject_ref", false), actionRefField("producer_id", false),
+		actionRefField("producer_run_ref", false), actionRefField("producer_watermark", true),
+	),
 	"link_successor": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
-		actionEnumField("relation", false, "forward_link"), actionObjectField("relation_data", false, "workflow_forward_relation"), actionRefField("successor_work_id", true),
+		actionEnumField("relation", false, "forward_link"), actionObjectField("relation_data", "workflow_forward_relation"), actionRefField("successor_work_id", true),
 	),
 	"confirm_premise": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
 		actionIntegerField("contract_version", false),
 	),
 	"complete": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventCompletion,
 		actionStringField("evidence_commit", false, 128), actionStringField("current_commit", false, 128),
-		actionObjectField("payload", false, "workflow_completion_payload"),
+		actionObjectField("payload", "workflow_completion_payload"),
 		actionEnumField("impact_verdict", true, "breaking", "non-breaking"), actionListField("evidence_refs", false, 1, 32),
 	),
 	"record_reproduction": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric),

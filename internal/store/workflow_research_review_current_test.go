@@ -7,7 +7,7 @@ import (
 
 func TestResearchPlanRecordsReview(t *testing.T) {
 	const workID = "research-review-current"
-	fixture := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, "conclude", []string{}, []string{})
+	fixture := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, "conclude", []string{})
 	version := readWorkVersion(t, fixture.store, workID)
 	payload := json.RawMessage(`{"step_id":"conclude","note":"independent research review","reviewer":"concord-review","result":"pass","commit":"commit:research","link":"https://example.com/review"}`)
 	issue31WorkflowActionWithPayload(t, fixture.store, workID, version, "record_review", "research-review", fixture.owner, payload)

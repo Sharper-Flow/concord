@@ -32,7 +32,7 @@ func (j *candidateJourney) head(t *testing.T) string {
 
 func (j *candidateJourney) action(t *testing.T, action string, payload any, actor WorkflowActor) error {
 	t.Helper()
-	if action == "record_review" || action == "record_verdict" || action == "confirm_premise" || action == "complete" {
+	if action == "record_review" || action == "confirm_premise" || action == "complete" {
 		return j.terminalAction(t, action, mustJSONValue(payload), actor)
 	}
 	return runVerdictActionAs(t, j.s, j.workID, action, mustJSONValue(payload), 0, actor)

@@ -109,7 +109,4 @@ DELETE FROM write_guard;`, actorRef, string(planJSON))
 	if err := json.Unmarshal([]byte(completion), &fields); err != nil {
 		t.Fatal(err)
 	}
-	if value, ok := fields["final_verdict_kind"]; ok {
-		t.Fatalf("completion invented final verdict: %s", value)
-	}
 }

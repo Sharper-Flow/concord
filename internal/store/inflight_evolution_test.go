@@ -158,7 +158,7 @@ func TestInFlightWorkflowSurvivesRemoteLocatorUpgrade(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(ctx, s.db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, ctx, s.db), s.db); err != nil {
 		t.Fatal(err)
 	}
 	if err := ensureInstallationKey(ctx, s.db); err != nil {

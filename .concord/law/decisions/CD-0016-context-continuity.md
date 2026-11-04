@@ -107,7 +107,7 @@ pinned by source, law ID, and content hash. Each reading and finding names a
 registry Domain.
 
 One transaction-scoped reader assembles the current work-context view from
-these records and recorded Review findings. The reader
+these records and retained worker findings. The reader
 adds no table and no migration. The work pin and the continuity snapshot carry
 the view. The view holds at most 32 readings and 32 findings within 64 KiB. A
 view past these bounds refuses the read and leaves the records unchanged. Each
@@ -118,8 +118,6 @@ into another record.
 A declaration refuses without effects if its resulting shared view exceeds the bounds. The
 check runs once in the live action transaction that records the declaration. A
 declaration that restores a bounded view remains admissible.
-Recorded Review outcomes, blockers and bound evidence remain retained even
-when the resulting view exceeds its read bound.
 
 When the shared reader refuses with `limit_exceeded`, the work pin and continuity
 snapshot carry the closed `work_context_unavailable: {"reason":"limit_exceeded"}`

@@ -61,7 +61,7 @@ func approveLawContextContract(t *testing.T, s *Store, workID string, mandate, m
 	actor := WorkflowActor{PrincipalRef: "principal:law-context", ClientRef: "client:law-context", AgentRef: "agent:law-context", SessionRef: "session:law-context", ActorClass: ActorAgent}
 	version := readWorkVersion(t, s, workID)
 	event := workflowEventWithActor("law-context-approval-"+workID, WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "premise": "bind Product law", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:law-context", "immutable_subject_ref": "commit:law-context", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": modifies, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "premise": "bind Product law", "legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": modifies, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})
 	event = pOverlapContractFacts(t, s, event)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
@@ -262,39 +262,6 @@ func TestContinuityReportsAbsentDeletedObligationLaw(t *testing.T) {
 	want := []WorkflowLawContextLaw{{Roles: []string{"mandated", "obligation"}, LawID: "spec:one", Status: "absent", ObligationIDs: []string{"verification"}}}
 	if snapshot.LawContext == nil || !reflect.DeepEqual(snapshot.LawContext.Laws, want) {
 		t.Fatalf("deleted obligation law context = %+v, want %+v", snapshot.LawContext, want)
-	}
-}
-
-// The law context carries the mandated spec's criteria bound to the reading
-// work item's own predicates (CD-0180), resolved out of the committed law
-// file's authored bindings. Bindings naming another work item, and scenario
-// or exemption bindings, stay off the packet's law context.
-func TestContinuityLawContextCarriesThisWorkPredicateCriteria(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	workID := "work-0a1b2c3d"
-	otherWork := "work-9f8e7d6c"
-	seedLawContextFixture(t, s, workID, func() {
-		home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
-		commitFixtureLawFile(t, home, "spec:one", fixtureLawFolderLawWithCriteria("spec:one",
-			`[{"criterion":2,"work_id":"`+workID+`","predicate_id":"predicate:alpha"},`+
-				`{"criterion":1,"work_id":"`+workID+`","predicate_id":"predicate:beta"},`+
-				`{"criterion":3,"work_id":"`+otherWork+`","predicate_id":"predicate:gamma"},`+
-				`{"criterion":4,"scenario":"scenario-one"}]`))
-	})
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
-	approveLawContextContract(t, s, workID, []string{"spec:one"}, []string{}, binding)
-	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if snapshot.LawContext == nil || len(snapshot.LawContext.Laws) != 1 {
-		t.Fatalf("law context laws = %+v, want one mandated spec", snapshot.LawContext)
-	}
-	want := []WorkflowLawContextCriterionBinding{{Criterion: 1, PredicateID: "predicate:beta"}, {Criterion: 2, PredicateID: "predicate:alpha"}}
-	if got := snapshot.LawContext.Laws[0].Criteria; !reflect.DeepEqual(got, want) {
-		t.Fatalf("law context criteria = %+v, want %+v", got, want)
 	}
 }
 

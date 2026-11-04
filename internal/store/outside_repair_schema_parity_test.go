@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -322,41 +321,26 @@ func TestOutsideRepairUnicodeParity(t *testing.T) {
 	}
 }
 
-// Predicate kind equality holds at initial approval and at the optional
-// revise_intent.contract boundary, in the host publication and the store.
-func TestOutsideRepairOutcomeKindParity(t *testing.T) {
+// Contract revisions have the same shape at the host and core boundaries.
+func TestOutsideRepairContractUpdateParity(t *testing.T) {
 	t.Parallel()
-	const itemsRef = "workflow_action_outcome_predicates"
-	if !payloadschema.HasIn(payloadschema.Document(), itemsRef) {
-		t.Fatalf("the core schema registry carries no %s def; the item probe cannot run", itemsRef)
-	}
-	checkPayload := func() map[string]any {
-		return map[string]any{"kind": "check", "check_ref": "check:outside-repair", "immutable_subject_ref": "commit:outside-repair", "expected_result": "pass"}
-	}
-	predicate := func(kind string) map[string]any {
-		return map[string]any{"predicate_id": "predicate:outside-repair", "ordinal": 0, "outcome_kind": kind, "outcome_payload": checkPayload()}
-	}
-	items := func(kind string) []any { return []any{predicate(kind)} }
 	f := seedWorkContextFixture(t, "outside-repair-update")
 	defer f.store.Close()
-	updateInput := func(kind string) map[string]any {
-		contract := pContractSuccessor(t, f.store, f.workID, "The current predicate uses the matching outcome kind.")
-		contract["outcome_predicates"] = items(kind)
-		return map[string]any{"work_id": f.workID, "expected_version": readWorkVersion(t, f.store, f.workID), "title": "Updated plan", "value_statement": "Keep matching predicate kinds", "kind": "task", "reason": "Revise the plan", "idempotency_key": "outside-repair-update", "contract": contract}
+	updateInput := func() map[string]any {
+		contract := pContractSuccessor(t, f.store, f.workID, "The revised plan retains legislative subjects.")
+		contract["legislative_subjects"] = []string{"spec:one"}
+		return map[string]any{"work_id": f.workID, "expected_version": readWorkVersion(t, f.store, f.workID), "title": "Updated plan", "value_statement": "Retain legislative subjects", "kind": "task", "reason": "Revise the plan", "idempotency_key": "outside-repair-update", "contract": contract}
 	}
-	mismatch, control := updateInput("exists"), updateInput("check")
-	unknown := updateInput("check")
+	control := updateInput()
+	unknown := updateInput()
 	unknown["contract"].(map[string]any)["unknown_field"] = true
-	withoutContract := updateInput("check")
+	withoutContract := updateInput()
 	delete(withoutContract, "contract")
-	probes := []map[string]any{
-		{"id": "approve-item-mismatch", "mode": "field", "action": "approve_contract", "field": "outcome_predicates", "value": items("exists")},
-		{"id": "approve-item-control", "mode": "field", "action": "approve_contract", "field": "outcome_predicates", "value": items("check")},
-	}
+	var probes []map[string]any
 	for _, probe := range []struct {
 		id    string
 		input map[string]any
-	}{{"update-mismatch", mismatch}, {"update-control", control}, {"update-unknown", unknown}, {"update-omitted", withoutContract}} {
+	}{{"update-control", control}, {"update-unknown", unknown}, {"update-omitted", withoutContract}} {
 		probes = append(probes, map[string]any{"id": probe.id, "mode": "request", "tool": "concord_work_define", "value": map[string]any{"operation": "revise_intent", "input": probe.input}})
 	}
 	published := outsideRepairPublishedVerdicts(t, probes)
@@ -367,24 +351,11 @@ func TestOutsideRepairOutcomeKindParity(t *testing.T) {
 		}
 		return verdict
 	}
-	// The mismatched approve outcome item: outcome_kind "exists" beside a
-	// check outcome_payload.
-	if err := payloadschema.Validate(itemsRef, outsideRepairRaw(t, items("exists"))); err == nil {
-		t.Error("core validation admits an approve outcome_predicates item whose outcome_kind and outcome_payload.kind disagree")
-	} else if itemControl := payloadschema.Validate(itemsRef, outsideRepairRaw(t, items("check"))); itemControl != nil {
-		t.Fatalf("core validation refuses the matching-kind control item: %v", itemControl)
-	}
-	if verdict := require("approve-item-mismatch"); verdict.Admit {
-		t.Errorf("the published approve_contract outcome_predicates admit a mismatched item; failures: %v", verdict.Failures)
-	}
-	if verdict := require("approve-item-control"); !verdict.Admit {
-		t.Errorf("the published approve_contract outcome_predicates refuse the matching-kind control item: %v", verdict.Failures)
-	}
 	for _, probe := range []struct {
 		id    string
 		input map[string]any
 		admit bool
-	}{{"update-mismatch", mismatch, false}, {"update-control", control, true}, {"update-unknown", unknown, false}, {"update-omitted", withoutContract, true}} {
+	}{{"update-control", control, true}, {"update-unknown", unknown, false}, {"update-omitted", withoutContract, true}} {
 		if err := payloadschema.Validate("work_define_revise_input", outsideRepairRaw(t, probe.input)); (err == nil) != probe.admit {
 			t.Errorf("core update schema %s: %v; want admit=%v", probe.id, err, probe.admit)
 		}
@@ -392,193 +363,14 @@ func TestOutsideRepairOutcomeKindParity(t *testing.T) {
 			t.Errorf("published update schema %s: admit=%v, failures=%v; want %v", probe.id, verdict.Admit, verdict.Failures, probe.admit)
 		}
 	}
-	for _, input := range []map[string]any{mismatch, unknown} {
-		before := contractRecordEffectSnapshot(t, f.store, f.workID)
-		if err := reviseContractRecord(t, f.store, f.workID, f.owner, input["contract"].(map[string]any), readWorkVersion(t, f.store, f.workID)); !hasFailureKind(err, KindInvalidPayload) {
-			t.Fatalf("invalid update returned %v, want invalid_payload", err)
-		}
-		if after := contractRecordEffectSnapshot(t, f.store, f.workID); after != before {
-			t.Fatal("refused update changed durable state")
-		}
+	before := contractRecordEffectSnapshot(t, f.store, f.workID)
+	if err := reviseContractRecord(t, f.store, f.workID, f.owner, unknown["contract"].(map[string]any), readWorkVersion(t, f.store, f.workID)); !hasFailureKind(err, KindInvalidPayload) {
+		t.Fatalf("invalid update returned %v, want invalid_payload", err)
+	}
+	if after := contractRecordEffectSnapshot(t, f.store, f.workID); after != before {
+		t.Fatal("refused update changed durable state")
 	}
 	if err := reviseContractRecord(t, f.store, f.workID, f.owner, control["contract"].(map[string]any), readWorkVersion(t, f.store, f.workID)); err != nil {
-		t.Fatalf("matching-kind control update refused: %v", err)
+		t.Fatalf("control update refused: %v", err)
 	}
-}
-
-// TestOutsideRepairRecordVerdictGroupSubsets supplements the original
-// record_verdict behavioral comparison with the canonical batch contract:
-// the verdicts batch is the one declared shape, and the entry group
-// {predicate_id, verdict_kind, evaluation_evidence} lives inside each batch
-// entry. The complete batch admits on both admission boundaries, and every
-// proper subset of the entry group is judged on both boundaries in every
-// position it can appear: inside the entry the required predicate and kind
-// splits the subsets into legal minimal entries and refusals, and riding at
-// the top level — beside the batch or alone — every member refuses, because
-// the single form the engine declaration still names for replay carries no
-// canonical admission anywhere. At the base commit every refusal assertion
-// fails: the base core declared no cross-field rule and the base publication
-// was the union merge of the wire shapes, so both
-// admitted each complete-plus-partial payload.
-func TestOutsideRepairRecordVerdictGroupSubsets(t *testing.T) {
-	t.Parallel()
-	payload := outsideRepairActionPayload(t, "record_verdict")
-	declared := map[string]bool{}
-	for _, field := range payload.Fields {
-		declared[field.Name] = true
-	}
-	if !declared["verdicts"] {
-		t.Fatalf("the record_verdict payload declaration carries no verdicts member; the batch probes cannot run")
-	}
-	if !payloadschema.HasIn(payloadschema.Document(), "workflow_verdict_batch_entry") {
-		t.Fatalf("the core schema registry carries no workflow_verdict_batch_entry def; the entry probes cannot run")
-	}
-	entryValue := func(member string) any {
-		switch member {
-		case "predicate_id":
-			return "predicate:outside-repair-subset"
-		case "receipt_refs":
-			return []any{"worktree_verify:outside-repair-subset"}
-		}
-		t.Fatalf("unknown entry member %s", member)
-		return nil
-	}
-	entryGroup := []string{"predicate_id", "receipt_refs"}
-	completeBatch := func() map[string]any {
-		verdict := map[string]any{}
-		for _, member := range entryGroup {
-			verdict[member] = entryValue(member)
-		}
-		return map[string]any{"contract_version": 1, "verdicts": []any{verdict}}
-	}
-	entryCarrying := func(subset []string) map[string]any {
-		verdict := map[string]any{}
-		for _, member := range subset {
-			verdict[member] = entryValue(member)
-		}
-		return map[string]any{"contract_version": 1, "verdicts": []any{verdict}}
-	}
-	core := func(fields map[string]any) error {
-		_, err := validateWorkflowPlanActionPayload("record_verdict", outsideRepairRaw(t, fields))
-		return err
-	}
-	// Every proper subset of the entry group with at least one member.
-	var properSubsets [][]string
-	for size := 1; size < len(entryGroup); size++ {
-		properSubsets = append(properSubsets, outsideRepairSubsets(entryGroup, size)...)
-	}
-	probes := []map[string]any{
-		{"id": "batch-complete-control", "mode": "fields", "action": "record_verdict", "fields": completeBatch()},
-	}
-	for _, subset := range properSubsets {
-		label := strings.Join(subset, "+")
-		probes = append(probes,
-			map[string]any{"id": "entry-carrying-" + label, "mode": "fields", "action": "record_verdict", "fields": entryCarrying(subset)},
-			map[string]any{"id": "batch-plus-" + label, "mode": "fields", "action": "record_verdict", "fields": batchPlusTopLevel(subset, completeBatch, entryValue)},
-			map[string]any{"id": "top-level-" + label, "mode": "fields", "action": "record_verdict", "fields": topLevelOnly(subset)},
-		)
-	}
-	published := outsideRepairPublishedVerdicts(t, probes)
-	require := func(id string) outsideRepairPublication {
-		verdict, ok := published[id]
-		if !ok {
-			t.Fatalf("the host publication probe returned no verdict for %s", id)
-		}
-		return verdict
-	}
-	if err := core(completeBatch()); err != nil {
-		t.Fatalf("core payload validation refuses the complete batch: %v", err)
-	}
-	if verdict := require("batch-complete-control"); !verdict.Admit {
-		t.Errorf("the published record_verdict fields refuse the complete batch: %v", verdict.Failures)
-	}
-	for _, subset := range properSubsets {
-		label := strings.Join(subset, "+")
-		// The entry's own schema carries the discipline inside the batch:
-		// predicate_id and receipt_refs are required, so a subset that
-		// includes both is a legal minimal entry both boundaries admit,
-		// and a subset that omits either is a partial entry both refuse.
-		entryErr := core(entryCarrying(subset))
-		entryVerdict := require("entry-carrying-" + label)
-		if slices.Contains(subset, "predicate_id") && slices.Contains(subset, "receipt_refs") {
-			if entryErr != nil {
-				t.Errorf("core payload validation refuses the legal minimal entry {%s}: %v", label, entryErr)
-			}
-			if !entryVerdict.Admit {
-				t.Errorf("the published record_verdict fields refuse the legal minimal entry {%s}; failures: %v", label, entryVerdict.Failures)
-			}
-		} else {
-			if entryErr == nil {
-				t.Errorf("core payload validation admits a batch entry carrying the partial entry group {%s}", label)
-			}
-			if entryVerdict.Admit {
-				t.Errorf("the published record_verdict fields admit a batch entry carrying the partial entry group {%s}; failures: %v", label, entryVerdict.Failures)
-			}
-		}
-		// The remnant rides beside the batch: the closed canonical field
-		// list refuses every entry-level field at the top level.
-		if err := core(batchPlusTopLevel(subset, completeBatch, entryValue)); err == nil {
-			t.Errorf("core payload validation admits the complete batch beside the partial entry group {%s}", label)
-		}
-		if verdict := require("batch-plus-" + label); verdict.Admit {
-			t.Errorf("the published record_verdict fields admit the complete batch beside the partial entry group {%s}; failures: %v", label, verdict.Failures)
-		}
-		// The remnant alone: the single form left the canonical declared
-		// set, so both boundaries refuse it together.
-		if err := core(topLevelOnly(subset)); err == nil {
-			t.Errorf("core payload validation admits the partial entry group {%s} alone", label)
-		}
-		if verdict := require("top-level-" + label); verdict.Admit {
-			t.Errorf("the published record_verdict fields admit the partial entry group {%s} alone; failures: %v", label, verdict.Failures)
-		}
-	}
-}
-
-// batchPlusTopLevel clones the complete batch and adds the given entry-group
-// members at the top level, where the canonical declaration declares none of
-// them.
-func batchPlusTopLevel(subset []string, completeBatch func() map[string]any, entryValue func(string) any) map[string]any {
-	fields := completeBatch()
-	for _, member := range subset {
-		fields[member] = entryValue(member)
-	}
-	return fields
-}
-
-// topLevelOnly carries the given entry-group members alone at the top level,
-// the single-form position the canonical declaration retired.
-func topLevelOnly(subset []string) map[string]any {
-	fields := map[string]any{"contract_version": 1}
-	for _, member := range subset {
-		switch member {
-		case "predicate_id":
-			fields[member] = "predicate:outside-repair-subset"
-		case "verdict_kind":
-			fields[member] = "ok"
-		case "receipt_refs":
-			fields[member] = []any{"worktree_verify:outside-repair-subset"}
-		}
-	}
-	return fields
-}
-
-// outsideRepairSubsets returns every subset of the given size of the names,
-// in a deterministic order.
-func outsideRepairSubsets(names []string, size int) [][]string {
-	if size <= 0 || size > len(names) {
-		return nil
-	}
-	var result [][]string
-	var walk func(start int, chosen []string)
-	walk = func(start int, chosen []string) {
-		if len(chosen) == size {
-			result = append(result, append([]string{}, chosen...))
-			return
-		}
-		for index := start; index <= len(names)-(size-len(chosen)); index++ {
-			walk(index+1, append(chosen, names[index]))
-		}
-	}
-	walk(0, nil)
-	return result
 }

@@ -8,42 +8,6 @@ import (
 	"testing"
 )
 
-func TestWorkflowContractUpdateAcceptsPredicateArray(t *testing.T) {
-	t.Parallel()
-	const workID = "contract-update-predicate-array"
-	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", []string{}, nil)
-	contract := pContractSuccessor(t, f.store, workID, "Continue with the corrected contract.")
-	if err := reviseContractRecord(t, f.store, workID, f.owner, contract, readWorkVersion(t, f.store, workID)); err != nil {
-		t.Fatalf("predicate-array contract update refused: %v", err)
-	}
-	contract = pContractSuccessor(t, f.store, workID, "Reject an ambiguous outcome shape.")
-	contract["outcome_kind"] = "check"
-	contract["outcome_payload"] = map[string]any{"kind": "check"}
-	version := readWorkVersion(t, f.store, workID)
-	if err := reviseContractRecord(t, f.store, workID, f.owner, contract, version); !hasFailureKind(err, KindInvalidPayload) {
-		t.Fatalf("contract update with both outcome shapes = %v, want invalid_payload", err)
-	}
-	if got := readWorkVersion(t, f.store, workID); got != version {
-		t.Fatalf("refused contract update changed work version from %d to %d", version, got)
-	}
-}
-
-func TestWorkflowPredicateHistoryCompatibilityRequiresUnchangedPayload(t *testing.T) {
-	t.Parallel()
-	history := workflowContractPredicateHistoryData{
-		1: {"predicate:first": {PredicateID: "predicate:first", OutcomeKind: "check", OutcomePayload: `{"kind":"check","expected_result":"pass"}`}},
-		2: {"predicate:first": {PredicateID: "predicate:first", OutcomeKind: "check", OutcomePayload: `{"expected_result":"pass","kind":"check"}`}},
-	}
-	verdict := workflowVerdictRecordedPayload{PredicateID: "predicate:first"}
-	if !workflowPredicateHistoryCompatible(history, 1, 2, verdict.PredicateID, verdict) {
-		t.Fatal("canonical-equivalent predicate payload was refused")
-	}
-	history[2]["predicate:first"] = WorkflowReadPredicate{PredicateID: "predicate:first", OutcomeKind: "check", OutcomePayload: `{"kind":"check","expected_result":"fail"}`}
-	if workflowPredicateHistoryCompatible(history, 1, 2, verdict.PredicateID, verdict) {
-		t.Fatal("changed predicate payload remained compatible")
-	}
-}
-
 func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -54,8 +18,10 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			workID := "law-recontract-route-" + tc.name
-			s, completion := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, includeVerdict: true, includePremise: true, omitClosure: true})
-			actor := workflowActorForRef(t, s, completion.Actor)
+			s, actor := seedLawRevisionContract(t, workID, "review")
+			if err := runVerdictActionAs(t, s, workID, "confirm_premise", json.RawMessage(`{}`), 0, actor); err != nil {
+				t.Fatalf("confirm predecessor premise: %v", err)
+			}
 			cutoverLawProjection(t, s)
 			step := workflowPlanFixtureFrontier(t, s, workID)
 			binding, err := readWorkflowArchitectureBinding(t.Context(), s.db, workID, 1)
@@ -64,8 +30,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 			}
 			successor := map[string]any{
 				"contract_version": 2, "premise": "continue under successor law",
-				"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:successor-law", "immutable_subject_ref": "commit:successor-law", "expected_result": "pass"}}},
-				"required_evidence":  []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": tc.mandate, "law_modifies": []string{}, "rigor_class": "prototype_internal",
+				"legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": tc.mandate, "law_modifies": []string{}, "rigor_class": "prototype_internal",
 				"decision_domains": []string{}, "architecture_binding": binding,
 			}
 			version := readWorkVersion(t, s, workID)
@@ -121,7 +86,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 func TestWorkflowLawRevisionDeletedLawRecoveryAtExecution(t *testing.T) {
 	t.Parallel()
 	const workID = "law-deletion-execution-recovery"
-	s := seedLawRevisionPendingReview(t, workID)
+	s, _ := seedLawRevisionContract(t, workID, "implement")
 	var approvedBy string
 	if err := s.db.QueryRow(`SELECT approved_by FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&approvedBy); err != nil {
 		t.Fatal(err)
@@ -149,7 +114,7 @@ func TestWorkflowLawRevisionDeletedLawRecoveryAtExecution(t *testing.T) {
 func TestWorkflowLawRevisionAllowsTerminalLifecycleMutationAfterCutover(t *testing.T) {
 	t.Parallel()
 	workID := "law-terminal-route"
-	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
+	s, _ := seedLawRevisionContract(t, workID, "review")
 	cutoverLawProjection(t, s)
 	version := readWorkVersion(t, s, workID)
 	var currentLifecycle string
@@ -165,27 +130,15 @@ func TestWorkflowLawRevisionAllowsTerminalLifecycleMutationAfterCutover(t *testi
 	}
 }
 
-func seedLawRevisionPendingReview(t *testing.T, workID string) *Store {
+func seedLawRevisionContract(t *testing.T, workID, frontier string) (*Store, WorkflowActor) {
 	t.Helper()
-	j := pReturnReviewFixture(t, workID, WorkflowStepPlanChange, "")
-	f := j.fixture
-	if _, err := f.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND superseded_by IS NULL; DELETE FROM write_guard`, workID); err != nil {
-		t.Fatal(err)
-	}
-	if err := runVerdictActionAs(t, f.store, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": "spec:one"}), 0, f.owner); err != nil {
-		t.Fatal(err)
-	}
-	acceptCurrentReviewForTest(t, f, "continue")
-	return f.store
-}
-
-func lawRevisionAcceptancePayload(t *testing.T, s *Store, workID string) map[string]any {
-	t.Helper()
-	state, err := readWorkflowReviewFacts(t.Context(), s.db, workID)
-	if err != nil || state.Accepted == nil {
-		t.Fatalf("accepted=%+v err=%v", state.Accepted, err)
-	}
-	return map[string]any{"review": state.Accepted.Report}
+	s := openTemp(t)
+	seedLawContextFixture(t, s, workID)
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	approveLawContextContract(t, s, workID, []string{"spec:one"}, []string{}, binding)
+	moveWorkflowPlanFixtureFrontier(t, s, workID, frontier)
+	actor := WorkflowActor{PrincipalRef: "principal:law-context", ClientRef: "client:law-context", AgentRef: "agent:law-context", SessionRef: "session:law-context", ActorClass: ActorAgent}
+	return s, actor
 }
 
 func cutoverLawProjection(t *testing.T, s *Store) {
@@ -198,7 +151,7 @@ func cutoverLawProjection(t *testing.T, s *Store) {
 func TestWorkflowLawRevisionRefusesProofReadBeforeCutover(t *testing.T) {
 	t.Parallel()
 	const workID = "law-proof-before-cutover"
-	s := seedLawRevisionPendingReview(t, workID)
+	s, _ := seedLawRevisionContract(t, workID, "implement")
 	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
 	if err != nil {
 		t.Fatal(err)

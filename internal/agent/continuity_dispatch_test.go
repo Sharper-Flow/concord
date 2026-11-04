@@ -18,9 +18,8 @@ import (
 func TestContinuityDispatchReadsAPinnedContract(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, execKey, _, _ := workflowEngineFixture(t, "")
+	s, service, _ := workflowEngineFixture(t, "")
 
-	_ = execKey
 	grant, err := service.Authorize(ctx, Invocation{ClientRef: "client-session-exec-aaaa", PrincipalRef: "human-1", SessionRef: "session-exec-aaaa", AgentRef: "agent-exec", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"})
 	if err != nil {
 		t.Fatal(err)

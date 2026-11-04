@@ -262,7 +262,7 @@ func seedWorkContextFixtureWithPlan(t *testing.T, workID string, planType Workfl
 	version++
 	contract := map[string]any{
 		"contract_version": 1, "premise": "deliver the checked change", "decision_domains": []string{},
-		"required_evidence": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
+		"legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 		"architecture_binding": WorkflowArchitectureBinding{
 			HomeDomainID: workContextTestRoot, AffectedDomainIDs: []string{workContextTestRoot, workContextTestChild},

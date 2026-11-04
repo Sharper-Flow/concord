@@ -56,7 +56,11 @@ func nativeTaskUpgradeFixture(t *testing.T) (*sql.DB, string, []histEventRow) {
 		t.Fatal(err)
 	}
 	retirementUpgradeExec(t, db, `INSERT INTO work_context_findings VALUES('work-upgrade-from',32,0,'ranked',?)`, workflowJSON(report.Findings[0]))
-	oracle := AcceptanceOracle{Owners: []OracleOwner{{OwnerID: "owner:upgrade", DomainID: "domain:upgrade"}}, Cases: []OracleCase{{CaseID: "case:upgrade", OwnerID: "owner:upgrade", EntryPoint: "entry:upgrade", Judge: OracleJudgeReview}}, Controls: []OracleControl{}}
+	oracle := map[string]any{
+		"owners":   []any{map[string]any{"owner_id": "owner:upgrade", "domain_id": "domain:upgrade", "mechanism": map[string]any{"project_id": "", "path": "", "entry_point": ""}, "obligation": "", "predicate_ids": nil}},
+		"cases":    []any{map[string]any{"case_id": "case:upgrade", "owner_id": "owner:upgrade", "entry_point": "entry:upgrade", "input_class": "", "expected_state": "", "judge": "review"}},
+		"controls": []any{},
+	}
 	retirementUpgradeExec(t, db, `INSERT INTO worker_job_revisions(work_id,job_id,revision,contract_version,objective,stopping_condition,project_scope,path_scope,predicate_ids,checks,prerequisites,unresolved_refs,digest,state,recorded_at,recorded_payload) VALUES('work-upgrade-from','job:upgrade',1,1,'Preserve the candidate','Candidate retained','project-upgrade','[]','[]','[]','[]','[]',?,'recorded',?,?)`, digest, retirementUpgradeTime, workflowJSON(map[string]any{"acceptance_oracle": oracle}))
 	retirementUpgradeExec(t, db, `INSERT INTO worker_oracle_finding_facts VALUES('work-upgrade-from',1,?,'[]')`, workflowJSON([]any{map[string]any{"FindingID": "finding:32:0", "DomainID": "domain:upgrade", "SourceEventSeq": 32, "SourceOrdinal": 0, "source_job": map[string]any{"job_id": "job:upgrade", "revision": 1, "digest": digest}}}))
 	retirementUpgradeExec(t, db, `INSERT INTO workflow_worker_actors VALUES(?,25)`, actor)
@@ -283,7 +287,7 @@ func TestNativeTaskPopulatedUpgradeRollsBackDestructiveDDL(t *testing.T) {
 		t.Fatalf("failed upgrade damaged verified predecessor snapshot: %+v err=%v", verified, err)
 	}
 	retirementUpgradeExec(t, db, `DROP VIEW native_cutover_failure`)
-	if _, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, outcomeSnapshotOption(t, t.Context(), path)); err != nil {
 		t.Fatalf("retry after removing injected failure: %v", err)
 	}
 	assertHistoricalReceipts(t, db, historical)

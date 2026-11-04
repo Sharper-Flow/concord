@@ -21,7 +21,7 @@ import (
 // Closed bounds of the work-context surface. The action declares the full
 // current reading list (at most 32), selects at most 32 exact earlier
 // finding references, and contributes at most 16 new findings; the current
-// view holds at most 32 finding slots across its generic and ranked entries,
+// view holds at most 32 finding slots,
 // and its complete serialization stays inside 64 KiB. An
 // over-bound action or view refuses explicitly; content is never truncated
 // to fit.
@@ -58,11 +58,6 @@ const (
 	// WorkContextFindingStatusReported is the finding status generic
 	// findings carry: a finding is a reported claim, never acceptance.
 	WorkContextFindingStatusReported = "reported"
-	// WorkContextFindingStatusOpen is the status of a ranked review
-	// finding the lineage currently holds open: an open blocker
-	// is still a reported claim, and the status names its openness, never
-	// acceptance.
-	WorkContextFindingStatusOpen = "open"
 )
 
 // WorkContextReadingSource is the closed source union of one reading. The
@@ -201,13 +196,8 @@ type workflowWorkContextRecordedPayload struct {
 
 var workContextFindingRefPattern = regexp.MustCompile(`^finding:([0-9]+):([0-9]+)$`)
 
-// workContextOverflowRecovery is the one truthful recovery text for every
-// shared work-context bound: the declaration's optional context can reduce
-// through a later declaration, and a view whose mandatory context alone
-// exceeds the bound names the ordinary contract update or stop route
-// instead of promising that reduction always repairs.
 func workContextOverflowRecovery() string {
-	return "reduce the declaration's optional context (readings or findings) through a later declaration; if mandatory context alone exceeds the bound, use revise_intent with complete contract content only when the agreed scope permits reducing mandatory context, or stop the work"
+	return "reduce readings or selected findings through a later declaration that restores a bounded work-context view"
 }
 
 // workContextFailure bounds the refusal messages of this surface.

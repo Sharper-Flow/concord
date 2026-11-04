@@ -164,7 +164,7 @@ func seedProjectHandoffContract(t *testing.T, s *Store, workID string) {
 	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanResearch, currentWorkflowPlanFixture(t, WorkflowStepPlanResearch).Steps[0].ID)
 	workVersion := readWorkVersion(t, s, workID)
 	setup := []Event{
-		workflowEventWithActor("ph-contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion, "resulting_version": workVersion + 1, "contract_version": 1, "premise": "cross-project handoff fixture", "decision_domains": []string{}, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}, "outcome_predicates": []map[string]any{{"predicate_id": "predicate:handoff-fixture-exit", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}}, "required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
+		workflowEventWithActor("ph-contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion, "resulting_version": workVersion + 1, "contract_version": 1, "premise": "cross-project handoff fixture", "decision_domains": []string{}, "legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
 		workflowActionCompletedFixture("ph-approval-"+workID, workID, ownerRef, workVersion+1, "frame", "approve_contract"),
 	}
 	setup[0] = pOverlapContractFacts(t, s, setup[0])

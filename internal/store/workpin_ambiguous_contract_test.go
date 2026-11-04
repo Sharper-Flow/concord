@@ -9,7 +9,8 @@ import (
 
 func TestWorkPinRemainsReadableWithoutAuthorizingAmbiguousContracts(t *testing.T) {
 	ctx := context.Background()
-	f := newAcceptanceRecoveryFixture(ctx, t)
+	route := seedWorkflowReturnRouteFixture(t, "ambiguous-pin", WorkflowStepPlanChange, "review")
+	f := acceptanceRecoveryFixture{store: route.store, workID: "ambiguous-pin", owner: route.owner, operator: route.operator}
 	contract := pContractSuccessor(t, f.store, f.workID, "Revise the recorded plan")
 	before, err := ReadWorkPin(ctx, f.store, f.workID)
 	if err != nil {
@@ -22,12 +23,6 @@ func TestWorkPinRemainsReadableWithoutAuthorizingAmbiguousContracts(t *testing.T
 	}
 	if pin.Step != before.Step {
 		t.Fatalf("step = %q, want %q", pin.Step, before.Step)
-	}
-	if len(pin.VerifiedCriteria) != 0 {
-		t.Fatalf("ambiguous pin carries verified criteria = %v", pin.VerifiedCriteria)
-	}
-	if pin.Obligations != nil || pin.OutstandingEvidenceKinds != nil {
-		t.Fatalf("ambiguous pin selected contract facts: %+v", pin)
 	}
 	effects := contractRecordEffectSnapshot(t, f.store, f.workID)
 	version := readWorkVersion(t, f.store, f.workID)
@@ -55,7 +50,8 @@ func TestWorkPinRemainsReadableWithoutAuthorizingAmbiguousContracts(t *testing.T
 // Tolerance belongs to the read, never to authority over a chosen contract.
 func TestActiveWorkflowContractVersionRefusesAnAmbiguousProjection(t *testing.T) {
 	ctx := context.Background()
-	f := newAcceptanceRecoveryFixture(ctx, t)
+	route := seedWorkflowReturnRouteFixture(t, "ambiguous-version", WorkflowStepPlanChange, "review")
+	f := acceptanceRecoveryFixture{store: route.store, workID: "ambiguous-version", owner: route.owner, operator: route.operator}
 	duplicateActiveWorkflowContract(ctx, t, f.store, f.workID)
 	if _, err := activeWorkflowContractVersion(ctx, f.store.DatabaseForTesting(), f.workID, "test"); err == nil {
 		t.Fatal("activeWorkflowContractVersion selected a contract from an ambiguous projection")
@@ -66,8 +62,8 @@ func duplicateActiveWorkflowContract(ctx context.Context, t *testing.T, s *Store
 	t.Helper()
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `
 		INSERT INTO write_guard(active) VALUES(1);
-		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json)
-		SELECT work_id,contract_version+1,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json
+		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json,legislative_subjects)
+		SELECT work_id,contract_version+1,premise,consequence_class,'[]',route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json,legislative_subjects
 		FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL
 		ORDER BY contract_version DESC LIMIT 1;
 		DELETE FROM write_guard`, workID); err != nil {
@@ -91,8 +87,8 @@ func TestContractlessInvestigatedCheckpointAdmitsNoContractRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pin.Obligations != nil || pin.OutstandingEvidenceKinds != nil || len(pin.VerifiedCriteria) != 0 {
-		t.Fatalf("contractless pin selected contract facts: %+v", pin)
+	if pin.WorkID != workID {
+		t.Fatalf("contractless pin work ID = %q, want %q", pin.WorkID, workID)
 	}
 	effects := contractRecordEffectSnapshot(t, s, workID)
 	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/recovery", SessionRef: "session/contractless", ActorClass: ActorAgent}

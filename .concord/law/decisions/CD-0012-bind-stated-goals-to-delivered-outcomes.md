@@ -87,11 +87,17 @@ are recorded in one transaction and do not revise the premise.
 ### D6. Work discovered mid-execution forward-links; it never substitutes
 
 Work discovered outside the agreed outcome creates forward-linked successor
-work under CD-0006 R1. It does not silently replace the current work. An
+work under CD-0006 R1. It does not silently replace the current work, and its
+delivery does not complete the current item. An
 explicit redirection follows the approval classes in CD-0243 D2. A new
 execution-time law conflict returns to planning under CD-0006 D5. Contract
 revision does not itself enact law or resolve a conflict. Research conclusions
 do not automatically become binding decisions for in-flight discoveries.
+
+An in-scope discovery may be clarified without a contract change. A redirection
+records the complete next contract version through the ordinary intent update;
+execution follows that recorded version after required conflict resolution and
+operator decisions. Deferral keeps the agreed outcome and records separate work.
 
 ### D7. Verification is independent of the executing agent
 

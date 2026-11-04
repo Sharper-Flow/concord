@@ -265,7 +265,7 @@ func selectProjectHandoffTx(ctx context.Context, tx *sql.Tx, work, project strin
 }
 
 // continuityReadContractTx reads the one active contract and every enrichment
-// that hangs off it: predicates, architecture binding, self-repair and current
+// that hangs off it: architecture binding, self-repair and current
 // law context. A work item with no contract row leaves the snapshot without one.
 func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot, activeContractVersion int64) error {
 	contract, err := readWorkflowContractVersion(ctx, tx, work, activeContractVersion)

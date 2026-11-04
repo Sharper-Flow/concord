@@ -190,7 +190,7 @@ func TestWorkContextFactsAnchorSelectionBackfillAndLogBlind(t *testing.T) {
 	if got := facts(db); !reflect.DeepEqual(got, wantFacts) {
 		t.Fatalf("migration148 declaration/selection/terminal facts differ: got %q; want %q", got, wantFacts)
 	}
-	if err := Migrate(ctx, db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, ctx, db), db); err != nil {
 		t.Fatal(err)
 	}
 	assertHistoricalReceipts(t, db, before)
@@ -233,7 +233,7 @@ func TestWorkContextFactsAnchorSelectionBackfillAndLogBlind(t *testing.T) {
 	if reflect.DeepEqual(facts(mutant.db), wantFacts) {
 		t.Fatal("migration148 failed-report exclusion escaped the retained-facts oracle")
 	}
-	if err := Migrate(ctx, mutant.db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, ctx, mutant.db), mutant.db); err != nil {
 		t.Fatal(err)
 	}
 	broken, err := readWorkContextView(ctx, mutant.db, f.workID)

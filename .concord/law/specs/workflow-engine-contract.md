@@ -207,7 +207,11 @@ the rows below do not repeat this pair.
 | `workflow.native_run_recorded` | `work_id`, `run_id` (1–128), `native_subject_ref` (1–2048 opaque non-secret), `subject_digest` (core-derived), `phase` (`start`/`health`/`rollback`/`cleanup`, fixed by the action ID), `status` (closed per-phase vocabulary), `evidence_ref`, `evidence_digest`, `asserted_at` (RFC3339, within the two-minute report skew bound), `reporting_authority_ref` (the authenticated actor's client, never caller input), `actor_ref`, and the embedded CD-0040 capture component: `capture_method`, the closed `observed_universe` structure (one item, exactly scoped, complete by closed-structure digest — validated by the shared D4 rules when recorded and read), the derived content-hashed `freshness_policy_ref`/`divergence_policy_ref` from the reviewed per-kind register, and the `observation_id` the run's phases share. The mutation registers that observation in `external_observations` as its shared provenance home, so one verification record answers every phase row and the attributed read (`NativeRunReport`) carries the derived verification state. |
 | `workflow.premise_confirmed` | `work_id`, `contract_version`, `confirming_actor_ref` |
 | `workflow.successor_linked` | `work_id`, `successor_work_id`, `relation_kind` (`forward_link`) |
-| `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`, `superseded`), `final_verdict_kind`, `verdict_actor_ref`, `premise_confirmed` (boolean), `evidence_count` (non-negative, derived from the item's bound evidence history), `changed_refs_digest` (digest), `impact_verdict` (`breaking` or `non-breaking`), `warnings` (0–16 staleness-rule IDs) |
+| `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`, `superseded`), `premise_confirmed` (boolean), `evidence_count` (non-negative, derived from the item's bound evidence history), `changed_refs_digest` (digest), `impact_verdict` (`breaking` or `non-breaking`), `warnings` (0–16 staleness-rule IDs) |
+
+`legislative_subjects` belongs to the exact contract version that recorded it.
+Legislative standing also requires the operator-approved contract and the other
+conditions in [CD-0159 D2](../decisions/CD-0159-authority-tier-for-product-law.md#d2-the-deliverable-sets-the-tier-not-the-presence-of-an-approval); subject inclusion alone is not approval.
 
 ### 4.1 Ordinary contract updates
 
@@ -241,8 +245,8 @@ unchanged-proof reuse, candidate validity, current law membership, operator
 approval boundaries, and completion remain required. Workflow stage and
 step-plan policy otherwise remain unchanged.
 
-An update itself never moves the step. A changed candidate needs the Review
-and proof applicable to that candidate.
+An update itself never moves the step. The coordinator obtains independent
+native Task Review and applicable proof for the exact changed candidate.
 
 ### 4.2 Ordinary retry and record correction
 
@@ -262,8 +266,8 @@ Research control markers (`frame_research`, `record_finding`, `record_report`,
 and `record_conclusion`), checkpoints and native jobs are not record edits.
 Ordinary `bind_evidence` also remains available after the workflow reaches or
 passes a step declaring it, under one active contract and the same evidence,
-membership, actor, lifecycle, version and idempotency checks. A satisfied
-requirement does not prevent binding fresh independent evidence.
+membership, actor, lifecycle, version and idempotency checks. Prior bindings do
+not prevent binding fresh independent evidence.
 A record-only replacement holds the current step, instance state and lifecycle;
 it does not repeat the original forward transition. In particular,
 `record_delivery` replaces a completed item's reported delivery links without
@@ -277,10 +281,11 @@ new identity and current expected version. No retry-count budget or attempt
 limit gates ordinary retry or repeated correction.
 Per-operation seconds budgets and error diagnostics remain required.
 
-A changed candidate requires the proof applicable to it under CD-0242 D7. A
-replacement does not relabel earlier evidence or erase an unresolved finding.
-Required Review, verification and approval checks still apply to the subject
-they judge. A corrected link alone does not manufacture proof.
+The coordinator obtains proof applicable to a changed candidate under CD-0242
+D7. A replacement does not relabel earlier evidence or resolve a finding in the
+linked Review. The coordinator preserves required Review, verification and
+approval for the subject they judge; the core does not compare Review reports
+or candidate commits. A corrected link alone does not manufacture proof.
 
 Each action owns its current record; no separate correction operation, state,
 route registry, target-event tuple, return to a producer or Review-consumption
@@ -482,14 +487,14 @@ dispatcher performs this order:
    intake prelude actions are available; after the pick, the plan's derived
    frontier admits its actions ([section 2](#2-workflow-type-templates-and-step-plans)).
 2. Validate the closed action ID and payload against the action catalog's
-   entry. Existing-record replacement follows §4.2; late criterion association
-   follows §7.1. Unknown fields, missing fields, wrong bounds, or an action
+   entry. Existing-record replacement follows §4.2.
+   Unknown fields, missing fields, wrong bounds, or an action
    outside its admitted ordinary use return the existing `invalid_transition`
    refusal with recovery action `reread_entities`.
 3. Validate work ID, expected work version, authenticated actor tuple, and current
    step. Stale versions return `version_conflict`; an incomplete actor returns
    `unauthorized`.
-4. Resolve required evidence and validate authorization. A cross-scope action
+4. Validate authorization and any evidence the action binds. A cross-scope action
    requires `cross_scope`; otherwise the core returns `unauthorized`.
 5. Check the durable idempotency identity. A replay of the same operation
    returns the original envelope without a second effect; a conflicting payload
@@ -518,20 +523,6 @@ is added or renamed here.
 The corpus records `engine_status=engine_shipped`. The checker compares every scenario's expected
 error kind with the current closed envelope enum; unknown classifications fail
 validation rather than being downgraded to prose or generic success.
-
-### Scenarios that bind production routes
-
-WF09 and WF22 each bind their criterion to a production route.
-
-- WF09 sends `approve_contract`, the declared action for initial contract
-  recording, at the `execution` step. The step does not declare the
-  action, so the graph's declared-action check refuses it with
-  `invalid_transition` before actor authorization, and no contract event is
-  written.
-- WF22 commits `checkpoint_context`, abandons an uncommitted `record_plan`
-  transaction, and reads the resume
-  state through the continuity read (CD-0016). Its resume step is the first
-  incomplete step of its stored plan.
 
 ## 12. Workflow types, prelude, and step admission
 

@@ -346,13 +346,10 @@ def load_workflow_action_contracts() -> tuple[list[dict], dict, dict, list[dict]
 def validate_workflow_cross_field(action: dict, payload: dict) -> None:
     declared = {field["name"] for field in payload["fields"]}
     cross = action["cross_field"]
-    if cross is None or set(cross) - {"combinations", "alternatives", "kind_matches"}:
+    if cross is None or set(cross) - {"combinations", "kind_matches"}:
         fail("workflow action contract projection contains an open cross-field declaration")
     combinations = cross.get("combinations", [])
-    alternatives = cross.get("alternatives", [])
     kind_matches = cross.get("kind_matches", [])
-    if combinations and alternatives:
-        fail(f"workflow action {action.get('id')} declares both cross-field rule families")
     for match in kind_matches:
         if set(match) - {"field", "object", "discriminator", "remedy"}:
             fail(f"workflow action kind match is an open record: {action.get('id')}")
@@ -367,15 +364,6 @@ def validate_workflow_cross_field(action: dict, payload: dict) -> None:
             for name in combination.get(side, []):
                 if name not in declared:
                     fail(f"workflow action {action.get('id')} combination names undeclared field {name}")
-    for group in alternatives:
-        if set(group) - {"fields", "forbids", "remedy"} or not group.get("fields"):
-            fail(f"workflow action {action.get('id')} declares an open or empty alternative group")
-        for name in group["fields"]:
-            if name not in declared:
-                fail(f"workflow action {action.get('id')} alternative names undeclared field {name}")
-        for name in group.get("forbids", []):
-            if name not in declared:
-                fail(f"workflow action {action.get('id')} alternative forbids undeclared field {name}")
 
 
 def schema_ref_closure(defs: dict, roots: list[str]) -> list[str]:
@@ -548,16 +536,12 @@ RETAINED_OUTPUT_TWINS = {
     "workflow_law_context_law": ("/properties/path/maxLength",),
     "work_context_finding_view": ("/properties/source_event_id/maxLength",),
     "work_context_view": (),
-    "worker_oracle_finding": (),
 }
 # Caps a retained twin raises: the store's retained producer exceeds the cap
 # dispatch admission enforces on the shared packet definition, so the read
 # copy carries the producer's finite maximum, which the output bound ledger
 # proves, while the packet keeps the admitted cap.
-RETAINED_OUTPUT_RAISES = {
-    "workflow_law_context_law": {"/properties/criteria/maxItems": 1000},
-    "worker_oracle_finding": {"/properties/owner_id/maxLength": 133},
-}
+RETAINED_OUTPUT_RAISES = {}
 RETAINED_OUTPUT_RETYPES = {}
 # The read parents that replay stored values, each with the twinned
 # definitions it references directly.
@@ -675,9 +659,6 @@ def install_retained_output_twins(defs: dict) -> None:
 def workflow_payload_object_schema(payload: dict, defs: dict, field_teaching: dict | None = None, cross_field: dict | None = None) -> dict:
     result = workflow_payload_flat_object_schema(payload, defs, field_teaching)
     combinations = (cross_field or {}).get("combinations") or []
-    alternatives = (cross_field or {}).get("alternatives") or []
-    if combinations and alternatives:
-        fail("a workflow action declares both cross-field rule families")
     if combinations:
         # Registry-declared legal input combinations become closed per-value
         # branches: each branch keeps the discriminator const, requires what
@@ -690,75 +671,7 @@ def workflow_payload_object_schema(payload: dict, defs: dict, field_teaching: di
             workflow_payload_combination_branch(payload, defs, field_teaching, combination)
             for combination in combinations
         ]}
-    if alternatives:
-        # Registry-declared alternative groups become closed branches: each
-        # branch requires its group's fields, omits the other groups'
-        # fields, and omits this group's forbidden fields entirely, so a
-        # payload supplying none or several of the groups, or carrying a
-        # field this group forbids beside it, validates no branch — the
-        # exactly-one and beside-batch rules core admission enforces from
-        # the same declaration. A group whose declared kind match pairs a
-        # scalar field with an object field's discriminator expands into one
-        # closed branch per kind, so outcome_kind and outcome_payload.kind
-        # cannot disagree in any published branch.
-        branches: list[dict] = []
-        for group in alternatives:
-            branches.extend(workflow_payload_alternative_branches(payload, defs, field_teaching, alternatives, group, (cross_field or {}).get("kind_matches", [])))
-        return {"oneOf": branches}
     return result
-
-
-# outcome_payload_kind_branches resolves the object side of a declared kind
-# match to its per-kind closed branches: the discriminator consts of the
-# referenced oneOf. The kinds are derived from the same outcome schema the
-# store's DecodeWorkflowPredicate enforces, never hand-listed, and a branch
-# without a discriminator const fails generation.
-def outcome_payload_kind_branches(field_name: str, object_field: dict, defs: dict, discriminator: str) -> list[tuple[str, dict]]:
-    target_name = object_field.get("schema_ref", "")
-    if not target_name:
-        fail(f"workflow action kind-match object {field_name} names no schema")
-    target = defs.get(target_name)
-    one_of = target.get("oneOf") if isinstance(target, dict) else None
-    if not isinstance(one_of, list) or not one_of:
-        fail(f"workflow action kind-match object schema {target_name} is not a discriminated union")
-    pairs = []
-    for branch in one_of:
-        resolved = branch
-        if isinstance(branch, dict) and "$ref" in branch:
-            resolved = defs.get(branch["$ref"].split("/")[-1])
-        kind = None
-        if isinstance(resolved, dict):
-            const = resolved.get("properties", {}).get(discriminator, {}).get("const")
-            if isinstance(const, str):
-                kind = const
-        if kind is None:
-            fail(f"workflow action kind-match object schema {target_name} carries a branch without a {discriminator} const")
-        pairs.append((kind, copy.deepcopy(resolved)))
-    kinds = [kind for kind, _ in pairs]
-    if len(set(kinds)) != len(kinds):
-        fail(f"workflow action kind-match object schema {target_name} carries duplicate {discriminator} consts")
-    return pairs
-
-
-def workflow_payload_alternative_branches(payload: dict, defs: dict, field_teaching: dict | None, alternatives: list[dict], group: dict, kind_matches: list[dict]) -> list[dict]:
-    for match in kind_matches:
-        if match["field"] not in group["fields"] or match["object"] not in group["fields"]:
-            continue
-        scalar_field = next(field for field in payload["fields"] if field["name"] == match["field"])
-        object_field = next(field for field in payload["fields"] if field["name"] == match["object"])
-        if not scalar_field.get("enum"):
-            fail(f"workflow action kind-match field {match['field']} carries no closed enum")
-        pairs = outcome_payload_kind_branches(match["object"], object_field, defs, match["discriminator"])
-        if sorted(scalar_field["enum"]) != sorted(kind for kind, _ in pairs):
-            fail(f"workflow action kind-match field {match['field']} enum does not cover the {match['object']} kinds")
-        branches = []
-        for kind, payload_branch in pairs:
-            base = workflow_payload_alternative_branch(payload, defs, field_teaching, alternatives, group)
-            base["properties"][match["field"]] = {"type": "string", "const": kind}
-            base["properties"][match["object"]] = payload_branch
-            branches.append(base)
-        return branches
-    return [workflow_payload_alternative_branch(payload, defs, field_teaching, alternatives, group)]
 
 
 def workflow_payload_flat_object_schema(payload: dict, defs: dict, field_teaching: dict | None = None) -> dict:
@@ -784,24 +697,6 @@ def workflow_payload_combination_branch(payload: dict, defs: dict, field_teachin
             schema["const"] = combination["value"]
         properties[name] = schema
         if field.get("required") or name in combination.get("requires", []):
-            required.append(name)
-    result = {"type": "object", "additionalProperties": False, "maxProperties": 32, "properties": properties}
-    if required:
-        result["required"] = required
-    return result
-
-
-def workflow_payload_alternative_branch(payload: dict, defs: dict, field_teaching: dict | None, alternatives: list[dict], group: dict) -> dict:
-    exclusive = {name for other in alternatives if other is not group for name in other["fields"]}
-    forbidden = set(group.get("forbids", []))
-    properties = {}
-    required = []
-    for field in payload["fields"]:
-        name = field["name"]
-        if name in exclusive or name in forbidden:
-            continue
-        properties[name] = workflow_payload_field_schema(field, defs, field_teaching)
-        if field.get("required") or name in group["fields"]:
             required.append(name)
     result = {"type": "object", "additionalProperties": False, "maxProperties": 32, "properties": properties}
     if required:
@@ -1000,18 +895,15 @@ def project_workflow_action_schema(document: dict, actions: list[dict], teaching
     # read it while no validation path consumes it.
     defs.pop("work_transition_action_shared_input", None)
     contract = defs["workflow_contract"]
-    retired_contract_fields = {"outcome_predicates", "required_evidence"}
-    contract["required"] = [name for name in contract["required"] if name not in retired_contract_fields]
-    for name in retired_contract_fields:
-        contract["properties"].pop(name, None)
     contract["properties"]["legislative_subjects"] = {
         "type": "array", "maxItems": 800, "uniqueItems": True,
         "items": {"$ref": "#/$defs/reference"},
     }
     if "legislative_subjects" not in contract["required"]:
         contract["required"].append("legislative_subjects")
-    for name in ("verified_criteria", "verdict_evidence", "review"):
-        defs["work_pin"]["properties"].pop(name, None)
+    finding_view = defs["work_context_finding_view"]["properties"]
+    finding_view["kind"] = copy.deepcopy(defs["work_context_finding"]["properties"]["kind"])
+    finding_view["evidence_refs"]["description"] = "Evidence references reported with the finding."
     common = {
         "work_id": {"$ref": "#/$defs/id"},
         "expected_version": {"$ref": "#/$defs/version"},
@@ -1028,7 +920,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], teaching
     # projection beside the enforcing guards.
     field_teaching = {
         "law_additions": teaching["law_addition_mandate_rule"],
-        "required_evidence": teaching["obligation_membership_rule"],
         "related_ids": teaching["alignment_combination_rule"],
         "architecture_binding": teaching["architecture_domain_rule"],
     }

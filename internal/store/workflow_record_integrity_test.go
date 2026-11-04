@@ -8,10 +8,10 @@ import (
 	"time"
 )
 
-// Completion reports recorded facts without inventing a final verdict.
+// Completion reports the facts the store recorded.
 func TestCompletionRecordCarriesTheValuesTheGateComputed(t *testing.T) {
 	t.Parallel()
-	s, _ := seedCompletionGateCase(t, "record-integrity", completionGateCase{requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
+	s, _ := seedCompletionGateCase(t, "record-integrity", completionGateCase{includeSpec: true, includePremise: true})
 	var version int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='record-integrity'`).Scan(&version); err != nil {
 		t.Fatal(err)
@@ -37,17 +37,13 @@ func TestCompletionRecordCarriesTheValuesTheGateComputed(t *testing.T) {
 	if err := tx.QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id='record-integrity'`).Scan(&bindings); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := payload["evidence_count"].(float64); got != float64(bindings) || bindings != 7 {
-		t.Errorf("evidence_count = %v, want the seven recorded bindings (got %d)", got, bindings)
-	}
-	if got, exists := payload["final_verdict_kind"]; exists {
-		t.Errorf("completion invented final_verdict_kind = %v", got)
+	if got, _ := payload["evidence_count"].(float64); got != float64(bindings) || bindings == 0 {
+		t.Errorf("evidence_count = %v, want the %d recorded bindings", got, bindings)
 	}
 }
 
-// fields.evidence_ref is a declared key; bind_evidence must honor it (#856
-// follow-on). Binding through it is what lets a verdict cite the commit it
-// evaluated instead of an opaque operation id.
+// fields.evidence_ref is a declared key; bind_evidence must honor it so a
+// binding can cite the commit it covers instead of an opaque operation id.
 func TestBindEvidenceHonorsTheDeclaredEvidenceRefField(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -62,7 +58,7 @@ func TestBindEvidenceHonorsTheDeclaredEvidenceRefField(t *testing.T) {
 	}
 	defer tx.Rollback()
 	if _, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: version, ActionID: "bind_evidence", Payload: mustJSONValue(map[string]any{"evidence_ref": "commit:declared", "evidence_kind": "verification"}), Actor: owner,
+		WorkID: workID, ExpectedVersion: version, ActionID: "bind_evidence", Payload: mustJSONValue(map[string]any{"evidence_ref": "commit:declared", "evidence_kind": "verification", "producer_watermark": "request:eref:bind"}), Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "eref:bind", OperationID: "eref:bind",
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "eref:bind", RequestID: "request:eref:bind", ContractDigest: testManifestDigest, Now: time.Unix(2, 0).UTC(),
 	}); err != nil {

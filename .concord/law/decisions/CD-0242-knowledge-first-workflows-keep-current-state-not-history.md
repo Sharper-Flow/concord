@@ -277,9 +277,10 @@ retiring stored execution data.
 ### D9. Verification owns proof; completion records delivery
 
 Required plan steps include independent Review and applicable verification.
-Premise confirmation and delivery remain recorded terminal facts. Completion
-does not recheck criterion proof, Review reports, acceptance evidence or
-premise confirmation. Its terminal mutation follows
+Completion requires a recorded confirmation for the active contract version and,
+for change, fix and removal, a recorded delivery assertion. Research does not
+require a delivery assertion. Completion does not recheck criterion proof,
+Review reports or acceptance evidence. Its terminal mutation follows
 [workflow-engine contract §7](../specs/workflow-engine-contract.md#7-ordered-completion-gate).
 
 A change under rule U needs the operator's approval of a development preview

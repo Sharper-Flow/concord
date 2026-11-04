@@ -57,9 +57,6 @@ DELETE FROM write_guard`, actorRef, actorRef); err != nil {
 	if !workPinContainsAction(pin.NextValidIntents, "insert_step") || !workPinContainsAction(pin.NextValidIntents, "pick_type") {
 		t.Fatalf("ambiguous pin omitted independent plan routes: %+v", pin.NextValidIntents)
 	}
-	if pin.Obligations != nil || pin.OutstandingEvidenceKinds != nil || len(pin.VerifiedCriteria) != 0 {
-		t.Fatalf("ambiguous pin selected contract facts: %+v", pin)
-	}
 	before := outsideRepairDatabaseSnapshot(t, s)
 	err = reviseContractRecord(t, s, "workpin-ambiguous", actor, map[string]any{}, version)
 	if !hasFailureKind(err, KindInvariantViolation) || !strings.Contains(err.Error(), "multiple active contracts") {

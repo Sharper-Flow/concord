@@ -16,8 +16,7 @@ func TestWorkflowCompletionTerminalFoldFailureReachesCallerUnmasked(t *testing.T
 	t.Parallel()
 	workID := "completion-fold-passthrough"
 	s, completion := seedCompletionGateCase(t, workID, completionGateCase{
-		requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true,
-		includePremise: true, verdictKind: "ok",
+		includeSpec: true, includePremise: true,
 	})
 	// Every completion gate passes while the workflow instance is already
 	// terminal: only the completion fold reads the instance state.
@@ -43,8 +42,7 @@ func TestWorkflowCompletionAcceptsEvidenceCountAbove32(t *testing.T) {
 	t.Parallel()
 	workID := "evidence-count-over-32"
 	s, _ := seedCompletionGateCase(t, workID, completionGateCase{
-		requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true,
-		includePremise: true, verdictKind: "ok",
+		includeSpec: true, includePremise: true,
 	})
 	const extra = 30
 	var initialBound int64
@@ -84,7 +82,7 @@ func TestWorkflowCompletionAcceptsEvidenceCountAbove32(t *testing.T) {
 	operator := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/owner", "session/"+workID)
 	completion := workflowEventWithActor("over32-completion-"+workID, WorkflowCompleted, workID, operator, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": operator,
+		"terminal_state":    "completed",
 		"premise_confirmed": true, "evidence_count": bound, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64),
 		"impact_verdict": "non-breaking",
 	})

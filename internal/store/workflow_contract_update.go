@@ -19,7 +19,7 @@ func BuiltinWorkflowContractUpdateFields() []WorkflowPayloadField {
 		actionLawListField("law_modifies", true),
 		actionListField("legislative_subjects", true, 0, 800),
 		actionEnumField("rigor_class", true, "prototype_internal", "prototype_trusted", "prototype_public", "prototype_safety_critical", "production_internal", "production_trusted", "production_public", "production_safety_critical", "critical_internal", "critical_trusted", "critical_public", "critical_safety_critical"),
-		actionObjectField("architecture_binding", false, "architecture_binding"),
+		actionObjectField("architecture_binding", "architecture_binding"),
 	}
 }
 

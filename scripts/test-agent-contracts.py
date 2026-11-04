@@ -1568,7 +1568,7 @@ class ProjectionAdmissionTests(unittest.TestCase):
     def test_the_projection_refuses_an_old_projection_version(self):
         fake = json.dumps({
             "schema_version": "1.0",
-            "actions": [{"id": "record_verdict", "variants": [], "legacy_payloads": [], "cross_field": {}}],
+            "actions": [{"id": "old-action", "variants": [], "legacy_payloads": [], "cross_field": {}}],
             "workflows": [], "teaching": {}, "schema_refs": {"current": []},
         })
         with self.assertRaises(ValueError) as caught:

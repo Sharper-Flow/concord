@@ -35,7 +35,7 @@ func assertBoundedRead(t *testing.T, response agentcontract.Envelope) {
 func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _, _, _, _ := workflowEngineFixture(t, "budget fixture")
+	s, _, _ := workflowEngineFixture(t, "budget fixture")
 	for i := 2; i <= 100; i++ {
 		id := fmt.Sprintf("work-%03d", i)
 		if err := pm1fixture.SeedWorkItem(ctx, s, "project-1", id, id, i%10); err != nil {
@@ -161,7 +161,7 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 func TestSingleFullWorkItemTooLargeReturnsLosslessProjectionPages(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _, _, _, _ := workflowEngineFixture(t, "single item")
+	s, _, _ := workflowEngineFixture(t, "single item")
 	intent, _ := json.Marshal(map[string]any{"task": strings.Repeat("<", 8192), "value_statement": strings.Repeat("v", 256), "workflow_type_ref": "workflow.break_fix"})
 	db := s.DatabaseForTesting()
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES (1); UPDATE work_items SET intent_json=? WHERE id='work-1'; DELETE FROM write_guard`, string(intent)); err != nil {
@@ -187,7 +187,7 @@ func TestSingleFullWorkItemTooLargeReturnsLosslessProjectionPages(t *testing.T) 
 func TestWorkSummaryBytePagesKeepContinuation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _, _, _, _ := workflowEngineFixture(t, "summary byte pages")
+	s, _, _ := workflowEngineFixture(t, "summary byte pages")
 	for i := 2; i <= 100; i++ {
 		id := fmt.Sprintf("work-%03d", i)
 		if err := pm1fixture.SeedWorkItem(ctx, s, "project-1", id, strings.Repeat("<", 256), i%10); err != nil {
@@ -257,7 +257,7 @@ func TestContinuityLargeHistoryAndPinsStayBounded(t *testing.T) {
 	for _, text := range []string{"x", "\\"} {
 		t.Run(text, func(t *testing.T) {
 			ctx := context.Background()
-			s, _, _, _, engine := workflowEngineFixture(t, strings.Repeat("p", store.WorkflowPremiseMaxLength))
+			s, _, engine := workflowEngineFixture(t, strings.Repeat("p", store.WorkflowPremiseMaxLength))
 			refs := []string{}
 			for i := range 64 {
 				refs = append(refs, fmt.Sprintf("ref-%02d-%s", i, strings.Repeat("r", 121)))
@@ -349,7 +349,7 @@ func TestContinuityLargeHistoryAndPinsStayBounded(t *testing.T) {
 
 func TestReadBudgetIncludesEnvelopeMetadata(t *testing.T) {
 	t.Parallel()
-	s, _, _, _, _ := workflowEngineFixture(t, "metadata budget")
+	s, _, _ := workflowEngineFixture(t, "metadata budget")
 	for _, test := range []struct{ tool, operation, input string }{
 		{"concord_work_browse", "list", `{"product_id":"product-1","limit":1}`},
 		{"concord_work_browse", "scope", `{"product_id":"product-1","work_id":"work-1"}`},
@@ -381,7 +381,7 @@ func TestReadBudgetIncludesEnvelopeMetadata(t *testing.T) {
 func TestContinuityBoundaryPageFitsAndResumes(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _, _, _, engine := workflowEngineFixture(t, strings.Repeat("p", 2900))
+	s, _, engine := workflowEngineFixture(t, strings.Repeat("p", 2900))
 	for i := 1; i <= 40; i++ {
 		checkpoint := fmt.Sprintf("checkpoint-%d", i)
 		engine("checkpoint_context", map[string]any{

@@ -425,15 +425,6 @@ func workflowFieldString(fields map[string]json.RawMessage, name string) (string
 	return value, ok
 }
 
-func workflowAuthenticatedActorField(fields map[string]json.RawMessage, name, actor string) (string, error) {
-	if raw := fields[name]; len(raw) != 0 {
-		value, ok := workflowFieldString(fields, name)
-		if !ok || strings.TrimSpace(value) != actor {
-			return "", newFailure(KindUnauthorized, "workflow_action", name+" must match the authenticated invocation actor", false, "use the authenticated workflow actor")
-		}
-	}
-	return actor, nil
-}
 func workflowFieldStringDefault(fields map[string]json.RawMessage, name, fallback string) string {
 	if value, ok := workflowFieldString(fields, name); ok && value != "" {
 		return value

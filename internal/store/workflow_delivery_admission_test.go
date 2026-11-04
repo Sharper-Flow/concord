@@ -9,7 +9,7 @@ import (
 
 func TestWorkflowPlanDeliverySharedAdmission(t *testing.T) {
 	const workID = "plan-delivery"
-	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", []string{}, []string{})
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", []string{})
 	pin, err := ReadWorkPin(t.Context(), f.store, workID)
 	if err != nil || pin.Step != "review" || !workPinContainsAction(pin.NextValidIntents, "record_delivery") {
 		t.Fatalf("plan pin=%+v err=%v", pin, err)
@@ -33,7 +33,7 @@ func TestWorkflowPlanDeliverySharedAdmission(t *testing.T) {
 
 func TestWorkflowPlanDeliveryAmbiguousContractUpdateIsAtomic(t *testing.T) {
 	const workID = "plan-delivery-duplicate-contract"
-	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", []string{}, []string{})
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", []string{})
 	contract := pContractSuccessor(t, f.store, workID, "Retain the delivery assertion.")
 	duplicateActiveWorkflowContract(context.Background(), t, f.store, workID)
 	before := lawUpgradeSnapshot(t, f.store)

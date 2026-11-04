@@ -339,7 +339,7 @@ func verifyBackupRestore(ctx context.Context, snapshot string, manifest BackupMa
 	}
 	ctx = context.WithValue(ctx, researchRetirementProofKey{}, proof)
 	if manifest.SchemaVersion < 185 {
-		ctx = context.WithValue(ctx, outcomeRetirementProofKey{}, outcomeRetirementProof{snapshot: snapshot, checksum: manifest.DBChecksum, digest: manifest.currentStateDigest})
+		ctx = withOutcomeRetirementProof(ctx, snapshot, manifest)
 	}
 	_, err = verifyRestoredStage(ctx, stage, manifest)
 	return err

@@ -16,7 +16,7 @@ func TestWorkflowPlanReadIntakeAndFrontier(t *testing.T) {
 	defer db.Close()
 	_, err = db.ExecContext(ctx, `
 CREATE TABLE workflow_instances(work_id TEXT PRIMARY KEY,instance_state TEXT,workflow_type TEXT,step_plan TEXT,prelude_state TEXT,completion_payload TEXT);
-CREATE TABLE workflow_contracts(work_id TEXT,contract_version INTEGER,premise TEXT,required_evidence TEXT,route_conventions TEXT,spec_mandate TEXT,law_modifies TEXT,rigor_class TEXT,decision_domains TEXT,approved_at TEXT,approved_by TEXT,superseded_by INTEGER,changes_product_truth INTEGER);
+CREATE TABLE workflow_contracts(work_id TEXT,contract_version INTEGER,premise TEXT,required_evidence TEXT,legislative_subjects TEXT,route_conventions TEXT,spec_mandate TEXT,law_modifies TEXT,rigor_class TEXT,decision_domains TEXT,approved_at TEXT,approved_by TEXT,superseded_by INTEGER,changes_product_truth INTEGER);
 CREATE TABLE workflow_delivery_state(work_id TEXT,assertion_seq INTEGER,assertion_id TEXT,actor TEXT,occurred_at TEXT,payload TEXT);
 CREATE TABLE workflow_backlog_alignment(work_id TEXT,searched TEXT,outcome TEXT,related_work_id TEXT);
 CREATE TABLE workflow_proposal_records(work_id TEXT,work_version INTEGER,problem TEXT,affected TEXT,stakes TEXT,user_outcomes TEXT,constraints TEXT,open_questions TEXT,recorded_at TEXT);

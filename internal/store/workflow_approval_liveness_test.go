@@ -23,7 +23,7 @@ func TestWorkflowPlanRevisedContractKeepsConfirmationRoute(t *testing.T) {
 
 func TestWorkflowPlanConfirmationRefusesOperatorActor(t *testing.T) {
 	const workID = "plan-confirmation-operator"
-	f := qBuildAcceptancePredicates(t, workID, "", true, nil, false)
+	f := rAcceptance(t, workID, nil, false)
 	version, events := readWorkVersion(t, f.store, workID), approvalEventCount(t, f.store, workID)
 	request := planAdmissionRequest(workID, "confirm_premise", version, f.operator, json.RawMessage(`{}`))
 	dispatchErr := planAdmissionDispatch(t, f.store, request)

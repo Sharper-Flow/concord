@@ -9,7 +9,7 @@ import (
 func TestContractApprovalRefusesDuplicateActiveProjection(t *testing.T) {
 	t.Parallel()
 	const workID = "duplicate-active-approval"
-	s, owner, _ := seedItemAtAcceptance(t, workID)
+	s, owner := seedItemAtAcceptance(t, workID)
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
 		t.Fatal(err)
@@ -18,18 +18,15 @@ func TestContractApprovalRefusesDuplicateActiveProjection(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
 SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=1;
-INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
-SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1;
-DELETE FROM write_guard`, workID, workID); err != nil {
+DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 
 	version := readWorkVersion(t, s, workID)
 	event := workflowEventWithActor("duplicate-approval", WorkflowContractApproved, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"contract_version": 3, "premise": "must refuse", "outcome_kind": "check",
-		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:duplicate", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-		"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{},
+		"contract_version": 3, "premise": "must refuse", "legislative_subjects": []string{},
+		"route_conventions": []string{}, "spec_mandate": []string{},
 		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 	})
 	tx, err := db.BeginTx(context.Background(), nil)
@@ -57,7 +54,7 @@ DELETE FROM write_guard`, workID, workID); err != nil {
 func TestContractRecordUpdateRefusesDuplicateActiveProjection(t *testing.T) {
 	t.Parallel()
 	const workID = "duplicate-active-recovery"
-	s, owner, _ := seedItemAtAcceptance(t, workID)
+	s, owner := seedItemAtAcceptance(t, workID)
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
 		t.Fatal(err)

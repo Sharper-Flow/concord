@@ -18,7 +18,7 @@ import (
 // contract premise override and returns an engine closure that applies
 // further workflow actions at the work item's current version. The premise
 // override exists so the bound round-trip test can approve the legal maximum.
-func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service, ed25519.PrivateKey, ed25519.PrivateKey, func(string, map[string]any)) {
+func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service, func(string, map[string]any)) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -40,14 +40,12 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 	resolveProjectAuthority(service, store.ProjectResolution{ProjectID: "project-1"})
 
 	clients := []string{"client-session-exec-aaaa", "client-session-other-bbbb"}
-	keys := []ed25519.PrivateKey{}
 	for _, client := range clients {
-		publicKey, privateKey, _ := ed25519.GenerateKey(cryptorand.Reader)
+		publicKey, _, _ := ed25519.GenerateKey(cryptorand.Reader)
 		policy := TrustedClientPolicy{PrincipalRef: "human-1", Capabilities: []agentcontract.Capability{"product_read"}, ProductScope: []string{"product-1"}, ProjectScope: []string{"project-1"}, AgentScope: testFixtureAgents}
 		if err := service.RegisterTrustedClient(ctx, ClientRegistration{ClientRef: client, KeyID: "key-" + client, PublicKey: publicKey, Policy: policy}); err != nil {
 			t.Fatal(err)
 		}
-		keys = append(keys, privateKey)
 	}
 
 	// The executing actor is session 0's identity; session 1 is distinct.
@@ -110,5 +108,5 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 	engine("approve_contract", contractFields)
 	engine("complete_step", map[string]any{"step_id": "plan", "note": "Plan approved."})
 	engine("start_execution", map[string]any{})
-	return s, service, keys[0], keys[1], engine
+	return s, service, engine
 }

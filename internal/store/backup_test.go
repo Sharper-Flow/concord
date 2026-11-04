@@ -313,10 +313,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	// The approved contract retains its law mandate through backup and restore.
 	approval := workflowEventWithActor("evidence-contract", WorkflowContractApproved, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": workVersionBeforeApproval, "resulting_version": workVersionBeforeApproval + 1, "contract_version": int64(1),
-		"premise":           "preserve living evidence across backup, restore, rebuild and as-of reads",
-		"outcome_kind":      "check",
-		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:evidence", "immutable_subject_ref": "commit:evidence", "expected_result": "pass"},
-		"required_evidence": []string{"verification"}, "route_conventions": []string{},
+		"premise":              "preserve living evidence across backup, restore, rebuild and as-of reads",
+		"legislative_subjects": []string{}, "route_conventions": []string{},
 		"spec_mandate": []string{"spec:one"}, "law_modifies": []string{},
 		"law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 		"decision_domains": []string{},
@@ -366,9 +364,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	seedWorkflowPlanFrontier(t, s, contextWork, WorkflowStepPlanFix, "implement")
 	contextContractVersion := readWorkVersion(t, s, contextWork)
 	contextContract := workflowEventWithActor("evidence-context-contract", WorkflowContractApproved, contextWork, contextOwnerRef, map[string]any{
-		"work_id": contextWork, "expected_version": contextContractVersion, "resulting_version": contextContractVersion + 1, "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check",
-		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:evidence-context", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:evidence-context", "immutable_subject_ref": "commit:" + workContextTestCommit(), "expected_result": "pass"}}},
-		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
+		"work_id": contextWork, "expected_version": contextContractVersion, "resulting_version": contextContractVersion + 1, "contract_version": 1, "premise": "deliver the checked change",
+		"legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 		"decision_domains": []string{},
 		"architecture_binding": WorkflowArchitectureBinding{

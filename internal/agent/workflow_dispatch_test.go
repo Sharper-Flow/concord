@@ -777,20 +777,19 @@ func TestWorkflowActionDispatchPersistsDefinitionContract(t *testing.T) {
 	if err != nil || approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approved workflow action response=%+v err=%v", approved.Error, err)
 	}
-	workflowRead, err := s.QueryQ7(context.Background(), store.Q7Request{Work: "work-1"})
+	resume, err := store.ReadWorkflowResume(context.Background(), s, "work-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	projection := workflowRead.Workflow
-	if projection == nil || projection.Plan == nil {
-		t.Fatal("Q7 omitted the recorded workflow plan")
-	}
-	frontier := store.WorkflowStepPlanFrontier(*projection.Plan)
-	if projection.Plan.Type != store.WorkflowStepPlanChange || len(frontier) != 1 || frontier[0].ID != "plan" {
-		t.Fatalf("unexpected plan frontier: %+v", frontier)
+	if resume.Type != store.WorkflowStepPlanChange || len(resume.NextSteps) != 1 || resume.NextSteps[0] != "plan" {
+		t.Fatalf("unexpected plan frontier: %+v", resume)
 	}
 	wantBinding := workflowArchitectureBindingForSeededRegistry(t, s)
-	if projection.ArchitectureBinding == nil || projection.ArchitectureBinding.HomeDomainID != wantBinding["home_domain_id"] {
-		t.Fatalf("agent approval did not persist readable architecture binding: %+v", projection.ArchitectureBinding)
+	continuity, err := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: "work-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if continuity.ArchitectureBinding == nil || continuity.ArchitectureBinding.HomeDomainID != wantBinding["home_domain_id"] {
+		t.Fatalf("agent approval did not persist readable architecture binding: %+v", continuity.ArchitectureBinding)
 	}
 }

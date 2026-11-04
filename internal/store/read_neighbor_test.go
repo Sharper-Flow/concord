@@ -190,8 +190,8 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: "neighbor-work", Limit: 20})
 			return err
 		}},
-		{name: "ReadWorkflowProjection", run: func() error {
-			_, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: "neighbor-work"})
+		{name: "ReadWorkflowResume", run: func() error {
+			_, err := ReadWorkflowResume(ctx, s, "neighbor-work")
 			return err
 		}},
 		{name: "WorkflowProjectionHash", run: func() error {

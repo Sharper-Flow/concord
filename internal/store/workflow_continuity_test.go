@@ -85,19 +85,19 @@ func TestContinuityProductTruthAfterTypeSwitch(t *testing.T) {
 	const work = "continuity-truth-switch"
 	f := seedWorkflowReturnRouteFixture(t, work, WorkflowStepPlanChange, "plan")
 	ctx := t.Context()
-	before, err := ReadWorkflowProjection(ctx, f.store, WorkflowReadRequest{WorkID: work})
+	before, err := readTestWorkflowFacts(ctx, f.store, work)
 	if err != nil || before.Contract == nil || before.Contract.ChangesProductTruth == nil || !*before.Contract.ChangesProductTruth {
 		t.Fatalf("approved change contract: %+v: %v", before.Contract, err)
 	}
 	if _, err := continuityAction(t, f.store, work, readWorkVersion(t, f.store, work), "pick_type", "truth-switch", map[string]any{"type": "research", "reason": "investigation needed"}, f.owner); err != nil {
 		t.Fatal(err)
 	}
-	read, err := ReadWorkflowProjection(ctx, f.store, WorkflowReadRequest{WorkID: work})
-	if err != nil || read.Plan == nil || read.Plan.Type != WorkflowStepPlanResearch || !read.ChangesProductTruth {
+	read, err := readTestWorkflowFacts(ctx, f.store, work)
+	if err != nil || read.Plan == nil || read.Plan.Type != WorkflowStepPlanResearch {
 		t.Fatalf("workflow read: %+v: %v", read, err)
 	}
 	continuity, err := ReadWorkflowContinuity(ctx, f.store, ContinuityRequest{Work: work})
-	if err != nil || continuity.Contract == nil || continuity.Contract.ChangesProductTruth == nil || !*continuity.Contract.ChangesProductTruth || continuity.ChangesProductTruth != read.ChangesProductTruth {
+	if err != nil || continuity.Contract == nil || continuity.Contract.ChangesProductTruth == nil || !*continuity.Contract.ChangesProductTruth || !continuity.ChangesProductTruth {
 		t.Fatalf("continuity: %+v: %v", continuity, err)
 	}
 }

@@ -556,12 +556,12 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	if after := contractRecordEffectSnapshot(t, s, workID); after != beforeRevision {
 		t.Fatal("incomplete Product-changing revision changed effects")
 	}
-	projection, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID})
+	projection, err := readTestWorkflowFacts(ctx, s, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !projection.ChangesProductTruth || projection.Contract == nil || projection.Contract.Version != 2 || projection.ArchitectureBinding == nil || len(projection.ArchitectureBinding.DomainModifies) != 1 || projection.ArchitectureBinding.DomainModifies[0] != "root" {
-		t.Fatalf("unexpected read projection: %+v", projection)
+	if projection.Contract == nil || projection.Contract.Version != 2 || projection.Contract.ChangesProductTruth == nil || !*projection.Contract.ChangesProductTruth || projection.Contract.ArchitectureBinding == nil || len(projection.Contract.ArchitectureBinding.DomainModifies) != 1 || projection.Contract.ArchitectureBinding.DomainModifies[0] != "root" {
+		t.Fatalf("unexpected active contract: %+v", projection.Contract)
 	}
 	continuity, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
 	if err != nil {

@@ -87,9 +87,13 @@ func TestWorkflowPlanActionFolds(t *testing.T) {
 	}
 	apply(foldWorkflowIntakeRecorded, workflowIntakeRecordedPayload{WorkflowVersionFields: fields(), workflowIntakeRecord: workflowIntakeRecord{Outcome: WorkflowIntakeProceed}}, false)
 	apply(foldWorkflowTypePicked, workflowTypePickedPayload{WorkflowVersionFields: fields(), Type: WorkflowStepPlanChange, Reason: "initial pick"}, false)
-	projection, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: "work"})
-	if err != nil || projection.Prelude == nil || projection.Prelude.TypePickReason != "initial pick" {
-		t.Fatalf("initial pick reason not readable: %+v: %v", projection.Prelude, err)
+	var preludeJSON string
+	if err := db.QueryRowContext(ctx, `SELECT prelude_state FROM workflow_instances WHERE work_id='work'`).Scan(&preludeJSON); err != nil {
+		t.Fatal(err)
+	}
+	var initialPrelude workflowPreludeState
+	if err := json.Unmarshal([]byte(preludeJSON), &initialPrelude); err != nil || initialPrelude.TypePickReason != "initial pick" {
+		t.Fatalf("initial pick reason not readable: %+v: %v", initialPrelude, err)
 	}
 	plan := read()
 	apply(foldWorkflowStepCompleted, workflowStepCompletedPayload{WorkflowVersionFields: fields(), StepID: plan.Steps[1].ID, Note: "too early"}, true)

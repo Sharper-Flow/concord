@@ -41,21 +41,11 @@ func TestWorkRemovalClearsBacklogAlignmentAtBothEnds(t *testing.T) {
 			if survivors != 1 {
 				t.Fatalf("removal dropped survivor %s", tc.survivor)
 			}
-			alignment, err := readWorkflowBacklogAlignment(ctx, s.DatabaseForTesting(), tc.survivor)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if tc.removed == "align-related" && (alignment == nil || alignment.Outcome != "related_found" || len(alignment.RelatedIDs) != 0 || !alignment.AllMatchesRemoved) {
-				t.Fatalf("surviving alignment does not mark removed matches: %+v", alignment)
-			}
 			if tc.removed == "align-related" {
 				after := retirementUpgradeRows(t, s.DatabaseForTesting(), `SELECT searched,outcome,recorded_at,recorded_by FROM workflow_backlog_alignment WHERE work_id='align-searcher' AND related_work_id IS NULL`)
-				if !reflect.DeepEqual(before, after) || alignment.Searched != "Searched open work for items covering the same surface." {
-					t.Fatalf("declaration changed: before=%v after=%v read=%+v", before, after, alignment)
+				if !reflect.DeepEqual(before, after) {
+					t.Fatalf("declaration changed: before=%v after=%v", before, after)
 				}
-			}
-			if tc.removed == "align-searcher" && alignment != nil {
-				t.Fatalf("unrecorded alignment is present: %+v", alignment)
 			}
 		})
 	}
@@ -77,10 +67,6 @@ func TestBacklogAlignmentPartialRemoval(t *testing.T) {
 	after := retirementUpgradeRows(t, s.DatabaseForTesting(), `SELECT * FROM workflow_backlog_alignment ORDER BY related_work_id`)
 	if !reflect.DeepEqual(before, after) {
 		t.Fatalf("surviving rows changed: before=%v after=%v", before, after)
-	}
-	alignment, err := readWorkflowBacklogAlignment(t.Context(), s.DatabaseForTesting(), "align-searcher")
-	if err != nil || alignment == nil || alignment.Outcome != "related_found" || alignment.AllMatchesRemoved || !reflect.DeepEqual(alignment.RelatedIDs, []string{"align-keep"}) {
-		t.Fatalf("partial removal alignment=%+v err=%v", alignment, err)
 	}
 }
 

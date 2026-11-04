@@ -37,10 +37,6 @@ func TestReportedCompletionDiscardsStepsAndPreservesDelivery(t *testing.T) {
 	if afterBindings := retirementUpgradeRows(t, s.db, `SELECT * FROM workflow_evidence_bindings ORDER BY rowid`); !reflect.DeepEqual(bindings, afterBindings) || len(bindings) == 0 {
 		t.Fatalf("completion changed ordinary evidence bindings: before=%v after=%v", bindings, afterBindings)
 	}
-	projection, err := ReadWorkflowProjection(t.Context(), s, WorkflowReadRequest{WorkID: workID})
-	if err != nil || !reflect.DeepEqual(before, projection.DeliveryAssertion) {
-		t.Fatalf("terminal projection lost reported delivery: %+v, %v", projection.DeliveryAssertion, err)
-	}
 	plan, err := readWorkflowPlanTx(t.Context(), s.db, workID)
 	if err != nil || plan == nil || len(WorkflowStepPlanFrontier(*plan)) != 0 || !reflect.DeepEqual(plan, completedPlan) {
 		t.Fatalf("completed plan = %+v, %v", plan, err)

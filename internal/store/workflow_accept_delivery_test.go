@@ -50,14 +50,6 @@ func TestDeliveryAssertionReaders(t *testing.T) {
 	if err != nil || assertion == nil || assertion.Artifact != "artifact:delivery" || assertion.Seq != seq {
 		t.Fatalf("assertion read = %+v, %v", assertion, err)
 	}
-	plan, err := readWorkflowPlanTx(t.Context(), s.db, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	parked := parkedDeliveryRead(t.Context(), s.db, plan, workID, "review", "running")
-	if parked == nil || parked.StepID != "review" || parked.ResumeAction != "record_delivery" {
-		t.Fatalf("parked delivery = %+v", parked)
-	}
 	var completions int
 	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=? AND delivery_assertion=1`, workID, WorkflowActionCompleted).Scan(&completions); err != nil || completions != 1 {
 		t.Fatalf("asserted delivery completions = %d, %v", completions, err)

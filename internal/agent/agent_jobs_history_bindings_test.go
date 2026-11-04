@@ -8,14 +8,9 @@ import (
 	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
-// AJ4 — read the contract a correction replaced.
-//
-// bindAJ4HistoryOfASupersededContract approves contract v1, revises it
-// with v2 through the ordinary update route, then reads
-// concord_work_trace.history with contract_version 1. It proves the
-// workflow summary answers v1 (not the active v2) with its successor, that a version the work never had refuses
-// unknown_scope, and that the reads leave the store revision unchanged.
-func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObservation {
+// bindAJ4CurrentLifecycleAfterContractRevision checks retained lifecycle rows
+// after an ordinary contract correction.
+func bindAJ4CurrentLifecycleAfterContractRevision(t *testing.T, _ jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition", "product_read"})
 	version := seedAgentWorkflow(t, s, grant)
@@ -48,35 +43,18 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 		t.Fatalf("revise_intent = %+v", revised.Error)
 	}
 
-	history := func(contractVersion int) agentcontract.Envelope {
-		raw, err := json.Marshal(map[string]any{
-			"work_id":          "work-1",
-			"record_kinds":     []string{"lifecycle"},
-			"contract_version": contractVersion,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return dispatchRead(t, s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: raw}, env)
-	}
 	revisionBefore, err := s.Revision(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp := history(1)
+	resp := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: json.RawMessage(`{"work_id":"work-1","record_kinds":["lifecycle"]}`)}, env)
 	if resp.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("history contract_version 1 = %+v", resp.Error)
+		t.Fatalf("history = %+v", resp.Error)
 	}
 	var page struct {
 		Entries []struct {
 			Kind string `json:"entry_kind"`
 		} `json:"entries"`
-		Workflow struct {
-			Contract struct {
-				Version      int  `json:"version"`
-				SupersededBy *int `json:"superseded_by"`
-			} `json:"contract"`
-		} `json:"workflow"`
 	}
 	if err := json.Unmarshal(resp.Result, &page); err != nil {
 		t.Fatalf("unmarshal history page: %v", err)
@@ -87,22 +65,7 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 	for _, entry := range page.Entries {
 		kinds = append(kinds, entry.Kind)
 	}
-	contract := page.Workflow.Contract
-	obs.Result = map[string]any{
-		"entry_kinds":               kinds,
-		"selected_contract_version": contract.Version,
-	}
-	if contract.SupersededBy != nil {
-		obs.Result["selected_contract_superseded_by"] = *contract.SupersededBy
-	} else {
-		obs.Result["selected_contract_superseded_by"] = probedAbsent{}
-	}
-
-	refused := history(9)
-	obs.Communication["unknown_version_error_kind"] = probedAbsent{}
-	if refused.Error != nil {
-		obs.Communication["unknown_version_error_kind"] = refused.Error.Kind
-	}
+	obs.Result = map[string]any{"entry_kinds": kinds}
 	obs.Effects = map[string]any{"history_mutation": probedAbsent{}}
 	after, err := s.Revision(context.Background())
 	if err != nil {

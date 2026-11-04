@@ -264,7 +264,7 @@ type outputBoundRegistration struct {
 var ledgerRegistrations []outputBoundRegistration
 
 // registerOutputBound registers one census row. pattern is a JSON pointer to
-// a bound keyword (for example /$defs/workflow_read/properties/
+// a bound keyword (for example /$defs/resume_read_document/properties/
 // candidate_ids/maxItems); a path.Match-style '*' may appear inside a
 // segment to cover repeated oneOf alternatives ('*' crosses no '/'). Rows
 // registered as unbounded keep their underlying node reachable after the
@@ -2092,7 +2092,7 @@ func TestOutputBoundLedgerClosure(t *testing.T) {
 // above its consumer fails.
 func TestLedgerRemovedCapWitnesses(t *testing.T) {
 	t.Parallel()
-	const pattern = "/$defs/workflow_read/properties/candidate_ids/maxItems"
+	const pattern = "/$defs/resume_read_document/properties/next_steps/maxItems"
 	root := ledgerRepoRoot(t)
 	original, err := newLedgerRuntime(root).loadDoc(payloadSchemaFile)
 	if err != nil {
@@ -2102,16 +2102,16 @@ func TestLedgerRemovedCapWitnesses(t *testing.T) {
 	finiteExceeds := goConstantBound("witness.go", "witnessExceeds", boundItems)
 	unboundedRow := unboundedOutput("a synthetic producer has no finite count guard", "internal/agent/runtime.go:readSizeRefusal")
 	removeKeyword := func(doc map[string]any) {
-		node := doc["$defs"].(map[string]any)["workflow_read"].(map[string]any)["properties"].(map[string]any)["candidate_ids"].(map[string]any)
+		node := doc["$defs"].(map[string]any)["resume_read_document"].(map[string]any)["properties"].(map[string]any)["next_steps"].(map[string]any)
 		delete(node, "maxItems")
 	}
 	restoreKeyword := func(doc map[string]any) {
-		node := doc["$defs"].(map[string]any)["workflow_read"].(map[string]any)["properties"].(map[string]any)["candidate_ids"].(map[string]any)
-		node["maxItems"] = json.Number("100")
+		node := doc["$defs"].(map[string]any)["resume_read_document"].(map[string]any)["properties"].(map[string]any)["next_steps"].(map[string]any)
+		node["maxItems"] = json.Number("64")
 	}
 	removeNode := func(doc map[string]any) {
-		properties := doc["$defs"].(map[string]any)["workflow_read"].(map[string]any)["properties"].(map[string]any)
-		delete(properties, "candidate_ids")
+		properties := doc["$defs"].(map[string]any)["resume_read_document"].(map[string]any)["properties"].(map[string]any)
+		delete(properties, "next_steps")
 	}
 	run := func(mutate func(map[string]any), sources ...outputBoundSource) []ledgerFailure {
 		registrations := make([]outputBoundRegistration, len(sources))

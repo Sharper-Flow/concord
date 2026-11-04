@@ -28,24 +28,51 @@ INSERT INTO workflow_instances(work_id,instance_state) VALUES('work','intake');`
 	if err != nil {
 		t.Fatal(err)
 	}
-	read := func() WorkflowReadProjection {
+	read := func() (string, *WorkflowStepPlan) {
 		t.Helper()
-		got, err := readWorkflowProjectionTx(ctx, db, WorkflowReadRequest{WorkID: "work"})
+		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
-			t.Fatalf("read workflow: %v", err)
+			t.Fatal(err)
 		}
-		return got
+		defer tx.Rollback()
+		var state string
+		if err := tx.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id='work'`).Scan(&state); err != nil {
+			t.Fatal(err)
+		}
+		plan, err := readWorkflowPlanTx(ctx, tx, "work")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if workflowInstanceTerminal(state) {
+			return "", plan
+		}
+		if plan != nil {
+			frontier := WorkflowStepPlanFrontier(*plan)
+			if len(frontier) > 0 {
+				return frontier[0].ID, plan
+			}
+			return "", plan
+		}
+		prelude, err := readResumePreludeTx(ctx, tx, "work")
+		if err != nil {
+			t.Fatal(err)
+		}
+		opening := workflowOpeningSteps(prelude)
+		if len(opening) > 0 {
+			return opening[0], nil
+		}
+		return "", nil
 	}
-	got := read()
-	if got.CurrentStep != "intake" || got.Plan != nil {
-		t.Fatalf("intake current step = %q", got.CurrentStep)
+	step, storedPlan := read()
+	if step != "intake" || storedPlan != nil {
+		t.Fatalf("intake current step = %q", step)
 	}
 	if _, err := db.ExecContext(ctx, `UPDATE workflow_instances SET prelude_state='{"intake":{"outcome":"clarify","open_questions_found":true}}' WHERE work_id='work'`); err != nil {
 		t.Fatal(err)
 	}
-	got = read()
-	if got.CurrentStep != "clarify" || got.Prelude == nil {
-		t.Fatalf("clarify projection = %+v", got)
+	step, storedPlan = read()
+	if step != "clarify" || storedPlan != nil {
+		t.Fatalf("clarify step = %q", step)
 	}
 	plan, err := WorkflowStepPlanTemplate(WorkflowStepPlanFix)
 	if err != nil {
@@ -59,15 +86,15 @@ INSERT INTO workflow_instances(work_id,instance_state) VALUES('work','intake');`
 	if _, err := db.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',workflow_type='fix',step_plan=? WHERE work_id='work'`, string(raw)); err != nil {
 		t.Fatal(err)
 	}
-	got = read()
-	if got.CurrentStep != WorkflowStepPlanFrontier(plan)[0].ID || got.Plan == nil || len(got.Plan.Steps) != len(plan.Steps) || got.Plan.Steps[0].Helper == nil {
-		t.Fatalf("frontier current step = %q", got.CurrentStep)
+	step, storedPlan = read()
+	if step != WorkflowStepPlanFrontier(plan)[0].ID || storedPlan == nil || len(storedPlan.Steps) != len(plan.Steps) || storedPlan.Steps[0].Helper == nil {
+		t.Fatalf("frontier current step = %q", step)
 	}
 	if _, err := db.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='completed',workflow_type=NULL,step_plan=NULL,prelude_state=NULL WHERE work_id='work'`); err != nil {
 		t.Fatal(err)
 	}
-	got = read()
-	if got.CurrentStep != "" || got.Plan != nil {
-		t.Fatalf("terminal projection = %+v", got)
+	step, storedPlan = read()
+	if step != "" || storedPlan != nil {
+		t.Fatalf("terminal step = %q plan = %+v", step, storedPlan)
 	}
 }

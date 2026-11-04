@@ -98,8 +98,8 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 				t.Fatalf("duplicate work ID %s", item.ID)
 			}
 			seen[item.ID] = true
-			if item.Task != task || item.ValueStatement != value || len(item.Tags) != 32 || item.WorkPin == nil || len(item.WorkPin.NextValidIntents) == 0 {
-				t.Fatalf("full detail lost intent or pin for %s", item.ID)
+			if item.Task != task || item.ValueStatement != value || len(item.Tags) != 32 {
+				t.Fatalf("full detail lost intent for %s", item.ID)
 			}
 		}
 		pages++
@@ -135,7 +135,7 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 		t.Fatal("summary population changed")
 	}
 	for _, item := range summaries.Items {
-		if item.Task != "" || item.WorkPin != nil {
+		if item.Task != "" {
 			t.Fatal("summary leaked full detail")
 		}
 	}
@@ -162,7 +162,7 @@ func TestSingleFullWorkItemTooLargeReturnsLosslessProjectionPages(t *testing.T) 
 	t.Parallel()
 	ctx := context.Background()
 	s, _, _ := workflowEngineFixture(t, "single item")
-	intent, _ := json.Marshal(map[string]any{"task": strings.Repeat("<", 8192), "value_statement": strings.Repeat("v", 256), "workflow_type_ref": "workflow.break_fix"})
+	intent, _ := json.Marshal(map[string]any{"task": strings.Repeat("<", 8192), "value_statement": strings.Repeat("v", 256), "tags": oversizedIntentTags(), "workflow_type_ref": "workflow.break_fix"})
 	db := s.DatabaseForTesting()
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES (1); UPDATE work_items SET intent_json=? WHERE id='work-1'; DELETE FROM write_guard`, string(intent)); err != nil {
 		t.Fatal(err)
@@ -174,7 +174,7 @@ func TestSingleFullWorkItemTooLargeReturnsLosslessProjectionPages(t *testing.T) 
 			input["limit"] = limit
 		}
 		items, fragments := readFullListDocuments(t, ctx, r, input)
-		if len(items) != 1 || items[0].ID != "work-1" || items[0].Task != strings.Repeat("<", 8192) || items[0].WorkPin == nil || len(items[0].WorkPin.NextValidIntents) == 0 || fragments < 2 {
+		if len(items) != 1 || items[0].ID != "work-1" || items[0].Task != strings.Repeat("<", 8192) || fragments < 2 {
 			t.Fatalf("single admitted item must arrive complete: limit=%d items=%d fragments=%d", limit, len(items), fragments)
 		}
 	}

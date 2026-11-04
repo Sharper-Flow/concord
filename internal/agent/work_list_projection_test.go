@@ -25,6 +25,10 @@ type workListTestFragment struct {
 	NextKind      *string `json:"next_kind"`
 }
 
+func oversizedIntentTags() []string {
+	return []string{"a" + strings.Repeat("<", 255), "b" + strings.Repeat("<", 255), "c" + strings.Repeat("<", 255)}
+}
+
 func TestFullWorkListProjectionMixedEnumeration(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -40,7 +44,7 @@ func TestFullWorkListProjectionMixedEnumeration(t *testing.T) {
 		}
 	}
 	task := strings.Repeat("<", 8188) + "界😀\\\""
-	intent, _ := json.Marshal(map[string]any{"task": task, "value_statement": strings.Repeat("界😀\\\"", 50), "workflow_type_ref": "workflow.break_fix"})
+	intent, _ := json.Marshal(map[string]any{"task": task, "value_statement": strings.Repeat("界😀\\\"", 50), "tags": oversizedIntentTags(), "workflow_type_ref": "workflow.break_fix"})
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1); UPDATE work_items SET intent_json=?,priority=2 WHERE id='work-1'; DELETE FROM write_guard`, string(intent)); err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +61,7 @@ func TestFullWorkListProjectionMixedEnumeration(t *testing.T) {
 				t.Fatalf("duplicate item %s", item.ID)
 			}
 			seen[item.ID] = true
-			if item.ID == "work-1" && (item.Task != task || item.WorkPin == nil || len(item.WorkPin.NextValidIntents) == 0) {
+			if item.ID == "work-1" && item.Task != task {
 				t.Fatal("lost full oversized item")
 			}
 		}
@@ -74,7 +78,7 @@ func TestFullWorkListProjectionCursorIntegrity(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _, _ := workflowEngineFixture(t, "projection cursor")
-	intent, _ := json.Marshal(map[string]any{"task": strings.Repeat("<", 8192), "value_statement": "value", "workflow_type_ref": "workflow.break_fix"})
+	intent, _ := json.Marshal(map[string]any{"task": strings.Repeat("<", 8192), "value_statement": "value", "tags": oversizedIntentTags(), "workflow_type_ref": "workflow.break_fix"})
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1); UPDATE work_items SET intent_json=? WHERE id='work-1'; DELETE FROM write_guard`, string(intent)); err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +234,7 @@ func TestFullWorkListProjectionMultibyteEnvelopeFit(t *testing.T) {
 		t.Fatalf("mid-rune cursor emitted content: %+v", refusal.Error)
 	}
 	items, fragments := readFullListDocumentsWithBase(t, ctx, r, map[string]any{"product_id": "product-1", "detail": "full", "limit": 1}, base)
-	if len(items) != 1 || items[0].Task != task || items[0].WorkPin == nil || fragments < 2 {
+	if len(items) != 1 || items[0].Task != task || fragments < 2 {
 		t.Fatalf("multibyte reconstruction lost content: items=%d fragments=%d", len(items), fragments)
 	}
 }
@@ -257,7 +261,7 @@ func TestFullWorkListProjectionFitsCapturedPageWithoutReread(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _, _ := workflowEngineFixture(t, "captured projection")
-	intent, _ := json.Marshal(map[string]any{"task": strings.Repeat("<", 8192), "workflow_type_ref": "workflow.break_fix"})
+	intent, _ := json.Marshal(map[string]any{"task": strings.Repeat("<", 8192), "tags": oversizedIntentTags(), "workflow_type_ref": "workflow.break_fix"})
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1); UPDATE work_items SET intent_json=? WHERE id='work-1'; DELETE FROM write_guard`, string(intent)); err != nil {
 		t.Fatal(err)
 	}

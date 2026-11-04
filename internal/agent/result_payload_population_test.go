@@ -215,86 +215,6 @@ func TestFullyPopulatedResultPayloadsValidate(t *testing.T) {
 	}
 }
 
-// fullyPopulatedWorkflowReadProjection populates every field of the store's
-// workflow read, including every optional pointer the published contract
-// declares, every internal pointer it does not, and the populated internal
-// slices a shaping that dropped only a copied list would have to name.
-func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
-	plan, _ := store.WorkflowStepPlanTemplate(store.WorkflowStepPlanChange)
-	binding := &store.WorkflowArchitectureBinding{
-		HomeDomainID:            "child",
-		AffectedDomainIDs:       []string{"root", "child"},
-		DomainModifies:          []string{"child"},
-		DomainRelationModifies:  []store.WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}},
-		LawAdditions:            []store.WorkflowLawAddition{{LawID: "spec-2", HomeDomainID: "child"}},
-		VerificationObligations: []store.WorkflowVerificationObligation{{LawID: "spec-1", ObligationID: "verification"}},
-	}
-	projection := store.WorkflowReadProjection{
-		WorkID: "work-1", State: "completed", CurrentStep: "acceptance",
-		Plan: &plan,
-		Contract: &store.WorkflowReadContract{
-			Version: 2, Premise: "the approved premise",
-			LegislativeSubjects: []string{"spec-1"},
-			RouteConventions:    []string{"workflow_action"}, SpecMandate: []string{"spec-1"},
-			LawModifies: []string{"spec-1"},
-			RigorClass:  "prototype_internal", ChangesProductTruth: new(true), ArchitectureBinding: binding,
-		},
-		CandidateIDs:        []string{"work-2", "work-3"},
-		BacklogAlignment:    &store.WorkflowReadBacklogAlignment{Searched: "Searched open work for duplicate objectives.", Outcome: "related_found", RelatedIDs: []string{"work-2", "work-3"}},
-		CompletionWarnings:  []string{"a warning"},
-		ChangesProductTruth: true,
-		ArchitectureBinding: binding,
-		ProposalRecord: &store.WorkflowProposalRecord{
-			WorkVersion: 2, Problem: "the problem", Affected: []string{"work-2"}, Stakes: "the stakes",
-			UserOutcomes: []string{"an outcome"}, Constraints: []string{"a constraint"}, OpenQuestions: []string{"a question"}, RecordedAt: "2026-01-01T00:00:00Z",
-		},
-		ParkedDelivery: &store.WorkflowReadParkedDelivery{WorkID: "work-1", StepID: "delivery", ResumeAction: "record_delivery", ParkedSeconds: 12, Unreconciled: false},
-		DeliveryAssertion: &store.WorkflowReadDeliveryAssertion{
-			EventID: "assertion-1", Seq: 7,
-			Artifact: "file:internal/store/impl.go", State: "asserted",
-			ActorRef: "actor:owner", AssertedAt: "2026-01-01T00:00:00Z",
-		},
-	}
-	planDoc, _ := json.Marshal(agentPlanFields())
-	projection.PlanRecord = &store.WorkflowReadPlanDocument{WorkVersion: 2, Document: planDoc, RecordedAt: "2026-01-01T00:00:00Z", Actor: "actor:owner", EventRef: "event:plan"}
-	projection.RemovalScope = &store.WorkflowReadPlanDocument{WorkVersion: 2, Document: json.RawMessage(`{"removed":["file:one"],"retiring_clauses":[]}`), RecordedAt: "2026-01-01T00:00:00Z", Actor: "actor:owner", EventRef: "event:removal"}
-	if err := json.Unmarshal([]byte(`{"prelude":{"intake":{"outcome":"proceed","open_questions_found":false}}}`), &projection); err != nil {
-		panic(err)
-	}
-	return projection
-}
-
-// TestPublishedWorkflowReadMatchesDerivedContractSet runs the published
-// workflow_read shaping over the maximally populated projection: every
-// emitted field is a $defs/workflow_read/properties name and every declared
-// name is emitted, so the published field set is the contract's own derived
-// set, and the shaped value validates against the closed contract.
-// proves check:published-read-schema-derived.
-func TestPublishedWorkflowReadMatchesDerivedContractSet(t *testing.T) {
-	t.Parallel()
-	projection := fullyPopulatedWorkflowReadProjection()
-	shaped, err := publishedWorkflowRead(&projection)
-	if err != nil {
-		t.Fatal(err)
-	}
-	published := workflowReadPublishedFields()
-	if len(shaped) != len(published) {
-		t.Fatalf("published read emits %d fields, the contract declares %d", len(shaped), len(published))
-	}
-	for field := range shaped {
-		if _, ok := published[field]; !ok {
-			t.Fatalf("published read emits %q outside the derived field set", field)
-		}
-	}
-	raw, err := json.Marshal(shaped)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := payloadschema.Validate("workflow_read", raw); err != nil {
-		t.Fatalf("published workflow_read does not validate against the generated contract: %v", err)
-	}
-}
-
 // TestPublishedReadsQualifiedContractLaw proves the published read refs filled
 // from contract law IDs admit the source-qualified <home project>/<law> form
 // that approve_contract accepts and a designated home produces. Each case
@@ -302,19 +222,6 @@ func TestPublishedWorkflowReadMatchesDerivedContractSet(t *testing.T) {
 func TestPublishedReadsQualifiedContractLaw(t *testing.T) {
 	t.Parallel()
 	const qualified = "project-1/spec-1"
-	workflowRead := func(t *testing.T, qualify func(*store.WorkflowReadProjection)) error {
-		projection := fullyPopulatedWorkflowReadProjection()
-		qualify(&projection)
-		shaped, err := publishedWorkflowRead(&projection)
-		if err != nil {
-			t.Fatal(err)
-		}
-		raw, err := json.Marshal(shaped)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return payloadschema.Validate("workflow_read", raw)
-	}
 	result := func(t *testing.T, tool, operation string, payload any) error {
 		raw, err := json.Marshal(payload)
 		if err != nil {
@@ -326,11 +233,15 @@ func TestPublishedReadsQualifiedContractLaw(t *testing.T) {
 		field    string
 		validate func(*testing.T) error
 	}{
-		{field: "workflow_read contract.spec_mandate", validate: func(t *testing.T) error {
-			return workflowRead(t, func(p *store.WorkflowReadProjection) { p.Contract.SpecMandate = []string{qualified} })
+		{field: "continuity contract.spec_mandate", validate: func(t *testing.T) error {
+			snapshot := fullyPopulatedContinuitySnapshot()
+			snapshot.Contract.SpecMandate = []string{qualified}
+			return result(t, "concord_work_trace", "continuity", ContinuityPayload(snapshot))
 		}},
-		{field: "workflow_read contract.law_modifies", validate: func(t *testing.T) error {
-			return workflowRead(t, func(p *store.WorkflowReadProjection) { p.Contract.LawModifies = []string{qualified} })
+		{field: "continuity contract.law_modifies", validate: func(t *testing.T) error {
+			snapshot := fullyPopulatedContinuitySnapshot()
+			snapshot.Contract.LawModifies = []string{qualified}
+			return result(t, "concord_work_trace", "continuity", ContinuityPayload(snapshot))
 		}},
 		{field: "continuity pinned.spec_mandate", validate: func(t *testing.T) error {
 			snapshot := fullyPopulatedContinuitySnapshot()

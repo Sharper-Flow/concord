@@ -70,10 +70,6 @@ func TestInitiativeRetirementTerminalAlignment(t *testing.T) {
 			if got := retirementUpgradeRows(t, db, `SELECT * FROM workflow_backlog_alignment ORDER BY related_work_id`); !reflect.DeepEqual(got, alignment) {
 				t.Error("search declaration or surviving matches changed")
 			}
-			projection, err := readWorkflowBacklogAlignment(t.Context(), db, "work-live")
-			if err != nil || projection == nil || projection.Outcome != "related_found" || len(projection.RelatedIDs) != 2 {
-				t.Fatalf("alignment readback = %+v, %v", projection, err)
-			}
 			retirementUpgradeHealthy(t, db)
 			restored := filepath.Join(t.TempDir(), "restored.db")
 			if _, err := RestoreBackup(t.Context(), snapshot, restored); err != nil {

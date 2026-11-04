@@ -65,10 +65,6 @@ func TestOrdinaryAlignmentReplacement(t *testing.T) {
 				if !reflect.DeepEqual(got, want) {
 					t.Fatalf("rows=%v want=%v", got, want)
 				}
-				read, err := readWorkflowBacklogAlignment(context.Background(), s.db, work)
-				if err != nil || read == nil || read.Searched != search || read.Outcome != outcome || read.AllMatchesRemoved || !reflect.DeepEqual(read.RelatedIDs, append([]string{}, ids...)) {
-					t.Fatalf("alignment read=%+v err=%v", read, err)
-				}
 			}
 			if err := apply(work+"-first", version, payload("first search", "related_found", []string{"related-a", "related-b"})); err != nil {
 				t.Fatal(err)
@@ -180,13 +176,6 @@ func TestOrdinaryCandidateDeltaHoldsProgress(t *testing.T) {
 	issue31WorkflowActionWithPayload(t, s, work, version, "revise_candidates", work+"-second", f.owner, json.RawMessage(`{"added":["candidate:new"],"removed":["candidate:old"]}`))
 	if got := currentStep(t, s, work); got != step {
 		t.Fatalf("candidate delta moved progress: %s -> %s", step, got)
-	}
-	out, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: work})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"candidate:keep", "candidate:new"}; !reflect.DeepEqual(out.CandidateIDs, want) {
-		t.Fatalf("candidates=%v want=%v", out.CandidateIDs, want)
 	}
 }
 

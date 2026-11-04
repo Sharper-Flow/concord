@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -50,9 +51,9 @@ func workflowContractProductGuard(ctx context.Context, tx *sql.Tx, workID string
 }
 
 func workflowContextCheckpointEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, stepID, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	var workflowRef, workflowDigestValue string
+	var workflowRef string
 	var attemptEpoch int64
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&workflowRef, &workflowDigestValue); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT workflow_type FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&workflowRef); err != nil {
 		return nil, workflowProjectionError(err, "cannot read workflow identity for context checkpoint")
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch),1) FROM durable_operations WHERE work_id=?`, request.WorkID).Scan(&attemptEpoch); err != nil {
@@ -66,7 +67,7 @@ func workflowContextCheckpointEvents(ctx context.Context, tx *sql.Tx, request Wo
 		"checkpoint_id": checkpointID, "checkpoint_sequence": workflowFieldInt(fields, "checkpoint_sequence", 0), "step_id": stepID, "attempt_epoch": attemptEpoch,
 		"active_unit": workflowFieldStringDefault(fields, "active_unit", ""), "hypothesis": workflowFieldStringDefault(fields, "hypothesis", ""), "diagnosis": workflowFieldStringDefault(fields, "diagnosis", ""), "strategy": workflowFieldStringDefault(fields, "strategy", ""),
 		"touched_refs": workflowFieldStrings(fields, "touched_refs"), "evidence_refs": workflowFieldStrings(fields, "evidence_refs"), "pending_questions": workflowFieldStrings(fields, "pending_questions"), "pending_decisions": workflowFieldStrings(fields, "pending_decisions"),
-		"workflow_ref": workflowRef, "workflow_definition_digest": workflowDigestValue, "actor_ref": actor, "request_id": request.RequestID,
+		"workflow_ref": workflowRef, "actor_ref": actor, "request_id": request.RequestID,
 	})}, nil
 }
 
@@ -79,9 +80,9 @@ func workflowContextBoundaryEvents(ctx context.Context, tx *sql.Tx, request Work
 	if boundaryKind != "summary" || mode != "summary" || workflowFieldStringDefault(fields, "summary", "") == "" {
 		return nil, newFailure(KindInvalidPayload, "workflow_action", "context boundary currently accepts boundary_kind=summary only", false, "use boundary_kind=summary with a completed durable checkpoint")
 	}
-	var workflowRef, workflowDigestValue string
+	var workflowRef string
 	var attemptEpoch int64
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&workflowRef, &workflowDigestValue); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT workflow_type FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&workflowRef); err != nil {
 		return nil, workflowProjectionError(err, "cannot read workflow identity for context boundary")
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch),1) FROM durable_operations WHERE work_id=?`, request.WorkID).Scan(&attemptEpoch); err != nil {
@@ -92,35 +93,48 @@ func workflowContextBoundaryEvents(ctx context.Context, tx *sql.Tx, request Work
 		return nil, newFailure(KindInvalidPayload, "workflow_action", "summary boundary requires checkpoint_id", false, "reference the latest durable context checkpoint")
 	}
 	return []Event{workflowTypedEvent(eventID, WorkflowContextBoundaryCrossed, request.WorkID, actor, request.Now, expected, map[string]any{
-		"boundary_id": request.OperationID + ":context-boundary", "boundary_sequence": workflowFieldInt(fields, "boundary_sequence", 0), "boundary_kind": "summary", "checkpoint_id": checkpointID, "checkpoint_sequence": workflowFieldInt(fields, "checkpoint_sequence", 0), "summary": workflowFieldStringDefault(fields, "summary", ""), "workflow_ref": workflowRef, "workflow_definition_digest": workflowDigestValue, "attempt_epoch": attemptEpoch, "actor_ref": actor, "request_id": request.RequestID,
+		"boundary_id": request.OperationID + ":context-boundary", "boundary_sequence": workflowFieldInt(fields, "boundary_sequence", 0), "boundary_kind": "summary", "checkpoint_id": checkpointID, "checkpoint_sequence": workflowFieldInt(fields, "checkpoint_sequence", 0), "summary": workflowFieldStringDefault(fields, "summary", ""), "workflow_ref": workflowRef, "attempt_epoch": attemptEpoch, "actor_ref": actor, "request_id": request.RequestID,
 	})}, nil
 }
 
-func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
+func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
 	if err := ensureInitialWorkflowContractApproval(ctx, tx, request.WorkID, fields); err != nil {
 		return nil, err
 	}
 	if err := requireResearchForPendingQuestions(ctx, tx, request.WorkID); err != nil {
 		return nil, err
 	}
-	contract, err := workflowContractContent(ctx, tx, definition, request.WorkID, fields, request.LawModifies)
+	contract, err := workflowContractContent(ctx, tx, planType, request.WorkID, fields, request.LawModifies)
 	if err != nil {
 		return nil, err
 	}
-	required, err := workflowApprovalRequiredEvidence(definition, fields)
-	if err != nil {
-		return nil, err
-	}
-	contract["required_evidence"] = required
 	approvalEvent := workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, contract)
 	approvalEvent.PayloadVersion = workflowContractPayloadVersion
 	return []Event{approvalEvent}, nil
 }
 
-func workflowContractContent(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID string, fields map[string]json.RawMessage, requestedLawModifies []string) (map[string]any, error) {
-	outcomePredicates, err := workflowContractOutcomePredicates(definition, fields)
-	if err != nil {
-		return nil, err
+// workflowDefaultRequiredEvidence carries the retired families' default
+// evidence duties onto the picked type: change inherits implementation's
+// verification, review and artifact duties; fix inherits break-fix's
+// verification and artifact; research keeps its artifact duty; removal
+// delivers a change and inherits change's duties. An explicit empty list in
+// the payload stays explicit.
+func workflowDefaultRequiredEvidence(planType WorkflowStepPlanType) []string {
+	switch planType {
+	case WorkflowStepPlanFix:
+		return []string{string(EvidenceVerification), string(EvidenceArtifact)}
+	case WorkflowStepPlanResearch:
+		return []string{string(EvidenceArtifact)}
+	case WorkflowStepPlanChange, WorkflowStepPlanRemoval:
+		return []string{string(EvidenceVerification), string(EvidenceReview), string(EvidenceArtifact)}
+	}
+	return []string{}
+}
+
+func workflowContractContent(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, workID string, fields map[string]json.RawMessage, requestedLawModifies []string) (map[string]any, error) {
+	var outcomePredicates []workflowContractPredicatePayload
+	if err := json.Unmarshal(fields["outcome_predicates"], &outcomePredicates); err != nil || len(outcomePredicates) == 0 {
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "contract requires explicit outcome predicates", false, "supply the approved end-state predicates")
 	}
 	if route, ok := workflowFieldString(fields, "route_convention"); ok && route != "workflow_action" {
 		return nil, newFailure(KindInvariantViolation, "workflow_action", "route convention is not declared by the workflow action boundary", false, "use a declared route convention")
@@ -139,13 +153,9 @@ func workflowContractContent(ctx context.Context, tx *sql.Tx, definition Workflo
 	}
 	contractVersion := workflowFieldInt(fields, "contract_version", 1)
 	premise, _ := workflowFieldString(fields, "premise")
-	_, err = workflowApprovalRequiredEvidence(definition, fields)
-	if err != nil {
-		return nil, err
-	}
 	required := workflowFieldStrings(fields, "required_evidence")
 	if required == nil {
-		required = []string{}
+		required = workflowDefaultRequiredEvidence(planType)
 	}
 	routes := workflowFieldStrings(fields, "route_conventions")
 	if routes == nil {
@@ -161,53 +171,14 @@ func workflowContractContent(ctx context.Context, tx *sql.Tx, definition Workflo
 	}
 	rigor := workflowFieldStringDefault(fields, "rigor_class", "prototype_internal")
 	contract := map[string]any{"contract_version": contractVersion, "premise": premise, "outcome_predicates": outcomePredicates, "required_evidence": required, "route_conventions": routes, "spec_mandate": spec, "law_modifies": lawModifies, "rigor_class": rigor, "consequence_class": string(ActionInternalSQLite)}
-	return workflowBoundContractContent(ctx, tx, definition, workID, fields, contract, spec, lawModifies)
+	return workflowBoundContractContent(ctx, tx, planType, workID, fields, contract, spec, lawModifies)
 }
 
-func workflowApprovalRequiredEvidence(definition WorkflowDefinition, fields map[string]json.RawMessage) ([]string, error) {
-	required := workflowFieldStrings(fields, "required_evidence")
-	if len(required) == 0 {
-		for _, kind := range definition.RequiredEvidenceKinds {
-			required = append(required, string(kind))
-		}
-	} else {
-		// A caller-supplied list is the only route a new evidence requirement
-		// takes after a definition ships, so it is refused here, before any
-		// event exists, when the pinned definition has no reachable action
-		// that can bind one of the kinds. A defaulted list names the
-		// definition's own kinds and is the shipped set's own invariant.
-		producible := evidenceStrings(workflowReachableEvidenceKinds(definition))
-		summary := strings.Join(producible, ", ")
-		if summary == "" {
-			summary = "no evidence kind"
-		}
-		for _, kind := range required {
-			if slices.Contains(producible, kind) {
-				continue
-			}
-			return nil, newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("approve_contract requires evidence kind %q, but no action reachable through the pinned workflow definition %s can produce it; its reachable actions produce %s", kind, definition.Ref, summary), false, "require only evidence kinds the pinned definition's reachable actions can produce")
-		}
-	}
-	return required, nil
-}
-
-func workflowBoundContractContent(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID string, fields map[string]json.RawMessage, contract map[string]any, spec, lawModifies []string) (map[string]any, error) {
+func workflowBoundContractContent(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, workID string, fields map[string]json.RawMessage, contract map[string]any, spec, lawModifies []string) (map[string]any, error) {
 	if err := validateLawModificationSubset(spec, lawModifies); err != nil {
 		return nil, err
 	}
-	// On a canonical authoring head the contract records the explicit
-	// predicate array alone: the legacy outcome pair stays off the event, and
-	// the fold resolves the end state through the predicates whenever they
-	// are present. Earlier versions keep the pair they shipped.
-	if !workflowCanonicalAuthoringActive(definition) {
-		outcome := workflowFieldRaw(fields, "outcome_payload")
-		if len(outcome) == 0 {
-			outcome = defaultWorkflowOutcome(definition, fields)
-		}
-		contract["outcome_kind"] = workflowFieldStringDefault(fields, "outcome_kind", string(definition.OutcomeSchema.DefaultKind))
-		contract["outcome_payload"] = outcome
-	}
-	productChanging := definition.ChangesProductTruth != nil && *definition.ChangesProductTruth
+	productChanging := planType != WorkflowStepPlanResearch
 	binding, bindingErr := workflowContractProductGuard(ctx, tx, workID, fields, lawModifies, productChanging, "contract", "supply the complete architecture binding")
 	if bindingErr != nil {
 		return nil, bindingErr
@@ -224,13 +195,14 @@ func workflowBoundContractContent(ctx context.Context, tx *sql.Tx, definition Wo
 	if len(lawModifies) == 0 && !productChanging {
 		delete(contract, "law_modifies")
 	}
-	decisionDomains, decisionDomainErr := workflowSubmittedDecisionDomains(definition, fields)
-	if decisionDomainErr != nil {
-		return nil, decisionDomainErr
+	var decisionDomains []string
+	if raw, present := fields["decision_domains"]; !present || json.Unmarshal(raw, &decisionDomains) != nil || decisionDomains == nil {
+		return nil, newFailure(KindInvalidPayload, "workflow_contract", "approval requires the submitted decision-domain fact", false, "declare the contract's decision domains explicitly")
 	}
-	if decisionDomains != nil {
-		contract["decision_domains"] = decisionDomains
+	if err := validateWorkflowAuthoredDecisionDomains(decisionDomains); err != nil {
+		return nil, err
 	}
+	contract["decision_domains"] = decisionDomains
 	contract["law_boundary_version"] = 1
 	return contract, nil
 }
@@ -256,23 +228,6 @@ func workflowReviseCandidatesEvents(request WorkflowActionExecutionRequest, acto
 // validateWorkflowActionPayload before any event is built, so this
 // constructor does not restate them. Each related id names a real work item,
 // refused here at the boundary rather than at the fold's foreign key.
-func workflowRecordAlignmentEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	relatedIDs := workflowFieldStrings(fields, "related_ids")
-	for _, relatedID := range relatedIDs {
-		var exists int
-		err := tx.QueryRowContext(ctx, `SELECT 1 FROM work_items WHERE id=?`, relatedID).Scan(&exists)
-		if err == sql.ErrNoRows {
-			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_alignment related id "+workflowRefExcerpt(relatedID)+" does not name a work item", false, "supply a real related work item id")
-		} else if err != nil {
-			return nil, workflowProjectionError(err, "cannot read the alignment related work item")
-		}
-	}
-	values := map[string]any{"searched": workflowFieldStringDefault(fields, "searched", ""), "outcome": workflowFieldStringDefault(fields, "outcome", "")}
-	if len(relatedIDs) != 0 {
-		values["related_ids"] = relatedIDs
-	}
-	return []Event{workflowTypedEvent(eventID, WorkflowBacklogAlignmentRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
-}
 
 // workflowRecordDiagnosisEvents builds the typed CD-0198 D2 diagnosis event.
 // The action records all three required sections in one act: the
@@ -587,57 +542,89 @@ func associateWorkflowVerdictReceiptsTx(ctx context.Context, tx queryer, workID,
 	return associations, nil
 }
 
-// workflowConfirmPremiseEvents consumes the dispatch's verified entry: the
-// confirmed definition is the one the transaction's write scope resolved, so
-// the confirmation never resolves a second contract source.
-func workflowConfirmPremiseEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	return workflowConfirmPremiseEventsForDefinition(ctx, tx, definition, request, actor, fields, eventID, expected)
-}
-
-// workflowConfirmPremiseEventsForDefinition is the transactional seam that
-// takes the verified definition: live dispatch resolves the instance's pin,
-// and consequence_v1 classification answers from that definition.
-func workflowConfirmPremiseEventsForDefinition(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	contractVersion := workflowFieldInt(fields, "contract_version", 0)
-	if contractVersion == 0 {
-		activeVersion, err := activeWorkflowContractVersion(ctx, tx, request.WorkID, "workflow_action")
-		if err != nil {
-			if err == sql.ErrNoRows {
-				return nil, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract is missing", false, "reread_entities")
-			}
-			return nil, err
-		}
-		contractVersion = activeVersion
-	}
-	activeVersion, err := activeWorkflowContractVersion(ctx, tx, request.WorkID, "workflow_action")
+func workflowConfirmPremiseEvents(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
+	contractVersion, err := workflowConfirmationAdmissionTx(ctx, tx, planType, request.WorkID, actor, fields)
 	if err != nil {
-		return nil, err
-	}
-	if contractVersion != activeVersion {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("premise confirmation names contract version %d, which supersession invalidated; the active version is %d", contractVersion, activeVersion), false, "confirm the active contract version")
-	}
-	if err := validateWorkflowCoordinatorConfirmationTx(ctx, tx, definition, request, actor); err != nil {
 		return nil, err
 	}
 	return []Event{workflowTypedEvent(eventID, WorkflowPremiseConfirmed, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": contractVersion, "confirming_actor_ref": actor, "confirmation_authority": "coordinator"})}, nil
 }
 
-func validateWorkflowCoordinatorConfirmationTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string) error {
+func workflowConfirmationAdmissionTx(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, workID, actor string, fields map[string]json.RawMessage) (int64, error) {
+	contractVersion := workflowFieldInt(fields, "contract_version", 0)
+	activeVersion, err := activeWorkflowContractVersion(ctx, tx, workID, "workflow_action")
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, newFailure(KindInvariantViolation, "workflow_action", "approved workflow contract is missing", false, "reread_entities")
+		}
+		return 0, err
+	}
+	if contractVersion == 0 {
+		contractVersion = activeVersion
+	}
+	if contractVersion != activeVersion {
+		return 0, newFailure(KindInvalidPayload, "workflow_action", fmt.Sprintf("premise confirmation names contract version %d, which supersession invalidated; the active version is %d", contractVersion, activeVersion), false, "confirm the active contract version")
+	}
+	if err := validateWorkflowCoordinatorConfirmationTx(ctx, tx, planType, workID, actor); err != nil {
+		return 0, err
+	}
+	return contractVersion, nil
+}
+
+func validateWorkflowCoordinatorConfirmationTx(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, workID, actor string) error {
 	var invokerClass string
 	if tx.QueryRowContext(ctx, `SELECT actor_class FROM workflow_actors WHERE actor_ref=?`, actor).Scan(&invokerClass) != nil || invokerClass != "agent" {
 		return newFailure(KindInvalidOperation, "workflow_action", "an engineering premise confirmation records the authenticated coordinator actor", false, "confirm under an agent-class coordinator identity")
 	}
-	if err := requireAcceptanceDeliverables(ctx, tx, definition, request.WorkID); err != nil {
-		return err
-	}
-	var step string
-	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&step); err != nil {
-		return workflowProjectionError(err, "cannot read the premise confirmation step")
-	}
-	return workflowForwardConfirmationReview(ctx, tx, request.WorkID, definition, step, nil)
+	return workflowConfirmationDeliverablesTx(ctx, tx, planType, workID)
 }
 
-func workflowLinkSuccessorEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
+// workflowConfirmationDeliverablesTx holds the actor-independent confirmation
+// admission facts: every approved predicate proved, every required evidence
+// kind and mandate bound, and a current ready Review outside research. The
+// write validates them here; reads (preflight, the work pin) ask the same
+// question so no surface advertises a confirmation the fold refuses.
+func workflowConfirmationDeliverablesTx(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, workID string) error {
+	contract, err := workflowCompletionContractRows(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	missing, err := workflowMissingCriterionAssociations(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	if len(missing) != 0 {
+		ids := slices.Sorted(maps.Keys(missing))
+		return newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires proof for every approved predicate: missing "+strings.Join(ids, ", "), false, "record_verdict for each approved predicate")
+	}
+	var requirements []workflowEvidenceRequirement
+	for _, kind := range contract.RequiredEvidence {
+		requirements = append(requirements, workflowEvidenceRequirement{Kind: kind})
+	}
+	for _, ref := range contract.SpecMandate {
+		requirements = append(requirements, workflowEvidenceRequirement{Reference: ref})
+	}
+	for _, obligation := range contract.VerificationObligations {
+		requirements = append(requirements, workflowEvidenceRequirement{Kind: obligation.ObligationID, Reference: obligation.LawID})
+	}
+	outstanding, err := unboundWorkflowEvidenceRequirements(ctx, tx, workID, requirements)
+	if err != nil {
+		return err
+	}
+	if len(outstanding) != 0 {
+		return newFailure(KindMissingEvidence, "workflow_action", fmt.Sprintf("contract evidence requirements are not bound: kind %q reference %q", outstanding[0].Kind, outstanding[0].Reference), false, "bind required evidence")
+	}
+	if planType != WorkflowStepPlanResearch {
+		review, err := loadWorkflowReviewState(ctx, tx, workID)
+		if err != nil {
+			return err
+		}
+		return workflowAdmitReview(review)
+	}
+	return nil
+}
+
+func workflowLinkSuccessorEvents(ctx context.Context, tx *sql.Tx, _ WorkflowStepPlanType, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
 	relation := workflowFieldStringDefault(fields, "relation", "forward_link")
 	relationData := map[string]json.RawMessage{}
 	if rawRelation := workflowFieldRaw(fields, "relation_data"); len(rawRelation) != 0 {
@@ -655,9 +642,22 @@ func workflowLinkSuccessorEvents(ctx context.Context, tx *sql.Tx, definition Wor
 	if successorID == "" {
 		return nil, newFailure(KindInvalidRelation, "workflow_action", "successor_work_id is required for a forward link", false, "supply the typed successor work item")
 	}
-	successorKind, definitionRef, successorErr := workflowSuccessorFamily(ctx, tx, definition, successorID)
-	if successorErr != nil {
-		return nil, successorErr
+	var successorKind, lifecycle string
+	if err := tx.QueryRowContext(ctx, `SELECT kind,lifecycle FROM work_items WHERE id=?`, successorID).Scan(&successorKind, &lifecycle); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, newFailure(KindInvalidRelation, "workflow_action", "successor work item is not recorded", false, "create the successor before linking it")
+		}
+		return nil, workflowProjectionError(err, "cannot read successor work item")
 	}
-	return []Event{workflowTypedEvent(eventID, WorkflowSuccessorLinked, request.WorkID, actor, request.Now, expected, map[string]any{"successor_work_id": successorID, "relation_kind": "forward_link", "successor_kind": successorKind, "definition_ref": definitionRef})}, nil
+	if isTerminalLifecycle(lifecycle) {
+		return nil, newFailure(KindInvalidRelation, "workflow_action", "successor work item is terminal", false, "link active successor work")
+	}
+	successor, err := readWorkflowPlanTx(ctx, tx, successorID)
+	if err != nil {
+		return nil, err
+	}
+	if successor == nil {
+		return nil, newFailure(KindInvalidRelation, "workflow_action", "successor workflow type is not selected", false, "pick a successor workflow type")
+	}
+	return []Event{workflowTypedEvent(eventID, WorkflowSuccessorLinked, request.WorkID, actor, request.Now, expected, map[string]any{"successor_work_id": successorID, "relation_kind": "forward_link", "successor_kind": successorKind, "definition_ref": string(successor.Type)})}, nil
 }

@@ -2,30 +2,47 @@ package store
 
 import (
 	"context"
-	"encoding/json"
-	"strings"
 	"testing"
 )
 
 func TestWorkflowActionStartCurrentFactsWithoutLog(t *testing.T) {
 	const workID = "action-start-current-facts"
-	const step = "execution"
-	s, _, _ := seedOrdinaryExecutorAtExecution(t, workID)
+	const step = "implement"
+	s := openTemp(t)
 	defer s.Close()
 	ctx := context.Background()
+	seedWork(t, s, workID)
+	owner := stepFixtureActor()
+	actor, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: owner}); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, step)
+	version := readWorkVersion(t, s, workID)
+	initial := workflowEventWithActor("ordinary-start", WorkflowActionStarted, workID, actor, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": step, "action_id": "start_execution", "attempt_epoch": 1, "actor_ref": actor, "accepted_inputs_digest": testManifestDigest, "idempotency_identity": "ordinary-start"})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{initial}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		t.Fatal(err)
+	}
 	seq, epoch, found, err := latestWorkflowActionStart(ctx, s.db, workID, step)
 	if err != nil || !found || seq <= 0 || epoch <= 0 {
 		t.Fatalf("start fixture: seq=%d epoch=%d found=%v err=%v", seq, epoch, found, err)
-	}
-	entry, err := VerifyWorkflowInstanceDefinitionTx(ctx, s.db, BuiltinWorkflowRegistry(), workID)
-	if err != nil {
-		t.Fatal(err)
 	}
 	first, err := readWorkflowActionStartTx(ctx, s.db, workID, step)
 	if err != nil || first.Seq != seq {
 		t.Fatalf("ordinary start fixture: %+v, %v", first, err)
 	}
-	version := readWorkVersion(t, s, workID)
+	version = readWorkVersion(t, s, workID)
 	start := workflowEventWithActor("newer-ordinary-start", WorkflowActionStarted, workID, first.Actor, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"step_id": step, "action_id": "start_execution", "attempt_epoch": epoch + 1,
@@ -47,13 +64,6 @@ func TestWorkflowActionStartCurrentFactsWithoutLog(t *testing.T) {
 			}{seq, epoch, found}, err
 		},
 		"G22-fenced-start": func() (any, error) { return readWorkflowActionStartTx(ctx, s.db, workID, step) },
-		"G22-pass-boundary": func() (any, error) {
-			seq, active, err := workflowStepPassBoundary(ctx, s.db, entry.Definition, workID, step, "workflow_action")
-			return struct {
-				Seq    int64
-				Active bool
-			}{seq, active}, err
-		},
 		"G22-latest-start": func() (any, error) {
 			seq, epoch, found, err := latestWorkflowActionStart(ctx, s.db, workID, step)
 			return struct {
@@ -64,39 +74,8 @@ func TestWorkflowActionStartCurrentFactsWithoutLog(t *testing.T) {
 	})
 }
 
-func TestWorkflowDerivedStartPairCurrentFactsWithoutLog(t *testing.T) {
-	const work = "derived-pair-current-facts"
-	f := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
-	defer f.store.Close()
-	actor := diagnosisS1Actor(work, "checkpointer")
-	if err := runVerdictActionAs(t, f.store, work, "checkpoint_repair", json.RawMessage(`{}`), 0, actor); err != nil {
-		t.Fatal(err)
-	}
-	start, err := readWorkflowActionStartTx(t.Context(), f.store.db, work, "repair")
-	if err != nil {
-		t.Fatal(err)
-	}
-	entry, err := VerifyWorkflowInstanceDefinition(t.Context(), f.store, BuiltinWorkflowRegistry(), work)
-	if err != nil {
-		t.Fatal(err)
-	}
-	read := func() (any, error) {
-		tx, err := f.store.db.BeginTx(t.Context(), nil)
-		if err != nil {
-			return nil, err
-		}
-		defer tx.Rollback()
-		return workflowDerivedStartPairAuthored(t.Context(), tx, entry.Definition, work, "repair", "checkpoint_repair", 1, start.Seq+1, start.Actor, strings.TrimSuffix(start.EventID, ":started")+":checkpoint")
-	}
-	want, err := read()
-	if err != nil || want != true {
-		t.Fatalf("derived pair fixture: %v, %v", want, err)
-	}
-	assertWorkerFactsLogBlind(t, f.store, map[string]func() (any, error){"G20-derived-start-pair": read})
-}
-
 func TestWorkflowHeldReviewDoesNotRecordPhaseExit(t *testing.T) {
-	j := pReturnReviewFixture(t, "held-review-phase-exit", "workflow.implementation", "")
+	j := pReturnReviewFixture(t, "held-review-phase-exit", WorkflowStepPlanChange, "")
 	var before int64
 	if err := j.s.db.QueryRow(`SELECT COALESCE(MAX(exit_seq),0) FROM workflow_phase_exits WHERE work_id=? AND action_id='record_review'`, j.workID).Scan(&before); err != nil {
 		t.Fatal(err)

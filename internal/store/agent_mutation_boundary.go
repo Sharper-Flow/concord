@@ -42,12 +42,6 @@ type MutationIdempotencyInsert struct {
 	ObservedAt              time.Time
 }
 
-// WorkflowInstanceDefinition carries the instance's stored definition metadata.
-type WorkflowInstanceDefinition struct {
-	DefinitionRef    string
-	DefinitionDigest string
-}
-
 func (s *Store) LookupMutationIdempotency(ctx context.Context, key MutationIdempotencyKey) (MutationIdempotencyRecord, bool, error) {
 	if s == nil || s.db == nil {
 		return MutationIdempotencyRecord{}, false, newFailure(KindUnavailable, "mutation_idempotency", "store is not open", false, "open the authority database")
@@ -130,26 +124,6 @@ func CompleteMutationResponseTx(ctx context.Context, transaction *Transaction, i
 		return newFailure(KindOperationConflict, "mutation_idempotency", "mutation response reservation is missing, changed, or already complete", false, "reconcile the retained operation")
 	}
 	return nil
-}
-
-func WorkflowInstanceDefinitionTx(ctx context.Context, transaction *Transaction, workID string) (WorkflowInstanceDefinition, bool, error) {
-	tx, err := transactionSQL(transaction, "workflow_instance")
-	if err != nil {
-		return WorkflowInstanceDefinition{}, false, err
-	}
-	return workflowInstanceDefinition(ctx, tx, workID)
-}
-
-func workflowInstanceDefinition(ctx context.Context, q queryer, workID string) (WorkflowInstanceDefinition, bool, error) {
-	var definition WorkflowInstanceDefinition
-	err := q.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, workID).Scan(&definition.DefinitionRef, &definition.DefinitionDigest)
-	if err == sql.ErrNoRows {
-		return WorkflowInstanceDefinition{}, false, nil
-	}
-	if err != nil {
-		return WorkflowInstanceDefinition{}, false, wrapFailure(KindUnavailable, "workflow_instance", "cannot read workflow definition", true, "retry once the database is readable", err)
-	}
-	return definition, true, nil
 }
 
 func WorkLifecycleTx(ctx context.Context, transaction *Transaction, workID string) (string, error) {

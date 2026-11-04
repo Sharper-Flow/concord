@@ -9,6 +9,22 @@ import (
 	"testing"
 )
 
+const cutoverContractColumns = `work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,superseded_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json,supersession_seq,last_healthy_seq,decision_domains`
+
+func cutoverContractRows(t *testing.T, db *sql.DB) [][]any {
+	t.Helper()
+	return retirementUpgradeRows(t, db, `SELECT `+cutoverContractColumns+` FROM workflow_contracts ORDER BY rowid`)
+}
+
+func cutoverInstanceExpectations(t *testing.T, db *sql.DB, where string) [][]any {
+	t.Helper()
+	return retirementUpgradeRows(t, db, `SELECT i.work_id,NULL,NULL,NULL,
+CASE WHEN w.lifecycle IN ('completed','cancelled','superseded') THEN w.lifecycle WHEN EXISTS (SELECT 1 FROM workflow_delivery_state d WHERE d.work_id=i.work_id) THEN 'completed' ELSE 'intake' END,
+CASE WHEN w.lifecycle IN ('completed','cancelled','superseded') OR EXISTS (SELECT 1 FROM workflow_delivery_state d WHERE d.work_id=i.work_id) THEN i.execution_actor_ref ELSE NULL END,
+CASE WHEN w.lifecycle IN ('completed','cancelled','superseded') OR EXISTS (SELECT 1 FROM workflow_delivery_state d WHERE d.work_id=i.work_id) THEN i.execution_model ELSE '' END,
+i.started_at,i.completed_at,i.last_checkpoint_at,i.execution_started_at,i.completion_payload,i.completion_occurred_at FROM workflow_instances i JOIN work_items w ON w.id=i.work_id `+where+` ORDER BY i.rowid`)
+}
+
 func defectRetirementFixture(t *testing.T) (*sql.DB, string) {
 	t.Helper()
 	db, path := retirementUpgradeFixture(t)
@@ -39,22 +55,21 @@ func ordinaryRecordsUpgradeExpectations(t *testing.T, db *sql.DB, before map[str
 	}
 	before["workflow_predicate_verdicts"] = retirementUpgradeRows(t, db, `SELECT `+strings.Join(names, ",")+` FROM workflow_predicate_verdicts ORDER BY rowid`)
 	before["workflow_review_state"] = retirementUpgradeRows(t, db, `SELECT work_id,json_remove(state,'$.correction_funding') FROM workflow_review_state ORDER BY rowid`)
-	before["workflow_instances"] = retirementUpgradeRows(t, db, `SELECT work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY rowid`)
+	before["workflow_instances"] = cutoverInstanceExpectations(t, db, "")
 }
 
 func TestOrdinaryRecordsUpgradePreservesInstances(t *testing.T) {
 	useStampedBuild(t)
 	db, path := defectRetirementFixture(t)
 	seedDefectRetirementWork(t, db, "retained-instance", "bug", "needed", `{}`, "project-upgrade")
-	const columns = `work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at`
-	before := retirementUpgradeRows(t, db, `SELECT `+columns+` FROM workflow_instances ORDER BY work_id`)
+	before := cutoverInstanceExpectations(t, db, "")
 	if len(before) == 0 {
 		t.Fatal("fixture has no workflow instances")
 	}
 	if _, err := Upgrade(t.Context(), path, nil); err != nil {
 		t.Fatal(err)
 	}
-	if after := retirementUpgradeRows(t, db, `SELECT `+columns+` FROM workflow_instances ORDER BY work_id`); !reflect.DeepEqual(after, before) {
+	if after := retirementUpgradeRows(t, db, `SELECT * FROM workflow_instances ORDER BY rowid`); !reflect.DeepEqual(after, before) {
 		t.Fatalf("instances changed: before=%v after=%v", before, after)
 	}
 	if rows := retirementUpgradeRows(t, db, `SELECT name FROM pragma_table_info('workflow_instances') WHERE name='unhealthy_verdict_seq'`); len(rows) != 0 {
@@ -70,7 +85,7 @@ func TestDefectRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	retained := retirementUpgradeSnapshot(t, db)
 	ordinaryRecordsUpgradeExpectations(t, db, retained)
 	retainedBindings := retirementUpgradeRows(t, db, `SELECT work_id,contract_version,product_id,home_domain_id,projection_hash FROM workflow_architecture_bindings ORDER BY rowid`)
-	retainedContracts := retainedWorkflowContractRows(t, db)
+	retainedContracts := cutoverContractRows(t, db)
 	if s, err := Open(t.Context(), path); err == nil {
 		s.Close()
 		t.Fatal("ordinary open crossed the breaking retirement")
@@ -103,7 +118,7 @@ func TestDefectRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	}
 	for table, want := range retained {
 		switch table {
-		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions":
+		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions", "workflow_step_completions":
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' AND name=?`, table); len(rows) != 0 {
 				t.Errorf("retired table %s survives: %v", table, rows)
 			}
@@ -113,7 +128,7 @@ func TestDefectRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 		case "workflow_architecture_bindings":
 			want = retainedBindings
 		case "workflow_contracts":
-			if got := retainedWorkflowContractRows(t, db); !reflect.DeepEqual(got, retainedContracts) {
+			if got := cutoverContractRows(t, db); !reflect.DeepEqual(got, retainedContracts) {
 				t.Error("current contract facts changed")
 			}
 			continue
@@ -280,7 +295,6 @@ func TestDefectRetirementCollectedAbsenceReaders(t *testing.T) {
 func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 	useStampedBuild(t)
 	db, path := defectRetirementFixture(t)
-	const instanceColumns = `work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at`
 	const operationColumns = `op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_digest,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest`
 	classified := `{"task":"Preserve instructions","defect":{"failure_shape":"checksum-mismatch"}}`
 	tests := []struct {
@@ -325,10 +339,10 @@ func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 				column = "id"
 			}
 			columns := "*"
-			if table == "workflow_instances" {
-				columns = instanceColumns
-			}
 			rows := retirementUpgradeRows(t, db, `SELECT `+columns+` FROM `+table+` WHERE `+column+`=? ORDER BY rowid`, test.id)
+			if table == "workflow_instances" {
+				rows = cutoverInstanceExpectations(t, db, `WHERE i.work_id='`+test.id+`'`)
+			}
 			if table == "work_items" {
 				rows[0][intentColumn] = retirementUpgradeRows(t, db, `SELECT json_remove(intent_json,'$.defect') FROM work_items WHERE id=?`, test.id)[0][0]
 			}
@@ -346,7 +360,7 @@ func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 	before := retirementUpgradeSnapshot(t, db)
 	ordinaryRecordsUpgradeExpectations(t, db, before)
 	retainedBindings := retirementUpgradeRows(t, db, `SELECT work_id,contract_version,product_id,home_domain_id,projection_hash FROM workflow_architecture_bindings ORDER BY rowid`)
-	retainedContracts := retainedWorkflowContractRows(t, db)
+	retainedContracts := cutoverContractRows(t, db)
 	if _, err := Upgrade(t.Context(), path, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -358,9 +372,6 @@ func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 					column = "id"
 				}
 				columns := "*"
-				if table == "workflow_instances" {
-					columns = instanceColumns
-				}
 				if got := retirementUpgradeRows(t, db, `SELECT `+columns+` FROM `+table+` WHERE `+column+`=? ORDER BY rowid`, test.id); !reflect.DeepEqual(got, expected) {
 					t.Errorf("%s rows = %v, want %v", table, got, expected)
 				}
@@ -369,7 +380,7 @@ func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 	}
 	for table, expected := range before {
 		switch table {
-		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions":
+		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions", "workflow_step_completions":
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' AND name=?`, table); len(rows) != 0 {
 				t.Errorf("retired table %s survives: %v", table, rows)
 			}
@@ -384,7 +395,7 @@ func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 		case "workflow_architecture_bindings":
 			expected = retainedBindings
 		case "workflow_contracts":
-			if got := retainedWorkflowContractRows(t, db); !reflect.DeepEqual(got, retainedContracts) {
+			if got := cutoverContractRows(t, db); !reflect.DeepEqual(got, retainedContracts) {
 				t.Error("current contract facts changed")
 			}
 			continue

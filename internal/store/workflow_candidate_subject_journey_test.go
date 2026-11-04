@@ -83,7 +83,7 @@ func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Conte
 	version := readWorkVersion(t, j.s, j.workID)
 	id := fmt.Sprintf("%s-%s-%d", action, j.workID, version)
 	return j.s.Transact(ctx, func(tx *Transaction) error {
-		_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		_, err := ApplyWorkflowActionTx(ctx, tx, WorkflowActionExecutionRequest{
 			WorkID: j.workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: actor,
 			EvidenceRefs: actionEvidenceRefs(action, payload), AcceptedInputsDigest: nativeDigest([]byte(id)), IdempotencyIdentity: id,
 			OperationID: id, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: id,
@@ -145,6 +145,10 @@ func TestManagedCandidateSubjectFreshIndependentEvidenceAcceptsB(t *testing.T) {
 	if err := pConfirmReceiptPremise(t, f); err != nil {
 		t.Fatalf("confirm the reviewed candidate and report: %v", err)
 	}
+	if err := runVerdictActionAs(t, f.store, f.workID, "record_delivery", mustJSONValue(map[string]any{"delivery_artifact": "artifact:candidate-current", "delivery_state": "asserted"}), 0, f.owner); err != nil {
+		t.Fatalf("record delivery: %v", err)
+	}
+	completeWorkflowPlanFixture(t, f.store, f.workID)
 	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID}
 	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner); err != nil {
 		t.Fatalf("complete the reviewed candidate: %v", err)
@@ -152,14 +156,14 @@ func TestManagedCandidateSubjectFreshIndependentEvidenceAcceptsB(t *testing.T) {
 }
 
 func TestManagedCandidateSubjectCorrectiveReviewOnB(t *testing.T) {
-	c := acceptDeliveryCandidateAt(t, "candidate-corrective-report", "workflow.break_fix", "verify", false)
+	c := acceptDeliveryCandidateAt(t, "candidate-corrective-report", WorkflowStepPlanFix)
 	acceptCurrentReviewForTest(t, c.f, "correction_required")
 	run := c.j.observeRun(t, "correction")
 	c.j.bindVerification(t, run)
-	step := currentStep(t, c.f.store, c.f.workID)
+	step := workflowPlanFixtureFrontier(t, c.f.store, c.f.workID)
 	acceptCurrentReviewForTest(t, c.f, "ready_for_final_proof")
 	state, err := loadWorkflowReviewState(t.Context(), c.f.store.db, c.f.workID)
-	if err != nil || state.Accepted == nil || state.Accepted.Report.Disposition != "ready_for_final_proof" || currentStep(t, c.f.store, c.f.workID) != step {
+	if err != nil || state.Accepted == nil || state.Accepted.Report.Disposition != "ready_for_final_proof" || workflowPlanFixtureFrontier(t, c.f.store, c.f.workID) != step {
 		t.Fatalf("ordinary Review did not refresh readiness in place: %+v, %v", state, err)
 	}
 }

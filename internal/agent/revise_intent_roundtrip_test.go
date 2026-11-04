@@ -14,19 +14,13 @@ import (
 
 // CON-835 regression. revise_intent is complete replacement (TS4 2.1), so a
 // coordinator that revises only the task must carry every other revisable
-// value out of the authoritative typed read. The scope and full-list reads
-// dropped urgency, tags, and workflow_type_ref, so a carried task-only
-// revision silently reset them to their defaults. The field set below is
-// derived from reviseMutationInput and the stored intent projection: kind,
-// title, task, value_statement, priority, urgency, tags, workflow_type_ref.
-// external_ref stays capture-owned: it is preserved by the fold and never
-// enters revision input.
+// value out of the authoritative typed read. external_ref stays capture-owned.
 func TestTaskOnlyRevisionCarriesCompleteIntentThroughScopeRead(t *testing.T) {
 	t.Parallel()
 	s, ctx, service, env, workID := seedIntentRoundtripWork(t, map[string]any{
 		"title": "Preserve the recorded intent", "value_statement": "Unrelated intent metadata must survive a task-only revision",
 		"task": "Original recorded instruction", "kind": "task", "priority": -7, "urgency": "expedite",
-		"tags": []string{"agent-plane", "storage"}, "workflow_type_ref": "workflow.break_fix",
+		"tags":         []string{"agent-plane", "storage"},
 		"external_ref": "linear:CON-835-1", "idempotency_key": "roundtrip-capture-1",
 	})
 
@@ -35,7 +29,7 @@ func TestTaskOnlyRevisionCarriesCompleteIntentThroughScopeRead(t *testing.T) {
 		"kind": "task", "title": "Preserve the recorded intent", "task": "Original recorded instruction",
 		"value_statement": "Unrelated intent metadata must survive a task-only revision",
 		"priority":        float64(-7), "urgency": "expedite",
-		"tags": []any{"agent-plane", "storage"}, "workflow_type_ref": "workflow.break_fix",
+		"tags": []any{"agent-plane", "storage"},
 	})
 
 	revise := carriedTaskOnlyRevision(t, before, workID, "Replacement instruction that changes nothing else", "roundtrip-revise-1")
@@ -49,7 +43,7 @@ func TestTaskOnlyRevisionCarriesCompleteIntentThroughScopeRead(t *testing.T) {
 		"kind": "task", "title": "Preserve the recorded intent", "task": "Replacement instruction that changes nothing else",
 		"value_statement": "Unrelated intent metadata must survive a task-only revision",
 		"priority":        float64(-7), "urgency": "expedite",
-		"tags": []any{"agent-plane", "storage"}, "workflow_type_ref": "workflow.break_fix",
+		"tags": []any{"agent-plane", "storage"},
 	})
 	assertStoredExternalRef(t, s, workID, "linear:CON-835-1")
 }
@@ -63,7 +57,7 @@ func TestTaskOnlyRevisionCarriesCompleteIntentThroughFullListRead(t *testing.T) 
 	s, ctx, service, env, workID := seedIntentRoundtripWork(t, map[string]any{
 		"title": "Preserve intent through the list read", "value_statement": "Full-detail listings carry the complete revisable intent",
 		"task": "Original list instruction", "kind": "bug", "priority": 42, "urgency": "expedite",
-		"tags": []string{"agent-surface"}, "workflow_type_ref": "workflow.break_fix",
+		"tags":         []string{"agent-surface"},
 		"external_ref": "linear:CON-835-2", "idempotency_key": "roundtrip-capture-2",
 	})
 
@@ -72,7 +66,7 @@ func TestTaskOnlyRevisionCarriesCompleteIntentThroughFullListRead(t *testing.T) 
 		"kind": "bug", "title": "Preserve intent through the list read", "task": "Original list instruction",
 		"value_statement": "Full-detail listings carry the complete revisable intent",
 		"priority":        float64(42), "urgency": "expedite",
-		"tags": []any{"agent-surface"}, "workflow_type_ref": "workflow.break_fix",
+		"tags": []any{"agent-surface"},
 	})
 
 	revise := carriedTaskOnlyRevision(t, before, workID, "Replacement instruction from the list read", "roundtrip-revise-2")
@@ -86,7 +80,7 @@ func TestTaskOnlyRevisionCarriesCompleteIntentThroughFullListRead(t *testing.T) 
 		"kind": "bug", "title": "Preserve intent through the list read", "task": "Replacement instruction from the list read",
 		"value_statement": "Full-detail listings carry the complete revisable intent",
 		"priority":        float64(42), "urgency": "expedite",
-		"tags": []any{"agent-surface"}, "workflow_type_ref": "workflow.break_fix",
+		"tags": []any{"agent-surface"},
 	})
 	assertStoredExternalRef(t, s, workID, "linear:CON-835-2")
 }
@@ -94,10 +88,7 @@ func TestTaskOnlyRevisionCarriesCompleteIntentThroughFullListRead(t *testing.T) 
 // Lawful zero, empty, and absent states must survive unchanged: an omitted
 // priority stays zero, a default urgency stays standard, an explicitly empty
 // tag array stays an empty array rather than becoming an invented value or a
-// null, and an absent optional intent field stays absent. The pinned workflow
-// instance is not a substitute for an absent recorded workflow_type_ref: a
-// read that substituted it would make a carried revision pin workflow
-// metadata the intent never declared.
+// null, and an absent optional intent field stays absent.
 func TestTaskOnlyRevisionPreservesZeroEmptyAndAbsentIntentStates(t *testing.T) {
 	t.Parallel()
 	s, ctx, service, env, workID := seedIntentRoundtripWork(t, map[string]any{
@@ -290,7 +281,7 @@ func carriedTaskOnlyRevision(t *testing.T, read map[string]any, workID, replacem
 		"evidence":        []map[string]any{{"kind": "commit", "authority": "git", "locator_kind": "commit", "locator": "commit:7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"}},
 		"idempotency_key": idempotencyKey,
 	}
-	for _, field := range []string{"priority", "urgency", "tags", "workflow_type_ref"} {
+	for _, field := range []string{"priority", "urgency", "tags"} {
 		if value, ok := read[field]; ok {
 			revise[field] = value
 		}

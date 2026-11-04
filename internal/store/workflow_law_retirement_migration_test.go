@@ -8,14 +8,6 @@ import (
 	"testing"
 )
 
-// The current reader's columns are compared on both sides of destructive upgrades.
-const retainedWorkflowContractColumns = `work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,superseded_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json,definition_ref,definition_digest,supersession_seq,last_healthy_seq,decision_domains`
-
-func retainedWorkflowContractRows(t *testing.T, db *sql.DB) [][]any {
-	t.Helper()
-	return retirementUpgradeRows(t, db, `SELECT `+retainedWorkflowContractColumns+` FROM workflow_contracts ORDER BY rowid`)
-}
-
 func TestLawAttributionStateRetired(t *testing.T) {
 	s := openTemp(t)
 	var count int
@@ -40,7 +32,7 @@ func TestLawAttributionVerifiedSnapshotUpgrade(t *testing.T) {
 	before := retirementUpgradeSnapshot(t, db)
 	retained := retirementUpgradeSnapshot(t, db)
 	ordinaryRecordsUpgradeExpectations(t, db, retained)
-	contracts := retainedWorkflowContractRows(t, db)
+	contracts := cutoverContractRows(t, db)
 	if s, err := Open(t.Context(), path); err == nil {
 		s.Close()
 		t.Fatal("ordinary open crossed the breaking law-attribution retirement")
@@ -75,8 +67,13 @@ func TestLawAttributionVerifiedSnapshotUpgrade(t *testing.T) {
 		switch table {
 		case "schema", "schema_migrations", "store_revision", "workflow_law_baselines", "work_messages", "work_observations", "workflow_correction_state", "workflow_artifact_actions":
 			continue
+		case "workflow_step_completions":
+			if got := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name=? OR tbl_name=?`, table, table); len(got) != 0 {
+				t.Errorf("retired schema survives: %v", got)
+			}
+			continue
 		case "workflow_contracts":
-			if got := retainedWorkflowContractRows(t, db); !reflect.DeepEqual(got, contracts) {
+			if got := cutoverContractRows(t, db); !reflect.DeepEqual(got, contracts) {
 				t.Errorf("current contract facts changed: got %v, want %v", got, contracts)
 			}
 			continue

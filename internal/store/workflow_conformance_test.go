@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strconv"
@@ -49,11 +48,11 @@ type workflowCorpusCurrentState struct {
 	ProofCase string `json:"proof_case,omitempty"`
 }
 type workflowCorpusFixtureRefs struct {
-	WorkItem    string   `json:"work_item"`
-	Actors      []string `json:"actors"`
-	Definitions []string `json:"definitions"`
-	Evidence    []string `json:"evidence"`
-	Relations   []string `json:"relations"`
+	WorkItem      string                 `json:"work_item"`
+	Actors        []string               `json:"actors"`
+	WorkflowTypes []WorkflowStepPlanType `json:"workflow_types"`
+	Evidence      []string               `json:"evidence"`
+	Relations     []string               `json:"relations"`
 }
 type workflowCorpusFault struct {
 	Kind  string         `json:"kind"`
@@ -61,7 +60,7 @@ type workflowCorpusFault struct {
 }
 type workflowCorpusRequest struct {
 	ActorRef        string                    `json:"actor_ref"`
-	DefinitionRef   string                    `json:"definition_ref"`
+	WorkflowType    *WorkflowStepPlanType     `json:"workflow_type"`
 	ExpectedVersion int64                     `json:"expected_version,omitempty"`
 	ActionID        string                    `json:"action_id"`
 	Fields          map[string]any            `json:"fields"`
@@ -74,7 +73,17 @@ func (request *workflowCorpusRequest) UnmarshalJSON(raw []byte) error {
 	type currentRequest workflowCorpusRequest
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
-	return decoder.Decode((*currentRequest)(request))
+	if err := decoder.Decode((*currentRequest)(request)); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	if _, ok := fields["workflow_type"]; !ok {
+		return fmt.Errorf("current fixture requires workflow_type")
+	}
+	return nil
 }
 
 type workflowCorpusIdempotency struct {
@@ -172,22 +181,21 @@ func runWorkflowScenarioCase(t *testing.T, scenario workflowScenario) {
 func executeWorkflowScenario(t *testing.T, action string, setup workflowCorpusSetup, request workflowCorpusRequest) (workflowObservation, error) {
 	t.Helper()
 	switch action {
-	case "capture", "record_proposal", "approve_contract", "record_verdict", "confirm_premise", "complete":
+	case "capture", "approve_contract", "record_verdict", "confirm_premise", "complete":
 	default:
 		return workflowObservation{}, fmt.Errorf("action %q is not in the current corpus action union", action)
 	}
-	if setup.CurrentState == nil || request.DefinitionRef == "" {
-		return workflowObservation{}, fmt.Errorf("current fixture requires current state and a current family selector")
+	if setup.CurrentState == nil {
+		return workflowObservation{}, fmt.Errorf("current fixture requires current state")
 	}
-	if action != request.ActionID || !slices.Contains(setup.FixtureRefs.Definitions, request.DefinitionRef) {
-		return workflowObservation{}, fmt.Errorf("current fixture action or family selector mismatch")
+	if action != request.ActionID || (request.WorkflowType == nil && len(setup.FixtureRefs.WorkflowTypes) != 0) || (request.WorkflowType != nil && (!slices.Contains(WorkflowStepPlanTypes, *request.WorkflowType) || !slices.Contains(setup.FixtureRefs.WorkflowTypes, *request.WorkflowType))) {
+		return workflowObservation{}, fmt.Errorf("current fixture action or workflow type mismatch")
+	}
+	if request.Idempotency.Key == "" || request.Idempotency.RequestID == "" || request.Idempotency.AcceptedInputsDigest == "" || request.Operation.OpID == "" || request.Idempotency.OperationID != request.Operation.OpID {
+		return workflowObservation{}, fmt.Errorf("current fixture idempotency identity mismatch")
 	}
 	if len(setup.Faults) != 0 {
 		return workflowObservation{}, fmt.Errorf("current fixture declares unsupported faults")
-	}
-	registered, err := LiveWorkflowDefinitionForRef(request.DefinitionRef)
-	if err != nil {
-		return workflowObservation{}, err
 	}
 	workID := setup.FixtureRefs.WorkItem
 	if workID == "" {
@@ -209,7 +217,7 @@ func executeWorkflowScenario(t *testing.T, action string, setup workflowCorpusSe
 		return workflowObservation{}, fmt.Errorf("current fixture grant does not authorize this scope and capability")
 	}
 	ctx := context.Background()
-	s, registry, err := prepareWorkflowCorpusState(t, setup, request, registered, actor)
+	s, err := prepareWorkflowCorpusState(t, setup, request, actor)
 	if err != nil {
 		return workflowObservation{}, err
 	}
@@ -248,7 +256,7 @@ func executeWorkflowScenario(t *testing.T, action string, setup workflowCorpusSe
 		_ = tx.Rollback()
 		return workflowObservation{}, err
 	}
-	_, actionErr := applyWorkflowActionRawTx(ctx, tx, scope, registry, WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: request.ExpectedVersion, ActionID: action, Payload: payload, Actor: actor, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: request.Idempotency.Key, OperationID: request.Operation.OpID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: request.Idempotency.Key, RequestID: request.Idempotency.RequestID, AcceptedScope: `{"project":"project"}`, ContractDigest: testManifestDigest, Now: time.Now().UTC()})
+	_, actionErr := applyWorkflowActionRawTx(ctx, tx, scope, WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: request.ExpectedVersion, ActionID: action, Payload: payload, Actor: actor, AcceptedInputsDigest: request.Idempotency.AcceptedInputsDigest, IdempotencyIdentity: request.Idempotency.Key, OperationID: request.Operation.OpID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: request.Idempotency.Key, RequestID: request.Idempotency.RequestID, AcceptedScope: `{"project":"project"}`, ContractDigest: testManifestDigest, Now: time.Now().UTC()})
 	_ = scope.close(ctx)
 	if actionErr != nil {
 		_ = tx.Rollback()
@@ -262,51 +270,53 @@ func executeWorkflowScenario(t *testing.T, action string, setup workflowCorpusSe
 	return observeWorkflowStore(ctx, s, workID, beforeSeq, actionErr, map[string]any{"state_unchanged": contractCorrectionEffectSnapshot(t, s, workID) == beforeState, "contract_unchanged": bytes.Equal(beforeContract, afterContract)})
 }
 
-func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request workflowCorpusRequest, registered RegisteredDefinition, actor WorkflowActor) (*Store, DefinitionRegistry, error) {
+func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request workflowCorpusRequest, actor WorkflowActor) (*Store, error) {
 	t.Helper()
 	ctx := t.Context()
 	workID, proof := setup.FixtureRefs.WorkItem, setup.CurrentState.ProofCase
-	actions := map[string]string{"planning_without_outcome": "approve_contract", "weaker_delivery": "confirm_premise", "satisfied_delivery": "complete", "completion_rollback": "complete", "missing_definition": "record_proposal", "one_conjunct_weaker": "confirm_premise"}
+	actions := map[string]string{"planning_without_outcome": "approve_contract", "weaker_delivery": "confirm_premise", "satisfied_delivery": "confirm_premise", "completion_rollback": "complete", "unpicked_plan": "confirm_premise", "one_conjunct_weaker": "confirm_premise"}
 	if proof != "" {
 		if action, ok := actions[proof]; !ok || action != request.ActionID {
-			return nil, nil, fmt.Errorf("current fixture proof case %q does not prepare action %q", proof, request.ActionID)
+			return nil, fmt.Errorf("current fixture proof case %q does not prepare action %q", proof, request.ActionID)
 		}
-	} else if !slices.Contains([]string{"capture", "record_proposal"}, request.ActionID) {
-		return nil, nil, fmt.Errorf("current fixture action %q requires a proof case", request.ActionID)
+	} else if request.ActionID != "capture" {
+		return nil, fmt.Errorf("current fixture action %q requires a proof case", request.ActionID)
 	}
-	registry := BuiltinWorkflowRegistry()
 	var s *Store
 	var owner WorkflowActor
 	switch proof {
-	case "", "planning_without_outcome", "missing_definition":
+	case "", "planning_without_outcome", "unpicked_plan":
 		s = openTemp(t)
 		if err := seedCorpusProduct(ctx, s); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		if err := createCorpusCurrentWorkflow(ctx, s, workID, registered, actor, request.Fields); err != nil {
-			return nil, nil, err
+		if err := createCorpusCurrentWorkflow(ctx, s, workID, actor, request.Fields); err != nil {
+			return nil, err
 		}
 		if proof == "planning_without_outcome" {
-			seedWorkflowLaw(t, s)
-			version := readWorkVersion(t, s, workID)
-			for _, action := range []string{"record_proposal", "record_alignment"} {
-				version = issue31WorkflowAction(t, s, workID, version, action, "corpus:"+action, actor)
+			if request.WorkflowType == nil {
+				return nil, fmt.Errorf("current fixture requires a picked workflow type")
 			}
+			seedWorkflowLaw(t, s)
+			seedWorkflowPlanFrontier(t, s, workID, *request.WorkflowType, "plan")
 		}
-		if proof == "missing_definition" {
-			registry = NewWorkflowDefinitionRegistry()
+	case "completion_rollback":
+		if request.WorkflowType == nil {
+			return nil, fmt.Errorf("current fixture requires a picked workflow type")
 		}
-	case "satisfied_delivery", "completion_rollback":
+		f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, *request.WorkflowType, "plan", []string{}, []string{})
+		s, owner = f.store, f.owner
+		completeWorkflowPlanFixture(t, s, workID)
+		version := readWorkVersion(t, s, workID)
+		if err := ApplyOperation(ctx, s, Operation{Events: []Event{workTransitionEvent(workID+":start", workID, "needed", "in_progress", version, version+1)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+			return nil, err
+		}
+		if _, err := s.db.ExecContext(ctx, `CREATE TRIGGER corpus_completion_conflict BEFORE INSERT ON effect_receipts WHEN NEW.kind='workflow.completed' BEGIN SELECT RAISE(ABORT,'injected completion append conflict'); END`); err != nil {
+			return nil, err
+		}
+	case "satisfied_delivery":
 		f := qCurrentAcceptance(t, workID, "review")
 		s, owner = f.store, f.owner
-		if err := f.run(ctx, "confirm_premise", "corpus-confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
-			return nil, nil, err
-		}
-		if proof == "completion_rollback" {
-			if _, err := s.db.ExecContext(ctx, `CREATE TRIGGER corpus_completion_conflict BEFORE INSERT ON effect_receipts WHEN NEW.kind='workflow.completed' BEGIN SELECT RAISE(ABORT,'injected completion append conflict'); END`); err != nil {
-				return nil, nil, err
-			}
-		}
 	case "weaker_delivery", "one_conjunct_weaker":
 		predicates := []map[string]any{}
 		if proof == "one_conjunct_weaker" {
@@ -315,7 +325,10 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 				{"predicate_id": "predicate:absent", "ordinal": 1, "outcome_kind": "absent", "outcome_payload": map[string]any{"kind": "absent", "surface": "surface:two", "subjects": []string{"subject:two"}, "distinguish_from": []string{"archived"}}},
 			}
 		}
-		route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, "execution", []string{"verification", "review"}, []string{"verification", "review", "artifact"}, predicates...)
+		if request.WorkflowType == nil {
+			return nil, fmt.Errorf("current fixture requires a picked workflow type")
+		}
+		route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, *request.WorkflowType, "implement", []string{"verification", "review"}, []string{"verification", "review", "artifact"}, predicates...)
 		j := pReturnClaim(t, route, workID)
 		s, owner = route.store, route.owner
 		run := j.observeRun(t, "corpus-proof")
@@ -331,28 +344,26 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 				report.Assessments = append(report.Assessments, assessment)
 			}
 		})
-		if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "acceptance", mustActorRef(t, route.owner)); err != nil {
-			return nil, nil, err
-		}
+		moveWorkflowPlanFixtureFrontier(t, s, workID, "review")
 		if proof == "one_conjunct_weaker" {
 			if err := j.action(t, "record_verdict", criterionAssociationPayload(run.OperationRef, "predicate:present"), route.owner); err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 		}
 	default:
-		return nil, nil, fmt.Errorf("current fixture has unknown proof case %q", proof)
+		return nil, fmt.Errorf("current fixture has unknown proof case %q", proof)
 	}
 	if owner != (WorkflowActor{}) && actor != owner {
-		return nil, nil, fmt.Errorf("current fixture actor does not match its prepared production actor")
+		return nil, fmt.Errorf("current fixture actor does not match its prepared production actor")
 	}
-	var step, family string
-	if err := s.db.QueryRowContext(ctx, `SELECT current_step,definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&step, &family); err != nil {
-		return nil, nil, err
+	projection, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID})
+	if err != nil {
+		return nil, err
 	}
-	if step != setup.CurrentState.Step || family != registered.Definition.Ref {
-		return nil, nil, fmt.Errorf("current fixture prepared %s/%s, want %s/%s", family, step, registered.Definition.Ref, setup.CurrentState.Step)
+	if projection.CurrentStep != setup.CurrentState.Step || (request.WorkflowType == nil && projection.Plan != nil) || (request.WorkflowType != nil && (projection.Plan == nil || projection.Plan.Type != *request.WorkflowType)) {
+		return nil, fmt.Errorf("current fixture prepared plan %v step %q, want type %v step %q", projection.Plan, projection.CurrentStep, request.WorkflowType, setup.CurrentState.Step)
 	}
-	return s, registry, nil
+	return s, nil
 }
 
 func workflowCorpusContractBytes(ctx context.Context, s *Store, workID string) ([]byte, error) {
@@ -368,29 +379,32 @@ func TestCorpusCurrentProofPreparationProfiles(t *testing.T) {
 	for _, tc := range []struct {
 		proof, step, action, kind string
 	}{
-		{"planning_without_outcome", "planning", "approve_contract", "invalid_input"},
-		{"weaker_delivery", "acceptance", "confirm_premise", "missing_evidence"},
-		{"satisfied_delivery", "release", "complete", ""},
-		{"completion_rollback", "release", "complete", "operation_conflict"},
-		{"missing_definition", "proposal", "record_proposal", "invariant_violation"},
-		{"one_conjunct_weaker", "acceptance", "confirm_premise", "missing_evidence"},
+		{"planning_without_outcome", "plan", "approve_contract", "invalid_input"},
+		{"weaker_delivery", "review", "confirm_premise", "missing_evidence"},
+		{"satisfied_delivery", "review", "confirm_premise", ""},
+		{"completion_rollback", "", "complete", "operation_conflict"},
+		{"unpicked_plan", "intake", "confirm_premise", "invalid_transition"},
+		{"one_conjunct_weaker", "review", "confirm_premise", "missing_evidence"},
 	} {
 		t.Run(tc.proof, func(t *testing.T) {
 			actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/work-alpha", ActorClass: ActorAgent}
 			ref := mustActorRef(t, actor)
-			setup := workflowCorpusSetup{FixtureRefs: workflowCorpusFixtureRefs{WorkItem: "work-alpha", Actors: []string{ref}, Definitions: []string{"workflow.implementation"}}, CurrentState: &workflowCorpusCurrentState{Step: tc.step, ProofCase: tc.proof}}
+			planType := WorkflowStepPlanChange
+			setup := workflowCorpusSetup{FixtureRefs: workflowCorpusFixtureRefs{WorkItem: "work-alpha", Actors: []string{ref}, WorkflowTypes: []WorkflowStepPlanType{planType}}, CurrentState: &workflowCorpusCurrentState{Step: tc.step, ProofCase: tc.proof}}
 			fields := map[string]any{"impact_verdict": "non-breaking"}
 			switch tc.action {
 			case "approve_contract":
 				fields = map[string]any{"premise": "The bounded engineering result.", "decision_domains": []string{}}
-			case "record_proposal":
-				fields = map[string]any{"problem": "The bounded problem.", "affected": []string{"The fixture."}, "stakes": "The bounded stakes.", "user_outcomes": []string{"The checked result."}}
 			case "confirm_premise":
 				fields = map[string]any{}
 			}
-			request := workflowCorpusRequest{ActorRef: ref, DefinitionRef: "workflow.implementation", ActionID: tc.action, Fields: fields,
+			request := workflowCorpusRequest{ActorRef: ref, WorkflowType: &planType, ActionID: tc.action, Fields: fields,
 				Grant:       workflowCorpusGrant{PrincipalRef: actor.PrincipalRef, ClientRef: actor.ClientRef, AgentRef: actor.AgentRef, SessionRef: actor.SessionRef, Capability: "workflow_action", Scope: "project"},
-				Idempotency: workflowCorpusIdempotency{Key: "corpus:test", RequestID: "corpus:request", AcceptedInputsDigest: testManifestDigest}, Operation: workflowCorpusOperation{OpID: "corpus:test"}}
+				Idempotency: workflowCorpusIdempotency{Key: "corpus:test", RequestID: "corpus:request", OperationID: "corpus:test", AcceptedInputsDigest: testManifestDigest}, Operation: workflowCorpusOperation{OpID: "corpus:test"}}
+			if tc.proof == "unpicked_plan" {
+				request.WorkflowType = nil
+				setup.FixtureRefs.WorkflowTypes = nil
+			}
 			observation, err := executeWorkflowScenario(t, tc.action, setup, request)
 			if err != nil {
 				t.Fatal(err)
@@ -404,9 +418,9 @@ func TestCorpusCurrentProofPreparationProfiles(t *testing.T) {
 			}
 			detail := map[string]string{
 				"planning_without_outcome": `workflow action payload field "outcome_predicates" is required for action "approve_contract"`,
-				"missing_definition":       "current workflow definition is unavailable: workflow.implementation",
-				"weaker_delivery":          "premise confirmation requires a recorded workflow verdict",
-				"one_conjunct_weaker":      "premise confirmation requires a verdict for every approved predicate: missing predicate:absent",
+				"unpicked_plan":            "action is not declared on a frontier step",
+				"weaker_delivery":          "premise confirmation requires proof for every approved predicate: missing predicate:return-route",
+				"one_conjunct_weaker":      "premise confirmation requires proof for every approved predicate: missing predicate:absent",
 			}[tc.proof]
 			if detail != "" {
 				if err := workflowObservationAssertionError(observation, workflowAssertion{Target: "communication", Path: "error.detail", Op: "eq", Value: detail}); err != nil {
@@ -477,9 +491,49 @@ func TestWorkflowScenarioCorpusMutationsRerunAgainstAuthoritativeState(t *testin
 	}
 }
 
+func TestWorkflowScenarioCorpusUnavailableActionPrecedesAuthorization(t *testing.T) {
+	t.Parallel()
+	scenario := readWorkflowScenarioCorpus(t).Scenarios[5]
+	grant := scenario.Request.Grant
+	actor := WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: ActorAgent}
+	s, err := prepareWorkflowCorpusState(t, scenario.Setup, scenario.Request, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workID := scenario.Setup.FixtureRefs.WorkItem
+	version := readWorkVersion(t, s, workID)
+	request := WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, ActionID: scenario.Action, Payload: json.RawMessage(`{}`), Actor: actor}
+	before := contractCorrectionEffectSnapshot(t, s, workID)
+	var actorsBefore, actorsAfter int
+	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_actors`).Scan(&actorsBefore); err != nil {
+		t.Fatal(err)
+	}
+	_, preflight := WorkflowActionDefinitionFor(t.Context(), s, request)
+	if !hasFailureKind(preflight, KindIllegalLifecycleTransition) {
+		t.Fatalf("unpicked plan preflight: %v", preflight)
+	}
+	authorized, mutated := false, false
+	err = AuthorizeWorkflowActionAtBoundaryTx(t.Context(), s, request, func(*Transaction) error {
+		authorized = true
+		return nil
+	}, func(*Transaction) error {
+		mutated = true
+		return nil
+	})
+	if !hasFailureKind(err, KindIllegalLifecycleTransition) || authorized || mutated {
+		t.Fatalf("unpicked plan boundary err=%v authorized=%v mutated=%v", err, authorized, mutated)
+	}
+	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_actors`).Scan(&actorsAfter); err != nil {
+		t.Fatal(err)
+	}
+	if actorsBefore != actorsAfter || contractCorrectionEffectSnapshot(t, s, workID) != before {
+		t.Fatal("unavailable action changed actor registration or durable state")
+	}
+}
+
 func TestCorpusCurrentRequestRejectsActorScopeAndActionMutations(t *testing.T) {
 	t.Parallel()
-	for _, mutation := range []string{"actor", "scope", "capability", "setup_actor", "definition", "action", "proof_case"} {
+	for _, mutation := range []string{"actor", "scope", "capability", "setup_actor", "workflow_type", "action", "proof_case", "operation_id"} {
 		t.Run(mutation, func(t *testing.T) {
 			scenario := readWorkflowScenarioCorpus(t).Scenarios[0]
 			switch mutation {
@@ -491,12 +545,15 @@ func TestCorpusCurrentRequestRejectsActorScopeAndActionMutations(t *testing.T) {
 				scenario.Request.Grant.Capability = "workflow_read"
 			case "setup_actor":
 				scenario.Setup.FixtureRefs.Actors = []string{"actor:other"}
-			case "definition":
-				scenario.Request.DefinitionRef = "workflow.research"
+			case "workflow_type":
+				planType := WorkflowStepPlanResearch
+				scenario.Request.WorkflowType = &planType
 			case "action":
 				scenario.Request.ActionID = "approve_contract"
 			case "proof_case":
 				scenario.Setup.CurrentState.ProofCase = "satisfied_delivery"
+			case "operation_id":
+				scenario.Request.Idempotency.OperationID = "different-operation"
 			}
 			if _, err := executeWorkflowScenario(t, scenario.Action, scenario.Setup, scenario.Request); err == nil {
 				t.Fatalf("%s mutation crossed the current fixture boundary", mutation)
@@ -536,27 +593,24 @@ func TestCorpusCurrentSetupRefusesHistoricalInputs(t *testing.T) {
 			}
 		})
 	}
-	for _, missing := range []string{"state", "selector"} {
-		setup, request := scenario.Setup, scenario.Request
-		if missing == "state" {
-			setup.CurrentState = nil
-		} else {
-			request.DefinitionRef = ""
-		}
-		if _, err := executeWorkflowScenario(t, scenario.Action, setup, request); err == nil || !strings.Contains(err.Error(), "current fixture") {
-			t.Fatalf("incomplete current fixture was not refused: %v", err)
-		}
+	setup := scenario.Setup
+	setup.CurrentState = nil
+	if _, err := executeWorkflowScenario(t, scenario.Action, setup, scenario.Request); err == nil || !strings.Contains(err.Error(), "current fixture") {
+		t.Fatalf("incomplete current fixture was not refused: %v", err)
+	}
+	if err := json.Unmarshal([]byte(`{"actor_ref":"actor:test"}`), &workflowCorpusRequest{}); err == nil {
+		t.Fatal("missing workflow_type selector accepted")
 	}
 }
 
 func TestCorpusCurrentStateChangeObservationUsesDurableRows(t *testing.T) {
-	current := readWorkflowScenarioCorpus(t).Scenarios[0]
+	current := readWorkflowScenarioCorpus(t).Scenarios[3]
 	for _, tc := range []struct {
 		action    string
 		fields    map[string]any
 		unchanged bool
 	}{
-		{"record_proposal", map[string]any{"problem": "The bounded problem.", "affected": []string{"The fixture."}, "stakes": "The bounded stakes.", "user_outcomes": []string{"The checked result."}}, false},
+		{"confirm_premise", map[string]any{}, false},
 	} {
 		t.Run(tc.action, func(t *testing.T) {
 			request := current.Request
@@ -587,7 +641,7 @@ func TestCorpusCaptureObservationReadsApprovedContract(t *testing.T) {
 	grant := scenario.Request.Grant
 	actor := WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: ActorAgent}
 	workID := scenario.Setup.FixtureRefs.WorkItem
-	if err := createCorpusCurrentWorkflow(ctx, s, workID, mustBuiltinDefinition(t, scenario.Request.DefinitionRef), actor, scenario.Request.Fields); err != nil {
+	if err := createCorpusCurrentWorkflow(ctx, s, workID, actor, scenario.Request.Fields); err != nil {
 		t.Fatal(err)
 	}
 	observation, err := observeWorkflowStore(ctx, s, workID, 0, nil, nil)
@@ -598,27 +652,9 @@ func TestCorpusCaptureObservationReadsApprovedContract(t *testing.T) {
 	if err := workflowObservationAssertionError(observation, absent); err != nil {
 		t.Fatalf("capture fabricated an approved contract: %v", err)
 	}
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
 	version := readWorkVersion(t, s, workID)
-	for _, action := range []string{"record_proposal", "record_alignment"} {
-		version = issue31WorkflowAction(t, s, workID, version, action, workID+":"+action, actor)
-	}
-	binding := corpusArchitectureBinding()
-	// The binding names the committed registry's root Domain: the fixture
-	// home carries the registry file, and the approval validates against the
-	// registry that file declares.
-	registryJSON, err := os.ReadFile(filepath.Join(workflowLawFixtureRepo(t, s), filepath.FromSlash(knowledgeRegistryPath)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var registry KnowledgeDomainRegistry
-	if err := json.Unmarshal(registryJSON, &registry); err != nil {
-		t.Fatal(err)
-	}
-	binding["home_domain_id"], binding["affected_domain_ids"] = registry.RootDomainID, []string{registry.RootDomainID}
-	payload, err := json.Marshal(map[string]any{"spec_mandate": []string{}, "law_modifies": []string{}, "architecture_binding": binding})
-	if err != nil {
-		t.Fatal(err)
-	}
+	payload := corpusApprovalPayload(t, s, workID)
 	issue31WorkflowActionWithPayload(t, s, workID, version, "approve_contract", workID+":approve", actor, payload)
 	observation, err = observeWorkflowStore(ctx, s, workID, 0, nil, nil)
 	if err != nil {
@@ -646,18 +682,16 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: mustBuiltinDefinition(t, "workflow.implementation"), Actor: actor, Now: corpusNow}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: corpusNow}); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
 	version := readWorkVersion(t, s, workID)
-	for _, action := range []string{"record_proposal", "record_alignment"} {
-		version = issue31WorkflowAction(t, s, workID, version, action, workID+":"+action, actor)
-	}
-	payload := testApprovalPayload(t, s, workID, "approve_contract", json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`))
+	payload := corpusApprovalPayload(t, s, workID)
 	before := contractCorrectionEffectSnapshot(t, s, workID)
 	var beforeContracts int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&beforeContracts); err != nil {
@@ -672,7 +706,7 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, actionErr := applyWorkflowActionRawTx(ctx, tx, scope, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: operationID, OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: operationID, RequestID: operationID + ":request", AcceptedScope: `{}`, ContractDigest: testManifestDigest, Now: corpusNow})
+	_, actionErr := applyWorkflowActionRawTx(ctx, tx, scope, WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: operationID, OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "workflow-corpus", IdempotencyKey: operationID, RequestID: operationID + ":request", AcceptedScope: `{}`, ContractDigest: testManifestDigest, Now: corpusNow})
 	_ = scope.close(ctx)
 	if actionErr != nil {
 		t.Fatalf("production action failed before rollback fault: %v", actionErr)
@@ -699,8 +733,12 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 	}
 }
 
-func corpusArchitectureBinding() map[string]any {
-	return map[string]any{"home_domain_id": "domain/corpus-main", "affected_domain_ids": []string{"domain/corpus-main"}, "domain_modifies": []string{}, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{}}
+func corpusApprovalPayload(t *testing.T, s *Store, workID string) json.RawMessage {
+	t.Helper()
+	return testApprovalPayload(t, s, workID, "approve_contract", mustJSONValue(map[string]any{
+		"contract_version": 1, "premise": "deliver the checked change", "required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
+		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:corpus", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:corpus", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}}},
+	}))
 }
 
 func workflowCurrentVersion(ctx context.Context, s *Store, workID string) (int64, error) {
@@ -723,7 +761,7 @@ func seedCorpusProduct(ctx context.Context, s *Store) error {
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product"): 0, VersionRef(SubjectProject, "project"): 0}})
 }
 
-func createCorpusCurrentWorkflow(ctx context.Context, s *Store, workID string, registered RegisteredDefinition, actor WorkflowActor, fields map[string]any) error {
+func createCorpusCurrentWorkflow(ctx context.Context, s *Store, workID string, actor WorkflowActor, fields map[string]any) error {
 	registration, ok := registeredEventKind("work.created")
 	if !ok {
 		return fmt.Errorf("current capture registration is unavailable")
@@ -744,7 +782,7 @@ func createCorpusCurrentWorkflow(ctx context.Context, s *Store, workID string, r
 		}
 	}
 	priority := int64(1)
-	created := Event{EventID: workID + ":capture", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actor.PrincipalRef, OccurredAt: corpusNow, PayloadVersion: registration.CurrentVersion, Payload: mustJSONValue(workCreatedPayload{WorkID: workID, WorkKind: "task", Title: title, ValueStatement: value, Priority: &priority, WorkflowTypeRef: registered.Definition.Ref})}
+	created := Event{EventID: workID + ":capture", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actor.PrincipalRef, OccurredAt: corpusNow, PayloadVersion: registration.CurrentVersion, Payload: mustJSONValue(workCreatedPayload{WorkID: workID, WorkKind: "task", Title: title, ValueStatement: value, Priority: &priority})}
 	if len(projectIDs) > 0 {
 		var err error
 		ctx, err = s.EstablishKnowledgeSourceSetProofForProject(ctx, projectIDs[0])
@@ -764,7 +802,7 @@ func createCorpusCurrentWorkflow(ctx context.Context, s *Store, workID string, r
 		if _, err := ApplyOperationTx(ctx, transaction, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
 			return err
 		}
-		return InitializeWorkflowTx(ctx, transaction, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: corpusNow})
+		return InitializeWorkflowTx(ctx, transaction, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: corpusNow})
 	})
 }
 

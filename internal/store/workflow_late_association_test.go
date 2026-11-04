@@ -2,27 +2,21 @@ package store
 
 import (
 	"encoding/json"
-	"slices"
 	"testing"
-	"time"
 )
 
 func seedLateCriterionAssociation(t *testing.T, workID string) (workflowReturnRouteFixture, string) {
 	t.Helper()
-	definition, err := BuiltinWorkflowDefinitionForRef("workflow.research")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return seedCriterionAssociationAtStep(t, workID, definition, "complete")
+	return seedCriterionAssociationAtStep(t, workID, "conclude")
 }
 
-func seedCriterionAssociationAtStep(t *testing.T, workID string, definition RegisteredDefinition, step string) (workflowReturnRouteFixture, string) {
+func seedCriterionAssociationAtStep(t *testing.T, workID, step string) (workflowReturnRouteFixture, string) {
 	t.Helper()
 	var predicates []map[string]any
 	for ordinal, id := range []string{"predicate:first", "predicate:second"} {
 		predicates = append(predicates, map[string]any{"predicate_id": id, "ordinal": ordinal, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}})
 	}
-	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, step, []string{}, []string{"artifact"}, predicates...)
+	route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, step, []string{}, []string{"artifact"}, predicates...)
 	t.Cleanup(func() { _ = route.store.Close() })
 	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
 	pack := seedResearchContextPack(t, f, "late-association-pack")
@@ -49,29 +43,20 @@ func criterionAssociationPayload(ref string, predicates ...string) json.RawMessa
 	return mustJSONValue(map[string]any{"verdicts": entries})
 }
 
-func TestCriterionAssociationAtPremiseQuestionWithoutDeclaration(t *testing.T) {
+func TestCriterionAssociationAtConclusionBeforeConfirmation(t *testing.T) {
 	const workID = "premise-late-association"
-	// The live heads declare association beside confirmation. A local current
-	// definition isolates the supported off-step premise-question shape without
-	// retaining a historical definition in the built-in registry.
-	d := cloneWorkflowDefinition(mustBuiltinDefinition(t, "workflow.research").Definition)
-	for i := range d.StepGraph.Steps {
-		switch d.StepGraph.Steps[i].ID {
-		case "conclude":
-			d.StepGraph.Steps[i].Actions = slices.DeleteFunc(d.StepGraph.Steps[i].Actions, func(id string) bool { return id == "record_verdict" })
-		case "findings":
-			d.StepGraph.Steps[i].Actions = append(d.StepGraph.Steps[i].Actions, "record_verdict")
-		}
-	}
-	registry := NewWorkflowDefinitionRegistry()
-	_, err := registry.Register(d)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f, ref := seedCriterionAssociationAtStep(t, workID, mustBuiltinDefinition(t, "workflow.research"), "conclude")
+	f, ref := seedCriterionAssociationAtStep(t, workID, "conclude")
 	preflight := func(action string, payload json.RawMessage) error {
 		request := WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: readWorkVersion(t, f.store, workID), ActionID: action, Payload: payload, Actor: f.owner}
-		return WorkflowActionPreflightWithRegistry(t.Context(), f.store, registry, request)
+		_, err := WorkflowActionDefinitionFor(t.Context(), f.store, request)
+		return err
+	}
+	before := outsideRepairDatabaseSnapshot(t, f.store)
+	if err := runVerdictActionAs(t, f.store, workID, "confirm_premise", json.RawMessage(`{}`), 0, f.owner); !hasFailureKind(err, KindMissingEvidence) {
+		t.Fatalf("unproved confirmation write=%v", err)
+	}
+	if outsideRepairDatabaseSnapshot(t, f.store) != before {
+		t.Fatal("unproved confirmation changed durable state")
 	}
 	if err := preflight("confirm_premise", json.RawMessage(`{}`)); !hasFailureKind(err, KindMissingEvidence) {
 		t.Fatalf("unproved confirmation=%v", err)
@@ -80,20 +65,20 @@ func TestCriterionAssociationAtPremiseQuestionWithoutDeclaration(t *testing.T) {
 	if err := preflight("record_verdict", payload); err != nil {
 		t.Fatal(err)
 	}
-	if err := runCoordinatorActionTx(t, f.store, registry, workID, "record_verdict", f.owner, string(payload)); err != nil {
+	if err := runVerdictActionAs(t, f.store, workID, "record_verdict", payload, 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
-	if step := currentStep(t, f.store, workID); step != "conclude" {
+	if step := workflowPlanFixtureFrontier(t, f.store, workID); step != "conclude" {
 		t.Fatalf("association moved premise-question step to %s", step)
 	}
 	if err := preflight("confirm_premise", json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
 	}
-	if err := runCoordinatorActionTx(t, f.store, registry, workID, "confirm_premise", f.owner, `{}`); err != nil {
+	if err := runVerdictActionAs(t, f.store, workID, "confirm_premise", json.RawMessage(`{}`), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
-	if step := currentStep(t, f.store, workID); step != "complete" {
-		t.Fatalf("confirmation held at %s", step)
+	if step := workflowPlanFixtureFrontier(t, f.store, workID); step != "conclude" {
+		t.Fatalf("confirmation moved explicit plan frontier to %s", step)
 	}
 }
 
@@ -118,8 +103,8 @@ func TestCriterionAssociationSurvivesUnchangedContractDigest(t *testing.T) {
 		if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tx.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains,definition_ref,definition_digest)
-			SELECT work_id,?,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains,definition_ref,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=1`, tc.version, workID); err != nil {
+		if _, err := tx.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains)
+			SELECT work_id,?,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=1`, tc.version, workID); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := tx.Exec(`UPDATE workflow_contracts SET superseded_by=? WHERE work_id=? AND contract_version<?`, tc.version, workID, tc.version); err != nil {
@@ -146,68 +131,34 @@ func TestCriterionAssociationSurvivesUnchangedContractDigest(t *testing.T) {
 				t.Fatalf("unchanged criterion lost its original proof: %v", err)
 			}
 		}
-		pin := issue1013Pin(t, f.store, workID)
-		var currentRecord bool
-		for _, intent := range pin.NextValidIntents {
-			if intent.ActionID == "record_verdict" && intent.ReasonCode == "current_record" {
-				currentRecord = true
-			}
+		err = runVerdictActionAs(t, f.store, workID, "confirm_premise", json.RawMessage(`{}`), 0, f.owner)
+		if tc.count == 2 && err != nil {
+			t.Fatalf("contract %d: confirmation of unchanged proof: %v", tc.version, err)
 		}
-		if !currentRecord {
-			t.Fatalf("contract %d: current verdict record is not editable", tc.version)
+		if tc.count != 2 && !hasFailureKind(err, KindMissingEvidence) {
+			t.Fatalf("contract %d: confirmation without current proof = %v", tc.version, err)
 		}
 	}
-}
-
-func TestCriterionAssociationCompletionCannotBorrowPriorEffect(t *testing.T) {
-	const workID = "late-association-completion"
-	f, ref := seedLateCriterionAssociation(t, workID)
 	if err := runVerdictActionAs(t, f.store, workID, "record_verdict", criterionAssociationPayload(ref, "predicate:first"), 0, f.owner); err != nil {
-		t.Fatal(err)
+		t.Fatalf("record current criterion association: %v", err)
 	}
-	actor, err := WorkflowActorRef(f.owner)
-	if err != nil {
-		t.Fatal(err)
+	verdicts, err := latestWorkflowVerdicts(t.Context(), f.store.db, workID, 4)
+	if err != nil || len(verdicts) != 2 {
+		t.Fatalf("current associations=%v err=%v", verdicts, err)
 	}
-	version := readWorkVersion(t, f.store, workID)
-	event := workflowTypedEvent("unpaired-association-completion", WorkflowActionCompleted, workID, actor, time.Unix(15, 0), version, map[string]any{
-		"step_id": "complete", "action_id": "record_verdict", "attempt_epoch": 1, "actor_ref": actor,
-		"result_evidence_refs": []string{ref}, "changed_refs": []string{workID},
-	})
-	before := contractCorrectionEffectSnapshot(t, f.store, workID)
-	err = applyWorkflowTestOperationDirect(t.Context(), f.store, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
-	if !hasFailureKind(err, KindMissingEvidence) {
-		t.Fatalf("unpaired completion=%v", err)
-	}
-	if after := contractCorrectionEffectSnapshot(t, f.store, workID); after != before {
-		t.Fatal("unpaired completion changed state")
-	}
-}
-
-func TestCriterionAssociationReplacementCompletionCannotBorrowPriorEffect(t *testing.T) {
-	const workID = "association-replacement-completion"
-	f, ref := seedLateCriterionAssociation(t, workID)
-	payload := criterionAssociationPayload(ref, "predicate:first")
-	for i := 0; i < 2; i++ {
-		if err := runVerdictActionAs(t, f.store, workID, "record_verdict", payload, 0, f.owner); err != nil {
-			t.Fatalf("verdict write %d: %v", i, err)
+	var replaced bool
+	for _, association := range verdicts {
+		if association.PredicateID == "predicate:first" && association.ContractVersion == 4 && association.CriterionDigest != "" {
+			replaced = true
+		}
+		if err := verifyWorkflowCriterionAssociation(t.Context(), f.store.db, workID, association); err != nil {
+			t.Fatalf("current association lost proof: %v", err)
 		}
 	}
-	actor, err := WorkflowActorRef(f.owner)
-	if err != nil {
-		t.Fatal(err)
+	if !replaced {
+		t.Fatal("record_verdict did not replace the current criterion association")
 	}
-	version := readWorkVersion(t, f.store, workID)
-	event := workflowTypedEvent("unpaired-replacement-completion", WorkflowActionCompleted, workID, actor, time.Unix(15, 0), version, map[string]any{
-		"step_id": "complete", "action_id": "record_verdict", "attempt_epoch": 1, "actor_ref": actor,
-		"result_evidence_refs": []string{ref}, "changed_refs": []string{workID},
-	})
-	before := contractCorrectionEffectSnapshot(t, f.store, workID)
-	err = applyWorkflowTestOperationDirect(t.Context(), f.store, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
-	if !hasFailureKind(err, KindMissingEvidence) {
-		t.Fatalf("unpaired replacement completion=%v", err)
-	}
-	if after := contractCorrectionEffectSnapshot(t, f.store, workID); after != before {
-		t.Fatal("unpaired replacement completion changed state")
+	if err := runVerdictActionAs(t, f.store, workID, "confirm_premise", json.RawMessage(`{}`), 0, f.owner); err != nil {
+		t.Fatalf("confirmation after current association: %v", err)
 	}
 }

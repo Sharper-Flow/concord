@@ -70,6 +70,18 @@ func TestPublicResearchCompletionJourney(t *testing.T) {
 		t.Fatalf("research capture=%+v", research.Error)
 	}
 	rcaID := (*research.ChangedRefs)[0].ID
+	for _, prelude := range []struct {
+		id     string
+		fields map[string]any
+	}{
+		{"record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false}},
+		{"pick_type", map[string]any{"type": "research", "reason": "Investigate the checksum defect."}},
+		{"frame_research", map[string]any{}},
+	} {
+		if response := action(env, rcaID, prelude.id, prelude.fields, "defect-journey-"+prelude.id); response.Outcome != agentcontract.OutcomeOK {
+			t.Fatalf("%s=%+v", prelude.id, response.Error)
+		}
+	}
 
 	contractFields := map[string]any{
 		"premise":            "The upload checksum cluster has one root cause.",
@@ -82,8 +94,14 @@ func TestPublicResearchCompletionJourney(t *testing.T) {
 	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract=%+v", approved.Error)
 	}
+	if response := action(env, rcaID, "complete_step", map[string]any{"step_id": "frame", "note": "Research framed."}, "defect-journey-frame-complete"); response.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("complete frame=%+v", response.Error)
+	}
 	if response := action(env, rcaID, "record_finding", map[string]any{}, "defect-journey-finding"); response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record_finding=%+v", response.Error)
+	}
+	if response := action(env, rcaID, "complete_step", map[string]any{"step_id": "investigate", "note": "Investigation recorded."}, "defect-journey-investigate-complete"); response.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("complete investigate=%+v", response.Error)
 	}
 	const reportEvidence = "evidence:defect-journey-report"
 	report := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
@@ -154,6 +172,29 @@ func TestPublicResearchCompletionJourney(t *testing.T) {
 	}) {
 		t.Fatal("premise consent boundary failed")
 	}
+	commit := gitRun(t, worktree, "rev-parse", "HEAD")
+	path := seedHostWorktree(t, s, worktree, rcaID, "project-1", commit)
+	env.Directory, env.Worktree = path, path
+	env.ScopeVersion, _, err = s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin, err = store.ReadWorkPin(ctx, s, rcaID)
+	if err != nil || pin.Review == nil || pin.Review.Dependencies == nil {
+		t.Fatalf("review dependencies: %+v err=%v", pin.Review, err)
+	}
+	candidate := store.ReviewCandidate{ProjectID: "project-1", Commit: commit, Tree: gitRun(t, path, "rev-parse", "HEAD^{tree}")}
+	review := &store.ReviewBlock{Disposition: "ready_for_final_proof", InputCandidate: candidate, OutputCandidate: candidate, Dependencies: *pin.Review.Dependencies, Assessments: []store.ReviewAssessment{}, Findings: []store.ReviewFinding{}, RemainingObligations: []store.ReviewObligation{}}
+	if response := action(env, rcaID, "record_review", map[string]any{"review": review}, "defect-journey-review"); response.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("record review=%+v", response.Error)
+	}
+	pin, err = store.ReadWorkPin(ctx, s, rcaID)
+	if err != nil || pin.Review == nil || pin.Review.Accepted == nil {
+		t.Fatalf("accepted review: %+v err=%v", pin.Review, err)
+	}
+	if response := action(env, rcaID, "complete_step", map[string]any{"step_id": "conclude", "note": "Research conclusion reviewed.", "reviewer": "concord-review", "result": "pass", "commit": commit, "link": pin.Review.Accepted.ReportRef}, "defect-journey-conclude-complete"); response.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("complete conclude=%+v", response.Error)
+	}
 	completed := approvedAction(env, map[string]any{"work_id": rcaID, "expected_version": workVersion(t, s, rcaID), "action_id": "complete", "fields": map[string]any{"impact_verdict": "non-breaking"}, "idempotency_key": "defect-journey-complete"}, "defect-journey-complete")
 	if completed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("complete=%+v", completed.Error)
@@ -161,12 +202,12 @@ func TestPublicResearchCompletionJourney(t *testing.T) {
 	if lifecycle := workLifecycle(t, s, rcaID); lifecycle != "completed" {
 		t.Fatalf("root cause lifecycle=%s, want completed", lifecycle)
 	}
-	var definitionRef string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, rcaID).Scan(&definitionRef); err != nil {
+	var workflowType string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT workflow_type FROM workflow_instances WHERE work_id=?`, rcaID).Scan(&workflowType); err != nil {
 		t.Fatal(err)
 	}
-	if definitionRef != "workflow.research" {
-		t.Fatalf("root cause workflow family=%s", definitionRef)
+	if workflowType != "research" {
+		t.Fatalf("root cause workflow type=%s", workflowType)
 	}
 	var fencedStarts int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, rcaID, store.WorkflowActionStarted).Scan(&fencedStarts); err != nil {

@@ -957,8 +957,7 @@ esac''',
                 self.assertEqual(Path(environment["CONCORD_TEST_CUTOVER_MARKER"]).exists(), mode != "fail")
 
     def test_cutover_forwards_only_explicit_operator_confirmations(self) -> None:
-        for flags in ((), ("--confirm-sessions-stopped",), ("--cancel-cutover-pinned-work",),
-                      ("--confirm-sessions-stopped", "--cancel-cutover-pinned-work")):
+        for flags in ((), ("--confirm-sessions-stopped",)):
             with self.subTest(flags=flags):
                 self.tearDown()
                 self.setUp()
@@ -971,7 +970,12 @@ esac''',
                 request = mutations[0]
                 self.assertIs(request.get("require_no_sessions"), True)
                 self.assertEqual(request.get("confirm_sessions_stopped", False), "--confirm-sessions-stopped" in flags)
-                self.assertEqual(request.get("cancel_cutover_pinned_work", False), "--cancel-cutover-pinned-work" in flags)
+                self.assertEqual(set(request), {"require_no_sessions", "maintenance_fd", "confirm_sessions_stopped"})
+
+    def test_cutover_rejects_retired_workflow_cancellation_flag(self) -> None:
+        result = self.run_installer("cutover", "--version", "v1.1.0", "--cancel-cutover-pinned-work")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unrecognized arguments: --cancel-cutover-pinned-work", result.stderr)
 
     def test_cutover_resumes_migrated_store_and_reruns_idempotently(self) -> None:
         self.prepare_a_blocked_release()
@@ -1011,7 +1015,7 @@ esac''',
         self.prepare_a_blocked_release()
         environment = self.cutover_env(already_migrated=True)
         args = SimpleNamespace(root=self.root, version="v1.1.0",
-                               confirm_sessions_stopped=False, cancel_cutover_pinned_work=False)
+                               confirm_sessions_stopped=False)
         holders = {"/synthetic/release": [{"pid": 4242}]}
         prepared = self.prepared_path.read_bytes()
         with mock.patch.dict(os.environ, environment, clear=True), \

@@ -42,7 +42,7 @@ func TestWorkflowEvidenceCurrentFactsWithoutLog(t *testing.T) {
 		},
 		"G24-verification-order": func() (any, error) { return workflowVerificationBindingsAfter(ctx, s.db, work, 0, "workflow_action") },
 		"G24-requirements": func() (any, error) {
-			return unboundWorkflowEvidenceRequirements(ctx, s.db, work, []workflowEvidenceRequirement{{Kind: "verification"}, {Reference: "evidence:gate-proof"}, {Kind: "verification", Reference: "evidence:gate-proof"}}, 0)
+			return unboundWorkflowEvidenceRequirements(ctx, s.db, work, []workflowEvidenceRequirement{{Kind: "verification"}, {Reference: "evidence:gate-proof"}, {Kind: "verification", Reference: "evidence:gate-proof"}})
 		},
 	})
 }

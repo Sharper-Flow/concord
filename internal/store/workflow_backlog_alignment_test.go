@@ -2,276 +2,58 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"reflect"
 	"testing"
-	"time"
 )
 
-// CD-0156 mandates the backlog check. The canonical implementation head
-// places alignment between proposal and design, with record_alignment as
-// its only advance action. Break-fix records the check in its merged
-// diagnosis step under CD-0198 D2.
-
-// alignmentAdvanceExits returns every action on the alignment step whose
-// execution mode advances the step.
-func alignmentAdvanceExits(t *testing.T, definition WorkflowDefinition, stepID string) []string {
-	t.Helper()
-	step := workflowStep(definition, stepID)
-	if step == nil {
-		t.Fatalf("%s has no %s step", definition.Ref, stepID)
-	}
-	var exits []string
-	for _, actionID := range step.Actions {
-		mode, ok := workflowActionExecutionMode(definition, actionID)
-		if !ok {
-			t.Fatalf("%s action %s declares no execution mode", definition.Ref, actionID)
-		}
-		if mode == ActionAdvance {
-			exits = append(exits, actionID)
-		}
-	}
-	return exits
-}
-
-func TestAlignmentStepHasOnlyRecordAlignmentAsItsAdvanceExit(t *testing.T) {
-	t.Parallel()
-	// CD-0198 D2 narrows the step-shape obligation to
-	// workflow.implementation: break_fix folds the alignment step into the
-	// merged diagnosis step, whose shape the CD-0198 tests hold. The
-	// canonical implementation head removes the discovery step, so the
-	// alignment step's single forward exit lands on criteria approval.
-	cases := []struct {
-		ref       string
-		afterStep string
-		nextStep  string
-	}{
-		{"workflow.implementation", "proposal", "planning"},
-	}
-	for _, testCase := range cases {
-		registered, err := BuiltinWorkflowDefinitionForRef(testCase.ref)
-		if err != nil {
-			t.Fatalf("%s does not resolve: %v", testCase.ref, err)
-		}
-		definition := registered.Definition
-		if got := workflowNextStep(definition, testCase.afterStep); got != "alignment" {
-			t.Fatalf("%s routes %s to %q, want alignment", testCase.ref, testCase.afterStep, got)
-		}
-		if got := workflowNextStep(definition, "alignment"); got != testCase.nextStep {
-			t.Fatalf("%s routes alignment to %q, want %s", testCase.ref, got, testCase.nextStep)
-		}
-		for _, edge := range definition.StepGraph.Edges {
-			if edge.From == "alignment" && edge.Kind != WorkflowEdgeForward {
-				t.Fatalf("%s alignment carries a %s edge to %s; the step owns exactly one forward exit", testCase.ref, edge.Kind, edge.To)
-			}
-		}
-		exits := alignmentAdvanceExits(t, definition, "alignment")
-		if len(exits) != 1 || exits[0] != "record_alignment" {
-			t.Fatalf("%s alignment advance exits are %v, want exactly [record_alignment]", testCase.ref, exits)
-		}
-		if !definitionStepAllows(definition, "alignment", "record_alignment") {
-			t.Fatalf("%s alignment does not admit record_alignment", testCase.ref)
-		}
-		for _, withheld := range []string{"dispatch_worker", "accept_worker_result", "record_worker_failure"} {
-			if definitionStepAllows(definition, "alignment", withheld) {
-				t.Fatalf("%s alignment admits %s; a dispatched attempt could accept its way past the search", testCase.ref, withheld)
-			}
-		}
-	}
-}
-
-// TestRecordAlignmentRefusesInconsistentOutcomeAndRelatedIds proves the guard
-// refuses a payload whose outcome contradicts its related_ids list at the
-// action boundary, and that a consistent payload records the search and
-// advances the workflow.
-func TestRecordAlignmentRefusesInconsistentOutcomeAndRelatedIds(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	const workID = "alignment-guard-work"
-	seedWork(t, s, workID)
-	actor := WorkflowActor{PrincipalRef: "principal:alignment", ClientRef: "client:alignment", AgentRef: "agent:alignment", SessionRef: "session:alignment", ActorClass: ActorAgent}
-	if _, err := BuiltinWorkflowDefinitionForRef("workflow.implementation"); err != nil {
-		t.Fatal(err)
-	}
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := initializeWorkflowRawTx(context.Background(), tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: actor, Now: time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)}); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	version := int64(4)
-	alignmentWorkflowAction := func(t *testing.T, version int64, operationID string, payload json.RawMessage) error {
-		t.Helper()
-		tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
-			WorkID: workID, ExpectedVersion: version, ActionID: "record_alignment", Payload: payload, Actor: actor,
-			AcceptedInputsDigest: "sha256:alignment", IdempotencyIdentity: operationID, OperationID: operationID,
-			PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,
-			RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC),
-		})
-		if err != nil {
-			tx.Rollback()
-			return err
-		}
-		return tx.Commit()
-	}
-	searched := "Searched the Product backlog for open work duplicating the approved objective."
-	emptyPayload := json.RawMessage(`{}`)
-	proposalPayload := json.RawMessage(`{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`)
-	version = issue31WorkflowActionWithPayload(t, s, workID, version, "record_proposal", "alignment-proposal", actor, proposalPayload)
-	var step string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
-		t.Fatal(err)
-	}
-	if step != "alignment" {
-		t.Fatalf("after record_proposal the workflow sits at %q, want alignment", step)
-	}
-	for _, testCase := range []struct {
-		name    string
-		payload json.RawMessage
-	}{
-		{"related_found without ids", json.RawMessage(`{"searched":` + jsonString(t, searched) + `,"outcome":"related_found"}`)},
-		{"none_found with ids", json.RawMessage(`{"searched":` + jsonString(t, searched) + `,"outcome":"none_found","related_ids":["work-duplicate"]}`)},
-		{"missing outcome", json.RawMessage(`{"searched":` + jsonString(t, searched) + `}`)},
-		{"undeclared outcome", json.RawMessage(`{"searched":` + jsonString(t, searched) + `,"outcome":"duplicates_found"}`)},
-		{"empty payload", emptyPayload},
-	} {
-		if err := alignmentWorkflowAction(t, version, "alignment-refuse-"+jsonString(t, testCase.name), testCase.payload); err == nil {
-			t.Fatalf("%s: record_alignment accepted an inconsistent payload %s", testCase.name, testCase.payload)
-		}
-		var rows int
-		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_backlog_alignment`).Scan(&rows); err != nil {
-			t.Fatal(err)
-		}
-		if rows != 0 {
-			t.Fatalf("%s: refused payload left %d projection rows", testCase.name, rows)
-		}
-		var current string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&current); err != nil {
-			t.Fatal(err)
-		}
-		if current != "alignment" {
-			t.Fatalf("%s: refused payload moved the workflow to %q", testCase.name, current)
-		}
-	}
-	seedWork(t, s, "work-duplicate-a")
-	seedWork(t, s, "work-duplicate-b")
-	consistent := json.RawMessage(`{"searched":` + jsonString(t, searched) + `,"outcome":"related_found","related_ids":["work-duplicate-a","work-duplicate-b"]}`)
-	if err := alignmentWorkflowAction(t, version, "alignment-accept", consistent); err != nil {
-		t.Fatalf("record_alignment refused a consistent payload: %v", err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
-		t.Fatal(err)
-	}
-	if step != "planning" {
-		t.Fatalf("after record_alignment the workflow sits at %q, want planning", step)
-	}
-	var searchedRecorded, outcome string
-	var related []string
-	rows, err := s.DatabaseForTesting().Query(`SELECT related_work_id,searched,outcome FROM workflow_backlog_alignment WHERE work_id=? ORDER BY related_work_id`, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var relatedID *string
-		if err := rows.Scan(&relatedID, &searchedRecorded, &outcome); err != nil {
-			t.Fatal(err)
-		}
-		if relatedID != nil {
-			related = append(related, *relatedID)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	if outcome != "related_found" || searchedRecorded != searched {
-		t.Fatalf("projection recorded searched=%q outcome=%q", searchedRecorded, outcome)
-	}
-	if len(related) != 2 || related[0] != "work-duplicate-a" || related[1] != "work-duplicate-b" {
-		t.Fatalf("projection related ids are %v", related)
-	}
-	var events int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowBacklogAlignmentRecorded).Scan(&events); err != nil {
-		t.Fatal(err)
-	}
-	if events != 1 {
-		t.Fatalf("record_alignment appended %d typed events, want 1", events)
-	}
-	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_backlog_alignment WHERE work_id=?`, workID).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 3 {
-		t.Fatalf("projection holds %d rows, want 3 (declaration plus two related ids)", count)
-	}
-}
-
-// TestWorkRemovalClearsBacklogAlignmentAtBothEnds proves removal succeeds for
-// the item that recorded the search and for an item the search named. Both
-// columns of workflow_backlog_alignment carry a RESTRICT foreign key, so a
-// projection delete that covered only work_id would leave the related-item row
-// behind and the final work-item delete would fail.
 func TestWorkRemovalClearsBacklogAlignmentAtBothEnds(t *testing.T) {
 	ctx := context.Background()
-	for _, testCase := range []struct{ name, removed, survivor string }{
+	for _, tc := range []struct{ name, removed, survivor string }{
 		{"searching item", "align-searcher", "align-related"},
 		{"related item", "align-related", "align-searcher"},
 	} {
-		t.Run(testCase.name, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			s := openTemp(t)
 			seedWork(t, s, "align-searcher")
 			seedWork(t, s, "align-related")
 			seedBacklogAlignmentRows(t, s, "align-searcher", "align-related")
 			before := retirementUpgradeRows(t, s.DatabaseForTesting(), `SELECT searched,outcome,recorded_at,recorded_by FROM workflow_backlog_alignment WHERE work_id='align-searcher' AND related_work_id IS NULL`)
 			request := removalTestRequest()
-			request.WorkID = testCase.removed
-			request.OperationID = "remove-align-" + testCase.removed
-			request.IdempotencyKey = "remove-align-key-" + testCase.removed
+			request.WorkID = tc.removed
+			request.OperationID = "remove-align-" + tc.removed
+			request.IdempotencyKey = "remove-align-key-" + tc.removed
 			request.Reason = "shelved"
 			if err := removeWorkForTest(ctx, s, request); err != nil {
-				t.Fatalf("removing %s left a backlog alignment row behind: %v", testCase.removed, err)
+				t.Fatalf("remove %s: %v", tc.removed, err)
 			}
 			var rows int
-			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM workflow_backlog_alignment WHERE work_id=? OR related_work_id=?`, testCase.removed, testCase.removed).Scan(&rows); err != nil {
+			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM workflow_backlog_alignment WHERE work_id=? OR related_work_id=?`, tc.removed, tc.removed).Scan(&rows); err != nil {
 				t.Fatal(err)
 			}
 			if rows != 0 {
-				t.Fatalf("removing %s left %d alignment rows naming it", testCase.removed, rows)
+				t.Fatalf("removing %s left %d alignment rows", tc.removed, rows)
 			}
 			var survivors int
-			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM work_items WHERE id=?`, testCase.survivor).Scan(&survivors); err != nil {
+			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM work_items WHERE id=?`, tc.survivor).Scan(&survivors); err != nil {
 				t.Fatal(err)
 			}
 			if survivors != 1 {
-				t.Fatalf("removal dropped the surviving item %s", testCase.survivor)
+				t.Fatalf("removal dropped survivor %s", tc.survivor)
 			}
-			alignment, err := readWorkflowBacklogAlignment(ctx, s.DatabaseForTesting(), testCase.survivor)
+			alignment, err := readWorkflowBacklogAlignment(ctx, s.DatabaseForTesting(), tc.survivor)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if testCase.removed == "align-related" && (alignment == nil || alignment.Outcome != "related_found" || len(alignment.RelatedIDs) != 0 || !alignment.AllMatchesRemoved) {
+			if tc.removed == "align-related" && (alignment == nil || alignment.Outcome != "related_found" || len(alignment.RelatedIDs) != 0 || !alignment.AllMatchesRemoved) {
 				t.Fatalf("surviving alignment does not mark removed matches: %+v", alignment)
 			}
-			if testCase.removed == "align-related" {
+			if tc.removed == "align-related" {
 				after := retirementUpgradeRows(t, s.DatabaseForTesting(), `SELECT searched,outcome,recorded_at,recorded_by FROM workflow_backlog_alignment WHERE work_id='align-searcher' AND related_work_id IS NULL`)
 				if !reflect.DeepEqual(before, after) || alignment.Searched != "Searched open work for items covering the same surface." {
 					t.Fatalf("declaration changed: before=%v after=%v read=%+v", before, after, alignment)
 				}
 			}
-			if testCase.removed == "align-searcher" && alignment != nil {
+			if tc.removed == "align-searcher" && alignment != nil {
 				t.Fatalf("unrecorded alignment is present: %+v", alignment)
 			}
 		})
@@ -300,9 +82,6 @@ func TestBacklogAlignmentPartialRemoval(t *testing.T) {
 	}
 }
 
-// seedBacklogAlignmentRows writes the declaration row and one related-item row
-// a related_found search produces, so a removal test holds a row at each end of
-// the foreign-key pair.
 func seedBacklogAlignmentRows(t *testing.T, s *Store, workID string, relatedIDs ...string) {
 	t.Helper()
 	ctx := context.Background()
@@ -311,12 +90,11 @@ func seedBacklogAlignmentRows(t *testing.T, s *Store, workID string, relatedIDs 
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer tx.Rollback()
 	if err := enterWrite(ctx, tx); err != nil {
-		tx.Rollback()
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,'agent','2026-09-19T00:00:00Z')`, actorRef, "principal:alignment-removal", "client:alignment-removal", "agent:alignment-removal", "session:alignment-removal"); err != nil {
-		tx.Rollback()
 		t.Fatal(err)
 	}
 	searched := "Searched open work for items covering the same surface."
@@ -326,24 +104,13 @@ func seedBacklogAlignmentRows(t *testing.T, s *Store, workID string, relatedIDs 
 	}
 	for _, related := range relatedRows {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_backlog_alignment(work_id,related_work_id,searched,outcome,recorded_at,recorded_by) VALUES(?,?,?,'related_found','2026-09-19T00:00:00Z',?)`, workID, related, searched, actorRef); err != nil {
-			tx.Rollback()
 			t.Fatal(err)
 		}
 	}
 	if err := leaveWrite(ctx, tx); err != nil {
-		tx.Rollback()
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func jsonString(t *testing.T, value string) string {
-	t.Helper()
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(encoded)
 }

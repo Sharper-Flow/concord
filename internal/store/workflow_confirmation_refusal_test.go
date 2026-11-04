@@ -44,36 +44,27 @@ func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 	}
 }
 
-// seedContractlessVerifyWorkflow puts a break-fix instance at its verify step
+// seedContractlessVerifyWorkflow puts a fix instance at its review step
 // with no active contract. The instance row is the least state the
 // confirmation and pin reads need; callers add a contract when they need one.
 func seedContractlessVerifyWorkflow(t *testing.T, s *Store, workID string) {
 	t.Helper()
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
-	digest, err := WorkflowDefinitionDigest(registered.Definition)
-	if err != nil {
-		t.Fatal(err)
-	}
 	db := s.DatabaseForTesting()
 	actorRef := DeriveWorkflowActorRef("principal/withheld", "client/withheld", "agent/withheld", "session/withheld")
 	// These projections are write-seam-only. The guard row admits the direct seed.
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
-			t.Fatal(err)
-		}
-	}()
 	if _, err := db.Exec(`INSERT OR IGNORE INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,?,?,?,?,?,?)`,
 		actorRef, "principal/withheld", "client/withheld", "agent/withheld", "session/withheld", "agent", "2026-08-01T00:00:00Z"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref) VALUES(?,?,?,?,'running',?)`,
-		workID, registered.Definition.Ref, digest, "verify", actorRef); err != nil {
+	if _, err := db.Exec(`INSERT INTO workflow_instances(work_id,instance_state,execution_actor_ref) VALUES(?,'intake',?)`,
+		workID, actorRef); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanFix, "review")
 }

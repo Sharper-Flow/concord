@@ -8,19 +8,14 @@ import (
 	"time"
 )
 
-// approveWithGroundTruthLabel runs approve_contract at the planning step of a
-// fresh instance of a seeded work item pinned to definition. A non-empty label
-// rides in the predicate's outcome payload when inPredicate is set, and in the
-// action's payload field otherwise.
-func approveWithGroundTruthLabel(t *testing.T, s *Store, definition RegisteredDefinition, workID, kind, label string, inPredicate bool) error {
+// approveWithGroundTruthLabel runs approve_contract at the plan frontier of a
+// fresh instance. A non-empty label rides in the predicate's outcome payload
+// when inPredicate is set, and in the action's payload field otherwise.
+func approveWithGroundTruthLabel(t *testing.T, s *Store, workID, kind, label string, inPredicate bool) error {
 	t.Helper()
 	ctx := context.Background()
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	ctx, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,16 +23,14 @@ func approveWithGroundTruthLabel(t *testing.T, s *Store, definition RegisteredDe
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: owner, Now: time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: owner, Now: time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC)}); err != nil {
 		_ = tx.Rollback()
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "planning", ownerRef); err != nil {
-		t.Fatal(err)
-	}
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
 	outcomePayload := map[string]any{"kind": kind, "surface": "git:tree", "subjects": []string{"path:subject"}}
 	if kind == "absent" {
 		outcomePayload["distinguish_from"] = []string{"archived"}
@@ -70,7 +63,7 @@ func approveWithGroundTruthLabel(t *testing.T, s *Store, definition RegisteredDe
 		t.Fatal(err)
 	}
 	defer tx2.Rollback()
-	_, actionErr := applyWorkflowActionRawTx(ctx, tx2, newWriteScope(tx2), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, actionErr := applyWorkflowActionRawTx(ctx, tx2, newWriteScope(tx2), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: encoded, Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID,
@@ -90,9 +83,7 @@ func failureKindOf(err error) string {
 	return err.Error()
 }
 
-// CD-0236 D1: approval reads no caller-supplied ground-truth label. The
-// current definition admits the unlabelled request and refuses both label
-// carriers. CD-0242 D14 retains no older definition to bypass that schema.
+// CD-0236 D1: approval reads no caller-supplied ground-truth label.
 func TestApprovalDecisionIgnoresGroundTruthLabels(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
@@ -104,12 +95,8 @@ func TestApprovalDecisionIgnoresGroundTruthLabels(t *testing.T) {
 	}
 	seedWorkflowLaw(t, s)
 
-	live, err := LiveWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, tc := range cases {
-		if err := approveWithGroundTruthLabel(t, s, live, "work-vacuity-live-unlabelled-"+tc.kind, tc.kind, "", false); err != nil {
+		if err := approveWithGroundTruthLabel(t, s, "work-vacuity-live-unlabelled-"+tc.kind, tc.kind, "", false); err != nil {
 			t.Fatalf("current-pin approve_contract without a label = %v, want it admitted", err)
 		}
 		for _, inPredicate := range []bool{true, false} {
@@ -117,7 +104,7 @@ func TestApprovalDecisionIgnoresGroundTruthLabels(t *testing.T) {
 			if inPredicate {
 				prefix = "work-vacuity-live-predicate-"
 			}
-			labelled := approveWithGroundTruthLabel(t, s, live, prefix+tc.kind, tc.kind, tc.label, inPredicate)
+			labelled := approveWithGroundTruthLabel(t, s, prefix+tc.kind, tc.kind, tc.label, inPredicate)
 			if kind := failureKindOf(labelled); kind != string(KindInvalidPayload) {
 				t.Errorf("current-pin approve_contract with %s label %q (in predicate: %t) = %v, want the payload schema to refuse it (%s)", tc.kind, tc.label, inPredicate, labelled, KindInvalidPayload)
 			}

@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"database/sql"
 	"path/filepath"
 	"reflect"
@@ -12,107 +11,30 @@ import (
 )
 
 func TestWorkflowContentIdentityMigration152PreservesRetainedState(t *testing.T) {
-	const work = "content-identity-migration"
-	f := seedCurrentWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
-	s := f.store
-	defer s.Close()
-	ctx := context.Background()
-	version, err := continuityAction(t, s, work, readWorkVersion(t, s, work), "checkpoint_context", "content-checkpoint", map[string]any{
-		"active_unit": "unit:migration", "hypothesis": "retained bytes survive", "diagnosis": "identity counters retire", "strategy": "compare every retained column",
-		"touched_refs": []string{"internal/store/schema.go"}, "evidence_refs": []string{"evidence:migration"}, "pending_questions": []string{"question:retention"}, "pending_decisions": []string{},
-	}, f.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := continuityAction(t, s, work, version, "cross_context_boundary", "content-boundary", map[string]any{
-		"boundary_kind": "summary", "mode": "summary", "checkpoint_id": "content-checkpoint:context-checkpoint", "summary": "Resume from the retained checkpoint and evidence.",
-	}, f.owner); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return recordRuntimeStateWriter(ctx, tx.tx, knowledgeStateWriter(7))
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	entry := mustBuiltinDefinition(t, "workflow.break_fix")
-	if _, err := s.db.Exec(`INSERT INTO durable_operations(op_id,work_id,workflow_type_ref,workflow_type_digest,step_id,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,result_payload,evidence_refs,changed_refs) VALUES('content-result',?,?,?,'repair',?,'{}','operator','request:content-result','2026-08-07T00:00:00Z',?,'{"retained":true,"workflow_definition_version":26}','["evidence:migration"]','["ref:migration"]')`, work, entry.Definition.Ref, entry.Digest, testDigest("inputs"), testManifestDigest); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.Exec(`INSERT INTO idempotency_records(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,first_observed_at,last_observed_at) VALUES('operator','transition','workflow_action','content-result',?,'content-result','2026-08-07T00:00:00Z','2026-08-07T00:00:00Z')`, testDigest("content-result")); err != nil {
-		t.Fatal(err)
-	}
+	useStampedBuild(t)
+	const work = "work-upgrade-from"
+	db, path := retirementUpgradeFixture(t)
+	advanceHistoricalPrefix(t, db, 151)
+	digest := "sha256:" + strings.Repeat("a", 64)
+	actor := "actor:" + strings.Repeat("a", 64)
+	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_actor_ref,started_at) VALUES(?,'workflow.break_fix',26,?,'repair','running',?,?)`, work, digest, actor, retirementUpgradeTime)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_context_checkpoints(work_id,work_version,checkpoint_sequence,checkpoint_id,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions,workflow_ref,workflow_definition_version,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES(?,1,1,'checkpoint:historical','repair',1,'unit:migration','retained bytes survive','identity counters retire','compare retained columns','["ref:migration"]','["evidence:migration"]','["question:retention"]','[]','workflow.break_fix',26,?,?,'request:checkpoint',?)`, work, digest, actor, retirementUpgradeTime)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_version,workflow_definition_digest,actor_ref,request_id,recorded_at) VALUES(?,1,1,1,'boundary:historical','summary','checkpoint:historical',1,1,'Resume from retained evidence','workflow.break_fix',26,?,?,'request:boundary',?)`, work, digest, actor, retirementUpgradeTime)
+	retirementUpgradeExec(t, db, `INSERT INTO runtime_state_writers(surface,definition_ref,version,digest,binary_version) VALUES('knowledge','',7,'','historical'),('workflow','workflow.break_fix',26,?,'historical')`, digest)
+	retirementUpgradeExec(t, db, `INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,result_kind,result_payload,evidence_refs,changed_refs) VALUES('content-result',1,?,'workflow.break_fix',26,'repair','internal_sqlite',?,'{}','operator','request:content-result',?,?,'completed','{"retained":true,"workflow_definition_version":26}','["evidence:migration"]','["ref:migration"]')`, work, digest, retirementUpgradeTime, testManifestDigest)
+	retirementUpgradeExec(t, db, `INSERT INTO idempotency_records(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,first_observed_at,last_observed_at) VALUES('operator','transition','workflow_action','content-result',?,'content-result',?,?)`, digest, retirementUpgradeTime, retirementUpgradeTime)
+	retirementUpgradeExec(t, db, `INSERT INTO project_locators(project_id,locator_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('project-upgrade','historical-home','canonical_path','/synthetic/history','/synthetic/history',?,?)`, retirementUpgradeTime, retirementUpgradeTime)
+	retirementUpgradeExec(t, db, `INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_at,complete) VALUES('project-upgrade','historical-home','HEAD',?,?,1)`, strings.Repeat("a", 40), retirementUpgradeTime)
+	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
+	s := &Store{db: db, path: path}
 	wantSchema := contentIdentity152Schema(t, openMigratedTo(t, filepath.Join(t.TempDir(), "empty-152.db"), 152))
 
-	// Current ordinary writers supply retained workflow data. Worker state is
-	// historical input only, inserted into the immutable 151 schema below.
-	path := filepath.Join(t.TempDir(), "content-identity-151.db")
-	db := openMigratedTo(t, path, 151)
-	// Home-pair triggers check immediately, even with deferred foreign keys.
-	// Copy the real Project locators before their knowledge projection rows.
-	// The prefix's migrations own its immutable kind registry, not current writers.
-	rows, err := s.db.Query(`SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('schema_migrations','write_guard','work_kinds')
-ORDER BY CASE name WHEN 'projects' THEN 0 WHEN 'project_locators' THEN 1 ELSE 2 END, rowid`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var tables []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			t.Fatal(err)
-		}
-		tables = append(tables, name)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldValues := map[string]map[string]string{
-		"durable_operations":             {"workflow_type_version": "26", "resume_cursor": "NULL"},
-		"workflow_contracts":             {"definition_version": "26", "law_change": "NULL"},
-		"workflow_architecture_bindings": {"domain_registry_content_hash": "'sha256:" + strings.Repeat("a", 64) + "'"},
-		"workflow_overlap_resolutions":   {"approval_ref": "'approval:historical'"},
-		"workflow_predicate_verdicts":    {"prior_correction_seq": "0"},
-		"workflow_delivery_state":        {"correction_id": "NULL", "correction_occurred_at": "NULL", "correction_payload": "NULL"},
-		"outside_repair_dispositions":    {"approval_ref": "'approval:historical'"},
-		"outside_repair_reconciliations": {"approval_ref": "'approval:historical'"},
-		"workflow_instances": {
-			"outside_repair_state":          "NULL",
-			"definition_version":            "26",
-			"result_disposition":            "''",
-			"latest_non_dispatch_start_seq": "0",
-			"unhealthy_verdict_seq":         "0",
-		},
-		"workflow_context_checkpoints": {"workflow_definition_version": "26"},
-		"workflow_context_boundaries":  {"workflow_definition_version": "26"},
-		"runtime_state_writers":        {"version": "CASE WHEN surface='knowledge' THEN knowledge_projection_version ELSE 26 END"},
-		"workflow_step_epochs": {
-			"latest_dispatch_start_seq":      "0",
-			"latest_dispatch_start_event_id": "''",
-			"latest_dispatch_start_payload":  "'{}'",
-		},
-	}
-	copyFixtureDataToPrefix(t, s, db, tables, oldValues, "write_guard")
-	s = &Store{db: db, path: path, Clock: s.Clock}
 	historical := contentIdentity151WorkerFixture(t, s.db, work)
-	// The knowledge index watermark is a migration-152 input that no current
-	// store produces. Seed one historical row for the fixture home pair to
-	// prove migration 152 preserves it unchanged.
-	for _, stmt := range []string{
-		`INSERT INTO write_guard(active) VALUES(1)`,
-		`INSERT INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_at,complete) VALUES('project','workflow-law-locator','HEAD','` + strings.Repeat("a", 40) + `','2026-08-07T12:00:00Z',1)`,
-		`DELETE FROM write_guard`,
-	} {
-		if _, err := s.db.Exec(stmt); err != nil {
-			t.Fatalf("seed %s: %v", stmt, err)
-		}
-	}
 	assertHistoricalReceipts(t, s.db, historical)
 	want := contentIdentity152Snapshot(t, s.db, true)
-	for table, rows := range want {
-		if len(rows) == 0 {
+	for _, table := range []string{"worker_attempts", "workflow_instances", "workflow_contracts", "workflow_context_checkpoints", "workflow_context_boundaries", "runtime_state_writers", "durable_operations", "worker_authorizations", "worker_attempt_dispositions", "workflow_correction_state", "effect_receipts", "idempotency_records", "project_locators", "knowledge_index_watermark"} {
+		if len(want[table]) == 0 {
 			t.Fatalf("preservation fixture left %s empty", table)
 		}
 	}
@@ -135,34 +57,33 @@ ORDER BY CASE name WHEN 'projects' THEN 0 WHEN 'project_locators' THEN 1 ELSE 2 
 		}
 	}
 	contentIdentity152AssertSchema(t, s.db)
-	var digest string
-	if err := s.db.QueryRow(`SELECT workflow_type_digest FROM durable_operations WHERE op_id='content-result'`).Scan(&digest); err != nil || digest != "" {
-		t.Fatalf("pre152 result acquired digest=%q (current=%q), err=%v", digest, entry.Digest, err)
+	var claimDigest string
+	if err := s.db.QueryRow(`SELECT workflow_type_digest FROM durable_operations WHERE op_id='content-result'`).Scan(&claimDigest); err != nil || claimDigest != "" {
+		t.Fatalf("pre152 result acquired digest=%q, err=%v", claimDigest, err)
 	}
-	t.Run("workflow writer keyed by ref and digest", func(t *testing.T) {
-		// A repeat updates the same identity; independent content and another
-		// ref remain distinct without an authored version allocation.
-		otherDigest := "sha256:" + strings.Repeat("0", 64)
-		if err := s.Transact(ctx, func(tx *Transaction) error {
-			for _, pin := range []WorkflowDefinitionPin{
-				{Ref: entry.Definition.Ref, Digest: entry.Digest},
-				{Ref: entry.Definition.Ref, Digest: entry.Digest},
-				{Ref: entry.Definition.Ref, Digest: otherDigest},
-				{Ref: "workflow.other", Digest: entry.Digest},
-			} {
-				if err := recordRuntimeStateWriter(ctx, tx.tx, workflowStateWriter(pin)); err != nil {
-					return err
-				}
-			}
-			return nil
-		}); err != nil {
-			t.Fatal(err)
+	advanceHistoricalPrefix(t, db, 182)
+	queries := map[string]string{
+		"effect_receipts":     `SELECT * FROM effect_receipts ORDER BY effect_seq`,
+		"durable_operations":  `SELECT * FROM durable_operations ORDER BY op_id`,
+		"idempotency_records": `SELECT * FROM idempotency_records ORDER BY idempotency_key`,
+		"checkpoints":         `SELECT work_id,work_version,checkpoint_sequence,checkpoint_id,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions,workflow_ref,actor_ref,request_id,recorded_at FROM workflow_context_checkpoints ORDER BY work_id,checkpoint_sequence`,
+		"boundaries":          `SELECT work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,actor_ref,request_id,recorded_at FROM workflow_context_boundaries ORDER BY work_id,boundary_sequence`,
+		"knowledge writers":   `SELECT * FROM runtime_state_writers WHERE surface='knowledge'`,
+	}
+	before := map[string][][]any{}
+	for name, query := range queries {
+		before[name] = retirementUpgradeRows(t, db, query)
+	}
+	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+		t.Fatal(err)
+	}
+	for name, query := range queries {
+		if got := retirementUpgradeRows(t, db, query); !reflect.DeepEqual(got, before[name]) {
+			t.Errorf("full upgrade changed %s: before=%v after=%v", name, before[name], got)
 		}
-		var count int
-		if err := s.db.QueryRow(`SELECT count(*) FROM runtime_state_writers WHERE surface='workflow' AND knowledge_projection_version=0 AND ((definition_ref=? AND digest IN (?,?)) OR (definition_ref='workflow.other' AND digest=?))`, entry.Definition.Ref, entry.Digest, otherDigest, entry.Digest).Scan(&count); err != nil || count != 3 {
-			t.Fatalf("ref+digest writer identities=%d, err=%v", count, err)
-		}
-	})
+	}
+	assertHistoricalReceipts(t, db, historical)
+	retirementUpgradeHealthy(t, db)
 }
 
 // These rows are migration inputs, never current dispatches or reports. Keep

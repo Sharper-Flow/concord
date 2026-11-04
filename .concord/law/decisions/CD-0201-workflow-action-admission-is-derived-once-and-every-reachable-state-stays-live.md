@@ -7,12 +7,7 @@
   },
   "home_domain_id": "workflow-engine",
   "applies_to_domain_ids": [],
-  "law_relations": [
-    {
-      "kind": "refines",
-      "target_id": "CD-0166"
-    }
-  ]
+  "law_relations": []
 }
 ---
 # CD-0201: Workflow action admission is derived once and every reachable state stays live
@@ -24,7 +19,7 @@
 - **Preserves:** every other route refusal keeps its own scope;
   payload and identity checks stay in the guards; no generated contract
   changes
-- **Related:** CD-0043, CD-0166, CD-0173, CD-0197
+- **Related:** CD-0043, CD-0173, CD-0197
 - **Approval:** The operator approved the approach in session chat on
   2026-10-01, including the well-formed-state exit check and excluding
   runtime invariant guards and random-walk conformance.
@@ -179,8 +174,10 @@ Scenario: The loaded state matches the abstract successor
 
 ```
 
-- `go test ./internal/store/ -run 'TestWellFormedAdmissionStateHasNonContinuityExit|TestWellFormedExitCheckNamesSeededStrandedState'` proves the first and third scenarios.
-- `go test ./internal/store/ -run TestReachableAdmissionStateReachesTerminal` proves the second scenario.
-- `go test ./internal/store/ -run 'TestAdmissionConformanceLocalJobAcceptHolds|TestCurrentReviewAdmissionLoaderConformsToAcceptedDisposition'` proves the fourth scenario through current Main intake and all four Review dispositions.
-- `go test ./internal/store/ -run TestWorkflowAdmitDecisionTable` proves the pure function's total decision table.
-- `TestOwnerOracleRecovery` covers the open-set bound and declared recovery without truncation or a second admission owner.
+Verification-inventory update only; the obligations above are unchanged. Current
+plan admission and preflight/dispatch parity checks are in
+[`workflow_admission_conformance_test.go`](../../../internal/store/workflow_admission_conformance_test.go),
+[`workflow_plan_preflight_test.go`](../../../internal/store/workflow_plan_preflight_test.go), and
+[`workflow_plan_dispatch_test.go`](../../../internal/store/workflow_plan_dispatch_test.go).
+These pointers do not assert that the current checks prove the enumerated
+abstract-state liveness scenarios.

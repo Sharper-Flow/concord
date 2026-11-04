@@ -18,16 +18,20 @@ package store
 // as its own source.
 
 import (
+	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/token"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 func init() {
@@ -54,7 +58,7 @@ func init() {
 	// regexp.MustCompile variable at definition registration; the pattern
 	// helper compiles the live pattern and derives its largest accepted
 	// character count.
-	stepIDPattern := goPatternBound("internal/store/workflow_registry.go", "workflowIDPattern")
+	stepIDPattern := goPatternBound("internal/store/workflow_action_policy.go", "workflowIDPattern")
 
 	// Raw event ids: Event.validate admits any caller-supplied non-empty id
 	// (internal/store/events.go:164-180), so the digest-suffixed ids the
@@ -83,7 +87,7 @@ func init() {
 		goInlineBound("internal/store/review.go", "validateReviewFinding", "len(finding.EvidenceRefs)", boundItems))
 	findingEvidenceRefMax := maxBound(
 		goInlineBound("internal/store/work_context_finding.go", "validateWorkContextFindingEntry", "len(ref)", boundBytes),
-		goInlineBound("internal/store/workflow_registry.go", "ValidReference", "len(value)", boundBytes))
+		goInlineBound("internal/store/workflow_action_policy.go", "ValidReference", "len(value)", boundBytes))
 	criterionBindingsMax := goConstantBound("internal/store/knowledge_record.go", "maxCriterionBindings", boundItems)
 	bindingMaxLawAdditions := goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxLawAdditions", boundItems)
 	bindingMaxObligations := goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxObligations", boundItems)
@@ -92,8 +96,8 @@ func init() {
 	// string constants, and the same typed constant vocabulary the shared
 	// helper resolves. The slice helper counts the declared members; the
 	// typed-vocabulary helper measures the longest member.
-	evidenceKindSlice := goSliceBound("internal/store/workflow_registry.go", "workflowEvidenceKinds")
-	evidenceKindLongest := pkTypedConstVocabularyLongestBound("EvidenceKind", "internal/store/workflow_registry.go")
+	evidenceKindSlice := goSliceBound("internal/store/workflow_action_policy.go", "workflowEvidenceKinds")
+	evidenceKindLongest := pkTypedConstVocabularyLongestBound("EvidenceKind", "internal/store/workflow_action_policy.go")
 
 	// The workflowList member guard: every list the fold admits passes
 	// workflowString(value, 128) inside workflowList, so each member is at
@@ -108,9 +112,9 @@ func init() {
 	// (len(value) >= 1 && len(value) <= 2048); every other site uses the
 	// refusal form (expression > N beside a lower guard the helper never
 	// selects).
-	continuityPageLimit := goInlineBound("internal/store/workflow_continuity.go", "readWorkflowContinuityForRegistry", "req.Limit", boundItems)
+	continuityPageLimit := goInlineBound("internal/store/workflow_continuity.go", "ReadWorkflowContinuity", "req.Limit", boundItems)
 	productIdentityBound := goInlineBound("internal/store/workflow_continuity.go", "continuityReadIdentityTx", "len(out.ProductIdentity)", boundItems)
-	stepActionCount := goInlineBound("internal/store/workflow_registry.go", "ValidateWorkflowDefinition", "len(step.Actions)", boundItems)
+	stepActionCount := workPinIntentItemsBound()
 	commitOIDBound := goInlineBound("internal/store/work_context.go", "workContextCommitOID", "len(oid)", boundBytes)
 	drivingSessionCount := goInlineBound("internal/store/workpin.go", "scanWorkPinDrivingSessions", "len(sessions)", boundItems)
 	evidenceRefBound := goInlineBound("internal/store/workflow.go", "workflowEvidenceRef", "len(value)", boundBytes)
@@ -148,12 +152,7 @@ func init() {
 	proposalUserOutcomesCount := goInlineBound("internal/store/workflow.go", "validateWorkflowProposalContent", "len(content.UserOutcomes)", boundItems)
 	linearIssueKeyGuard := goInlineBound("internal/store/linear_issue_link.go", "validateLinearIssueLink", "len(link.HumanKey)", boundBytes)
 
-	// Registry declaration guard: one work pin intent's required fields are
-	// the Required subset of one action's declared payload, and the Payload
-	// surface's declaration guard gates definition admission directly.
-	// (workflow_registry.go:463; the sibling PublicPayload refusal at :472
-	// is nil-check-conjoined and stays an honest named gap.)
-	declaredPayloadFields := goInlineBound("internal/store/workflow_registry.go", "ValidateWorkflowDefinition", "len(action.Payload.Fields)", boundItems)
+	declaredPayloadFields := requiredIntentFieldsBound()
 
 	// The approved contract's outcome predicates: the live approve_contract
 	// write admits at most 8 through this action-input shape and the fold
@@ -179,7 +178,7 @@ func init() {
 	// workflow.go:984; the constant lives in workflow_registry.go beside the
 	// round-trip rule, outside the fold's const scope, so the row cites the
 	// live constant and names the guard site.
-	workflowPremiseMax := goConstantBound("internal/store/workflow_registry.go", "WorkflowPremiseMaxLength", boundBytes)
+	workflowPremiseMax := goConstantBound("internal/store/workflow_action_policy.go", "WorkflowPremiseMaxLength", boundBytes)
 
 	// Law context Domain identity: the committed law read validates each
 	// registry Domain record through the retained chain
@@ -330,7 +329,7 @@ func init() {
 	registerOutputBound("/$defs/work_pin/properties/driving_sessions/maxItems", drivingSessionCount)
 	registerOutputBound("/$defs/work_pin/properties/linear_issue_key/maxLength", linearIssueKeyGuard)
 	registerOutputBound("/$defs/work_pin/properties/next_valid_intents/items/properties/required_fields/maxItems",
-		declaredPayloadFields) // one intent's required fields are the Required subset of one action's declared payload; the sibling PublicPayload refusal (workflow_registry.go:472) sits inside a nil-check conjunction the inline verifier cannot confirm and is named in the report
+		declaredPayloadFields)
 	registerOutputBound("/$defs/work_pin/properties/next_valid_intents/maxItems",
 		workPinIntentItemsBound())
 	registerOutputBound("/$defs/work_pin/properties/obligations/items/maxLength", evidenceKindLongest)
@@ -368,6 +367,32 @@ func init() {
 	// Delivery assertion: the asserted artifact rides the action input's
 	// published delivery_artifact node.
 	registerOutputBound("/$defs/workflow_delivery_assertion/properties/artifact/maxLength", deliveryArtifactInputs)
+
+	// Plan documents are revalidated against their action input on read.
+	for _, document := range []struct {
+		output, action string
+		members        map[string][]string
+	}{
+		{"workflow_plan_read_document", "record_plan", map[string][]string{
+			"outcomes": {"maxLength", "x-maxBytes"}, "approach": {"maxLength", "x-maxBytes"},
+			"decisions": {"maxItems"}, "touches": {"maxItems"}, "merge_split": {"maxLength", "x-maxBytes"},
+			"risks": {"maxLength", "x-maxBytes"}, "reason": {"maxLength", "x-maxBytes"},
+		}},
+		{"workflow_removal_read_document", "record_removal_scope", map[string][]string{
+			"removed": {"maxItems"}, "retiring_clauses": {"maxItems"}, "note": {"maxLength", "x-maxBytes"},
+		}},
+	} {
+		for member, keywords := range document.members {
+			for _, keyword := range keywords {
+				registerOutputBound("/$defs/"+document.output+"/properties/document/properties/"+member+"/"+keyword,
+					inputBound("/$defs/work_transition_action_variant_"+document.action+"/properties/fields/properties/"+member+"/"+keyword))
+			}
+		}
+	}
+	registerOutputBound("/$defs/workflow_step_plan/properties/steps/maxItems",
+		goInlineBound("internal/store/workflow_step_plan.go", "validateStepPlanShape", "len(plan.Steps)", boundItems))
+	registerOutputBound("/$defs/workflow_plan_attempt/properties/note/maxLength",
+		goInlineBound("internal/store/workflow_step_plan.go", "validateStepPlanAttemptsShape", "len(attempt.Note)", boundBytes))
 
 	// Design decision: the admitted record_design shape, re-admitted by the
 	// fold with the same numbers (internal/store/workflow_design.go:23-28).
@@ -480,15 +505,13 @@ func init() {
 	// constant is that guard's capacity, live-read from its declaration.
 	registerOutputBound("/$defs/workflow_premise/maxLength", workflowPremiseMax)
 
-	// Proposal record: the projection columns carry the admission CHECKs;
-	// the per-item prose rides the admitted record_proposal item shape the
-	// fold re-admits with the same rune counts (workflow.go:414-424).
+	// Retained proposal rows are checked by the proposal fold's prose guard.
 	registerOutputBound("/$defs/workflow_proposal_record/properties/constraints/items/maxLength",
-		inputBound("/$defs/proposal_text/maxLength"))
+		proposalListItemBound("Constraints"))
 	registerOutputBound("/$defs/workflow_proposal_record/properties/constraints/maxItems", proposalConstraintsCount)
 	registerOutputBound("/$defs/workflow_proposal_record/properties/problem/maxLength", proposalProblemGuard)
 	registerOutputBound("/$defs/workflow_proposal_record/properties/user_outcomes/items/maxLength",
-		inputBound("/$defs/proposal_text/maxLength"))
+		proposalListItemBound("UserOutcomes"))
 	registerOutputBound("/$defs/workflow_proposal_record/properties/user_outcomes/maxItems", proposalUserOutcomesCount)
 
 	// Workflow read arrays derive from their folded list or read-limit guard.
@@ -503,6 +526,82 @@ func init() {
 	registerOutputBound("/$defs/workflow_read/properties/candidate_ids/maxItems", readPageLimit)
 	registerOutputBound("/$defs/workflow_read/properties/completion_warnings/maxItems",
 		pkGuardArgBound("internal/store/workflow.go", "foldWorkflowCompleted", "workflowList", "p.Warnings", 1, boundItems))
+}
+
+// proposalListItemBound follows the grouped lists through the fold validator's
+// nested iteration to its per-item rune guard.
+func proposalListItemBound(field string) outputBoundSource {
+	return workflowDerived(func(rt *ledgerRuntime, _ *boundCensus) (evaluatedBound, error) {
+		const file = "internal/store/workflow.go"
+		goS, fn, err := workflowFunctionDecl(rt, file, "validateWorkflowProposalContent")
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		if err := reconcileGoUnit(boundCharacters, rt.inferFromCallee(file, "validWorkflowProseItem")); err != nil {
+			return evaluatedBound{}, err
+		}
+		var limit ast.Expr
+		matches := 0
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			loop, ok := n.(*ast.RangeStmt)
+			if !ok {
+				return true
+			}
+			group, ok := loop.X.(*ast.CompositeLit)
+			if !ok {
+				return true
+			}
+			contains := false
+			for _, item := range group.Elts {
+				if sel, ok := item.(*ast.SelectorExpr); ok && sel.Sel.Name == field {
+					if id, ok := sel.X.(*ast.Ident); ok && id.Name == "content" {
+						contains = true
+					}
+				}
+			}
+			if !contains {
+				return true
+			}
+			ast.Inspect(loop.Body, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if ok && ledgerCalleeMatches(call, "validWorkflowProseItem") && len(call.Args) == 2 && ledgerExprText(call.Args[0]) == "value" {
+					matches++
+					limit = call.Args[1]
+				}
+				return true
+			})
+			return true
+		})
+		if matches != 1 {
+			return evaluatedBound{}, fmt.Errorf("proposal %s has %d grouped item guards", field, matches)
+		}
+		value, err := rt.evalNumeric(goS, fn, limit)
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		return workflowCharactersEvaluated(value, "proposal fold guards each "+field+" item with validWorkflowProseItem"), nil
+	})
+}
+
+func TestOutputBoundProposalListItemSource(t *testing.T) {
+	root := ledgerRepoRoot(t)
+	const file = "internal/store/workflow.go"
+	source, err := os.ReadFile(root + "/" + file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const group = "for _, values := range [][]string{content.UserOutcomes, content.Constraints, content.OpenQuestions, content.OutOfScope}"
+	text := strings.Replace(string(source), group, "for _, values := range [][]string{content.UserOutcomes, content.OpenQuestions, content.OutOfScope}", 1)
+	if text == string(source) {
+		t.Fatal("proposal list group not found")
+	}
+	rt := newLedgerRuntime(root)
+	if err := rt.parseGoSource(file, text); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rt.evaluateSource(proposalListItemBound("Constraints"), nil); err == nil {
+		t.Fatal("removed proposal list guard was accepted")
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -592,6 +691,138 @@ func TestOutputBoundWorkPinIntentSource(t *testing.T) {
 		}
 	}
 	t.Fatal("work pin intent source is not registered")
+}
+
+func TestOutputBoundContinuityReachableFrontier(t *testing.T) {
+	ctx := t.Context()
+	s := openTemp(t)
+	defer s.Close()
+	seedStepWork(t, s, "work")
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		scope := newWriteScope(tx.tx)
+		if err := scope.enter(ctx); err != nil {
+			return err
+		}
+		if _, err := tx.tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,instance_state) VALUES('work','intake')`); err != nil {
+			return err
+		}
+		return scope.close(ctx)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var version int64
+	if err := s.db.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id='work'`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	seq := 0
+	apply := func(action string, payload any) {
+		t.Helper()
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seq++
+		request := WorkflowActionExecutionRequest{WorkID: "work", ExpectedVersion: version, ActionID: action, Payload: raw, Actor: stepFixtureActor(), OperationID: fmt.Sprintf("frontier-op-%d", seq), IdempotencyIdentity: fmt.Sprintf("frontier-key-%d", seq), PrincipalRef: "principal-1", RequestID: fmt.Sprintf("frontier-request-%d", seq), AcceptedInputsDigest: testDigest("inputs"), ContractDigest: testManifestDigest, Now: time.Unix(100, 0).UTC()}
+		var result WorkflowActionExecutionResult
+		err = s.Transact(ctx, func(tx *Transaction) error {
+			var err error
+			result, err = ApplyWorkflowActionTx(ctx, tx, request)
+			return err
+		})
+		if err != nil {
+			t.Fatalf("%s: %v", action, err)
+		}
+		version = result.ResultingVersion
+	}
+	apply("record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false})
+	apply("pick_type", map[string]any{"type": "change", "reason": "initial pick"})
+	change := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
+	research := stepPlanTemplateOrFatal(t, WorkflowStepPlanResearch)
+	for _, step := range research.Steps {
+		apply("insert_step", map[string]any{"id": step.ID, "after": []string{change.Steps[0].ID}, "reason": "additional work"})
+	}
+	apply("record_plan", json.RawMessage(testWorkflowPlanDocument))
+	apply("complete_step", map[string]any{"step_id": change.Steps[0].ID, "note": "done"})
+	apply("pick_type", map[string]any{"type": "research", "reason": "switch type"})
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	var snapshot ContinuitySnapshot
+	if err := readContinuityInstanceTx(ctx, tx, "work", &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := newLedgerRuntime(ledgerRepoRoot(t)).loadDoc(payloadSchemaFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, ok := resolveSchemaPointer(doc, "/$defs/continuity_snapshot/properties/pinned/properties/step_actions/maxItems")
+	if !ok {
+		t.Fatal("continuity step_actions bound is missing")
+	}
+	limit, err := value.(json.Number).Int64()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(snapshot.StepActions)) > limit {
+		node, ok := resolveSchemaPointer(doc, "/$defs/continuity_snapshot/properties/pinned/properties/step_actions")
+		if !ok {
+			t.Fatal("continuity step_actions schema is missing")
+		}
+		raw, err := json.Marshal(snapshot.StepActions)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var actions any
+		if err := json.Unmarshal(raw, &actions); err != nil {
+			t.Fatal(err)
+		}
+		validation := payloadschema.ValidateValue(actions, node.(map[string]any), doc, "$.pinned.step_actions")
+		t.Fatalf("reachable continuity step_actions contains %d actions, exceeding schema maxItems %d; payload validation: %v; actions: %v", len(snapshot.StepActions), limit, validation, snapshot.StepActions)
+	}
+}
+
+func TestOutputBoundIntentCountDirectWriters(t *testing.T) {
+	root := ledgerRepoRoot(t)
+	const file = "internal/agent/mutations.go"
+	source, err := os.ReadFile(root + "/" + file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const original = `plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "audit_removed_work"}}`
+	for _, tc := range []struct {
+		name, replacement string
+		want              int64
+		refuse            bool
+	}{
+		{"larger literal", `plan.intents = []agentcontract.NextIntent{` + strings.Repeat(`{},`, 40) + `}`, 40, false},
+		{"unknown producer", `plan.intents = otherIntents`, 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text := strings.Replace(string(source), original, tc.replacement, 1)
+			if text == string(source) {
+				t.Fatal("direct intent list not found")
+			}
+			rt := newLedgerRuntime(root)
+			if err := rt.parseGoSource(file, text); err != nil {
+				t.Fatal(err)
+			}
+			bound, err := rt.evaluateSource(workPinIntentItemsBound(), nil)
+			if tc.refuse {
+				if err == nil {
+					t.Fatal("unknown intent list accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, ok := bound.capacity(boundItems); !ok || got != tc.want {
+				t.Fatalf("capacity = %d (finite=%t), want %d", got, ok, tc.want)
+			}
+		})
+	}
 }
 
 func TestOutputBoundIntentRangeMutations(t *testing.T) {
@@ -1280,20 +1511,93 @@ type workflowIntentChainSite struct {
 	loopSource string
 }
 
-// Registered action declarations have unique IDs and match available actions;
-// ValidateWorkflowDefinition bounds the latter. Each loop adds at most one
-// intent per element, and the remaining appends are single-fire sites.
+// A pin starts empty and adds each catalog action at most once. Direct agent
+// intent lists are bounded by their literal constructions.
 func workPinIntentItemsBound() outputBoundSource {
-	return workflowIntentChainItemsBound(
-		sumBound(
-			goInlineBound("internal/store/workflow_registry.go", "ValidateWorkflowDefinition", "len(step.Actions)", boundItems),
-			goInlineBound("internal/store/workflow_registry.go", "ValidateWorkflowDefinition", "len(definition.AvailableActions)", boundItems),
-		),
-		[]string{"workPinIntents", "workPinEscalatedRetryIntents"},
-		workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinIntents", target: "intents", loopSource: "step.Actions"},
-		workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinStepIntentsTx", target: "pin.NextValidIntents", loopSource: "definition.ActionDefinitions"},
-		workflowIntentChainSite{file: "internal/store/workpin.go", function: "workPinTerminalIntents", target: "pin.NextValidIntents"},
-	)
+	return workflowDerived(func(rt *ledgerRuntime, _ *boundCensus) (evaluatedBound, error) {
+		catalog := builtinWorkflowActionCatalog()
+		if len(catalog) == 0 {
+			return evaluatedBound{}, fmt.Errorf("workflow action catalog is empty")
+		}
+		ids := make([]string, 0, 2*len(catalog))
+		for id := range catalog {
+			ids = append(ids, id, id)
+		}
+		var pin WorkPin
+		if err := workPinAddCatalogIntents(&pin, ids); err != nil {
+			return evaluatedBound{}, err
+		}
+		if len(pin.NextValidIntents) != len(catalog) {
+			return evaluatedBound{}, fmt.Errorf("work pin no longer emits each catalog action at most once")
+		}
+		goS, err := rt.loadGo("internal/store/workpin.go")
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		assignments, empty, appends := 0, 0, 0
+		ast.Inspect(goS.file, func(n ast.Node) bool {
+			assign, ok := n.(*ast.AssignStmt)
+			if !ok {
+				return true
+			}
+			for i, lhs := range assign.Lhs {
+				if ledgerExprText(lhs) != "pin.NextValidIntents" || i >= len(assign.Rhs) {
+					continue
+				}
+				assignments++
+				switch rhs := assign.Rhs[i].(type) {
+				case *ast.CompositeLit:
+					if len(rhs.Elts) == 0 {
+						empty++
+					}
+				case *ast.CallExpr:
+					if ledgerCalledName(rhs.Fun) == "append" && len(rhs.Args) == 2 && ledgerExprText(rhs.Args[0]) == "pin.NextValidIntents" {
+						if call, ok := rhs.Args[1].(*ast.CallExpr); ok && ledgerCalledName(call.Fun) == "workPinIntentForAction" {
+							appends++
+						}
+					}
+				}
+			}
+			return true
+		})
+		if assignments != 2 || empty != 1 || appends != 1 {
+			return evaluatedBound{}, fmt.Errorf("work pin intent constructions changed: %d assignments, %d empty, %d appends", assignments, empty, appends)
+		}
+		goS, err = rt.loadGo("internal/agent/mutations.go")
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		largest, direct := int64(len(catalog)), 0
+		var refusal error
+		ast.Inspect(goS.file, func(n ast.Node) bool {
+			assign, ok := n.(*ast.AssignStmt)
+			if !ok {
+				return true
+			}
+			for i, lhs := range assign.Lhs {
+				if ledgerExprText(lhs) != "plan.intents" || i >= len(assign.Rhs) {
+					continue
+				}
+				lit, ok := assign.Rhs[i].(*ast.CompositeLit)
+				if !ok {
+					refusal = fmt.Errorf("agent plan intent assignment is not a literal")
+					continue
+				}
+				direct++
+				if count := int64(len(lit.Elts)); count > largest {
+					largest = count
+				}
+			}
+			return true
+		})
+		if refusal != nil {
+			return evaluatedBound{}, refusal
+		}
+		if direct == 0 {
+			return evaluatedBound{}, fmt.Errorf("agent direct intent constructions are absent")
+		}
+		return workflowItemsEvaluated(largest, "distinct live catalog actions and direct agent intent lists"), nil
+	})
 }
 
 // workflowIntentChainItemsBound bounds a pin intent list built across a

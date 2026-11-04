@@ -9,8 +9,8 @@ import (
 )
 
 // Bounded summary and preview reads stay bounded: the
-// recorded intent detail (task, value statement, tags, workflow type
-// reference) rides only the authoritative single-work scope read and the
+// recorded intent detail (task, value statement and tags) rides only the
+// authoritative single-work scope read and the
 // full-detail list read. Snapshot previews, summary-detail listings, and the
 // ready listing must not carry it. Urgency is not intent detail: CD-0018
 // already declares it on work_summary, so every read that carries a work
@@ -20,7 +20,7 @@ func TestBoundedWorkReadsOmitIntentDetailButCarryUrgency(t *testing.T) {
 	s, ctx, service, env, workID := seedIntentRoundtripWork(t, map[string]any{
 		"title": "Bounded reads stay bounded", "value_statement": "Intent detail belongs to the authoritative reads",
 		"task": "Recorded instruction", "kind": "task", "priority": 5, "urgency": "expedite",
-		"tags": []string{"agent-plane"}, "workflow_type_ref": "workflow.break_fix",
+		"tags":            []string{"agent-plane"},
 		"idempotency_key": "bounds-capture-1",
 	})
 	intentOnly := []string{"task", "value_statement", "tags", "workflow_type_ref"}

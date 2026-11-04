@@ -974,17 +974,61 @@ func readRetirementExecutionFactsTx(ctx context.Context, q queryer, workID, sess
 // An empty session selects all current starts. Missing actor attribution
 // cannot prove that another session owns an unfinished action.
 func workExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef string) (bool, error) {
-	var open bool
-	err := q.QueryRowContext(ctx, `SELECT EXISTS(
-		SELECT 1 FROM workflow_step_epochs s
-		LEFT JOIN workflow_step_completions c ON c.work_id=s.work_id AND c.step_id=s.step_id
+	rows, err := q.QueryContext(ctx, `SELECT s.step_id,s.latest_start_seq,a.session_ref FROM workflow_step_epochs s
 		LEFT JOIN workflow_actors a ON a.actor_ref=json_extract(s.latest_start_payload,'$.actor_ref')
-		WHERE s.work_id=? AND s.latest_start_seq>COALESCE(c.completion_seq,0)
-		AND (?='' OR a.session_ref IS NULL OR a.session_ref='' OR a.session_ref=?))`, workID, sessionRef, sessionRef).Scan(&open)
+		WHERE s.work_id=? AND s.latest_start_seq>0`, workID)
 	if err != nil {
 		return false, wrapFailure(KindUnavailable, "project_retirement", "cannot read unfinished workflow actions", true, "retry once the workflow projection is readable", err)
 	}
-	return !open, nil
+	type startedStep struct {
+		id      string
+		seq     int64
+		session sql.NullString
+	}
+	var starts []startedStep
+	for rows.Next() {
+		var start startedStep
+		if err := rows.Scan(&start.id, &start.seq, &start.session); err != nil {
+			_ = rows.Close()
+			return false, wrapFailure(KindUnavailable, "project_retirement", "cannot read unfinished workflow actions", true, "retry once the workflow projection is readable", err)
+		}
+		starts = append(starts, start)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return false, wrapFailure(KindUnavailable, "project_retirement", "cannot read unfinished workflow actions", true, "retry once the workflow projection is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return false, wrapFailure(KindUnavailable, "project_retirement", "cannot read unfinished workflow actions", true, "retry once the workflow projection is readable", err)
+	}
+	if len(starts) == 0 {
+		return true, nil
+	}
+	plan, err := readWorkflowPlanTx(ctx, q, workID)
+	if err != nil {
+		return false, err
+	}
+	if plan == nil {
+		return false, newFailure(KindInvariantViolation, "project_retirement", "intake workflow has an unexpected held start", false, "restore a verified backup")
+	}
+	for _, start := range starts {
+		if sessionRef != "" && start.session.Valid && start.session.String != "" && start.session.String != sessionRef {
+			continue
+		}
+		step, found := stepByID(plan.Steps, start.id)
+		if !found || workflowPlanCompletionSeq(step) < start.seq {
+			// A failed attempt settles its own start: the failure receipt
+			// records the attempt's end without completing the step.
+			var failed int
+			if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM effect_receipts WHERE subject_type='work_item' AND subject_id=? AND kind=? AND effect_seq>=?)`, workID, WorkflowActionFailed, start.seq).Scan(&failed); err != nil {
+				return false, wrapFailure(KindUnavailable, "project_retirement", "cannot read unfinished workflow actions", true, "retry once the workflow projection is readable", err)
+			}
+			if failed == 0 {
+				return false, nil
+			}
+		}
+	}
+	return true, nil
 }
 
 // PendingProjectHandoffTx reads the newest unconsumed handoff on the work

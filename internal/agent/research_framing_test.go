@@ -12,7 +12,7 @@ import (
 )
 
 // Framing research holds the frame step. The step leaves only through
-// approve_contract, so an investigate action before approval is refused and
+// complete_step, so an investigate action before completion is refused and
 // the contract stays absent until the operator approves it.
 func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) {
 	t.Parallel()
@@ -41,11 +41,11 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 	}
 	currentStep := func() string {
 		t.Helper()
-		var step string
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
+		pin, err := store.ReadWorkPin(ctx, s, workID)
+		if err != nil {
 			t.Fatal(err)
 		}
-		return step
+		return pin.Step
 	}
 	contractApprovals := func() int {
 		t.Helper()
@@ -56,6 +56,20 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 		return count
 	}
 
+	if step := currentStep(); step != "intake" {
+		t.Fatalf("captured research step=%q, want intake", step)
+	}
+	for _, prelude := range []struct {
+		id     string
+		fields map[string]any
+	}{
+		{"record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false}},
+		{"pick_type", map[string]any{"type": "research", "reason": "Investigate the research question."}},
+	} {
+		if response := action(prelude.id, prelude.fields, "framing-gate-"+prelude.id); response.Outcome != agentcontract.OutcomeOK {
+			t.Fatalf("%s: %+v", prelude.id, response.Error)
+		}
+	}
 	if step := currentStep(); step != "frame" {
 		t.Fatalf("captured research step=%q, want frame", step)
 	}
@@ -103,5 +117,14 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 	}
 	if approvals := contractApprovals(); approvals != 1 {
 		t.Fatalf("contract approvals with a stated question=%d, want 1", approvals)
+	}
+	if step := currentStep(); step != "frame" {
+		t.Fatalf("approval moved frontier to %q", step)
+	}
+	if completed := action("complete_step", map[string]any{"step_id": "frame", "note": "Research framed."}, "framing-gate-complete"); completed.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("complete frame: %+v", completed.Error)
+	}
+	if step := currentStep(); step != "investigate" {
+		t.Fatalf("completed frame frontier=%q", step)
 	}
 }

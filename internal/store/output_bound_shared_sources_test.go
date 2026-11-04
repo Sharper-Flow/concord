@@ -137,19 +137,9 @@ func init() {
 		goConstantBound("internal/store/knowledge_record.go", "maxManifestID", boundCharacters),
 	))
 
-	// next_valid_intent.required_fields: the pin projects the Required
-	// subset of an action's declared payload fields
-	// (internal/store/workpin.go:workPinIntents and workPinIntentForAction
-	// over publicWorkflowActionPayload), and the definition contract caps
-	// every payload field list at 32 entries. The registry admission mirrors
-	// that cap inline (len(fields) > 32 at
-	// internal/store/workflow_registry.go in
-	// ValidateWorkflowDefinition), an inline len() check no
-	// harness constructor cites; the published declaration below is the
-	// same bound.
+	// Pins project catalog fields; agent mutations also construct direct intents.
 	registerOutputBound("/$defs/next_valid_intent/properties/required_fields/maxItems",
-		schemaBound("contracts/workflow-definition.schema.json",
-			"/$defs/payloadDefinition/properties/fields/maxItems"))
+		requiredIntentFieldsBound())
 
 	// obligation_id: values are copied verbatim from the approved contract's
 	// admitted architecture_binding.verification_obligations into worker
@@ -173,7 +163,7 @@ func init() {
 	// prefix-only TEXT CHECK under the NUL model, so it is not cited.
 	registerOutputBound("/$defs/work_pin_driving_session/properties/session_ref/maxLength",
 		sharedSessionRefFoldBound())
-	referenceGuard := goInlineBound("internal/store/workflow_registry.go", "ValidReference", "len(value)", boundBytes)
+	referenceGuard := goInlineBound("internal/store/workflow_action_policy.go", "ValidReference", "len(value)", boundBytes)
 	registerOutputBound("/$defs/reference/maxLength", maxBound(
 		inputBound("/$defs/reference/maxLength"),
 		referenceGuard,
@@ -252,6 +242,85 @@ func init() {
 			"internal/store/operation.go:1219) and projects.id carries no CHECK (internal/store/schema.go:173), so "+
 			"the membership echo in work_summary.project_ids projects verbatim",
 		"internal/agent/runtime.go:readSizeRefusal"))
+}
+
+// requiredIntentFieldsBound measures the pin producer over the closed catalog
+// and the direct agent constructions, including both copy-only conversions.
+func requiredIntentFieldsBound() outputBoundSource {
+	return workflowDerived(func(rt *ledgerRuntime, _ *boundCensus) (evaluatedBound, error) {
+		catalog := builtinWorkflowActionCatalog()
+		if len(catalog) == 0 {
+			return evaluatedBound{}, fmt.Errorf("workflow action catalog is empty")
+		}
+		var largest int64
+		for id := range catalog {
+			action, err := WorkflowPlanActionContract(id)
+			if err != nil {
+				return evaluatedBound{}, err
+			}
+			if n := int64(len(workPinIntentForAction(action, 1, "declared_step_action").RequiredFields)); n > largest {
+				largest = n
+			}
+		}
+		goS, err := rt.loadGo("internal/agent/mutations.go")
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		literals, copies := 0, 0
+		var refusal error
+		ast.Inspect(goS.file, func(n ast.Node) bool {
+			if assign, ok := n.(*ast.AssignStmt); ok {
+				for _, lhs := range assign.Lhs {
+					if sel, ok := lhs.(*ast.SelectorExpr); ok && sel.Sel.Name == "RequiredFields" {
+						refusal = fmt.Errorf("agent assigns RequiredFields outside its constructions")
+					}
+				}
+			}
+			kv, ok := n.(*ast.KeyValueExpr)
+			if !ok || pkFieldKeyName(kv.Key) != "RequiredFields" {
+				return true
+			}
+			if lit, ok := kv.Value.(*ast.CompositeLit); ok {
+				if _, ok := lit.Type.(*ast.ArrayType); !ok {
+					refusal = fmt.Errorf("agent RequiredFields literal is not a slice")
+					return true
+				}
+				literals++
+				if count := int64(len(lit.Elts)); count > largest {
+					largest = count
+				}
+				return true
+			}
+			isIntentFields := func(expr ast.Expr) bool {
+				sel, ok := expr.(*ast.SelectorExpr)
+				if !ok || sel.Sel.Name != "RequiredFields" {
+					return false
+				}
+				id, ok := sel.X.(*ast.Ident)
+				return ok && id.Name == "intent"
+			}
+			if isIntentFields(kv.Value) {
+				copies++
+			} else if call, ok := kv.Value.(*ast.CallExpr); ok && ledgerCalledName(call.Fun) == "append" && len(call.Args) == 2 && call.Ellipsis.IsValid() && isIntentFields(call.Args[1]) {
+				conversion, ok := call.Args[0].(*ast.CallExpr)
+				if !ok || len(conversion.Args) != 1 || ledgerExprText(conversion.Args[0]) != "nil" {
+					refusal = fmt.Errorf("agent RequiredFields append has a nonempty base")
+				} else {
+					copies++
+				}
+			} else {
+				refusal = fmt.Errorf("agent RequiredFields construction is not a literal or a known copy")
+			}
+			return true
+		})
+		if refusal != nil {
+			return evaluatedBound{}, refusal
+		}
+		if literals == 0 || copies != 2 {
+			return evaluatedBound{}, fmt.Errorf("agent RequiredFields constructions changed: %d literals, %d copies", literals, copies)
+		}
+		return workflowItemsEvaluated(largest, "live catalog pin producer and agent RequiredFields constructions"), nil
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -425,6 +494,84 @@ func sharedIdentType(expr ast.Expr, want string) bool {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+func TestOutputBoundRequiredFieldsCatalog(t *testing.T) {
+	var largest int64
+	for id := range builtinWorkflowActionCatalog() {
+		action, err := WorkflowPlanActionContract(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		intent := workPinIntentForAction(action, 1, "declared_step_action")
+		if n := int64(len(intent.RequiredFields)); n > largest {
+			largest = n
+		}
+	}
+	for _, pattern := range []string{
+		"/$defs/next_valid_intent/properties/required_fields/maxItems",
+		"/$defs/mutation_result/properties/next_valid_intents/items/properties/required_fields/maxItems",
+		"/$defs/work_pin/properties/next_valid_intents/items/properties/required_fields/maxItems",
+	} {
+		t.Run(pattern, func(t *testing.T) {
+			for _, row := range ledgerRegistrations {
+				if row.pattern == pattern {
+					bound, err := newLedgerRuntime(ledgerRepoRoot(t)).evaluateSource(row.source, nil)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if capacity, ok := bound.capacity(boundItems); !ok || capacity < largest {
+						t.Fatalf("capacity = %d (finite=%t), catalog required fields = %d", capacity, ok, largest)
+					}
+					return
+				}
+			}
+			t.Fatal("required fields source is not registered")
+		})
+	}
+}
+
+func TestOutputBoundRequiredFieldsDirectWriters(t *testing.T) {
+	root := ledgerRepoRoot(t)
+	const file = "internal/agent/mutations.go"
+	src, err := os.ReadFile(root + "/" + file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const original = `RequiredFields: []string{"pack_id", "expected_version"}`
+	grown := `RequiredFields: []string{` + strings.Repeat(`"field",`, 40) + `}`
+	for _, tc := range []struct {
+		name, replacement string
+		want              int64
+		refuse            bool
+	}{
+		{"larger literal", grown, 40, false},
+		{"unknown producer", `RequiredFields: otherFields`, 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text := strings.Replace(string(src), original, tc.replacement, 1)
+			if text == string(src) {
+				t.Fatal("direct agent writer not found")
+			}
+			rt := newLedgerRuntime(root)
+			if err := rt.parseGoSource(file, text); err != nil {
+				t.Fatal(err)
+			}
+			bound, err := rt.evaluateSource(requiredIntentFieldsBound(), nil)
+			if tc.refuse {
+				if err == nil {
+					t.Fatal("unknown writer accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, ok := bound.capacity(boundItems); !ok || got != tc.want {
+				t.Fatalf("capacity = %d (finite=%t), want %d", got, ok, tc.want)
+			}
+		})
+	}
+}
 
 // TestSharedSessionRefFoldBound runs the session-ref fold derivation against
 // synthetic package trees and against the live repository: the pinned guard

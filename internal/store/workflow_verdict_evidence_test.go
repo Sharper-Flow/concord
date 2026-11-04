@@ -19,47 +19,22 @@ func seedItemAtAcceptance(t *testing.T, workID string) (*Store, WorkflowActor, W
 // gate resolves against a captured record.
 func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, requiredEvidence []string) (*Store, WorkflowActor, WorkflowActor) {
 	t.Helper()
-	ctx := context.Background()
-	s := openTemp(t)
-	seedWork(t, s, workID)
-	seedWorkflowLaw(t, s)
-
-	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
+	var kinds []string
+	if prebind {
+		kinds = []string{"verification", "review"}
 	}
-	setup := []Event{
-		workflowEvent("owner-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEvent("definition-"+workID, WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowWorkerFixtureRef, "version": 2, "digest": workflowFixtureDefinition(t, 2).Digest, "work_kind": workflowFixtureWorkKind}),
-		workflowActionCompletedFixture("proposal-"+workID, workID, ownerRef, 4, "proposal", "record_proposal"),
-		workflowActionCompletedFixture("discovery-"+workID, workID, ownerRef, 5, "discovery", "record_discovery"),
-		workflowActionCompletedFixture("design-"+workID, workID, ownerRef, 6, "design", "record_design"),
-		workflowEventWithActor("contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 7, "resulting_version": 8, "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}, "required_evidence": requiredEvidence, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
-		workflowEventWithActor("start-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 8, "resulting_version": 9, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start:" + workID, "actor_ref": ownerRef, "execution_model": "model:fixture"}),
-	}
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", requiredEvidence, kinds)
 	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
 	reviewerRef, err := WorkflowActorRef(reviewer)
 	if err != nil {
 		t.Fatal(err)
 	}
-	reviewActor := workflowEvent("reviewer-actor-"+workID, WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 9, "resulting_version": 10, "actor_ref": reviewerRef, "principal_ref": reviewer.PrincipalRef, "client_ref": reviewer.ClientRef, "agent_ref": reviewer.AgentRef, "session_ref": reviewer.SessionRef, "actor_class": "agent"})
-	setup = append(setup, reviewActor)
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
+	version := readWorkVersion(t, f.store, workID)
+	event := workflowEventWithActor("reviewer-actor-"+workID, WorkflowActorRecorded, workID, reviewerRef, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "actor_ref": reviewerRef, "principal_ref": reviewer.PrincipalRef, "client_ref": reviewer.ClientRef, "agent_ref": reviewer.AgentRef, "session_ref": reviewer.SessionRef, "actor_class": "agent"})
+	if err := applyWorkflowTestOperation(t.Context(), f.store, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
 	}
-	if prebind {
-		if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","immutable_subject_ref":"evidence:seeded-verification"}`)); err != nil {
-			t.Fatalf("bind verification evidence: %v", err)
-		}
-		if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"review","immutable_subject_ref":"evidence:seeded-review"}`)); err != nil {
-			t.Fatalf("bind review evidence: %v", err)
-		}
-	}
-	if err := runVerdictAction(t, s, workID, "record_delivery", mustJSONValue(map[string]any{"delivery_artifact": "artifact:fixture", "delivery_state": "asserted"})); err != nil {
-		t.Fatalf("record fixture delivery: %v", err)
-	}
-	return s, owner, reviewer
+	return f.store, f.owner, reviewer
 }
 
 // verdictReviewer reads the non-executing reviewer actor from the test's
@@ -107,9 +82,9 @@ func runVerdictActionAs(t *testing.T, s *Store, workID, action string, payload j
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	if _, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), WorkflowActionExecutionRequest{
 		EvidenceRefs: actionEvidenceRefs(action, payload), WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner,
-		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64) + fmt.Sprint(version), IdempotencyIdentity: action + "-" + workID + "-" + fmt.Sprint(version), OperationID: action + "-" + workID + "-" + fmt.Sprint(version),
+		AcceptedInputsDigest: nativeDigest([]byte(fmt.Sprintf("%s-%s-%d", action, workID, version))), IdempotencyIdentity: action + "-" + workID + "-" + fmt.Sprint(version), OperationID: action + "-" + workID + "-" + fmt.Sprint(version),
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: action + "-" + workID + "-" + fmt.Sprint(version), RequestID: "request:" + action + "-" + workID + "-" + fmt.Sprint(version), ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
 	}); err != nil {
 		return err

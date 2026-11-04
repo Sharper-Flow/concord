@@ -3,31 +3,17 @@ package store
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 )
 
 func TestPredispatchContractRevisionPreservesExecutionIdentity(t *testing.T) {
 	ctx := context.Background()
-	s := openTemp(t)
 	const workID = "predispatch-replay"
-	seedWork(t, s, workID)
-	seedWorkflowLaw(t, s)
-	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/predispatch", ActorClass: ActorAgent}
-	ownerRef, err := WorkflowActorRef(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition := workflowFixtureDefinition(t, 2)
-	events := []Event{
-		workflowEvent("predispatch-owner", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEvent("predispatch-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": definition.Definition.Ref, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
-		workflowActionCompletedFixture("predispatch-proposal", workID, ownerRef, 4, "proposal", "record_proposal"),
-		workflowActionCompletedFixture("predispatch-discovery", workID, ownerRef, 5, "discovery", "record_discovery"),
-		workflowActionCompletedFixture("predispatch-design", workID, ownerRef, 6, "design", "record_design"),
-		workflowEventWithActor("predispatch-contract", WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 7, "resulting_version": 8, "contract_version": 1, "premise": "original scope", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:original", "expected_result": "pass"}, "required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
-		workflowActionCompletedFixture("predispatch-approved", workID, ownerRef, 8, "planning", "approve_contract"),
-	}
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: workVersion(workID, 2)}); err != nil {
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "plan", []string{"verification"}, nil)
+	s, owner := f.store, f.owner
+	before, err := readWorkflowPlanTx(ctx, s.db, workID)
+	if err != nil || before == nil {
 		t.Fatal(err)
 	}
 	unsupportedDesign := pContractSuccessor(t, s, workID, "corrected predicate subject")
@@ -37,7 +23,7 @@ func TestPredispatchContractRevisionPreservesExecutionIdentity(t *testing.T) {
 		"touched_refs": []string{"src/work.go"},
 	}
 	version := readWorkVersion(t, s, workID)
-	err = reviseContractRecord(t, s, workID, owner, unsupportedDesign, version, nil)
+	err = reviseContractRecord(t, s, workID, owner, unsupportedDesign, version)
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload {
 		t.Fatalf("designless workflow acquired a design: %v", err)
@@ -50,7 +36,7 @@ func TestPredispatchContractRevisionPreservesExecutionIdentity(t *testing.T) {
 	if err != nil || contractVersion != 1 {
 		t.Fatalf("refused design addition partially changed the contract: %d err=%v", contractVersion, err)
 	}
-	if err := reviseContractRecord(t, s, workID, owner, pContractSuccessor(t, s, workID, "corrected predicate subject"), version, nil); err != nil {
+	if err := reviseContractRecord(t, s, workID, owner, pContractSuccessor(t, s, workID, "corrected predicate subject"), version); err != nil {
 		t.Fatalf("correct before dispatch: %v", err)
 	}
 	pin, err := ReadWorkPin(ctx, s, workID)
@@ -62,8 +48,8 @@ func TestPredispatchContractRevisionPreservesExecutionIdentity(t *testing.T) {
 	if err != nil || contractVersion != 2 || premise != "corrected predicate subject" {
 		t.Fatalf("correction lost successor: %d %q err=%v", contractVersion, premise, err)
 	}
-	entry, err := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), workID)
-	if err != nil || entry.Digest != definition.Digest {
-		t.Fatalf("definition changed across correction: %s err=%v", entry.Digest, err)
+	after, err := readWorkflowPlanTx(ctx, s.db, workID)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatalf("plan changed across correction: before=%+v after=%+v err=%v", before, after, err)
 	}
 }

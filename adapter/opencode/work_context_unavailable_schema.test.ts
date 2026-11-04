@@ -36,12 +36,11 @@ const basePin = (): Record<string, unknown> => ({
   version: 1,
   lifecycle: "in_progress",
   cancelled_instance_closes: 0,
-  workflow_type: "workflow.break_fix",
-  step: "planning",
+  workflow_type: "fix",
+  step: "plan",
   driving_sessions: [],
   watermark: "seq:1",
   next_valid_intents: [],
-  workflow_definition_digest: "sha256:" + "a".repeat(64),
   obligations: [],
 })
 

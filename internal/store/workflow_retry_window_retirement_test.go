@@ -9,7 +9,7 @@ import (
 
 func TestRetryWindowAbsentFromCurrentReadSurfaces(t *testing.T) {
 	const workID = "retry-window-absent"
-	j := pReturnReviewFixture(t, workID, "workflow.implementation", "correction_required")
+	j := pReturnReviewFixture(t, workID, WorkflowStepPlanChange, "correction_required")
 	s := j.s
 	version := readWorkVersion(t, s, workID)
 	pin, err := ReadWorkPin(context.Background(), s, workID)

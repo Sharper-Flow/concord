@@ -12,33 +12,23 @@ type workflowReturnRouteFixture struct {
 	operator WorkflowActor
 }
 
-func seedWorkflowReturnRouteFixture(t *testing.T, workID, definitionRef, verdictStep string) workflowReturnRouteFixture {
+func seedWorkflowReturnRouteFixture(t *testing.T, workID string, planType WorkflowStepPlanType, frontier string) workflowReturnRouteFixture {
 	t.Helper()
-	return seedWorkflowReturnRouteFixtureRequiring(t, workID, definitionRef, verdictStep, []string{"verification"}, []string{"verification", "review", "artifact"})
+	return seedWorkflowReturnRouteFixtureRequiring(t, workID, planType, frontier, []string{"verification"}, []string{"verification", "review", "artifact"})
 }
 
-func seedWorkflowReturnRouteFixtureRequiring(t *testing.T, workID, definitionRef, verdictStep string, requiredEvidence, boundKinds []string) workflowReturnRouteFixture {
+func seedWorkflowReturnRouteFixtureRequiring(t *testing.T, workID string, planType WorkflowStepPlanType, frontier string, requiredEvidence, boundKinds []string) workflowReturnRouteFixture {
 	t.Helper()
-	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, currentFixtureDefinition(t, definitionRef), verdictStep, requiredEvidence, boundKinds)
+	return seedWorkflowReturnRouteFixtureWithSource(t, workID, planType, frontier, requiredEvidence, boundKinds, nil)
 }
 
-func seedCurrentWorkflowReturnRouteFixture(t *testing.T, workID, definitionRef, verdictStep string) workflowReturnRouteFixture {
+func seedWorkflowReturnRouteFixtureWithPlan(t *testing.T, workID string, planType WorkflowStepPlanType, frontier string, requiredEvidence, boundKinds []string, predicates ...map[string]any) workflowReturnRouteFixture {
 	t.Helper()
-	registered, ok := BuiltinWorkflowRegistry().Current(definitionRef)
-	if !ok {
-		t.Fatalf("workflow definition %s is not registered", definitionRef)
-	}
-	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, verdictStep, []string{"verification"}, []string{"verification", "review", "artifact"})
+	return seedWorkflowReturnRouteFixtureWithSource(t, workID, planType, frontier, requiredEvidence, boundKinds, nil, predicates...)
 }
 
-func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, registered RegisteredDefinition, verdictStep string, requiredEvidence, boundKinds []string, predicates ...map[string]any) workflowReturnRouteFixture {
-	t.Helper()
-	return seedWorkflowReturnRouteFixtureWithSource(t, workID, registered, verdictStep, requiredEvidence, boundKinds, nil, predicates...)
-}
-
-// beforeInitialize models source state already delivered before this item
-// starts. The initializer records that state; the hook never edits it.
-func seedWorkflowReturnRouteFixtureWithSource(t *testing.T, workID string, registered RegisteredDefinition, verdictStep string, requiredEvidence, boundKinds []string, beforeInitialize func(*Store), predicates ...map[string]any) workflowReturnRouteFixture {
+// beforeInitialize models source state already delivered before this item starts.
+func seedWorkflowReturnRouteFixtureWithSource(t *testing.T, workID string, planType WorkflowStepPlanType, frontier string, requiredEvidence, boundKinds []string, beforeInitialize func(*Store), predicates ...map[string]any) workflowReturnRouteFixture {
 	t.Helper()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -62,11 +52,12 @@ func seedWorkflowReturnRouteFixtureWithSource(t *testing.T, workID string, regis
 		t.Fatal(err)
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: registered, Actor: owner, Now: time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)})
+		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: owner, Now: time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)})
 	}); err != nil {
 		t.Fatal(err)
 	}
-	version := int64(4)
+	seedWorkflowPlanFrontier(t, s, workID, planType, frontier)
+	version := readWorkVersion(t, s, workID)
 	nextEvent := func(event Event) Event {
 		version++
 		return event
@@ -80,8 +71,9 @@ func seedWorkflowReturnRouteFixtureWithSource(t *testing.T, workID string, regis
 		"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "check",
 		"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:return-route", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
 	}
+	allowedKinds, _ := WorkflowPlanAllowedPredicates(planType)
 	checkAdmitted := false
-	for _, kind := range registered.Definition.OutcomeSchema.AllowedKinds {
+	for _, kind := range allowedKinds {
 		if kind == PredicateCheck {
 			checkAdmitted = true
 		}
@@ -95,13 +87,13 @@ func seedWorkflowReturnRouteFixtureWithSource(t *testing.T, workID string, regis
 	}
 	contractPayload := map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check",
+		"contract_version": 1, "premise": "deliver the checked change", "outcome_kind": outcomePredicate["outcome_kind"],
 		"outcome_predicates": predicates,
 		"required_evidence":  requiredEvidence, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"law_boundary_version": 1, "rigor_class": "prototype_internal",
 		"consequence_class": "internal_sqlite",
 	}
-	if registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth {
+	if planType != WorkflowStepPlanResearch {
 		// The registry root "product-root:product" is the Product-wide Domain
 		// the fixture registry commits; "root" is its child. Root-scope
 		// selections (product-wide rationale) name the real root, so the
@@ -113,7 +105,7 @@ func seedWorkflowReturnRouteFixtureWithSource(t *testing.T, workID string, regis
 		}
 	}
 	contract := workflowEventWithActor("return-contract-"+workID, WorkflowContractApproved, workID, ownerRef, contractPayload)
-	events = append(events, nextEvent(withPinnedDecisionFact(t, registered.Definition, contract)))
+	events = append(events, nextEvent(withPlanDecisionFact(t, planType, contract)))
 	for _, kind := range boundKinds {
 		evidenceRef := "evidence:return-route-" + kind
 		seedWorkflowAuthority(t, s, "return-authority-"+kind+"-"+workID, workID, "principal/return-route-"+kind, "request/return-route-"+kind, []string{evidenceRef})
@@ -123,26 +115,30 @@ func seedWorkflowReturnRouteFixtureWithSource(t *testing.T, workID string, regis
 			"producer_watermark": "request/return-route-" + kind, "observed_at": "2026-09-12T00:00:00Z",
 		})))
 	}
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, verdictStep, ownerRef); err != nil {
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): readWorkVersion(t, s, workID)}}); err != nil {
 		t.Fatal(err)
 	}
 	return workflowReturnRouteFixture{store: s, owner: owner, operator: operator}
 }
 
 func TestPReturnRouteCurrentReviewFixture(t *testing.T) {
-	j := pReturnReviewFixture(t, "p-return-current-review", "workflow.break_fix", "correction_required")
+	const id = "p-return-current-review"
+	f := seedWorkflowReturnRouteFixture(t, id, WorkflowStepPlanFix, "implement")
+	j := pReturnClaim(t, f, id)
+	pReturnProduce(t, j, "initial")
+	acceptCurrentReviewForTest(t, j.fixture, "correction_required")
 	pin, err := ReadWorkPin(t.Context(), j.s, j.workID)
-	if err != nil || pin.Review == nil || pin.Review.Accepted == nil || pin.Step != "repair" || !pin.Review.DependenciesCurrent || pin.Review.Candidate == nil {
+	if err != nil || pin.Review == nil || pin.Review.Accepted == nil || pin.Step != "implement" || !pin.Review.DependenciesCurrent || pin.Review.Candidate == nil {
 		t.Fatalf("current accepted Review fixture=%+v err=%v", pin, err)
 	}
 }
 
 func prepareVerdictCorrectionFixture(t *testing.T, id string) workflowReturnRouteFixture {
 	t.Helper()
-	j := pReturnReviewFixture(t, id, "workflow.implementation", "correction_required")
+	f := seedWorkflowReturnRouteFixture(t, id, WorkflowStepPlanChange, "implement")
+	j := pReturnClaim(t, f, id)
+	pReturnProduce(t, j, "initial")
+	acceptCurrentReviewForTest(t, j.fixture, "correction_required")
 	return workflowReturnRouteFixture{store: j.s, owner: j.fixture.owner, operator: j.fixture.operator}
 }
 

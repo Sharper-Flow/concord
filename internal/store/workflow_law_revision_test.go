@@ -11,16 +11,16 @@ import (
 func TestWorkflowContractUpdateAcceptsPredicateArray(t *testing.T) {
 	t.Parallel()
 	const workID = "contract-update-predicate-array"
-	f := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, "workflow.implementation"), "execution", []string{}, nil)
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", []string{}, nil)
 	contract := pContractSuccessor(t, f.store, workID, "Continue with the corrected contract.")
-	if err := reviseContractRecord(t, f.store, workID, f.owner, contract, readWorkVersion(t, f.store, workID), nil); err != nil {
+	if err := reviseContractRecord(t, f.store, workID, f.owner, contract, readWorkVersion(t, f.store, workID)); err != nil {
 		t.Fatalf("predicate-array contract update refused: %v", err)
 	}
 	contract = pContractSuccessor(t, f.store, workID, "Reject an ambiguous outcome shape.")
 	contract["outcome_kind"] = "check"
 	contract["outcome_payload"] = map[string]any{"kind": "check"}
 	version := readWorkVersion(t, f.store, workID)
-	if err := reviseContractRecord(t, f.store, workID, f.owner, contract, version, nil); !hasFailureKind(err, KindInvalidPayload) {
+	if err := reviseContractRecord(t, f.store, workID, f.owner, contract, version); !hasFailureKind(err, KindInvalidPayload) {
 		t.Fatalf("contract update with both outcome shapes = %v, want invalid_payload", err)
 	}
 	if got := readWorkVersion(t, f.store, workID); got != version {
@@ -54,10 +54,10 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			workID := "law-recontract-route-" + tc.name
-			s, completion := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, includeVerdict: true, includePremise: true})
+			s, completion := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, includeVerdict: true, includePremise: true, omitClosure: true})
 			actor := workflowActorForRef(t, s, completion.Actor)
 			cutoverLawProjection(t, s)
-			step := currentStep(t, s, workID)
+			step := workflowPlanFixtureFrontier(t, s, workID)
 			binding, err := readWorkflowArchitectureBinding(t.Context(), s.db, workID, 1)
 			if err != nil {
 				t.Fatal(err)
@@ -69,7 +69,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 				"decision_domains": []string{}, "architecture_binding": binding,
 			}
 			version := readWorkVersion(t, s, workID)
-			err = reviseContractRecord(t, s, workID, actor, successor, version, nil)
+			err = reviseContractRecord(t, s, workID, actor, successor, version)
 			if tc.refused {
 				var failure *Failure
 				if !failureAs(err, &failure) || failure.Kind != KindProjectionNotFound || !strings.Contains(failure.Detail, "spec:one") {
@@ -111,7 +111,7 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 			if err := s.db.QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=2`, workID).Scan(&newConfirmations); err != nil || newConfirmations != 0 {
 				t.Fatalf("new confirmations=%d err=%v", newConfirmations, err)
 			}
-			if got := currentStep(t, s, workID); got != step {
+			if got := workflowPlanFixtureFrontier(t, s, workID); got != step {
 				t.Fatalf("contract revision reset step %q to %q", step, got)
 			}
 		})
@@ -131,7 +131,7 @@ func TestWorkflowLawRevisionDeletedLawRecoveryAtExecution(t *testing.T) {
 	successor := pContractSuccessor(t, s, workID, "continue with current accepted law")
 	successor["spec_mandate"] = []string{}
 	successor["law_modifies"] = []string{}
-	if err := reviseContractRecord(t, s, workID, actor, successor, readWorkVersion(t, s, workID), nil); err != nil {
+	if err := reviseContractRecord(t, s, workID, actor, successor, readWorkVersion(t, s, workID)); err != nil {
 		t.Fatalf("deleted-law recovery at execution: %v", err)
 	}
 	if version, active := activeContractState(t, s, workID); version != 2 || active != 1 {
@@ -141,7 +141,7 @@ func TestWorkflowLawRevisionDeletedLawRecoveryAtExecution(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND contract_version=2`, workID).Scan(&mandate); err != nil || mandate != "[]" {
 		t.Fatalf("dropped mandate=%q err=%v, want []", mandate, err)
 	}
-	if got := currentStep(t, s, workID); got != "execution" {
+	if got := workflowPlanFixtureFrontier(t, s, workID); got != "implement" {
 		t.Fatalf("recovery changed execution step: %q", got)
 	}
 }
@@ -167,7 +167,7 @@ func TestWorkflowLawRevisionAllowsTerminalLifecycleMutationAfterCutover(t *testi
 
 func seedLawRevisionPendingReview(t *testing.T, workID string) *Store {
 	t.Helper()
-	j := pReturnReviewFixture(t, workID, "workflow.implementation", "")
+	j := pReturnReviewFixture(t, workID, WorkflowStepPlanChange, "")
 	f := j.fixture
 	if _, err := f.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id=? AND superseded_by IS NULL; DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)

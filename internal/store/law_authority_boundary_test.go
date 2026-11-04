@@ -146,8 +146,9 @@ func seedAuthorityWork(t *testing.T, s *Store, workID string) {
 }
 
 // seedAuthorityContract inserts one historical contract row with its
-// predicate, the exact projection the admission reads. This is synthetic
-// fixture evidence about the rule, never a claim of real approval.
+// predicate, the exact projection the admission reads, recording the
+// Product-truth fact the approval seam writes for the same plan type. This is
+// synthetic fixture evidence about the rule, never a claim of real approval.
 func seedAuthorityContract(t *testing.T, s *Store, workID string, version int64, planType WorkflowStepPlanType, lawModifies []string, existsSubjects []string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
@@ -180,8 +181,12 @@ func seedAuthorityContract(t *testing.T, s *Store, workID string, version int64,
 	if _, err := db.Exec(`INSERT OR IGNORE INTO workflow_instances(work_id,workflow_type,step_plan,instance_state) VALUES(?,?,?,'running')`, workID, planType, string(encodedPlan)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-		workID, version, "Synthetic fixture premise for the authority resolver.", "internal_sqlite", `[]`, `[]`, "2026-10-11T00:00:00Z", authorityActorRef, `[]`, string(encodedModifies), 0, "prototype_internal"); err != nil {
+	truthValue := 0
+	if planType != WorkflowStepPlanResearch {
+		truthValue = 1
+	}
+	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,changes_product_truth) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		workID, version, "Synthetic fixture premise for the authority resolver.", "internal_sqlite", `[]`, `[]`, "2026-10-11T00:00:00Z", authorityActorRef, `[]`, string(encodedModifies), 0, "prototype_internal", truthValue); err != nil {
 		t.Fatal(err)
 	}
 	outcomeKind, payload := "check", map[string]any{"kind": "check", "check_ref": "check:authority-fixture", "immutable_subject_ref": "commit:authority-fixture", "expected_result": "pass"}

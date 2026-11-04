@@ -193,14 +193,26 @@ func (d *knowledgeAuthorityDefaults) isKnowledgeAuthorityDefault(record Knowledg
 // first: a frozen default-cohort member at the vehicle version carries its
 // standing from D5 itself and performs no contract lookup. Every other
 // declared reference must name a live work whose exact historical contract
-// row is approved and whose pinned definition is Product-changing and admits
-// the record through one closed field.
+// row is approved, is Product-changing by its recorded approval fact, and
+// admits the record through one closed field.
+//
+// The Product-truth fact is the contract's own changes_product_truth column,
+// written once at approval. A NULL column is historical absence — the
+// contract was approved before the column existed — and the fact is recovered
+// from the retained architecture binding at the exact version: the fold that
+// approved those contracts persisted a binding exactly for Product-changing
+// approvals and refused one on every other, so the binding's presence is the
+// recorded approval fact, not an inference. A NULL column with no binding is
+// the recorded non-Product-changing fact. The current step plan is
+// deliberately not consulted: plans are mutable after approval, and pre-plan
+// items have none.
 //
 // Absence of the named work is unverified, not negative: the caller keeps the
 // record's declared tier. A held negative — a missing or unapproved exact
-// version, a non-Product-changing contract, or no admitted reference — is a
-// KindInvalidNoteProof refusal naming the law, the work, and the version.
-// Database failures and corrupt pins stay their own typed errors.
+// version, a contract whose recorded approval is not Product-changing, or no
+// admitted reference — is a KindInvalidNoteProof refusal naming the law, the
+// work, and the version. Database failures and corrupt pins stay their own
+// typed errors.
 func resolveKnowledgeLegislatedAuthorityTx(ctx context.Context, tx *sql.Tx, record KnowledgeRecord) (bool, error) {
 	if record.Authority.Tier != "legislated" {
 		return false, nil
@@ -226,7 +238,8 @@ func resolveKnowledgeLegislatedAuthorityTx(ctx context.Context, tx *sql.Tx, reco
 		return true, nil
 	}
 	var approvedAt, approvedBy, lawModifies string
-	err = tx.QueryRowContext(ctx, `SELECT approved_at, approved_by, law_modifies FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, version).Scan(&approvedAt, &approvedBy, &lawModifies)
+	var changesProductTruth sql.NullInt64
+	err = tx.QueryRowContext(ctx, `SELECT approved_at, approved_by, law_modifies, changes_product_truth FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, version).Scan(&approvedAt, &approvedBy, &lawModifies, &changesProductTruth)
 	if err == sql.ErrNoRows {
 		return false, heldNegative("declares no approved contract at the exact version")
 	}
@@ -236,11 +249,17 @@ func resolveKnowledgeLegislatedAuthorityTx(ctx context.Context, tx *sql.Tx, reco
 	if approvedAt == "" || approvedBy == "" {
 		return false, heldNegative("the exact contract row carries no recorded approval")
 	}
-	plan, err := readWorkflowPlanTx(ctx, tx, workID)
-	if err != nil {
-		return false, err
+	productChanging := changesProductTruth.Valid && changesProductTruth.Int64 == 1
+	if !changesProductTruth.Valid {
+		// Historical absence: recover the approval's Product-truth fact from
+		// the retained architecture binding at the exact version.
+		bound, boundErr := workflowContractHasArchitectureBindingTx(ctx, tx, workID, version)
+		if boundErr != nil {
+			return false, boundErr
+		}
+		productChanging = bound
 	}
-	if plan == nil || plan.Type == WorkflowStepPlanResearch {
+	if !productChanging {
 		return false, heldNegative("the approving contract is not Product-changing")
 	}
 	admitted, err := knowledgeContractAdmitsLawTx(ctx, tx, record, lawModifies)
@@ -251,6 +270,18 @@ func resolveKnowledgeLegislatedAuthorityTx(ctx context.Context, tx *sql.Tx, reco
 		return false, heldNegative("names the law in no admitted legislative field")
 	}
 	return false, nil
+}
+
+// workflowContractHasArchitectureBindingTx reports whether the exact contract
+// version carries a retained architecture binding — the persisted form of the
+// approval's Product-truth fact for contracts approved before the
+// changes_product_truth column existed.
+func workflowContractHasArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID string, version int64) (bool, error) {
+	var bound bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM workflow_architecture_bindings WHERE work_id=? AND contract_version=?)`, workID, version).Scan(&bound); err != nil {
+		return false, wrapFailure(KindUnavailable, "knowledge_authority", "cannot read the declared contract's architecture binding", true, "retry once the database is readable", err)
+	}
+	return bound, nil
 }
 
 func knowledgeContractAdmitsLawTx(ctx context.Context, tx *sql.Tx, record KnowledgeRecord, lawModifies string) (bool, error) {

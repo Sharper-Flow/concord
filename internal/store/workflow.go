@@ -1601,6 +1601,15 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 	if p.ActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "completed action actor must match the authenticated event actor", false, "complete the workflow action through the authenticated workflow actor")
 	}
+	if plan == nil && p.ActionID == "record_delivery" && p.StepID == "delivery" {
+		var retained bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_instances i JOIN workflow_delivery_state d ON d.work_id=i.work_id WHERE i.work_id=? AND i.instance_state='completed')`, event.SubjectID).Scan(&retained); err != nil {
+			return workflowProjectionError(err, "cannot read retained delivery")
+		}
+		if retained {
+			return persistWorkflowActionCompletionTx(ctx, tx, event, p, "")
+		}
+	}
 	if !workflowPlanAllowsAction(plan, p.StepID, p.ActionID) {
 		retained, err := foldWorkflowRetainedRecordTx(ctx, tx, event.SubjectID, plan, p.StepID, p.ActionID)
 		if err != nil {

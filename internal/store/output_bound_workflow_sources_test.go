@@ -392,7 +392,7 @@ func init() {
 	registerOutputBound("/$defs/workflow_step_plan/properties/steps/maxItems",
 		goInlineBound("internal/store/workflow_step_plan.go", "validateStepPlanShape", "len(plan.Steps)", boundItems))
 	registerOutputBound("/$defs/workflow_plan_attempt/properties/note/maxLength",
-		goInlineBound("internal/store/workflow_step_plan.go", "validateStepPlanShape", "len(attempt.Note)", boundBytes))
+		goInlineBound("internal/store/workflow_step_plan.go", "validateStepPlanAttemptsShape", "len(attempt.Note)", boundBytes))
 
 	// Design decision: the admitted record_design shape, re-admitted by the
 	// fold with the same numbers (internal/store/workflow_design.go:23-28).

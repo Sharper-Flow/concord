@@ -125,7 +125,7 @@ func durableNeighborOperations() []neighborOperation {
 				}
 			}
 		}},
-		neighborOperation{"CompleteWorkflowTx", func(t *testing.T) (*Store, func() error, func()) {
+		neighborOperation{"workflow completion", func(t *testing.T) (*Store, func() error, func()) {
 			s, event := seedCompletionGateCase(t, "neighbor-complete", completionGateCase{requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
 			return s, func() error { return CompleteWorkflow(ctx, s, event) }, func() {
 				var state string

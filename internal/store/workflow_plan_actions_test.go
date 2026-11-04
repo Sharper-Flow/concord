@@ -87,9 +87,26 @@ func TestWorkflowPlanActionFolds(t *testing.T) {
 	}
 	apply(foldWorkflowIntakeRecorded, workflowIntakeRecordedPayload{WorkflowVersionFields: fields(), workflowIntakeRecord: workflowIntakeRecord{Outcome: WorkflowIntakeProceed}}, false)
 	apply(foldWorkflowTypePicked, workflowTypePickedPayload{WorkflowVersionFields: fields(), Type: WorkflowStepPlanChange, Reason: "initial pick"}, false)
+	projection, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: "work"})
+	if err != nil || projection.Prelude == nil || projection.Prelude.TypePickReason != "initial pick" {
+		t.Fatalf("initial pick reason not readable: %+v: %v", projection.Prelude, err)
+	}
 	plan := read()
 	apply(foldWorkflowStepCompleted, workflowStepCompletedPayload{WorkflowVersionFields: fields(), StepID: plan.Steps[1].ID, Note: "too early"}, true)
 	apply(foldWorkflowStepInserted, workflowStepInsertedPayload{WorkflowVersionFields: fields(), ID: "extra", After: []string{plan.Steps[0].ID}, Reviewed: true, Reason: "review needed"}, false)
+	var rawPlan string
+	if err := db.QueryRowContext(ctx, `SELECT step_plan FROM workflow_instances WHERE work_id='work'`).Scan(&rawPlan); err != nil {
+		t.Fatal(err)
+	}
+	var planDocument struct {
+		Steps []struct {
+			ID     string `json:"id"`
+			Reason string `json:"reason"`
+		} `json:"steps"`
+	}
+	if err := json.Unmarshal([]byte(rawPlan), &planDocument); err != nil || planDocument.Steps[len(planDocument.Steps)-1].Reason != "review needed" {
+		t.Fatalf("inserted reason not retained: %s: %v", rawPlan, err)
+	}
 	request := WorkflowActionExecutionRequest{WorkID: "work", ExpectedVersion: version, ActionID: "record_plan", Payload: json.RawMessage(testWorkflowPlanDocument), Actor: stepFixtureActor(), OperationID: "fold-plan-op", IdempotencyIdentity: "fold-plan-key", PrincipalRef: "principal-1", RequestID: "fold-plan-request", AcceptedInputsDigest: testDigest("inputs"), ContractDigest: testManifestDigest, Now: time.Unix(100, 0).UTC()}
 	var result WorkflowActionExecutionResult
 	if err := s.Transact(ctx, func(tx *Transaction) error {
@@ -104,6 +121,16 @@ func TestWorkflowPlanActionFolds(t *testing.T) {
 	apply(foldWorkflowStepCompleted, workflowStepCompletedPayload{WorkflowVersionFields: fields(), StepID: "extra", Note: "reviewed"}, true)
 	apply(foldWorkflowStepCompleted, workflowStepCompletedPayload{WorkflowVersionFields: fields(), StepID: "extra", Note: "reviewed", Reviewer: "concord-review", Result: "pass", Commit: "commit", Link: "link"}, true)
 	apply(foldWorkflowTypePicked, workflowTypePickedPayload{WorkflowVersionFields: fields(), Type: WorkflowStepPlanFix, Reason: "switch type"}, false)
+	var rawPrelude string
+	if err := db.QueryRowContext(ctx, `SELECT prelude_state FROM workflow_instances WHERE work_id='work'`).Scan(&rawPrelude); err != nil {
+		t.Fatal(err)
+	}
+	var prelude struct {
+		TypePickReason string `json:"type_pick_reason"`
+	}
+	if err := json.Unmarshal([]byte(rawPrelude), &prelude); err != nil || prelude.TypePickReason != "switch type" {
+		t.Fatalf("type pick reason not retained: %s: %v", rawPrelude, err)
+	}
 	plan = read()
 	for _, ancestor := range plan.Steps {
 		if ancestor.Reviewed {

@@ -150,8 +150,11 @@ func TestWorkflowPlanCompletionRequiresPlanAndRecordedFacts(t *testing.T) {
 	_ = planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindIllegalLifecycleTransition)
 	_ = planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindIllegalLifecycleTransition)
 	completeWorkflowPlanFixture(t, f.store, workID)
-	// The premise is confirmed; the delivery fact is missing, so completion
-	// still refuses (CD-0242 D9) without touching durable state.
+	// The fixture seeds both terminal facts; remove the delivery record so
+	// completion still refuses (CD-0242 D9) without touching other state.
+	if _, err := f.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM workflow_delivery_state WHERE work_id=?; DELETE FROM write_guard`, workID); err != nil {
+		t.Fatal(err)
+	}
 	request = planAdmissionRequest(workID, "complete", version, f.owner, json.RawMessage(`{"impact_verdict":"non-breaking"}`))
 	_ = planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindMissingEvidence)
 	_ = planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindMissingEvidence)

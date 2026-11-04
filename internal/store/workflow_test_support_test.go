@@ -189,7 +189,20 @@ func CompleteWorkflow(ctx context.Context, s *Store, event Event) (retErr error)
 	if err != nil {
 		return err
 	}
-	if err := CompleteWorkflowTx(ctx, tx.Tx, event, scope); err != nil {
+	if err := event.validate(); err != nil {
+		return err
+	}
+	if err := validateRegisteredEvent(event); err != nil {
+		return err
+	}
+	var payload workflowCompletedPayload
+	if err := decodeWorkflowPayload(event, &payload); err != nil {
+		return err
+	}
+	if err := workflowBase(event, payload.WorkflowVersionFields); err != nil {
+		return err
+	}
+	if err := completeWorkflowInScopeTx(ctx, tx.Tx, event, scope, payload); err != nil {
 		return err
 	}
 	if len(scope.eventIDs) < 2 || scope.eventIDs[len(scope.eventIDs)-2] != event.EventID || scope.eventIDs[len(scope.eventIDs)-1] != event.EventID+":lifecycle" {

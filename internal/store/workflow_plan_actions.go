@@ -29,8 +29,9 @@ type workflowClarifyRecord struct {
 }
 
 type workflowPreludeState struct {
-	Intake  workflowIntakeRecord   `json:"intake"`
-	Clarify *workflowClarifyRecord `json:"clarify,omitempty"`
+	Intake         workflowIntakeRecord   `json:"intake"`
+	Clarify        *workflowClarifyRecord `json:"clarify,omitempty"`
+	TypePickReason string                 `json:"type_pick_reason,omitempty"`
 }
 
 type workflowIntakeRecordedPayload struct {
@@ -216,7 +217,11 @@ func foldWorkflowTypePicked(ctx context.Context, tx *sql.Tx, event Event) error 
 		}
 		template = *old
 	}
-	return writeWorkflowPlanTx(ctx, tx, event.SubjectID, template)
+	if err := writeWorkflowPlanTx(ctx, tx, event.SubjectID, template); err != nil {
+		return err
+	}
+	prelude.TypePickReason = p.Reason
+	return writeWorkflowPreludeTx(ctx, tx, event.SubjectID, *prelude)
 }
 
 func foldWorkflowStepInserted(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -260,7 +265,7 @@ func foldWorkflowStepInserted(ctx context.Context, tx *sql.Tx, event Event) erro
 		return slices.ContainsFunc(step.After, reviewedAncestor)
 	}
 	p.Reviewed = p.Reviewed || slices.ContainsFunc(p.After, reviewedAncestor)
-	plan.Steps = append(plan.Steps, WorkflowPlanStep{ID: p.ID, After: p.After, Skill: p.Skill, Helper: p.Helper, Reviewed: p.Reviewed})
+	plan.Steps = append(plan.Steps, WorkflowPlanStep{ID: p.ID, After: p.After, Skill: p.Skill, Helper: p.Helper, Reviewed: p.Reviewed, Reason: p.Reason})
 	return writeWorkflowPlanTx(ctx, tx, event.SubjectID, *plan)
 }
 

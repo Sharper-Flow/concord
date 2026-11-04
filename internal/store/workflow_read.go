@@ -323,15 +323,23 @@ func readWorkflowProjectionContractTx(ctx context.Context, q queryer, request Wo
 		// The current contract's recorded rule answers first; only a
 		// pre-cutover row without one falls back to the live plan's type
 		// (every picked type except research changes Product truth).
-		if contract.ChangesProductTruth != nil {
-			out.ChangesProductTruth = *contract.ChangesProductTruth
-		} else if out.Plan != nil {
-			truth := out.Plan.Type != WorkflowStepPlanResearch
-			contract.ChangesProductTruth = &truth
-			out.ChangesProductTruth = truth
-		}
+		out.ChangesProductTruth = workflowCurrentProductTruth(&contract, out.Plan)
 	}
 	return nil
+}
+
+func workflowCurrentProductTruth(contract *WorkflowReadContract, plan *WorkflowStepPlan) bool {
+	if contract != nil && contract.ChangesProductTruth != nil {
+		return *contract.ChangesProductTruth
+	}
+	if plan == nil {
+		return false
+	}
+	truth := plan.Type != WorkflowStepPlanResearch
+	if contract != nil {
+		contract.ChangesProductTruth = &truth
+	}
+	return truth
 }
 
 func readWorkflowProjectionCandidatesTx(ctx context.Context, q queryer, request WorkflowReadRequest, activeContractVersion int64, out *WorkflowReadProjection) error {

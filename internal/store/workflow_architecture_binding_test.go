@@ -583,7 +583,7 @@ func TestProductChangingCompletionDoesNotRecheckVerificationObligation(t *testin
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
-	outstanding, err := outstandingWorkflowEvidenceRequirementsForWork(ctx, s.db, workID)
+	outstanding, err := unboundWorkflowEvidenceRequirements(ctx, s.db, workID, []workflowEvidenceRequirement{{Kind: "verification", Reference: "spec:one"}})
 	if err != nil || len(outstanding) != 1 || outstanding[0].Kind != "verification" || outstanding[0].Reference != "spec:one" {
 		t.Fatalf("outstanding requirements=%+v err=%v, want only (verification,spec:one)", outstanding, err)
 	}

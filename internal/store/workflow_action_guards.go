@@ -211,22 +211,6 @@ func (g *workflowActionGuardContext) defaultedPayload() json.RawMessage {
 	return g.request.Payload
 }
 
-// guardWorkflowActionStepMatch rejects a nested payload that restates a
-// current step other than the pinned one.
-func guardWorkflowActionStepMatch(payload json.RawMessage, currentStep string) error {
-	if actionFields, fieldsErr := workflowActionObject(payload); fieldsErr == nil {
-		if nestedRaw := workflowFieldRaw(actionFields, "payload"); len(nestedRaw) != 0 {
-			var nested map[string]json.RawMessage
-			if json.Unmarshal(nestedRaw, &nested) == nil {
-				if declaredStep := workflowFieldStringDefault(nested, "current_step", ""); declaredStep != "" && declaredStep != currentStep {
-					return newFailure(KindInvariantViolation, "workflow_action", "workflow action payload step does not match the pinned current step", false, "reread_entities")
-				}
-			}
-		}
-	}
-	return nil
-}
-
 // normalizeWorkflowActionRequest applies the shared request defaults and
 // bounds. The mutation is deliberate: the normalized values feed the durable
 // claim and the assembled events.
@@ -274,7 +258,7 @@ func recordWorkflowOperationTx(ctx context.Context, tx *sql.Tx, request Workflow
 }
 
 func assemblePlanWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, action WorkflowActionDefinition, plan *WorkflowStepPlan, stepID, actor string, evidenceRefs []string, version int64) ([]Event, error) {
-	if plan == nil {
+	if plan == nil && (request.ActionID != "record_delivery" || stepID != "delivery") {
 		return nil, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow has no plan", false, "pick a workflow type")
 	}
 	policy := builtinActionPolicies[request.ActionID]
@@ -306,7 +290,11 @@ func assemblePlanWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, request
 		values := map[string]any{"step_id": stepID, "step_kind": "internal_sqlite", "attempt_epoch": epoch, "checkpoint_payload": json.RawMessage(checkpoint), "resume_cursor": "", "actor_ref": actor, "request_id": request.RequestID, "checkpoint_id": request.OperationID + ":checkpoint", "accepted_inputs_digest": request.AcceptedInputsDigest, "idempotency_identity": request.IdempotencyIdentity}
 		return []Event{workflowTypedEvent(request.OperationID+":checkpoint", WorkflowActionCheckpointed, request.WorkID, actor, request.Now, version, values)}, nil
 	}
-	events, err = workflowSemanticActionEvents(ctx, tx, plan.Type, request, stepID, actor, request.Payload, version)
+	var planType WorkflowStepPlanType
+	if plan != nil {
+		planType = plan.Type
+	}
+	events, err = workflowSemanticActionEvents(ctx, tx, planType, request, stepID, actor, request.Payload, version)
 	if err != nil {
 		return nil, err
 	}

@@ -219,26 +219,6 @@ func validEvidence(value EvidenceKind) bool {
 func validPredicateKind(value PredicateKind) bool {
 	return value == PredicateExists || value == PredicateAbsent || value == PredicateOutcome || value == PredicateCheck
 }
-func validatePayloadFields(fields []WorkflowPayloadField) bool {
-	seen := map[string]bool{}
-	for _, field := range fields {
-		if !validWorkflowID(field.Name) || seen[field.Name] || !slices.Contains([]string{"string", "integer", "boolean", "ref", "digest", "string_list", "object", "array"}, string(field.ValueType)) {
-			return false
-		}
-		seen[field.Name] = true
-		if !validatePayloadFieldBounds(field) {
-			return false
-		}
-		// item_ref names the contract each element answers to. A string list
-		// resolves it against the built-in item kinds; an array resolves it
-		// against the generated payload schemas. Both readings are per element,
-		// so one field keeps one meaning.
-		if len(field.Enum) > 32 || !uniqueStrings(field.Enum) || len(field.Enum) != 0 && field.ValueType != PayloadString && field.ValueType != PayloadRef && field.ValueType != PayloadStringList || field.SchemaRef != "" && !validWorkflowID(field.SchemaRef) || field.ItemRef != "" && (field.ValueType != PayloadStringList && field.ValueType != PayloadArray || !validWorkflowID(field.ItemRef)) {
-			return false
-		}
-	}
-	return true
-}
 
 func validatePayloadFieldBounds(field WorkflowPayloadField) bool {
 	if field.NonBlank && field.ValueType != PayloadString && field.ValueType != PayloadRef && field.ValueType != PayloadDigest || len(field.Forbidden) > 32 || !uniqueStrings(field.Forbidden) || len(field.Forbidden) != 0 && field.ValueType != PayloadString && field.ValueType != PayloadRef && field.ValueType != PayloadDigest {
@@ -868,18 +848,6 @@ var workflowCallerEvidenceBinders = []string{"bind_evidence", "record_research",
 
 func workflowCallerEvidenceBinder(actionID string) bool {
 	return slices.Contains(workflowCallerEvidenceBinders, actionID)
-}
-
-// workflowEvidenceKindsProducedBy returns the evidence kinds one completed
-// action can bind. Caller-kind binders take the kind from their payload.
-func workflowEvidenceKindsProducedBy(actionID string) []EvidenceKind {
-	if workflowCallerEvidenceBinder(actionID) {
-		return workflowEvidenceKinds
-	}
-	if actionID == "record_review" {
-		return []EvidenceKind{EvidenceReview}
-	}
-	return nil
 }
 
 func currentActionDefinition(id string, payloadContracts bool) WorkflowActionDefinition {

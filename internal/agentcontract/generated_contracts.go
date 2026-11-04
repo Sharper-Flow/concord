@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:576eb4473ade33cc1e963c5ce8b079c05a56dcdffa8356d0f36e7972ae18186e"
+const ManifestDigest = "sha256:bef1b5c8b4b2eff45fdb7007256b07812e00ad709b4e2b4d6472efef323a5730"
 
 type OperationKind string
 
@@ -241,7 +241,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_outcome_outcome":                              {Required: []string{"kind", "allowed"}, Properties: []string{"kind", "allowed", "decision_record"}},
 	"workflow_plan_attempt":                                 {Required: []string{"note", "completed_at"}, Properties: []string{"note", "completed_at", "completion_seq", "actor", "reviewer", "result", "commit", "link"}},
 	"workflow_plan_read_document":                           {Required: []string{"work_version", "document", "recorded_at", "actor", "event_ref"}, Properties: []string{"work_version", "document", "recorded_at", "actor", "event_ref"}},
-	"workflow_plan_step":                                    {Required: []string{"id", "required", "after", "reviewed"}, Properties: []string{"id", "required", "after", "skill", "helper", "reviewed", "attempts"}},
+	"workflow_plan_step":                                    {Required: []string{"id", "required", "after", "reviewed"}, Properties: []string{"id", "required", "after", "skill", "helper", "reviewed", "reason", "attempts"}},
 	"workflow_proposal_record":                              {Required: []string{"problem", "user_outcomes", "constraints"}, Properties: []string{"problem", "user_outcomes", "constraints"}},
 	"workflow_read":                                         {Required: []string{"work_id", "state", "current_step", "plan", "completion_warnings"}, Properties: []string{"work_id", "state", "current_step", "plan", "prelude", "plan_record", "removal_scope", "contract", "candidate_ids", "completion_warnings", "parked_delivery", "delivery_assertion", "backlog_alignment"}},
 	"workflow_removal_read_document":                        {Required: []string{"work_version", "document", "recorded_at", "actor", "event_ref"}, Properties: []string{"work_version", "document", "recorded_at", "actor", "event_ref"}},

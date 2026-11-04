@@ -37,7 +37,6 @@ func TestSmallImplementationCompletionDoesNotRecheckAcceptance(t *testing.T) {
 		{name: "complete"},
 		{name: "missing-contract-predicates", damage: `DELETE FROM workflow_contract_predicates WHERE work_id='small-route-outcomes'`},
 		{name: "missing-criterion-proof", damage: `DELETE FROM workflow_predicate_verdicts WHERE work_id='small-route-outcomes'`},
-		{name: "missing-confirmation", damage: `DELETE FROM workflow_premise_confirmations WHERE work_id='small-route-outcomes'`},
 		{name: "missing-report", damage: `DELETE FROM workflow_evidence_bindings WHERE work_id='small-route-outcomes' AND json_type(payload,'$.verification_report')='object'`},
 		{name: "review-not-accepted", damage: `UPDATE workflow_review_state SET state=json_set(state,'$.accepted',json('null')) WHERE work_id='small-route-outcomes'`},
 		{name: "blocking-review", damage: `UPDATE workflow_review_state SET state=json_set(state,'$.accepted.report.disposition','correction_required') WHERE work_id='small-route-outcomes'`},

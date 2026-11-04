@@ -27,16 +27,6 @@ type WorkflowActionPreflightRequest struct {
 	SessionProjectID string
 }
 
-// workflowPreflightFailure re-subjects one folded admission refusal for the
-// preflight surface: the kind, detail, and recovery action are the shared
-// admission's answer, and only the reporting operation names the surface that
-// refused.
-func workflowPreflightFailure(failure *Failure) *Failure {
-	resubjected := *failure
-	resubjected.Op = "workflow_action_preflight"
-	return &resubjected
-}
-
 // WorkflowActionDefinitionFor answers whether the named action passes preflight.
 // It reads a snapshot; the owning boundary revalidates before any effect.
 func WorkflowActionDefinitionFor(ctx context.Context, s *Store, request WorkflowActionPreflightRequest) (WorkflowActionDefinition, error) {
@@ -226,11 +216,21 @@ func workflowPlanActionAdmissionTx(ctx context.Context, tx *sql.Tx, workID strin
 }
 
 func workflowPlanTerminalAdmissionTx(ctx context.Context, tx *sql.Tx, workID, actionID, state, step string, plan *WorkflowStepPlan) (string, error) {
-	if state == "completed" && actionID == "record_delivery" && plan != nil {
-		owner := workflowPlanDeclaringStep(plan, actionID)
+	if state == "completed" && actionID == "record_delivery" {
+		owner := "delivery"
+		if plan != nil {
+			owner = workflowPlanDeclaringStep(plan, actionID)
+		}
 		records, recordsErr := workflowCurrentRecords(ctx, tx, workID)
 		if recordsErr != nil {
 			return owner, recordsErr
+		}
+		if plan == nil {
+			var exists bool
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_delivery_state WHERE work_id=?)`, workID).Scan(&exists); err != nil {
+				return owner, workflowProjectionError(err, "cannot read retained delivery")
+			}
+			records["record_delivery"] = exists
 		}
 		if owner != "" && records["record_delivery"] {
 			if err := guardPlanDelivery(ctx, tx, workID); err != nil {

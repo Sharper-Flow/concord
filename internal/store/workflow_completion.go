@@ -32,54 +32,6 @@ func workflowCompletionRequired() error {
 	return newFailure(KindWorkflowCompletionRequired, "append_event", "workflow.completed is reserved for the ordered completion gate", false, "use the ordered workflow completion entry point")
 }
 
-// CompleteWorkflowTx is the caller-owned transaction seam. No
-// completion or notice is appended until every earlier clause has passed. The
-// caller passes the write scope its region owns; the completion enters and
-// releases one depth level on it, so a boundary-owned guard survives until the
-// boundary's own level closes.
-func CompleteWorkflowTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
-	if tx == nil {
-		return newFailure(KindUnavailable, "complete_workflow", "transaction is not open", false, "open a mutation transaction")
-	}
-	if event.Kind != WorkflowCompleted {
-		return newFailure(KindInvalidOperation, "complete_workflow", "completion entry point requires workflow.completed", false, "supply the typed completion event")
-	}
-	if err := event.validate(); err != nil {
-		return err
-	}
-	registration, _ := registeredEventKind(WorkflowCompleted)
-	if event.PayloadVersion != registration.CurrentVersion {
-		return unsupportedEventVersion(event, registration)
-	}
-	var payload workflowCompletedPayload
-	if err := decodeWorkflowPayload(event, &payload); err != nil {
-		return err
-	}
-	if payload.ImpactVerdict != "breaking" && payload.ImpactVerdict != "non-breaking" {
-		return newFailure(KindInvalidPayload, "complete_workflow", "completion requires impact_verdict breaking or non-breaking", false, "supply the delivered change impact verdict")
-	}
-	if payload.TerminalState != "completed" {
-		return newFailure(KindInvalidPayload, "complete_workflow", "workflow completion closes only as completed", false, "cancel through the lifecycle route or resolve an overlap with resolution_kind supersedes")
-	}
-	if err := workflowBase(event, payload.WorkflowVersionFields); err != nil {
-		return err
-	}
-	if scope == nil {
-		return newFailure(KindInvalidOperation, "complete_workflow", "write scope is required", false, "open the write scope with beginWrite")
-	}
-	if scope.tx != tx {
-		return newFailure(KindInvariantViolation, "complete_workflow", "write scope belongs to another transaction", false, "open the write scope on the transaction that writes")
-	}
-	// The completion holds one depth level on the caller's scope for the whole
-	// gate: clause writers update write-seam-only rows, and a nested level must
-	// not drop the boundary's protection early.
-	if err := scope.enter(ctx); err != nil {
-		return err
-	}
-	defer func() { _ = scope.close(ctx) }()
-	return completeWorkflowInScopeTx(ctx, tx, event, scope, payload)
-}
-
 func completeWorkflowInScopeTx(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, payload workflowCompletedPayload) error {
 	// The expected version is checked before any other read.  This is the lock/fence
 	// boundary described by the contract; every subsequent mutation uses the
@@ -318,28 +270,6 @@ func workflowStoredDecisionDomains(stored sql.NullString) ([]string, bool, error
 	return domains, true, nil
 }
 
-// missingPredicateVerdictsForContract lists the unverdicted approved
-// predicates from one already-read contract; owners holding the verified
-// definition reuse it so one transaction resolves the pin once.
-func missingPredicateVerdictsForContract(ctx context.Context, tx queryer, workID string, contract workflowCompletionContractData) ([]string, error) {
-	verdicts, err := latestWorkflowVerdicts(ctx, tx, workID, contract.Version)
-	if err != nil {
-		return nil, err
-	}
-	verdicted := make(map[string]bool, len(verdicts))
-	for _, verdict := range verdicts {
-		verdicted[verdict.PredicateID] = true
-	}
-	var missing []string
-	for _, predicate := range contract.Predicates {
-		if !verdicted[predicate.PredicateID] {
-			missing = append(missing, predicate.PredicateID)
-		}
-	}
-	sort.Strings(missing)
-	return missing, nil
-}
-
 // workflowEvidenceRequirement represents one completion evidence requirement.
 type workflowEvidenceRequirement struct {
 	Kind      string
@@ -391,12 +321,6 @@ func workflowEvidenceRequirementInputs(ctx context.Context, q queryer, workID st
 	return required, mandates, obligations, nil
 }
 
-// outstandingWorkflowEvidenceRequirements returns every declared requirement
-// the evidence history does not satisfy.
-func outstandingWorkflowEvidenceRequirements(ctx context.Context, q queryer, workID string, required, mandates []string, obligations []WorkflowVerificationObligation) ([]workflowEvidenceRequirement, error) {
-	return unboundWorkflowEvidenceRequirements(ctx, q, workID, workflowEvidenceRequirementDefinitions(required, mandates, obligations))
-}
-
 // beforeSeq excludes a binding whose completion event is being validated.
 // Zero reads the current history.
 func unboundWorkflowEvidenceRequirements(ctx context.Context, q queryer, workID string, requirements []workflowEvidenceRequirement) ([]workflowEvidenceRequirement, error) {
@@ -411,100 +335,6 @@ func unboundWorkflowEvidenceRequirements(ctx context.Context, q queryer, workID 
 		}
 	}
 	return outstanding, nil
-}
-
-func workflowEvidenceRequirementDefinitions(required, mandates []string, obligations []WorkflowVerificationObligation) []workflowEvidenceRequirement {
-	var requirements []workflowEvidenceRequirement
-	for _, kind := range required {
-		requirements = append(requirements, workflowEvidenceRequirement{Kind: kind})
-	}
-	for _, mandate := range mandates {
-		requirements = append(requirements, workflowEvidenceRequirement{Reference: mandate})
-	}
-	for _, obligation := range obligations {
-		requirements = append(requirements, workflowEvidenceRequirement{Kind: obligation.ObligationID, Reference: obligation.LawID})
-	}
-	return requirements
-}
-
-// Premise confirmation requires producer proof for every approved criterion
-// before leaving the stage where Main can associate receipts.
-func requireAcceptanceDeliverables(ctx context.Context, tx queryer, workID string) error {
-	verdict, err := latestWorkflowVerdict(ctx, tx, workID)
-	if err != nil {
-		return err
-	}
-	if verdict == nil {
-		return newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires a recorded workflow verdict", false, "record_verdict before confirming the premise")
-	}
-	contract, contractErr := workflowCompletionContractRows(ctx, tx, workID)
-	if contractErr != nil {
-		return contractErr
-	}
-	missing, missingErr := missingPredicateVerdictsForContract(ctx, tx, workID, contract)
-	if missingErr != nil {
-		return missingErr
-	}
-	if len(missing) != 0 {
-		return newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires a verdict for every approved predicate: missing "+strings.Join(missing, ", "), false, "record_verdict for each approved predicate before confirming the premise")
-	}
-	verdicts, err := latestWorkflowVerdicts(ctx, tx, workID, contract.Version)
-	if err != nil {
-		return err
-	}
-	for _, verdict := range verdicts {
-		if !containsPredicateID(contract.Predicates, verdict.PredicateID) {
-			continue
-		}
-		if err := verifyWorkflowCriterionAssociation(ctx, tx, workID, verdict); err != nil {
-			return err
-		}
-	}
-	requirements, err := outstandingWorkflowEvidenceRequirements(ctx, tx, workID, contract.RequiredEvidence, contract.SpecMandate, contract.VerificationObligations)
-	if err != nil {
-		return err
-	}
-	if len(requirements) != 0 {
-		var missing strings.Builder
-		for i, requirement := range requirements {
-			if i != 0 {
-				missing.WriteString(", ")
-			}
-			if requirement.Kind != "" {
-				missing.WriteString(requirement.Kind)
-			} else {
-				missing.WriteString(requirement.Reference)
-			}
-		}
-		return newFailure(KindMissingEvidence, "workflow_action", "premise confirmation requires every contract-required evidence kind bound: missing "+missing.String(), false, "bind_evidence for each required kind before confirming the premise")
-	}
-	return nil
-}
-
-// latestWorkflowVerdict keeps the unbounded latest-history read every live
-// caller uses; the bounded variant serves replay folds that see the intact
-// log.
-func latestWorkflowVerdict(ctx context.Context, tx queryer, workID string) (*workflowVerdictRecordedPayload, error) {
-	return latestWorkflowVerdictBefore(ctx, tx, workID, 0)
-}
-
-// latestWorkflowVerdictBefore is the single verdict-history query owner.
-// beforeSeq bounds the read for a replay fold: 0 keeps the unbounded
-// latest-history semantics, and a fold passes its own sequence so a verdict
-// recorded after it never enters the fold's decision.
-func latestWorkflowVerdictBefore(ctx context.Context, tx queryer, workID string, beforeSeq int64) (*workflowVerdictRecordedPayload, error) {
-	var raw []byte
-	if err := tx.QueryRowContext(ctx, `SELECT payload FROM workflow_predicate_verdicts WHERE work_id=? AND (?=0 OR verdict_seq<?) ORDER BY verdict_seq DESC LIMIT 1`, workID, beforeSeq, beforeSeq).Scan(&raw); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, wrapFailure(KindUnavailable, "complete_workflow", "cannot read workflow verdict", true, "retry once the database is readable", err)
-	}
-	var verdict workflowVerdictRecordedPayload
-	if err := json.Unmarshal(raw, &verdict); err != nil {
-		return nil, newFailure(KindInvariantViolation, "complete_workflow", "workflow verdict payload is malformed", false, "reread_entities")
-	}
-	return &verdict, nil
 }
 
 func latestWorkflowVerdicts(ctx context.Context, q queryer, workID string, contractVersion int64) ([]workflowVerdictRecordedPayload, error) {
@@ -635,15 +465,6 @@ func workflowPredicateHistoryCompatible(history workflowContractPredicateHistory
 	}
 	approved := history[to][predicateID]
 	return approved.PredicateID == predicateID && approved.OutcomeKind != "" && verdict.PredicateID == predicateID
-}
-
-func containsPredicateID(predicates []WorkflowReadPredicate, predicateID string) bool {
-	for _, predicate := range predicates {
-		if predicate.PredicateID == predicateID {
-			return true
-		}
-	}
-	return false
 }
 
 // WorkflowChangedRefsDigest is the deterministic digest used by callers that

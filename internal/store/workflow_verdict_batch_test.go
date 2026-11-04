@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -417,9 +418,9 @@ func missingPredicateVerdictsCtx(t *testing.T, s *Store, workID string) ([]strin
 }
 
 func missingPredicateVerdicts(ctx context.Context, tx queryer, workID string) ([]string, error) {
-	contract, err := workflowCompletionContractRows(ctx, tx, workID)
+	missing, err := workflowMissingCriterionAssociations(ctx, tx, workID)
 	if err != nil {
 		return nil, err
 	}
-	return missingPredicateVerdictsForContract(ctx, tx, workID, contract)
+	return slices.Sorted(maps.Keys(missing)), nil
 }

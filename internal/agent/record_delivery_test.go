@@ -4,12 +4,51 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
+
+func TestMigratedTerminalDeliveryReplacementReplay(t *testing.T) {
+	f := newSpineFixture(t)
+	ctx := t.Context()
+	db := f.s.DatabaseForTesting()
+	_, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1);
+INSERT INTO workflow_delivery_state(work_id,assertion_seq,assertion_id,actor,occurred_at,payload_version,payload) VALUES(?,1,'historical-delivery','actor:historical','2026-01-01T00:00:00Z',8,'{"delivery_artifact":"artifact:old","delivery_state":"asserted"}');
+UPDATE workflow_instances SET workflow_type=NULL,step_plan=NULL,instance_state='completed' WHERE work_id=?;
+UPDATE work_items SET lifecycle='completed' WHERE id=?; DELETE FROM write_guard`, f.work, f.work, f.work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := workVersion(t, f.s, f.work)
+	input := map[string]any{"work_id": f.work, "expected_version": version, "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "artifact:new", "delivery_state": "asserted"}, "idempotency_key": "migrated-delivery-replacement"}
+	first := spineOK(t, f.call(t, "concord_work_transition", "workflow_action", input))
+	var artifact, state, lifecycle string
+	var eventCount, operationCount, idemCount int
+	query := `SELECT json_extract(d.payload,'$.delivery_artifact'),i.instance_state,w.lifecycle,(SELECT count(*) FROM effect_receipts WHERE subject_id=w.id),(SELECT count(*) FROM durable_operations WHERE work_id=w.id),(SELECT count(*) FROM idempotency_records) FROM workflow_delivery_state d JOIN workflow_instances i ON i.work_id=d.work_id JOIN work_items w ON w.id=d.work_id WHERE d.work_id=?`
+	if err := db.QueryRowContext(ctx, query, f.work).Scan(&artifact, &state, &lifecycle, &eventCount, &operationCount, &idemCount); err != nil {
+		t.Fatal(err)
+	}
+	if artifact != "artifact:new" || state != "completed" || lifecycle != "completed" {
+		t.Fatalf("replacement %q %q %q", artifact, state, lifecycle)
+	}
+	resultVersion := workVersion(t, f.s, f.work)
+	replay := spineOK(t, f.call(t, "concord_work_transition", "workflow_action", input))
+	if !reflect.DeepEqual(first.Result, replay.Result) {
+		t.Fatalf("replay result: %s != %s", first.Result, replay.Result)
+	}
+	var afterArtifact, afterState, afterLifecycle string
+	var afterEvents, afterOps, afterIdem int
+	if err := db.QueryRowContext(ctx, query, f.work).Scan(&afterArtifact, &afterState, &afterLifecycle, &afterEvents, &afterOps, &afterIdem); err != nil {
+		t.Fatal(err)
+	}
+	if artifact != afterArtifact || state != afterState || lifecycle != afterLifecycle || eventCount != afterEvents || operationCount != afterOps || idemCount != afterIdem || resultVersion != workVersion(t, f.s, f.work) {
+		t.Fatal("replay changed durable state")
+	}
+}
 
 // Summary, review and delivery do not complete a plan step.
 func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {

@@ -73,6 +73,7 @@ type WorkflowPlanStep struct {
 	Skill    *string               `json:"skill,omitempty"`
 	Helper   *string               `json:"helper,omitempty"`
 	Reviewed bool                  `json:"reviewed"`
+	Reason   string                `json:"reason,omitempty"`
 	Attempts []WorkflowPlanAttempt `json:"attempts,omitempty"`
 }
 

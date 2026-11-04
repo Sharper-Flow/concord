@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"reflect"
 	"testing"
@@ -190,10 +191,11 @@ func TestOrdinaryCandidateDeltaHoldsProgress(t *testing.T) {
 }
 
 func TestOrdinaryDeliveryWritesHoldProgress(t *testing.T) {
-	for _, completed := range []bool{false, true} {
+	for _, variant := range []string{"passed_step", "completed", "migrated"} {
+		completed := variant != "passed_step"
 		name := "passed_step"
 		if completed {
-			name = "completed"
+			name = variant
 		}
 		t.Run(name, func(t *testing.T) {
 			work := "ordinary-delivery-" + name
@@ -211,8 +213,14 @@ func TestOrdinaryDeliveryWritesHoldProgress(t *testing.T) {
 				if err := f.run(ctx, "complete", "complete", readWorkVersion(t, s, work), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil); err != nil {
 					t.Fatal(err)
 				}
+				if variant == "migrated" {
+					if _, err := s.db.ExecContext(ctx, `INSERT INTO write_guard VALUES(1); UPDATE workflow_instances SET workflow_type=NULL, step_plan=NULL WHERE work_id=?; DELETE FROM write_guard`, work); err != nil {
+						t.Fatal(err)
+					}
+				}
 			}
-			var plan, state, lifecycle string
+			var plan sql.NullString
+			var state, lifecycle string
 			if err := s.db.QueryRow(`SELECT step_plan,instance_state,(SELECT lifecycle FROM work_items WHERE id=work_id) FROM workflow_instances WHERE work_id=?`, work).Scan(&plan, &state, &lifecycle); err != nil {
 				t.Fatal(err)
 			}
@@ -227,7 +235,8 @@ func TestOrdinaryDeliveryWritesHoldProgress(t *testing.T) {
 				if !failureAs(err, &failure) || failure.Kind != KindVersionConflict || !reflect.DeepEqual(failure.InterveningActions, []InterveningAction{{ActionID: "record_delivery", SessionRef: f.owner.SessionRef}}) {
 					t.Errorf("stale delivery diagnostic: %v (%+v)", err, failure)
 				}
-				var gotPlan, gotState, gotLifecycle string
+				var gotPlan sql.NullString
+				var gotState, gotLifecycle string
 				if err := s.db.QueryRow(`SELECT step_plan,instance_state,(SELECT lifecycle FROM work_items WHERE id=work_id) FROM workflow_instances WHERE work_id=?`, work).Scan(&gotPlan, &gotState, &gotLifecycle); err != nil {
 					t.Fatal(err)
 				}
@@ -237,6 +246,15 @@ func TestOrdinaryDeliveryWritesHoldProgress(t *testing.T) {
 				current, err := workflowDeliveryAssertionRead(ctx, s.db, work)
 				if err != nil || current == nil || current.Artifact != artifact {
 					t.Fatalf("delivery=%+v error=%v", current, err)
+				}
+			}
+			if variant == "migrated" {
+				if _, err := s.db.ExecContext(ctx, `INSERT INTO write_guard VALUES(1); DELETE FROM workflow_delivery_state WHERE work_id=?; DELETE FROM write_guard`, work); err != nil {
+					t.Fatal(err)
+				}
+				request := WorkflowActionPreflightRequest{WorkID: work, ExpectedVersion: readWorkVersion(t, s, work), ActionID: "record_delivery", Payload: json.RawMessage(`{"delivery_artifact":"artifact:missing","delivery_state":"asserted"}`), Actor: f.owner}
+				if _, err := WorkflowActionDefinitionFor(ctx, s, request); !hasFailureKind(err, KindInvalidOperation) {
+					t.Fatalf("replacement without a delivery row: %v", err)
 				}
 			}
 		})

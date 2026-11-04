@@ -12,7 +12,7 @@ func TestReportedCompletionDiscardsStepsAndPreservesDelivery(t *testing.T) {
 		requiredEvidence: []string{"verification", "review"}, emptyMandate: true,
 		includeVerdict: true, includePremise: true, verdictKind: "ok", omitClosure: true,
 	})
-	if _, err := s.db.Exec(`INSERT INTO write_guard VALUES(1); INSERT INTO workflow_delivery_state(work_id,assertion_seq,assertion_id,actor,occurred_at,payload_version,payload) VALUES(?,1,'reported-delivery','principal/operator','2026-11-01T00:00:00Z',1,'{"delivery_artifact":"https://example.com/change/1","delivery_state":"asserted"}'); DELETE FROM write_guard`, workID); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard VALUES(1); INSERT OR REPLACE INTO workflow_delivery_state(work_id,assertion_seq,assertion_id,actor,occurred_at,payload_version,payload) VALUES(?,1,'reported-delivery','principal/operator','2026-11-01T00:00:00Z',1,'{"delivery_artifact":"https://example.com/change/1","delivery_state":"asserted"}'); DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	before, err := workflowDeliveryAssertionRead(t.Context(), s.db, workID)

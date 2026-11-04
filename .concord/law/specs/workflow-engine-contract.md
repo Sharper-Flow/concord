@@ -187,8 +187,8 @@ The store keeps current state and finite snapshots ([CD-0242 D2](../decisions/CD
 mutation writes current rows in one transaction checked by an expected version
 and recorded by its idempotency key. The names below identify the typed
 mutation records that the §12 action tables map actions to; omitted and unknown keys are
-refused. Only the completion fold reached through `CompleteWorkflowTx` or the
-`complete` action records `workflow.completed`, after the ordered gate in §7;
+refused. Only the completion fold reached through the `complete` action records
+`workflow.completed`, after the ordered gate in §7;
 ordinary `ApplyOperationTx` refuses it structurally.
 
 Every mutating workflow payload also carries `expected_version` and
@@ -466,7 +466,7 @@ different recorded commit do not prove the candidate.
 
 ## 7. Ordered completion gate
 
-`CompleteWorkflowTx` executes in one SQLite transaction. It locks the work
+The `complete` action executes in one SQLite transaction. It locks the work
 item, checks that every step in the item's plan is completed and the expected
 version, and rolls back on refusal.
 

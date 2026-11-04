@@ -88,15 +88,19 @@ func TestLateBindingRefusesUndeclaredEvidenceKind(t *testing.T) {
 }
 
 // Fixture assertions separate declared requirements from predicate recovery.
-func outstandingWorkflowEvidenceRequirementsForWork(ctx context.Context, q queryer, workID string) ([]workflowEvidenceRequirement, error) {
-	required, mandates, obligations, err := workflowEvidenceRequirementInputs(ctx, q, workID)
+func outstandingWorkflowEvidenceRequirementsForWork(ctx context.Context, q queryer, workID string) ([]string, error) {
+	version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
 	if err != nil {
 		if workflowProjectionInvariant(err, "approved workflow contract is missing") {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, obligations)
+	kinds, err := workPinOutstandingEvidenceKindsTx(ctx, q, workID, version)
+	if kinds == nil {
+		return nil, err
+	}
+	return *kinds, err
 }
 
 func TestCorrectedContractExternalCheckBindingAtAcceptance(t *testing.T) {
@@ -113,7 +117,7 @@ func TestCorrectedContractExternalCheckBindingAtAcceptance(t *testing.T) {
 	s := f.store
 	payload := pReceiptBatch(refs, 0)
 	outstanding, err := outstandingWorkflowEvidenceRequirementsForWork(t.Context(), s.db, workID)
-	if err != nil || len(outstanding) != 0 {
+	if err != nil || len(outstanding) != 1 || outstanding[0] != "verification" {
 		t.Fatalf("required evidence before external check = %v: %v", outstanding, err)
 	}
 	pin, err := ReadWorkPin(t.Context(), s, workID)
@@ -358,7 +362,7 @@ func TestRecoveryRequiredKindStillNeedsDurableProducerAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, requirement := range outstanding {
-		if requirement.Kind == "verification" && requirement.Reference == "" {
+		if requirement == "verification" {
 			return
 		}
 	}

@@ -8638,6 +8638,11 @@ END;
 	},
 	{
 		Version: 183, Name: "workflow_step_plan_cutover", Breaking: true,
+		// The added workflow_contracts.changes_product_truth column is the
+		// approval fold's own Product-truth rule recorded once per approved
+		// contract (persistWorkflowContractApprovalTx); pre-cutover rows keep
+		// NULL as historical absence, so the column is additive and defaulted.
+		FoldMaintained: "origin",
 		SQL: `
 INSERT INTO write_guard(active) VALUES(1);
 UPDATE work_items SET lifecycle='completed',

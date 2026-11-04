@@ -342,6 +342,9 @@ const GeneratedWorkflowStepTemplatesDocument = `{
           "reviewed": {
             "type": "boolean"
           },
+          "reason": {
+            "type": "string"
+          },
           "attempts": {
             "type": "array",
             "items": {

@@ -71,7 +71,7 @@ func TestWorkflowAcceptanceDeliverablesRequireCriterionAssociation(t *testing.T)
 				t.Fatal(err)
 			}
 			defer tx.Rollback()
-			err = requireAcceptanceDeliverables(t.Context(), tx, workID)
+			err = workflowConfirmationDeliverablesTx(t.Context(), tx, WorkflowStepPlanResearch, workID)
 			if associated && err != nil || !associated && !hasFailureKind(err, KindMissingEvidence) {
 				t.Fatalf("associated=%v: %v", associated, err)
 			}

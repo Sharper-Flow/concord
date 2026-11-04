@@ -15,7 +15,7 @@
 > panel or web UI is optional and secondary.
 
 **Approval amendment:** [CD-0243 D7](../law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
-qualifies current outcome-contract consent and revision authority. Definitions
+qualifies current contract consent and revision authority. Definitions
 derive from one canonical source with no released definition version retained
 for history (CD-0242 D14). The operator-owned release cutover retains its
 existing requirements.
@@ -89,7 +89,7 @@ catalog retains exactly three families (CD-0218 D1). What a definition fixes:
 | **Artifacts** | What it produces (a spec delta? a report? findings? nothing durable?). |
 | **Completion criteria** | How it's "done" (a contract satisfied? a report submitted? a signal fired?). |
 | **Value statement** | One sentence stating the work value: what it delivers and why it matters. |
-| **Outcome contract** | The premise, required end-state, and candidate set the family requires at approval. See §2.1a. |
+| **Contract** | The premise and the contract fields recorded for the work. See §2.1a. |
 | **Product-truth effect** | Closed `changes_product_truth` classification; architecture bindings and permitted law revisions follow [CD-0222 D5](../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md), as amended by [CD-0230 D4](../law/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md). |
 | **Staleness rule** | Whether execution is blocked while the workflow's inputs or upstream state are stale. |
 | **Active visibility** | Which gates/problems are surfaced by default vs. hidden behind history. |
@@ -109,41 +109,24 @@ answers:
 The value statement is part of the durable workflow record and is visible in the
 Product → Domain browse surface.
 
-The value statement answers *why the work matters*. It does not answer *what must
-be true when the work is done*, and it is not falsified by a weaker delivery — a
-value statement about removal survives an archive that removes nothing. That
-second question belongs to the outcome contract below.
+The value statement answers *why the work matters*. The plan states the
+observable outcome and proof strategy; independent Review judges the delivery.
 
-### 2.1a Outcome contract
+### 2.1a Contract and plan
 
-Accepted CD-0012 gives the value statement a binding counterpart. Every work item
-additionally carries a three-part **outcome contract** with separate revision
-rules:
-
-| Part | Content | Revision authority |
-|---|---|---|
-| **Premise** | Why this work exists, in the operator's terms. | Authenticated coordinator through the ordinary complete contract update; operator decisions follow CD-0243. |
-| **Required end-state** | Falsifiable postconditions carrying the operative verb. | Authenticated coordinator through the ordinary complete contract update; operator decisions follow CD-0243. |
-| **Candidate set** | The specific instances the end-state ranges over. | The executing agent, during execution, by a recorded revision. |
-
-The required end-state is approved at planning beside CD-0006 D10's spec mandate,
-and verified before premise confirmation. A delivered end-state may only be stronger than the
-approved one, never weaker. Work discovered mid-execution that lies outside the
-approved end-state forward-links as successor work under CD-0006 R1; it never
-substitutes.
+Every work item carries a contract with its premise. The approved plan records
+the observable outcome and proof strategy. Work discovered outside the agreed
+scope forward-links as successor work under CD-0006 R1; it never substitutes.
 
 Contract changes use [workflow-engine contract §4.1](../law/specs/workflow-engine-contract.md#41-ordinary-contract-updates).
 The update appends the next retained version without resetting the step or
-discarding evidence. Earlier version content remains immutable; current
-criteria and candidate still need valid independent proof. An execution-time
+discarding evidence. Earlier version content remains immutable; the candidate
+still needs applicable independent proof. An execution-time
 law conflict still stops work for planning resolution before execution resumes.
 
-Every workflow carries an outcome contract. Research may record `no_change`
-when its approved outcome predicate allows it. The retained families' outcome
-tokens and predicate forms are fixed in
-[CD-0218 D1](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md).
-Binding form and per-type verbs:
-[`../law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](../law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md).
+Research may conclude that no change is needed. Independent native Task Review
+records its reviewer, result, commit and actual result link on the reviewed
+step. A final review requires a clean pass.
 
 ### 2.2 Factored lifecycle truth
 
@@ -214,7 +197,7 @@ step's skill, helper, reviewed flag and admitted actions — are listed once in
 the machine-readable template contract
 [`contracts/workflow-step-templates.v1.json`](../../contracts/workflow-step-templates.v1.json);
 docs hold no hand-written copy. Research records findings, conclusions and
-recommendations, may conclude `no_change`, and takes outcome predicates only
+recommendations and may conclude `no_change`
 (CD-0218 D1). The retired family refs select no new
 execution, and no alias maps a retired ref to a type (CD-0218 D1).
 [CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) requires

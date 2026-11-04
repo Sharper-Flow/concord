@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -9,21 +10,10 @@ import (
 	"time"
 )
 
-func seedItemAtAcceptance(t *testing.T, workID string) (*Store, WorkflowActor, WorkflowActor) {
-	t.Helper()
-	return seedItemAtAcceptanceRequiring(t, workID, false, []string{"verification"})
-}
-
-// seedItemAtAcceptanceRequiring seeds the same item with a chosen
-// required_evidence set, so a contract can demand a kind whose consumption
-// gate resolves against a captured record.
-func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, requiredEvidence []string) (*Store, WorkflowActor, WorkflowActor) {
+func seedItemAtAcceptance(t *testing.T, workID string) (*Store, WorkflowActor) {
 	t.Helper()
 	var kinds []string
-	if prebind {
-		kinds = []string{"verification", "review"}
-	}
-	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", requiredEvidence, kinds)
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", kinds)
 	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
 	reviewerRef, err := WorkflowActorRef(reviewer)
 	if err != nil {
@@ -34,7 +24,7 @@ func seedItemAtAcceptanceRequiring(t *testing.T, workID string, prebind bool, re
 	if err := applyWorkflowTestOperation(t.Context(), f.store, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
 	}
-	return f.store, f.owner, reviewer
+	return f.store, f.owner
 }
 
 // verdictReviewer reads the non-executing reviewer actor from the test's
@@ -51,7 +41,7 @@ func verdictReviewer(t *testing.T, s *Store, workID string) WorkflowActor {
 // actionEvidenceRefs supplies the immutable subject refs that the
 // evidence-authority fold requires for evidence-producing actions.
 func actionEvidenceRefs(action string, payload json.RawMessage) []string {
-	if action != "bind_evidence" && action != "record_report" {
+	if action != "bind_evidence" {
 		return nil
 	}
 	var fields struct {
@@ -84,7 +74,7 @@ func runVerdictActionAs(t *testing.T, s *Store, workID, action string, payload j
 	defer tx.Rollback()
 	if _, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), WorkflowActionExecutionRequest{
 		EvidenceRefs: actionEvidenceRefs(action, payload), WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner,
-		AcceptedInputsDigest: nativeDigest([]byte(fmt.Sprintf("%s-%s-%d", action, workID, version))), IdempotencyIdentity: action + "-" + workID + "-" + fmt.Sprint(version), OperationID: action + "-" + workID + "-" + fmt.Sprint(version),
+		AcceptedInputsDigest: fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(fmt.Sprintf("%s-%s-%d", action, workID, version)))), IdempotencyIdentity: action + "-" + workID + "-" + fmt.Sprint(version), OperationID: action + "-" + workID + "-" + fmt.Sprint(version),
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: action + "-" + workID + "-" + fmt.Sprint(version), RequestID: "request:" + action + "-" + workID + "-" + fmt.Sprint(version), ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
 	}); err != nil {
 		return err
@@ -92,10 +82,7 @@ func runVerdictActionAs(t *testing.T, s *Store, workID, action string, payload j
 	return tx.Commit()
 }
 
-// seedVerifiedNativeRunCapture records one native-run report on the work
-// through the real report and verification events, so the capture and its
-// verified state rebuild from the event log, and returns the observation
-// identity the consumption gate resolves.
+// seedVerifiedNativeRunCapture records and verifies one native-run observation.
 func seedVerifiedNativeRunCapture(t *testing.T, s *Store, workID string) string {
 	t.Helper()
 	ctx := context.Background()

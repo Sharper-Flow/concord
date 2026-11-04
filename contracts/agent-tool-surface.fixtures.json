@@ -289,16 +289,8 @@
           },
           "pinned": {
             "contract": {
-              "outcome_predicates": [
-                {
-                  "ordinal": 0,
-                  "outcome_kind": "id-1",
-                  "outcome_payload": "id-1",
-                  "predicate_id": "id-1"
-                }
-              ],
+              "legislative_subjects": [],
               "premise": "id-1",
-              "required_evidence": [],
               "route_conventions": [],
               "spec_mandate": [],
               "version": 1
@@ -360,16 +352,8 @@
           },
           "pinned": {
             "contract": {
-              "outcome_predicates": [
-                {
-                  "ordinal": 0,
-                  "outcome_kind": "id-1",
-                  "outcome_payload": "id-1",
-                  "predicate_id": "id-1"
-                }
-              ],
+              "legislative_subjects": [],
               "premise": "id-1",
-              "required_evidence": [],
               "route_conventions": [],
               "spec_mandate": [],
               "version": 1
@@ -431,16 +415,8 @@
           },
           "pinned": {
             "contract": {
-              "outcome_predicates": [
-                {
-                  "ordinal": 0,
-                  "outcome_kind": "id-1",
-                  "outcome_payload": "id-1",
-                  "predicate_id": "id-1"
-                }
-              ],
+              "legislative_subjects": [],
               "premise": "id-1",
-              "required_evidence": [],
               "route_conventions": [],
               "spec_mandate": [],
               "version": 1
@@ -503,16 +479,8 @@
         },
         "pinned": {
           "contract": {
-            "outcome_predicates": [
-              {
-                "ordinal": 0,
-                "outcome_kind": "id-1",
-                "outcome_payload": "id-1",
-                "predicate_id": "id-1"
-              }
-            ],
+            "legislative_subjects": [],
             "premise": "id-1",
-            "required_evidence": [],
             "route_conventions": [],
             "spec_mandate": [],
             "version": 1
@@ -1017,20 +985,6 @@
           "expected_version": 1,
           "fields": {
             "decision_domains": [],
-            "outcome_predicates": [
-              {
-                "ordinal": 0,
-                "outcome_kind": "exists",
-                "outcome_payload": {
-                  "kind": "exists",
-                  "subjects": [
-                    "id-1"
-                  ],
-                  "surface": "id-1"
-                },
-                "predicate_id": "id-1"
-              }
-            ],
             "premise": "id-1"
           },
           "idempotency_key": "id-1",
@@ -1043,20 +997,6 @@
           "fields": {
             "decision_domains": [],
             "nested_unknown": true,
-            "outcome_predicates": [
-              {
-                "ordinal": 0,
-                "outcome_kind": "exists",
-                "outcome_payload": {
-                  "kind": "exists",
-                  "subjects": [
-                    "id-1"
-                  ],
-                  "surface": "id-1"
-                },
-                "predicate_id": "id-1"
-              }
-            ],
             "premise": "id-1"
           },
           "idempotency_key": "id-1",
@@ -1067,20 +1007,6 @@
           "expected_version": 1,
           "fields": {
             "decision_domains": [],
-            "outcome_predicates": [
-              {
-                "ordinal": 0,
-                "outcome_kind": "exists",
-                "outcome_payload": {
-                  "kind": "exists",
-                  "subjects": [
-                    "id-1"
-                  ],
-                  "surface": "id-1"
-                },
-                "predicate_id": "id-1"
-              }
-            ],
             "premise": "id-1"
           },
           "idempotency_key": "id-1",
@@ -1093,20 +1019,6 @@
         "expected_version": 1,
         "fields": {
           "decision_domains": [],
-          "outcome_predicates": [
-            {
-              "ordinal": 0,
-              "outcome_kind": "exists",
-              "outcome_payload": {
-                "kind": "exists",
-                "subjects": [
-                  "id-1"
-                ],
-                "surface": "id-1"
-              },
-              "predicate_id": "id-1"
-            }
-          ],
           "premise": "id-1"
         },
         "idempotency_key": "id-1",
@@ -1504,5 +1416,5 @@
       }
     }
   ],
-  "manifest_digest": "sha256:c9d269a76d846e7146d54fe4485f4c3c687871eeb7eff08e6a202b454d2a190b"
+  "manifest_digest": "sha256:2ccbd4aeb9402dfd9e776005b7efef0b1dafa9dbf84292c75fa535567475987c"
 }

@@ -11,13 +11,13 @@ you or the operator. Without one, work directly with the user and complete the
 item yourself.
 
 You hold the durable workflow authority for your item. Subagents and an
-optional RTE do not. Record every transition, verdict, acceptance, and completion
+optional RTE do not. Record every transition, reviewed step, and completion
 through Concord's typed operations; otherwise it does not exist.
 
 ## Authority
 
 You are the only participant that advances workflow state. A subagent returns
-its findings; it never records a transition, a verdict, or completion. Reading a
+its findings; it never records a transition, reviewed step, or completion. Reading a
 subagent's conclusion does not make it recorded. You decide, then you record.
 
 Use Concord's typed tool surface for Concord state. The operation manifest is
@@ -46,10 +46,11 @@ Obtain independent review through native Task against the exact current subject.
 The host owns subagent execution. Route by need and let the available agent
 descriptions name the agent.
 
-Record Review outcomes through the admitted workflow action against the current
-subject and dependencies. Bind an attributed local or required CI verification
-report for the recorded commit. A Task answer alone is not a bound report;
-compare the recorded commits for Review, evidence and verdicts.
+Record the reviewed step through `record_review` with its step ID, note,
+reviewer, result, commit and actual Task result link. The tuple does not run
+Review. A fixed intermediate attempt may proceed; the final review needs a clean
+pass. Bind ordinary evidence with its producer watermark, and keep proof tied
+to the candidate it covers. Required CI remains external.
 
 ## The operator's decisions
 
@@ -97,7 +98,7 @@ admitted execution and acceptance route for its actual target. If no route
 exists, report the limitation before capture. Distinguish host-owned work from
 new managed capability and obtain any applicable operator decision; do not invent
 a recipe, receipt, or research classification. Host-owned work has no Concord
-workflow authority, evidence, verdict, or completion claim. Keep an existing
+workflow authority, evidence, review, or completion claim. Keep an existing
 managed item held when its supported execution or handoff is unavailable.
 
 When a Concord defect blocks safe workflow recording or execution of your own

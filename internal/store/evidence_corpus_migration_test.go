@@ -25,7 +25,7 @@ func evidenceExplicitCorpus(t *testing.T) historicalFactCorpus {
 
 func evidenceCorpusForWork(t *testing.T, work string) historicalFactCorpus {
 	t.Helper()
-	base := seedWorkflowReturnRouteFixtureWithPlan(t, work, WorkflowStepPlanFix, "implement", []string{}, []string{})
+	base := seedWorkflowReturnRouteFixtureWithPlan(t, work, WorkflowStepPlanFix, "implement", []string{})
 	owner, _ := WorkflowActorRef(base.owner)
 	seedWorkflowAuthority(t, base.store, "evidence-corpus-producer", work, "principal/corpus", "request/corpus", []string{"evidence:corpus"})
 	version := readWorkVersion(t, base.store, work)
@@ -80,7 +80,7 @@ func evidenceCorpusForWork(t *testing.T, work string) historicalFactCorpus {
 		action(WorkflowActionCompleted, "verify", id, 77, extra)
 	}
 	verdict := func(kind string, incomparable bool) {
-		add(WorkflowVerdictRecorded, map[string]any{"contract_version": 1, "predicate_id": "predicate:return-route", "verdict_kind": kind, "verdict_actor_ref": owner, "evaluation_evidence": []string{"evidence:corpus"}, "incomparable_with_approved": incomparable}, true)
+		add("workflow.verdict_recorded", map[string]any{"contract_version": 1, "predicate_id": "predicate:return-route", "verdict_kind": kind, "verdict_actor_ref": owner, "evaluation_evidence": []string{"evidence:corpus"}, "incomparable_with_approved": incomparable}, true)
 	}
 	verdict("insufficient_evidence", false)
 	verdict("ok", true)
@@ -119,9 +119,9 @@ func evidenceCorpusForWork(t *testing.T, work string) historicalFactCorpus {
 	completed()
 	correct(last)
 	c.parents = func(t *testing.T, s *Store, guard string) {
-		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates", "durable_operations"}, map[string]map[string]string{
+		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "durable_operations"}, map[string]map[string]string{
 			"workflow_instances": {"outside_repair_state": "NULL", "definition_ref": "'workflow.break_fix'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "current_step": "'verify'", "completion_payload": "NULL", "completion_occurred_at": "NULL", "unhealthy_verdict_seq": "0", "result_disposition": "''", "latest_non_dispatch_start_seq": "0"},
-			"workflow_contracts": {"definition_ref": "'workflow.break_fix'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "supersession_seq": "0", "last_healthy_seq": "0", "law_change": "NULL"},
+			"workflow_contracts": {"required_evidence": "'[]'", "definition_ref": "'workflow.break_fix'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "supersession_seq": "0", "last_healthy_seq": "0", "law_change": "NULL"},
 			"durable_operations": {"workflow_type_version": "26", "resume_cursor": "NULL"},
 		}, guard)
 		if _, err := s.db.Exec(`INSERT INTO ` + guard + ` VALUES(1);
@@ -133,7 +133,7 @@ DELETE FROM ` + guard); err != nil {
 		if guard != "fold_guard" {
 			return
 		}
-		if _, err := s.db.Exec(`INSERT INTO fold_guard VALUES(1); INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch) VALUES(?,'verify',3); INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES('obs:aaaaaaaaaaaaaaaa',?,'The corpus records an explicit observation','[]','[]','2026-01-01T00:00:00Z'); DELETE FROM fold_guard`, work, work); err != nil {
+		if _, err := s.db.Exec(`INSERT INTO fold_guard VALUES(1); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:return-route',0,'check','{"kind":"check","check_ref":"check:corpus","immutable_subject_ref":"commit:corpus","expected_result":"pass"}'); INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch) VALUES(?,'verify',3); INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES('obs:aaaaaaaaaaaaaaaa',?,'The corpus records an explicit observation','[]','[]','2026-01-01T00:00:00Z'); DELETE FROM fold_guard`, work, work, work); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -145,8 +145,6 @@ DELETE FROM ` + guard); err != nil {
 			return foldWorkflowActionFailed(ctx, tx, e, nil)
 		case WorkflowActionCompleted:
 			return foldWorkflowActionCompleted(ctx, tx, e, nil)
-		case WorkflowVerdictRecorded:
-			return foldWorkflowVerdictRecorded(ctx, tx, e)
 		case WorkflowEvidenceBound:
 			return foldWorkflowEvidenceBound(ctx, tx, e)
 		case "work.observation_recorded":
@@ -205,7 +203,7 @@ func assertEvidenceCorpus142(t *testing.T) {
 	want := workerFactsQueryRows(t, live, queries)
 	advanceHistoricalPrefix(t, old.db, 152)
 	assertEvidenceLegacySelections(t, old, c.events)
-	if err := Migrate(t.Context(), old.db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, t.Context(), old.db), old.db); err != nil {
 		t.Fatal(err)
 	}
 	plan, err = readWorkflowPlanTx(t.Context(), old.db, "evidence-corpus")
@@ -266,14 +264,14 @@ func assertEvidenceCorrection142(t *testing.T) {
 func assertEvidenceSupersession142(t *testing.T) {
 	t.Helper()
 	const work = "supersession-corpus"
-	base := seedWorkflowReturnRouteFixtureWithPlan(t, work, WorkflowStepPlanResearch, "investigate", []string{}, []string{})
+	base := seedWorkflowReturnRouteFixtureWithPlan(t, work, WorkflowStepPlanResearch, "investigate", []string{})
 	version := readWorkVersion(t, base.store, work)
 	actor, err := WorkflowActorRef(base.owner)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := historicalFactCorpus{parents: func(t *testing.T, s *Store, guard string) {
-		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{"workflow_instances": {"outside_repair_state": "NULL", "definition_ref": "'workflow.research'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "current_step": "'findings'", "result_disposition": "''", "latest_non_dispatch_start_seq": "0", "unhealthy_verdict_seq": "0"}, "workflow_contracts": {"definition_ref": "'workflow.research'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "law_change": "NULL"}}, guard)
+		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts"}, map[string]map[string]string{"workflow_instances": {"outside_repair_state": "NULL", "definition_ref": "'workflow.research'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "current_step": "'findings'", "result_disposition": "''", "latest_non_dispatch_start_seq": "0", "unhealthy_verdict_seq": "0"}, "workflow_contracts": {"required_evidence": "'[]'", "definition_ref": "'workflow.research'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "law_change": "NULL"}}, guard)
 	}}
 	e := corpusEvent("supersession-corpus:successor", WorkflowContractSuperseded, work, map[string]any{
 		"work_id": work, "expected_version": version, "resulting_version": version + 1,
@@ -298,26 +296,24 @@ func assertEvidenceSupersession142(t *testing.T) {
 			return
 		}
 		// These are predecessor-owned data columns, not migration-142 outputs.
-		if _, err := s.db.Exec(`INSERT INTO fold_guard VALUES(1);
-INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,definition_ref,definition_version)
-SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,?,?,spec_mandate,rigor_class,law_modifies,law_boundary_version,definition_ref,definition_version FROM workflow_contracts WHERE work_id=? AND contract_version=1;
-INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1;
-UPDATE workflow_contracts SET superseded_by=2 WHERE work_id=? AND contract_version=1;
-DELETE FROM fold_guard`, e.OccurredAt.UTC().Format(time.RFC3339Nano), e.Actor, work, work, work); err != nil {
-			t.Fatal(err)
-		}
+		retirementUpgradeExec(t, s.db, `INSERT INTO fold_guard VALUES(1)`)
+		retirementUpgradeExec(t, s.db, `INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:return-route',0,'outcome','{"kind":"outcome","allowed":["report_recorded"]}')`, work)
+		retirementUpgradeExec(t, s.db, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,definition_ref,definition_version)
+SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,?,?,spec_mandate,rigor_class,law_modifies,law_boundary_version,definition_ref,definition_version FROM workflow_contracts WHERE work_id=? AND contract_version=1`, e.OccurredAt.UTC().Format(time.RFC3339Nano), e.Actor, work)
+		retirementUpgradeExec(t, s.db, `INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1`, work)
+		retirementUpgradeExec(t, s.db, `UPDATE workflow_contracts SET superseded_by=2 WHERE work_id=? AND contract_version=1`, work)
+		retirementUpgradeExec(t, s.db, `DELETE FROM fold_guard`)
 	}
 	c.write = func(ctx context.Context, tx *sql.Tx, e Event) error {
 		// Reconstruct the historical projection, not the retired runtime fold.
-		_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,supersession_seq)
-			SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,?,?,spec_mandate,rigor_class,law_modifies,law_boundary_version,? FROM workflow_contracts WHERE work_id=? AND contract_version=1;
-			INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1;
-			UPDATE workflow_contracts SET superseded_by=2 WHERE work_id=? AND contract_version=1`, e.OccurredAt.UTC().Format(time.RFC3339Nano), e.Actor, e.Seq, work, work, work)
+		_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,supersession_seq)
+			SELECT work_id,2,premise,consequence_class,route_conventions,?,?,spec_mandate,rigor_class,law_modifies,law_boundary_version,? FROM workflow_contracts WHERE work_id=? AND contract_version=1;
+			UPDATE workflow_contracts SET superseded_by=2 WHERE work_id=? AND contract_version=1`, e.OccurredAt.UTC().Format(time.RFC3339Nano), e.Actor, e.Seq, work, work)
 		return err
 	}
 	live := c.current(t)
 	old := c.prefix(t, 141)
-	if err := Migrate(t.Context(), old.db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, t.Context(), old.db), old.db); err != nil {
 		t.Fatal(err)
 	}
 	queries := []string{`SELECT json_array(contract_version,supersession_seq,last_healthy_seq) FROM workflow_contracts WHERE work_id='supersession-corpus' ORDER BY contract_version`}
@@ -395,7 +391,7 @@ func assertEvidenceLegacySelections(t *testing.T, s *Store, events []Event) {
 				lastAssertion, assertionSeq = e, seq
 				lastCorrection = Event{}
 			}
-		case WorkflowVerdictRecorded:
+		case "workflow.verdict_recorded":
 			lastVerdict, verdictSeq, priorCorrection = e, seq, correctionSeq
 			if p["verdict_kind"] != "ok" || p["incomparable_with_approved"] == true {
 				unhealthySeq = seq

@@ -24,23 +24,23 @@ type actionContract struct {
 	CrossField store.WorkflowActionCrossField `json:"cross_field"`
 }
 
-type workflowOutcomeContract struct {
-	Ref                  string   `json:"ref"`
-	AllowedKinds         []string `json:"allowed_kinds"`
-	AllowedOutcomeTokens []string `json:"allowed_outcome_tokens"`
-}
-
 // schemaRefProjection names the live catalog's payload schema refs.
 type schemaRefProjection struct {
 	Current []string `json:"current"`
+}
+
+type contractTeaching struct {
+	LawAdditionMandateRule   string `json:"law_addition_mandate_rule"`
+	ObligationMembershipRule string `json:"obligation_membership_rule"`
+	ArchitectureDomainRule   string `json:"architecture_domain_rule"`
+	AlignmentCombinationRule string `json:"alignment_combination_rule"`
 }
 
 type contractProjection struct {
 	SchemaVersion      string                            `json:"schema_version"`
 	Actions            []actionContract                  `json:"actions"`
 	CatalogActionCount int                               `json:"catalog_action_count"`
-	Workflows          []workflowOutcomeContract         `json:"workflows"`
-	Teaching           store.WorkflowContractTeaching    `json:"teaching"`
+	Teaching           contractTeaching                  `json:"teaching"`
 	SchemaRefs         schemaRefProjection               `json:"schema_refs"`
 	ContractUpdates    []store.WorkflowPayloadDefinition `json:"contract_updates"`
 }
@@ -166,15 +166,8 @@ func main() {
 	for _, ref := range payloadSchemaRefs(update) {
 		refs[ref] = true
 	}
-	projection := contractProjection{SchemaVersion: "2.0", Actions: make([]actionContract, 0, len(ids)), CatalogActionCount: store.WorkflowActionCatalogSize(), Teaching: store.WorkflowContractTeachingRules(), SchemaRefs: schemaRefProjection{Current: sortedRefNames(refs)}, ContractUpdates: []store.WorkflowPayloadDefinition{update}}
-	for _, template := range templates.Types {
-		kinds, tokens := store.WorkflowPlanAllowedPredicates(store.WorkflowStepPlanType(template.ID))
-		kindNames := make([]string, 0, len(kinds))
-		for _, kind := range kinds {
-			kindNames = append(kindNames, string(kind))
-		}
-		projection.Workflows = append(projection.Workflows, workflowOutcomeContract{Ref: template.ID, AllowedKinds: kindNames, AllowedOutcomeTokens: tokens})
-	}
+	teaching := store.WorkflowContractTeachingRules()
+	projection := contractProjection{SchemaVersion: "2.0", Actions: make([]actionContract, 0, len(ids)), CatalogActionCount: store.WorkflowActionCatalogSize(), Teaching: contractTeaching{teaching.LawAdditionMandateRule, teaching.ObligationMembershipRule, teaching.ArchitectureDomainRule, teaching.AlignmentCombinationRule}, SchemaRefs: schemaRefProjection{Current: sortedRefNames(refs)}, ContractUpdates: []store.WorkflowPayloadDefinition{update}}
 	for _, id := range ids {
 		projection.Actions = append(projection.Actions, contracts[id])
 	}

@@ -10,14 +10,12 @@ import (
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
-// The cross-field payload rules (legal input combinations, alternative field
-// groups) are typed declarations on the ENGINE action registry — the one
+// The cross-field payload rules are typed declarations on the ENGINE action registry — the one
 // owner core validation enforces and the published variants generate their
 // closed branches from. These tests hold that ownership: every
 // declaration is registry-valid, a declaration that drifts from its own
 // fields fails validation, and every declared rule produces core and published
-// verdicts that match in both directions — including every partial
-// alternative-group mutant.
+// verdicts that match in both directions.
 
 // declaredActionPayloads collects current catalog payloads keyed by action ID.
 func declaredActionPayloads(t *testing.T) map[string]WorkflowPayloadDefinition {
@@ -40,7 +38,7 @@ func TestDeclaredCrossFieldRulesAreRegistryValid(t *testing.T) {
 	declared := 0
 	for actionID := range declaredActionPayloads(t) {
 		cross := workflowActionCrossField(actionID)
-		if len(cross.Combinations) != 0 || len(cross.Alternatives) != 0 {
+		if len(cross.Combinations) != 0 || len(cross.KindMatches) != 0 {
 			declared++
 		}
 		// The authoring payload answers to the canonical projection — the
@@ -71,26 +69,14 @@ func TestRegistryRefusesDriftedCrossFieldDeclarations(t *testing.T) {
 	undeclaredSide := mutate(WorkflowActionCrossField{Combinations: []WorkflowPayloadCombination{{Field: "outcome", Value: "related_found", Requires: []string{"no_such_field"}}}})
 	nonEnumValue := mutate(WorkflowActionCrossField{Combinations: []WorkflowPayloadCombination{{Field: "outcome", Value: "partially_found", Requires: []string{"related_ids"}}, {Field: "outcome", Value: "none_found", Forbids: []string{"related_ids"}}}})
 	twoDiscriminators := mutate(WorkflowActionCrossField{Combinations: append(append([]WorkflowPayloadCombination{}, builtinActionPolicies["record_diagnosis"].CrossField.Combinations...), WorkflowPayloadCombination{Field: "searched", Value: "xx"})})
-	bothFamilies := mutate(WorkflowActionCrossField{Combinations: builtinActionPolicies["record_diagnosis"].CrossField.Combinations, Alternatives: []WorkflowPayloadAlternative{{Fields: []string{"searched"}}}})
-	emptyAlternative := WorkflowActionCrossField{Alternatives: []WorkflowPayloadAlternative{{Fields: []string{}}}}
-	overlappingAlternatives := WorkflowActionCrossField{Alternatives: []WorkflowPayloadAlternative{{Fields: []string{"searched", "outcome"}}, {Fields: []string{"outcome", "related_ids"}}}}
-	undeclaredForbid := WorkflowActionCrossField{Alternatives: []WorkflowPayloadAlternative{{Fields: []string{"searched"}}, {Fields: []string{"outcome"}, Forbids: []string{"no_such_field"}}}}
-	groupedForbid := WorkflowActionCrossField{Alternatives: []WorkflowPayloadAlternative{{Fields: []string{"searched"}}, {Fields: []string{"outcome"}, Forbids: []string{"searched"}}}}
-	duplicateForbid := WorkflowActionCrossField{Alternatives: []WorkflowPayloadAlternative{{Fields: []string{"searched"}}, {Fields: []string{"outcome"}, Forbids: []string{"related_ids", "related_ids"}}}}
 	ruleWithoutConstraint := WorkflowActionCrossField{Combinations: []WorkflowPayloadCombination{{Field: "outcome", Value: "related_found"}, {Field: "outcome", Value: "none_found"}}}
 	for name, cross := range map[string]WorkflowActionCrossField{
-		"incomplete enum coverage":     incomplete,
-		"undeclared discriminator":     undeclaredDiscriminator,
-		"undeclared side field":        undeclaredSide,
-		"value the enum refuses":       nonEnumValue,
-		"two discriminators":           twoDiscriminators,
-		"both rule families":           bothFamilies,
-		"empty alternative group":      emptyAlternative,
-		"overlapping alternative":      overlappingAlternatives,
-		"undeclared forbid":            undeclaredForbid,
-		"forbid naming a group member": groupedForbid,
-		"duplicate forbid":             duplicateForbid,
-		"rule without a constraint":    ruleWithoutConstraint,
+		"incomplete enum coverage":  incomplete,
+		"undeclared discriminator":  undeclaredDiscriminator,
+		"undeclared side field":     undeclaredSide,
+		"value the enum refuses":    nonEnumValue,
+		"two discriminators":        twoDiscriminators,
+		"rule without a constraint": ruleWithoutConstraint,
 	} {
 		if validateCrossFieldDeclaration(base.Fields, cross) {
 			t.Fatalf("registry accepted a drifted cross-field declaration: %s", name)
@@ -100,24 +86,22 @@ func TestRegistryRefusesDriftedCrossFieldDeclarations(t *testing.T) {
 
 // TestDeclaredCrossFieldRulesMatchCoreAndPublishedVerdicts is the per-rule
 // differential the declarations own: for every declared legal input
-// combination and alternative group, a payload the declaration admits is
+// combination, a payload the declaration admits is
 // admitted by real core validation and by the published closed variant, and
 // each rule's own invalid mutant — a required field dropped under its
-// discriminator value, a forbidden field carried under it, an alternative
-// group withheld, or two groups supplied — is refused by both, in both
+// discriminator value or a forbidden field carried under it — is refused by both, in both
 // directions against the same declaration.
 func TestDeclaredCrossFieldRulesMatchCoreAndPublishedVerdicts(t *testing.T) {
 	defs := firstCallPublishedDefs(t)
 	declaredAny := false
 	for actionID, payload := range declaredActionPayloads(t) {
 		cross := workflowActionCrossField(actionID)
-		if len(cross.Combinations) == 0 && len(cross.Alternatives) == 0 {
+		if len(cross.Combinations) == 0 {
 			continue
 		}
 		// The published variants generate from the canonical projection of
 		// the engine declaration onto the declared fields, so the
-		// differential enumerates the same rules the publication names:
-		// canonical record_verdict drops the single-form group.
+		// differential enumerates the same rules the publication names.
 		projected, err := WorkflowActionCanonicalCrossFieldRules(actionID, payload.Fields)
 		if err != nil {
 			t.Fatalf("canonical cross-field projection for %s refused: %v", actionID, err)
@@ -222,153 +206,10 @@ func TestDeclaredCrossFieldRulesMatchCoreAndPublishedVerdicts(t *testing.T) {
 				assertBoth("combination "+combination.Field+"="+combination.Value+" without "+name, carried, true)
 			}
 		}
-		if len(cross.Alternatives) != 0 {
-			declaredAny = true
-			groupFields := func(group WorkflowPayloadAlternative) []string { return group.Fields }
-			for _, group := range cross.Alternatives {
-				fields := map[string]any{}
-				for name, value := range baseFields {
-					fields[name] = value
-				}
-				for _, other := range cross.Alternatives {
-					if strings.Join(groupFields(other), "\x00") == strings.Join(groupFields(group), "\x00") {
-						continue
-					}
-					for _, name := range groupFields(other) {
-						delete(fields, name)
-					}
-				}
-				// A required field the group forbids is not required
-				// beside it; the base sample from another branch may carry it.
-				for _, name := range group.Forbids {
-					delete(fields, name)
-				}
-				for _, name := range groupFields(group) {
-					if _, present := fields[name]; !present {
-						fields[name] = sampleFieldValue(t, defs, variantName, name)
-					}
-				}
-				assertBoth("alternative group "+strings.Join(groupFields(group), "+"), fields, true)
-				withheld := map[string]any{}
-				for name, value := range fields {
-					withheld[name] = value
-				}
-				for _, name := range groupFields(group) {
-					delete(withheld, name)
-				}
-				assertBoth("alternative group "+strings.Join(groupFields(group), "+")+" withheld", withheld, false)
-				// A field the group forbids cannot ride beside the
-				// complete group even though no group claims it — one
-				// negative mutant for each newly owned cross-field rule
-				// (record_verdict's entry-level fields beside the batch).
-				for _, name := range group.Forbids {
-					carried := map[string]any{}
-					for key, value := range fields {
-						carried[key] = value
-					}
-					carried[name] = sampleFieldValue(t, defs, variantName, name)
-					assertBoth("group "+strings.Join(groupFields(group), "+")+" carrying forbidden "+name, carried, false)
-				}
-			}
-			// Two groups supplied together violate the exactly-one rule.
-			if len(cross.Alternatives) > 1 {
-				both := map[string]any{}
-				for name, value := range baseFields {
-					both[name] = value
-				}
-				for _, group := range cross.Alternatives {
-					for _, name := range groupFields(group) {
-						if _, present := both[name]; !present {
-							both[name] = sampleFieldValue(t, defs, variantName, name)
-						}
-					}
-				}
-				assertBoth("two alternative groups supplied", both, false)
-			}
-			// One complete group plus each proper subset of every other
-			// group: a partially supplied second group is refused by the
-			// published closed branches, so the engine must refuse it too —
-			// counting only complete groups admitted exactly these payloads
-			// while publication refused them (CON-412 correction).
-			for _, complete := range cross.Alternatives {
-				for _, other := range cross.Alternatives {
-					if strings.Join(groupFields(other), "\x00") == strings.Join(groupFields(complete), "\x00") {
-						continue
-					}
-					for subset := 1; subset < len(groupFields(other)); subset++ {
-						for _, drop := range subsetsOf(groupFields(other), subset) {
-							fields := map[string]any{}
-							for name, value := range baseFields {
-								fields[name] = value
-							}
-							for _, group := range cross.Alternatives {
-								if strings.Join(groupFields(group), "\x00") == strings.Join(groupFields(complete), "\x00") {
-									continue
-								}
-								for _, name := range groupFields(group) {
-									delete(fields, name)
-								}
-							}
-							for _, name := range complete.Forbids {
-								delete(fields, name)
-							}
-							for _, name := range groupFields(complete) {
-								if _, present := fields[name]; !present {
-									fields[name] = sampleFieldValue(t, defs, variantName, name)
-								}
-							}
-							for _, name := range drop {
-								fields[name] = sampleFieldValue(t, defs, variantName, name)
-							}
-							assertBoth("complete group "+strings.Join(groupFields(complete), "+")+" plus partial group {"+strings.Join(drop, "+")+"}", fields, false)
-						}
-					}
-				}
-			}
-			// A single incomplete group with nothing else supplied is
-			// refused: no complete group exists.
-			for _, group := range cross.Alternatives {
-				if len(groupFields(group)) < 2 {
-					continue
-				}
-				fields := map[string]any{}
-				for name, value := range baseFields {
-					fields[name] = value
-				}
-				for _, other := range cross.Alternatives {
-					for _, name := range groupFields(other) {
-						delete(fields, name)
-					}
-				}
-				fields[groupFields(group)[0]] = sampleFieldValue(t, defs, variantName, groupFields(group)[0])
-				assertBoth("incomplete group {"+groupFields(group)[0]+"} alone", fields, false)
-			}
-		}
 	}
 	if !declaredAny {
 		t.Fatal("the differential exercised no declared cross-field rule")
 	}
-}
-
-// subsetsOf returns every subset of the given size of the names, in a
-// deterministic order.
-func subsetsOf(names []string, size int) [][]string {
-	if size <= 0 || size > len(names) {
-		return nil
-	}
-	var result [][]string
-	var walk func(start int, chosen []string)
-	walk = func(start int, chosen []string) {
-		if len(chosen) == size {
-			result = append(result, append([]string{}, chosen...))
-			return
-		}
-		for i := start; i <= len(names)-(size-len(chosen)); i++ {
-			walk(i+1, append(chosen, names[i]))
-		}
-	}
-	walk(0, nil)
-	return result
 }
 
 // mergeRefSiblings folds a node's own keywords over its $ref target —
@@ -440,7 +281,7 @@ func TestCrossFieldSampleObjectUnion(t *testing.T) {
 	for _, keyword := range []string{"oneOf", "anyOf"} {
 		for _, entry := range []string{"object", "value"} {
 			t.Run(keyword+"/"+entry, func(t *testing.T) {
-				node := mergeRefSiblings(defs, defs["lane_report_resolved_finding"].(map[string]any))
+				node := mergeRefSiblings(defs, defs["work_browse_scope_input"].(map[string]any))
 				branches := node["oneOf"]
 				delete(node, "oneOf")
 				node[keyword] = branches
@@ -454,10 +295,10 @@ func TestCrossFieldSampleObjectUnion(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := payloadschema.Validate("lane_report_resolved_finding", encoded); err != nil {
+				if err := payloadschema.Validate("work_browse_scope_input", encoded); err != nil {
 					t.Fatalf("sample lost enclosing or branch requirements: %v: %s", err, encoded)
 				}
-				for _, field := range []string{"finding_id", "evidence_refs"} {
+				for _, field := range []string{"product_id", "work_id"} {
 					var mutant map[string]any
 					if err := json.Unmarshal(encoded, &mutant); err != nil {
 						t.Fatal(err)
@@ -467,7 +308,7 @@ func TestCrossFieldSampleObjectUnion(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					if err := payloadschema.Validate("lane_report_resolved_finding", data); err == nil {
+					if err := payloadschema.Validate("work_browse_scope_input", data); err == nil {
 						t.Fatalf("sample without required %s was accepted: %s", field, data)
 					}
 				}

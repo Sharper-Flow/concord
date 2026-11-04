@@ -138,91 +138,6 @@ export function actionFieldsBranches(actionInput: unknown, fieldName: string = "
   return [fields];
 }
 
-// advertisedAdmissionTeachingGaps reports every approve_contract rule the
-// published concord_work_transition schema fails to teach a calling agent. An
-// empty list means the advertised schema carries four store admission rules
-// (the item-level required set with ordinal, the strict four-variant
-// outcome_payload oneOf, the predicate_id prefix, the per-workflow pinned
-// outcome tokens) and the CD-0184 delivery-decidable rule. CD-0184 is
-// authoring guidance only: the store does not refuse a predicate for it. The
-// store's ValidateOperationPayload stays the closed admission boundary; this
-// checks only what the advertised surface teaches. The published request is
-// one compact branch per operation, with the workflow actions grouped under
-// their operation, and approve_contract's fields are
-// one closed object: every contract declares its decision domains. The
-// traversal expands the passed document's own local references and factored
-// unions, so every check below reads the legacy-effective view of the actual
-// published document, and every fields check runs on each fields branch, so
-// a drop cannot hide behind the factored parent.
-export function advertisedAdmissionTeachingGaps(published: unknown): string[] {
-  const gaps: string[] = [];
-  const expanded: any = expandedPublishedRequestSchema(published);
-  const requestBranches: any[] = Array.isArray(expanded?.oneOf) ? expanded.oneOf : [];
-  // workflow_action publishes one closed branch per action variant; the
-  // teaching checks read each fields branch that carries the taught field.
-  const actionInputs: any[] = requestBranches
-    .filter((branch) => branch?.properties?.operation?.const === "workflow_action")
-    .map((branch) => branch?.properties?.input);
-  const carriers: any[] = actionInputs.flatMap((input) =>
-    actionFieldsBranches(input)
-      .filter((fields) => fields?.properties?.outcome_predicates !== undefined)
-      .map((fields) => ({ actionId: input?.properties?.action_id?.const, fields })),
-  );
-  for (const branch of requestBranches.filter((branch) => branch?.properties?.operation?.const === "revise_intent")) {
-    for (const fields of actionFieldsBranches(branch?.properties?.input, "contract")) {
-      if (fields?.properties?.outcome_predicates !== undefined) carriers.push({ actionId: "revise_intent", fields });
-    }
-  }
-  if (carriers.length === 0) {
-    gaps.push("outcome_predicates items carry 0 per-kind branches, expected the 4 strict variants");
-  }
-  for (const carrier of carriers) {
-  // The published item is closed per kind: outcome_kind consts to the branch
-  // and outcome_payload carries that branch's payload, so a mismatched
-  // outcome_kind/outcome_payload pair validates no branch.
-  const items: any = carrier.fields.properties.outcome_predicates?.items;
-  const kindBranches: any[] = Array.isArray(items?.oneOf) ? items.oneOf : [];
-  const firstBranch = kindBranches[0] ?? {};
-  const required: string[] = Array.isArray(firstBranch.required) ? firstBranch.required : [];
-  for (const field of ["predicate_id", "ordinal", "outcome_kind", "outcome_payload"]) {
-    if (!required.includes(field)) gaps.push(`outcome_predicates items do not require ${field}`);
-  }
-  if (kindBranches.length !== 4) {
-    gaps.push(`outcome_predicates items carry ${kindBranches.length} per-kind branches, expected the 4 strict variants`);
-  } else {
-    const kinds = new Set(kindBranches.map((branch) => branch?.properties?.outcome_kind?.const));
-    for (const kind of ["exists", "absent", "outcome", "check"]) {
-      if (!kinds.has(kind)) gaps.push(`outcome_predicates items lack the ${kind} variant`);
-    }
-    for (const branch of kindBranches) {
-      if (branch?.additionalProperties !== false) gaps.push("outcome_predicates item branch is not closed");
-      const payload = branch?.properties?.outcome_payload;
-      if (payload?.additionalProperties !== false) gaps.push("outcome_payload branch is not closed");
-      if (branch?.properties?.outcome_kind?.const !== payload?.properties?.kind?.const) {
-        gaps.push(`outcome_predicates item does not bind outcome_kind to outcome_payload.kind on ${branch?.properties?.outcome_kind?.const}`);
-      }
-      if (!Array.isArray(payload?.required) || !payload.required.includes("kind")) gaps.push("outcome_payload branch does not require kind");
-    }
-  }
-  const prefix: unknown = firstBranch?.properties?.predicate_id?.description;
-  if (typeof prefix !== "string" || !prefix.includes("predicate:")) gaps.push("predicate_id description does not name the predicate: prefix");
-  const ordinalRule: unknown = firstBranch?.properties?.ordinal?.description;
-  if (typeof ordinalRule !== "string" || !ordinalRule.includes("zero-based position")) gaps.push("ordinal description does not teach the zero-based position rule");
-  const allowedBranch = kindBranches.find((branch) => branch?.properties?.outcome_kind?.const === "outcome");
-  const tokens: unknown = allowedBranch?.properties?.outcome_payload?.properties?.allowed?.description;
-  if (typeof tokens !== "string" || !tokens.includes("research") || !tokens.includes("change") || !tokens.includes("fix") || !tokens.includes("removal") || !tokens.includes("report_recorded") || !tokens.includes("no outcome tokens")) {
-    gaps.push("allowed description does not name the plan-type outcome tokens");
-  }
-  // Every fields branch that carries outcome_predicates on every carrier
-  // action must teach the rule,
-  // or a drop from one branch hides behind its siblings.
-  const delivery: unknown = carrier.fields.properties.outcome_predicates?.description;
-  if (typeof delivery !== "string" || delivery.split(" Accepted shape:", 1)[0] !== "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.") {
-    gaps.push(`outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action ${carrier.actionId}`);
-  }
-  }
-  return gaps;
-}
 function pass(evaluated: Iterable<string> = []): Validation { return { valid: true, evaluated: new Set(evaluated), path: null }; }
 function fail(at: string, reason?: string): Validation { return { valid: false, evaluated: new Set(), path: at, reason }; }
 function joinPath(path: string, key: string): string { return path ? path + "." + key : key; }
@@ -292,4 +207,4 @@ function validateSchema(schema: any, value: unknown, root: Record<string, unknow
   return pass(evaluated);
 }
 
-export const PINNED_PUBLISHED_TOTAL_BYTES = 95706;
+export const PINNED_PUBLISHED_TOTAL_BYTES = 64187;

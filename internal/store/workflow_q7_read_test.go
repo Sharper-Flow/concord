@@ -98,7 +98,7 @@ func TestQ7ProjectsParkedDelivery(t *testing.T) {
 func TestQ7ProjectsCandidatesAndWarnings(t *testing.T) {
 	t.Parallel()
 	const workID = "q7-fields"
-	s, completion := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, emptyMandate: true})
+	s, completion := seedCompletionGateCase(t, workID, completionGateCase{emptyMandate: true})
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	version, err := workflowCurrentVersion(ctx, s, workID)
@@ -144,7 +144,7 @@ func TestQ7ProjectsCandidatesAndWarnings(t *testing.T) {
 func TestQ7ReadsContractAfterLawDeletion(t *testing.T) {
 	t.Parallel()
 	const workID = "q7-stale-law"
-	s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}})
+	s, _ := seedCompletionGateCase(t, workID, completionGateCase{})
 	cutoverLawProjection(t, s)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

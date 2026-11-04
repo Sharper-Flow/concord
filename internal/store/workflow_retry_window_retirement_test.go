@@ -9,8 +9,12 @@ import (
 
 func TestRetryWindowAbsentFromCurrentReadSurfaces(t *testing.T) {
 	const workID = "retry-window-absent"
-	j := pReturnReviewFixture(t, workID, WorkflowStepPlanChange, "correction_required")
-	s := j.s
+	f := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "implement")
+	s := f.store
+	payload := mustJSONValue(map[string]any{"step_id": "implement", "note": "review fixed an issue", "reviewer": "concord-review", "result": "fixed", "commit": "commit:fixture", "link": "https://example.com/review"})
+	if err := runVerdictActionAs(t, s, workID, "record_review", payload, 0, f.owner); err != nil {
+		t.Fatalf("record fixed review: %v", err)
+	}
 	version := readWorkVersion(t, s, workID)
 	pin, err := ReadWorkPin(context.Background(), s, workID)
 	if err != nil {

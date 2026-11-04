@@ -16,20 +16,12 @@
 **Decision owner:** Operator
 **Accepted by operator:** 2026-08-08
 **Reviewer:** Independent review; three rounds, approved.
-**Scope:** The outcome contract carried by a work item, its revision authorities, the
-refusal of weakened deliveries, the handling of work discovered mid-execution, and the
-verification boundary at acceptance.
-**Amends:** CD-0006 D5 and D10 by extending the approved-mandate pattern from specs
-authorized for modification to end-state required for delivery. Amends the value-statement
-invariant in [`workflows.md`](../../docs/workflows.md) §2.1 by giving it a binding counterpart.
-**Amended:** 2026-10-18. [CD-0235](CD-0235-the-independent-verdict-is-the-outcome-strength-evaluation.md)
-amends D3's second paragraph: the independent verdict is the outcome strength evaluation.
-[CD-0236](CD-0236-vacuity-is-judged-at-review.md) amends D4's Vacuity bullet, required
-conformance scenario 3, and the Cost bullet's vacuity clause: vacuity is judged at review.
+**Scope:** Contract premise, independent Review, discovered work and revision authority.
+**Amends:** CD-0006 D5 and D10 while preserving the spec mandate.
+**Amended:** 2026-10-18. [CD-0236](CD-0236-vacuity-is-judged-at-review.md) places vacuity judgment at Review.
 [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5 amends
-D7, the Cost bullet's evaluator-distinctness clause, and conformance scenario 13: Main's
-sequential review loop replaces the distinct final evaluator. [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
-D2 and D14 amend the candidate-set event statements and the historical-pins clause:
+D7: Main's review loop replaces a distinct final evaluator. [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
+D2 and D14 govern current state and generated definitions:
 the store keeps current state in current rows, and no historical pins are retained.
 **Research:** [`R5-goal-to-outcome-binding.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R5-goal-to-outcome-binding.md)
 **Issue:** <https://github.com/Sharper-Flow/concord/issues/22>
@@ -69,9 +61,8 @@ work. Research conclusions do not automatically become binding decisions.
 [`specs-as-laws.md`](../../docs/specs-as-laws.md) forbids silent scope *contraction*
 under spec-law pressure.
 
-What is missing is the object. D10's mandate delimits *which specs may be touched*, not
-*what end-state must exist*. Scope substitution and verb dilution are ungoverned because
-they are a different direction from the contraction that specs-as-laws prevents.
+D10's mandate delimits which specs may be touched. The plan states the intended
+outcome, and independent Review judges the delivered work.
 
 R5 establishes that three of the four mechanisms are documented failure classes with
 named causes, that goal drift is measured and mitigated only statistically by prompt
@@ -83,349 +74,82 @@ not the supporting evidence, determines the shape below.
 
 ## Decisions
 
-A valid attributed contract, current-version premise confirmation by the authenticated non-worker coordinator, independent evaluation, and every outcome/evidence obligation are required. Operator decisions remain conversational under CD-0243. Identities active work needs derive at the integration boundary ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+A work item's approved contract records its premise. The authenticated
+non-worker coordinator records current-version premise confirmation. Operator
+decisions remain conversational under CD-0243.
 
-### D1. The outcome contract has three parts with separate revision rules
+### D1. The contract retains its premise
 
-Every work item carries an **outcome contract** composed of three separable parts. Each
-part has a different mutability rule, and separating them is the point.
-
-| Part | Content | Revision authority | Effect of revision |
-|---|---|---|---|
-| **Premise** | Why this work exists, in the operator's terms. Durable. | Authenticated coordinator through an ordinary complete contract update; operator decisions follow CD-0243 | Append the next retained contract version on the same work item; earlier content remains immutable. |
-| **Required end-state** | One or more falsifiable postconditions over the world after delivery, carrying the operative verb. | Authenticated coordinator through an ordinary complete contract update; operator decisions follow CD-0243 | Append the next retained contract version under D6; earlier content remains immutable. |
-| **Candidate set** | The specific instances the end-state ranges over. | The executing agent, during execution | Records a revision in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Premise and required end-state are untouched and no re-approval occurs. |
-
-Candidate-set revision changes instances without revising the premise or required
-end-state. R5 §5.1 shows that a contract which
-forbids in-place revision of the instance list converts a recoverable framing error into a
-structurally guaranteed wrong outcome, because the executing party is forbidden from
-acting on the discovery that the list is wrong. Research must remain free to invalidate
-every instance without touching the reason the work exists.
-
-R5 §4.1 records that no established practice enforces this split. It is Concord-original,
-adopted because the counter-evidence requires it, and it is not adopted consensus. Two
-further choices inside D1 are Concord design decisions that R5 does **not** establish:
-vesting candidate-set revision in the executing agent rather than the operator, and
-recording that revision as a current-row change rather than as a re-approval. Both follow from
-D6's requirement that revision be visible without being obstructive; each mutation writes current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). They
-are stated here as design, not as findings.
-
-### D2. The end-state mandate is approved at planning, beside the spec mandate
-
-The required end-state joins the **approved change contract** at the same moment and under
-the same authority as CD-0006 D10's spec mandate. It is not a capture-time field.
-
-- At capture, a work item carries its prose value statement per
-  [`workflows.md`](../../docs/workflows.md) §2.1 and its premise. The end-state is frequently not
-  yet knowable, and requiring it there manufactures the acceptance-criteria theatre that
-  R5 §5.3 documents.
-- At planning approval, the operator approves the required end-state together with the
-  spec mandate. Both are recorded before execution begins, with provenance.
-- At verification, the delivered outcome is evaluated against the approved end-state.
-
-This decision introduces **no additional agent tool identity**. Verification uses
-the existing workflow actions; a separate outcome-verification or completion
-tool is a shape already rejected by
-[`agent-mutation-tool-contract.md`](../specs/agent-mutation-tool-contract.md) §6, and the TS2
-nine-tool ceiling is unaffected.
-
-That is a statement about tool *identity* only, and it does not establish a go-live
-compatibility promise. TS8 requires a named deterministic scenario, strict generated
-artifacts, and authority/consequence review for changed required fields, meaning,
-authority, consequence, outcome, error, or recovery discriminants. This decision
-requires a typed outcome-mismatch
-discriminant. The manifest and scenario changes are implementation-design work governed by
-[`agent-tool-surface-evolution.md`](../specs/agent-tool-surface-evolution.md) and must carry the
-evidence that document prescribes. This decision does not pre-empt that classification and
-must not be cited as having waived it.
-
-### D3. A delivered end-state may only be stronger than the approved one, never weaker
-
-Adopt Meyer's redefinition rule for postconditions directly: under redefinition a
-postcondition may only be strengthened, never weakened. Applied to work items, a delivery
-whose end-state is weaker than the approved end-state **fails**; a delivery whose end-state
-is stronger passes.
-
-Review evaluates the delivered end-state against the approved criteria. Where
-the approved end-state asserts that named paths are absent, relocating them
-under an archive is strictly weaker and gains no passing criterion proof,
-regardless of how well it is argued, documented, or tested.
-
-The rule is established practice, not a Concord invention. Concord's contribution is
-applying it to work items rather than to routines.
-
-### D4. An absent or vacuous end-state is a defect, not an approval
-
-Two refusals at approval time:
-
-- **Omission.** A postcondition that is not stated defaults to trivially true and
-  guarantees nothing. An approved change contract carrying no required end-state is
-  refused. Silence is not a weak contract; it is the absence of one.
-- **Vacuity.** A postcondition already satisfied by the state of the world before
-  execution is refused. A predicate that cannot fail cannot bind.
-
-### D5. Absence is a first-class end-state form
-
-An end-state may assert non-existence. This is required by the motivating case: a removal
-goal that cannot be checked as absence cannot be enforced.
-
-R5 §3.2 records the relevant limitation of EARS, and the precise version of that finding is
-narrower than a blanket rejection. EARS has no dedicated negation pattern — "there's no
-template for 'shall not'" — while its `<system response>` slot accepts arbitrary natural
-language, so an absence requirement can be *written* in EARS while gaining none of the
-structural checkability that makes the syntax worth adopting. The defect is the absence of
-a dedicated, mechanically checkable negative form, not an inability to phrase the sentence.
-Concord therefore adopts explicit negative predicates rather than EARS for end-state
-assertions, and does not claim EARS cannot express the requirement in prose.
-
-R5 §4.2 records the honest position on what does exist, which this decision adopts
-verbatim:
-
-> No single, widely-named requirements formalism is dedicated to expressing absence or
-> removal as a checkable postcondition. The established mechanisms are distributed across
-> negative postconditions (Design by Contract, JML), negative assertions in test
-> frameworks, and forbidden-pattern or drift checks in continuous integration and
-> policy-as-code. This decision adopts that composite and does not claim a single
-> canonical source.
-
-An absence postcondition names the ground-truth surface it is evaluated against.
-Consistent with [`design-constraints.md`](../../docs/design-constraints.md) §17, that surface is
-the resource's own facts, not a status field elsewhere in the system.
+The premise states why the work exists. An ordinary complete contract update
+appends a version without changing earlier versions. The executing agent may
+revise the candidate set during execution. Each revision is recorded in one
+transaction, does not revise the premise and needs no re-approval.
 
 ### D6. Work discovered mid-execution forward-links; it never substitutes
 
-Work discovered during execution that is not the approved end-state creates **forward-linked
-successor work** under CD-0006 R1. It does not replace the current item's end-state, and
-the current item does not close as complete by delivering it.
+Work discovered outside the agreed outcome creates forward-linked successor
+work under CD-0006 R1. It does not silently replace the current work, and its
+delivery does not complete the current item. An
+explicit redirection follows the approval classes in CD-0243 D2. A new
+execution-time law conflict returns to planning under CD-0006 D5. Contract
+revision does not itself enact law or resolve a conflict. Research conclusions
+do not automatically become binding decisions for in-flight discoveries.
 
-Not all displacement is wrong — R5 §5.2 shows that suppressing legitimate redirection is
-its own failure, and that an agent which cannot surface a better target will either bury
-the finding or smuggle it. Forward-linking is the channel that lets the better target be
-surfaced without being substituted.
-
-An explicit redirection of the current item follows the ordinary approval
-classes in [CD-0243 D2](CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision).
-Contract revision does not itself enact Product law. The choices are:
-
-| Option | Meaning |
-|---|---|
-| **(a) Clarify** | The discovery is already within the approved end-state; no contract change. |
-| **(b) Revise the end-state** | The authenticated coordinator records the complete contract through the ordinary `revise_intent` update in [workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates), with any required operator decision recorded. The next retained version becomes current without creating another item or resetting the workflow step. Execution proceeds only against that recorded contract. |
-| **(c) Consciously defer** | The operator keeps the approved end-state and records the discovery as separate work. |
-
-A new execution-time law conflict still stops work and returns to planning for
-resolution under CD-0006 D5. After that resolution, an ordinary contract update
-records any changed plan; conflict resolution does not require a workflow-step
-reset. A contract update neither resolves law by itself nor permits a silent
-scope substitution. Decisions reserved by CD-0243 remain with the operator.
-Research conclusions do not automatically become binding decisions for in-flight discoveries.
+An in-scope discovery may be clarified without a contract change. A redirection
+records the complete next contract version through the ordinary intent update;
+execution follows that recorded version after required conflict resolution and
+operator decisions. Deferral keeps the agreed outcome and records separate work.
 
 ### D7. Verification is independent of the executing agent
 
-The authorized contract author records the end-state check, and it stays
-immutable within that contract version. An in-place write to a retained
-version's check is refused. A change uses the attributed complete contract
-update in [workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates),
-not an executing agent's unrecorded re-selection, weakening, or disabling of
-the check used to judge its delivery. Retained evidence does not prove changed
-criteria or a different candidate; independent verification remains required.
-
-Main dispatches Review, which inspects the accumulated solution and reports; Implement cannot accept its own result ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
+Main obtains independent native Task Review of the accumulated solution.
+Implement cannot accept its own result. Review's step record names the reviewer,
+result, commit and actual result link under CD-0242 D5.
 
 ### D8. Route conventions that determine the operative verb are declared at approval
 
-Where the delivery route relies on a pre-existing convention that determines the operative
-verb, the approved contract names that convention. Adopting an undeclared convention that
-weakens the verb is already refused by D3; D8 makes the reliance visible **before**
-execution rather than discovered at verification.
+Where the delivery route relies on a pre-existing convention that determines
+its operative verb, the approved contract names that convention.
 
-This is deliberately the lightest of the eleven decisions. It adds a declaration, not a
-review step, and it is bounded to conventions that bear on the verb — not to every
-practice a route touches. The rule is structural rather than a matter of intent or
-review vigilance.
+### D9. Premise confirmation is recorded
 
-### D9. Predicate satisfaction is necessary but never sufficient
+The authenticated coordinator records confirmation of the active contract's
+premise. Completion retains that terminal fact.
 
-The premise travels beside the required end-state permanently, in every read surface that
-shows one of them. Acceptance requires the operator to confirm the premise is satisfied,
-not only that the postconditions passed.
+### D10. Proportional rigor scales the evidence depth
 
-This is the anti-Goodhart clause, and it is load-bearing. R5 §5.4 establishes that a
-checkable proxy displaces the objective it stands for, and that this bites precisely here:
-"named paths are absent" is satisfiable by relocation. A design in which predicate
-satisfaction alone establishes acceptance has rebuilt verb dilution one level up, at the predicate
-rather than the prose.
+Declared maturity and audience commitment govern the depth of proof under
+CD-0006 R2. No stage is an evidence exemption.
 
-### D10. Proportional rigor scales the evidence depth, never the contract's existence
+### D11. Every workflow type carries a contract
 
-Under CD-0006 R2, declared maturity and audience commitment govern how much proof an
-end-state assertion requires. They never govern whether an outcome contract exists. Every
-work item has one. No stage is exempt, consistent with
-[`priorities.md`](../constitution/priorities.md) §2: "No stage is an evidence exemption."
-
-CD-0006 R2's global floor already includes "no silent weakening." D3 is the structural
-enforcement of that floor clause for outcomes.
-
-### D11. Every workflow type carries an outcome contract; the verb differs by type
-
-The contract is universal; what the verb asserts is type-specific. This decision does not
-create an eighth gate, and it does not force one workflow shape onto another —
-[`priorities.md`](../constitution/priorities.md) §2 governs quality by attributes rather than by gate
-count, and that is unchanged.
-
-| Workflow type | Required end-state asserts |
-|---|---|
-| Implementation change | The capability exists and the specified behavior holds. |
-| Research / investigation | Findings are recorded. A `no change` conclusion **satisfies** this end-state; it is not a failure, and D3 does not convert it into one. |
-| Break-fix | The reproduced defect no longer reproduces. |
-
-The research row is the one that would break if stated carelessly. A research workflow's
-freedom to conclude `no change` is preserved exactly, because its required end-state is
-about recorded findings, not about a change being made.
+Change, fix, research and removal work each carry a contract. Research may
+conclude that no change is needed.
 
 ## Consequences
 
-### Positive
-
-- *Intent fidelity* and *no silent drift* acquire a mechanism instead of remaining
-  aspirational attributes.
-- Review judges verb dilution against the approved criteria.
-- A wrong candidate set stops being an identity crisis. Research can invalidate every
-  instance without escalation, and without the premise being quietly discarded alongside.
-- Displacement becomes visible. A better target discovered mid-flight becomes linked work
-  with its own record instead of an undocumented substitution.
-- The pattern is not new machinery. It is CD-0006 D10 applied to a second object, using
-  the same approval moment and the same authority.
-- No additional agent tool identity is required, and the capture payload is unchanged. This
-  says nothing about surface compatibility; TS8 classification is deferred by D2 and a
-  MAJOR bump is stated as a likely cost below.
-
-### Cost
-
-- Planning approval carries more content, and the operator must author end-state
-  assertions rather than approve prose. This is real recurring cost on the operator, who is
-  the only person in the system.
-- **The obligation is universal, and that reaches workflow types designed to be light.**
-  D10 and D11 put an approved contract and an independently evaluated verdict on every work
-  item, including the gateless research and lightweight configuration shapes that
-  [`workflows.md`](../../docs/workflows.md) §1 exists to protect. Approval latency and evaluator
-  availability become throughput constraints on work that previously had neither. The
-  intended mitigation is that D10 scales the *proof depth* and D11 scales the *verb*, so a
-  lightweight type's end-state can be a single cheap assertion. This decision does not
-  pretend the floor is free: a type that becomes materially heavier is a genuine regression
-  against [composable workflows](../constitution/priorities.md#composable-workflows-goal-c) and must
-  surface rather than be absorbed.
-- **The loop names the second party.**
-  Main dispatches Review as its own stage, Implement cannot accept its own result, and no distinct final evaluator beyond Review is required ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
- - A change to the agent-visible outcome contract carries generated-manifest,
-   digest, strict-schema, deterministic-scenario, and authority-evidence cost that
-   [`agent-tool-surface-evolution.md`](../specs/agent-tool-surface-evolution.md) attaches to it.
-- Postconditions can be written badly. A vacuous or over-narrow assertion is now a
-  first-class way to make a bad delivery look rigorous. D4 refuses the obviously vacuous
-  cases and D9 refuses predicate-only acceptance, but neither eliminates the risk, and R5
-  §5.3 documents that this failure mode is common wherever checkable criteria are required.
-- Absence assertions depend on naming the right ground-truth surface. A wrongly scoped
-  surface produces a confidently green check over the wrong territory.
-- The premise / candidate-set split has no prior art. R5 §4.1 states this plainly. If it is
-  wrong, it is wrong in a way no existing system has already discovered for us.
-- Strengthen-only comparison between two end-states requires an ordering. For absence and
-  existence assertions this is mechanical; for richer behavioral assertions it may require
-  operator judgment, and the deferred questions below do not pretend otherwise.
+Forward links make discoveries visible without substituting another outcome.
+Independent Review judges the delivery; the recorded step does not replace the
+review itself. Surface changes remain subject to TS8.
 
 ## Required conformance scenarios
 
-The implementation acceptance suite must exercise each of the following. Scenario carriers
-follow the existing corpus conventions; this decision does not itself modify
-[`agent-jobs.v1.json`](../../scenarios/agent-jobs.v1.json).
-
-1. A work item is captured with no required end-state and is accepted at capture; the same
-   item is approved at planning with its required end-state recorded alongside the CD-0006
-   D10 spec mandate; verification then uses the current recorded contract,
-   not an unrecorded assertion. An ordinary update retains prior version-addressed
-   content without treating it as proof of changed criteria (D1, D2).
-2. A change contract approved with no required end-state is refused at approval (D4).
-3. A change contract whose required end-state already holds before execution is refused as
-   vacuous (D4).
-4. A delivery asserting a weaker end-state than approved gains no passing criterion
-   proof from Review (D3, CD-0235 D1).
-5. A delivery asserting a stronger end-state than approved is accepted (D3).
-6. An absence end-state over a named ground-truth surface is satisfied by removal and
-   refused when the subject is relocated rather than removed (D3, D5).
-7. Candidate-set revision during execution succeeds without re-approval, records its revision in one
-    transaction, and leaves premise and required end-state byte-identical (D1, CD-0242 D2).
-8. Premise revision appends the next retained contract version through the
-   ordinary record update; it neither edits earlier content nor creates a successor item (D1).
-9. An in-place write to a retained version's required end-state is refused
-   rather than merged (D7, authorship fencing).
-10. Work discovered mid-execution that lies outside the approved end-state produces
-    forward-linked successor work and does not close the current item (D6).
-11. End-state revision records the complete next contract version atomically
-     with the ordinary intent update, preserving the workflow step and evidence.
-     Required conflict resolution and operator decisions precede execution
-     against that version; current criteria and candidate still need valid proof (D6).
-12. An executing agent attempting to replace or disable its end-state check
-     outside the attributed contract update, or to bypass independent verification,
-     is refused (D7).
-13. A review pass that committed corrective edits is accepted after its verified
-    candidate without a further review, and completion records Main's accepted
-    disposition instead of a distinct verdict actor (D7, CD-0242 D5).
-14. A delivery route relying on an undeclared convention that determines the operative verb
-    is refused at approval; the same route with that convention declared proceeds (D8).
-15. A work item at the lowest maturity and audience bands still requires an approved outcome
-    contract; only the proof depth demanded of its end-state evidence differs from the
-    highest bands (D10).
-16. A research work item concluding `no change` satisfies its required end-state and
-    completes (D11).
-18. Premise confirmation requires qualifying verdict and evidence at its declared
-    acceptance step (D9).
-19. Terminal metadata, lifecycle change, reported delivery links and the completion
-    record commit together or not at all (PM4 invariant 7).
-
-## Deferred to implementation design
-
-These are named rather than silently decided by implication.
-
-1. **Predicate representation.** Whether an end-state assertion is a typed structure, a
-   named executable check, or a bounded expression language. D3 requires only that two
-   assertions be comparable for strength.
-2. **Storage shape.** How current rows record contract approval, candidate-set revision, and
-   outcome verdict (each mutation writes current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))).
-3. **Strength ordering for behavioral assertions.** Mechanical for existence and absence;
-   open for richer assertions. Until resolved, comparison in ambiguous cases surfaces to
-   the operator rather than defaulting to pass.
-4. **Cross-item outcome attribution.** When one item's end-state is delivered by another
-   item's work, whether that is PM4 supersession, a typed relation, or neither.
+- A premise revision appends a retained contract version without changing an
+  earlier version or creating a successor.
+- Candidate-set revision during execution succeeds without re-approval,
+  records its revision in one transaction and leaves the premise
+  byte-identical.
+- An out-of-scope discovery is forward-linked and does not substitute for the
+  current work.
+- An independent Review may correct its candidate; a final review completes
+  only with a clean pass.
+- A delivery route declares a pre-existing convention that determines its verb.
+- A work item at the lowest maturity and audience bands still requires an
+  approved contract; only the proof depth differs from the highest bands.
+- Terminal metadata, lifecycle change, reported delivery links and the
+  completion record commit together or not at all.
 
 ## Supersession and amendments
 
-This decision **extends** CD-0006 D10 to a second object and does not weaken it. The spec
-mandate remains exactly as accepted; the end-state mandate is its sibling, approved at the
-same moment under the same authority.
-
-Every document this decision touches or introduces, classified by the force of the change:
-
-| Document | Change | Class |
-|---|---|---|
-| [`research/R5-goal-to-outcome-binding.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R5-goal-to-outcome-binding.md) | New research file recording this decision's evidence, its four insufficient-evidence findings, and its counter-evidence. Carries no authority of its own. | New evidence document |
-| [`workflows.md`](../../docs/workflows.md) §2.1 | The one-sentence value statement remains and gains a stated limit: it answers why the work matters, not what must be true when it is done. | Binding amendment |
-| [`workflows.md`](../../docs/workflows.md) §2.1a | New section defining the outcome contract, plus an `Outcome contract` row in the §2 workflow-type aspect table. | Binding amendment |
-| [`design-constraints.md`](../../docs/design-constraints.md) §10 | Completion criteria declared by a workflow type must include an outcome contract. | Binding amendment |
-| [`specs-as-laws.md`](../../docs/specs-as-laws.md) §9 | Relationship-table row naming this decision as the counterpart direction. No policy text altered. | Non-normative cross-reference |
-| [`priorities.md`](../constitution/priorities.md) | New decision-tracker row and an adjusted resolved-question count in the tracker preamble. §2 attributes are unchanged. | Non-normative index update |
-| [`README.md`](../../docs/README.md) | Companion-table rows for this decision and for R5, plus one sentence of status prose. | Non-normative index update |
-
-The value statement and the required end-state do not replace one another, and D9 requires
-both to travel together permanently.
-
-This decision **does not** alter: the
-[`specs-as-laws.md`](../../docs/specs-as-laws.md) contraction policy or the user-is-legislator
-principle; CD-0006 D5's planning-owns-conflicts rule, which D6 option (b) invokes rather
-than amends; CD-0006 R1 forward-linking; CD-0006 R2 obligation bands; CD-0005 and TS2's
-nine-tool ceiling; CD-0002 or PM3 storage authority; TS8's version-classification rules,
-which D2 defers to rather than pre-empts; or [quality](../constitution/priorities.md#quality-goal-e)
-governance by attributes rather than gate count.
-
-This record was accepted by the operator on 2026-08-08 and binds downstream work until
-superseded. A downstream change that contradicts it surfaces a conflict requiring
-explicit resolution rather than divergence inside implementation work.
+The spec mandate, law-conflict resolution, forward-linking, operator approval
+boundaries, storage authority and TS8 surface evolution rules remain in force.

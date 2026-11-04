@@ -140,7 +140,7 @@ and [`product-data-model.md`](./product-data-model.md).
 
 **Direction.** Every workflow type declares its own artifacts, steps, and completion criteria. Independent review is required where the risk or consequence warrants it.
 
-Accepted CD-0012 additionally requires completion criteria to include an **outcome contract**: the premise, the required end-state as falsifiable postconditions, and the candidate set those postconditions range over. The contract is approved at planning and verified before premise confirmation, and a delivered end-state weaker than the approved one gains no passing criterion proof. This is what makes *intent fidelity* and *no silent drift* enforceable rather than aspirational. Binding form: [`../law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](../law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md).
+CD-0012 retains the contract premise, independent Review and forward-linking of discovered work. The plan states the observable outcome; Review judges the delivered candidate. See [`../law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](../law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md).
 
 ---
 

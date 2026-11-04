@@ -21,7 +21,7 @@
     "fixtures": {"$ref": "#/$defs/fixtures"},
     "assertion_contract": {"$ref": "#/$defs/assertionContract"},
     "runner_requirements": {"$ref": "#/$defs/runnerRequirements"},
-    "scenarios": {"type": "array", "minItems": 7, "maxItems": 7, "items": {"$ref": "#/$defs/scenario"}}
+    "scenarios": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"$ref": "#/$defs/scenario"}}
   },
   "$defs": {
     "id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]{1,127}$", "minLength": 2, "maxLength": 128},
@@ -29,7 +29,7 @@
     "actorRef": {"type": "string", "pattern": "^actor:[0-9a-f]{64}$", "minLength": 70, "maxLength": 70},
     "actorIdentityRef": {"type": "string", "pattern": "^[^\\x09-\\x0d \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]+$", "minLength": 1, "maxLength": 128, "x-minBytes": 2, "x-maxBytes": 128},
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
-    "currentAction": {"type": "string", "enum": ["capture", "approve_contract", "record_verdict", "confirm_premise", "complete"]},
+    "currentAction": {"type": "string", "enum": ["capture", "approve_contract", "confirm_premise", "complete"]},
     "jsonValue": {"oneOf": [
       {"type": "null"}, {"type": "boolean"},
       {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
@@ -124,14 +124,7 @@
         "current_commit": {"type": "string", "minLength": 40, "maxLength": 64, "pattern": "^[0-9a-f]+$"},
         "evidence_commit": {"type": "string", "minLength": 40, "maxLength": 64, "pattern": "^[0-9a-f]+$"},
         "decision_domains": {"type": "array", "minItems": 0, "maxItems": 6, "uniqueItems": true, "items": {"type": "string", "enum": ["increased_spending", "legal", "product", "production_data", "security", "ui_ux"]}},
-        "impact_verdict": {"type": "string", "enum": ["breaking", "non-breaking"]},
-        "verdicts": {"type": "array", "minItems": 1, "maxItems": 8, "items": {
-          "type": "object", "additionalProperties": false, "required": ["predicate_id", "receipt_refs"],
-          "properties": {
-            "predicate_id": {"$ref": "#/$defs/id"},
-            "receipt_refs": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/short"}}
-          }
-        }}
+        "impact_verdict": {"type": "string", "enum": ["breaking", "non-breaking"]}
       }
     },
     "scenarioRequest": {

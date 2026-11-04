@@ -1,23 +1,22 @@
 package store
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestResearchPlanRecordsReview(t *testing.T) {
 	const workID = "research-review-current"
-	fixture, receipt := seedCriterionAssociationAtStep(t, workID, "conclude")
-	s := fixture.store
-	report := currentReviewBlockForTest(t, s, workID, "ready_for_final_proof")
-	for _, criterion := range report.Dependencies.Criteria {
-		report.Assessments = append(report.Assessments, ReviewAssessment{PredicateID: criterion.PredicateID, Assessment: "supported", ReceiptRefs: []string{receipt}})
+	fixture := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, "conclude", []string{})
+	version := readWorkVersion(t, fixture.store, workID)
+	payload := json.RawMessage(`{"step_id":"conclude","note":"independent research review","reviewer":"concord-review","result":"pass","commit":"commit:research","link":"https://example.com/review"}`)
+	issue31WorkflowActionWithPayload(t, fixture.store, workID, version, "record_review", "research-review", fixture.owner, payload)
+	plan, err := readWorkflowPlanTx(t.Context(), fixture.store.db, workID)
+	if err != nil || plan == nil {
+		t.Fatalf("read plan: %+v, %v", plan, err)
 	}
-	if err := recordReviewForTest(t, s, workID, fixture.owner, report); err != nil {
-		t.Fatalf("record research Review: %v", err)
-	}
-	state, err := loadWorkflowReviewState(t.Context(), s.db, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if state.Accepted == nil || state.Accepted.ReportDigest != reviewDigest(report) {
-		t.Fatalf("recorded research Review = %+v", state.Accepted)
+	step, ok := stepByID(plan.Steps, "conclude")
+	if !ok || len(step.Attempts) != 1 || step.Attempts[0].Reviewer != "concord-review" || step.Attempts[0].Result != "pass" || step.Attempts[0].Commit != "commit:research" || step.Attempts[0].Link != "https://example.com/review" {
+		t.Fatalf("recorded review attempt: %+v", step.Attempts)
 	}
 }

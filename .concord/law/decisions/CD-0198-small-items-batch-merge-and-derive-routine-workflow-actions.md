@@ -19,29 +19,19 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-30
-- **Scope:** Batched verdicts, typed diagnosis and derived producing-step starts
+- **Scope:** Typed diagnosis and derived producing-step starts
 - **Related:** CD-0012, CD-0173, CD-0183, CD-0242, CD-0243
 
 ## Context
 
-Separate calls for each verdict, diagnosis section and step start add
+Separate calls for each diagnosis section and step start add
 coordination cost without adding an independent judgment.
 
 ## Decision
 
 Contract authority, evidence and independent Review remain mandatory. Consent
 follows CD-0243's six classes in conversation. Premise confirmation uses
-authenticated coordinator identity. Batching never silently
-omits an approved predicate or supplies fabricated proof.
-
-### D1. One record_verdict call carries each predicate it judges
-
-The batched form carries one or more verdict objects, each naming an approved
-predicate of the active contract and its verdict kind, evaluation evidence and
-incomparable flag. Duplicate predicate IDs refuse. Each verdict retains its
-actor and records atomically. An omitted predicate stays missing and blocks
-completion. Independent Review and bound verification reports remain required;
-Concord attests no subagent identity.
+authenticated coordinator identity. Concord attests no subagent identity.
 
 ### D2. Break-fix records one typed diagnosis
 
@@ -59,10 +49,8 @@ beside it.
 
 The fenced `start_execution` at the item's implement step derives the
 step-start fact in its own transaction. The first start wins, opens the
-epoch and binds the fence from its actor. Delivery requires the accepted Review and, when the active contract
-requires verification evidence, a passing verification report covering the
-current reviewed candidate; no step start, lease acquisition, live Git
-freshness or exact tooling argv comparison is required. Current rows own these facts;
+epoch and binds the fence from its actor. No separate step start, lease
+acquisition, live Git freshness or exact tooling argv comparison is required. Current rows own these facts;
 per-item plans copy one canonical template contract.
 
 Whole-work delivery uses `record_delivery` and its complete admission. A Review
@@ -73,8 +61,6 @@ subagent acceptance, delivery or retry dispatch.
 
 - Replace typed actions with a progress paragraph. Rejected: prose cannot
   preserve per-action validation.
-- Remove contract or verdict gates to save calls. Rejected: those judgments
-  remain independent requirements.
 
 ## Consequences
 
@@ -83,8 +69,7 @@ No worker-failure record, combined worker acceptance or retry launcher exists.
 
 ## Verification
 
-- `go test ./internal/store ./internal/agent` checks batching, duplicate and
-  omitted predicates, diagnosis completeness, fenced `start_execution` starts and delivery
-  refusal for missing, failed, unresolved or mixed-candidate verification.
+- `go test ./internal/store ./internal/agent` checks diagnosis completeness and
+  fenced `start_execution` starts.
 - Committed law-folder snapshot validation checks the record's identity and
   content digest.

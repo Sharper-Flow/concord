@@ -3,36 +3,27 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
-	"slices"
 	"strconv"
 )
 
 // WorkPin is the one point-in-time projection that a caller needs to prepare
 // the next operation for a work item.
 type WorkPin struct {
-	Review                  *WorkflowReviewState `json:"review,omitempty"`
-	WorkID                  string               `json:"work_id"`
-	Title                   string               `json:"title"`
-	LinearIssueKey          string               `json:"linear_issue_key"`
-	ProjectID               string               `json:"project_id"`
-	ProjectDisplayName      string               `json:"project_display_name"`
-	Version                 int64                `json:"version"`
-	Lifecycle               string               `json:"lifecycle"`
-	CancelledInstanceCloses int64                `json:"cancelled_instance_closes"`
-	WorkflowType            string               `json:"workflow_type"`
-	Step                    string               `json:"step"`
-	StepSkill               *string              `json:"step_skill,omitempty"`
-	StepHelper              *string              `json:"step_helper,omitempty"`
-	StepReviewed            *bool                `json:"step_reviewed,omitempty"`
-	Watermark               string               `json:"watermark"`
-	// Obligations lists verification obligations from the active contract.
-	Obligations *[]string `json:"obligations,omitempty"`
-	// OutstandingEvidenceKinds is known kind-debt, not proof that reference
-	// obligations are satisfied. Nil omits an unknown or partial view; a
-	// non-nil empty slice records computed zero kind-debt.
-	OutstandingEvidenceKinds *[]string       `json:"outstanding_evidence_kinds,omitempty"`
-	NextValidIntents         []WorkPinIntent `json:"next_valid_intents"`
+	WorkID                  string          `json:"work_id"`
+	Title                   string          `json:"title"`
+	LinearIssueKey          string          `json:"linear_issue_key"`
+	ProjectID               string          `json:"project_id"`
+	ProjectDisplayName      string          `json:"project_display_name"`
+	Version                 int64           `json:"version"`
+	Lifecycle               string          `json:"lifecycle"`
+	CancelledInstanceCloses int64           `json:"cancelled_instance_closes"`
+	WorkflowType            string          `json:"workflow_type"`
+	Step                    string          `json:"step"`
+	StepSkill               *string         `json:"step_skill,omitempty"`
+	StepHelper              *string         `json:"step_helper,omitempty"`
+	StepReviewed            *bool           `json:"step_reviewed,omitempty"`
+	Watermark               string          `json:"watermark"`
+	NextValidIntents        []WorkPinIntent `json:"next_valid_intents"`
 	// DrivingSessions lists the distinct agent sessions that have driven this
 	// workflow, with each session's most recent action and action time. It is
 	// derived from workflow actors and actions, not session identity evidence.
@@ -42,26 +33,6 @@ type WorkPin struct {
 	// The partial recovery pin does not evaluate either field.
 	WorkContext            *WorkContextView        `json:"work_context,omitempty"`
 	WorkContextUnavailable *WorkContextUnavailable `json:"work_context_unavailable,omitempty"`
-	// VerifiedCriteria carries the approved contract predicates and their latest
-	// verdict kinds only after a workflow reaches completed.
-	VerifiedCriteria []WorkPinVerifiedCriterion `json:"verified_criteria,omitempty"`
-	// VerdictEvidence exposes the bound immutable evidence set at steps where
-	// record_verdict is declarable, so a caller cites qualifying refs without
-	// a raw store read (#974). It stays nil at every other step.
-	VerdictEvidence []WorkPinEvidence `json:"verdict_evidence,omitempty"`
-}
-
-type WorkPinVerifiedCriterion struct {
-	PredicateID    string          `json:"predicate_id"`
-	Ordinal        int             `json:"ordinal"`
-	OutcomeKind    string          `json:"outcome_kind"`
-	OutcomePayload json.RawMessage `json:"outcome_payload"`
-	VerdictKind    string          `json:"verdict_kind"`
-}
-
-type WorkPinEvidence struct {
-	EvidenceKind        string `json:"evidence_kind"`
-	ImmutableSubjectRef string `json:"immutable_subject_ref"`
 }
 
 type WorkPinDrivingSession struct {
@@ -160,7 +131,7 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	if err := workPinReadIdentityTx(ctx, tx, workID, &pin); err != nil {
 		return pin, err
 	}
-	instanceState, err := workPinReadPlanTx(ctx, tx, workID, &pin)
+	_, err := workPinReadPlanTx(ctx, tx, workID, &pin)
 	if err != nil {
 		return pin, err
 	}
@@ -179,21 +150,6 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	if len(activeContractVersions) > 1 {
 		return pin, nil
 	}
-	var activeContractVersion int64
-	if len(activeContractVersions) == 1 {
-		activeContractVersion = activeContractVersions[0]
-	}
-	if err := workPinReadContractTx(ctx, tx, workID, &pin, instanceState, activeContractVersion); err != nil {
-		return pin, err
-	}
-	if pin.OutstandingEvidenceKinds != nil && len(*pin.OutstandingEvidenceKinds) != 0 && !isTerminalLifecycle(instanceState) && !isTerminalLifecycle(pin.Lifecycle) {
-		workPinPromoteEvidenceBindingIntent(&pin)
-	}
-	review, err := loadWorkflowReviewState(ctx, tx, workID)
-	if err != nil {
-		return pin, err
-	}
-	pin.Review = &review
 	if err := workPinReadWorkContextTx(ctx, tx, workID, &pin); err != nil {
 		return pin, err
 	}
@@ -254,12 +210,12 @@ func workPinReadPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *Work
 	}
 	pin.NextValidIntents = []WorkPinIntent{}
 	if plan != nil {
-		return workPinReadExistingPlanTx(ctx, tx, workID, pin, state, plan)
+		return workPinReadExistingPlanTx(pin, state, plan)
 	}
 	return workPinReadPreludeTx(ctx, tx, workID, pin, state)
 }
 
-func workPinReadExistingPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, state string, plan *WorkflowStepPlan) (string, error) {
+func workPinReadExistingPlanTx(pin *WorkPin, state string, plan *WorkflowStepPlan) (string, error) {
 	pin.WorkflowType = string(plan.Type)
 	frontier := WorkflowStepPlanFrontier(*plan)
 	if len(frontier) > 0 {
@@ -277,10 +233,6 @@ func workPinReadExistingPlanTx(ctx context.Context, tx *sql.Tx, workID string, p
 	if WorkflowStepPlanComplete(*plan) {
 		ids = append(ids, "complete")
 	}
-	confirmAdmitted, err := workPinConfirmationAdmittedTx(ctx, tx, workID, plan.Type)
-	if err != nil {
-		return "", err
-	}
 	for _, step := range frontier {
 		actions := WorkflowStepPlanTemplateActions(plan.Type, step.ID)
 		if actions == nil {
@@ -288,37 +240,11 @@ func workPinReadExistingPlanTx(ctx context.Context, tx *sql.Tx, workID string, p
 		}
 		for _, action := range actions {
 			if action != "complete" {
-				if action == "confirm_premise" && !confirmAdmitted {
-					continue
-				}
 				ids = append(ids, action)
 			}
 		}
 	}
 	return state, workPinAddCatalogIntents(pin, ids)
-}
-
-// An unavailable confirmation read is surfaced; other refusals suppress the intent.
-func workPinConfirmationAdmittedTx(ctx context.Context, tx *sql.Tx, workID string, planType WorkflowStepPlanType) (bool, error) {
-	confirmAdmitted := false
-	var confirmErr error
-	if template, templateErr := WorkflowStepPlanTemplate(planType); templateErr == nil {
-		for _, step := range template.Steps {
-			if slices.Contains(WorkflowStepPlanTemplateActions(planType, step.ID), "confirm_premise") {
-				confirmAdmitted = true
-				confirmErr = workflowConfirmationDeliverablesTx(ctx, tx, planType, workID)
-				break
-			}
-		}
-	}
-	if confirmErr != nil {
-		var failure *Failure
-		if failureAs(confirmErr, &failure) && failure.Kind == KindUnavailable {
-			return false, confirmErr
-		}
-		confirmAdmitted = false
-	}
-	return confirmAdmitted, nil
 }
 
 func workPinReadPreludeTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, state string) (string, error) {
@@ -358,102 +284,6 @@ func workPinAddCatalogIntents(pin *WorkPin, ids []string) error {
 	return nil
 }
 
-// workPinPromoteEvidenceBindingIntent answers an outstanding contract
-// evidence kind: where a frontier step already declares bind_evidence, its
-// intent names the evidence recovery rather than the plain declaration (§4.2).
-// Binding gains no intent on steps that do not declare it.
-func workPinPromoteEvidenceBindingIntent(pin *WorkPin) {
-	for i := range pin.NextValidIntents {
-		if pin.NextValidIntents[i].ActionID == "bind_evidence" {
-			pin.NextValidIntents[i].ReasonCode = "ordinary_evidence_binding"
-			return
-		}
-	}
-}
-
-// workPinReadContractTx reads the one active contract and every enrichment
-// that hangs off it: predicates, verified criteria on a completed instance,
-// self-repair, the late-verdict recovery, and
-// the verdict evidence. A work item with no contract row skips the block.
-// The late-verdict recovery's availability is the folded admission state's
-// answer, not a per-site re-derivation.
-func workPinReadContractTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, instanceState string, activeContractVersion int64) error {
-	var contract WorkflowReadContract
-	var required, routes, mandate, modifies string
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, workID, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandate, &modifies, &contract.RigorClass); err == nil {
-		if jsonErr := decodeWorkflowPinContract(&contract, required, routes, mandate, modifies); jsonErr != nil {
-			return jsonErr
-		}
-		kinds, evidenceErr := workPinOutstandingEvidenceKindsTx(ctx, tx, workID, activeContractVersion)
-		if evidenceErr != nil {
-			return evidenceErr
-		}
-		pin.OutstandingEvidenceKinds = kinds
-		_, _, obligations, obligationErr := workflowEvidenceRequirementInputs(ctx, tx, workID)
-		if obligationErr != nil {
-			return obligationErr
-		}
-		ids := make([]string, 0, len(obligations))
-		for _, obligation := range obligations {
-			ids = append(ids, obligation.ObligationID)
-		}
-		ids = uniqueSorted(ids)
-		pin.Obligations = &ids
-		predicates, predicateErr := readWorkflowContractPredicates(ctx, tx, workID, contract.Version)
-		if predicateErr != nil {
-			return predicateErr
-		}
-		contract.OutcomePredicates = predicates
-		if pin.Lifecycle == "completed" && instanceState == "completed" {
-			criteria, criteriaErr := workPinVerifiedCriteriaTx(ctx, tx, workID, contract)
-			if criteriaErr != nil {
-				return criteriaErr
-			}
-			pin.VerifiedCriteria = criteria
-		}
-		if workPinContainsAction(pin.NextValidIntents, "record_verdict") {
-			verdictEvidence, evidenceErr := workPinVerdictEvidenceTx(ctx, tx, workID)
-			if evidenceErr != nil {
-				return evidenceErr
-			}
-			pin.VerdictEvidence = verdictEvidence
-		}
-	} else if err != sql.ErrNoRows {
-		return wrapFailure(KindUnavailable, "work_pin", "cannot read workflow contract", true, "retry once the database is readable", err)
-	}
-	return nil
-}
-
-func workPinVerifiedCriteriaTx(ctx context.Context, tx *sql.Tx, workID string, contract WorkflowReadContract) ([]WorkPinVerifiedCriterion, error) {
-	verdicts, err := latestWorkflowVerdicts(ctx, tx, workID, contract.Version)
-	if err != nil {
-		return nil, err
-	}
-	verdictByPredicate := make(map[string]workflowVerdictRecordedPayload, len(verdicts))
-	for _, verdict := range verdicts {
-		verdictByPredicate[verdict.PredicateID] = verdict
-	}
-	criteria := make([]WorkPinVerifiedCriterion, 0, len(contract.OutcomePredicates))
-	for _, predicate := range contract.OutcomePredicates {
-		verdict, ok := verdictByPredicate[predicate.PredicateID]
-		if !ok || !json.Valid([]byte(predicate.OutcomePayload)) {
-			return nil, nil
-		}
-		criteria = append(criteria, WorkPinVerifiedCriterion{
-			PredicateID:    predicate.PredicateID,
-			Ordinal:        predicate.Ordinal,
-			OutcomeKind:    predicate.OutcomeKind,
-			OutcomePayload: json.RawMessage(predicate.OutcomePayload),
-			VerdictKind:    verdict.VerdictKind,
-		})
-	}
-	return criteria, nil
-}
-
-// workPinDrivingSessionsTx returns the bounded set of agent sessions that have
-// driven the work item, most recent first. The execution actor preserves the
-// session that initialized the workflow, while current action facts identify later
-// coordinator sessions that took over the item.
 func workPinDrivingSessionsTx(ctx context.Context, tx *sql.Tx, workID string) ([]WorkPinDrivingSession, error) {
 	rows, err := tx.QueryContext(ctx, workPinDrivingSessionsSQL, workPinDrivingSessionsArgs(workID)...)
 	if err != nil {
@@ -501,40 +331,6 @@ func scanWorkPinDrivingSessions(rows *sql.Rows) ([]WorkPinDrivingSession, error)
 	return sessions, nil
 }
 
-// workPinVerdictEvidenceTx reads the distinct bound evidence pairs for a
-// work item, ordered deterministically. The set is read-only; binding stays
-// owned by the workflow actions that mint evidence events.
-func workPinVerdictEvidenceTx(ctx context.Context, tx *sql.Tx, workID string) ([]WorkPinEvidence, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT json_extract(payload,'$.evidence_kind') AS evidence_kind, json_extract(payload,'$.immutable_subject_ref') AS immutable_subject_ref FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref') IS NOT NULL ORDER BY immutable_subject_ref, evidence_kind LIMIT 100`, workID)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "work_pin", "cannot read bound verdict evidence", true, "retry once the database is readable", err)
-	}
-	defer rows.Close()
-	out := []WorkPinEvidence{}
-	for rows.Next() {
-		var entry WorkPinEvidence
-		if scanErr := rows.Scan(&entry.EvidenceKind, &entry.ImmutableSubjectRef); scanErr != nil {
-			return nil, wrapFailure(KindUnavailable, "work_pin", "cannot scan bound verdict evidence", true, "retry once the database is readable", scanErr)
-		}
-		out = append(out, entry)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, wrapFailure(KindUnavailable, "work_pin", "cannot iterate bound verdict evidence", true, "retry once the database is readable", err)
-	}
-	return out, nil
-}
-
-func decodeWorkflowPinContract(contract *WorkflowReadContract, required, routes, mandate, modifies string) error {
-	if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandate), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
-		return newFailure(KindInvariantViolation, "work_pin", "workflow contract projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
-	}
-	contract.RequiredEvidence = nonNilStrings(contract.RequiredEvidence)
-	contract.RouteConventions = nonNilStrings(contract.RouteConventions)
-	contract.SpecMandate = nonNilStrings(contract.SpecMandate)
-	contract.LawModifies = nonNilStrings(contract.LawModifies)
-	return nil
-}
-
 func workPinContainsAction(intents []WorkPinIntent, actionID string) bool {
 	for _, intent := range intents {
 		if intent.ActionID == actionID {
@@ -563,69 +359,4 @@ func publicWorkflowActionPayload(action WorkflowActionDefinition) WorkflowPayloa
 		return *policy.PublicPayload
 	}
 	return action.Payload
-}
-
-func workPinUnverdictedCheckRequirements(ctx context.Context, q queryer, workID string, contractVersion int64) ([]workflowEvidenceRequirement, bool, error) {
-	predicates, err := readWorkflowContractPredicates(ctx, q, workID, contractVersion)
-	if err != nil {
-		return nil, false, err
-	}
-	verdicts, err := latestWorkflowVerdictsBefore(ctx, q, workID, contractVersion, 0)
-	if err != nil {
-		return nil, false, err
-	}
-	verdicted := make(map[string]bool, len(verdicts))
-	for _, verdict := range verdicts {
-		verdicted[verdict.PredicateID] = true
-	}
-	var requirements []workflowEvidenceRequirement
-	for _, predicate := range predicates {
-		if verdicted[predicate.PredicateID] {
-			continue
-		}
-		approved, decodeErr := DecodeWorkflowPredicate([]byte(predicate.OutcomePayload))
-		if decodeErr != nil || string(approved.Kind) != predicate.OutcomeKind {
-			return nil, false, nil
-		}
-		if approved.Kind == PredicateCheck {
-			requirements = append(requirements, workflowEvidenceRequirement{Kind: string(EvidenceVerification), Reference: approved.ImmutableSubjectRef})
-		}
-	}
-	return requirements, true, nil
-}
-
-// workPinOutstandingEvidenceKindsTx reports the contract's unbound evidence
-// kinds. Past the evidence-binding step it also reports verification for each
-// unverdicted active check predicate whose subject is unbound; a malformed
-// predicate leaves the debt unknown.
-func workPinOutstandingEvidenceKindsTx(ctx context.Context, q queryer, workID string, contractVersion int64) (*[]string, error) {
-	required, mandates, obligations, err := workflowEvidenceRequirementInputs(ctx, q, workID)
-	if err != nil {
-		return nil, err
-	}
-	var requirements []workflowEvidenceRequirement
-	for _, kind := range required {
-		requirements = append(requirements, workflowEvidenceRequirement{Kind: kind})
-	}
-	for _, mandate := range mandates {
-		requirements = append(requirements, workflowEvidenceRequirement{Reference: mandate})
-	}
-	for _, obligation := range obligations {
-		requirements = append(requirements, workflowEvidenceRequirement{Kind: obligation.ObligationID, Reference: obligation.LawID})
-	}
-	checks, known, checkErr := workPinUnverdictedCheckRequirements(ctx, q, workID, contractVersion)
-	if checkErr != nil || !known {
-		return nil, checkErr
-	}
-	requirements = append(requirements, checks...)
-	requirements, err = unboundWorkflowEvidenceRequirements(ctx, q, workID, requirements)
-	if err != nil {
-		return nil, err
-	}
-	kinds := make([]string, 0, len(requirements))
-	for _, requirement := range requirements {
-		kinds = append(kinds, requirement.Kind)
-	}
-	kinds = uniqueSorted(kinds)
-	return &kinds, nil
 }

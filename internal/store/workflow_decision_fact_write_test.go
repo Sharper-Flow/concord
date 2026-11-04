@@ -31,8 +31,7 @@ func authoredDecisionDomainSets() [][]string {
 func decisionFactInput(t *testing.T, id string, version int64, fact any) map[string]any {
 	t.Helper()
 	return firstCallActionInput(t, firstCallPublishedDefs(t), id, version, map[string]any{
-		"outcome_predicates": firstCallPredicates(WorkflowStepPlanChange),
-		"required_evidence":  []string{"verification"}, "spec_mandate": []string{"spec:one"},
+		"legislative_subjects": []string{}, "spec_mandate": []string{"spec:one"},
 		"architecture_binding": map[string]any{
 			"home_domain_id": "root", "affected_domain_ids": []string{"root"},
 			"domain_modifies": []string{}, "domain_relation_modifies": []map[string]any{},

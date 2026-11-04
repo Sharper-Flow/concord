@@ -9,23 +9,22 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func TestWorkPinOutstandingEvidenceKindsTypedEnvelope(t *testing.T) {
+func TestWorkPinContextAvailabilityTypedEnvelope(t *testing.T) {
 	for _, present := range []bool{false, true} {
 		workflowType, step := "", "intake"
 		if present {
 			workflowType, step = "change", "review"
 		}
 		pin := map[string]any{
-			"work_id": "work-1", "title": "Evidence debt", "linear_issue_key": "",
+			"work_id": "work-1", "title": "Work context", "linear_issue_key": "",
 			"project_id": "project-fixture", "project_display_name": "Fixture",
 			"version": 3, "lifecycle": "in_progress", "cancelled_instance_closes": 0,
 			"workflow_type": workflowType, "step": step,
 			"driving_sessions": []any{},
 			"watermark":        "seq:3", "next_valid_intents": []any{},
-			"obligations": []string{"verification"},
 		}
 		if present {
-			pin["outstanding_evidence_kinds"] = []string{"approval", "artifact", "commit", "durable_note", "native_run", "review", "verification"}
+			pin["work_context_unavailable"] = map[string]any{"reason": "limit_exceeded"}
 		}
 		payload, err := json.Marshal(map[string]any{
 			"changed_refs":       []any{map[string]any{"entity_kind": "work_item", "id": "work-1", "version": 3}},
@@ -35,28 +34,28 @@ func TestWorkPinOutstandingEvidenceKindsTypedEnvelope(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := agentcontract.ValidateOperationPayload("concord_work_transition", "workflow_action", payload, true); err != nil {
-			t.Fatalf("typed envelope with debt present=%t: %v", present, err)
+			t.Fatalf("typed envelope with unavailable context present=%t: %v", present, err)
 		}
-		response := agentcontract.NewOKMutation(agentcontract.NewBase("debt-envelope", "concord_work_transition", "workflow_action"), payload,
+		response := agentcontract.NewOKMutation(agentcontract.NewBase("context-envelope", "concord_work_transition", "workflow_action"), payload,
 			[]agentcontract.ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "3"}}, nil)
 		encoded, err := response.Encode()
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(encoded) > agentcontract.MaxResultEnvelopeBytes {
-			t.Fatal("seven-kind metadata exceeded the unchanged envelope budget")
+			t.Fatal("work context metadata exceeded the unchanged envelope budget")
 		}
 		var decoded agentcontract.Envelope
 		if err := json.Unmarshal(encoded, &decoded); err != nil {
 			t.Fatal(err)
 		}
 		if !bytes.Equal(decoded.Result, payload) {
-			t.Fatal("envelope round-trip changed or truncated evidence-debt metadata")
+			t.Fatal("envelope round-trip changed or truncated work context metadata")
 		}
 		metadata, _ := json.Marshal(mutationResponseScope(map[string]any{}, decoded, nil))
 		refs, _ := json.Marshal(*decoded.ChangedRefs)
 		r := runtime{Tool: decoded.Tool, Operation: decoded.Operation}
-		replayed := r.recordedMutationResult(agentcontract.NewBase("debt-replay", r.Tool, r.Operation), store.MutationIdempotencyRecord{ResultPayload: string(payload), ChangedRefs: string(refs), AuthorizedScopeSnapshot: string(metadata)})
+		replayed := r.recordedMutationResult(agentcontract.NewBase("context-replay", r.Tool, r.Operation), store.MutationIdempotencyRecord{ResultPayload: string(payload), ChangedRefs: string(refs), AuthorizedScopeSnapshot: string(metadata)})
 		if replayed.Outcome != agentcontract.OutcomeOK || !bytes.Equal(replayed.Result, payload) {
 			t.Fatalf("retained snapshot changed, backfilled, or lost its pin: %+v", replayed)
 		}

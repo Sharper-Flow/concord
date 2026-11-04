@@ -131,21 +131,14 @@ test("published tool arguments expose a host-safe request shape", async () => {
   expect(captureInput.required).toEqual(["title", "value_statement", "kind", "project_ids", "idempotency_key"])
   expect(captureInput.properties.urgency.enum).toEqual(["standard", "expedite"])
   const transition = adapter.publishedRequestSchema("concord_work_transition") as any
-  // Select the approve_contract variant by its action_id const: it is the
-  // variant whose fields carry the outcome_predicates admission rules.
+  // Select the approve_contract variant by its action_id const.
   const actionBranch = actionInput(transition, "approve_contract")
   const fieldsBranches = actionFieldsBranches(actionBranch)
   expect(fieldsBranches, "approve_contract fields branches").toHaveLength(1)
   expect(fieldsBranches[0].required).toContain("decision_domains")
   expect(fieldsBranches[0].properties.decision_domains).toBeObject()
   expect(fieldsBranches[0].additionalProperties).toBe(false)
-  // CON-412: the items close per kind; each branch binds outcome_kind to
-  // outcome_payload.kind and carries that branch's payload inline.
-  for (const fields of fieldsBranches) {
-    const itemVariants = fields.properties.outcome_predicates.items.oneOf
-    expect(itemVariants.map((branch: any) => branch.properties.outcome_kind.const)).toEqual(["exists", "absent", "outcome", "check"])
-    expect(itemVariants.map((branch: any) => branch.properties.outcome_payload.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
-  }
+  expect(fieldsBranches[0].properties.legislative_subjects.maxItems).toBe(800)
   // The branch names the conditional action fields, so a calling agent can
   // read them before calling.
   for (const field of ["action_id"]) {
@@ -950,37 +943,10 @@ const runWorkflowAction = (runner: any, input: Record<string, unknown>, ask?: ()
   adapter.configureConcordAdapter({ runner })
   return rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", input), contextFor(ask)))
 }
-test("host publication round-trips check predicate payloads unchanged", async () => {
+test("host publication round-trips legislative subjects unchanged", async () => {
   const input = {
-    work_id: "work-1",
-    expected_version: 2,
-    action_id: "approve_contract",
-    idempotency_key: "idem-check-predicate-1",
-    fields: {
-      outcome_predicates: [{
-        predicate_id: "predicate:primary",
-        ordinal: 0,
-        outcome_kind: "check",
-        outcome_payload: {
-          kind: "check",
-          check_ref: "check:approve-contract",
-          immutable_subject_ref: "commit:approve-contract",
-          expected_result: "pass",
-        },
-      }],
-    },
-  }
-  const published: any = adapter.publishedRequestSchema("concord_work_transition")
-  const expandedPublished: any = expandedPublishedRequestSchema(published)
-  const actionBranch: any = expandedPublished.oneOf.find((branch: any) => branch.properties.operation.const === "workflow_action" && branch.properties.input.properties.action_id.const === "approve_contract").properties.input
-  // CON-412: the items close per kind; each branch binds outcome_kind to
-  // outcome_payload.kind and carries that branch's payload inline. The
-  // check runs on each branch of the fields union, so a branch-only drop
-  // cannot hide behind the factored parent.
-  for (const fields of actionFieldsBranches(actionBranch)) {
-    const itemVariants = fields.properties.outcome_predicates.items.oneOf
-    expect(itemVariants.map((branch: any) => branch.properties.outcome_kind.const)).toEqual(["exists", "absent", "outcome", "check"])
-    expect(itemVariants.map((branch: any) => branch.properties.outcome_payload.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
+    work_id: "work-1", expected_version: 2, action_id: "approve_contract", idempotency_key: "idem-subjects-1",
+    fields: { premise: "Review the proposed law change.", decision_domains: [], legislative_subjects: ["spec:one", "decision:one"] },
   }
   let sentInput: unknown
   const success = coreEnvelope("concord_work_transition", "workflow_action", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })
@@ -994,9 +960,9 @@ test("host publication round-trips check predicate payloads unchanged", async ()
 })
 
 test("confirm_premise refusals come from the core, not the adapter", async () => {
-  // The core owns the acceptance-deliverables gate and its refusal.
+  // The core owns step admission and its refusal.
   const artifactRefusal = coreEnvelope("concord_work_transition", "workflow_action", "error", {
-    error: { kind: "missing_evidence", retry_safe: false, recovery_action: { kind: "provide_evidence" }, effect_state: "none", message: "premise confirmation requires a recorded workflow verdict" },
+    error: { kind: "missing_evidence", retry_safe: false, recovery_action: { kind: "provide_evidence" }, effect_state: "none", message: "premise confirmation needs a recorded premise" },
   })
   const first = runnerWithContext(artifactRefusal)
   const result: any = await runWorkflowAction(first,
@@ -1004,7 +970,7 @@ test("confirm_premise refusals come from the core, not the adapter", async () =>
   expect(first.calls()).toBe(2)
   expect(result.outcome).toBe("error")
   expect(result.origin).toBe("core")
-  expect(result.error.message).toContain("recorded workflow verdict")
+  expect(result.error.message).toContain("recorded premise")
 
 })
 
@@ -1462,13 +1428,8 @@ test("portable continuation posture leaves host protocol names to the host surfa
   expect(recordsSource).toContain("decide it when the change is delivered.")
 })
 
-test("tools forward the coordinator's typed Review without launch authorization", async () => {
-  const candidate = { project_id: "project-1", commit: "a".repeat(40), tree: "b".repeat(40) }
-  const review = {
-    disposition: "ready_for_final_proof", input_candidate: candidate, output_candidate: candidate,
-    dependencies: { criteria: [{ predicate_id: "predicate:one", content_digest: "sha256:" + "c".repeat(64) }], architecture_not_applicable: true },
-    assessments: [], findings: [], remaining_obligations: [],
-  }
+test("tools forward the coordinator's reviewed step without launch authorization", async () => {
+  const review = { step_id: "review", note: "Review completed.", reviewer: "reviewer:one", result: "pass", commit: "a".repeat(40), link: "review:one" }
   let input: any
   const runner = runnerWithContext((_argv: string[], body: string) => {
     input = JSON.parse(body)
@@ -1478,10 +1439,10 @@ test("tools forward the coordinator's typed Review without launch authorization"
   })
   adapter.configureConcordAdapter({ runner })
   const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", {
-    work_id: "work-1", expected_version: 3, action_id: "record_review", idempotency_key: "record-native-review", fields: { review },
+    work_id: "work-1", expected_version: 3, action_id: "record_review", idempotency_key: "record-native-review", fields: review,
   }), contextFor()))
   expect(result.outcome, JSON.stringify(result)).toBe("ok")
-  expect(input.input.fields).toEqual({ review })
+  expect(input.input.fields).toEqual(review)
   expect(input.input.action_id).toBe("record_review")
   expect(runner.calls()).toBe(2)
   expect(result.warnings).toEqual([])

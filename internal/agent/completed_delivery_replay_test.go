@@ -12,8 +12,6 @@ import (
 func TestCompletedDeliverySameIdentityReplay(t *testing.T) {
 	f := newSpineFixtureForFamily(t, "workflow.break_fix")
 	f.advanceToAcceptance(t)
-	f.env.SessionRef, f.env.AgentRef = "session-reevaluator", "agent-evaluator"
-	spineOK(t, f.action(t, "record_verdict", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{f.proof}}}}))
 	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{
 		"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise", "idempotency_key": "completed-replay-confirm",
 	}))

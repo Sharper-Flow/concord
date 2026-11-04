@@ -68,9 +68,8 @@ func TestWorkContextCloseGit(t *testing.T) {
 	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "implement")
 	closeGitWorkflowEvent(t, s, ownerRef, WorkflowContractApproved, map[string]any{
 		"contract_version": 1, "premise": "deliver a checked implementation",
-		"decision_domains":   []string{},
-		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:context-close", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:context-close", "immutable_subject_ref": "commit:" + base, "expected_result": "pass"}}},
-		"required_evidence":  []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
+		"decision_domains":     []string{},
+		"legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 		"architecture_binding": WorkflowArchitectureBinding{
 			HomeDomainID: workContextTestRoot, AffectedDomainIDs: []string{workContextTestRoot, workContextTestChild},
@@ -91,56 +90,20 @@ func TestWorkContextCloseGit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reviewer := WorkflowActor{PrincipalRef: owner.PrincipalRef, ClientRef: owner.ClientRef, AgentRef: "agent/context-reviewer", SessionRef: "session/context-reviewer", ActorClass: ActorOperator}
-	reviewerRef, err := WorkflowActorRef(reviewer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	closeGitWorkflowEvent(t, s, reviewerRef, WorkflowActorRecorded, map[string]any{
-		"actor_ref": reviewerRef, "principal_ref": reviewer.PrincipalRef, "client_ref": reviewer.ClientRef,
-		"agent_ref": reviewer.AgentRef, "session_ref": reviewer.SessionRef, "actor_class": string(reviewer.ActorClass),
-	})
-	evidenceKinds := []string{"verification", "review"}
-	seen := map[string]bool{}
-	for _, kind := range evidenceKinds {
-		if seen[kind] || kind == "verification" {
-			continue
-		}
-		seen[kind] = true
-		run := "close-git-evidence-" + kind
-		ref := "evidence:close-git-" + kind
-		seedWorkflowAuthority(t, s, run, workID, "principal/"+kind, "request/"+kind, []string{ref})
-		closeGitWorkflowEvent(t, s, ownerRef, WorkflowEvidenceBound, map[string]any{
-			"evidence_kind": kind, "immutable_subject_ref": ref, "producer_id": "principal/" + kind,
-			"producer_run_ref": run, "producer_watermark": "request/" + kind, "observed_at": "2026-10-10T00:00:00Z",
-		})
-	}
-	commitRef := "commit:" + base
-	if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{
-		"evidence_kind": "verification", "immutable_subject_ref": commitRef,
-		"verification_report": VerificationReport{Source: "local", Commit: base, Result: "pass", RunRef: "run:context-close"},
-	}), 0, owner); err != nil {
-		t.Fatalf("bind verification report on the close candidate: %v", err)
-	}
-	seen["verification"] = true
-	report := currentReviewBlockForTest(t, s, workID, "ready_for_final_proof")
-	report.Assessments = []ReviewAssessment{{PredicateID: "predicate:context-close", Assessment: "supported", ReceiptRefs: []string{commitRef}}}
-	if err := recordReviewForTest(t, s, workID, owner, report); err != nil {
-		t.Fatalf("record close Review: %v", err)
-	}
 	moveWorkflowPlanFixtureFrontier(t, s, workID, "review")
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", mustJSONValue(map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:context-close", "receipt_refs": []string{commitRef}}}}), 0, owner); err != nil {
-		t.Fatalf("associate close criterion receipt: %v", err)
+	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:context-close","delivery_state":"asserted"}`), 0, owner); err != nil {
+		t.Fatalf("record delivery: %v", err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "record_review", mustJSONValue(map[string]any{"step_id": "review", "note": "independent review", "reviewer": "concord-review", "result": "pass", "commit": base, "link": "https://example.com/review"}), 0, owner); err != nil {
+		t.Fatalf("record review attempt: %v", err)
 	}
 	closeGitWorkflowEvent(t, s, ownerRef, WorkflowPremiseConfirmed, map[string]any{
 		"contract_version": 1, "confirming_actor_ref": ownerRef, "confirmation_authority": "coordinator",
 	})
-	completeWorkflowPlanFixture(t, s, workID)
 	version := readWorkVersion(t, s, workID)
 	completion := workflowEventWithActor("close-git-workflow-completed", WorkflowCompleted, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed",
-		"final_verdict_kind": "ok", "verdict_actor_ref": ownerRef, "premise_confirmed": true, "evidence_count": len(seen),
-		"changed_refs_digest": WorkflowChangedRefsDigest([]string{workID}), "impact_verdict": "non-breaking",
+		"impact_verdict": "non-breaking", "changed_refs_digest": testDigest("context-close"), "warnings": []string{},
 	})
 	completion.PayloadVersion = 2
 	beforeHome := snapshotCloseGit(t, repository)

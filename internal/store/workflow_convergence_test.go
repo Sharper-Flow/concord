@@ -8,19 +8,23 @@ import (
 // An operator stop cancels the workflow despite a standing correction.
 func TestCorrectionResolvesThroughOperatorStop(t *testing.T) {
 	const workID = "convergence-operator-stop"
-	j := pReturnReviewFixture(t, workID, WorkflowStepPlanFix, "correction_required")
-	s := j.s
-	pin, err := ReadWorkPin(context.Background(), s, workID)
-	if err != nil {
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanFix, "review", []string{})
+	s := f.store
+	if err := runVerdictActionAs(t, s, workID, "record_review", mustJSONValue(map[string]any{"step_id": "review", "note": "review corrected the change", "reviewer": "concord-review", "result": "fixed", "commit": "commit:fixture", "link": "https://example.com/review"}), 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
-	if pin.Review == nil || pin.Review.Accepted == nil || pin.Review.Accepted.Report.Disposition != "correction_required" {
-		t.Fatal("the rejection left no current Review")
+	plan, err := readWorkflowPlanTx(context.Background(), s.db, workID)
+	if err != nil || plan == nil || WorkflowStepPlanComplete(*plan) {
+		t.Fatalf("fixed review must remain open: %+v %v", plan, err)
 	}
-	if pin.Review.Accepted.ActorRef != mustActorRef(t, j.fixture.owner) {
-		t.Fatal("correction review lost its actor")
+	step, ok := stepByID(plan.Steps, "review")
+	if !ok || len(step.Attempts) == 0 {
+		t.Fatal("review attempt missing")
 	}
-	reviewRef := pin.Review.Accepted.ReportRef
+	var reviewRef string
+	if err := s.db.QueryRow(`SELECT event_id FROM effect_receipts WHERE effect_seq=?`, step.Attempts[len(step.Attempts)-1].CompletionSeq).Scan(&reviewRef); err != nil {
+		t.Fatal(err)
+	}
 	var reviewDigest string
 	if err := s.db.QueryRow(`SELECT payload_digest FROM effect_receipts WHERE event_id=?`, reviewRef).Scan(&reviewDigest); err != nil {
 		t.Fatal(err)

@@ -31,10 +31,8 @@ continuity and never advance a stage.
 ### D2. record_delivery records at its declared step without moving it
 
 A plan step that declares `record_delivery` carries it with an internal
-SQLite consequence and no independent approval. Delivery applies the
-complete delivery admission: the accepted Review and, when the active
-contract requires verification evidence, a passing verification report
-covering the current reviewed candidate, plus applicable approvals. Native
+SQLite consequence and no independent approval. Applicable approvals remain
+required. Native
 Task execution neither supplies delivery nor prevents this route. Steps
 complete only through `complete_step`; delivery requires no step start.
 
@@ -65,8 +63,6 @@ host's subagent execution.
 ## Verification
 
 - `go test ./internal/store ./internal/agent` checks hold-mode continuity
-  and delivery admission, including refusal without an accepted Review
-  (`TestRecordDeliveryRequiresAcceptedReview`) and missing or failed
-  verification (`TestDeliveryAdmissionRefusals`).
+  and delivery admission.
 - Committed law-folder snapshot validation checks the record's identity and
   content digest.

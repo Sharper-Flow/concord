@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
@@ -13,13 +14,20 @@ import (
 func TestSpineFirstGroupResumeDoesNotRestoreFirstEntry(t *testing.T) {
 	f := newSpineExecutionFixtureForFamily(t, "workflow.break_fix")
 	f.verify(t)
-	if f.read(t).Pinned.Pin.Review.Accepted != nil {
-		t.Fatal("first entry installed an unsolicited baseline Review")
-	}
 	f.implement(t)
 	before := f.read(t).Pinned.Pin
-	if before.Review.Candidate != nil || before.Review.Accepted != nil {
-		t.Fatalf("report manufactured Review: %+v", before.Review)
+	var planJSON string
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT step_plan FROM workflow_instances WHERE work_id=?`, f.work).Scan(&planJSON); err != nil {
+		t.Fatal(err)
+	}
+	var plan store.WorkflowStepPlan
+	if err := json.Unmarshal([]byte(planJSON), &plan); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range plan.Steps {
+		if step.ID == "implement" && len(step.Attempts) != 0 {
+			t.Fatalf("first entry manufactured an implementation review: %+v", step.Attempts)
+		}
 	}
 	assertHeld := func() {
 		t.Helper()
@@ -28,8 +36,12 @@ func TestSpineFirstGroupResumeDoesNotRestoreFirstEntry(t *testing.T) {
 			t.Fatalf("a progressed implementation admitted delivery: %+v", refused.Error)
 		}
 		after := f.read(t).Pinned.Pin
-		if after.Version != before.Version || after.Lifecycle != before.Lifecycle || !reflect.DeepEqual(after.Review, before.Review) || !reflect.DeepEqual(after.WorkContext, before.WorkContext) {
-			t.Fatal("refused delivery changed work context, Review, or lifecycle")
+		var afterPlan string
+		if err := f.s.DatabaseForTesting().QueryRow(`SELECT step_plan FROM workflow_instances WHERE work_id=?`, f.work).Scan(&afterPlan); err != nil {
+			t.Fatal(err)
+		}
+		if after.Version != before.Version || after.Lifecycle != before.Lifecycle || afterPlan != planJSON || !reflect.DeepEqual(after.WorkContext, before.WorkContext) {
+			t.Fatal("refused delivery changed work context, step plan, or lifecycle")
 		}
 	}
 	assertHeld()

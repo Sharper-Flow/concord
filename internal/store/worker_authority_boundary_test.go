@@ -103,41 +103,6 @@ func TestDeliveryRequiresAssertionPayload(t *testing.T) {
 	}
 }
 
-func TestReviewRejectsMismatchedCandidateEvidence(t *testing.T) {
-	j := reviewGateRefineFixture(t, "off-step-review-evidence", WorkflowStepPlanChange)
-	reviewGateCompleteReview(t, j, "ready_for_final_proof")
-	j.bindVerification(t, j.observeRun(t, "review-evidence"))
-	if err := reviewGateRecordDelivery(t, j.s, j.workID, j.fixture.owner); err != nil {
-		t.Fatal(err)
-	}
-	step := currentStep(t, j.s, j.workID)
-	records, err := workflowCurrentRecords(t.Context(), j.s.db, j.workID)
-	if err != nil || !records["record_review"] {
-		t.Fatalf("review record missing: %v", err)
-	}
-	before, err := ReadWorkPin(t.Context(), j.s, j.workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if before.Review == nil || before.Review.Accepted == nil || before.Review.Accepted.ActorRef != mustActorRef(t, j.fixture.owner) {
-		t.Fatal("review or its native actor missing")
-	}
-	version := readWorkVersion(t, j.s, j.workID)
-	report := currentReviewBlockForTest(t, j.s, j.workID, "ready_for_final_proof")
-	report.OutputCandidate.Tree = strings.Repeat("a", 40)
-	err = recordReviewForTest(t, j.s, j.workID, j.fixture.owner, report)
-	if !hasFailureKind(err, KindOutcomeMismatch) {
-		t.Fatalf("mismatched review=%v", err)
-	}
-	if currentStep(t, j.s, j.workID) != step || readWorkVersion(t, j.s, j.workID) != version {
-		t.Fatal("refused review changed progress")
-	}
-	after, err := ReadWorkPin(t.Context(), j.s, j.workID)
-	if err != nil || after.Review == nil || after.Review.Accepted == nil || after.Review.Accepted.ReportDigest != before.Review.Accepted.ReportDigest {
-		t.Fatalf("refused review changed accepted report: %v", err)
-	}
-}
-
 func TestWorkflowActionStartedV2AuthorizesActorStepAndEpoch(t *testing.T) {
 	t.Parallel()
 	workID := "authority-start-guards"
@@ -433,7 +398,7 @@ func seedOrdinaryExecutorAtExecution(t *testing.T, workID string) (*Store, strin
 
 func seedOrdinaryExecutorAtExecutionWithCheckpoint(t *testing.T, workID string, checkpoint bool) (*Store, string, WorkflowActor) {
 	t.Helper()
-	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", []string{}, []string{})
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", []string{})
 	s := f.store
 	executor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/executor", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	owner := f.owner

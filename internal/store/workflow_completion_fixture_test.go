@@ -52,30 +52,15 @@ func attributionCompletionWith(t *testing.T, s *Store, id string, candidate func
 
 func attributionCompletionWithConfirmation(t *testing.T, s *Store, id string, candidate func(repo string), confirm func(acceptanceRecoveryFixture) error) Event {
 	t.Helper()
-	fixture := workContextFixture{store: s, workID: id, owner: lawChangeConstructorActor}
-	repo, _ := reviewSubjectClaim(t, s, id)
+	repo := initKnowledgeRepo(t)
+	writeKnowledgeFile(t, repo, "fixture.txt", "fixture\n")
+	commitKnowledgeRepo(t, repo, "fixture")
 	if candidate != nil {
 		candidate(repo)
 	}
-	j := &candidateJourney{fixture: fixture, s: s, workID: id, repo: repo, acceptor: lawChangeConstructorActor}
-	run := j.observeRun(t, "attribution-"+id)
-	j.bindVerification(t, run)
-	qAcceptCriterionReview(t, fixture, run.OperationRef)
 	owner := ownerRefForTest(t, lawChangeConstructorActor)
 	moveWorkflowPlanFixtureFrontier(t, s, id, "review")
-	f := acceptanceRecoveryFixture{store: s, workID: id, owner: lawChangeConstructorActor, repo: repo, receipt: run.OperationRef}
-	if err := runVerdictActionAs(t, s, id, "record_verdict", qAssociationPayload(t, f), 0, lawChangeConstructorActor); err != nil {
-		t.Fatal(err)
-	}
-	var artifacts int
-	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.evidence_kind')='artifact'`, id).Scan(&artifacts); err != nil {
-		t.Fatal(err)
-	}
-	if artifacts == 0 {
-		if err := j.action(t, "bind_evidence", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": run.OperationRef}, lawChangeConstructorActor); err != nil {
-			t.Fatal(err)
-		}
-	}
+	f := acceptanceRecoveryFixture{store: s, workID: id, owner: lawChangeConstructorActor, repo: repo}
 	if confirm == nil {
 		confirm = func(f acceptanceRecoveryFixture) error {
 			return f.run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, id), nil, nil)
@@ -87,8 +72,7 @@ func attributionCompletionWithConfirmation(t *testing.T, s *Store, id string, ca
 	completeWorkflowPlanFixture(t, s, id)
 	v := readWorkVersion(t, s, id)
 	event := workflowEventWithActor("attribution-complete-"+id, WorkflowCompleted, id, owner, map[string]any{
-		"work_id": id, "expected_version": v, "resulting_version": v + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": owner,
-		"premise_confirmed": true, "evidence_count": 1, "changed_refs_digest": lawChangeHashA, "impact_verdict": "non-breaking",
+		"work_id": id, "expected_version": v, "resulting_version": v + 1, "terminal_state": "completed", "changed_refs_digest": testDigest("attribution"), "warnings": []string{}, "impact_verdict": "non-breaking",
 	})
 	event.PayloadVersion = CurrentEventPayloadVersion(WorkflowCompleted)
 	return event

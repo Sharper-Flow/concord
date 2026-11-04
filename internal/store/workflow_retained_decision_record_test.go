@@ -60,21 +60,3 @@ func TestWorkflowHistoricalDecisionRecordFold(t *testing.T) {
 		})
 	}
 }
-
-func TestWorkflowAcceptanceDeliverablesRequireCriterionAssociation(t *testing.T) {
-	for _, associated := range []bool{false, true} {
-		t.Run(map[bool]string{false: "missing", true: "associated"}[associated], func(t *testing.T) {
-			workID := map[bool]string{false: "deliverables-missing", true: "deliverables-associated"}[associated]
-			s, _, _, _, _ := engineeringConfirmationFixture(t, workID, associated)
-			tx, err := s.DatabaseForTesting().BeginTx(t.Context(), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer tx.Rollback()
-			err = workflowConfirmationDeliverablesTx(t.Context(), tx, WorkflowStepPlanResearch, workID)
-			if associated && err != nil || !associated && !hasFailureKind(err, KindMissingEvidence) {
-				t.Fatalf("associated=%v: %v", associated, err)
-			}
-		})
-	}
-}

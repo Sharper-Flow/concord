@@ -14,34 +14,20 @@ func seedActiveBreakFixContract(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	actorRef := DeriveWorkflowActorRef("principal/withheld", "client/withheld", "agent/withheld", "session/withheld")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains) VALUES(?,1,'active contract premise','internal_sqlite','[]','[]','2026-08-01T00:00:00Z',?,'[]','[]',1,'prototype_internal','[]');
+		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains) VALUES(?,1,'active contract premise','internal_sqlite','[]','2026-08-01T00:00:00Z',?,'[]','[]',1,'prototype_internal','[]');
 		DELETE FROM write_guard`, workID, actorRef); err != nil {
 		t.Fatal(err)
 	}
 }
 
 // TestWorkPinEngineeringConfirmPremiseOmitsDigest holds the pin side of the
-// coordinator confirmation: the pin hides confirm_premise while the
-// confirmation's verdict deliverable is missing, and the advertised intent
-// requires no fields.
+// coordinator confirmation: the advertised intent requires no fields.
 func TestWorkPinEngineeringConfirmPremiseOmitsDigest(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	workID := "confirm-pin-engineering"
-	f, _, refs := pReceiptFixture(t, workID, 1, 1)
+	f := rAcceptance(t, workID, nil, false)
 	s := f.store
-	missingPin, err := ReadWorkPin(ctx, s, workID)
-	if err != nil {
-		t.Fatalf("pin read without the verdict failed: %v", err)
-	}
-	for _, intent := range missingPin.NextValidIntents {
-		if intent.ActionID == "confirm_premise" {
-			t.Fatalf("pin advertises confirm_premise while the confirmation refuses its missing verdict: %v", missingPin.NextValidIntents)
-		}
-	}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
-		t.Fatal(err)
-	}
 	pin, err := ReadWorkPin(ctx, s, workID)
 	if err != nil {
 		t.Fatalf("pin read failed: %v", err)

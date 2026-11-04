@@ -8,7 +8,6 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "contracts/agent-tool-surface.v1.json"
 IR = ROOT / "contracts/agent-tool-surface.schema.json"
 PAYLOAD = ROOT / "contracts/agent-tool-surface-payloads.schema.json"
-WORKFLOW_OUTCOME = ROOT / "contracts/workflow-outcome.schema.json"
 ENVELOPE = ROOT / "contracts/agent-tool-envelope.schema.json"
 HOST_MANIFEST = ROOT / "contracts/host-tool-surface.v1.json"
 HOST_SCHEMA = ROOT / "contracts/host-tool-surface.schema.json"
@@ -34,18 +33,6 @@ def bounded_producer_stderr(detail: str) -> str:
         f"{text[:PRODUCER_STDERR_LIMIT].rstrip()}\n"
         f"[producer stderr truncated: first {PRODUCER_STDERR_LIMIT} of {len(text)} characters]"
     )
-
-# CD-0184: agents read contracts through the projected tool surface, so the
-# delivery-decidable rule travels in the descriptions the published schema
-# carries. The emitted admission-teaching gap check asserts the same markers.
-DELIVERY_RULE_PREDICATE_DESCRIPTION = (
-    "CD-0184: acceptance is decidable at delivery. Each predicate names an end "
-    "state verification can decide when the change is delivered. Post-delivery "
-    "observation over a time window (traffic, an error rate, a metric over "
-    "hours or days) is not acceptance: capture a follow-up work item and link "
-    "it raised_from the delivering item before that item completes. A one-shot "
-    "live check that verification can decide at delivery stays allowed."
-)
 
 # The published request document is compact: local #/$defs references and
 # factored object unions (shared property constraints and required fields at
@@ -176,19 +163,6 @@ export function actionFieldsBranches(actionInput: unknown, fieldName: string = "
 }
 '''
 
-
-def require_delivery_rule_teaching(defs: dict) -> None:
-    """CD-0184: the projected authoring schema must teach that acceptance is
-    decidable at delivery, so generation fails before any artifact lands when
-    a projection drops the rule.
-
-    The rule's owner is the outcome_predicates array shared by
-    approve_contract and complete contract record updates.
-    """
-    items = defs.get("workflow_action_outcome_predicates")
-    text = items.get("description") if isinstance(items, dict) else None
-    if text != DELIVERY_RULE_PREDICATE_DESCRIPTION:
-        fail("workflow_action_outcome_predicates does not teach the CD-0184 delivery-decidable rule")
 
 SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "examples", "type", "properties", "patternProperties", "propertyNames", "required", "additionalProperties", "unevaluatedProperties", "items", "contains", "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "enum", "const", "oneOf", "anyOf", "allOf", "not", "if", "then", "else", "default", "minProperties", "maxProperties", "x-maxBytes", "x-minBytes", "x-maxArrayBytes"}
 
@@ -321,7 +295,7 @@ def validate_persisted_manifest(manifest, ir):
     schema_validate(manifest, ir, ir, "manifest")
 
 
-def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict, list[dict], int]:
+def load_workflow_action_contracts() -> tuple[list[dict], dict, dict, list[dict], int]:
     result = subprocess.run(
         ["go", "run", "./scripts/workflow-action-contracts"],
         cwd=ROOT,
@@ -331,7 +305,7 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict
         check=True,
     )
     projection = json.loads(result.stdout)
-    if set(projection) != {"schema_version", "actions", "workflows", "teaching", "schema_refs", "contract_updates", "catalog_action_count"} or projection["schema_version"] != "2.0":
+    if set(projection) != {"schema_version", "actions", "teaching", "schema_refs", "contract_updates", "catalog_action_count"} or projection["schema_version"] != "2.0":
         fail("workflow action contract projection is invalid")
     schema_refs = projection["schema_refs"]
     if set(schema_refs) != {"current"}:
@@ -341,7 +315,7 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict
         if not isinstance(refs, list) or any(not isinstance(ref, str) or not ref for ref in refs) or len(set(refs)) != len(refs) or refs != sorted(refs):
             fail(f"workflow action contract projection {side} schema refs are not a sorted unique name list")
     teaching = projection["teaching"]
-    if set(teaching) != {"predicate_ordinal_rule", "law_addition_mandate_rule", "obligation_membership_rule", "architecture_domain_rule", "alignment_combination_rule", "outcome_kind_equality_rule"}:
+    if set(teaching) != {"law_addition_mandate_rule", "obligation_membership_rule", "architecture_domain_rule", "alignment_combination_rule"}:
         fail("workflow action contract projection carries no guard-owned teaching rules")
     for rule in teaching.values():
         if not isinstance(rule, str) or not rule.strip():
@@ -366,25 +340,16 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict
                 if variant[payload_key].get("closed") is not True:
                     fail(f"current workflow action {payload_key} is not closed: {action.get('id')}")
                 validate_workflow_cross_field(action, variant[payload_key])
-    workflows = projection["workflows"]
-    if not workflows or len({workflow.get("ref") for workflow in workflows}) != len(workflows):
-        fail("workflow outcome contract projection has no unique workflows")
-    for workflow in workflows:
-        if set(workflow) != {"ref", "allowed_kinds", "allowed_outcome_tokens"} or not workflow["allowed_kinds"] or not isinstance(workflow["allowed_outcome_tokens"], list):
-            fail("workflow outcome contract projection is invalid")
-    return actions, workflows, teaching, schema_refs, projection["contract_updates"], catalog_count
+    return actions, teaching, schema_refs, projection["contract_updates"], catalog_count
 
 
 def validate_workflow_cross_field(action: dict, payload: dict) -> None:
     declared = {field["name"] for field in payload["fields"]}
     cross = action["cross_field"]
-    if cross is None or set(cross) - {"combinations", "alternatives", "kind_matches"}:
+    if cross is None or set(cross) - {"combinations", "kind_matches"}:
         fail("workflow action contract projection contains an open cross-field declaration")
     combinations = cross.get("combinations", [])
-    alternatives = cross.get("alternatives", [])
     kind_matches = cross.get("kind_matches", [])
-    if combinations and alternatives:
-        fail(f"workflow action {action.get('id')} declares both cross-field rule families")
     for match in kind_matches:
         if set(match) - {"field", "object", "discriminator", "remedy"}:
             fail(f"workflow action kind match is an open record: {action.get('id')}")
@@ -399,15 +364,6 @@ def validate_workflow_cross_field(action: dict, payload: dict) -> None:
             for name in combination.get(side, []):
                 if name not in declared:
                     fail(f"workflow action {action.get('id')} combination names undeclared field {name}")
-    for group in alternatives:
-        if set(group) - {"fields", "forbids", "remedy"} or not group.get("fields"):
-            fail(f"workflow action {action.get('id')} declares an open or empty alternative group")
-        for name in group["fields"]:
-            if name not in declared:
-                fail(f"workflow action {action.get('id')} alternative names undeclared field {name}")
-        for name in group.get("forbids", []):
-            if name not in declared:
-                fail(f"workflow action {action.get('id')} alternative forbids undeclared field {name}")
 
 
 def schema_ref_closure(defs: dict, roots: list[str]) -> list[str]:
@@ -566,41 +522,6 @@ def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict 
     return schema
 
 
-def install_workflow_outcome_schema(defs: dict) -> dict:
-    document = json.loads(WORKFLOW_OUTCOME.read_text())
-    names = {name: "workflow_outcome_" + re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower() for name in document["$defs"]}
-
-    def rewrite(node):
-        if isinstance(node, list):
-            return [rewrite(value) for value in node]
-        if not isinstance(node, dict):
-            return node
-        result = {key: rewrite(value) for key, value in node.items()}
-        if isinstance(result.get("$ref"), str) and result["$ref"].startswith("#/$defs/"):
-            result["$ref"] = "#/$defs/" + names[result["$ref"].removeprefix("#/$defs/")]
-        return result
-
-    for name, schema in document["$defs"].items():
-        defs[names[name]] = rewrite(schema)
-    # The payload oneOf stays inline at each use site. Moonshot's flavored
-    # tool-schema validator rejects a $ref whose target is rooted at a bare
-    # combinator, reporting "detected infinite recursion without termination
-    # condition"; this def would be exactly that shape.
-    return {"oneOf": [rewrite(branch) for branch in document["oneOf"]]}
-
-
-# The retained output def names the output surfaces anchor to after the
-# separation: the narrowed live defs stay the authoring owner.
-RETAINED_OUTCOME_DEF = "workflow_retained_outcome"
-RETAINED_DECISION_RECORD_DEF = "workflow_retained_decision_record"
-# DecodeWorkflowPredicate refuses a serialized predicate above
-# maxWorkflowPredicateBytes (internal/store/workflow_outcome.go), and a
-# serialized string of N bytes decodes to at most N code points, so this is
-# the finite ceiling of every retained decision-record string no field guard
-# bounds. The output bound ledger proves this value against that constant.
-WORKFLOW_PREDICATE_MAX_BYTES = 64 * 1024
-
-
 # Read outputs that replay stored values verbatim share some definitions with
 # worker packets, and dispatch admission validates packets against those
 # definitions (internal/store/workflow_preflight.go validates every payload
@@ -615,16 +536,12 @@ RETAINED_OUTPUT_TWINS = {
     "workflow_law_context_law": ("/properties/path/maxLength",),
     "work_context_finding_view": ("/properties/source_event_id/maxLength",),
     "work_context_view": (),
-    "worker_oracle_finding": (),
 }
 # Caps a retained twin raises: the store's retained producer exceeds the cap
 # dispatch admission enforces on the shared packet definition, so the read
 # copy carries the producer's finite maximum, which the output bound ledger
 # proves, while the packet keeps the admitted cap.
-RETAINED_OUTPUT_RAISES = {
-    "workflow_law_context_law": {"/properties/criteria/maxItems": 1000},
-    "worker_oracle_finding": {"/properties/owner_id/maxLength": 133},
-}
+RETAINED_OUTPUT_RAISES = {}
 RETAINED_OUTPUT_RETYPES = {}
 # The read parents that replay stored values, each with the twinned
 # definitions it references directly.
@@ -739,114 +656,9 @@ def install_retained_output_twins(defs: dict) -> None:
             fail(f"retained twin parent {parent} references {sorted(seen)}, want {sorted(targets)}")
 
 
-def preserve_retained_outcome_outputs(defs: dict) -> None:
-    """Preserve the canonical outcome and decision-record definitions as the
-    retained output shapes, and retarget the output uses of the outcome
-    branch on the work pin to them.
-
-    The store folds validate a retained predicate against the stored
-    definition (foldWorkflowContractApproved through DecodeWorkflowPredicate)
-    and the work pin copies OutcomePayload unchanged, so
-    work_pin_verified_criterion.outcome_payload must keep admitting the full
-    frozen vocabulary and the optional decision_record that live authoring
-    narrows away. Worker packets keep the live shape: dispatch admission
-    validates them against it, and a current head's contract carries only
-    live predicates. The copies are taken before narrow_live_outcome_union
-    mutates the authored vocabulary; the frozen historical decoder is never
-    rewritten here.
-    """
-    live_outcome = defs.get("workflow_outcome_outcome")
-    if not isinstance(live_outcome, dict) or not isinstance(live_outcome.get("properties"), dict):
-        fail("the canonical workflow_outcome_outcome schema is unavailable for retained-output preservation")
-    canonical_decision = defs.get("workflow_outcome_decision_record")
-    if not isinstance(canonical_decision, dict) or not isinstance(canonical_decision.get("properties"), dict):
-        fail("the canonical workflow_outcome_decision_record schema is unavailable for retained-output preservation")
-
-    # The retained decision record's enforcing guards are the inline
-    # validateDecisionRecord comparisons and the anchored actor pattern
-    # (internal/store/workflow_outcome.go). The canonical per-element
-    # text maxima and the supersedes bounds are no store guard, so the output
-    # shape replaces them with the whole-predicate decode ceiling instead of
-    # pretending the canonical limits are enforced, and it admits exactly the
-    # null/absence shapes the decoder admits.
-    retained_decision = copy.deepcopy(canonical_decision)
-    decision_properties = retained_decision["properties"]
-    for name in ("question", "rationale", "poc_findings"):
-        node = decision_properties.get(name)
-        if not isinstance(node, dict) or node.get("type") != "string" or node.get("minLength") != 1 or node.get("maxLength") != 4096:
-            fail(f"the canonical decision record {name} is not the guarded 1..4096 string; the retained output projection is stale")
-    for name, cap in (("options_considered", 16), ("consequences", 16), ("inputs", 32), ("unknowns", 16), ("required_to_decide", 16)):
-        node = decision_properties.get(name)
-        if not isinstance(node, dict) or node.get("type") != "array" or node.get("maxItems") != cap or not isinstance(node.get("items"), dict):
-            fail(f"the canonical decision record {name} is not the guarded ..{cap} array; the retained output projection is stale")
-        node["items"].pop("minLength", None)
-        node["items"]["maxLength"] = WORKFLOW_PREDICATE_MAX_BYTES
-        if name != "options_considered":
-            # validateDecisionRecord enforces uniqueStrings on
-            # options_considered only.
-            node.pop("uniqueItems", None)
-    for name in ("unknowns", "required_to_decide"):
-        # A null array decodes to nil, and an accepted-decision record may
-        # leave both absent.
-        decision_properties[name]["type"] = ["array", "null"]
-    for name in ("supersedes", "superseded_by"):
-        node = decision_properties.get(name)
-        if not isinstance(node, dict) or node.get("type") != ["string", "null"]:
-            fail(f"the canonical decision record {name} is not the optional nullable string; the retained output projection is stale")
-        # Optional and guard-free: absent, null, and empty all decode, and
-        # validateDecisionRecord checks no supersedes field.
-        node.pop("minLength", None)
-        node["maxLength"] = WORKFLOW_PREDICATE_MAX_BYTES
-    actor_ref = decision_properties.get("reviewer_actor_ref")
-    if not isinstance(actor_ref, dict) or actor_ref.get("pattern") != "^actor:[0-9a-f]{64}$" or actor_ref.get("maxLength") != 70:
-        fail("the canonical decision record reviewer_actor_ref is not the exact actor-pattern shape; the retained output projection is stale")
-    retained_decision["required"] = [
-        "question", "options_considered", "decision", "rationale", "consequences",
-        "inputs", "poc_findings", "reviewer_actor_ref",
-    ]
-
-    retained_outcome = copy.deepcopy(live_outcome)
-    decision_property = retained_outcome["properties"].get("decision_record")
-    if not isinstance(decision_property, dict) or decision_property.get("$ref") != "#/$defs/workflow_outcome_decision_record":
-        fail("the canonical workflow_outcome_outcome carries no decision_record ref; the retained output projection is stale")
-    # A decision_record:null decodes to a nil record, so the retained output
-    # shape admits it beside the retained record object.
-    retained_outcome["properties"]["decision_record"] = {
-        "description": "The retained decision record the stored predicate carries; a null decodes to nil.",
-        "oneOf": [{"$ref": "#/$defs/" + RETAINED_DECISION_RECORD_DEF}, {"type": "null"}],
-    }
-    defs[RETAINED_OUTCOME_DEF] = retained_outcome
-    defs[RETAINED_DECISION_RECORD_DEF] = retained_decision
-
-    def retarget_predicate_union(node: object, where: str) -> None:
-        branches = node.get("oneOf") if isinstance(node, dict) else None
-        if not isinstance(branches, list) or len(branches) != 4:
-            fail(f"{where}.outcome_payload is not the four-branch predicate union; the retained output retarget is stale")
-        outcome_branches = 0
-        for branch in branches:
-            if not isinstance(branch, dict) or not isinstance(branch.get("$ref"), str):
-                fail(f"{where}.outcome_payload carries a non-reference predicate branch")
-            if branch["$ref"] == "#/$defs/workflow_outcome_outcome":
-                branch["$ref"] = "#/$defs/" + RETAINED_OUTCOME_DEF
-                outcome_branches += 1
-            elif branch["$ref"] == "#/$defs/" + RETAINED_OUTCOME_DEF:
-                # Already retargeted by a previous projection run.
-                outcome_branches += 1
-        if outcome_branches != 1:
-            fail(f"{where}.outcome_payload names {outcome_branches} outcome unions; expected exactly one live or retained branch")
-
-    criterion = defs.get("work_pin_verified_criterion")
-    if not isinstance(criterion, dict) or not isinstance(criterion.get("properties"), dict):
-        fail("the projected work_pin_verified_criterion schema is missing; the retained output retarget has no owner")
-    retarget_predicate_union(criterion["properties"].get("outcome_payload"), "work_pin_verified_criterion")
-
-
 def workflow_payload_object_schema(payload: dict, defs: dict, field_teaching: dict | None = None, cross_field: dict | None = None) -> dict:
     result = workflow_payload_flat_object_schema(payload, defs, field_teaching)
     combinations = (cross_field or {}).get("combinations") or []
-    alternatives = (cross_field or {}).get("alternatives") or []
-    if combinations and alternatives:
-        fail("a workflow action declares both cross-field rule families")
     if combinations:
         # Registry-declared legal input combinations become closed per-value
         # branches: each branch keeps the discriminator const, requires what
@@ -859,75 +671,7 @@ def workflow_payload_object_schema(payload: dict, defs: dict, field_teaching: di
             workflow_payload_combination_branch(payload, defs, field_teaching, combination)
             for combination in combinations
         ]}
-    if alternatives:
-        # Registry-declared alternative groups become closed branches: each
-        # branch requires its group's fields, omits the other groups'
-        # fields, and omits this group's forbidden fields entirely, so a
-        # payload supplying none or several of the groups, or carrying a
-        # field this group forbids beside it, validates no branch — the
-        # exactly-one and beside-batch rules core admission enforces from
-        # the same declaration. A group whose declared kind match pairs a
-        # scalar field with an object field's discriminator expands into one
-        # closed branch per kind, so outcome_kind and outcome_payload.kind
-        # cannot disagree in any published branch.
-        branches: list[dict] = []
-        for group in alternatives:
-            branches.extend(workflow_payload_alternative_branches(payload, defs, field_teaching, alternatives, group, (cross_field or {}).get("kind_matches", [])))
-        return {"oneOf": branches}
     return result
-
-
-# outcome_payload_kind_branches resolves the object side of a declared kind
-# match to its per-kind closed branches: the discriminator consts of the
-# referenced oneOf. The kinds are derived from the same outcome schema the
-# store's DecodeWorkflowPredicate enforces, never hand-listed, and a branch
-# without a discriminator const fails generation.
-def outcome_payload_kind_branches(field_name: str, object_field: dict, defs: dict, discriminator: str) -> list[tuple[str, dict]]:
-    target_name = object_field.get("schema_ref", "")
-    if not target_name:
-        fail(f"workflow action kind-match object {field_name} names no schema")
-    target = defs.get(target_name)
-    one_of = target.get("oneOf") if isinstance(target, dict) else None
-    if not isinstance(one_of, list) or not one_of:
-        fail(f"workflow action kind-match object schema {target_name} is not a discriminated union")
-    pairs = []
-    for branch in one_of:
-        resolved = branch
-        if isinstance(branch, dict) and "$ref" in branch:
-            resolved = defs.get(branch["$ref"].split("/")[-1])
-        kind = None
-        if isinstance(resolved, dict):
-            const = resolved.get("properties", {}).get(discriminator, {}).get("const")
-            if isinstance(const, str):
-                kind = const
-        if kind is None:
-            fail(f"workflow action kind-match object schema {target_name} carries a branch without a {discriminator} const")
-        pairs.append((kind, copy.deepcopy(resolved)))
-    kinds = [kind for kind, _ in pairs]
-    if len(set(kinds)) != len(kinds):
-        fail(f"workflow action kind-match object schema {target_name} carries duplicate {discriminator} consts")
-    return pairs
-
-
-def workflow_payload_alternative_branches(payload: dict, defs: dict, field_teaching: dict | None, alternatives: list[dict], group: dict, kind_matches: list[dict]) -> list[dict]:
-    for match in kind_matches:
-        if match["field"] not in group["fields"] or match["object"] not in group["fields"]:
-            continue
-        scalar_field = next(field for field in payload["fields"] if field["name"] == match["field"])
-        object_field = next(field for field in payload["fields"] if field["name"] == match["object"])
-        if not scalar_field.get("enum"):
-            fail(f"workflow action kind-match field {match['field']} carries no closed enum")
-        pairs = outcome_payload_kind_branches(match["object"], object_field, defs, match["discriminator"])
-        if sorted(scalar_field["enum"]) != sorted(kind for kind, _ in pairs):
-            fail(f"workflow action kind-match field {match['field']} enum does not cover the {match['object']} kinds")
-        branches = []
-        for kind, payload_branch in pairs:
-            base = workflow_payload_alternative_branch(payload, defs, field_teaching, alternatives, group)
-            base["properties"][match["field"]] = {"type": "string", "const": kind}
-            base["properties"][match["object"]] = payload_branch
-            branches.append(base)
-        return branches
-    return [workflow_payload_alternative_branch(payload, defs, field_teaching, alternatives, group)]
 
 
 def workflow_payload_flat_object_schema(payload: dict, defs: dict, field_teaching: dict | None = None) -> dict:
@@ -953,24 +697,6 @@ def workflow_payload_combination_branch(payload: dict, defs: dict, field_teachin
             schema["const"] = combination["value"]
         properties[name] = schema
         if field.get("required") or name in combination.get("requires", []):
-            required.append(name)
-    result = {"type": "object", "additionalProperties": False, "maxProperties": 32, "properties": properties}
-    if required:
-        result["required"] = required
-    return result
-
-
-def workflow_payload_alternative_branch(payload: dict, defs: dict, field_teaching: dict | None, alternatives: list[dict], group: dict) -> dict:
-    exclusive = {name for other in alternatives if other is not group for name in other["fields"]}
-    forbidden = set(group.get("forbids", []))
-    properties = {}
-    required = []
-    for field in payload["fields"]:
-        name = field["name"]
-        if name in exclusive or name in forbidden:
-            continue
-        properties[name] = workflow_payload_field_schema(field, defs, field_teaching)
-        if field.get("required") or name in group["fields"]:
             required.append(name)
     result = {"type": "object", "additionalProperties": False, "maxProperties": 32, "properties": properties}
     if required:
@@ -1159,7 +885,7 @@ def project_continuity_action_bound(defs: dict, catalog_count: int) -> None:
     defs["continuity_snapshot"]["properties"]["pinned"]["properties"]["step_actions"]["maxItems"] = catalog_count
 
 
-def project_workflow_action_schema(document: dict, actions: list[dict], workflows: list[dict], teaching: dict, contract_updates: list[dict]) -> tuple[dict, list[dict]]:
+def project_workflow_action_schema(document: dict, actions: list[dict], teaching: dict, contract_updates: list[dict]) -> tuple[dict, list[dict]]:
     projected = copy.deepcopy(document)
     remove_generated_guidance(projected)
     defs = projected["$defs"]
@@ -1168,6 +894,16 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     # definition explicitly; a stale copy would keep satisfying checks that
     # read it while no validation path consumes it.
     defs.pop("work_transition_action_shared_input", None)
+    contract = defs["workflow_contract"]
+    contract["properties"]["legislative_subjects"] = {
+        "type": "array", "maxItems": 800, "uniqueItems": True,
+        "items": {"$ref": "#/$defs/reference"},
+    }
+    if "legislative_subjects" not in contract["required"]:
+        contract["required"].append("legislative_subjects")
+    finding_view = defs["work_context_finding_view"]["properties"]
+    finding_view["kind"] = copy.deepcopy(defs["work_context_finding"]["properties"]["kind"])
+    finding_view["evidence_refs"]["description"] = "Evidence references reported with the finding."
     common = {
         "work_id": {"$ref": "#/$defs/id"},
         "expected_version": {"$ref": "#/$defs/version"},
@@ -1178,66 +914,14 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     }
     common_required = ["work_id", "expected_version", "action_id", "idempotency_key"]
 
-    outcome_payload = install_workflow_outcome_schema(defs)
-    preserve_retained_outcome_outputs(defs)
-    defs["workflow_action_outcome"] = copy.deepcopy(outcome_payload)
     defs["workflow_contract_version"] = {"$ref": "#/$defs/version"}
-    allowed_property = defs.get("workflow_outcome_outcome", {}).get("properties", {}).get("allowed")
-    if not isinstance(allowed_property, dict):
-        fail("projected workflow_outcome_outcome schema names no allowed property for the token annotation")
-    tokens = sorted({token for workflow in workflows for token in workflow["allowed_outcome_tokens"]})
-    if not tokens:
-        fail("workflow plans admit no outcome tokens")
-    allowed_property["items"]["enum"] = tokens
-    allowed_property["maxItems"] = len(tokens)
-    clauses = []
-    for workflow in sorted(workflows, key=lambda value: value["ref"]):
-        allowed = workflow["allowed_outcome_tokens"]
-        clauses.append(f"{workflow['ref']} admits " + (", ".join(allowed) if allowed else "no outcome tokens"))
-    allowed_property["description"] = "Outcome tokens by plan type: " + "; ".join(clauses) + "."
-    # Each published predicate item is closed per kind: outcome_kind and
-    # outcome_payload.kind are one value, the equality the store's
-    # contract_approved fold enforces through DecodeWorkflowPredicate and
-    # the engine's kind-match declaration. The item branches derive from the
-    # same outcome oneOf the fold decodes — never a hand-listed kind set —
-    # so publication cannot admit an outcome_kind/outcome_payload pair the
-    # core refuses.
-    outcome_kinds = outcome_payload_kind_branches("outcome_payload", {"schema_ref": "workflow_action_outcome"}, defs, "kind")
-    defs["workflow_action_outcome_predicates"] = {
-        "type": "array", "minItems": 1, "maxItems": 8,
-        "description": DELIVERY_RULE_PREDICATE_DESCRIPTION,
-        "items": {"oneOf": [
-            {
-                "type": "object", "additionalProperties": False,
-                "required": ["predicate_id", "ordinal", "outcome_kind", "outcome_payload"],
-                "properties": {
-                    "predicate_id": {"$ref": "#/$defs/id", "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."},
-                    "ordinal": {"type": "integer", "minimum": 0, "maximum": 7, "description": teaching["predicate_ordinal_rule"]},
-                    "outcome_kind": {"type": "string", "const": kind, "description": teaching["outcome_kind_equality_rule"]},
-                    "outcome_payload": payload_branch,
-                },
-            }
-            for kind, payload_branch in outcome_kinds
-        ]},
-    }
     # Guard-owned teaching for relational action fields. The keys name fields
     # whose rules a schema range cannot encode; the values come from the store
     # projection beside the enforcing guards.
     field_teaching = {
         "law_additions": teaching["law_addition_mandate_rule"],
-        "required_evidence": teaching["obligation_membership_rule"],
         "related_ids": teaching["alignment_combination_rule"],
         "architecture_binding": teaching["architecture_domain_rule"],
-    }
-    # Main associates accepted criteria with recorded evidence. A caller
-    # verdict, missing evidence, or operation-minted ref is not proof.
-    defs["workflow_verdict_batch_entry"] = {
-        "type": "object", "additionalProperties": False,
-        "required": ["predicate_id", "receipt_refs"],
-        "properties": {
-            "predicate_id": {"$ref": "#/$defs/id", "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."},
-            "receipt_refs": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": True, "items": {"$ref": "#/$defs/reference"}, "description": "Recorded evidence references for this criterion. Main associates proof; it supplies no verdict or replacement subject."},
-        },
     }
     defs["workflow_forward_relation"] = {"type": "object", "additionalProperties": False, "required": ["kind"], "properties": {"kind": {"const": "forward_link"}, "class": {"type": "string", "enum": ["hard", "soft", "none"]}, "severity": {"type": "string", "enum": ["breaking", "non-breaking", "informational"]}}}
     defs["workflow_completion_payload"] = {"type": "object", "additionalProperties": False, "properties": {"evidence_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "current_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "staleness": {"type": "object", "additionalProperties": False, "required": ["drifted"], "properties": {"drifted": {"type": "boolean"}, "severity": {"type": "string", "enum": ["block", "warning"]}}}}}
@@ -1280,8 +964,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
             for payload in payloads:
                 validate_workflow_cross_field(action, payload)
                 branch = workflow_payload_object_schema(payload, defs, field_teaching, action["cross_field"])
-                if action_id == "bind_evidence":
-                    branch["properties"]["verification_report"] = {"$ref": "#/$defs/workflow_verification_report"}
                 if branch not in branches:
                     branches.append(branch)
             field_object = closed_field_union(branches, defs, name)
@@ -1310,7 +992,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     variant_wrapper = {"type": "object", "additionalProperties": False, "required": common_required, "properties": copy.deepcopy(outer_properties)}
     defs["work_transition_action_input"] = copy.deepcopy(variant_wrapper) | {"anyOf": current_variant_refs}
     defs["work_transition_action_public_input"] = copy.deepcopy(variant_wrapper) | {"anyOf": [{"$ref": f"#/$defs/{variant['schema']}"} for variant in public_variants]}
-    require_delivery_rule_teaching(defs)
     update_branches = [workflow_payload_object_schema(payload, defs, field_teaching)
                        for payload in contract_updates]
     defs["workflow_contract_update"] = closed_field_union(update_branches, defs, "workflow_contract_update")
@@ -1330,8 +1011,7 @@ def prune_payload_definitions(payload: dict, manifest: dict, public_variants: li
     defs = payload["$defs"]
     roots = {schema["ref"].rsplit("/", 1)[-1] for schema in manifest["schemas"].values()
              if schema["ref"].partition("#")[0] in {"", "contracts/agent-tool-surface-payloads.schema.json"}}
-    roots.update(("workflow_review_report", "work_transition_action_public_input",
-                  "workflow_action_outcome"))
+    roots.add("work_transition_action_public_input")
     roots.update(RETAINED_OUTPUT_TWINS)
     roots.update(variant["schema"] for variant in public_variants)
     roots.update(schema_roots or [])
@@ -1747,91 +1427,6 @@ export function envelopeFailurePath(value: unknown): string | null {{
   return validateSchema(envelopeSchema, value, envelopeSchema as Record<string, unknown>).path;
 }}
 {PUBLICATION_EXPANSION_HELPER}
-// advertisedAdmissionTeachingGaps reports every approve_contract rule the
-// published concord_work_transition schema fails to teach a calling agent. An
-// empty list means the advertised schema carries four store admission rules
-// (the item-level required set with ordinal, the strict four-variant
-// outcome_payload oneOf, the predicate_id prefix, the per-workflow pinned
-// outcome tokens) and the CD-0184 delivery-decidable rule. CD-0184 is
-// authoring guidance only: the store does not refuse a predicate for it. The
-// store's ValidateOperationPayload stays the closed admission boundary; this
-// checks only what the advertised surface teaches. The published request is
-// one compact branch per operation, with the workflow actions grouped under
-// their operation, and approve_contract's fields are
-// one closed object: every contract declares its decision domains. The
-// traversal expands the passed document's own local references and factored
-// unions, so every check below reads the legacy-effective view of the actual
-// published document, and every fields check runs on each fields branch, so
-// a drop cannot hide behind the factored parent.
-export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
-  const gaps: string[] = [];
-  const expanded: any = expandedPublishedRequestSchema(published);
-  const requestBranches: any[] = Array.isArray(expanded?.oneOf) ? expanded.oneOf : [];
-  // workflow_action publishes one closed branch per action variant; the
-  // teaching checks read each fields branch that carries the taught field.
-  const actionInputs: any[] = requestBranches
-    .filter((branch) => branch?.properties?.operation?.const === "workflow_action")
-    .map((branch) => branch?.properties?.input);
-  const carriers: any[] = actionInputs.flatMap((input) =>
-    actionFieldsBranches(input)
-      .filter((fields) => fields?.properties?.outcome_predicates !== undefined)
-      .map((fields) => ({{ actionId: input?.properties?.action_id?.const, fields }})),
-  );
-  for (const branch of requestBranches.filter((branch) => branch?.properties?.operation?.const === "revise_intent")) {{
-    for (const fields of actionFieldsBranches(branch?.properties?.input, "contract")) {{
-      if (fields?.properties?.outcome_predicates !== undefined) carriers.push({{ actionId: "revise_intent", fields }});
-    }}
-  }}
-  if (carriers.length === 0) {{
-    gaps.push("outcome_predicates items carry 0 per-kind branches, expected the 4 strict variants");
-  }}
-  for (const carrier of carriers) {{
-  // The published item is closed per kind: outcome_kind consts to the branch
-  // and outcome_payload carries that branch's payload, so a mismatched
-  // outcome_kind/outcome_payload pair validates no branch.
-  const items: any = carrier.fields.properties.outcome_predicates?.items;
-  const kindBranches: any[] = Array.isArray(items?.oneOf) ? items.oneOf : [];
-  const firstBranch = kindBranches[0] ?? {{}};
-  const required: string[] = Array.isArray(firstBranch.required) ? firstBranch.required : [];
-  for (const field of ["predicate_id", "ordinal", "outcome_kind", "outcome_payload"]) {{
-    if (!required.includes(field)) gaps.push(`outcome_predicates items do not require ${{field}}`);
-  }}
-  if (kindBranches.length !== 4) {{
-    gaps.push(`outcome_predicates items carry ${{kindBranches.length}} per-kind branches, expected the 4 strict variants`);
-  }} else {{
-    const kinds = new Set(kindBranches.map((branch) => branch?.properties?.outcome_kind?.const));
-    for (const kind of ["exists", "absent", "outcome", "check"]) {{
-      if (!kinds.has(kind)) gaps.push(`outcome_predicates items lack the ${{kind}} variant`);
-    }}
-    for (const branch of kindBranches) {{
-      if (branch?.additionalProperties !== false) gaps.push("outcome_predicates item branch is not closed");
-      const payload = branch?.properties?.outcome_payload;
-      if (payload?.additionalProperties !== false) gaps.push("outcome_payload branch is not closed");
-      if (branch?.properties?.outcome_kind?.const !== payload?.properties?.kind?.const) {{
-        gaps.push(`outcome_predicates item does not bind outcome_kind to outcome_payload.kind on ${{branch?.properties?.outcome_kind?.const}}`);
-      }}
-      if (!Array.isArray(payload?.required) || !payload.required.includes("kind")) gaps.push("outcome_payload branch does not require kind");
-    }}
-  }}
-  const prefix: unknown = firstBranch?.properties?.predicate_id?.description;
-  if (typeof prefix !== "string" || !prefix.includes("predicate:")) gaps.push("predicate_id description does not name the predicate: prefix");
-  const ordinalRule: unknown = firstBranch?.properties?.ordinal?.description;
-  if (typeof ordinalRule !== "string" || !ordinalRule.includes("zero-based position")) gaps.push("ordinal description does not teach the zero-based position rule");
-  const allowedBranch = kindBranches.find((branch) => branch?.properties?.outcome_kind?.const === "outcome");
-  const tokens: unknown = allowedBranch?.properties?.outcome_payload?.properties?.allowed?.description;
-  if (typeof tokens !== "string" || !tokens.includes("research") || !tokens.includes("change") || !tokens.includes("fix") || !tokens.includes("removal") || !tokens.includes("report_recorded") || !tokens.includes("no outcome tokens")) {{
-    gaps.push("allowed description does not name the plan-type outcome tokens");
-  }}
-  // Every fields branch that carries outcome_predicates on every carrier
-  // action must teach the rule,
-  // or a drop from one branch hides behind its siblings.
-  const delivery: unknown = carrier.fields.properties.outcome_predicates?.description;
-  if (typeof delivery !== "string" || delivery.split(" Accepted shape:", 1)[0] !== {json.dumps(DELIVERY_RULE_PREDICATE_DESCRIPTION)}) {{
-    gaps.push(`outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action ${{carrier.actionId}}`);
-  }}
-  }}
-  return gaps;
-}}
 function pass(evaluated: Iterable<string> = []): Validation {{ return {{ valid: true, evaluated: new Set(evaluated), path: null }}; }}
 function fail(at: string, reason?: string): Validation {{ return {{ valid: false, evaluated: new Set(), path: at, reason }}; }}
 function joinPath(path: string, key: string): string {{ return path ? path + "." + key : key; }}
@@ -1951,6 +1546,16 @@ console.log(JSON.stringify(total));'''
     return f"\nexport const PINNED_PUBLISHED_TOTAL_BYTES = {total};\n"
 
 
+def prepare_workflow_templates(check: bool) -> None:
+    path = ROOT / "internal/store/generated_workflow_templates.go"
+    projected = go_workflow_templates_projection()
+    if path.is_file() and path.read_text() == projected:
+        return
+    if check:
+        fail(f"generated contract drift: {path.relative_to(ROOT)}")
+    path.write_text(projected)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--check", action="store_true",
@@ -1961,12 +1566,13 @@ def main() -> int:
         manifest = json.loads(MANIFEST.read_text())
         ir = json.loads(IR.read_text())
         payload = json.loads(PAYLOAD.read_text())
-        actions, workflows, teaching, schema_refs, contract_updates, catalog_count = load_workflow_action_contracts()
         bun = shutil.which("bun")
         if bun is None and (not check or os.environ.get("CONCORD_REQUIRE_BUN") == "1"):
             fail("Bun is not installed: the publication measurement requires Bun, so write mode and strict check refuse rather than skip it")
+        prepare_workflow_templates(check)
+        actions, teaching, schema_refs, contract_updates, catalog_count = load_workflow_action_contracts()
         validate_current_schema_refs(schema_refs, payload.get("$defs", {}))
-        projected_payload, public_variants = project_workflow_action_schema(payload, actions, workflows, teaching, contract_updates)
+        projected_payload, public_variants = project_workflow_action_schema(payload, actions, teaching, contract_updates)
         project_continuity_action_bound(projected_payload["$defs"], catalog_count)
         prune_payload_definitions(projected_payload, manifest, public_variants, schema_refs["current"])
         input_names = [operation["input_schema"].rsplit("/", 1)[-1] for operation in manifest["operations"]

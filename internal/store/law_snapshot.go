@@ -402,7 +402,7 @@ func loadLawFolderRecord(ctx context.Context, runner GitRunner, repo, commitOID 
 	}{
 		{"authority", &record.Authority, []string{"tier", "legislated_by", "contract_version"}},
 		{"law_relations", &record.LawRelations, []string{"kind", "target_id"}},
-		{"criterion_bindings", &record.CriterionBindings, []string{"criterion", "scenario", "exemption", "work_id", "predicate_id"}},
+		{"criterion_bindings", &record.CriterionBindings, []string{"criterion", "scenario", "exemption"}},
 	} {
 		if raw, ok := fields[nested.key]; ok {
 			if err := lawFolderStrictDecode(nested.target, raw, nested.members); err != nil {

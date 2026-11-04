@@ -39,21 +39,6 @@ type WorkflowLawContextLaw struct {
 	// checkout rather than its own dispatch repository.
 	Path          string   `json:"path,omitempty"`
 	ObligationIDs []string `json:"obligation_ids,omitempty"`
-	// Criteria lists the law's acceptance criteria bound to the reading
-	// work item's own outcome predicates (CD-0180). Bindings naming another
-	// work item, and scenario or exemption bindings, never surface here:
-	// the law context carries the chaining this work item owes, not the
-	// law's whole binding table.
-	Criteria []WorkflowLawContextCriterionBinding `json:"criteria,omitempty"`
-}
-
-// WorkflowLawContextCriterionBinding is one acceptance criterion of the law
-// that the reading work item's own outcome predicate discharges. The reading
-// work ID is implicit: every entry the law context carries binds the
-// dispatching work item, so the packet renders criterion and predicate only.
-type WorkflowLawContextCriterionBinding struct {
-	Criterion   int    `json:"criterion"`
-	PredicateID string `json:"predicate_id"`
 }
 
 type WorkflowLawContextDomain struct {
@@ -162,7 +147,7 @@ func resolveWorkflowLawContextLaws(ctx context.Context, tx *sql.Tx, workID strin
 	if err != nil {
 		return nil, err
 	}
-	return resolveLawContextSubjects(ctx, homeProjectID, homeLocatorID, homeRepo, workID, lawContextLaws(roleSet, obligationSet, lawIDs))
+	return resolveLawContextSubjects(ctx, homeProjectID, homeLocatorID, homeRepo, lawContextLaws(roleSet, obligationSet, lawIDs))
 }
 
 // domainRegistryHomeRepo resolves the checkout of the knowledge home the
@@ -300,14 +285,12 @@ func lawContextLaws(roleSet, obligationSet map[string]map[string]bool, lawIDs []
 // resolveLawContextSubjects resolves each bound law from the verified
 // law-folder snapshot of the workflow home. The 128-entry ceiling is the
 // write-side sum of the mandate (32), additions (32), and obligations (64)
-// bounds. Each law's authored criterion bindings ride the record; the ones
-// naming the reading work item's predicates become that law's Criteria
-// (CD-0180). Each record's committed path is qualified with the knowledge home
+// bounds. Each record's committed path is qualified with the knowledge home
 // repository and verified to open there before it reaches the packet. A bound
 // law may carry the qualified project_id/law_id reference form (CD-0200); in
 // this single-home path it resolves by its bare ID when the reference names
 // this home's own Project.
-func resolveLawContextSubjects(ctx context.Context, homeProjectID, homeLocatorID, homeRepo, workID string, laws []WorkflowLawContextLaw) ([]WorkflowLawContextLaw, error) {
+func resolveLawContextSubjects(ctx context.Context, homeProjectID, homeLocatorID, homeRepo string, laws []WorkflowLawContextLaw) ([]WorkflowLawContextLaw, error) {
 	if len(laws) > 128 {
 		return nil, newFailure(KindLimitExceeded, "read_workflow_law_context", "workflow contract binds more laws than the law context carries", false, "reduce_limit")
 	}
@@ -344,24 +327,8 @@ func resolveLawContextSubjects(ctx context.Context, homeProjectID, homeLocatorID
 			return nil, err
 		}
 		laws[index].Path = path
-		laws[index].Criteria = lawContextCriteria(record.CriterionBindings, workID)
 	}
 	return laws, nil
-}
-
-// lawContextCriteria keeps the law's predicate bindings that name the reading
-// work item, in criterion order. A binding naming another work item, and a
-// scenario or exemption binding, never surface in the law context.
-func lawContextCriteria(bindings []KnowledgeCriterionBinding, workID string) []WorkflowLawContextCriterionBinding {
-	var criteria []WorkflowLawContextCriterionBinding
-	for _, binding := range bindings {
-		if binding.WorkID != workID || binding.PredicateID == "" {
-			continue
-		}
-		criteria = append(criteria, WorkflowLawContextCriterionBinding{Criterion: binding.Criterion, PredicateID: binding.PredicateID})
-	}
-	sort.Slice(criteria, func(left, right int) bool { return criteria[left].Criterion < criteria[right].Criterion })
-	return criteria
 }
 
 // resolveLawContextDomains resolves the binding's home Domain first, then its

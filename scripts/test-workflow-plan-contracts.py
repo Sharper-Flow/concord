@@ -51,10 +51,6 @@ class WorkflowPlanProjectionTest(unittest.TestCase):
         alignment = defs["workflow_backlog_alignment"]
         self.assertIn("all_matches_removed", alignment["required"])
         self.assertEqual(alignment["properties"]["all_matches_removed"], {"type": "boolean"})
-        guidance = defs["workflow_outcome_outcome"]["properties"]["allowed"]["description"]
-        for template in templates["types"]:
-            self.assertIn(template["id"] + " admits ", guidance)
-        self.assertIn("report_recorded", guidance)
 
 
 if __name__ == "__main__":

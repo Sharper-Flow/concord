@@ -110,7 +110,7 @@ func TestWithEvidenceKindDefaultMapsInputKind(t *testing.T) {
 	if string(kept) != string(explicit) {
 		t.Fatalf("explicit evidence_kind was overridden: %s", kept)
 	}
-	untouched := withEvidenceKindDefault("record_verdict", payload, []agentcontract.EvidenceRef{{Kind: "commit"}})
+	untouched := withEvidenceKindDefault("record_delivery", payload, []agentcontract.EvidenceRef{{Kind: "commit"}})
 	if string(untouched) != string(payload) {
 		t.Fatalf("non-evidence action payload was rewritten: %s", untouched)
 	}
@@ -174,14 +174,17 @@ func TestBoundEvidenceReceiptsRoundTripThroughHistory(t *testing.T) {
 		t.Run(fmt.Sprintf("%d references", count), func(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
-			s, service, _, _, engine := workflowEngineFixture(t, "checkpoint evidence reaches history")
+			s, service, engine := workflowEngineFixture(t, "checkpoint evidence reaches history")
 			refs := make([]string, count)
 			for i := range refs {
 				prefix := fmt.Sprintf("artifact:checkpoint-%02d:", i)
 				refs[i] = prefix + strings.Repeat("e", 128-len(prefix))
 			}
-			for _, ref := range refs {
-				engine("bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": ref})
+			for i, ref := range refs {
+				run := fmt.Sprintf("producer:history-%d", i)
+				watermark := fmt.Sprintf("request:history-%d", i)
+				seedAgentEvidenceProducer(t, s, "work-1", "human-1", ref, run, watermark)
+				engine("bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": ref, "producer_id": "human-1", "producer_run_ref": run, "producer_watermark": watermark})
 			}
 			grant, err := service.Authorize(ctx, Invocation{ClientRef: "client-session-exec-aaaa", PrincipalRef: "human-1", SessionRef: "session-exec-aaaa", AgentRef: "agent-exec", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"})
 			if err != nil {
@@ -231,7 +234,7 @@ func TestBoundEvidenceReceiptsRoundTripThroughHistory(t *testing.T) {
 func TestContinuityRoundTripLegalMaximum(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, _, _, engine := workflowEngineFixture(t, strings.Repeat("p", store.WorkflowPremiseMaxLength))
+	s, service, engine := workflowEngineFixture(t, strings.Repeat("p", store.WorkflowPremiseMaxLength))
 	engine("checkpoint_context", map[string]any{
 		"checkpoint_id": "checkpoint-roundtrip", "checkpoint_sequence": 1,
 		"active_unit": "internal/store and internal/agent", "hypothesis": "bounds agree on both sides", "diagnosis": "one shared bound source", "strategy": "round-trip the legal maximum",
@@ -240,7 +243,9 @@ func TestContinuityRoundTripLegalMaximum(t *testing.T) {
 		"pending_questions": []string{}, "pending_decisions": []string{},
 	})
 	for _, kind := range []string{"verification", "review", "approval", "commit", "durable_note", "artifact"} {
-		engine("bind_evidence", map[string]any{"evidence_kind": kind, "evidence_ref": "roundtrip:" + kind})
+		ref, run, watermark := "roundtrip:"+kind, "producer:roundtrip-"+kind, "request:roundtrip-"+kind
+		seedAgentEvidenceProducer(t, s, "work-1", "human-1", ref, run, watermark)
+		engine("bind_evidence", map[string]any{"evidence_kind": kind, "evidence_ref": ref, "producer_id": "human-1", "producer_run_ref": run, "producer_watermark": watermark})
 	}
 	grant, err := service.Authorize(ctx, Invocation{ClientRef: "client-session-exec-aaaa", PrincipalRef: "human-1", SessionRef: "session-exec-aaaa", AgentRef: "agent-exec", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"})
 	if err != nil {

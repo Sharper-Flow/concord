@@ -5,98 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"time"
 )
 
 type workflowActionGuardContext struct {
 	request WorkflowActionExecutionRequest
-}
-
-// workflowContractAddsLaw reports whether the active contract itself declares
-// the law id among its law additions, the only scope where an unbound mandate
-// can name a law this branch never authored.
-func workflowContractAddsLaw(ctx context.Context, q queryer, workID string, contractVersion int64, lawID string) (bool, error) {
-	var count int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contract_law_additions WHERE work_id=? AND contract_version=? AND law_id=?`, workID, contractVersion, lawID).Scan(&count); err != nil {
-		return false, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect the contract's law additions", true, "retry once the workflow projection is readable", err)
-	}
-	return count != 0, nil
-}
-
-func workflowSpecMandate(ctx context.Context, q queryer, workID, subject string) ([]string, int64, error) {
-	var mandateJSON string
-	version, activeErr := activeWorkflowContractVersion(ctx, q, workID, subject)
-	if activeErr == sql.ErrNoRows {
-		return nil, 0, nil
-	}
-	if activeErr != nil {
-		return nil, 0, activeErr
-	}
-	if err := q.QueryRowContext(ctx, `SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, version).Scan(&mandateJSON); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, 0, nil
-		}
-		return nil, 0, wrapFailure(KindUnavailable, subject, "cannot read the workflow spec mandate", true, "retry once the workflow contract is readable", err)
-	}
-	var mandate []string
-	if err := json.Unmarshal([]byte(mandateJSON), &mandate); err != nil {
-		return nil, 0, newFailure(KindInvariantViolation, subject, "workflow spec mandate is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
-	}
-	return mandate, version, nil
-}
-
-// workflowEvidenceReferenceBound reports a durable evidence binding naming
-// the reference in the evidence history.
-func workflowEvidenceReferenceBound(ctx context.Context, q queryer, workID, reference, subject string) (bool, error) {
-	var count int
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, reference).Scan(&count); err != nil {
-		return false, wrapFailure(KindUnavailable, subject, "cannot inspect spec-mandate evidence", true, "retry once the workflow evidence projection is readable", err)
-	}
-	return count != 0, nil
-}
-
-func guardEvidenceBindingContract(ctx context.Context, q queryer, workID string) error {
-	_, err := workflowCompletionContractRows(ctx, q, workID)
-	return err
-}
-
-func guardPlanMandate(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, step string, action WorkflowActionDefinition) error {
-	if action.ID == "bind_evidence" || action.ID == "complete" {
-		return nil
-	}
-	terminal := action.ID == "record_review" || action.ID == "record_verdict" || action.ID == "confirm_premise"
-	if !terminal && (action.ExecutionMode != ActionAdvance || !workflowPlanAllowsAction(plan, step, "bind_evidence")) {
-		return nil
-	}
-	mandates, version, err := workflowSpecMandate(ctx, q, workID, "workflow_action")
-	if err != nil {
-		return err
-	}
-	for _, lawID := range mandates {
-		bound, err := workflowEvidenceReferenceBound(ctx, q, workID, lawID, "workflow_action")
-		if err != nil {
-			return err
-		}
-		if bound {
-			continue
-		}
-		added, err := workflowContractAddsLaw(ctx, q, workID, version, lawID)
-		if err != nil {
-			return err
-		}
-		if added && action.ID == "record_review" {
-			continue
-		}
-		detail := fmt.Sprintf("spec mandate law %q is not bound", lawID)
-		recovery := "run bind_evidence on a frontier step before " + action.ID
-		if added {
-			detail = fmt.Sprintf("spec mandate law %q is one of the contract's own law additions; bind it only when the branch adds that id", lawID)
-			recovery += fmt.Sprintf(" only when the branch adds %q; otherwise use revise_intent with the complete contract", lawID)
-		}
-		return newFailure(KindMissingEvidence, "workflow_action", detail, false, recovery)
-	}
-	return nil
 }
 
 // guardForwardLinkOnly rejects nested or non-forward workflow composition.
@@ -172,34 +85,6 @@ func guardNoRestartDispatch(g *workflowActionGuardContext) error {
 		return newFailure(KindUnavailable, "workflow_action", "restart dispatch is not implemented and fails closed pending Concord issue #120", false, "contact_operator")
 	}
 	return nil
-}
-
-// workflowVerificationBindingsAfter lists the immutable subject refs bound as
-// verification evidence after afterSeq, the current refine epoch's start, in
-// binding order.
-func workflowVerificationBindingsAfter(ctx context.Context, q queryer, workID string, afterSeq int64, subject string) ([]string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT json_extract(payload,'$.immutable_subject_ref') FROM workflow_evidence_bindings
-		WHERE work_id=? AND binding_seq>?
-		AND json_extract(payload,'$.evidence_kind')='verification'
-		ORDER BY binding_seq`, workID, afterSeq)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, subject, "cannot read the refine epoch's evidence bindings", true, "retry once the workflow evidence projection is readable", err)
-	}
-	defer rows.Close()
-	refs := make([]string, 0, 4)
-	for rows.Next() {
-		var ref string
-		if err := rows.Scan(&ref); err != nil {
-			return nil, wrapFailure(KindUnavailable, subject, "cannot scan the refine epoch's evidence bindings", true, "retry once the workflow evidence projection is readable", err)
-		}
-		if !slices.Contains(refs, ref) {
-			refs = append(refs, ref)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, wrapFailure(KindUnavailable, subject, "cannot enumerate the refine epoch's evidence bindings", true, "retry once the workflow evidence projection is readable", err)
-	}
-	return refs, nil
 }
 
 // defaultedPayload returns the action payload with an empty payload
@@ -302,23 +187,9 @@ func assemblePlanWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, request
 		return events, nil
 	}
 	values := map[string]any{"step_id": stepID, "action_id": request.ActionID, "attempt_epoch": epoch, "result_evidence_refs": evidenceRefs, "changed_refs": []string{request.WorkID}, "actor_ref": actor}
-	if request.ActionID == "record_review" {
-		report, err := decodeRecordedReview(request.Payload)
-		if err != nil {
-			return nil, err
-		}
-		values["review"] = report
-	}
 	fields, err := workflowActionObject(request.Payload)
 	if err != nil {
 		return nil, err
-	}
-	if request.ActionID == "record_verdict" && fields["verdicts"] != nil {
-		entries, err := normalizeWorkflowVerdictEntries(fields)
-		if err != nil {
-			return nil, err
-		}
-		values["verdict_entry_count"] = len(entries)
 	}
 	if request.ActionID == "record_delivery" {
 		values["delivery_artifact"] = workflowFieldStringDefault(fields, "delivery_artifact", "")

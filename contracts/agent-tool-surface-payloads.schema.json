@@ -5,47 +5,6 @@
   "type": "object",
   "additionalProperties": false,
   "$defs": {
-    "workflow_verification_report": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "source",
-        "commit",
-        "result",
-        "run_ref"
-      ],
-      "properties": {
-        "source": {
-          "type": "string",
-          "enum": [
-            "local",
-            "required_ci"
-          ]
-        },
-        "commit": {
-          "type": "string",
-          "minLength": 40,
-          "maxLength": 64,
-          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
-          "description": "Bounds: 40..64 code points inclusive"
-        },
-        "result": {
-          "type": "string",
-          "enum": [
-            "pass",
-            "fail"
-          ]
-        },
-        "run_ref": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "x-maxBytes": 512,
-          "description": "Bounds: 1..512 code points inclusive; <=512 UTF-8 bytes inclusive"
-        }
-      },
-      "description": "An attributed report of local or required CI checks. The immutable subject is the evidence reference; commit names the recorded candidate, and consumers compare recorded commits."
-    },
     "projection_digest": {
       "type": "string",
       "minLength": 71,
@@ -837,160 +796,6 @@
         }
       }
     },
-    "work_pin_evidence": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "evidence_kind",
-        "immutable_subject_ref"
-      ],
-      "properties": {
-        "evidence_kind": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 32
-        },
-        "immutable_subject_ref": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 2048
-        }
-      }
-    },
-    "work_pin_verified_criterion": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "predicate_id",
-        "ordinal",
-        "outcome_kind",
-        "outcome_payload",
-        "verdict_kind"
-      ],
-      "properties": {
-        "predicate_id": {
-          "$ref": "#/$defs/id"
-        },
-        "ordinal": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 7
-        },
-        "outcome_kind": {
-          "type": "string",
-          "enum": [
-            "exists",
-            "absent",
-            "outcome",
-            "check"
-          ]
-        },
-        "outcome_payload": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/workflow_outcome_exists"
-            },
-            {
-              "$ref": "#/$defs/workflow_outcome_absent"
-            },
-            {
-              "$ref": "#/$defs/workflow_retained_outcome"
-            },
-            {
-              "$ref": "#/$defs/workflow_outcome_check"
-            }
-          ]
-        },
-        "verdict_kind": {
-          "type": "string",
-          "enum": [
-            "ok",
-            "outcome_mismatch",
-            "insufficient_evidence"
-          ]
-        }
-      }
-    },
-    "workflow_review_state": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "candidate",
-        "accepted_review",
-        "findings",
-        "dependencies_current",
-        "publication_outstanding"
-      ],
-      "properties": {
-        "candidate": {
-          "anyOf": [
-            {
-              "type": "null"
-            },
-            {
-              "$ref": "#/$defs/workflow_review_candidate_view"
-            }
-          ]
-        },
-        "accepted_review": {
-          "anyOf": [
-            {
-              "type": "null"
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "report_ref",
-                "report_digest",
-                "actor_ref",
-                "report"
-              ],
-              "properties": {
-                "report_ref": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "report_digest": {
-                  "type": "string",
-                  "pattern": "^sha256:[0-9a-f]{64}$"
-                },
-                "actor_ref": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 256
-                },
-                "report": {
-                  "$ref": "#/$defs/workflow_review_report"
-                }
-              }
-            }
-          ]
-        },
-        "findings": {
-          "type": "array",
-          "items": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/lane_report_review_finding"
-              },
-              {
-                "$ref": "#/$defs/workflow_review_unidentified_finding"
-              }
-            ]
-          }
-        },
-        "dependencies_current": {
-          "type": "boolean"
-        },
-        "dependencies": {
-          "$ref": "#/$defs/lane_report_review_dependencies"
-        },
-        "publication_outstanding": {
-          "type": "boolean"
-        }
-      }
-    },
     "work_pin": {
       "type": "object",
       "additionalProperties": false,
@@ -1016,9 +821,6 @@
         "next_valid_intents"
       ],
       "properties": {
-        "review": {
-          "$ref": "#/$defs/workflow_review_state"
-        },
         "work_id": {
           "$ref": "#/$defs/retained_work_id"
         },
@@ -1055,27 +857,6 @@
             "research",
             "removal"
           ]
-        },
-        "obligations": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 64,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 3,
-            "maxLength": 64
-          },
-          "description": "Verification obligations from the active contract when known."
-        },
-        "outstanding_evidence_kinds": {
-          "type": "array",
-          "maxItems": 7,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/evidence_kind"
-          },
-          "description": "Sorted unique outstanding evidence kinds from the pin's transaction snapshot, including verification for unverdicted checks. Empty means computed zero kind-debt, not satisfaction of reference-only obligations. Omitted for unknown or partial contract views and retained legacy snapshots."
         },
         "step": {
           "type": "string"
@@ -1151,21 +932,6 @@
         },
         "work_context_unavailable": {
           "$ref": "#/$defs/work_context_unavailable"
-        },
-        "verdict_evidence": {
-          "type": "array",
-          "maxItems": 100,
-          "items": {
-            "$ref": "#/$defs/work_pin_evidence"
-          }
-        },
-        "verified_criteria": {
-          "type": "array",
-          "maxItems": 8,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/work_pin_verified_criterion"
-          }
         }
       }
     },
@@ -1693,10 +1459,9 @@
       "required": [
         "version",
         "premise",
-        "outcome_predicates",
-        "required_evidence",
         "route_conventions",
-        "spec_mandate"
+        "spec_mandate",
+        "legislative_subjects"
       ],
       "properties": {
         "version": {
@@ -1704,46 +1469,6 @@
         },
         "premise": {
           "$ref": "#/$defs/workflow_premise"
-        },
-        "outcome_predicates": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 8,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "predicate_id",
-              "ordinal",
-              "outcome_kind",
-              "outcome_payload"
-            ],
-            "properties": {
-              "predicate_id": {
-                "$ref": "#/$defs/id"
-              },
-              "ordinal": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 7
-              },
-              "outcome_kind": {
-                "$ref": "#/$defs/short"
-              },
-              "outcome_payload": {
-                "type": "string",
-                "maxLength": 65536
-              }
-            }
-          }
-        },
-        "required_evidence": {
-          "type": "array",
-          "maxItems": 7,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/evidence_kind"
-          }
         },
         "route_conventions": {
           "type": "array",
@@ -1808,6 +1533,14 @@
             ]
           },
           "description": "The contract's declared decision domains, sorted. Stored preference remains readable but is excluded from new authoring. Absent on a contract approved before its definition declared the fact; an empty array declares engineering work."
+        },
+        "legislative_subjects": {
+          "type": "array",
+          "maxItems": 800,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reference"
+          }
         }
       }
     },
@@ -2754,15 +2487,6 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 1024
-        },
-        "criteria": {
-          "description": "The law's acceptance criteria bound to the reading work item's own outcome predicates (CD-0180). Present only when at least one criterion binds this work item.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 128,
-          "items": {
-            "$ref": "#/$defs/workflow_law_context_criterion"
-          }
         }
       }
     },
@@ -3012,7 +2736,6 @@
         "kind": {
           "type": "string",
           "enum": [
-            "",
             "observation",
             "inference",
             "hypothesis",
@@ -3020,8 +2743,7 @@
             "open_question",
             "contradiction",
             "direction"
-          ],
-          "description": "The generic claim vocabulary of an authored finding. A ranked oracle finding projects the empty kind: its identity is the oracle tie, never a generic claim class."
+          ]
         },
         "statement": {
           "type": "string",
@@ -3045,7 +2767,7 @@
             "minLength": 1,
             "maxLength": 256
           },
-          "description": "The evidence that supports the finding. A ranked finding without an oracle tie projects null; the core reader owns that wire shape."
+          "description": "Evidence references reported with the finding."
         },
         "domain_id": {
           "type": "string",
@@ -3066,10 +2788,9 @@
         "status": {
           "type": "string",
           "enum": [
-            "reported",
-            "open"
+            "reported"
           ],
-          "description": "A finding is a reported claim, never acceptance. The open status names a ranked review finding the lineage currently holds open: still a claim, and open."
+          "description": "A finding is a reported claim, never acceptance."
         },
         "source_event_id": {
           "type": "string",
@@ -3083,17 +2804,6 @@
         "ordinal": {
           "type": "integer",
           "minimum": 0
-        },
-        "source_kind": {
-          "type": "string",
-          "enum": [
-            "review_finding"
-          ],
-          "description": "Present only on a ranked review finding: the entry carries an oracle tie and rides the open-set lineage, never the generic worker-claim notebook."
-        },
-        "oracle": {
-          "$ref": "#/$defs/worker_oracle_finding",
-          "description": "The typed oracle tie of a ranked review finding: classification plus the owner, predicate/law, case, and control references that bind it."
         }
       }
     },
@@ -3192,25 +2902,6 @@
       },
       "description": "The shared work-context view exceeded its bound. The work pin and continuity remain readable; no complete context can be inferred from this marker."
     },
-    "worker_oracle_law_binding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "source",
-        "clause"
-      ],
-      "description": "One pinned law revision that explains an owner's obligation, plus the clause or criterion it serves.",
-      "properties": {
-        "source": {
-          "$ref": "#/$defs/work_context_reading_source_knowledge"
-        },
-        "clause": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512
-        }
-      }
-    },
     "continuity_snapshot": {
       "type": "object",
       "additionalProperties": false,
@@ -3262,7 +2953,7 @@
             },
             "step_actions": {
               "type": "array",
-              "maxItems": 28,
+              "maxItems": 27,
               "uniqueItems": true,
               "items": {
                 "$ref": "#/$defs/id"
@@ -3859,53 +3550,6 @@
         },
         "next_cursor": {
           "$ref": "#/$defs/cursor_output"
-        },
-        "verdict": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "terminal_state",
-            "verdict_actor_ref",
-            "impact_verdict",
-            "completed_at"
-          ],
-          "properties": {
-            "terminal_state": {
-              "type": "string",
-              "enum": [
-                "completed",
-                "cancelled",
-                "superseded"
-              ]
-            },
-            "final_verdict_kind": {
-              "type": "string",
-              "enum": [
-                "ok",
-                "outcome_mismatch",
-                "insufficient_evidence"
-              ]
-            },
-            "verdict_actor_ref": {
-              "type": "string",
-              "minLength": 70,
-              "maxLength": 70,
-              "pattern": "^actor:[0-9a-f]{64}$"
-            },
-            "impact_verdict": {
-              "type": "string",
-              "enum": [
-                "breaking",
-                "non-breaking"
-              ]
-            },
-            "completed_at": {
-              "type": "string",
-              "minLength": 20,
-              "maxLength": 58
-            }
-          },
-          "description": "CD-0023: recorded acceptance verdict. Absent with a redaction omission when the reader is the recorded executing actor."
         }
       },
       "anyOf": [
@@ -4763,9 +4407,6 @@
           "$ref": "#/$defs/work_transition_action_variant_record_review"
         },
         {
-          "$ref": "#/$defs/work_transition_action_variant_record_verdict"
-        },
-        {
           "$ref": "#/$defs/work_transition_action_variant_record_work_context"
         },
         {
@@ -5581,426 +5222,6 @@
         "aa"
       ]
     },
-    "workflow_outcome_surface": {
-      "type": "string",
-      "pattern": "^[a-z][a-z0-9_.:/-]{1,127}$",
-      "minLength": 2,
-      "maxLength": 128,
-      "description": "Accepted shape: string matching ^[a-z][a-z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
-      "examples": [
-        "aa"
-      ]
-    },
-    "workflow_outcome_subject": {
-      "type": "string",
-      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$",
-      "minLength": 2,
-      "maxLength": 128,
-      "description": "Accepted shape: string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
-      "examples": [
-        "aa"
-      ]
-    },
-    "workflow_outcome_exists": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind",
-        "surface",
-        "subjects"
-      ],
-      "properties": {
-        "kind": {
-          "const": "exists"
-        },
-        "surface": {
-          "$ref": "#/$defs/workflow_outcome_surface"
-        },
-        "subjects": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 100,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/workflow_outcome_subject"
-          }
-        }
-      }
-    },
-    "workflow_outcome_absent": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind",
-        "surface",
-        "subjects",
-        "distinguish_from"
-      ],
-      "properties": {
-        "kind": {
-          "const": "absent"
-        },
-        "surface": {
-          "$ref": "#/$defs/workflow_outcome_surface"
-        },
-        "subjects": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 100,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/workflow_outcome_subject"
-          }
-        },
-        "distinguish_from": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 4,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "enum": [
-              "archived",
-              "relocated",
-              "renamed",
-              "disabled"
-            ]
-          }
-        }
-      }
-    },
-    "workflow_outcome_outcome": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind",
-        "allowed"
-      ],
-      "properties": {
-        "kind": {
-          "const": "outcome"
-        },
-        "allowed": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 3,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "enum": [
-              "no_change",
-              "report_recorded",
-              "resolved"
-            ]
-          },
-          "description": "Outcome tokens by plan type: change admits no outcome tokens; fix admits no outcome tokens; removal admits no outcome tokens; research admits no_change, resolved, report_recorded."
-        },
-        "decision_record": {
-          "$ref": "#/$defs/workflow_outcome_decision_record"
-        }
-      }
-    },
-    "workflow_outcome_check": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind",
-        "check_ref",
-        "immutable_subject_ref",
-        "expected_result"
-      ],
-      "properties": {
-        "kind": {
-          "const": "check"
-        },
-        "check_ref": {
-          "type": "string",
-          "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
-          "minLength": 7,
-          "maxLength": 134
-        },
-        "immutable_subject_ref": {
-          "type": "string",
-          "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
-          "minLength": 2,
-          "maxLength": 256
-        },
-        "expected_result": {
-          "type": "string",
-          "enum": [
-            "true",
-            "false",
-            "pass",
-            "fail",
-            "present",
-            "absent",
-            "healthy",
-            "unhealthy",
-            "accepted",
-            "rejected"
-          ]
-        }
-      }
-    },
-    "workflow_action_outcome_predicates": {
-      "type": "array",
-      "minItems": 1,
-      "maxItems": 8,
-      "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.",
-      "items": {
-        "oneOf": [
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "predicate_id",
-              "ordinal",
-              "outcome_kind",
-              "outcome_payload"
-            ],
-            "properties": {
-              "predicate_id": {
-                "$ref": "#/$defs/id",
-                "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
-              },
-              "ordinal": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 7,
-                "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...)."
-              },
-              "outcome_kind": {
-                "type": "string",
-                "const": "exists",
-                "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind."
-              },
-              "outcome_payload": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "kind",
-                  "surface",
-                  "subjects"
-                ],
-                "properties": {
-                  "kind": {
-                    "const": "exists"
-                  },
-                  "surface": {
-                    "$ref": "#/$defs/workflow_outcome_surface"
-                  },
-                  "subjects": {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": 100,
-                    "uniqueItems": true,
-                    "items": {
-                      "$ref": "#/$defs/workflow_outcome_subject"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "predicate_id",
-              "ordinal",
-              "outcome_kind",
-              "outcome_payload"
-            ],
-            "properties": {
-              "predicate_id": {
-                "$ref": "#/$defs/id",
-                "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
-              },
-              "ordinal": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 7,
-                "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...)."
-              },
-              "outcome_kind": {
-                "type": "string",
-                "const": "absent",
-                "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind."
-              },
-              "outcome_payload": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "kind",
-                  "surface",
-                  "subjects",
-                  "distinguish_from"
-                ],
-                "properties": {
-                  "kind": {
-                    "const": "absent"
-                  },
-                  "surface": {
-                    "$ref": "#/$defs/workflow_outcome_surface"
-                  },
-                  "subjects": {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": 100,
-                    "uniqueItems": true,
-                    "items": {
-                      "$ref": "#/$defs/workflow_outcome_subject"
-                    }
-                  },
-                  "distinguish_from": {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": 4,
-                    "uniqueItems": true,
-                    "items": {
-                      "type": "string",
-                      "enum": [
-                        "archived",
-                        "relocated",
-                        "renamed",
-                        "disabled"
-                      ]
-                    }
-                  }
-                }
-              }
-            }
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "predicate_id",
-              "ordinal",
-              "outcome_kind",
-              "outcome_payload"
-            ],
-            "properties": {
-              "predicate_id": {
-                "$ref": "#/$defs/id",
-                "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
-              },
-              "ordinal": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 7,
-                "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...)."
-              },
-              "outcome_kind": {
-                "type": "string",
-                "const": "outcome",
-                "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind."
-              },
-              "outcome_payload": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "kind",
-                  "allowed"
-                ],
-                "properties": {
-                  "kind": {
-                    "const": "outcome"
-                  },
-                  "allowed": {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": 3,
-                    "uniqueItems": true,
-                    "items": {
-                      "type": "string",
-                      "enum": [
-                        "no_change",
-                        "report_recorded",
-                        "resolved"
-                      ]
-                    },
-                    "description": "Outcome tokens by plan type: change admits no outcome tokens; fix admits no outcome tokens; removal admits no outcome tokens; research admits no_change, resolved, report_recorded."
-                  },
-                  "decision_record": {
-                    "$ref": "#/$defs/workflow_outcome_decision_record"
-                  }
-                }
-              }
-            }
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "predicate_id",
-              "ordinal",
-              "outcome_kind",
-              "outcome_payload"
-            ],
-            "properties": {
-              "predicate_id": {
-                "$ref": "#/$defs/id",
-                "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
-              },
-              "ordinal": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 7,
-                "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...)."
-              },
-              "outcome_kind": {
-                "type": "string",
-                "const": "check",
-                "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind."
-              },
-              "outcome_payload": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "kind",
-                  "check_ref",
-                  "immutable_subject_ref",
-                  "expected_result"
-                ],
-                "properties": {
-                  "kind": {
-                    "const": "check"
-                  },
-                  "check_ref": {
-                    "type": "string",
-                    "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
-                    "minLength": 7,
-                    "maxLength": 134
-                  },
-                  "immutable_subject_ref": {
-                    "type": "string",
-                    "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
-                    "minLength": 2,
-                    "maxLength": 256
-                  },
-                  "expected_result": {
-                    "type": "string",
-                    "enum": [
-                      "true",
-                      "false",
-                      "pass",
-                      "fail",
-                      "present",
-                      "absent",
-                      "healthy",
-                      "unhealthy",
-                      "accepted",
-                      "rejected"
-                    ]
-                  }
-                }
-              }
-            }
-          }
-        ]
-      }
-    },
     "workflow_forward_relation": {
       "type": "object",
       "additionalProperties": false,
@@ -6168,9 +5389,6 @@
           "$ref": "#/$defs/work_transition_action_variant_record_review"
         },
         {
-          "$ref": "#/$defs/work_transition_action_variant_record_verdict"
-        },
-        {
           "$ref": "#/$defs/work_transition_action_variant_record_work_context"
         },
         {
@@ -6223,47 +5441,6 @@
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
-        }
-      }
-    },
-    "workflow_action_outcome": {
-      "oneOf": [
-        {
-          "$ref": "#/$defs/workflow_outcome_exists"
-        },
-        {
-          "$ref": "#/$defs/workflow_outcome_absent"
-        },
-        {
-          "$ref": "#/$defs/workflow_outcome_outcome"
-        },
-        {
-          "$ref": "#/$defs/workflow_outcome_check"
-        }
-      ]
-    },
-    "workflow_verdict_batch_entry": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "predicate_id",
-        "receipt_refs"
-      ],
-      "properties": {
-        "predicate_id": {
-          "$ref": "#/$defs/id",
-          "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Bounds: 1..128 code points inclusive"
-        },
-        "receipt_refs": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-          },
-          "description": "Recorded evidence references for this criterion. Main associates proof; it supplies no verdict or replacement subject. Bounds: 1..32 items inclusive"
         }
       }
     },
@@ -6661,112 +5838,6 @@
         }
       }
     },
-    "worker_oracle_finding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "classification"
-      ],
-      "description": "The typed oracle tie of one review finding: a closed classification plus the owner, predicate/law, case, and control references that bind it. Classification and severity are different dimensions; the tie records no acceptance.",
-      "properties": {
-        "classification": {
-          "type": "string",
-          "enum": [
-            "delivery_blocker",
-            "uncovered_case",
-            "follow_up",
-            "oracle_defect"
-          ],
-          "description": "delivery_blocker: a failed obligation of a declared owner. uncovered_case: a legitimate new entry path the inventory omitted — a real blocker, not a rejection. follow_up: outside the approved owner/contract; never an open repair criterion. oracle_defect: the harness itself is obsolete, inconsistent, or unsound; it blocks readiness, not a fabricated repair."
-        },
-        "owner_id": {
-          "type": "string",
-          "minLength": 7,
-          "maxLength": 128,
-          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
-        },
-        "failure_family": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128
-        },
-        "predicate_ids": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 8,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 11,
-            "maxLength": 128,
-            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$"
-          }
-        },
-        "law_bindings": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 8,
-          "items": {
-            "$ref": "#/$defs/worker_oracle_law_binding"
-          }
-        },
-        "case_ids": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 8,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 6,
-            "maxLength": 128,
-            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
-          }
-        },
-        "control_ids": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 8,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 9,
-            "maxLength": 128,
-            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
-          }
-        },
-        "evidence_refs": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 8,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
-          "description": "The reproducible evidence that supports the finding. A known control failure names that control's receipt."
-        },
-        "entry_point": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "description": "For an uncovered_case: the explicit new entry path or transition the inventory omitted."
-        },
-        "continues_finding_id": {
-          "type": "string",
-          "minLength": 11,
-          "maxLength": 64,
-          "pattern": "^finding:[0-9]+:[0-9]+$",
-          "description": "The earlier ranked finding of this work that this finding continues. Same failure, same canonical open identity; an uncertain join becomes a new finding and earns no shrink credit."
-        },
-        "variant_of": {
-          "type": "string",
-          "minLength": 11,
-          "maxLength": 64,
-          "pattern": "^finding:[0-9]+:[0-9]+$",
-          "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding."
-        }
-      }
-    },
     "work_transition_action_variant_approve_contract": {
       "type": "object",
       "additionalProperties": false,
@@ -6955,557 +6026,6 @@
                 "av"
               ]
             },
-            "outcome_predicates": {
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 8,
-              "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed. Accepted shape: array of oneOf (object; object; object; object); Bounds: 1..8 items inclusive; example: [{\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}]",
-              "items": {
-                "oneOf": [
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "predicate_id",
-                      "ordinal",
-                      "outcome_kind",
-                      "outcome_payload"
-                    ],
-                    "properties": {
-                      "predicate_id": {
-                        "$ref": "#/$defs/id",
-                        "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
-                        "examples": [
-                          "a"
-                        ]
-                      },
-                      "ordinal": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 7,
-                        "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
-                        "examples": [
-                          0
-                        ]
-                      },
-                      "outcome_kind": {
-                        "type": "string",
-                        "const": "exists",
-                        "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"exists\"; example: \"exists\"",
-                        "examples": [
-                          "exists"
-                        ]
-                      },
-                      "outcome_payload": {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": [
-                          "kind",
-                          "surface",
-                          "subjects"
-                        ],
-                        "properties": {
-                          "kind": {
-                            "const": "exists",
-                            "description": "Accepted shape: exactly \"exists\"; example: \"exists\"",
-                            "examples": [
-                              "exists"
-                            ]
-                          },
-                          "surface": {
-                            "$ref": "#/$defs/workflow_outcome_surface",
-                            "description": "Accepted shape: string matching ^[a-z][a-z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
-                            "examples": [
-                              "aa"
-                            ]
-                          },
-                          "subjects": {
-                            "type": "array",
-                            "minItems": 1,
-                            "maxItems": 100,
-                            "uniqueItems": true,
-                            "items": {
-                              "$ref": "#/$defs/workflow_outcome_subject",
-                              "description": "Accepted shape: string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
-                              "examples": [
-                                "aa"
-                              ]
-                            },
-                            "description": "Accepted shape: array of string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 1..100 items inclusive; example: [\"aa\"]",
-                            "examples": [
-                              [
-                                "aa"
-                              ]
-                            ]
-                          }
-                        },
-                        "description": "Accepted shape: object; example: {\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"}",
-                        "examples": [
-                          {
-                            "kind": "exists",
-                            "subjects": [
-                              "aa"
-                            ],
-                            "surface": "aa"
-                          }
-                        ]
-                      }
-                    },
-                    "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}",
-                    "examples": [
-                      {
-                        "ordinal": 0,
-                        "outcome_kind": "exists",
-                        "outcome_payload": {
-                          "kind": "exists",
-                          "subjects": [
-                            "aa"
-                          ],
-                          "surface": "aa"
-                        },
-                        "predicate_id": "a"
-                      }
-                    ]
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "predicate_id",
-                      "ordinal",
-                      "outcome_kind",
-                      "outcome_payload"
-                    ],
-                    "properties": {
-                      "predicate_id": {
-                        "$ref": "#/$defs/id",
-                        "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
-                        "examples": [
-                          "a"
-                        ]
-                      },
-                      "ordinal": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 7,
-                        "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
-                        "examples": [
-                          0
-                        ]
-                      },
-                      "outcome_kind": {
-                        "type": "string",
-                        "const": "absent",
-                        "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"absent\"; example: \"absent\"",
-                        "examples": [
-                          "absent"
-                        ]
-                      },
-                      "outcome_payload": {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": [
-                          "kind",
-                          "surface",
-                          "subjects",
-                          "distinguish_from"
-                        ],
-                        "properties": {
-                          "kind": {
-                            "const": "absent",
-                            "description": "Accepted shape: exactly \"absent\"; example: \"absent\"",
-                            "examples": [
-                              "absent"
-                            ]
-                          },
-                          "surface": {
-                            "$ref": "#/$defs/workflow_outcome_surface",
-                            "description": "Accepted shape: string matching ^[a-z][a-z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
-                            "examples": [
-                              "aa"
-                            ]
-                          },
-                          "subjects": {
-                            "type": "array",
-                            "minItems": 1,
-                            "maxItems": 100,
-                            "uniqueItems": true,
-                            "items": {
-                              "$ref": "#/$defs/workflow_outcome_subject",
-                              "description": "Accepted shape: string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
-                              "examples": [
-                                "aa"
-                              ]
-                            },
-                            "description": "Accepted shape: array of string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 1..100 items inclusive; example: [\"aa\"]",
-                            "examples": [
-                              [
-                                "aa"
-                              ]
-                            ]
-                          },
-                          "distinguish_from": {
-                            "type": "array",
-                            "minItems": 1,
-                            "maxItems": 4,
-                            "uniqueItems": true,
-                            "items": {
-                              "type": "string",
-                              "enum": [
-                                "archived",
-                                "relocated",
-                                "renamed",
-                                "disabled"
-                              ],
-                              "description": "Accepted shape: one of \"archived\", \"relocated\", \"renamed\", \"disabled\"; example: \"archived\"",
-                              "examples": [
-                                "archived"
-                              ]
-                            },
-                            "description": "Accepted shape: array of one of \"archived\", \"relocated\", \"renamed\", \"disabled\"; Bounds: 1..4 items inclusive; example: [\"archived\"]",
-                            "examples": [
-                              [
-                                "archived"
-                              ]
-                            ]
-                          }
-                        },
-                        "description": "Accepted shape: object; example: {\"distinguish_from\":[\"archived\"],\"kind\":\"absent\",\"subjects\":[\"aa\"],\"surface\":\"aa\"}",
-                        "examples": [
-                          {
-                            "distinguish_from": [
-                              "archived"
-                            ],
-                            "kind": "absent",
-                            "subjects": [
-                              "aa"
-                            ],
-                            "surface": "aa"
-                          }
-                        ]
-                      }
-                    },
-                    "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"absent\",\"outcome_payload\":{\"distinguish_from\":[\"archived\"],\"kind\":\"absent\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}",
-                    "examples": [
-                      {
-                        "ordinal": 0,
-                        "outcome_kind": "absent",
-                        "outcome_payload": {
-                          "distinguish_from": [
-                            "archived"
-                          ],
-                          "kind": "absent",
-                          "subjects": [
-                            "aa"
-                          ],
-                          "surface": "aa"
-                        },
-                        "predicate_id": "a"
-                      }
-                    ]
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "predicate_id",
-                      "ordinal",
-                      "outcome_kind",
-                      "outcome_payload"
-                    ],
-                    "properties": {
-                      "predicate_id": {
-                        "$ref": "#/$defs/id",
-                        "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
-                        "examples": [
-                          "a"
-                        ]
-                      },
-                      "ordinal": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 7,
-                        "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
-                        "examples": [
-                          0
-                        ]
-                      },
-                      "outcome_kind": {
-                        "type": "string",
-                        "const": "outcome",
-                        "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"outcome\"; example: \"outcome\"",
-                        "examples": [
-                          "outcome"
-                        ]
-                      },
-                      "outcome_payload": {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": [
-                          "kind",
-                          "allowed"
-                        ],
-                        "properties": {
-                          "kind": {
-                            "const": "outcome",
-                            "description": "Accepted shape: exactly \"outcome\"; example: \"outcome\"",
-                            "examples": [
-                              "outcome"
-                            ]
-                          },
-                          "allowed": {
-                            "type": "array",
-                            "minItems": 1,
-                            "maxItems": 3,
-                            "uniqueItems": true,
-                            "items": {
-                              "type": "string",
-                              "enum": [
-                                "no_change",
-                                "report_recorded",
-                                "resolved"
-                              ],
-                              "description": "Accepted shape: one of \"no_change\", \"report_recorded\", \"resolved\"; example: \"no_change\"",
-                              "examples": [
-                                "no_change"
-                              ]
-                            },
-                            "description": "Outcome tokens by plan type: change admits no outcome tokens; fix admits no outcome tokens; removal admits no outcome tokens; research admits no_change, resolved, report_recorded. Accepted shape: array of one of \"no_change\", \"report_recorded\", \"resolved\"; Bounds: 1..3 items inclusive; example: [\"no_change\"]",
-                            "examples": [
-                              [
-                                "no_change"
-                              ]
-                            ]
-                          },
-                          "decision_record": {
-                            "$ref": "#/$defs/workflow_outcome_decision_record",
-                            "description": "Accepted shape: object; example: {\"consequences\":[\"a\"],\"decision\":\"accepted_decision\",\"inputs\":[\"a\"],\"options_considered\":[\"a\"],\"poc_findings\":\"a\",\"question\":\"a\",\"rationale\":\"a\",\"required_to_decide\":[],\"reviewer_actor_ref\":\"actor:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"superseded_by\":\"av\",\"supersedes\":\"av\",\"unknowns\":[]}",
-                            "examples": [
-                              {
-                                "consequences": [
-                                  "a"
-                                ],
-                                "decision": "accepted_decision",
-                                "inputs": [
-                                  "a"
-                                ],
-                                "options_considered": [
-                                  "a"
-                                ],
-                                "poc_findings": "a",
-                                "question": "a",
-                                "rationale": "a",
-                                "required_to_decide": [],
-                                "reviewer_actor_ref": "actor:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                                "superseded_by": "av",
-                                "supersedes": "av",
-                                "unknowns": []
-                              }
-                            ]
-                          }
-                        },
-                        "description": "Accepted shape: object; example: {\"allowed\":[\"no_change\"],\"kind\":\"outcome\"}",
-                        "examples": [
-                          {
-                            "allowed": [
-                              "no_change"
-                            ],
-                            "kind": "outcome"
-                          }
-                        ]
-                      }
-                    },
-                    "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"outcome\",\"outcome_payload\":{\"allowed\":[\"no_change\"],\"kind\":\"outcome\"},\"predicate_id\":\"a\"}",
-                    "examples": [
-                      {
-                        "ordinal": 0,
-                        "outcome_kind": "outcome",
-                        "outcome_payload": {
-                          "allowed": [
-                            "no_change"
-                          ],
-                          "kind": "outcome"
-                        },
-                        "predicate_id": "a"
-                      }
-                    ]
-                  },
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "predicate_id",
-                      "ordinal",
-                      "outcome_kind",
-                      "outcome_payload"
-                    ],
-                    "properties": {
-                      "predicate_id": {
-                        "$ref": "#/$defs/id",
-                        "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
-                        "examples": [
-                          "a"
-                        ]
-                      },
-                      "ordinal": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 7,
-                        "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
-                        "examples": [
-                          0
-                        ]
-                      },
-                      "outcome_kind": {
-                        "type": "string",
-                        "const": "check",
-                        "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"check\"; example: \"check\"",
-                        "examples": [
-                          "check"
-                        ]
-                      },
-                      "outcome_payload": {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": [
-                          "kind",
-                          "check_ref",
-                          "immutable_subject_ref",
-                          "expected_result"
-                        ],
-                        "properties": {
-                          "kind": {
-                            "const": "check",
-                            "description": "Accepted shape: exactly \"check\"; example: \"check\"",
-                            "examples": [
-                              "check"
-                            ]
-                          },
-                          "check_ref": {
-                            "type": "string",
-                            "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
-                            "minLength": 7,
-                            "maxLength": 134,
-                            "description": "Accepted shape: string matching ^check:[a-z][a-z0-9_.:/-]{1,127}$; Bounds: 7..134 code points inclusive; example: \"check:aa\"",
-                            "examples": [
-                              "check:aa"
-                            ]
-                          },
-                          "immutable_subject_ref": {
-                            "type": "string",
-                            "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
-                            "minLength": 2,
-                            "maxLength": 256,
-                            "description": "Accepted shape: string matching ^[a-z][a-z0-9_.:/-]{1,255}$; Bounds: 2..256 code points inclusive; example: \"aa\"",
-                            "examples": [
-                              "aa"
-                            ]
-                          },
-                          "expected_result": {
-                            "type": "string",
-                            "enum": [
-                              "true",
-                              "false",
-                              "pass",
-                              "fail",
-                              "present",
-                              "absent",
-                              "healthy",
-                              "unhealthy",
-                              "accepted",
-                              "rejected"
-                            ],
-                            "description": "Accepted shape: one of \"true\", \"false\", \"pass\", \"fail\", \"present\", \"absent\", \"healthy\", \"unhealthy\", \"accepted\", \"rejected\"; example: \"true\"",
-                            "examples": [
-                              "true"
-                            ]
-                          }
-                        },
-                        "description": "Accepted shape: object; example: {\"check_ref\":\"check:aa\",\"expected_result\":\"true\",\"immutable_subject_ref\":\"aa\",\"kind\":\"check\"}",
-                        "examples": [
-                          {
-                            "check_ref": "check:aa",
-                            "expected_result": "true",
-                            "immutable_subject_ref": "aa",
-                            "kind": "check"
-                          }
-                        ]
-                      }
-                    },
-                    "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"check\",\"outcome_payload\":{\"check_ref\":\"check:aa\",\"expected_result\":\"true\",\"immutable_subject_ref\":\"aa\",\"kind\":\"check\"},\"predicate_id\":\"a\"}",
-                    "examples": [
-                      {
-                        "ordinal": 0,
-                        "outcome_kind": "check",
-                        "outcome_payload": {
-                          "check_ref": "check:aa",
-                          "expected_result": "true",
-                          "immutable_subject_ref": "aa",
-                          "kind": "check"
-                        },
-                        "predicate_id": "a"
-                      }
-                    ]
-                  }
-                ],
-                "description": "Accepted shape: oneOf (object; object; object; object); example: {\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}",
-                "examples": [
-                  {
-                    "ordinal": 0,
-                    "outcome_kind": "exists",
-                    "outcome_payload": {
-                      "kind": "exists",
-                      "subjects": [
-                        "aa"
-                      ],
-                      "surface": "aa"
-                    },
-                    "predicate_id": "a"
-                  }
-                ]
-              },
-              "examples": [
-                [
-                  {
-                    "ordinal": 0,
-                    "outcome_kind": "exists",
-                    "outcome_payload": {
-                      "kind": "exists",
-                      "subjects": [
-                        "aa"
-                      ],
-                      "surface": "aa"
-                    },
-                    "predicate_id": "a"
-                  }
-                ]
-              ]
-            },
-            "required_evidence": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "type": "string",
-                "enum": [
-                  "verification",
-                  "review",
-                  "approval",
-                  "commit",
-                  "durable_note",
-                  "native_run",
-                  "artifact"
-                ],
-                "description": "Accepted shape: one of \"verification\", \"review\", \"approval\", \"commit\", \"durable_note\", \"native_run\", \"artifact\"; example: \"verification\"",
-                "examples": [
-                  "verification"
-                ]
-              },
-              "maxItems": 7,
-              "description": "Evidence obligations must name a kind in the closed evidence kind set and a current mandated law. Accepted shape: array of one of \"verification\", \"review\", \"approval\", \"commit\", \"durable_note\", \"native_run\", \"artifact\"; Bounds: <=7 items inclusive; example: []",
-              "examples": [
-                []
-              ]
-            },
             "spec_mandate": {
               "type": "array",
               "uniqueItems": true,
@@ -7536,6 +6056,23 @@
               "minItems": 0,
               "maxItems": 32,
               "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
+              "examples": [
+                []
+              ]
+            },
+            "legislative_subjects": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/reference",
+                "description": "Accepted shape: string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive; example: \"aa\"",
+                "examples": [
+                  "aa"
+                ]
+              },
+              "minItems": 0,
+              "maxItems": 800,
+              "description": "Accepted shape: array of string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 0..800 items inclusive; example: []",
               "examples": [
                 []
               ]
@@ -7580,53 +6117,24 @@
           },
           "required": [
             "decision_domains",
-            "premise",
-            "outcome_predicates"
+            "premise"
           ],
-          "description": "Accepted shape: object; Bounds: <=32 properties inclusive; example: {\"decision_domains\":[],\"outcome_predicates\":[{\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}],\"premise\":\"av\"}",
+          "description": "Accepted shape: object; Bounds: <=32 properties inclusive; example: {\"decision_domains\":[],\"premise\":\"av\"}",
           "examples": [
             {
               "decision_domains": [],
-              "outcome_predicates": [
-                {
-                  "ordinal": 0,
-                  "outcome_kind": "exists",
-                  "outcome_payload": {
-                    "kind": "exists",
-                    "subjects": [
-                      "aa"
-                    ],
-                    "surface": "aa"
-                  },
-                  "predicate_id": "a"
-                }
-              ],
               "premise": "av"
             }
           ]
         }
       },
-      "description": "Accepted shape: object; example: {\"action_id\":\"approve_contract\",\"expected_version\":1,\"fields\":{\"decision_domains\":[],\"outcome_predicates\":[{\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}],\"premise\":\"av\"},\"idempotency_key\":\"a\",\"work_id\":\"a\"}",
+      "description": "Accepted shape: object; example: {\"action_id\":\"approve_contract\",\"expected_version\":1,\"fields\":{\"decision_domains\":[],\"premise\":\"av\"},\"idempotency_key\":\"a\",\"work_id\":\"a\"}",
       "examples": [
         {
           "action_id": "approve_contract",
           "expected_version": 1,
           "fields": {
             "decision_domains": [],
-            "outcome_predicates": [
-              {
-                "ordinal": 0,
-                "outcome_kind": "exists",
-                "outcome_payload": {
-                  "kind": "exists",
-                  "subjects": [
-                    "aa"
-                  ],
-                  "surface": "aa"
-                },
-                "predicate_id": "a"
-              }
-            ],
             "premise": "av"
           },
           "idempotency_key": "a",
@@ -7641,7 +6149,8 @@
         "work_id",
         "expected_version",
         "action_id",
-        "idempotency_key"
+        "idempotency_key",
+        "fields"
       ],
       "properties": {
         "work_id": {
@@ -7733,11 +6242,11 @@
               "x-maxBytes": 128,
               "pattern": "^[^\\x09-\\x0d    -     　]+$",
               "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            },
-            "verification_report": {
-              "$ref": "#/$defs/workflow_verification_report"
             }
           },
+          "required": [
+            "producer_watermark"
+          ],
           "description": "Bounds: <=32 properties inclusive"
         }
       }
@@ -8001,14 +6510,6 @@
             },
             "payload": {
               "$ref": "#/$defs/workflow_completion_payload"
-            },
-            "verdict_actor_ref": {
-              "type": "string",
-              "maxLength": 70,
-              "x-maxBytes": 70,
-              "minLength": 1,
-              "pattern": "\\S",
-              "description": "Bounds: 1..70 code points inclusive; <=70 UTF-8 bytes inclusive"
             },
             "impact_verdict": {
               "type": "string",
@@ -8555,78 +7056,8 @@
               "x-maxBytes": 128,
               "pattern": "^[^\\x09-\\x0d    -     　]+$",
               "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            },
-            "verification_report": {
-              "$ref": "#/$defs/workflow_verification_report"
             }
           },
-          "description": "Bounds: <=32 properties inclusive"
-        }
-      }
-    },
-    "work_transition_action_variant_record_verdict": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "expected_version",
-        "action_id",
-        "idempotency_key",
-        "fields"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "action_id": {
-          "type": "string",
-          "const": "record_verdict"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "evidence": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/evidence"
-          },
-          "description": "Bounds: <=32 items inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "fields": {
-          "type": "object",
-          "additionalProperties": false,
-          "maxProperties": 32,
-          "properties": {
-            "contract_version": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 2147483647,
-              "description": "Bounds: 1..2147483647 value inclusive"
-            },
-            "verdicts": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/workflow_verdict_batch_entry"
-              },
-              "minItems": 1,
-              "maxItems": 8,
-              "description": "Bounds: 1..8 items inclusive"
-            }
-          },
-          "required": [
-            "verdicts"
-          ],
           "description": "Bounds: <=32 properties inclusive"
         }
       }
@@ -8859,26 +7290,6 @@
         }
       }
     },
-    "workflow_law_context_criterion": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "criterion",
-        "predicate_id"
-      ],
-      "properties": {
-        "criterion": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647
-        },
-        "predicate_id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128
-        }
-      }
-    },
     "work_transition_action_variant_record_diagnosis": {
       "type": "object",
       "additionalProperties": false,
@@ -9026,794 +7437,6 @@
         }
       }
     },
-    "workflow_retained_outcome": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind",
-        "allowed"
-      ],
-      "properties": {
-        "kind": {
-          "const": "outcome"
-        },
-        "allowed": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 8,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "enum": [
-              "no_change",
-              "accepted_decision",
-              "insufficient_evidence",
-              "resolved",
-              "remediated",
-              "report_recorded",
-              "completed",
-              "operator_defined"
-            ]
-          }
-        },
-        "decision_record": {
-          "description": "The retained decision record the stored predicate carries; a null decodes to nil.",
-          "oneOf": [
-            {
-              "$ref": "#/$defs/workflow_retained_decision_record"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      }
-    },
-    "workflow_retained_decision_record": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "question",
-        "options_considered",
-        "decision",
-        "rationale",
-        "consequences",
-        "inputs",
-        "poc_findings",
-        "reviewer_actor_ref"
-      ],
-      "properties": {
-        "question": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
-        "options_considered": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 16,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "maxLength": 65536
-          }
-        },
-        "decision": {
-          "type": "string",
-          "enum": [
-            "accepted_decision",
-            "insufficient_evidence"
-          ]
-        },
-        "rationale": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
-        "consequences": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 16,
-          "items": {
-            "type": "string",
-            "maxLength": 65536
-          }
-        },
-        "inputs": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "items": {
-            "type": "string",
-            "maxLength": 65536
-          }
-        },
-        "poc_findings": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
-        "supersedes": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "maxLength": 65536
-        },
-        "superseded_by": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "maxLength": 65536
-        },
-        "unknowns": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "minItems": 0,
-          "maxItems": 16,
-          "items": {
-            "type": "string",
-            "maxLength": 65536
-          }
-        },
-        "required_to_decide": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "minItems": 0,
-          "maxItems": 16,
-          "items": {
-            "type": "string",
-            "maxLength": 65536
-          }
-        },
-        "reviewer_actor_ref": {
-          "type": "string",
-          "pattern": "^actor:[0-9a-f]{64}$",
-          "minLength": 70,
-          "maxLength": 70
-        }
-      }
-    },
-    "lane_report_review_candidate": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "project_id",
-        "commit",
-        "tree"
-      ],
-      "description": "Review's candidate claim. Acceptance derives authority from the admitted input and the host's clean terminal observation, not these claims.",
-      "properties": {
-        "project_id": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 128,
-          "description": "Bounds: 2..128 code points inclusive"
-        },
-        "commit": {
-          "type": "string",
-          "minLength": 40,
-          "maxLength": 64,
-          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
-          "description": "Bounds: 40..64 code points inclusive"
-        },
-        "tree": {
-          "type": "string",
-          "minLength": 40,
-          "maxLength": 64,
-          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
-          "description": "Bounds: 40..64 code points inclusive"
-        }
-      }
-    },
-    "lane_report_review_dependencies": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "criteria",
-        "architecture_not_applicable"
-      ],
-      "properties": {
-        "criteria": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 8,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "predicate_id",
-              "content_digest"
-            ],
-            "properties": {
-              "predicate_id": {
-                "type": "string",
-                "minLength": 11,
-                "maxLength": 128,
-                "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
-                "description": "Bounds: 11..128 code points inclusive"
-              },
-              "content_digest": {
-                "type": "string",
-                "minLength": 71,
-                "maxLength": 71,
-                "pattern": "^sha256:[0-9a-f]{64}$",
-                "description": "Bounds: 71..71 code points inclusive"
-              }
-            }
-          },
-          "description": "Bounds: 1..8 items inclusive"
-        },
-        "architecture_digest": {
-          "type": "string",
-          "minLength": 71,
-          "maxLength": 71,
-          "pattern": "^sha256:[0-9a-f]{64}$",
-          "description": "Bounds: 71..71 code points inclusive"
-        },
-        "architecture_not_applicable": {
-          "type": "boolean"
-        }
-      },
-      "oneOf": [
-        {
-          "properties": {
-            "architecture_not_applicable": {
-              "const": true
-            }
-          },
-          "not": {
-            "required": [
-              "architecture_digest"
-            ]
-          }
-        },
-        {
-          "properties": {
-            "architecture_not_applicable": {
-              "const": false
-            }
-          },
-          "required": [
-            "architecture_digest"
-          ]
-        }
-      ]
-    },
-    "lane_report_review_refs": {
-      "type": "array",
-      "minItems": 0,
-      "maxItems": 32,
-      "uniqueItems": true,
-      "items": {
-        "type": "string",
-        "minLength": 2,
-        "maxLength": 128,
-        "x-maxBytes": 128,
-        "pattern": "^\\S+$",
-        "description": "Bounds: 2..128 code points inclusive; <=128 UTF-8 bytes inclusive"
-      },
-      "description": "Bounds: 0..32 items inclusive"
-    },
-    "lane_report_review_assessment": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "predicate_id",
-        "assessment",
-        "receipt_refs"
-      ],
-      "properties": {
-        "predicate_id": {
-          "type": "string",
-          "minLength": 11,
-          "maxLength": 128,
-          "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
-          "description": "Bounds: 11..128 code points inclusive"
-        },
-        "assessment": {
-          "enum": [
-            "supported",
-            "unproved",
-            "mismatch"
-          ],
-          "type": "string"
-        },
-        "receipt_refs": {
-          "$ref": "#/$defs/lane_report_review_refs",
-          "description": "Bounds: 0..32 items inclusive"
-        }
-      }
-    },
-    "lane_report_review_obligation": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "obligation_id",
-        "owner_ref",
-        "subject_ref",
-        "input_digest",
-        "needed_proof"
-      ],
-      "properties": {
-        "obligation_id": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 128,
-          "description": "Bounds: 2..128 code points inclusive"
-        },
-        "owner_ref": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 128,
-          "description": "Bounds: 2..128 code points inclusive"
-        },
-        "subject_ref": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 128,
-          "description": "Bounds: 2..128 code points inclusive"
-        },
-        "input_digest": {
-          "type": "string",
-          "minLength": 71,
-          "maxLength": 71,
-          "pattern": "^sha256:[0-9a-f]{64}$",
-          "description": "Bounds: 71..71 code points inclusive"
-        },
-        "needed_proof": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "x-maxBytes": 512,
-          "description": "Bounds: 1..512 code points inclusive; <=512 UTF-8 bytes inclusive"
-        }
-      }
-    },
-    "lane_report_oracle_law_binding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "source",
-        "clause"
-      ],
-      "properties": {
-        "source": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "kind",
-            "source_id",
-            "law_id",
-            "content_hash"
-          ],
-          "properties": {
-            "kind": {
-              "const": "knowledge"
-            },
-            "source_id": {
-              "type": "string",
-              "minLength": 2,
-              "maxLength": 128,
-              "description": "Bounds: 2..128 code points inclusive"
-            },
-            "law_id": {
-              "type": "string",
-              "minLength": 2,
-              "maxLength": 256,
-              "description": "Bounds: 2..256 code points inclusive"
-            },
-            "content_hash": {
-              "type": "string",
-              "minLength": 71,
-              "maxLength": 71,
-              "pattern": "^sha256:[0-9a-f]{64}$",
-              "description": "Bounds: 71..71 code points inclusive"
-            }
-          }
-        },
-        "clause": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "x-maxBytes": 512,
-          "description": "Bounds: 1..512 code points inclusive; <=512 UTF-8 bytes inclusive"
-        }
-      }
-    },
-    "lane_report_oracle_finding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "classification"
-      ],
-      "description": "The typed oracle tie of one review finding: a closed classification plus the owner, predicate/law, case, and control references that bind it. Classification and severity are different dimensions; the tie records no acceptance.",
-      "properties": {
-        "classification": {
-          "type": "string",
-          "enum": [
-            "delivery_blocker",
-            "uncovered_case",
-            "follow_up",
-            "oracle_defect"
-          ],
-          "description": "delivery_blocker: a failed obligation of a declared owner. uncovered_case: a legitimate new entry path the inventory omitted — a real blocker, not a rejection. follow_up: outside the approved owner/contract; never an open repair criterion. oracle_defect: the harness itself is obsolete, inconsistent, or unsound; it blocks readiness, not a fabricated repair."
-        },
-        "owner_id": {
-          "type": "string",
-          "minLength": 7,
-          "maxLength": 128,
-          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
-          "description": "Bounds: 7..128 code points inclusive"
-        },
-        "failure_family": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128,
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "predicate_ids": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 8,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 11,
-            "maxLength": 128,
-            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
-            "description": "Bounds: 11..128 code points inclusive"
-          },
-          "description": "Bounds: 0..8 items inclusive"
-        },
-        "law_bindings": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 8,
-          "items": {
-            "$ref": "#/$defs/lane_report_oracle_law_binding"
-          },
-          "description": "Bounds: 0..8 items inclusive"
-        },
-        "case_ids": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 8,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 6,
-            "maxLength": 128,
-            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
-            "description": "Bounds: 6..128 code points inclusive"
-          },
-          "description": "Bounds: 0..8 items inclusive"
-        },
-        "control_ids": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 8,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 9,
-            "maxLength": 128,
-            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
-            "description": "Bounds: 9..128 code points inclusive"
-          },
-          "description": "Bounds: 0..8 items inclusive"
-        },
-        "evidence_refs": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 8,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256,
-            "x-maxBytes": 256,
-            "description": "Bounds: 1..256 code points inclusive; <=256 UTF-8 bytes inclusive"
-          },
-          "description": "The reproducible evidence that supports the finding. A known control failure names that control's receipt. Bounds: 0..8 items inclusive"
-        },
-        "entry_point": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "x-maxBytes": 512,
-          "description": "For an uncovered_case: the explicit new entry path or transition the inventory omitted. Bounds: 1..512 code points inclusive; <=512 UTF-8 bytes inclusive"
-        },
-        "continues_finding_id": {
-          "type": "string",
-          "minLength": 11,
-          "maxLength": 64,
-          "pattern": "^finding:[0-9]+:[0-9]+$",
-          "description": "The earlier ranked finding of this work that this finding continues. Same failure, same canonical open identity; an uncertain join becomes a new finding and earns no shrink credit. Bounds: 11..64 code points inclusive"
-        },
-        "variant_of": {
-          "type": "string",
-          "minLength": 11,
-          "maxLength": 64,
-          "pattern": "^finding:[0-9]+:[0-9]+$",
-          "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding. Bounds: 11..64 code points inclusive"
-        }
-      }
-    },
-    "lane_report_review_finding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "severity",
-        "confidence",
-        "detail",
-        "finding_id",
-        "in_scope",
-        "blocking",
-        "status",
-        "evidence_refs",
-        "closure_refs"
-      ],
-      "properties": {
-        "finding_id": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 128,
-          "pattern": "^\\S+$",
-          "description": "Bounds: 2..128 code points inclusive"
-        },
-        "in_scope": {
-          "type": "boolean"
-        },
-        "blocking": {
-          "type": "boolean"
-        },
-        "status": {
-          "enum": [
-            "open",
-            "closed"
-          ],
-          "type": "string"
-        },
-        "evidence_refs": {
-          "$ref": "#/$defs/lane_report_review_refs",
-          "description": "Bounds: 0..32 items inclusive"
-        },
-        "closure_refs": {
-          "$ref": "#/$defs/lane_report_review_refs",
-          "description": "Bounds: 0..32 items inclusive"
-        },
-        "severity": {
-          "enum": [
-            "P0",
-            "P1",
-            "P2",
-            "P3"
-          ],
-          "type": "string"
-        },
-        "confidence": {
-          "enum": [
-            "low",
-            "medium",
-            "high"
-          ],
-          "type": "string"
-        },
-        "detail": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "x-maxBytes": 512,
-          "description": "Bounds: 1..512 code points inclusive; <=512 UTF-8 bytes inclusive"
-        },
-        "oracle": {
-          "$ref": "#/$defs/lane_report_oracle_finding"
-        }
-      }
-    },
-    "lane_report_resolved_finding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "finding_id"
-      ],
-      "oneOf": [
-        {
-          "required": [
-            "evidence_refs"
-          ]
-        },
-        {
-          "required": [
-            "judged_case_ids"
-          ],
-          "not": {
-            "required": [
-              "evidence_refs"
-            ]
-          }
-        }
-      ],
-      "description": "One closure claim of a previously open ranked finding. Supply native evidence refs, exact judged-case IDs, or both as required by the finding. Judged closure requires Main acceptance of the fresh candidate-bound completed Review report; the report alone grants no closure authority. Omission, relabeling, or a confidence change never closes a finding.",
-      "properties": {
-        "finding_id": {
-          "type": "string",
-          "minLength": 11,
-          "maxLength": 64,
-          "pattern": "^finding:[0-9]+:[0-9]+$",
-          "description": "Bounds: 11..64 code points inclusive"
-        },
-        "evidence_refs": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 8,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256,
-            "x-maxBytes": 256,
-            "description": "Bounds: 1..256 code points inclusive; <=256 UTF-8 bytes inclusive"
-          },
-          "description": "The producer-captured current-subject evidence the closure names, as the control requires. Bounds: 1..8 items inclusive"
-        },
-        "judged_case_ids": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 8,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
-            "minLength": 6,
-            "maxLength": 128,
-            "description": "Bounds: 6..128 code points inclusive"
-          },
-          "description": "The exact complete set of required Main-declared judge=review cases. Source citations are rationale, never native execution receipts. Bounds: 1..8 items inclusive"
-        }
-      }
-    },
-    "workflow_review_report": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "disposition",
-        "input_candidate",
-        "output_candidate",
-        "dependencies",
-        "assessments",
-        "findings",
-        "remaining_obligations"
-      ],
-      "properties": {
-        "disposition": {
-          "enum": [
-            "continue",
-            "correction_required",
-            "revision_required",
-            "ready_for_final_proof"
-          ],
-          "description": "The coordinator records an independently obtained Review outcome against its exact candidate through record_review. This disposition is not permission to advance. Blocking dispositions remain valid outcomes.",
-          "type": "string"
-        },
-        "input_candidate": {
-          "$ref": "#/$defs/lane_report_review_candidate"
-        },
-        "output_candidate": {
-          "$ref": "#/$defs/lane_report_review_candidate"
-        },
-        "dependencies": {
-          "$ref": "#/$defs/lane_report_review_dependencies"
-        },
-        "assessments": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 8,
-          "items": {
-            "$ref": "#/$defs/lane_report_review_assessment"
-          },
-          "description": "Bounds: 0..8 items inclusive"
-        },
-        "remaining_obligations": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/lane_report_review_obligation"
-          },
-          "description": "Bounds: 0..32 items inclusive"
-        },
-        "findings": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 64,
-          "items": {
-            "$ref": "#/$defs/lane_report_review_finding"
-          },
-          "description": "Bounds: 0..64 items inclusive"
-        },
-        "resolved_findings": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 32,
-          "x-maxArrayBytes": 8192,
-          "description": "Optional evidenced closure claims of previously open ranked findings, reported on any disposition. A claim is a claim: the store checks each identity against this work's earlier ranked findings and the evidence each control requires. x-maxArrayBytes bounds the compact JSON serialization of the whole array in UTF-8 bytes; the adapter enforces that aggregate and refuses the report rather than truncating a claim. Bounds: 0..32 items inclusive",
-          "items": {
-            "$ref": "#/$defs/lane_report_resolved_finding"
-          }
-        }
-      }
-    },
-    "workflow_review_candidate_view": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "commit"
-      ],
-      "description": "The retained candidate commit, with Project and tree only when recorded. Missing identity fields grant no worker-report or acceptance authority.",
-      "properties": {
-        "project_id": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 128
-        },
-        "commit": {
-          "type": "string",
-          "minLength": 40,
-          "maxLength": 64,
-          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
-        },
-        "tree": {
-          "type": "string",
-          "minLength": 40,
-          "maxLength": 64,
-          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
-        }
-      }
-    },
-    "workflow_review_unidentified_finding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "severity",
-        "confidence",
-        "detail"
-      ],
-      "properties": {
-        "severity": {
-          "enum": [
-            "P0",
-            "P1",
-            "P2",
-            "P3"
-          ],
-          "type": "string"
-        },
-        "confidence": {
-          "enum": [
-            "low",
-            "medium",
-            "high"
-          ],
-          "type": "string"
-        },
-        "detail": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "x-maxBytes": 512
-        },
-        "oracle": {
-          "$ref": "#/$defs/lane_report_oracle_finding"
-        }
-      },
-      "description": "A retained current finding without recorded identity, status, scope, blocking or reference fields. Only its observed content is exposed; it grants no worker-report, closure or acceptance authority."
-    },
     "work_transition_action_variant_record_review": {
       "type": "object",
       "additionalProperties": false,
@@ -9858,12 +7481,66 @@
           "additionalProperties": false,
           "maxProperties": 32,
           "properties": {
-            "review": {
-              "$ref": "#/$defs/workflow_review_report"
+            "step_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "x-minBytes": 2,
+              "x-maxBytes": 128,
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+            },
+            "note": {
+              "type": "string",
+              "maxLength": 4096,
+              "x-maxBytes": 4096,
+              "minLength": 1,
+              "x-minBytes": 2,
+              "pattern": "\\S",
+              "description": "Bounds: 1..4096 code points inclusive; 2..4096 UTF-8 bytes inclusive"
+            },
+            "reviewer": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "x-minBytes": 2,
+              "x-maxBytes": 128,
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+            },
+            "result": {
+              "type": "string",
+              "enum": [
+                "pass",
+                "fixed"
+              ]
+            },
+            "commit": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "x-minBytes": 2,
+              "x-maxBytes": 128,
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
+            },
+            "link": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "x-minBytes": 2,
+              "x-maxBytes": 128,
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
             }
           },
           "required": [
-            "review"
+            "step_id",
+            "note",
+            "reviewer",
+            "result",
+            "commit",
+            "link"
           ],
           "description": "Bounds: <=32 properties inclusive"
         }
@@ -9902,557 +7579,6 @@
           "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection. Accepted shape: string matching \\S; Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive; example: \"a\"",
           "examples": [
             "a"
-          ]
-        },
-        "outcome_predicates": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 8,
-          "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed. Accepted shape: array of oneOf (object; object; object; object); Bounds: 1..8 items inclusive; example: [{\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}]",
-          "items": {
-            "oneOf": [
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "predicate_id",
-                  "ordinal",
-                  "outcome_kind",
-                  "outcome_payload"
-                ],
-                "properties": {
-                  "predicate_id": {
-                    "$ref": "#/$defs/id",
-                    "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
-                    "examples": [
-                      "a"
-                    ]
-                  },
-                  "ordinal": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 7,
-                    "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
-                    "examples": [
-                      0
-                    ]
-                  },
-                  "outcome_kind": {
-                    "type": "string",
-                    "const": "exists",
-                    "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"exists\"; example: \"exists\"",
-                    "examples": [
-                      "exists"
-                    ]
-                  },
-                  "outcome_payload": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "kind",
-                      "surface",
-                      "subjects"
-                    ],
-                    "properties": {
-                      "kind": {
-                        "const": "exists",
-                        "description": "Accepted shape: exactly \"exists\"; example: \"exists\"",
-                        "examples": [
-                          "exists"
-                        ]
-                      },
-                      "surface": {
-                        "$ref": "#/$defs/workflow_outcome_surface",
-                        "description": "Accepted shape: string matching ^[a-z][a-z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
-                        "examples": [
-                          "aa"
-                        ]
-                      },
-                      "subjects": {
-                        "type": "array",
-                        "minItems": 1,
-                        "maxItems": 100,
-                        "uniqueItems": true,
-                        "items": {
-                          "$ref": "#/$defs/workflow_outcome_subject",
-                          "description": "Accepted shape: string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
-                          "examples": [
-                            "aa"
-                          ]
-                        },
-                        "description": "Accepted shape: array of string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 1..100 items inclusive; example: [\"aa\"]",
-                        "examples": [
-                          [
-                            "aa"
-                          ]
-                        ]
-                      }
-                    },
-                    "description": "Accepted shape: object; example: {\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"}",
-                    "examples": [
-                      {
-                        "kind": "exists",
-                        "subjects": [
-                          "aa"
-                        ],
-                        "surface": "aa"
-                      }
-                    ]
-                  }
-                },
-                "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}",
-                "examples": [
-                  {
-                    "ordinal": 0,
-                    "outcome_kind": "exists",
-                    "outcome_payload": {
-                      "kind": "exists",
-                      "subjects": [
-                        "aa"
-                      ],
-                      "surface": "aa"
-                    },
-                    "predicate_id": "a"
-                  }
-                ]
-              },
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "predicate_id",
-                  "ordinal",
-                  "outcome_kind",
-                  "outcome_payload"
-                ],
-                "properties": {
-                  "predicate_id": {
-                    "$ref": "#/$defs/id",
-                    "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
-                    "examples": [
-                      "a"
-                    ]
-                  },
-                  "ordinal": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 7,
-                    "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
-                    "examples": [
-                      0
-                    ]
-                  },
-                  "outcome_kind": {
-                    "type": "string",
-                    "const": "absent",
-                    "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"absent\"; example: \"absent\"",
-                    "examples": [
-                      "absent"
-                    ]
-                  },
-                  "outcome_payload": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "kind",
-                      "surface",
-                      "subjects",
-                      "distinguish_from"
-                    ],
-                    "properties": {
-                      "kind": {
-                        "const": "absent",
-                        "description": "Accepted shape: exactly \"absent\"; example: \"absent\"",
-                        "examples": [
-                          "absent"
-                        ]
-                      },
-                      "surface": {
-                        "$ref": "#/$defs/workflow_outcome_surface",
-                        "description": "Accepted shape: string matching ^[a-z][a-z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
-                        "examples": [
-                          "aa"
-                        ]
-                      },
-                      "subjects": {
-                        "type": "array",
-                        "minItems": 1,
-                        "maxItems": 100,
-                        "uniqueItems": true,
-                        "items": {
-                          "$ref": "#/$defs/workflow_outcome_subject",
-                          "description": "Accepted shape: string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 2..128 code points inclusive; example: \"aa\"",
-                          "examples": [
-                            "aa"
-                          ]
-                        },
-                        "description": "Accepted shape: array of string matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$; Bounds: 1..100 items inclusive; example: [\"aa\"]",
-                        "examples": [
-                          [
-                            "aa"
-                          ]
-                        ]
-                      },
-                      "distinguish_from": {
-                        "type": "array",
-                        "minItems": 1,
-                        "maxItems": 4,
-                        "uniqueItems": true,
-                        "items": {
-                          "type": "string",
-                          "enum": [
-                            "archived",
-                            "relocated",
-                            "renamed",
-                            "disabled"
-                          ],
-                          "description": "Accepted shape: one of \"archived\", \"relocated\", \"renamed\", \"disabled\"; example: \"archived\"",
-                          "examples": [
-                            "archived"
-                          ]
-                        },
-                        "description": "Accepted shape: array of one of \"archived\", \"relocated\", \"renamed\", \"disabled\"; Bounds: 1..4 items inclusive; example: [\"archived\"]",
-                        "examples": [
-                          [
-                            "archived"
-                          ]
-                        ]
-                      }
-                    },
-                    "description": "Accepted shape: object; example: {\"distinguish_from\":[\"archived\"],\"kind\":\"absent\",\"subjects\":[\"aa\"],\"surface\":\"aa\"}",
-                    "examples": [
-                      {
-                        "distinguish_from": [
-                          "archived"
-                        ],
-                        "kind": "absent",
-                        "subjects": [
-                          "aa"
-                        ],
-                        "surface": "aa"
-                      }
-                    ]
-                  }
-                },
-                "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"absent\",\"outcome_payload\":{\"distinguish_from\":[\"archived\"],\"kind\":\"absent\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}",
-                "examples": [
-                  {
-                    "ordinal": 0,
-                    "outcome_kind": "absent",
-                    "outcome_payload": {
-                      "distinguish_from": [
-                        "archived"
-                      ],
-                      "kind": "absent",
-                      "subjects": [
-                        "aa"
-                      ],
-                      "surface": "aa"
-                    },
-                    "predicate_id": "a"
-                  }
-                ]
-              },
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "predicate_id",
-                  "ordinal",
-                  "outcome_kind",
-                  "outcome_payload"
-                ],
-                "properties": {
-                  "predicate_id": {
-                    "$ref": "#/$defs/id",
-                    "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
-                    "examples": [
-                      "a"
-                    ]
-                  },
-                  "ordinal": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 7,
-                    "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
-                    "examples": [
-                      0
-                    ]
-                  },
-                  "outcome_kind": {
-                    "type": "string",
-                    "const": "outcome",
-                    "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"outcome\"; example: \"outcome\"",
-                    "examples": [
-                      "outcome"
-                    ]
-                  },
-                  "outcome_payload": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "kind",
-                      "allowed"
-                    ],
-                    "properties": {
-                      "kind": {
-                        "const": "outcome",
-                        "description": "Accepted shape: exactly \"outcome\"; example: \"outcome\"",
-                        "examples": [
-                          "outcome"
-                        ]
-                      },
-                      "allowed": {
-                        "type": "array",
-                        "minItems": 1,
-                        "maxItems": 3,
-                        "uniqueItems": true,
-                        "items": {
-                          "type": "string",
-                          "enum": [
-                            "no_change",
-                            "report_recorded",
-                            "resolved"
-                          ],
-                          "description": "Accepted shape: one of \"no_change\", \"report_recorded\", \"resolved\"; example: \"no_change\"",
-                          "examples": [
-                            "no_change"
-                          ]
-                        },
-                        "description": "Outcome tokens by plan type: change admits no outcome tokens; fix admits no outcome tokens; removal admits no outcome tokens; research admits no_change, resolved, report_recorded. Accepted shape: array of one of \"no_change\", \"report_recorded\", \"resolved\"; Bounds: 1..3 items inclusive; example: [\"no_change\"]",
-                        "examples": [
-                          [
-                            "no_change"
-                          ]
-                        ]
-                      },
-                      "decision_record": {
-                        "$ref": "#/$defs/workflow_outcome_decision_record",
-                        "description": "Accepted shape: object; example: {\"consequences\":[\"a\"],\"decision\":\"accepted_decision\",\"inputs\":[\"a\"],\"options_considered\":[\"a\"],\"poc_findings\":\"a\",\"question\":\"a\",\"rationale\":\"a\",\"required_to_decide\":[],\"reviewer_actor_ref\":\"actor:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"superseded_by\":\"av\",\"supersedes\":\"av\",\"unknowns\":[]}",
-                        "examples": [
-                          {
-                            "consequences": [
-                              "a"
-                            ],
-                            "decision": "accepted_decision",
-                            "inputs": [
-                              "a"
-                            ],
-                            "options_considered": [
-                              "a"
-                            ],
-                            "poc_findings": "a",
-                            "question": "a",
-                            "rationale": "a",
-                            "required_to_decide": [],
-                            "reviewer_actor_ref": "actor:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                            "superseded_by": "av",
-                            "supersedes": "av",
-                            "unknowns": []
-                          }
-                        ]
-                      }
-                    },
-                    "description": "Accepted shape: object; example: {\"allowed\":[\"no_change\"],\"kind\":\"outcome\"}",
-                    "examples": [
-                      {
-                        "allowed": [
-                          "no_change"
-                        ],
-                        "kind": "outcome"
-                      }
-                    ]
-                  }
-                },
-                "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"outcome\",\"outcome_payload\":{\"allowed\":[\"no_change\"],\"kind\":\"outcome\"},\"predicate_id\":\"a\"}",
-                "examples": [
-                  {
-                    "ordinal": 0,
-                    "outcome_kind": "outcome",
-                    "outcome_payload": {
-                      "allowed": [
-                        "no_change"
-                      ],
-                      "kind": "outcome"
-                    },
-                    "predicate_id": "a"
-                  }
-                ]
-              },
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "predicate_id",
-                  "ordinal",
-                  "outcome_kind",
-                  "outcome_payload"
-                ],
-                "properties": {
-                  "predicate_id": {
-                    "$ref": "#/$defs/id",
-                    "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\". Accepted shape: string matching ^[A-Za-z0-9][A-Za-z0-9._:-]*$; Bounds: 1..128 code points inclusive; example: \"a\"",
-                    "examples": [
-                      "a"
-                    ]
-                  },
-                  "ordinal": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 7,
-                    "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...). Accepted shape: integer; Bounds: 0..7 value inclusive; example: 0",
-                    "examples": [
-                      0
-                    ]
-                  },
-                  "outcome_kind": {
-                    "type": "string",
-                    "const": "check",
-                    "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind. Accepted shape: exactly \"check\"; example: \"check\"",
-                    "examples": [
-                      "check"
-                    ]
-                  },
-                  "outcome_payload": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "kind",
-                      "check_ref",
-                      "immutable_subject_ref",
-                      "expected_result"
-                    ],
-                    "properties": {
-                      "kind": {
-                        "const": "check",
-                        "description": "Accepted shape: exactly \"check\"; example: \"check\"",
-                        "examples": [
-                          "check"
-                        ]
-                      },
-                      "check_ref": {
-                        "type": "string",
-                        "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
-                        "minLength": 7,
-                        "maxLength": 134,
-                        "description": "Accepted shape: string matching ^check:[a-z][a-z0-9_.:/-]{1,127}$; Bounds: 7..134 code points inclusive; example: \"check:aa\"",
-                        "examples": [
-                          "check:aa"
-                        ]
-                      },
-                      "immutable_subject_ref": {
-                        "type": "string",
-                        "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
-                        "minLength": 2,
-                        "maxLength": 256,
-                        "description": "Accepted shape: string matching ^[a-z][a-z0-9_.:/-]{1,255}$; Bounds: 2..256 code points inclusive; example: \"aa\"",
-                        "examples": [
-                          "aa"
-                        ]
-                      },
-                      "expected_result": {
-                        "type": "string",
-                        "enum": [
-                          "true",
-                          "false",
-                          "pass",
-                          "fail",
-                          "present",
-                          "absent",
-                          "healthy",
-                          "unhealthy",
-                          "accepted",
-                          "rejected"
-                        ],
-                        "description": "Accepted shape: one of \"true\", \"false\", \"pass\", \"fail\", \"present\", \"absent\", \"healthy\", \"unhealthy\", \"accepted\", \"rejected\"; example: \"true\"",
-                        "examples": [
-                          "true"
-                        ]
-                      }
-                    },
-                    "description": "Accepted shape: object; example: {\"check_ref\":\"check:aa\",\"expected_result\":\"true\",\"immutable_subject_ref\":\"aa\",\"kind\":\"check\"}",
-                    "examples": [
-                      {
-                        "check_ref": "check:aa",
-                        "expected_result": "true",
-                        "immutable_subject_ref": "aa",
-                        "kind": "check"
-                      }
-                    ]
-                  }
-                },
-                "description": "Accepted shape: object; example: {\"ordinal\":0,\"outcome_kind\":\"check\",\"outcome_payload\":{\"check_ref\":\"check:aa\",\"expected_result\":\"true\",\"immutable_subject_ref\":\"aa\",\"kind\":\"check\"},\"predicate_id\":\"a\"}",
-                "examples": [
-                  {
-                    "ordinal": 0,
-                    "outcome_kind": "check",
-                    "outcome_payload": {
-                      "check_ref": "check:aa",
-                      "expected_result": "true",
-                      "immutable_subject_ref": "aa",
-                      "kind": "check"
-                    },
-                    "predicate_id": "a"
-                  }
-                ]
-              }
-            ],
-            "description": "Accepted shape: oneOf (object; object; object; object); example: {\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}",
-            "examples": [
-              {
-                "ordinal": 0,
-                "outcome_kind": "exists",
-                "outcome_payload": {
-                  "kind": "exists",
-                  "subjects": [
-                    "aa"
-                  ],
-                  "surface": "aa"
-                },
-                "predicate_id": "a"
-              }
-            ]
-          },
-          "examples": [
-            [
-              {
-                "ordinal": 0,
-                "outcome_kind": "exists",
-                "outcome_payload": {
-                  "kind": "exists",
-                  "subjects": [
-                    "aa"
-                  ],
-                  "surface": "aa"
-                },
-                "predicate_id": "a"
-              }
-            ]
-          ]
-        },
-        "required_evidence": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "enum": [
-              "verification",
-              "review",
-              "approval",
-              "commit",
-              "durable_note",
-              "native_run",
-              "artifact"
-            ],
-            "description": "Accepted shape: one of \"verification\", \"review\", \"approval\", \"commit\", \"durable_note\", \"native_run\", \"artifact\"; example: \"verification\"",
-            "examples": [
-              "verification"
-            ]
-          },
-          "maxItems": 7,
-          "description": "Evidence obligations must name a kind in the closed evidence kind set and a current mandated law. Accepted shape: array of one of \"verification\", \"review\", \"approval\", \"commit\", \"durable_note\", \"native_run\", \"artifact\"; Bounds: <=7 items inclusive; example: []",
-          "examples": [
-            []
           ]
         },
         "route_conventions": {
@@ -10502,6 +7628,23 @@
           "minItems": 0,
           "maxItems": 32,
           "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
+          "examples": [
+            []
+          ]
+        },
+        "legislative_subjects": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/reference",
+            "description": "Accepted shape: string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive; example: \"aa\"",
+            "examples": [
+              "aa"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 800,
+          "description": "Accepted shape: array of string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 0..800 items inclusive; example: []",
           "examples": [
             []
           ]
@@ -10571,252 +7714,24 @@
       "required": [
         "contract_version",
         "premise",
-        "outcome_predicates",
-        "required_evidence",
         "route_conventions",
         "spec_mandate",
         "law_modifies",
+        "legislative_subjects",
         "rigor_class",
         "decision_domains"
       ],
-      "description": "Accepted shape: object; Bounds: <=32 properties inclusive; example: {\"contract_version\":1,\"decision_domains\":[],\"law_modifies\":[],\"outcome_predicates\":[{\"ordinal\":0,\"outcome_kind\":\"exists\",\"outcome_payload\":{\"kind\":\"exists\",\"subjects\":[\"aa\"],\"surface\":\"aa\"},\"predicate_id\":\"a\"}],\"premise\":\"a\",\"required_evidence\":[],\"rigor_class\":\"prototype_internal\",\"route_conventions\":[],\"spec_mandate\":[]}",
+      "description": "Accepted shape: object; Bounds: <=32 properties inclusive; example: {\"contract_version\":1,\"decision_domains\":[],\"law_modifies\":[],\"legislative_subjects\":[],\"premise\":\"a\",\"rigor_class\":\"prototype_internal\",\"route_conventions\":[],\"spec_mandate\":[]}",
       "examples": [
         {
           "contract_version": 1,
           "decision_domains": [],
           "law_modifies": [],
-          "outcome_predicates": [
-            {
-              "ordinal": 0,
-              "outcome_kind": "exists",
-              "outcome_payload": {
-                "kind": "exists",
-                "subjects": [
-                  "aa"
-                ],
-                "surface": "aa"
-              },
-              "predicate_id": "a"
-            }
-          ],
+          "legislative_subjects": [],
           "premise": "a",
-          "required_evidence": [],
           "rigor_class": "prototype_internal",
           "route_conventions": [],
           "spec_mandate": []
-        }
-      ]
-    },
-    "workflow_outcome_decision_record": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "question",
-        "options_considered",
-        "decision",
-        "rationale",
-        "consequences",
-        "inputs",
-        "poc_findings",
-        "supersedes",
-        "superseded_by",
-        "unknowns",
-        "required_to_decide",
-        "reviewer_actor_ref"
-      ],
-      "properties": {
-        "question": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096,
-          "description": "Accepted shape: string; Bounds: 1..4096 code points inclusive; example: \"a\"",
-          "examples": [
-            "a"
-          ]
-        },
-        "options_considered": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 16,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 1024,
-            "description": "Accepted shape: string; Bounds: 1..1024 code points inclusive; example: \"a\"",
-            "examples": [
-              "a"
-            ]
-          },
-          "description": "Accepted shape: array of string; Bounds: 1..16 items inclusive; example: [\"a\"]",
-          "examples": [
-            [
-              "a"
-            ]
-          ]
-        },
-        "decision": {
-          "type": "string",
-          "enum": [
-            "accepted_decision",
-            "insufficient_evidence"
-          ],
-          "description": "Accepted shape: one of \"accepted_decision\", \"insufficient_evidence\"; example: \"accepted_decision\"",
-          "examples": [
-            "accepted_decision"
-          ]
-        },
-        "rationale": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096,
-          "description": "Accepted shape: string; Bounds: 1..4096 code points inclusive; example: \"a\"",
-          "examples": [
-            "a"
-          ]
-        },
-        "consequences": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 16,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 1024,
-            "description": "Accepted shape: string; Bounds: 1..1024 code points inclusive; example: \"a\"",
-            "examples": [
-              "a"
-            ]
-          },
-          "description": "Accepted shape: array of string; Bounds: 1..16 items inclusive; example: [\"a\"]",
-          "examples": [
-            [
-              "a"
-            ]
-          ]
-        },
-        "inputs": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 32,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2048,
-            "description": "Accepted shape: string; Bounds: 1..2048 code points inclusive; example: \"a\"",
-            "examples": [
-              "a"
-            ]
-          },
-          "description": "Accepted shape: array of string; Bounds: 1..32 items inclusive; example: [\"a\"]",
-          "examples": [
-            [
-              "a"
-            ]
-          ]
-        },
-        "poc_findings": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096,
-          "description": "Accepted shape: string; Bounds: 1..4096 code points inclusive; example: \"a\"",
-          "examples": [
-            "a"
-          ]
-        },
-        "supersedes": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "minLength": 2,
-          "maxLength": 128,
-          "description": "Accepted shape: string; Bounds: 2..128 code points inclusive; example: \"av\"",
-          "examples": [
-            "av"
-          ]
-        },
-        "superseded_by": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "minLength": 2,
-          "maxLength": 128,
-          "description": "Accepted shape: string; Bounds: 2..128 code points inclusive; example: \"av\"",
-          "examples": [
-            "av"
-          ]
-        },
-        "unknowns": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 16,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 1024,
-            "description": "Accepted shape: string; Bounds: 1..1024 code points inclusive; example: \"a\"",
-            "examples": [
-              "a"
-            ]
-          },
-          "description": "Accepted shape: array of string; Bounds: 0..16 items inclusive; example: []",
-          "examples": [
-            []
-          ]
-        },
-        "required_to_decide": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 16,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 1024,
-            "description": "Accepted shape: string; Bounds: 1..1024 code points inclusive; example: \"a\"",
-            "examples": [
-              "a"
-            ]
-          },
-          "description": "Accepted shape: array of string; Bounds: 0..16 items inclusive; example: []",
-          "examples": [
-            []
-          ]
-        },
-        "reviewer_actor_ref": {
-          "type": "string",
-          "pattern": "^actor:[0-9a-f]{64}$",
-          "minLength": 70,
-          "maxLength": 70,
-          "description": "Accepted shape: string matching ^actor:[0-9a-f]{64}$; Bounds: 70..70 code points inclusive; example: \"actor:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
-          "examples": [
-            "actor:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-          ]
-        }
-      },
-      "description": "Accepted shape: object; example: {\"consequences\":[\"a\"],\"decision\":\"accepted_decision\",\"inputs\":[\"a\"],\"options_considered\":[\"a\"],\"poc_findings\":\"a\",\"question\":\"a\",\"rationale\":\"a\",\"required_to_decide\":[],\"reviewer_actor_ref\":\"actor:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"superseded_by\":\"av\",\"supersedes\":\"av\",\"unknowns\":[]}",
-      "examples": [
-        {
-          "consequences": [
-            "a"
-          ],
-          "decision": "accepted_decision",
-          "inputs": [
-            "a"
-          ],
-          "options_considered": [
-            "a"
-          ],
-          "poc_findings": "a",
-          "question": "a",
-          "rationale": "a",
-          "required_to_decide": [],
-          "reviewer_actor_ref": "actor:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "superseded_by": "av",
-          "supersedes": "av",
-          "unknowns": []
         }
       ]
     },
@@ -11847,15 +8762,6 @@
         "path": {
           "type": "string",
           "minLength": 1
-        },
-        "criteria": {
-          "description": "The law's acceptance criteria bound to the reading work item's own outcome predicates (CD-0180). Present only when at least one criterion binds this work item.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 1000,
-          "items": {
-            "$ref": "#/$defs/workflow_law_context_criterion"
-          }
         }
       }
     },
@@ -11884,7 +8790,6 @@
         "kind": {
           "type": "string",
           "enum": [
-            "",
             "observation",
             "inference",
             "hypothesis",
@@ -11892,8 +8797,7 @@
             "open_question",
             "contradiction",
             "direction"
-          ],
-          "description": "The generic claim vocabulary of an authored finding. A ranked oracle finding projects the empty kind: its identity is the oracle tie, never a generic claim class."
+          ]
         },
         "statement": {
           "type": "string",
@@ -11917,7 +8821,7 @@
             "minLength": 1,
             "maxLength": 256
           },
-          "description": "The evidence that supports the finding. A ranked finding without an oracle tie projects null; the core reader owns that wire shape."
+          "description": "Evidence references reported with the finding."
         },
         "domain_id": {
           "type": "string",
@@ -11938,10 +8842,9 @@
         "status": {
           "type": "string",
           "enum": [
-            "reported",
-            "open"
+            "reported"
           ],
-          "description": "A finding is a reported claim, never acceptance. The open status names a ranked review finding the lineage currently holds open: still a claim, and open."
+          "description": "A finding is a reported claim, never acceptance."
         },
         "source_event_id": {
           "type": "string",
@@ -11954,17 +8857,6 @@
         "ordinal": {
           "type": "integer",
           "minimum": 0
-        },
-        "source_kind": {
-          "type": "string",
-          "enum": [
-            "review_finding"
-          ],
-          "description": "Present only on a ranked review finding: the entry carries an oracle tie and rides the open-set lineage, never the generic worker-claim notebook."
-        },
-        "oracle": {
-          "$ref": "#/$defs/retained_worker_oracle_finding",
-          "description": "The typed oracle tie of a ranked review finding: classification plus the owner, predicate/law, case, and control references that bind it."
         }
       }
     },
@@ -12013,112 +8905,6 @@
           "maxLength": 64,
           "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
           "description": "The recorded subject as a raw commit OID."
-        }
-      }
-    },
-    "retained_worker_oracle_finding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "classification"
-      ],
-      "description": "The typed oracle tie of one review finding: a closed classification plus the owner, predicate/law, case, and control references that bind it. Classification and severity are different dimensions; the tie records no acceptance.",
-      "properties": {
-        "classification": {
-          "type": "string",
-          "enum": [
-            "delivery_blocker",
-            "uncovered_case",
-            "follow_up",
-            "oracle_defect"
-          ],
-          "description": "delivery_blocker: a failed obligation of a declared owner. uncovered_case: a legitimate new entry path the inventory omitted — a real blocker, not a rejection. follow_up: outside the approved owner/contract; never an open repair criterion. oracle_defect: the harness itself is obsolete, inconsistent, or unsound; it blocks readiness, not a fabricated repair."
-        },
-        "owner_id": {
-          "type": "string",
-          "minLength": 7,
-          "maxLength": 133,
-          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
-        },
-        "failure_family": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128
-        },
-        "predicate_ids": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 8,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 11,
-            "maxLength": 128,
-            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$"
-          }
-        },
-        "law_bindings": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 8,
-          "items": {
-            "$ref": "#/$defs/worker_oracle_law_binding"
-          }
-        },
-        "case_ids": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 8,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 6,
-            "maxLength": 128,
-            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
-          }
-        },
-        "control_ids": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 8,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 9,
-            "maxLength": 128,
-            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
-          }
-        },
-        "evidence_refs": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 8,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
-          "description": "The reproducible evidence that supports the finding. A known control failure names that control's receipt."
-        },
-        "entry_point": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "description": "For an uncovered_case: the explicit new entry path or transition the inventory omitted."
-        },
-        "continues_finding_id": {
-          "type": "string",
-          "minLength": 11,
-          "maxLength": 64,
-          "pattern": "^finding:[0-9]+:[0-9]+$",
-          "description": "The earlier ranked finding of this work that this finding continues. Same failure, same canonical open identity; an uncertain join becomes a new finding and earns no shrink credit."
-        },
-        "variant_of": {
-          "type": "string",
-          "minLength": 11,
-          "maxLength": 64,
-          "pattern": "^finding:[0-9]+:[0-9]+$",
-          "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding."
         }
       }
     }

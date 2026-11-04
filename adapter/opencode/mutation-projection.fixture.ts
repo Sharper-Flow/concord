@@ -10,7 +10,6 @@ export function largeMutationPayload() {
       session_ref: `session-${n}-`.padEnd(128, "x"), last_action_id: "action-".padEnd(128, "y"), last_acted_at: "2026-10-28T00:00:00Z",
     })),
     watermark: "seq:3", next_valid_intents: [],
-    obligations: [],
   }))
   return {
     changed_refs: work_pins.map(pin => ({ entity_kind: "work_item", id: pin.work_id, version: pin.version })),

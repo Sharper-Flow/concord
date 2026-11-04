@@ -13,7 +13,7 @@ func TestWorkflowActionPoliciesHaveTypedExecutionModes(t *testing.T) {
 func TestWorkflowExecutionModesPreserveCurrentSemantics(t *testing.T) {
 	for id, want := range map[string]ActionExecutionMode{
 		"approve_contract": ActionAdvance, "start_execution": ActionFenced, "checkpoint_execution": ActionCheckpoint,
-		"bind_evidence": ActionHold, "record_verdict": ActionHold, "confirm_premise": ActionAdvance,
+		"bind_evidence": ActionHold, "confirm_premise": ActionAdvance,
 		"complete": ActionHold, "checkpoint_context": ActionHold, "cross_context_boundary": ActionHold,
 		"record_delivery": ActionAdvance, "checkpoint_refine": ActionCheckpoint, "record_review": ActionHold,
 	} {

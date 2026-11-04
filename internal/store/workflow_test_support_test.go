@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 )
@@ -70,12 +69,8 @@ func testApprovalPayload(t testing.TB, s *Store, workID, actionID string, payloa
 	if err != nil || plan == nil {
 		t.Fatalf("read workflow plan for %s: plan=%v err=%v", workID, plan, err)
 	}
-	if _, present := fields["outcome_predicates"]; !present {
-		if plan.Type == WorkflowStepPlanResearch {
-			fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}}
-		} else {
-			fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:test", "immutable_subject_ref": "commit:" + strings.Repeat("a", 64), "expected_result": "pass"}}}
-		}
+	if _, present := fields["legislative_subjects"]; !present {
+		fields["legislative_subjects"] = []string{}
 	}
 	if _, present := fields["premise"]; !present {
 		fields["premise"] = "The operator stated this premise."

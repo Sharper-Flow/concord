@@ -113,17 +113,16 @@ func TestAnnotateGuidanceAnnotatesReachableSchemas(t *testing.T) {
 		t.Fatalf("decision_domains description = %q, want the appended shape segment", description)
 	}
 
-	// A shared definition reached through a ref carries guidance once, so a
-	// leaf failure can teach the subject pattern wherever subjects appear.
-	subjects, ok := root["$defs"].(map[string]any)["workflow_outcome_subject"].(map[string]any)
+	// A shared definition reached through a ref carries guidance once.
+	subjects, ok := root["$defs"].(map[string]any)["id"].(map[string]any)
 	if !ok {
-		t.Fatal("workflow_outcome_subject definition is missing")
+		t.Fatal("id definition is missing")
 	}
 	if examples, ok := subjects["examples"].([]any); !ok || len(examples) != 1 {
-		t.Fatalf("workflow_outcome_subject carries %v, want one example", subjects["examples"])
+		t.Fatalf("id carries %v, want one example", subjects["examples"])
 	}
-	if description, _ := subjects["description"].(string); !strings.Contains(description, "matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$") {
-		t.Fatalf("workflow_outcome_subject description does not teach its pattern: %q", description)
+	if description, _ := subjects["description"].(string); !strings.Contains(description, "matching") {
+		t.Fatalf("id description does not teach its pattern: %q", description)
 	}
 
 	if _, exists := subjects["required"]; exists {
@@ -280,7 +279,7 @@ func TestAnnotateGuidanceIsIdempotent(t *testing.T) {
 	if err := AnnotateGuidance(root, []string{guidanceNames}); err != nil {
 		t.Fatalf("second AnnotateGuidance refused: %v", err)
 	}
-	subjects := root["$defs"].(map[string]any)["workflow_outcome_subject"].(map[string]any)
+	subjects := guidanceNodeAtPath(t, root, approveVariantPath...)
 	description, _ := subjects["description"].(string)
 	if strings.Count(description, guidanceMarker) != 1 {
 		t.Fatalf("repeated annotation stacked segments: %q", description)
@@ -296,25 +295,22 @@ func TestAnnotatedContractFailureCarriesShapeAndExample(t *testing.T) {
 	fields := `{
 		"premise": "The premise states the bounded change.",
 		"decision_domains": [],
-		"outcome_predicates": [
-			{"predicate_id": "predicate:one", "ordinal": 0, "outcome_kind": "exists",
-			 "outcome_payload": {"kind": "exists", "surface": "go_source", "subjects": ["The acceptance sentence has spaces"]}}
-		]
+		"legislative_subjects": ["The subject has spaces"]
 	}`
 	data := contractGuidanceInput(t, "guidance-approve-1", fields)
 
 	err := ValidateInDocument(root, "work_transition_action_input", data)
 	if err == nil {
-		t.Fatal("the recorded predicate subject was accepted")
+		t.Fatal("the invalid legislative subject was accepted")
 	}
 	got := err.Error()
-	if !strings.Contains(got, "pattern at $.fields.outcome_predicates[0].outcome_payload.subjects[0]") {
+	if !strings.Contains(got, "pattern at $.fields.legislative_subjects[0]") {
 		t.Fatalf("annotated refusal lost the leaf failure: %s", got)
 	}
 	if !strings.Contains(got, guidanceMarker) || !strings.Contains(got, "example:") {
 		t.Fatalf("annotated refusal does not teach shape and example: %s", got)
 	}
-	if !strings.Contains(got, "matching ^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{1,127}$") {
+	if !strings.Contains(got, "matching") {
 		t.Fatalf("annotated refusal does not name the accepted shape: %s", got)
 	}
 	if strings.Contains(got, "unknown property $.fields.decision_domains") {
@@ -324,27 +320,6 @@ func TestAnnotatedContractFailureCarriesShapeAndExample(t *testing.T) {
 		t.Fatalf("annotated refusal carries %d bytes against the 1000-byte message budget: %s", len(got), got)
 	}
 
-	// The second recorded near-miss: subjects corrected, prose surface.
-	fields = `{
-		"premise": "The premise states the bounded change.",
-		"decision_domains": [],
-		"outcome_predicates": [
-			{"predicate_id": "predicate:one", "ordinal": 0, "outcome_kind": "exists",
-			 "outcome_payload": {"kind": "exists", "surface": "plugin TTFT event handling", "subjects": ["internal-store-workpin"]}}
-		]
-	}`
-	data = contractGuidanceInput(t, "guidance-approve-2", fields)
-	err = ValidateInDocument(root, "work_transition_action_input", data)
-	if err == nil {
-		t.Fatal("the recorded prose surface was accepted")
-	}
-	got = err.Error()
-	if !strings.Contains(got, "pattern at $.fields.outcome_predicates[0].outcome_payload.surface") {
-		t.Fatalf("annotated refusal lost the surface leaf failure: %s", got)
-	}
-	if !strings.Contains(got, guidanceMarker) || len(got) > 1000 {
-		t.Fatalf("annotated surface refusal is unguided or over budget (%d bytes): %s", len(got), got)
-	}
 }
 
 // Without annotation the refusal stays exactly the schema's own teaching: no
@@ -353,10 +328,7 @@ func TestUnannotatedRefusalCarriesNoGuidance(t *testing.T) {
 	fields := `{
 		"premise": "The premise states the bounded change.",
 		"decision_domains": [],
-		"outcome_predicates": [
-			{"predicate_id": "predicate:one", "ordinal": 0, "outcome_kind": "exists",
-			 "outcome_payload": {"kind": "exists", "surface": "go_source", "subjects": ["has spaces"]}}
-		]
+		"legislative_subjects": ["has spaces"]
 	}`
 	data := contractGuidanceInput(t, "unguided-1", fields)
 	err := ValidateInDocument(freshPayloadDocument(t), "work_transition_action_input", data)
@@ -594,21 +566,15 @@ func TestAnnotateGuidanceBuildsTrulyMinimalShapes(t *testing.T) {
 		}
 	}
 
-	// subjects: minItems 1 → exactly one entry.
-	subjects := defs["workflow_outcome_subject"].(map[string]any)
-	if len(subjects["examples"].([]any)) != 1 {
-		t.Fatalf("subject example is not a single value")
-	}
-
-	// evidence: no minItems → empty array, no sampled entry.
+	// Legislative subjects: minItems 0 → empty array, no sampled entry.
 	update := defs["workflow_contract_update"].(map[string]any)
-	evidenceNode := update["properties"].(map[string]any)["required_evidence"].(map[string]any)
+	evidenceNode := update["properties"].(map[string]any)["legislative_subjects"].(map[string]any)
 	entries, ok := evidenceNode["examples"].([]any)
 	if !ok || len(entries) != 1 {
-		t.Fatalf("required_evidence carries %v, want one empty-list example", evidenceNode["examples"])
+		t.Fatalf("legislative_subjects carries %v, want one empty-list example", evidenceNode["examples"])
 	}
 	if list, ok := entries[0].([]any); !ok || len(list) != 0 {
-		t.Fatalf("required_evidence example = %v, want no entries for minItems 0", entries[0])
+		t.Fatalf("legislative_subjects example = %v, want no entries for minItems 0", entries[0])
 	}
 }
 

@@ -67,7 +67,7 @@ DELETE FROM write_guard`, repo); err != nil {
 		t.Fatal(err)
 	}
 	apply("record_plan", map[string]any{"outcomes": "Working continuity", "approach": "Preserve context", "decisions": []any{map[string]any{"id": "decision:test", "question": "What to preserve?", "choice": "Context", "rationale": "Continuity", "rejected": []string{}}}, "touches": []string{"path:test"}, "merge_split": "One change", "risks": "Stored context"})
-	apply("approve_contract", map[string]any{"premise": "bounded change", "outcome_predicates": []any{map[string]any{"predicate_id": "predicate:test", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:test", "immutable_subject_ref": "commit:test", "expected_result": "pass"}}}, "spec_mandate": []string{}, "law_modifies": []string{}, "decision_domains": []string{}, "architecture_binding": map[string]any{"home_domain_id": pm1fixture.SingleDomainRootID, "affected_domain_ids": []string{pm1fixture.SingleDomainRootID}, "domain_modifies": []string{}, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{}}})
+	apply("approve_contract", map[string]any{"premise": "bounded change", "spec_mandate": []string{}, "law_modifies": []string{}, "decision_domains": []string{}, "architecture_binding": map[string]any{"home_domain_id": pm1fixture.SingleDomainRootID, "affected_domain_ids": []string{pm1fixture.SingleDomainRootID}, "domain_modifies": []string{}, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{}}})
 	apply("complete_step", map[string]any{"step_id": "plan", "note": "planned"})
 	apply("start_execution", map[string]any{})
 	apply("record_work_context", map[string]any{})

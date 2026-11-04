@@ -256,7 +256,7 @@ func readContinuityBoundaries(t *testing.T, ctx context.Context, r runtime, requ
 func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _, _, _, engine := workflowEngineFixture(t, strings.Repeat("p", store.WorkflowPremiseMaxLength))
+	s, _, engine := workflowEngineFixture(t, strings.Repeat("p", store.WorkflowPremiseMaxLength))
 	refs := []string{}
 	for i := range 64 {
 		refs = append(refs, fmt.Sprintf("ref-%02d-%s", i, strings.Repeat("r", 121)))
@@ -607,7 +607,7 @@ func TestContinuityProjectionPagePropagatesRenderErrors(t *testing.T) {
 func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) {
 	t.Helper()
 	ctx := context.Background()
-	s, _, _, _, engine := workflowEngineFixture(t, strings.Repeat("p", store.WorkflowPremiseMaxLength))
+	s, _, engine := workflowEngineFixture(t, strings.Repeat("p", store.WorkflowPremiseMaxLength))
 	refs := []string{}
 	for i := range 64 {
 		refs = append(refs, fmt.Sprintf("ref-%02d-%s", i, strings.Repeat("r", 121)))
@@ -891,7 +891,7 @@ func TestContinuityProjectionContinuationContract(t *testing.T) {
 func TestContinuityProjectionPageFrameBounds(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _, _, _, _ := workflowEngineFixture(t, "")
+	s, _, _ := workflowEngineFixture(t, "")
 	workID := strings.Repeat("w", 128)
 	productID := strings.Repeat("<", 128)
 	projectID := strings.Repeat("&", 128)

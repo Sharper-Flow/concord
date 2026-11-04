@@ -133,15 +133,14 @@ func testWorkflowLawChangeAdmission(t *testing.T, tier string) {
 	fields["spec_mandate"] = []string{lawID}
 	fields["law_modifies"] = []string{lawID}
 	fields["decision_domains"] = []string{}
-	fields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:law", "immutable_subject_ref": "commit:fixture", "expected_result": "pass"}}}
+	fields["legislative_subjects"] = []string{}
 	for _, action := range []string{"approve_contract", "revise_intent"} {
 		var response agentcontract.Envelope
 		if action == "revise_intent" {
-			var evidence, routes, rigor string
-			if err := db.QueryRow(`SELECT required_evidence,route_conventions,rigor_class FROM workflow_contracts WHERE work_id='work-1' AND superseded_by IS NULL`).Scan(&evidence, &routes, &rigor); err != nil {
+			var routes, rigor string
+			if err := db.QueryRow(`SELECT route_conventions,rigor_class FROM workflow_contracts WHERE work_id='work-1' AND superseded_by IS NULL`).Scan(&routes, &rigor); err != nil {
 				t.Fatal(err)
 			}
-			fields["required_evidence"] = json.RawMessage(evidence)
 			fields["route_conventions"] = json.RawMessage(routes)
 			fields["rigor_class"] = rigor
 			fields["contract_version"] = 2

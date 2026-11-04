@@ -56,7 +56,11 @@ func TestMigrationTailFixtureReappliesEveryDeclaredStep(t *testing.T) {
 	t.Cleanup(func() { version.Value = previous })
 	path := filepath.Join(t.TempDir(), "store.db")
 	pendingBreakingStore(t, path, true)
-	if _, err := store.Upgrade(context.Background(), path, nil); err != nil {
+	snapshot := filepath.Join(t.TempDir(), "snapshot.db")
+	if _, err := store.BackupDatabase(context.Background(), path, snapshot); err != nil {
+		t.Fatalf("snapshot migration predecessor: %v", err)
+	}
+	if _, err := store.Upgrade(context.Background(), path, nil, store.UpgradeOptions{SnapshotPath: snapshot}); err != nil {
 		t.Fatalf("reapply the complete migration tail: %v", err)
 	}
 	plan, err := store.PlanUpgradeReadiness(context.Background(), path)

@@ -113,8 +113,10 @@ For A2 row 5:
 Review repairs in-scope findings in its own pass and verifies the repairs
 (CD-0242 D5); the rest become D6 follow-up items. A high or medium problem is a
 Review finding of severity `P0`, `P1` (high) or `P2` (medium); `P3` is low.
-Every change keeps CD-0242 D5's blocking rule: an open in-scope blocking
-finding prevents leaving execution. No size-specific severity gate applies. The
+Every change keeps CD-0242 D5's reviewed-step rule: a Review that leaves an
+open in-scope blocking finding records neither a pass nor a fixed result, so
+its reviewed step stays open, and the final review stays open until a clean
+pass. No size-specific severity gate applies. The
 coordinator ends the loop. No review count, ledger or separate final evaluator
 is added.
 
@@ -314,8 +316,13 @@ recorded independent review supplies the application evidence. The follow-up
 item's rule label, raising-change link enforcement and saved view remain D6's
 open duty below.
 
-A2 row 5 uses CD-0242 D5's blocking-finding rule in Review admission.
-`internal/store.TestReviewCurrentAdmissionNegativeCases` exercises that rule.
+A2 row 5 uses CD-0242 D5's reviewed-step rule.
+`internal/store.TestWorkflowReviewAttemptTuple` refuses a reviewed attempt
+without a `pass` or `fixed` result, reviewer, commit or link.
+`internal/agent.TestSpineCurrentReviewCorrectionAdmission` proves a fixed final
+review keeps completion refused until a later clean pass. Carrier tests do not
+prove that Review withheld a result for an open blocking finding; the delivery's
+linked review result supplies that application evidence.
 `scripts/testdata/conflict-review-repair-cases.md` supplies
 in-scope repair, unverified fix, and dropped and claimed follow-up
 cases for independent application of the existing review method,

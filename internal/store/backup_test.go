@@ -313,10 +313,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	// The approved contract retains its law mandate through backup and restore.
 	approval := workflowEventWithActor("evidence-contract", WorkflowContractApproved, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": workVersionBeforeApproval, "resulting_version": workVersionBeforeApproval + 1, "contract_version": int64(1),
-		"premise":           "preserve living evidence across backup, restore, rebuild and as-of reads",
-		"outcome_kind":      "check",
-		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:evidence", "immutable_subject_ref": "commit:evidence", "expected_result": "pass"},
-		"required_evidence": []string{"verification"}, "route_conventions": []string{},
+		"premise":              "preserve living evidence across backup, restore, rebuild and as-of reads",
+		"legislative_subjects": []string{}, "route_conventions": []string{},
 		"spec_mandate": []string{"spec:one"}, "law_modifies": []string{},
 		"law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 		"decision_domains": []string{},
@@ -342,17 +340,6 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	// already-designated knowledge home.
 	seedWorkContextDomainRegistry(t, s)
 
-	// This trusted state fixture tests byte preservation, not native execution.
-	report := reviewBlockFixture()
-	report.InputCandidate.ProjectID, report.OutputCandidate.ProjectID = "project", "project"
-	state := WorkflowReviewState{Candidate: &report.OutputCandidate, Findings: report.Findings,
-		Accepted: &WorkflowAcceptedReview{ReportRef: "evidence-recorded-review", ReportDigest: reviewDigest(report), ActorRef: ownerRef, Report: *report}}
-	memberMigrationExec(t, s.db, `INSERT INTO write_guard(active) VALUES(1)`)
-	if err := writeWorkflowReviewFacts(ctx, s.db, workID, state); err != nil {
-		t.Fatal(err)
-	}
-	memberMigrationExec(t, s.db, `DELETE FROM write_guard`)
-
 	// Author the work-context declaration through the workflow action route.
 	contextOwner := WorkflowActor{PrincipalRef: "principal:evidence", ClientRef: "client:evidence", AgentRef: "agent:evidence", SessionRef: "session:evidence-context", ActorClass: ActorAgent}
 	contextOwnerRef, err := WorkflowActorRef(contextOwner)
@@ -377,9 +364,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	seedWorkflowPlanFrontier(t, s, contextWork, WorkflowStepPlanFix, "implement")
 	contextContractVersion := readWorkVersion(t, s, contextWork)
 	contextContract := workflowEventWithActor("evidence-context-contract", WorkflowContractApproved, contextWork, contextOwnerRef, map[string]any{
-		"work_id": contextWork, "expected_version": contextContractVersion, "resulting_version": contextContractVersion + 1, "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check",
-		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:evidence-context", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:evidence-context", "immutable_subject_ref": "commit:" + workContextTestCommit(), "expected_result": "pass"}}},
-		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
+		"work_id": contextWork, "expected_version": contextContractVersion, "resulting_version": contextContractVersion + 1, "contract_version": 1, "premise": "deliver the checked change",
+		"legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 		"decision_domains": []string{},
 		"architecture_binding": WorkflowArchitectureBinding{
@@ -449,7 +435,6 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		{"work_context_state", `SELECT work_id,source_frontier,declaration_seq,declaration_id,declaration_payload FROM work_context_state ORDER BY work_id`},
 		{"workflow_instances", `SELECT work_id,workflow_type,step_plan,prelude_state,instance_state,completed_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY work_id`},
 		{"workflow_contracts", `SELECT work_id,contract_version,premise,spec_mandate,law_boundary_version FROM workflow_contracts ORDER BY work_id,contract_version`},
-		{"workflow_review_state", `SELECT work_id,state FROM workflow_review_state ORDER BY work_id`},
 		{"linear_issue_links", `SELECT work_id,remote_issue_uuid,human_key,url,created_at,updated_at FROM linear_issue_links ORDER BY work_id`},
 		{"knowledge_homes", `SELECT product_id,project_id,locator_id FROM product_knowledge_homes ORDER BY product_id`},
 	}
@@ -489,9 +474,6 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	var mandate string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&mandate); err != nil || mandate != `["spec:one"]` {
 		t.Fatalf("law mandate = %q, err=%v, want spec:one", mandate, err)
-	}
-	if len(want["workflow_review_state"]) != 1 || !strings.Contains(want["workflow_review_state"][0], `"report_ref":"evidence-recorded-review"`) {
-		t.Fatalf("Review state = %v, want the one exact recorded report", want["workflow_review_state"])
 	}
 	if len(want["linear_issue_links"]) != 1 || !strings.HasPrefix(want["linear_issue_links"][0], workID+"\x1fuuid-evidence-1\x1fCON-9001\x1fhttps://linear.app/example/issue/CON-9001\x1f") {
 		t.Fatalf("linear identities = %v, want the recorded CON-9001 identity", want["linear_issue_links"])

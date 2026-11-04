@@ -19,6 +19,16 @@ const ekbMixed = "evidence array carries more than one kind"
 
 func ekbDispatch(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID string, version int64, actionID string, fields map[string]any, evidence []agentcontract.EvidenceRef, key string) (agentcontract.Envelope, int64) {
 	t.Helper()
+	if actionID == "bind_evidence" {
+		copyFields := make(map[string]any, len(fields)+1)
+		for k, v := range fields {
+			copyFields[k] = v
+		}
+		if _, ok := copyFields["producer_watermark"]; !ok {
+			copyFields["producer_watermark"] = "request:" + key
+		}
+		fields = copyFields
+	}
 	input := map[string]any{"work_id": workID, "expected_version": version, "action_id": actionID, "idempotency_key": key}
 	if fields != nil {
 		input["fields"] = fields
@@ -46,9 +56,8 @@ func ekbWorkAtExecute(t *testing.T, ctx context.Context, s *store.Store, service
 	version := advanceCapturedWorkToContract(t, s, service, env, workID, "ekb-"+key)
 	approved, _ := ekbDispatch(t, s, service, env, workID, version, "approve_contract", map[string]any{
 		"premise":              "one bind records one evidence kind",
-		"outcome_predicates":   []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:ekb", "immutable_subject_ref": "commit:ekb", "expected_result": "pass"}}},
+		"legislative_subjects": []string{},
 		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, s),
-		"required_evidence":    []string{"artifact"},
 		"spec_mandate":         []string{},
 		"law_modifies":         []string{},
 		"decision_domains":     []string{},
@@ -164,7 +173,8 @@ func TestBindEvidenceRecordsOneEventPerKindForOneLocator(t *testing.T) {
 		{Kind: "verification", Authority: "github-actions", LocatorKind: "check_run", Locator: "check:one"},
 		{Kind: "review", Authority: "concord-1", LocatorKind: "pull_request_review", Locator: "check:one"},
 	}
-	response, after := ekbDispatch(t, s, service, env, workID, version, "bind_evidence", nil, perKind, "ekb-per-kind")
+	seedAgentEvidenceProducer(t, s, workID, env.PrincipalRef, "check:one", "producer:per-kind", "request:ekb-per-kind")
+	response, after := ekbDispatch(t, s, service, env, workID, version, "bind_evidence", map[string]any{"producer_id": env.PrincipalRef, "producer_run_ref": "producer:per-kind"}, perKind, "ekb-per-kind")
 	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("per-kind bind: %+v", response.Error)
 	}
@@ -211,7 +221,8 @@ func TestBindEvidenceSuccessfulReplayKeepsOriginalResult(t *testing.T) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	workID, version := ekbWorkAtExecute(t, ctx, s, service, env, "replay")
-	fields := map[string]any{"evidence_kind": "verification", "immutable_subject_ref": "evidence:replay"}
+	seedAgentEvidenceProducer(t, s, workID, env.PrincipalRef, "evidence:replay", "producer:replay", "request:ekb-replay")
+	fields := map[string]any{"evidence_kind": "verification", "immutable_subject_ref": "evidence:replay", "producer_id": env.PrincipalRef, "producer_run_ref": "producer:replay"}
 	first, after := ekbDispatch(t, s, service, env, workID, version, "bind_evidence", fields, nil, "ekb-replay")
 	if first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("bind: %+v", first.Error)

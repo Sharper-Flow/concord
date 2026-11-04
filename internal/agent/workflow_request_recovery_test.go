@@ -157,7 +157,7 @@ func contractRequestCorrectionState(t *testing.T, s *store.Store, workID string)
 	state["effect_sequence"] = sequence
 	for _, table := range []string{
 		"effect_receipts", "idempotency_records",
-		"workflow_contracts", "workflow_contract_predicates", "workflow_architecture_bindings",
+		"workflow_contracts", "workflow_architecture_bindings",
 		"workflow_contract_affected_domains", "workflow_contract_domain_modifications",
 		"workflow_contract_domain_relation_modifications", "workflow_contract_law_modifications",
 		"workflow_contract_law_additions",

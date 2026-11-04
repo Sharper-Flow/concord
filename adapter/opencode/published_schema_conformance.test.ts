@@ -150,13 +150,6 @@ test("published string bounds admit and refuse with the core in both directions 
       idempotency_key: "idem-multibyte-parity",
       fields: {
         premise: value,
-        outcome_predicates: [{
-          predicate_id: "predicate:multibyte-parity",
-          ordinal: 0,
-          outcome_kind: "check",
-          outcome_payload: { kind: "check", check_ref: "check:multibyte-parity", immutable_subject_ref: "commit:multibyte-parity", expected_result: "pass" },
-        }],
-        required_evidence: ["verification"],
         route_conventions: [],
         spec_mandate: [],
         law_modifies: [],
@@ -180,93 +173,6 @@ test("published string bounds admit and refuse with the core in both directions 
   // refuses it.
   expect(validateAgainstSchema(schema, approveCall("é".repeat(4096)), failures)).toBe(false)
   expect(failures.join("; ")).toContain("UTF-8 bytes against a limit of 4096")
-})
-
-// CON-412 nested kind equality: outcome_kind and outcome_payload.kind hold
-// one value. The published items close per kind, so a mismatched pair
-// validates no published branch while the matching pair admits. The
-// complete contract update surface carries the outcome_predicates
-// array alone: the per-kind closure holds on its array items, and the
-// retired scalar pair fields refuse the closed variant whether their kinds
-// match or not.
-test("published outcome kinds refuse outcome_kind and outcome_payload.kind disagreements", () => {
-  const schema = publishedSchema("concord_work_transition")
-  const revisionSchema = publishedSchema("concord_work_define")
-  const revisionFields = (contract: Record<string, unknown>) => ({
-    operation: "revise_intent",
-    input: {
-      work_id: "work-kind-parity",
-      expected_version: 9,
-      idempotency_key: "idem-kind-parity",
-      title: "Updated plan", value_statement: "Current criteria", kind: "task", reason: "Revise the plan",
-      contract,
-    },
-  })
-  const revisionAuthored = authoredInput("work_define_revise_input")
-  // The base fields come from the same sampler the variant battery uses, so
-  // the base is the proven minimal call, not a handwritten field list.
-  const revisionInput: Record<string, unknown> = {}
-  for (const key of revisionAuthored.required ?? []) revisionInput[key] = sample(revisionAuthored.properties[key])
-  revisionInput.contract = sample(revisionAuthored.properties.contract)
-  expect(
-    authoredVerdict("work_define_revise_input", revisionInput).ok,
-    "the sampled contract update is core-admitted",
-  ).toBe(true)
-  const baseFields = revisionInput.contract as Record<string, unknown>
-  const checkItem = {
-    predicate_id: "predicate:kind-parity",
-    ordinal: 0,
-    outcome_kind: "check",
-    outcome_payload: { kind: "check", check_ref: "check:kind-parity", immutable_subject_ref: "commit:kind-parity", expected_result: "pass" },
-  }
-  const failures: string[] = []
-  // Matching check pair admits through the canonical array.
-  expect(validateAgainstSchema(revisionSchema, revisionFields({ ...baseFields, outcome_predicates: [checkItem] }), failures), failures.join("; ")).toBe(true)
-  // Mismatched array item refuses: outcome_kind exists beside a check payload.
-  expect(validateAgainstSchema(revisionSchema, revisionFields({ ...baseFields, outcome_predicates: [{ ...checkItem, outcome_kind: "exists" }] }), failures)).toBe(false)
-  // The scalar pair form refuses the closed contract update: the
-  // pair fields are declared nowhere and outcome_predicates is required,
-  // so even a matching kind pair finds no admitting branch.
-  const retiredPair: Record<string, unknown> = { ...baseFields }
-  delete retiredPair.outcome_predicates
-  retiredPair.outcome_kind = "check"
-  retiredPair.outcome_payload = { kind: "check", check_ref: "check:kind-parity", immutable_subject_ref: "commit:kind-parity", expected_result: "pass" }
-  expect(validateAgainstSchema(revisionSchema, revisionFields(retiredPair), failures)).toBe(false)
-  // Mismatched approve item refuses: outcome_kind exists with a check payload.
-  // The items count holds on every branch of the fields union, not only the
-  // factored parent view.
-  const approveFieldsBranches = actionFieldsBranches(actionVariantInput(schema, "approve_contract"))
-    .filter((fields: any) => fields.properties?.outcome_predicates)
-  expect(approveFieldsBranches.length).toBeGreaterThan(0)
-  const itemMismatch = {
-    work_id: "work-kind-parity",
-    expected_version: 4,
-    action_id: "approve_contract",
-    idempotency_key: "idem-kind-parity-approve",
-    fields: {
-      premise: "the approved premise",
-      outcome_predicates: [{
-        predicate_id: "predicate:kind-parity",
-        ordinal: 0,
-        outcome_kind: "exists",
-        outcome_payload: { kind: "check", check_ref: "check:kind-parity", immutable_subject_ref: "commit:kind-parity", expected_result: "pass" },
-      }],
-      required_evidence: ["verification"],
-      route_conventions: [],
-      spec_mandate: [],
-      law_modifies: [],
-      decision_domains: [],
-      rigor_class: "prototype_internal",
-    },
-  }
-  for (const fields of approveFieldsBranches) {
-    expect(fields.properties.outcome_predicates.items.oneOf.length).toBe(4)
-  }
-  expect(validateAgainstSchema(schema, { operation: "workflow_action", input: itemMismatch }, failures)).toBe(false)
-  expect(validateAgainstSchema(schema, {
-    operation: "workflow_action",
-    input: { ...itemMismatch, fields: { ...itemMismatch.fields, outcome_predicates: [{ ...itemMismatch.fields.outcome_predicates[0], outcome_kind: "check" }] } },
-  }, failures), failures.join("; ")).toBe(true)
 })
 
 // --- The parity oracle -----------------------------------------------------
@@ -646,16 +552,6 @@ test("every workflow action admits its minimal call and refuses the broken ones 
     }
     // Forbidden fields: the closed variant refuses an undeclared sibling.
     await refuseEverywhere(toolName, { operation: "workflow_action", input: { ...minimal, zz_forbidden_probe: true } }, `${variant.action_id} forbidden field`)
-    // Nested variant: a declared outcome_predicates array must keep its
-    // per-kind closure after factoring.
-    const fields = minimal.fields as Record<string, unknown> | undefined
-    if (fields && Array.isArray(fields.outcome_predicates) && fields.outcome_predicates.length > 0) {
-      const nested = structuredClone(minimal)
-      ;(nested.fields as Record<string, unknown>).outcome_predicates = [
-        { ...(fields.outcome_predicates as Record<string, unknown>[])[0], outcome_kind: "check" },
-      ]
-      await expectParity(toolName, inputSchema, { operation: "workflow_action", input: nested }, `${variant.action_id} nested outcome-kind flip`)
-    }
     // Bounds: one declared string ceiling must still refuse the over-long
     // value on both surfaces, at a payload position the minimal call
     // actually carries.

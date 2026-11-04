@@ -16,13 +16,8 @@ func TestMain(m *testing.M) {
 }
 
 func TestCanonicalCrossFieldRulesProjectAndRefuse(t *testing.T) {
-	verdict := []store.WorkflowPayloadField{{Name: "contract_version"}, {Name: "verdicts"}}
-	projected, err := store.WorkflowActionCanonicalCrossFieldRules("record_verdict", verdict)
-	if err != nil || len(projected.Alternatives) != 1 || !reflect.DeepEqual(projected.Alternatives[0].Fields, []string{"verdicts"}) || len(projected.Alternatives[0].Forbids) != 0 {
-		t.Fatalf("verdict projection = %#v, %v", projected, err)
-	}
 	diagnosis := []store.WorkflowPayloadField{{Name: "reproduction"}, {Name: "searched"}, {Name: "outcome"}, {Name: "related_ids"}, {Name: "root_cause"}}
-	projected, err = store.WorkflowActionCanonicalCrossFieldRules("record_diagnosis", diagnosis)
+	projected, err := store.WorkflowActionCanonicalCrossFieldRules("record_diagnosis", diagnosis)
 	if err != nil || !reflect.DeepEqual(projected, store.WorkflowActionCrossFieldRules("record_diagnosis")) {
 		t.Fatalf("diagnosis projection = %#v, %v", projected, err)
 	}
@@ -33,7 +28,7 @@ func TestCanonicalCrossFieldRulesProjectAndRefuse(t *testing.T) {
 
 func TestSchemaRefsComeFromCurrentDeclarations(t *testing.T) {
 	payload := store.WorkflowPayloadDefinition{Closed: true, Fields: []store.WorkflowPayloadField{
-		{Name: "verdicts", ValueType: store.PayloadArray, ItemRef: "current_only_ref"},
+		{Name: "entries", ValueType: store.PayloadArray, ItemRef: "current_only_ref"},
 		{Name: "other", ValueType: store.PayloadObject, SchemaRef: "other_ref"},
 	}}
 	if got := payloadSchemaRefs(payload); !reflect.DeepEqual(got, []string{"current_only_ref", "other_ref"}) {

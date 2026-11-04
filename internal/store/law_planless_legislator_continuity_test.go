@@ -68,7 +68,7 @@ func seedPlanlessLegislatorFixture(t *testing.T, s *Store, lawModifies string) {
 	if _, err := db.Exec(`INSERT INTO workflow_instances(work_id,workflow_type,step_plan,instance_state) VALUES(?, NULL, NULL, 'completed')`, workID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,changes_product_truth) VALUES(?,?,'Synthetic fixture premise for the authority resolver.','internal_sqlite','[]','[]','2026-09-30T00:21:16Z',?,'[]',?,0,'prototype_internal',NULL)`,
+	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,changes_product_truth) VALUES(?,?,'Synthetic fixture premise for the authority resolver.','internal_sqlite','[]','2026-09-30T00:21:16Z',?,'[]',?,0,'prototype_internal',NULL)`,
 		workID, version, authorityActorRef, lawModifies); err != nil {
 		t.Fatal(err)
 	}

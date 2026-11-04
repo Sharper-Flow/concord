@@ -54,8 +54,6 @@ func TestCurrentActionPayloadContractsRefuseCrossActionAndInvalidFields(t *testi
 	}{
 		{"another action's field", "bind_evidence", `{"edge_id":"secret:must-not-echo"}`, "edge_id", "declared"},
 		{"wrong type", "link_successor", `{"successor_work_id":42}`, "successor_work_id", "type or bounds"},
-		{"empty verdict batch", "record_verdict", `{"verdicts":[]}`, "verdicts", "type or bounds"},
-		{"empty receipts", "record_verdict", `{"verdicts":[{"predicate_id":"predicate:one","receipt_refs":[]}]}`, "receipt_refs", "minimum of 1"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := validateWorkflowPlanActionPayload(test.action, json.RawMessage(test.payload))
@@ -69,7 +67,7 @@ func TestCurrentActionPayloadContractsRefuseCrossActionAndInvalidFields(t *testi
 
 func TestContractPremiseRejectsBlankAndFallbackText(t *testing.T) {
 	t.Parallel()
-	valid := `{"decision_domains":[],"premise":"The operator stated this premise.","outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:test","immutable_subject_ref":"commit:test","expected_result":"pass"}}]}`
+	valid := `{"decision_domains":[],"premise":"The operator stated this premise.","legislative_subjects":[]}`
 	if _, err := validateWorkflowPlanActionPayload("approve_contract", json.RawMessage(valid)); err != nil {
 		t.Fatalf("valid contract refused: %v", err)
 	}
@@ -113,7 +111,7 @@ func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
 	}
 	defer tx.Rollback()
 	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: beforeVersion, ActionID: "approve_contract", Payload: json.RawMessage(`{"decision_domains":[],"outcome_predicates":[{"predicate_id":"predicate:required-payload","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:required-payload","immutable_subject_ref":"commit:required-payload","expected_result":"pass"}}]}`), Actor: actor,
+		WorkID: workID, ExpectedVersion: beforeVersion, ActionID: "approve_contract", Payload: json.RawMessage(`{"decision_domains":[],"legislative_subjects":[]}`), Actor: actor,
 		AcceptedInputsDigest: "sha256:required-payload", IdempotencyIdentity: "required-payload", OperationID: "required-payload",
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "required-payload",
 		RequestID: "request:required-payload", ContractDigest: testManifestDigest, Now: time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC),
@@ -136,15 +134,12 @@ func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
 
 func TestActionPayloadListItemSchemasMatchPreflight(t *testing.T) {
 	t.Parallel()
-	if _, err := validateWorkflowPlanActionPayload("record_verdict", json.RawMessage(`{"verdicts":[{"predicate_id":"predicate:one","receipt_refs":["artifact:path/with/slash"]}]}`)); err != nil {
-		t.Fatalf("workflow reference accepted by the generated reference schema was refused: %v", err)
-	}
 	longLawID := "spec:" + strings.Repeat("a", 124)
-	payload := json.RawMessage(`{"premise":"The operator stated this premise.","outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:test","immutable_subject_ref":"commit:test","expected_result":"pass"}}],"spec_mandate":["` + longLawID + `"],"decision_domains":[]}`)
+	payload := json.RawMessage(`{"premise":"The operator stated this premise.","legislative_subjects":[],"spec_mandate":["` + longLawID + `"],"decision_domains":[]}`)
 	if _, err := validateWorkflowPlanActionPayload("approve_contract", payload); err != nil {
 		t.Fatalf("bounded law ID accepted by the generated law schema was refused: %v", err)
 	}
-	invalid := json.RawMessage(`{"premise":"The operator stated this premise.","outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:test","immutable_subject_ref":"commit:test","expected_result":"pass"}}],"spec_mandate":[" spec:one"],"decision_domains":[]}`)
+	invalid := json.RawMessage(`{"premise":"The operator stated this premise.","legislative_subjects":[],"spec_mandate":[" spec:one"],"decision_domains":[]}`)
 	_, err := validateWorkflowPlanActionPayload("approve_contract", invalid)
 	_ = requirePayloadFailure(t, err, "spec_mandate", "type or bounds")
 }

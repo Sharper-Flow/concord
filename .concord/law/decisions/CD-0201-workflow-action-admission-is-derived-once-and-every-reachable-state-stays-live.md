@@ -19,7 +19,7 @@
 - **Preserves:** every other route refusal keeps its own scope;
   payload and identity checks stay in the guards; no generated contract
   changes
-- **Related:** CD-0043, CD-0173, CD-0197
+- **Related:** CD-0043, CD-0173
 - **Approval:** The operator approved the approach in session chat on
   2026-10-01, including the well-formed-state exit check and excluding
   runtime invariant guards and random-walk conformance.
@@ -32,7 +32,7 @@ recovery action refuses. The item strands.
 
 Independent admission copies can disagree about the same current state.
 Preflight, guards, work-pin intents and mutation execution need one decision
-over the accepted Review, subject and dependencies.
+over the current work and plan state.
 
 The only liveness check was a bounded sampler. It skipped the dispatch
 action, stopped at twelve steps, and called the result inconclusive when the
@@ -49,28 +49,24 @@ rows into a single determinate, subject-specific abstract admission state
 State comparisons compare record sets by value; the representation need not
 support Go's built-in comparability.
 A pure function `workflowAdmit` decides one
-action's admission over that derived state and returns the decision, the
-ready review, and the typed refusal. Preflight, the guard table, the work
+action's admission over that derived state and returns the decision and typed
+refusal. Preflight, the guard table, the work
 pin intents and mutation execution call the loader
 and the pure function.
 
 The loader takes a queryer, not a store, so a caller inside a transaction
 never calls back into the pooled connection (the store connection
-invariant). Request payload checks stay in the guards. Admission binds the
-recorded Review to its exact subject and dependencies before it decides.
+invariant). Request payload checks stay in the guards.
 
 The derived admission state covers every condition those sites read: the step and lifecycle, the instance state, the active
 contract count, the breaking impact
-notices, design currency, the accepted Review disposition of the
-current candidate, evidence-binding requirements and existing records eligible
+notices, design currency and existing records eligible
 for ordinary replacement. Contract content changes use the ordinary record
 update in [workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates),
 not a separate workflow-action admission route.
 
-Review and context projections use their current findings and
-recorded verification reports without inventing worker lineage. Reports use
-the existing evidence-binding admission, not native preparation or execution.
-They do not create a second admission derivation or new evidence authority.
+Review and context projections do not invent worker lineage. Ordinary evidence
+binding does not create a second admission derivation or evidence authority.
 
 The liveness checks count only exits the derived state proves, so they fail
 rather than assume. Widening the liveness, well-formed-exit, and
@@ -79,7 +75,7 @@ record and does not change this record's law.
 
 ### D2. The liveness law
 
-The same derivation derives confirmation authority and evaluator prerequisites. Independent evaluator actions must be genuinely admitted before the model counts their exit. No confirmation supplies missing evidence or clears an unmet requirement. Both liveness checks and real conformance witnesses cover the registered current definitions
+The same derivation derives confirmation authority. Actions must be genuinely admitted before the model counts their exit. No confirmation clears an unmet requirement. Both liveness checks and real conformance witnesses cover the registered current definitions
 ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 For every registered definition:

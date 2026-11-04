@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"reflect"
 	goruntime "runtime"
-	"slices"
 	"testing"
 	"time"
 
@@ -108,7 +107,7 @@ func (f *spineFixture) verify(t *testing.T) string {
 		return f.proof
 	}
 	f.proofCommit = commit
-	f.proof = agentBindVerificationReport(t, f, commit, "pass", fmt.Sprintf("run:spine-%d", f.request))
+	f.proof = agentBindVerificationReport(t, f, commit, fmt.Sprintf("run:spine-%d", f.request))
 	return f.proof
 }
 
@@ -123,7 +122,6 @@ func newSpineFixtureForFamily(t *testing.T, family string) *spineFixture {
 	f.verify(t)
 	f.implement(t)
 	f.proof = f.verify(t)
-	f.review(t, "ready_for_final_proof", f.proof)
 	return f
 }
 
@@ -176,7 +174,7 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 	f := &spineFixture{s: s, service: service, env: mutationEnvelope(grant, scope), base: base}
 	capture := map[string]any{
 		"title": "Resume a checked value change", "value_statement": "Fresh sessions must recover actionable checked work.",
-		"task": "The synthetic value needs a checked implementation; close when its predicate passes.",
+		"task": "The synthetic value needs a checked implementation and reviewed delivery.",
 		"kind": "task", "project_ids": []string{"project-1"}, "idempotency_key": "spine-capture",
 	}
 	if family == "workflow.break_fix" {
@@ -208,7 +206,6 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 	spineOK(t, f.call(t, "concord_domain", "list", map[string]any{"product_id": "product-1"}))
 	fields := workflowContractFieldsFixture()
 	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
-	fields["required_evidence"] = []string{"verification"}
 	spineOK(t, f.action(t, "approve_contract", fields))
 	spineOK(t, f.action(t, "complete_step", map[string]any{"step_id": "plan", "note": "Plan approved."}))
 	spineOK(t, f.action(t, "start_execution", map[string]any{}))
@@ -225,25 +222,17 @@ func (f *spineFixture) implement(t *testing.T) {
 	f.verify(t)
 }
 
-func (f *spineFixture) review(t *testing.T, disposition, proof string) {
+func (f *spineFixture) review(t *testing.T, result string) {
 	t.Helper()
-	pin := f.read(t).Pinned.Pin
-	if pin.Review == nil || pin.Review.Dependencies == nil {
-		t.Fatal("current Review dependency identities are unavailable")
-	}
-	candidate := store.ReviewCandidate{ProjectID: "project-1", Commit: gitRun(t, f.path, "rev-parse", "HEAD"), Tree: gitRun(t, f.path, "rev-parse", "HEAD^{tree}")}
-	report := &store.ReviewBlock{Disposition: disposition, InputCandidate: candidate, OutputCandidate: candidate, Dependencies: *pin.Review.Dependencies,
-		Assessments: []store.ReviewAssessment{}, Findings: []store.ReviewFinding{}, RemainingObligations: []store.ReviewObligation{}}
-	if proof != "" {
-		report.Assessments = append(report.Assessments, store.ReviewAssessment{PredicateID: "predicate:primary", Assessment: "supported", ReceiptRefs: []string{proof}})
-	}
-	spineOK(t, f.action(t, "record_review", map[string]any{"review": report}))
+	spineOK(t, f.action(t, "record_review", map[string]any{
+		"step_id": f.read(t).Pinned.Step, "note": "Reviewed the current step.", "reviewer": "concord-review",
+		"result": result, "commit": gitRun(t, f.path, "rev-parse", "HEAD"), "link": "https://example.com/review/spine",
+	}))
 }
 
 func (f *spineFixture) completeReview(t *testing.T) {
 	t.Helper()
-	review := f.read(t).Pinned.Pin.Review
-	spineOK(t, f.action(t, "complete_step", map[string]any{"step_id": "review", "note": "Final review passed.", "reviewer": "concord-review", "result": "pass", "commit": review.Candidate.Commit, "link": review.Accepted.ReportRef}))
+	f.review(t, "pass")
 }
 
 func TestSpineFreshSessionResumesCurrentState(t *testing.T) {
@@ -253,14 +242,8 @@ func TestSpineFreshSessionResumesCurrentState(t *testing.T) {
 	if before.Pinned.Step != "review" || before.Pinned.Pin.Lifecycle != "in_progress" {
 		t.Fatalf("unexpected resumable position: %+v", before.Pinned.Pin)
 	}
-	if before.Pinned.Contract == nil || len(before.Pinned.Contract.OutcomePredicates) != 1 || before.Pinned.Contract.OutcomePredicates[0].PredicateID != "predicate:primary" {
-		t.Fatal("active predicate missing")
-	}
-	if !slices.Contains(before.Pinned.Pin.VerdictEvidence, store.WorkPinEvidence{EvidenceKind: "verification", ImmutableSubjectRef: f.proof}) {
-		t.Fatal("bound verification reference missing from current proof-consuming gate")
-	}
-	if !slices.ContainsFunc(before.Pinned.Pin.NextValidIntents, func(i store.WorkPinIntent) bool { return i.ActionID == "record_verdict" }) {
-		t.Fatalf("evaluation is not an admitted next action: %+v", before.Pinned.Pin)
+	if before.Pinned.Contract == nil {
+		t.Fatal("active contract missing")
 	}
 	database := f.s.Path()
 	if err := f.s.Close(); err != nil {
@@ -282,31 +265,24 @@ func TestSpineFreshSessionResumesCurrentState(t *testing.T) {
 	// Compare only surviving current state, never a definition version, event
 	// watermark, sequence, or historical action list.
 	if before.WorkID != after.WorkID || before.Pinned.Pin.Lifecycle != after.Pinned.Pin.Lifecycle || before.Pinned.Step != after.Pinned.Step ||
-		before.Pinned.Contract.Version != after.Pinned.Contract.Version || !reflect.DeepEqual(before.Pinned.Contract.OutcomePredicates, after.Pinned.Contract.OutcomePredicates) || before.Pinned.Contract.Premise != after.Pinned.Contract.Premise ||
-		!reflect.DeepEqual(before.Pinned.Contract.RequiredEvidence, after.Pinned.Contract.RequiredEvidence) || !reflect.DeepEqual(before.Pinned.Pin.OutstandingEvidenceKinds, after.Pinned.Pin.OutstandingEvidenceKinds) ||
-		!reflect.DeepEqual(before.Pinned.Pin.VerdictEvidence, after.Pinned.Pin.VerdictEvidence) || !reflect.DeepEqual(before.Pinned.Pin.NextValidIntents, after.Pinned.Pin.NextValidIntents) {
+		before.Pinned.Contract.Version != after.Pinned.Contract.Version || !reflect.DeepEqual(before.Pinned.Contract.LegislativeSubjects, after.Pinned.Contract.LegislativeSubjects) || before.Pinned.Contract.Premise != after.Pinned.Contract.Premise ||
+		!reflect.DeepEqual(before.Pinned.Pin.NextValidIntents, after.Pinned.Pin.NextValidIntents) {
 		t.Fatalf("fresh session did not recover current state: before=%+v after=%+v", before.Pinned, after.Pinned)
 	}
-	spineOK(t, f.action(t, "record_verdict", map[string]any{"verdicts": []map[string]any{{
-		"predicate_id": "predicate:primary", "receipt_refs": []string{f.proof},
-	}}}))
 }
 
-// Reaching review leaves evaluation and premise confirmation before completion.
+// Reaching review leaves premise confirmation before completion.
 func (f *spineFixture) advanceToAcceptance(t *testing.T) {
 	t.Helper()
 	delivery := map[string]any{"delivery_artifact": "artifact:spine-value", "delivery_state": "asserted"}
 	if step := f.read(t).Pinned.Step; step != "implement" {
-		t.Fatalf("ready Review moved the producing step to %q", step)
+		t.Fatalf("producing step = %q, want implement", step)
 	}
-	report := f.read(t).Pinned.Pin.Review.Accepted.ReportRef
-	spineOK(t, f.action(t, "complete_step", map[string]any{"step_id": "implement", "note": "Implementation reviewed.", "reviewer": "concord-review", "result": "pass", "commit": f.proofCommit, "link": report}))
+	f.review(t, "pass")
 	if step := f.read(t).Pinned.Step; step != "review" {
 		t.Fatalf("implementation completion left the step at %q, want review", step)
 	}
 	f.proof = f.verify(t)
-	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "artifact", "evidence_ref": "commit:" + f.proofCommit}))
-	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
 	spineOK(t, f.action(t, "record_delivery", delivery))
 	spineOK(t, f.action(t, "record_delivery", delivery))
 }

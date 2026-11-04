@@ -19,7 +19,7 @@
 - **Approval:** The operator selected contract-generated registry enforcement for
   #502, selected workflow-definition family resolution for #508, and directed
   #512 into the same change on 2026-08-25.
-- **Related:** CD-0002, CD-0013 D14, CD-0039, CD-0040 D11, CD-0055
+- **Related:** CD-0002, CD-0218 D1, CD-0039, CD-0040 D11, CD-0055
 - **Preserves:** The live workflow-family set; the `successor_kind` work-item
   meaning on a recorded successor link; migration immutability;
   SQLite as the sole local state authority
@@ -30,7 +30,7 @@
 kind states what an operator says the item is. A workflow family states which
 workflow the item runs. The operator set contains `task`, `bug`, `decision`,
 `research`, and `other`, with `initiative` reserved for its dedicated operation.
-The workflow-family set contains seven names fixed by CD-0013 D14. Only `research`
+The workflow-type set contains four names fixed by CD-0218 D1. Only `research`
 appears in both sets, and that spelling does not make the concepts identical.
 
 The code hid this distinction. The database column is named `kind`, the agent
@@ -61,7 +61,7 @@ The work-item operator vocabulary is:
   accepted by agent capture;
 - `initiative` and `epic`: retired and never stored.
 
-Workflow-family names remain the seven values fixed by CD-0013 D14. They do not
+Workflow-type names remain the four values fixed by CD-0218 D1. They do not
 enter `work_items.kind`.
 
 ### D2. Each vocabulary has one machine-readable declaration

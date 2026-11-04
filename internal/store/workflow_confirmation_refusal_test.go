@@ -2,20 +2,15 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 )
 
-// TestUnavailableConfirmationIsNotAdvertised holds the intent-projection side
-// of the confirmation gate. The pin states what the caller may do, and a
-// confirm_premise whose deliverables are missing would refuse, so the pin must
-// not advertise it. Once the deliverables stand, the action returns.
-func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
+func TestConfirmationAvailabilityTracksFrontier(t *testing.T) {
 	ctx := context.Background()
 	workID := "hidden-confirmation-work"
-	otherWorkID := "hidden-confirmation-other"
-	f, _, refs := pReceiptFixture(t, workID, 1, 1)
+	f := rAcceptance(t, workID, nil, false)
 	s := f.store
-	seedWork(t, s, otherWorkID)
 
 	pinIntents := func() (pin WorkPin) {
 		pin, err := ReadWorkPin(ctx, s, workID)
@@ -28,19 +23,26 @@ func TestUnavailableConfirmationIsNotAdvertised(t *testing.T) {
 		return workPinContainsAction(pin.NextValidIntents, "confirm_premise")
 	}
 
-	// The confirmation gate closes the action while deliverables are missing.
-	hidden := pinIntents()
-	if advertised(hidden) {
-		t.Fatal("pin advertised confirm_premise while its deliverables were missing")
-	}
-
-	// With the verdict recorded, the deliverables stand and the
-	// confirmation returns.
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
-		t.Fatal(err)
-	}
 	if !advertised(pinIntents()) {
-		t.Fatal("pin hid confirm_premise while its deliverables stood")
+		t.Fatal("pin hid confirm_premise at its declared frontier")
+	}
+	if err := runVerdictActionAs(t, s, workID, "confirm_premise", json.RawMessage(`{}`), 0, f.owner); err != nil {
+		t.Fatalf("confirm at review: %v", err)
+	}
+	completeWorkflowPlanFixture(t, s, workID)
+	version := readWorkVersion(t, s, workID)
+	request := planAdmissionRequest(workID, "confirm_premise", version, f.owner, json.RawMessage(`{}`))
+	if advertised(pinIntents()) {
+		t.Fatal("pin advertised confirm_premise with no frontier")
+	}
+	if err := planAdmissionPreflight(t, s, request); !hasFailureKind(err, KindIllegalLifecycleTransition) {
+		t.Fatalf("no-frontier preflight = %v", err)
+	}
+	if err := planAdmissionDispatch(t, s, request); !hasFailureKind(err, KindIllegalLifecycleTransition) {
+		t.Fatalf("no-frontier dispatch = %v", err)
+	}
+	if readWorkVersion(t, s, workID) != version {
+		t.Fatal("refused confirmation changed version")
 	}
 }
 

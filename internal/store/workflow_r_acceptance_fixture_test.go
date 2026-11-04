@@ -8,25 +8,25 @@ import (
 	"time"
 )
 
-// rAcceptance seeds a workflow.implementation item at acceptance through the
-// current owners: a current integrated candidate, a captured receipt, Main's
-// accepted Review, and Main's criterion association when associate is set.
-// domains is the active contract's decision fact; a non-empty fact revises the seeded engineering contract through the
-// ordinary update before the candidate is reviewed, so every proof binds the
-// decision-bearing successor.
-func rAcceptance(t *testing.T, workID string, domains []string, associate bool) acceptanceRecoveryFixture {
+// rAcceptance seeds an engineering item at its confirmation step.
+func rAcceptance(t *testing.T, workID string, domains []string, confirm bool) acceptanceRecoveryFixture {
 	t.Helper()
-	route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", []string{"verification"}, []string{"verification", "review", "artifact"})
+	route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", []string{"verification", "review", "artifact"})
 	t.Cleanup(func() { _ = route.store.Close() })
-	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
+	f := acceptanceRecoveryFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
 	if len(domains) > 0 {
 		rReviseContract(t, f.store, workID, ownerRefForTest(t, f.owner), domains)
 	}
-	return qAssociateCurrentProof(t, f, "", associate)
+	moveWorkflowPlanFixtureFrontier(t, f.store, workID, "review")
+	if confirm {
+		if err := runVerdictActionAs(t, f.store, workID, "confirm_premise", json.RawMessage(`{}`), 0, f.owner); err != nil {
+			t.Fatalf("confirm premise: %v", err)
+		}
+	}
+	return f
 }
 
-// rReviseContract updates the active contract with a successor that keeps
-// its predicates and declares domains as the decision fact.
+// rReviseContract declares domains on the successor contract.
 func rReviseContract(t *testing.T, s *Store, workID, actorRef string, domains []string) {
 	t.Helper()
 	var actor WorkflowActor

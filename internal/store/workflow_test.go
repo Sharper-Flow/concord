@@ -34,7 +34,7 @@ func TestWorkflowActorReferenceUsesDocumentedCanonicalNULEncoding(t *testing.T) 
 func TestWorkflowEventsFoldAtomically(t *testing.T) {
 	t.Parallel()
 	const workID = "workflow-work"
-	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, "investigate", []string{}, []string{})
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, "investigate", []string{})
 	s := f.store
 	actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/runner", SessionRef: "session/atomic", ActorClass: ActorAgent}
 	actorRef, ownerRef := mustActorRef(t, actor), mustActorRef(t, f.owner)
@@ -70,7 +70,7 @@ func TestWorkflowEventsFoldAtomically(t *testing.T) {
 
 func TestWorkflowPremiseConfirmationReentryUpdatesProjectionRow(t *testing.T) {
 	const workID = "workflow-premise-reentry"
-	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, "conclude", []string{}, []string{})
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, "conclude", []string{})
 	s := f.store
 	coordinator := mustActorRef(t, f.owner)
 	base := readWorkVersion(t, s, workID)
@@ -136,7 +136,7 @@ func TestWorkflowCompletedCannotBeAppendedThroughGenericEventAPI(t *testing.T) {
 
 func TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses(t *testing.T) {
 	t.Parallel()
-	s, completion := seedCompletionGateCase(t, "complete-work", completionGateCase{requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
+	s, completion := seedCompletionGateCase(t, "complete-work", completionGateCase{includeSpec: true, includePremise: true})
 	finalVersion := readWorkVersion(t, s, "complete-work")
 	if err := CompleteWorkflow(context.Background(), s, completion); err != nil {
 		t.Fatal(err)
@@ -181,7 +181,7 @@ func TestWorkflowCompletionGateCommitsTerminalEventOnlyAfterAllClauses(t *testin
 func TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict(t *testing.T) {
 	t.Parallel()
 	t.Run("direct completion rejects v1", func(t *testing.T) {
-		s, completion := seedCompletionGateCase(t, "completion-v1-refused", completionGateCase{requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
+		s, completion := seedCompletionGateCase(t, "completion-v1-refused", completionGateCase{includeSpec: true, includePremise: true})
 		completion.PayloadVersion = 1
 		var payload map[string]any
 		if err := json.Unmarshal(completion.Payload, &payload); err != nil {
@@ -193,7 +193,7 @@ func TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict(t *testing.T) {
 	})
 
 	t.Run("complete action rejects omitted verdict", func(t *testing.T) {
-		s, _ := seedCompletionGateCase(t, "completion-verdict-omitted", completionGateCase{requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
+		s, _ := seedCompletionGateCase(t, "completion-verdict-omitted", completionGateCase{includeSpec: true, includePremise: true})
 		var version int64
 		if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='completion-verdict-omitted'`).Scan(&version); err != nil {
 			t.Fatal(err)
@@ -215,12 +215,9 @@ func workflowCompletionEvent(ctx context.Context, tx *sql.Tx, request WorkflowAc
 
 type completionGateCase struct {
 	name               string
-	requiredEvidence   []string
 	includeSpec        bool
 	emptyMandate       bool
-	includeVerdict     bool
 	includePremise     bool
-	verdictKind        string
 	completionConflict bool
 	omitClosure        bool
 	wantKind           FailureKind
@@ -230,7 +227,7 @@ type completionGateCase struct {
 func TestWorkflowCompletionAppendConflictRollsBack(t *testing.T) {
 	t.Parallel()
 	cases := []completionGateCase{
-		{name: "clause-7-rollback", requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok", completionConflict: true, wantKind: KindOperationConflict, wantClause: 7},
+		{name: "clause-7-rollback", includeSpec: true, includePremise: true, completionConflict: true, wantKind: KindOperationConflict, wantClause: 7},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -371,14 +368,11 @@ func seedWorkflowLawProjection(t *testing.T, s *Store) {
 
 func seedCompletionGateCase(t *testing.T, workID string, testCase completionGateCase) (*Store, Event) {
 	t.Helper()
-	extra := []string{}
-	for _, kind := range testCase.requiredEvidence {
-		if kind != "verification" {
-			extra = append(extra, kind)
-		}
-	}
-	f := qBuildAcceptance(t, workID, "artifact:gate-case", testCase.includeVerdict, extra...)
+	f := rAcceptance(t, workID, nil, false)
 	s := f.store
+	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:gate-case","delivery_state":"asserted"}`), 0, f.owner); err != nil {
+		t.Fatalf("record delivery: %v", err)
+	}
 	executor, err := WorkflowActorRef(f.owner)
 	if err != nil {
 		t.Fatal(err)
@@ -391,8 +385,6 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 	if !testCase.omitClosure {
 		completeWorkflowPlanFixture(t, s, workID)
 	}
-	// Fault the mutable gate inputs only after the real current Review and
-	// proof path has run. Captured receipts and immutable events stay intact.
 	appendEvent := func(event Event) {
 		t.Helper()
 		if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, readWorkVersion(t, s, workID))}); err != nil {
@@ -425,7 +417,7 @@ func seedCompletionGateCase(t *testing.T, workID string, testCase completionGate
 		}
 	}
 	version := readWorkVersion(t, s, workID)
-	completion := workflowEventWithActor("gate-completion-"+workID, WorkflowCompleted, workID, executor, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": executor, "premise_confirmed": testCase.includePremise, "evidence_count": 3, "changed_refs_digest": "sha256:" + strings.Repeat("a", 64), "impact_verdict": "non-breaking"})
+	completion := workflowEventWithActor("gate-completion-"+workID, WorkflowCompleted, workID, executor, map[string]any{"work_id": workID, "expected_version": version, "resulting_version": version + 1, "terminal_state": "completed", "changed_refs_digest": testDigest("completion"), "warnings": []string{}, "impact_verdict": "non-breaking"})
 	completion.PayloadVersion = CurrentEventPayloadVersion(WorkflowCompleted)
 	return s, completion
 }
@@ -517,8 +509,7 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 	s := openTemp(t)
 	expectedColumns := map[string][]string{
 		"workflow_instances":             {"work_id", "workflow_type", "step_plan", "prelude_state", "instance_state", "execution_actor_ref", "execution_model", "started_at", "completed_at", "last_checkpoint_at", "execution_started_at", "completion_payload", "completion_occurred_at"},
-		"workflow_contracts":             {"work_id", "contract_version", "premise", "consequence_class", "required_evidence", "route_conventions", "approved_at", "approved_by", "superseded_by", "spec_mandate", "rigor_class", "law_modifies", "law_boundary_version", "self_repair_json", "supersession_seq", "last_healthy_seq", "decision_domains", "changes_product_truth"},
-		"workflow_contract_predicates":   {"work_id", "contract_version", "predicate_id", "ordinal", "outcome_kind", "outcome_payload"},
+		"workflow_contracts":             {"work_id", "contract_version", "premise", "consequence_class", "route_conventions", "approved_at", "approved_by", "superseded_by", "spec_mandate", "rigor_class", "law_modifies", "law_boundary_version", "self_repair_json", "supersession_seq", "last_healthy_seq", "decision_domains", "changes_product_truth", "legislative_subjects"},
 		"workflow_candidate_sets":        {"work_id", "contract_version", "candidate_kind", "candidate_ref", "candidate_role", "candidate_scope", "recorded_at", "recorded_by"},
 		"workflow_actors":                {"actor_ref", "principal_ref", "client_ref", "agent_ref", "session_ref", "actor_class", "first_seen_at"},
 		"workflow_checkpoints":           {"work_id", "checkpoint_id", "step_id", "step_kind", "attempt_epoch", "accepted_inputs_digest", "result_evidence_refs", "resume_cursor", "idempotency_identity", "actor_ref", "request_id", "recorded_at"},
@@ -529,18 +520,18 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 	}
 	expectedForeignKeys := map[string][]string{
 		"workflow_instances": {"work_items", "workflow_actors"}, "workflow_contracts": {"work_items", "workflow_actors", "workflow_contracts", "workflow_contracts"},
-		"workflow_candidate_sets": {"workflow_contracts", "workflow_contracts", "workflow_actors"}, "workflow_contract_predicates": {"workflow_contracts", "workflow_contracts"}, "workflow_actors": {}, "workflow_checkpoints": {"work_items", "workflow_actors"},
+		"workflow_candidate_sets": {"workflow_contracts", "workflow_contracts", "workflow_actors"}, "workflow_actors": {}, "workflow_checkpoints": {"work_items", "workflow_actors"},
 		"workflow_impact_edges":     {"work_items", "work_items"},
 		"workflow_decision_records": {"work_items"}, "workflow_design_records": {"work_items"}, "workflow_premise_confirmations": {"workflow_contracts", "workflow_contracts", "workflow_actors"},
 	}
 	expectedUniqueKeys := map[string][][]string{
-		"workflow_instances": {{"work_id"}}, "workflow_contracts": {{"work_id", "contract_version"}}, "workflow_contract_predicates": {{"work_id", "contract_version", "predicate_id"}, {"work_id", "contract_version", "ordinal"}}, "workflow_candidate_sets": {{"work_id", "contract_version", "candidate_kind", "candidate_ref"}},
+		"workflow_instances": {{"work_id"}}, "workflow_contracts": {{"work_id", "contract_version"}}, "workflow_candidate_sets": {{"work_id", "contract_version", "candidate_kind", "candidate_ref"}},
 		"workflow_actors": {{"actor_ref"}, {"principal_ref", "client_ref", "agent_ref", "session_ref"}}, "workflow_checkpoints": {{"work_id", "checkpoint_id"}, {"work_id", "step_id", "attempt_epoch"}, {"work_id", "idempotency_identity"}},
 		"workflow_impact_edges":     {{"work_id", "edge_id"}},
 		"workflow_decision_records": {{"work_id", "question"}}, "workflow_design_records": {{"work_id", "work_version"}}, "workflow_premise_confirmations": {{"work_id", "contract_version"}},
 	}
 	enumFragments := map[string][]string{
-		"workflow_instances": {"'intake'", "'superseded'", "'completed'", "'change'", "'fix'", "'research'", "'removal'", "json_valid(step_plan)"}, "workflow_contracts": {}, "workflow_contract_predicates": {"'exists'", "'check'"},
+		"workflow_instances": {"'intake'", "'superseded'", "'completed'", "'change'", "'fix'", "'research'", "'removal'", "json_valid(step_plan)"}, "workflow_contracts": {},
 		"workflow_candidate_sets": {"'work_item'", "candidate_role IN ('include')"}, "workflow_actors": {"'agent'", "'operator'"},
 		"workflow_checkpoints":      {"'internal_sqlite'", "'cross_authority'", "'external_effect'"},
 		"workflow_impact_edges":     {"'depends_on'", "'work_item'"},
@@ -580,7 +571,7 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 				seedWork(t, s, "fold-guard-decision-domains")
 				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES('actor:' || hex(zeroblob(32)),'principal:fold-guard-dd','client:fold-guard-dd','agent:fold-guard-dd','session:fold-guard-dd','agent','now');
-INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('fold-guard-decision-domains',1,'fold guard decision domains','internal_sqlite','[]','[]','now','actor:' || hex(zeroblob(32)),'[]','[]',0,'prototype_internal');
+INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('fold-guard-decision-domains',1,'fold guard decision domains','internal_sqlite','[]','now','actor:' || hex(zeroblob(32)),'[]','[]',0,'prototype_internal');
 DELETE FROM write_guard`); err != nil {
 					t.Fatal(err)
 				}

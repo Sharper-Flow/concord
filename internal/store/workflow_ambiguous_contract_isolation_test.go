@@ -13,8 +13,8 @@ func duplicateActiveContractForTest(ctx context.Context, t *testing.T, s *Store,
 	t.Helper()
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `
 		INSERT INTO write_guard(active) VALUES(1);
-		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
-		SELECT work_id,contract_version+1,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class
+		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
+		SELECT work_id,contract_version+1,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class
 		FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1;
 		INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash)
 		SELECT work_id,contract_version+1,product_id,home_domain_id,projection_hash

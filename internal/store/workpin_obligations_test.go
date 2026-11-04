@@ -2,11 +2,10 @@ package store
 
 import (
 	"context"
-	"reflect"
 	"testing"
 )
 
-func TestWorkPinPublishesContractObligationsAndPlanIdentity(t *testing.T) {
+func TestWorkPinContinuityRetainsPlanIdentity(t *testing.T) {
 	s := openTemp(t)
 	const workID = "workpin-obligations"
 	seedLawContextFixture(t, s, workID)
@@ -20,15 +19,11 @@ func TestWorkPinPublishesContractObligationsAndPlanIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"verification"}
-	if pin.Obligations == nil || !reflect.DeepEqual(*pin.Obligations, want) {
-		t.Fatalf("pin obligations=%v, want active contract obligations %v", pin.Obligations, want)
-	}
 	snapshot, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: workID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.WorkPin == nil || !reflect.DeepEqual(snapshot.WorkPin.Obligations, pin.Obligations) || snapshot.WorkPin.WorkflowType != pin.WorkflowType {
+	if snapshot.WorkPin == nil || snapshot.WorkPin.WorkflowType != pin.WorkflowType || snapshot.WorkPin.Version != pin.Version {
 		t.Fatalf("continuity pin=%+v, direct pin=%+v", snapshot.WorkPin, pin)
 	}
 }

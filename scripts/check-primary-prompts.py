@@ -134,9 +134,11 @@ LOOKUP_OBLIGATION_MARKERS = (
 DELEGATION_ANCHOR_MARKERS = (
     "Use native Task to delegate implementation and design under host permissions",
     "Obtain independent review through native Task against the exact current subject",
-    "Bind an attributed local or required CI verification report for the recorded commit",
-    "A Task answer alone is not a bound report",
-    "compare the recorded commits for Review, evidence and verdicts",
+    "Record the reviewed step through `record_review` with its step ID, note, reviewer, result, commit and actual Task result link",
+    "The tuple does not run Review",
+    "the final review needs a clean pass",
+    "Bind ordinary evidence with its producer watermark",
+    "keep proof tied to the candidate it covers",
 )
 # Portable profiles route by need; agent descriptions own routing by id.
 GENERATED_AGENT_ID = re.compile(r"concord-(?:explore|lookup|advisor|research|implement|design|review|verify)\b")

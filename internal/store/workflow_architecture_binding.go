@@ -193,17 +193,12 @@ const workflowObligationMembershipTeaching = "Evidence obligations must name a k
 
 // WorkflowContractTeaching carries the typed descriptions of the relational
 // and live-context constraints the store enforces. Every rule is a
-// constant defined beside the owner that enforces it (the predicate ordinal
-// guard in workflow.go, the alignment combination declaration in
-// workflow_registry.go, and the mandate, Domain, and obligation collectors in
-// this file), so the generated publication and the refusal guidance cannot
+// constant defined beside its enforcing owner, so the generated publication
+// and the refusal guidance cannot
 // drift from admission. The projection in scripts/workflow-action-contracts
 // renders these strings into the published schema; no second policy enforces
 // them.
 type WorkflowContractTeaching struct {
-	// PredicateOrdinalRule states the zero-based position equality the
-	// approve/supersede fold enforces on every outcome predicate.
-	PredicateOrdinalRule string `json:"predicate_ordinal_rule"`
 	// LawAdditionMandateRule states the mandate subset and disjointness the
 	// law boundary and architecture-binding guards enforce.
 	LawAdditionMandateRule string `json:"law_addition_mandate_rule"`
@@ -215,22 +210,16 @@ type WorkflowContractTeaching struct {
 	// AlignmentCombinationRule states the cross-field rule the
 	// record_alignment registry declaration enforces at payload validation.
 	AlignmentCombinationRule string `json:"alignment_combination_rule"`
-	// OutcomeKindEqualityRule states the nested equality the
-	// approve/supersede fold enforces on every outcome predicate and the
-	// engine kind-match declaration enforces at payload validation.
-	OutcomeKindEqualityRule string `json:"outcome_kind_equality_rule"`
 }
 
 // WorkflowContractTeachingRules returns the guard-owned teaching texts,
 // consuming each guard-site constant directly.
 func WorkflowContractTeachingRules() WorkflowContractTeaching {
 	return WorkflowContractTeaching{
-		PredicateOrdinalRule:     workflowPredicateOrdinalTeaching,
 		LawAdditionMandateRule:   workflowLawAdditionMandateTeaching,
 		ObligationMembershipRule: workflowObligationMembershipTeaching,
 		ArchitectureDomainRule:   workflowArchitectureDomainTeaching,
 		AlignmentCombinationRule: workflowAlignmentCombinationTeaching,
-		OutcomeKindEqualityRule:  workflowOutcomeKindEqualityTeaching,
 	}
 }
 

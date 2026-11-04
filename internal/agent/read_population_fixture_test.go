@@ -283,11 +283,11 @@ func (fx readPopulationFixture) seedFocusWorkflow(t *testing.T) {
 	seedAgentPlanFrontier(t, fx.store, fx.workID, store.WorkflowStepPlanChange, "plan")
 	actorRef := store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-population")
 	execPopulationStatement(t, fx.store, `INSERT OR IGNORE INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'human-1','client-1','agent-1','session-population','agent','now')`, actorRef)
-	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'population focus','internal_sqlite','[]','[]','now',?,'[]',?,1,'prototype_internal')`, fx.workID, actorRef, `["`+readPopulationDecision+`"]`)
+	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'population focus','internal_sqlite','[]','now',?,'[]',?,1,'prototype_internal')`, fx.workID, actorRef, `["`+readPopulationDecision+`"]`)
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES(?,1,'prod-alpha',?,?)`, fx.workID, readPopulationChildDomain, fx.registryHash)
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES(?,1,?)`, fx.workID, readPopulationChildDomain)
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES(?,1,?)`, fx.workID, readPopulationDecision)
-	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:population',0,'exists','{"kind":"exists","surface":"go_test:internal/agent","subjects":["work-population"]}')`, fx.workID)
+	execPopulationStatement(t, fx.store, `UPDATE workflow_contracts SET legislative_subjects='["work-population"]' WHERE work_id=? AND contract_version=1`, fx.workID)
 }
 
 // The inspect read walks an actual Git worktree and the retained entry projection.
@@ -344,7 +344,7 @@ func (fx readPopulationFixture) seedPopulationPeerWork(t *testing.T) {
 		t.Fatalf("seed population peer work: %v", err)
 	}
 	actorRef := store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-population")
-	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'population peer','internal_sqlite','[]','[]','now',?,'[]',?,1,'prototype_internal')`, readPopulationPeer, actorRef, `["`+readPopulationDecision+`"]`)
+	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'population peer','internal_sqlite','[]','now',?,'[]',?,1,'prototype_internal')`, readPopulationPeer, actorRef, `["`+readPopulationDecision+`"]`)
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES(?,1,'prod-alpha',?,?)`, readPopulationPeer, readPopulationChildDomain, fx.registryHash)
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES(?,1,?)`, readPopulationPeer, readPopulationChildDomain)
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES(?,1,?)`, readPopulationPeer, readPopulationDecision)

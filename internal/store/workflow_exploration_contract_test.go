@@ -6,12 +6,9 @@ func TestPlanConfirmationBindsRevisedContract(t *testing.T) {
 	const workID = "plan-revised-confirmation"
 	f := qCurrentAcceptance(t, workID)
 	defer f.store.Close()
-	contract := pContractSuccessor(t, f.store, workID, "Continue with the same current proof.")
+	contract := pContractSuccessor(t, f.store, workID, "Continue under the revised contract.")
 	if err := reviseContractRecord(t, f.store, workID, f.owner, contract, readWorkVersion(t, f.store, workID)); err != nil {
 		t.Fatal(err)
-	}
-	if err := runVerdictActionAs(t, f.store, workID, "record_verdict", qAssociationPayload(t, f), 0, f.owner); err != nil {
-		t.Fatalf("revised contract verdict: %v", err)
 	}
 	if err := f.run(t.Context(), "confirm_premise", "confirm-revised", f.version(t.Context(), t), nil, nil); err != nil {
 		t.Fatalf("revised contract confirmation: %v", err)

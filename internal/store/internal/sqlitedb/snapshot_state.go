@@ -19,6 +19,18 @@ func CurrentStateDigest(ctx context.Context, db *sql.DB) (string, error) {
 		return "", backupStateReadFailure(err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	digest, err := CurrentStateDigestTx(ctx, tx)
+	if err != nil {
+		return "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", backupStateReadFailure(err)
+	}
+	return digest, nil
+}
+
+// CurrentStateDigestTx hashes the same current state inside the caller's transaction.
+func CurrentStateDigestTx(ctx context.Context, tx *sql.Tx) (string, error) {
 	h := sha256.New()
 	if err := hashBackupRows(ctx, tx, h, `SELECT type,name,tbl_name,sql FROM main.sqlite_schema ORDER BY type COLLATE BINARY,name COLLATE BINARY`); err != nil {
 		return "", err
@@ -71,9 +83,6 @@ func CurrentStateDigest(ctx context.Context, db *sql.DB) (string, error) {
 		if err := hashBackupRows(ctx, tx, h, query+` ORDER BY `+strings.Join(order, ",")); err != nil {
 			return "", err
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return "", backupStateReadFailure(err)
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }

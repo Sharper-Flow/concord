@@ -262,8 +262,7 @@ func seedWorkContextFixtureWithPlan(t *testing.T, workID string, planType Workfl
 	version++
 	contract := map[string]any{
 		"contract_version": 1, "premise": "deliver the checked change", "decision_domains": []string{},
-		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:work-context", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:work-context", "immutable_subject_ref": "commit:" + workContextTestCommit(), "expected_result": "pass"}}},
-		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
+		"legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 		"architecture_binding": WorkflowArchitectureBinding{
 			HomeDomainID: workContextTestRoot, AffectedDomainIDs: []string{workContextTestRoot, workContextTestChild},
@@ -272,7 +271,6 @@ func seedWorkContextFixtureWithPlan(t *testing.T, workID string, planType Workfl
 	}
 	if planType == WorkflowStepPlanResearch {
 		delete(contract, "architecture_binding")
-		contract["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:work-context", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"resolved"}}}}
 	}
 	events = append(events, withPlanDecisionFact(t, planType, workflowTypedEvent("ctx-contract-"+workID, WorkflowContractApproved, workID, ownerRef, time.Unix(5, 0).UTC(), version, contract)))
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): initialVersion}}); err != nil {
@@ -906,21 +904,15 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("declaration refused: %v", err)
 	}
-	repo, _ := reviewSubjectClaim(t, fixture.store, fixture.workID)
-	journey := &candidateJourney{fixture: fixture, s: fixture.store, workID: fixture.workID, repo: repo}
-	if err := journey.action(t, "start_execution", map[string]any{}, fixture.owner); err != nil {
+	var repo string
+	if err := fixture.store.db.QueryRow(`SELECT locator_value FROM project_locators WHERE project_id='project' AND locator_id='workflow-law-locator'`).Scan(&repo); err != nil {
+		t.Fatal(err)
+	}
+	if err := runVerdictActionAs(t, fixture.store, fixture.workID, "start_execution", json.RawMessage(`{}`), 0, fixture.owner); err != nil {
 		t.Fatalf("start ordinary implementation: %v", err)
 	}
-	conformanceImplementChange(t, journey, "ctx-no-promotion-candidate")
-	proof := journey.observeRun(t, "ctx-no-promotion-proof")
-	journey.bindVerification(t, proof)
 	retained := []WorkContextFinding{{Kind: "observation", Statement: workerMarker, SubjectRef: "internal/store/work_context.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
 	seedContextFactTerminal(t, fixture, "worker.completed", map[string]any{"context_findings": retained})
-	report := currentReviewBlockForTest(t, fixture.store, fixture.workID, "ready_for_final_proof")
-	report.Assessments = []ReviewAssessment{{PredicateID: "predicate:work-context", Assessment: "supported", ReceiptRefs: []string{proof.OperationRef}}}
-	if err := recordReviewForTest(t, fixture.store, fixture.workID, fixture.owner, report); err != nil {
-		t.Fatalf("record implementation review: %v", err)
-	}
 	// The compaction-draft-adjacent boundary: a durable checkpoint and a
 	// summary boundary carry only their own content, before the terminal
 	// completion freezes the instance.
@@ -935,18 +927,10 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	}), 0, fixture.owner); err != nil {
 		t.Fatalf("context boundary refused: %v", err)
 	}
-	// Main associates the captured proof and completes through the declared
-	// exits. Context claims cannot stand in for criterion evidence.
-	delivery := map[string]any{"delivery_artifact": "commit:" + journey.head(t), "delivery_state": "asserted"}
+	delivery := map[string]any{"delivery_artifact": "artifact:context", "delivery_state": "asserted"}
 	moveWorkflowPlanFixtureFrontier(t, fixture.store, fixture.workID, "review")
-	if err := journey.action(t, "record_delivery", delivery, fixture.owner); err != nil {
+	if err := runVerdictActionAs(t, fixture.store, fixture.workID, "record_delivery", mustJSONValue(delivery), 0, fixture.owner); err != nil {
 		t.Fatalf("record delivery: %v", err)
-	}
-	if err := journey.action(t, "bind_evidence", map[string]any{"evidence_kind": "artifact", "evidence_ref": delivery["delivery_artifact"]}, fixture.owner); err != nil {
-		t.Fatalf("bind delivered artifact: %v", err)
-	}
-	if err := journey.action(t, "record_verdict", criterionAssociationPayload(proof.OperationRef, "predicate:work-context"), fixture.owner); err != nil {
-		t.Fatalf("associate captured criterion proof: %v", err)
 	}
 	ctx, err := prepareTerminalTestContext(t.Context(), fixture.store, fixture.workID, "confirm_premise")
 	if err != nil {
@@ -955,7 +939,7 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	confirmation := WorkflowActionExecutionRequest{
 		WorkID: fixture.workID, ExpectedVersion: readWorkVersion(t, fixture.store, fixture.workID), ActionID: "confirm_premise",
 		Payload: json.RawMessage(`{}`), Actor: fixture.owner,
-		AcceptedInputsDigest: nativeDigest([]byte("ctx-no-promotion-confirm")), IdempotencyIdentity: "ctx-no-promotion-confirm", OperationID: "ctx-no-promotion-confirm",
+		AcceptedInputsDigest: fmt.Sprintf("sha256:%x", sha256.Sum256([]byte("ctx-no-promotion-confirm"))), IdempotencyIdentity: "ctx-no-promotion-confirm", OperationID: "ctx-no-promotion-confirm",
 		PrincipalRef: fixture.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "ctx-no-promotion-confirm", RequestID: "request:ctx-no-promotion-confirm", ContractDigest: testManifestDigest, Now: time.Now().UTC(),
 	}
 	if err := fixture.store.Transact(ctx, func(tx *Transaction) error {
@@ -964,8 +948,8 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("confirm the evidenced premise: %v", err)
 	}
-	completeWorkflowPlanFixture(t, fixture.store, fixture.workID)
-	if err := journey.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}, fixture.owner); err != nil {
+	completeReviewedPlanForTerminalTest(t, fixture.store, fixture.workID, fixture.owner)
+	if err := runVerdictActionAs(t, fixture.store, fixture.workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), 0, fixture.owner); err != nil {
 		t.Fatalf("completion after context records refused: %v", err)
 	}
 	// PM6 section 1: completion disposes the work context with the other

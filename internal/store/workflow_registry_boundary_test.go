@@ -7,7 +7,7 @@ import (
 
 func TestWorkflowPlanPreflightReadsWithoutEffects(t *testing.T) {
 	const workID = "plan-preflight-read-only"
-	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", []string{}, nil)
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", nil)
 	defer f.store.Close()
 	actor := f.owner
 	actor.SessionRef = "session:preflight-read-only"
@@ -23,7 +23,7 @@ func TestWorkflowPlanPreflightReadsWithoutEffects(t *testing.T) {
 	}
 	request := WorkflowActionPreflightRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: "bind_evidence", Actor: actor,
-		Payload: json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"artifact:preflight"}`),
+		Payload: json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"artifact:preflight","producer_id":"principal:preflight","producer_run_ref":"run:preflight","producer_watermark":"request:preflight"}`),
 	}
 	for i := 0; i < 2; i++ {
 		action, err := WorkflowActionDefinitionFor(t.Context(), f.store, request)

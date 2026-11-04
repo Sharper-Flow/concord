@@ -31,6 +31,32 @@ func TestWorkflowReviewAttemptTuple(t *testing.T) {
 	}
 }
 
+// CD-0222 D6: an executing peer that modifies the same Domain does not block
+// the reviewed-step record.
+func TestReviewedStepRecordsBesideASharedDomainWriter(t *testing.T) {
+	const workID = "reviewed-step-overlap"
+	const peerID = "reviewed-step-overlap-peer"
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanFix, "review", []string{})
+	execInFold(t, f.store, `INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id) VALUES('`+workID+`',1,'root')`)
+	seedRootWriterPeer(t, f.store, peerID, mustActorRef(t, f.owner))
+	var writers int
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT count(DISTINCT work_id) FROM workflow_contract_domain_modifications WHERE domain_id='root' AND work_id IN (?,?)`, workID, peerID).Scan(&writers); err != nil || writers != 2 {
+		t.Fatalf("fixture has %d root writers, want 2: %v", writers, err)
+	}
+	payload := mustJSONValue(map[string]any{"step_id": "review", "note": "clean final review", "reviewer": "concord-review", "result": "pass", "commit": "commit:fixture", "link": "https://example.com/review"})
+	if err := runVerdictActionAs(t, f.store, workID, "record_review", payload, 0, f.owner); err != nil {
+		t.Fatalf("reviewed step beside a shared Domain writer = %v, want admitted", err)
+	}
+	plan, err := readWorkflowPlanTx(context.Background(), f.store.DatabaseForTesting(), workID)
+	if err != nil || plan == nil {
+		t.Fatalf("read plan: %v", err)
+	}
+	step, ok := stepByID(plan.Steps, "review")
+	if !ok || len(step.Attempts) != 1 || step.Attempts[0].Result != "pass" || !WorkflowStepPlanComplete(*plan) {
+		t.Fatalf("clean review was not recorded beside the peer: %+v", step)
+	}
+}
+
 func TestWorkflowReviewFrontierAdmission(t *testing.T) {
 	plan := &WorkflowStepPlan{Steps: []WorkflowPlanStep{
 		{ID: "plan", After: []string{}},

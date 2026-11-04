@@ -530,7 +530,7 @@ graph. Product law approval does not authorize live-state cutover.
 - Committed law-folder snapshot validation proves record identity, folder
   placement, and the relation graph.
 - `python3 scripts/test-check-domain-registry.py` proves the referential checks without a participation rule.
-- `internal/store.TestReadyReviewRecordsBesideASharedDomainWriter` proves D6
+- `internal/store.TestReviewedStepRecordsBesideASharedDomainWriter` proves D6
   at a consequential action: an executing peer that modifies the same Domain
   does not block `record_review`.
 - `internal/store.TestResolveOverlapRecordsRoutineRelations` and `internal/store.TestResolveOverlapMergeAndSupersessionAreAtomic` prove the `resolve_overlap` relation writer.

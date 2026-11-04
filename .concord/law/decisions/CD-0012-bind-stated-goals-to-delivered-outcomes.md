@@ -81,8 +81,9 @@ decisions remain conversational under CD-0243.
 ### D1. The contract retains its premise
 
 The premise states why the work exists. An ordinary complete contract update
-appends a version without changing earlier versions. Candidate-set revisions
-are recorded in one transaction and do not revise the premise.
+appends a version without changing earlier versions. The executing agent may
+revise the candidate set during execution. Each revision is recorded in one
+transaction, does not revise the premise and needs no re-approval.
 
 ### D6. Work discovered mid-execution forward-links; it never substitutes
 
@@ -135,11 +136,16 @@ review itself. Surface changes remain subject to TS8.
 
 - A premise revision appends a retained contract version without changing an
   earlier version or creating a successor.
+- Candidate-set revision during execution succeeds without re-approval,
+  records its revision in one transaction and leaves the premise
+  byte-identical.
 - An out-of-scope discovery is forward-linked and does not substitute for the
   current work.
 - An independent Review may correct its candidate; a final review completes
   only with a clean pass.
 - A delivery route declares a pre-existing convention that determines its verb.
+- A work item at the lowest maturity and audience bands still requires an
+  approved contract; only the proof depth differs from the highest bands.
 - Terminal metadata, lifecycle change, reported delivery links and the
   completion record commit together or not at all.
 

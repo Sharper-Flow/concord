@@ -224,10 +224,15 @@ The implementation acceptance suite must exercise:
 ### Outcome contract (CD-0012 binding)
 
 1. A premise revision appends a retained version without changing earlier content.
-2. Work discovered outside the approved scope forward-links as successor work.
-3. Independent Review may correct its candidate; final review requires a clean pass.
-4. Premise confirmation and the reported delivery remain terminal facts.
-5. Terminal metadata, lifecycle change and delivery links commit atomically.
+2. Candidate-set revision during execution needs no re-approval, records current
+   rows in one transaction and leaves the premise byte-identical.
+3. Work discovered outside the approved scope forward-links as successor work.
+4. Independent Review may correct its candidate; final review requires a clean pass.
+5. A delivery route declares a pre-existing convention that determines its verb.
+6. The lowest maturity × audience band still requires an approved contract;
+   only proof depth differs.
+7. Premise confirmation and the reported delivery remain terminal facts.
+8. Terminal metadata, lifecycle change and delivery links commit atomically.
 
 ### Current-state mutations (CD-0008 binding)
 
@@ -337,7 +342,8 @@ This decision extends:
 - CD-0012 through actor and state-recording choices;
 - CD-0005 by keeping `workflow_action` reserved until the engine ships.
 
-It does not waive other accepted decisions.
+It does not waive other accepted decisions. A revised definition form or actor
+tuple requires an accepted CD-NNNN.
 
 ## Relationship to existing artifacts
 

@@ -1,31 +1,41 @@
 package store
 
-// CON-1697 regression. Migration 183 leaves every pre-cutover item planless
-// (workflow_instances.workflow_type and step_plan NULL) and drops the
-// definition pins, adding a nullable workflow_contracts.changes_product_truth
-// that historical approvals never wrote. resolveKnowledgeLegislatedAuthorityTx
-// classified the approving contract from the item's CURRENT plan, so a
-// historical legislator whose plan cannot exist was held as "not
-// Product-changing" and every law-resolving public operation — continuity,
-// capture, and the workflow writes whose proof preparation walks the same
-// establishment — refused.
+// The legislated-authority admission classifies the approving contract by
+// its recorded approval fact: the changes_product_truth column, or for NULL
+// historical rows the retained architecture binding the approval fold
+// persisted exactly for Product-changing contracts. Migration 183 leaves
+// every pre-cutover item planless with a NULL column, so the classification
+// must not consult the item's current step plan — a pre-plan legislator has
+// none and a plan is mutable after approval.
 //
-// The classification now reads the contract's recorded approval fact: the
-// changes_product_truth column, or for NULL historical rows the retained
-// architecture binding the pre-column fold persisted exactly for
-// Product-changing approvals. These cases drive the public continuity read
-// and the owning workflow-action write boundary against the exact recorded
-// post-cutover row shape of the CD-0194 legislating work
-// work-670cac419bcacb671879316b: completed item, completed planless instance,
-// approved active contract v6 with NULL changes_product_truth and a retained
-// binding, admitted through law_modifies.
+// These cases drive the public continuity read and the owning
+// workflow-action write boundary against the recorded post-cutover row
+// shape of a pre-plan legislating work: completed item, completed planless
+// instance, approved active contract with NULL changes_product_truth and a
+// retained binding, admitted through law_modifies.
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
+
+// assertLegislatorRefusal asserts one legislated-authority refusal of the
+// exact kind carrying the exact detail, so a control cannot pass on an
+// unrelated refusal reason.
+func assertLegislatorRefusal(t *testing.T, err error, wantDetail string) {
+	t.Helper()
+	assertFailureKind(t, err, KindInvalidNoteProof)
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("refusal is not a typed Failure: %v", err)
+	}
+	if !strings.Contains(failure.Error(), wantDetail) {
+		t.Fatalf("refusal detail = %q, want it to contain %q", failure.Error(), wantDetail)
+	}
+}
 
 // seedPlanlessLegislatorFixture seeds one historical legislator in the
 // recorded post-cutover shape: a completed planless instance, an approved
@@ -89,9 +99,8 @@ func seedLegislatorPrimaryMembership(t *testing.T, s *Store, workID string) {
 	}
 }
 
-// The red signal: continuity must resolve law whose legislating work's
-// approved contract predates stored step plans. Red at 24abb7b35 with
-// KindInvalidNoteProof "the approving contract is not Product-changing".
+// Continuity must resolve law whose legislating work's approved contract
+// predates stored step plans.
 func TestContinuityResolvesPlanlessHistoricalLegislator(t *testing.T) {
 	t.Parallel()
 	s, _ := authorityLawScenario(t, authorityLawFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 6})
@@ -113,7 +122,7 @@ func TestContinuityRefusesResearchPlanLegislator(t *testing.T) {
 	seedAuthorityContract(t, s, authoritySyntheticWork, 6, WorkflowStepPlanResearch, []string{"CD-8751"}, nil)
 	seedLegislatorPrimaryMembership(t, s, authoritySyntheticWork)
 	_, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: authoritySyntheticWork})
-	assertFailureKind(t, err, KindInvalidNoteProof)
+	assertLegislatorRefusal(t, err, "the approving contract is not Product-changing")
 }
 
 // Control: a historical contract with NULL product-truth and no retained
@@ -139,7 +148,7 @@ func TestContinuityRefusesPlanlessLegislatorWithoutRetainedBinding(t *testing.T)
 		t.Fatal(err)
 	}
 	_, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: authoritySyntheticWork})
-	assertFailureKind(t, err, KindInvalidNoteProof)
+	assertLegislatorRefusal(t, err, "the approving contract is not Product-changing")
 }
 
 // Control: a planless historical contract that names the law in no admitted
@@ -167,15 +176,14 @@ func TestContinuityRefusesPlanlessLegislatorWithoutAdmittedReference(t *testing.
 		t.Fatal(err)
 	}
 	_, err = ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: authoritySyntheticWork})
-	assertFailureKind(t, err, KindInvalidNoteProof)
+	assertLegislatorRefusal(t, err, "names the law in no admitted legislative field")
 }
 
-// Write-path regression (CON-1681): a native workflow write whose proof
-// preparation walks the same establishment must stop refusing because of an
-// unrelated planless historical legislator in the same Product's law folder.
-// The running work's approved contract modifies the legislated fixture law,
-// so record_intake prepares the law proof, admits the historical record, and
-// the write proceeds. Red at 24abb7b35 with the title's refusal.
+// A native workflow write whose proof preparation walks the same
+// establishment must not refuse because of an unrelated planless historical
+// legislator in the same Product's law folder. The running work's approved
+// contract modifies the legislated fixture law, so record_intake prepares
+// the law proof, admits the historical record, and the write proceeds.
 func TestWorkflowWriteAdmitsPlanlessHistoricalLegislator(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

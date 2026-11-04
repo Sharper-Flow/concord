@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -18,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/gittest"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -37,7 +37,10 @@ func TestRunVersion(t *testing.T) {
 
 func TestDatabaseOverrideRefusesRepositoryLocalPath(t *testing.T) {
 	repo := t.TempDir()
-	cmd := exec.Command("git", "init", "--quiet", repo)
+	cmd, err := gittest.Command(repo, "init", "--quiet")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
@@ -625,7 +628,11 @@ func TestDocumentedBootstrapPayloadsRemainExecutable(t *testing.T) {
 	if err := os.MkdirAll(repository, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := exec.Command("git", "init", "--quiet", repository).Run(); err != nil {
+	cmd, err := gittest.Command(repository, "init", "--quiet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(root)
@@ -842,7 +849,11 @@ func TestCommandRouterRejectsUnsupportedFormsCleanly(t *testing.T) {
 
 func TestCLIEndToEndRegistersClientAndInvokesRead(t *testing.T) {
 	repo := t.TempDir()
-	if err := exec.Command("git", "init", "--quiet", repo).Run(); err != nil {
+	cmd, err := gittest.Command(repo, "init", "--quiet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv(dbOverrideEnv, filepath.Join(t.TempDir(), "concord.db"))

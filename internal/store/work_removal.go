@@ -245,6 +245,9 @@ func validateRemovalDestinationQ(ctx context.Context, q queryer, req WorkRemoval
 	// identity hands its preservation to that issue. The agent confirms the
 	// handoff through the Linear MCP server; the store checks the
 	// confirmation against the recorded identity and makes no Linear call.
+	// Linear is the only planning authority (CD-0213 D1), so a removal
+	// without a recorded issue identity and confirmation has no planning
+	// destination and refuses.
 	link, recorded, err := readLinearLinkCore(ctx, q, req.WorkID)
 	if err != nil {
 		return err
@@ -253,7 +256,7 @@ func validateRemovalDestinationQ(ctx context.Context, q queryer, req WorkRemoval
 		if recorded {
 			return newFailure(KindInvalidOperation, "work_removal_prepare", "the work item records a Linear issue but the removal carries no Linear handoff confirmation", false, "confirm the handoff on the recorded Linear issue before removal")
 		}
-		return nil
+		return newFailure(KindInvalidOperation, "work_removal_prepare", "the work item has no recorded Linear issue identity and the removal carries no Linear handoff confirmation", false, "create or adopt the Linear issue through the planning authority, record its identity, and confirm the handoff before removal")
 	}
 	if !recorded {
 		return newFailure(KindInvalidRelation, "work_removal_prepare", "the work item has no recorded Linear issue identity", false, "record the issue identity before confirming its handoff")

@@ -14,11 +14,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/gittest"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -520,7 +520,10 @@ func commitKnowledgeRepo(repo, message string) (string, error) {
 // identical commit OIDs across runs, which the fixture relies on for
 // commit-alias resolution.
 func runKnowledgeGit(repo string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...) //nolint:gosec // this fixture passes code-owned git argv values directly without a shell.
+	cmd, err := gittest.Command(repo, args...)
+	if err != nil {
+		return "", fmt.Errorf("git %v: %w", args, err)
+	}
 	cmd.Env = append(os.Environ(), "GIT_AUTHOR_DATE=2026-08-07T00:00:00Z", "GIT_COMMITTER_DATE=2026-08-07T00:00:00Z")
 	out, err := cmd.CombinedOutput()
 	if err != nil {

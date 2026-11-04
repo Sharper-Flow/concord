@@ -254,14 +254,12 @@ func leaseHolder(lease hostlease.Lease) string {
 // the read-only readiness report instead of applying anything.
 // confirm_sessions_stopped is the operator's statement that no session runs on
 // an installed release tree the maintenance fence cannot exclude; without it
-// such a tree refuses the boundary-owned mutation. cancel_cutover_pinned_work
-// selects ordinary lifecycle cancellation of every authoring-cutover blocker.
+// such a tree refuses the boundary-owned mutation.
 type upgradeInput struct {
-	Plan                    bool `json:"plan"`
-	ConfirmSessionsStopped  bool `json:"confirm_sessions_stopped"`
-	CancelCutoverPinnedWork bool `json:"cancel_cutover_pinned_work"`
-	RequireNoSessions       bool `json:"require_no_sessions"`
-	MaintenanceFD           *int `json:"maintenance_fd"`
+	Plan                   bool `json:"plan"`
+	ConfirmSessionsStopped bool `json:"confirm_sessions_stopped"`
+	RequireNoSessions      bool `json:"require_no_sessions"`
+	MaintenanceFD          *int `json:"maintenance_fd"`
 }
 
 // preparedReleaseRecord names the candidate and its installer-owned completion
@@ -344,13 +342,12 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	}
 	// Readiness is established by reading before anything is applied or
 	// fenced: an unknown store never reaches the migration path.
-	options := store.UpgradeOptions{CancelCutoverPinnedWork: request.CancelCutoverPinnedWork}
-	plan, err := store.PlanUpgradeReadiness(context.Background(), path, options)
+	plan, err := store.PlanUpgradeReadiness(context.Background(), path)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
 		return 1
 	}
-	maintenanceRequired := len(plan.PendingBreaking) > 0 || request.CancelCutoverPinnedWork
+	maintenanceRequired := len(plan.PendingBreaking) > 0
 	if request.Plan {
 		_, binary, err := selfRelease()
 		if err != nil {
@@ -361,18 +358,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		plan.ActivationCommand = activationCommandFor(dataRoot)
 		return writeJSON(out, upgradePlanReport{UpgradeReadiness: plan, MaintenanceFence: fenceBefore, SnapshotRequired: maintenanceRequired}, errOut)
 	}
-	if plan.CutoverDisposition != nil && len(plan.CutoverDisposition.Blockers) > 0 {
-		writeOperatorDiagnostic(errOut, "upgrade", strings.Join(plan.CutoverDisposition.Blockers, "; "))
-		return 1
-	}
-	if request.CancelCutoverPinnedWork && plan.ActivationBlocked && len(plan.PendingBreaking) == 0 {
-		// With the disposition clear and nothing breaking pending, the plan's
-		// only blocker is the unstamped-build rule (CD-0139). It carries no
-		// refusal, so the recovery line is added here.
-		writeOperatorDiagnostic(errOut, "upgrade", strings.Join(plan.Blockers, "; ")+"\n"+recoveryLine(store.UnstampedRecovery))
-		return 1
-	}
-	// A breaking migration or cutover cancellation requires the maintenance
+	// A breaking migration requires the maintenance
 	// boundary: the fence excludes new session admission before the final
 	// lease check, and the activation that follows removes it. The command
 	// itself is the boundary, so no flag can skip the exclusion.
@@ -398,7 +384,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		return code
 	}
 	// Every boundary-owned mutation requires a verified snapshot. A failed
-	// session check or snapshot applies no migration or cancellation.
+	// session check or snapshot applies no migration.
 	snapshotPath := ""
 	if maintenanceRequired {
 		snapshotPath, code = boundary.snapshotForUpgrade(path, plan.PendingBreaking, held, errOut)
@@ -406,10 +392,9 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 			return code
 		}
 	}
-	options.SnapshotPath = snapshotPath
-	report, err := store.Upgrade(context.Background(), path, held, options)
+	report, err := store.Upgrade(context.Background(), path, held, store.UpgradeOptions{SnapshotPath: snapshotPath})
 	if err != nil {
-		return boundary.reportFailure(err, path, plan.PendingBreaking, options, snapshotPath, errOut)
+		return boundary.reportFailure(err, path, plan.PendingBreaking, snapshotPath, errOut)
 	}
 	return boundary.finish(report, plan.PendingBreaking, fenceBefore, snapshotPath, out, errOut)
 }
@@ -593,7 +578,7 @@ func (boundary upgradeFence) observeSessions(maintenanceRequired, confirmSession
 	return held, 0
 }
 
-func (boundary upgradeFence) reportFailure(err error, path string, pendingBreaking []store.PendingMigration, options store.UpgradeOptions, snapshotPath string, errOut io.Writer) int {
+func (boundary upgradeFence) reportFailure(err error, path string, pendingBreaking []store.PendingMigration, snapshotPath string, errOut io.Writer) int {
 	dataRoot := boundary.dataRoot
 	diagnostic := diagnosticText(err)
 	if snapshotPath != "" {
@@ -605,7 +590,7 @@ func (boundary upgradeFence) reportFailure(err error, path string, pendingBreaki
 	// readiness and keep the boundary open when any pending breaking
 	// step committed: the older releases are unusable from here, and
 	// only the prepared candidate's activation may reopen admission.
-	if breakingCommittedAfterFailure(path, pendingBreaking, options) {
+	if breakingCommittedAfterFailure(path, pendingBreaking) {
 		if fence, fenceErr := hostlease.ReadFence(dataRoot); fenceErr == nil && fence != nil {
 			writeOperatorDiagnostic(errOut, "upgrade", diagnostic+
 				"\nthe incompatible migration committed before this failure; session admission stays excluded until the prepared release activates; activation command: "+
@@ -656,9 +641,6 @@ func (boundary upgradeFence) finish(report store.UpgradeReport, pendingBreaking 
 		"schema_version": report.SchemaVersion,
 		"applied":        report.Applied,
 	}
-	if report.CutoverDisposition != nil {
-		result["cutover_disposition"] = report.CutoverDisposition
-	}
 	if report.ResearchExport != "" {
 		result["research_export"] = report.ResearchExport
 	}
@@ -689,11 +671,11 @@ func (boundary upgradeFence) finish(report store.UpgradeReport, pendingBreaking 
 // reports committed: after an error, exclusion is retained on both committed
 // and uncertain outcomes, and only a re-check that still shows every breaking
 // step pending proves nothing committed.
-func breakingCommittedAfterFailure(path string, pendingBreaking []store.PendingMigration, options store.UpgradeOptions) bool {
+func breakingCommittedAfterFailure(path string, pendingBreaking []store.PendingMigration) bool {
 	if len(pendingBreaking) == 0 {
 		return false
 	}
-	recheck, err := store.PlanUpgradeReadiness(context.Background(), path, options)
+	recheck, err := store.PlanUpgradeReadiness(context.Background(), path)
 	if err != nil {
 		return true
 	}

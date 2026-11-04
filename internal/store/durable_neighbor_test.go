@@ -111,22 +111,23 @@ func durableNeighborOperations() []neighborOperation {
 		neighborOperation{"AuthorizeWorkflowActionAtBoundary", func(t *testing.T) (*Store, func() error, func()) {
 			s := openTemp(t)
 			actor, version := continuityTestWorkflow(t, s, "neighbor-work")
-			payload := []byte(`{"problem":"A bounded problem.","affected":["The store."],"stakes":"The committed proposal survives.","user_outcomes":["A durable proposal."]}`)
+			version = issue31WorkflowActionWithPayload(t, s, "neighbor-work", version, "record_plan", "neighbor-plan", actor, []byte(testWorkflowPlanDocument))
+			payload := []byte(`{"step_id":"plan","note":"The committed plan step survives."}`)
 			run := func() error {
-				return AuthorizeWorkflowActionAtBoundaryTx(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: "neighbor-work", ExpectedVersion: version, ActionID: "record_proposal", Payload: payload, Actor: actor}, nil, func(tx *Transaction) error {
-					_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{WorkID: "neighbor-work", ExpectedVersion: version, ActionID: "record_proposal", Payload: payload, Actor: actor, AcceptedInputsDigest: testDigest("neighbor"), IdempotencyIdentity: "neighbor-proposal", OperationID: "neighbor-proposal", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "neighbor-proposal", RequestID: "neighbor-request", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)})
+				return AuthorizeWorkflowActionAtBoundaryTx(ctx, s, WorkflowActionPreflightRequest{WorkID: "neighbor-work", ExpectedVersion: version, ActionID: "complete_step", Payload: payload, Actor: actor}, nil, func(tx *Transaction) error {
+					_, err := ApplyWorkflowActionTx(ctx, tx, WorkflowActionExecutionRequest{WorkID: "neighbor-work", ExpectedVersion: version, ActionID: "complete_step", Payload: payload, Actor: actor, AcceptedInputsDigest: testDigest("neighbor"), IdempotencyIdentity: "neighbor-proposal", OperationID: "neighbor-proposal", PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "neighbor-proposal", RequestID: "neighbor-request", ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)})
 					return err
 				})
 			}
 			return s, run, func() {
-				if got := currentStep(t, s, "neighbor-work"); got != "alignment" {
+				if got := workflowPlanFixtureFrontier(t, s, "neighbor-work"); got != "implement" {
 					t.Fatalf("step=%s", got)
 				}
 			}
 		}},
-		neighborOperation{"CompleteWorkflowWithRegistry", func(t *testing.T) (*Store, func() error, func()) {
+		neighborOperation{"workflow completion", func(t *testing.T) (*Store, func() error, func()) {
 			s, event := seedCompletionGateCase(t, "neighbor-complete", completionGateCase{requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
-			return s, func() error { return CompleteWorkflowWithRegistry(ctx, s, BuiltinWorkflowRegistry(), event) }, func() {
+			return s, func() error { return CompleteWorkflow(ctx, s, event) }, func() {
 				var state string
 				if err := s.db.QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id='neighbor-complete'`).Scan(&state); err != nil {
 					t.Fatal(err)

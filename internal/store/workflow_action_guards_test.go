@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 )
@@ -12,10 +11,7 @@ import (
 func seedMandateRecoveryItem(t *testing.T, workID string) *Store {
 	t.Helper()
 	s, _, _ := seedItemAtAcceptance(t, workID)
-	owner := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/owner", "session/"+workID)
-	if err := advanceWorkflowTestInstanceToStep(t.Context(), s, workID, "release", owner); err != nil {
-		t.Fatal(err)
-	}
+	moveWorkflowPlanFixtureFrontier(t, s, workID, "review")
 	db := s.DatabaseForTesting()
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
@@ -37,7 +33,7 @@ func TestDeclaredStepBindsAllEvidenceKinds(t *testing.T) {
 	for _, kind := range workflowEvidenceKinds {
 		t.Run(string(kind), func(t *testing.T) {
 			workID := "declared-bind-" + string(kind)
-			fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, "workflow.research"), "investigate", []string{"artifact"}, nil)
+			fixture := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanResearch, "investigate", []string{"artifact"}, nil)
 			ref := "evidence:" + string(kind)
 			if kind == EvidenceNativeRun {
 				ctx := t.Context()
@@ -71,26 +67,40 @@ func TestDeclaredStepBindsAllEvidenceKinds(t *testing.T) {
 
 func TestLateBindingRefusesUndeclaredEvidenceKind(t *testing.T) {
 	const workID = "late-bind-undeclared"
-	f := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
-	payload := json.RawMessage(`{"evidence_kind":"approval","immutable_subject_ref":"evidence:unrelated"}`)
-	assertRecoveryRefusalWithoutEffect(t, f.store, workID, KindIllegalLifecycleTransition, func() error {
+	f := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "review")
+	payload := json.RawMessage(`{"evidence_kind":"undeclared","immutable_subject_ref":"evidence:unrelated"}`)
+	assertRecoveryRefusalWithoutEffect(t, f.store, workID, KindInvalidPayload, func() error {
 		return issue1013Preflight(t, f.store, workID, "bind_evidence", payload, f.owner)
 	})
-	assertRecoveryRefusalWithoutEffect(t, f.store, workID, KindIllegalLifecycleTransition, func() error {
+	assertRecoveryRefusalWithoutEffect(t, f.store, workID, KindInvalidPayload, func() error {
 		return runVerdictActionAs(t, f.store, workID, "bind_evidence", payload, 0, f.owner)
 	})
+	declared := json.RawMessage(`{"evidence_kind":"approval","immutable_subject_ref":"evidence:unrelated"}`)
+	if err := issue1013Preflight(t, f.store, workID, "bind_evidence", declared, f.owner); err != nil {
+		t.Fatalf("declared kind preflight: %v", err)
+	}
+	if err := runVerdictActionAs(t, f.store, workID, "bind_evidence", declared, 0, f.owner); err != nil {
+		t.Fatalf("declared kind binding: %v", err)
+	}
+	if step := currentStep(t, f.store, workID); step != "review" {
+		t.Fatalf("binding advanced frontier to %q", step)
+	}
 }
 
 // Fixture assertions separate declared requirements from predicate recovery.
-func outstandingWorkflowEvidenceRequirementsForWork(ctx context.Context, q queryer, workID string, definition WorkflowDefinition) ([]workflowEvidenceRequirement, error) {
-	required, mandates, obligations, err := workflowEvidenceRequirementInputs(ctx, q, workID)
+func outstandingWorkflowEvidenceRequirementsForWork(ctx context.Context, q queryer, workID string) ([]string, error) {
+	version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
 	if err != nil {
 		if workflowProjectionInvariant(err, "approved workflow contract is missing") {
 			return nil, nil
 		}
 		return nil, err
 	}
-	return outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations)
+	kinds, err := workPinOutstandingEvidenceKindsTx(ctx, q, workID, version)
+	if kinds == nil {
+		return nil, err
+	}
+	return *kinds, err
 }
 
 func TestCorrectedContractExternalCheckBindingAtAcceptance(t *testing.T) {
@@ -100,18 +110,14 @@ func TestCorrectedContractExternalCheckBindingAtAcceptance(t *testing.T) {
 		s := f.store
 		successor := pContractSuccessor(t, s, workID, "Correct the checked subject.")
 		successor["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:p0", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:github/required-checks", "immutable_subject_ref": subject, "expected_result": "pass"}}}
-		if err := reviseContractRecord(t, s, workID, f.owner, successor, readWorkVersion(t, s, workID), nil); err != nil {
+		if err := reviseContractRecord(t, s, workID, f.owner, successor, readWorkVersion(t, s, workID)); err != nil {
 			t.Fatal(err)
 		}
 	})
 	s := f.store
 	payload := pReceiptBatch(refs, 0)
-	entry, err := VerifyWorkflowInstanceDefinition(t.Context(), s, BuiltinWorkflowRegistry(), workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	outstanding, err := outstandingWorkflowEvidenceRequirementsForWork(t.Context(), s.db, workID, entry.Definition)
-	if err != nil || len(outstanding) != 0 {
+	outstanding, err := outstandingWorkflowEvidenceRequirementsForWork(t.Context(), s.db, workID)
+	if err != nil || len(outstanding) != 1 || outstanding[0] != "verification" {
 		t.Fatalf("required evidence before external check = %v: %v", outstanding, err)
 	}
 	pin, err := ReadWorkPin(t.Context(), s, workID)
@@ -132,7 +138,7 @@ func TestCorrectedContractExternalCheckBindingAtAcceptance(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "bind_evidence", bind, 0, f.owner); err != nil {
 		t.Fatal(err)
 	}
-	if step := currentStep(t, s, workID); step != "acceptance" {
+	if step := workflowPlanFixtureFrontier(t, s, workID); step != "review" {
 		t.Fatalf("binding advanced to %s", step)
 	}
 	if err := runVerdictActionAs(t, s, workID, "bind_evidence", bind, 0, f.owner); err != nil {
@@ -155,9 +161,10 @@ func TestCorrectedContractExternalCheckBindingAtAcceptance(t *testing.T) {
 	if !workPinContainsAction(pin.NextValidIntents, "bind_evidence") {
 		t.Fatal("acceptance omitted ordinary binding after proof and required kinds were satisfied")
 	}
-	if err := (acceptanceRecoveryFixture{store: s, workID: workID, owner: f.owner, operator: f.operator}).run(t.Context(), "confirm_premise", "confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
+	if err := pConfirmReceiptPremise(t, f); err != nil {
 		t.Fatalf("confirm successor: %v", err)
 	}
+	completeWorkflowPlanFixture(t, s, workID)
 	j := &candidateJourney{fixture: f, s: s, workID: workID, repo: repo}
 	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner); err != nil {
 		t.Fatalf("complete successor: %v", err)
@@ -201,7 +208,7 @@ func TestExternalCheckRecoveryPreservesEvidenceRefusals(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			workID := "external-check-refusal-" + test.name
-			fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+			fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "review")
 			s := fixture.store
 			subject := "commit:" + workID
 			authority := "external-check-source-" + test.name
@@ -222,7 +229,7 @@ func TestExternalCheckRecoveryPreservesEvidenceRefusals(t *testing.T) {
 	t.Run("stale-version", func(t *testing.T) {
 		t.Parallel()
 		const workID = "external-check-stale-version"
-		fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+		fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "review")
 		assertRecoveryRefusalWithoutEffect(t, fixture.store, workID, KindVersionConflict, func() error {
 			return runVerdictActionAs(t, fixture.store, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "verification", "immutable_subject_ref": "commit:" + workID}), readWorkVersion(t, fixture.store, workID)-1, fixture.owner)
 		})
@@ -260,7 +267,7 @@ func TestExternalCheckRecoveryCompletedEventUsesSharedEligibility(t *testing.T) 
 			t.Parallel()
 			ctx := context.Background()
 			workID := "external-check-event-" + kind
-			fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+			fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "review")
 			s := fixture.store
 			subject := "commit:" + workID
 			authority := "external-check-event-source-" + kind
@@ -277,7 +284,7 @@ func TestExternalCheckRecoveryCompletedEventUsesSharedEligibility(t *testing.T) 
 			})
 			completed := workflowEventWithActor(workID+":completed", WorkflowActionCompleted, workID, actorRef, map[string]any{
 				"work_id": workID, "expected_version": version + 1, "resulting_version": version + 2,
-				"step_id": "acceptance", "action_id": "bind_evidence", "attempt_epoch": 1, "actor_ref": actorRef,
+				"step_id": "review", "action_id": "bind_evidence", "attempt_epoch": 1, "actor_ref": actorRef,
 				"result_evidence_refs": []string{subject}, "changed_refs": []string{workID},
 			})
 			apply := func() error {
@@ -290,55 +297,55 @@ func TestExternalCheckRecoveryCompletedEventUsesSharedEligibility(t *testing.T) 
 	}
 }
 
-func TestOrdinaryEvidenceCompletionCannotBorrowPriorBinding(t *testing.T) {
-	ctx := context.Background()
-	const workID = "ordinary-binding-no-borrow"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
-	s := fixture.store
-	subject := "commit:" + workID
-	seedWorkflowAuthority(t, s, "prior-binding-source", workID, "principal/check", "request/check", []string{subject})
-	actor, err := WorkflowActorRef(fixture.owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	version := readWorkVersion(t, s, workID)
-	binding := workflowEventWithActor(workID+":binding", WorkflowEvidenceBound, workID, actor, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"evidence_kind": "verification", "immutable_subject_ref": subject, "producer_id": "principal/check",
-		"producer_run_ref": "prior-binding-source", "producer_watermark": "request/check", "observed_at": "2026-10-13T00:00:00Z",
-	})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{binding}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		t.Fatal(err)
-	}
-	version++
-	completed := workflowEventWithActor(workID+":completed", WorkflowActionCompleted, workID, actor, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"step_id": "acceptance", "action_id": "bind_evidence", "attempt_epoch": 1, "actor_ref": actor,
-		"result_evidence_refs": []string{subject}, "changed_refs": []string{workID},
-	})
-	assertRecoveryRefusalWithoutEffect(t, s, workID, KindMissingEvidence, func() error {
-		return applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{completed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
-	})
-}
-
 func TestOrdinaryEvidenceBindingStageAndLifecycle(t *testing.T) {
-	for _, family := range []string{"workflow.implementation", "workflow.break_fix"} {
-		definition := mustBuiltinDefinition(t, family).Definition
+	for _, planType := range []WorkflowStepPlanType{WorkflowStepPlanChange, WorkflowStepPlanFix} {
 		for _, tc := range []struct {
 			step, instance, lifecycle string
 			contracts                 int64
 			want                      bool
 		}{
-			{"planning", "active", "in_progress", 1, false},
-			{"refine", "active", "in_progress", 1, true},
-			{"refine", "active", "in_progress", 0, false},
-			{"refine", "completed", "completed", 1, false},
-			{"refine", "active", "cancelled", 1, false},
+			{"plan", "running", "in_progress", 1, false},
+			{"review", "running", "in_progress", 1, true},
+			{"review", "running", "in_progress", 0, false},
+			{"review", "completed", "completed", 1, false},
+			{"review", "running", "cancelled", 1, false},
 		} {
-			state := WorkflowAdmissionState{Step: tc.step, InstanceState: tc.instance, Lifecycle: tc.lifecycle, ActiveContracts: tc.contracts}
-			if got := workflowAdmit(definition, state, "bind_evidence").Admitted; got != tc.want {
-				t.Errorf("%s %s %s contracts=%d admitted=%t, want %t", family, tc.step, tc.instance, tc.contracts, got, tc.want)
-			}
+			t.Run(fmt.Sprintf("%s-%s-%s-%s-%d", planType, tc.step, tc.instance, tc.lifecycle, tc.contracts), func(t *testing.T) {
+				workID := "binding-stage"
+				f := seedWorkflowReturnRouteFixture(t, workID, planType, tc.step)
+				if _, err := f.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := f.store.db.Exec(`UPDATE workflow_instances SET instance_state=? WHERE work_id=?`, tc.instance, workID); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := f.store.db.Exec(`UPDATE work_items SET lifecycle=? WHERE id=?`, tc.lifecycle, workID); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := f.store.db.Exec(`DELETE FROM write_guard`); err != nil {
+					t.Fatal(err)
+				}
+				if tc.contracts == 0 {
+					if _, err := f.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := f.store.db.Exec(`UPDATE workflow_contracts SET superseded_by=1 WHERE work_id=?`, workID); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := f.store.db.Exec(`DELETE FROM write_guard`); err != nil {
+						t.Fatal(err)
+					}
+				}
+				var active int64
+				if err := f.store.db.QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&active); err != nil || active != tc.contracts {
+					t.Fatalf("active contracts=%d, want %d: %v", active, tc.contracts, err)
+				}
+				payload := json.RawMessage(`{"evidence_kind":"verification","immutable_subject_ref":"evidence:stage"}`)
+				_, err := WorkflowActionDefinitionFor(t.Context(), f.store, WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: readWorkVersion(t, f.store, workID), ActionID: "bind_evidence", Payload: payload, Actor: f.owner})
+				if got := err == nil; got != tc.want {
+					t.Errorf("admitted=%t, want %t: %v", got, tc.want, err)
+				}
+			})
 		}
 	}
 }
@@ -346,20 +353,16 @@ func TestOrdinaryEvidenceBindingStageAndLifecycle(t *testing.T) {
 func TestRecoveryRequiredKindStillNeedsDurableProducerAuthority(t *testing.T) {
 	const workID = "recovery-kind-authority"
 	ctx := context.Background()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+	fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "review")
 	if _, err := fixture.store.DatabaseForTesting().Exec(`DELETE FROM durable_operations WHERE op_id=?`, "return-authority-verification-"+workID); err != nil {
 		t.Fatal(err)
 	}
-	entry, err := VerifyWorkflowInstanceDefinition(ctx, fixture.store, BuiltinWorkflowRegistry(), workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	outstanding, err := outstandingWorkflowEvidenceRequirementsForWork(ctx, fixture.store.db, workID, entry.Definition)
+	outstanding, err := outstandingWorkflowEvidenceRequirementsForWork(ctx, fixture.store.db, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, requirement := range outstanding {
-		if requirement.Kind == "verification" && requirement.Reference == "" {
+		if requirement == "verification" {
 			return
 		}
 	}
@@ -375,33 +378,37 @@ func TestRecoveryPredicateRefusalStaysLocalToBinding(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			workID := "recovery-predicate-refusal-" + test.name
-			fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+			fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "review")
 			s := fixture.store
-			entry, err := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), workID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, _, before := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "checkpoint_context")
+			request := WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "checkpoint_context", Payload: json.RawMessage(`{"checkpoint_id":"checkpoint:test","active_unit":"implementation","hypothesis":"hypothesis","diagnosis":"diagnosis","strategy":"strategy","touched_refs":["path:test"],"evidence_refs":["evidence:test"],"pending_questions":[],"pending_decisions":[]}`), Actor: fixture.owner}
+			_, before := WorkflowActionDefinitionFor(ctx, s, request)
 			if before != nil {
 				t.Fatalf("discover context checkpoint before corrupting the predicate: %v", before)
 			}
-			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contract_predicates SET outcome_kind=?,outcome_payload=? WHERE work_id=? AND contract_version=1; DELETE FROM write_guard`, test.kind, test.payload, workID); err != nil {
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 				t.Fatal(err)
 			}
-			_, err = loadWorkflowAdmissionStateTx(ctx, s.db, workID, entry.Definition, "acceptance", "test")
+			result, err := s.DatabaseForTesting().Exec(`UPDATE workflow_contract_predicates SET outcome_kind=?,outcome_payload=? WHERE work_id=? AND contract_version=1`, test.kind, test.payload, workID)
 			if err != nil {
-				t.Errorf("admission load with a %s predicate = %v", test.name, err)
+				t.Fatal(err)
 			}
-			if _, _, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "checkpoint_context"); err != nil {
+			if n, err := result.RowsAffected(); err != nil || n == 0 {
+				t.Fatalf("predicate fixture updated %d rows: %v", n, err)
+			}
+			if _, err := s.DatabaseForTesting().Exec(`DELETE FROM write_guard`); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := WorkflowActionDefinitionFor(ctx, s, request); err != nil {
 				t.Errorf("binding predicate validation blocked another action's discovery: %v", err)
 			}
 			payload := json.RawMessage(`{"evidence_kind":"verification","immutable_subject_ref":"ci:result"}`)
-			var failure *Failure
-			if err := guardEvidenceBindingMembership(ctx, s.db, workID, entry.Definition, payload, "test"); !failureAs(err, &failure) || failure.Kind != KindInvariantViolation || failure.Detail != "approved outcome predicate is malformed or mismatched" {
-				t.Errorf("strict binding guard with a %s predicate = %v, want the predicate refusal", test.name, err)
-			}
 			assertRecoveryRefusalWithoutEffect(t, s, workID, KindInvariantViolation, func() error {
-				return runVerdictActionAs(t, s, workID, "bind_evidence", payload, 0, fixture.owner)
+				err := runVerdictActionAs(t, s, workID, "bind_evidence", payload, 0, fixture.owner)
+				var failure *Failure
+				if !failureAs(err, &failure) || failure.Detail != "approved outcome predicate is malformed or mismatched" {
+					t.Errorf("binding with a %s predicate = %v, want the predicate refusal", test.name, err)
+				}
+				return err
 			})
 		})
 	}
@@ -467,9 +474,6 @@ func TestBindEvidenceObligationRecoverableAfterMandateBound(t *testing.T) {
 	if _, err := seedTx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := seedTx.Exec(`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES(?,?, 'product','root',?)`, workID, contractVersion, "sha256:"+strings.Repeat("c", 64)); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := seedTx.Exec(`INSERT INTO workflow_contract_verification_obligations(work_id,contract_version,law_id,obligation_id) VALUES(?,?,'spec:one','verification')`, workID, contractVersion); err != nil {
 		t.Fatal(err)
 	}
@@ -505,9 +509,6 @@ func TestBindEvidenceObligationAllowedOnceSatisfied(t *testing.T) {
 	if _, err := seedTx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := seedTx.Exec(`INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES(?,?,'product','root',?)`, workID, contractVersion, "sha256:"+strings.Repeat("c", 64)); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := seedTx.Exec(`INSERT INTO workflow_contract_verification_obligations(work_id,contract_version,law_id,obligation_id) VALUES(?,?,'spec:one','review')`, workID, contractVersion); err != nil {
 		t.Fatal(err)
 	}
@@ -538,10 +539,8 @@ func TestBindEvidenceRequiredKindRecoveryWithEmptyMandate(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
-	var beforeStep, beforeContract string
-	if err := db.QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&beforeStep); err != nil {
-		t.Fatal(err)
-	}
+	beforeStep := workflowPlanFixtureFrontier(t, s, workID)
+	var beforeContract string
 	if err := db.QueryRow(`SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&beforeContract); err != nil {
 		t.Fatal(err)
 	}
@@ -551,10 +550,8 @@ func TestBindEvidenceRequiredKindRecoveryWithEmptyMandate(t *testing.T) {
 			t.Fatalf("required %s recovery binding refused: %v", kind, err)
 		}
 	}
-	var afterStep, afterContract string
-	if err := db.QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&afterStep); err != nil {
-		t.Fatal(err)
-	}
+	afterStep := workflowPlanFixtureFrontier(t, s, workID)
+	var afterContract string
 	if err := db.QueryRow(`SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&afterContract); err != nil {
 		t.Fatal(err)
 	}

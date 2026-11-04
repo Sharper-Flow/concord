@@ -64,8 +64,12 @@ type BackupManifest struct {
 }
 
 // BackupDatabase snapshots an existing database without migrating or repairing
-// its schema. The read-only source open cannot create a missing database. The
-// snapshot and manifest must pass the backup verb's verification rules.
+// its schema. The read-only source open cannot create a missing database. It
+// returns the manifest Backup verified and promoted: the copied destination
+// passes the SQLite triple, and the PM10 disposable-clone promotion gate passes
+// restore verification before the manifest is published. The whole cascade
+// shares the caller's one deadline, so the verb does not re-verify the
+// published artifact; consumers apply VerifyBackup on use.
 func BackupDatabase(ctx context.Context, path, destination string) (BackupManifest, error) {
 	if strings.TrimSpace(path) == "" {
 		return BackupManifest{}, newFailure(KindInvalidOperation, "backup", "source database path is empty", false, "supply an existing database path")
@@ -79,10 +83,7 @@ func BackupDatabase(ctx context.Context, path, destination string) (BackupManife
 	}
 	s := &Store{db: db, path: path}
 	defer func() { _ = s.Close() }()
-	if _, err := Backup(ctx, s, destination); err != nil {
-		return BackupManifest{}, err
-	}
-	return VerifyBackup(ctx, destination)
+	return Backup(ctx, s, destination)
 }
 
 // Backup creates a self-contained SQLite snapshot with the Online Backup API.
@@ -249,7 +250,7 @@ func RestoreBackup(ctx context.Context, source, destination string) (RestoreRepo
 		return RestoreReport{}, wrapFailure(KindUnavailable, "restore_backup", "restore was cancelled before it started", true, "retry the restore", err)
 	}
 	var researchExport string
-	if manifest.SchemaVersion < 183 {
+	if manifest.SchemaVersion < 184 {
 		ctx, researchExport, err = prepareResearchRetirement(ctx, source, destination+".research")
 		if err != nil {
 			return RestoreReport{}, fmt.Errorf("research preservation at %s failed; keep the snapshot and choose a new restore destination: %w", destination+".research", err)
@@ -457,6 +458,9 @@ func verifyBackupFile(ctx context.Context, destination string, supportedMax int,
 	var schema int
 	if err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version),0) FROM schema_migrations`).Scan(&schema); err != nil {
 		return BackupManifest{}, wrapFailure(KindUnavailable, "verify_backup", "cannot read backup schema version", false, "supply a Concord SQLite snapshot", err)
+	}
+	if schema < 1 {
+		return BackupManifest{}, newFailure(KindInvalidPayload, "verify_backup", "backup snapshot predates Concord schema versioning", false, "supply a snapshot written by a Concord binary")
 	}
 	if schema > supportedMax {
 		return BackupManifest{}, newFailure(KindSchemaUnsupported, "verify_backup", fmt.Sprintf("backup schema %d exceeds supported maximum %d", schema, supportedMax), true, "upgrade the binary before restoring this snapshot")

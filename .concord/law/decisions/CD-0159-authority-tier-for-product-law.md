@@ -51,7 +51,7 @@ CD-0222 names the deliverable a pruned statement of what the Product must keep
 true. No rule states what may enter that statement, and no field records how it
 got there.
 
-The predecessor demonstrates the cost. In one Product migrated from Advance, a
+One migrated Product demonstrates the cost. In it, a
 single page specification reached version 1.39.0 with 61 requirements. Its Git
 history holds more than 12 commits that rewrote it, and its change archive holds
 about 20 layout changes to that one page in two months. Three of the 61

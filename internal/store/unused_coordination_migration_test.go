@@ -43,12 +43,11 @@ DELETE FROM write_guard`, testManifestDigest, testManifestDigest, testManifestDi
 	if err := db.QueryRow(`SELECT instance_state,execution_model,result_disposition,unhealthy_verdict_seq,latest_non_dispatch_start_seq,(SELECT version FROM work_items WHERE id='source') FROM workflow_instances WHERE work_id='source'`).Scan(&state, &model, &disposition, &unhealthy, &nonDispatch, &version); err != nil || state != "blocked" || model != "test-model" || disposition != "deferred" || unhealthy != 11 || nonDispatch != 12 || version != 7 {
 		t.Fatalf("retained instance=%s/%s/%s/%d/%d/v%d err=%v", state, model, disposition, unhealthy, nonDispatch, version, err)
 	}
-	const retainedColumns = `work_id,definition_ref,definition_digest,current_step,instance_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at`
-	instance := retirementUpgradeRows(t, db, `SELECT `+retainedColumns+` FROM workflow_instances ORDER BY rowid`)
+	instance := cutoverInstanceExpectations(t, db, "")
 	if err := Migrate(t.Context(), db); err != nil {
 		t.Fatal(err)
 	}
-	if current := retirementUpgradeRows(t, db, `SELECT `+retainedColumns+` FROM workflow_instances ORDER BY rowid`); !reflect.DeepEqual(current, instance) {
+	if current := retirementUpgradeRows(t, db, `SELECT * FROM workflow_instances ORDER BY rowid`); !reflect.DeepEqual(current, instance) {
 		t.Fatalf("current instance=%v, want %v", current, instance)
 	}
 	if err := db.QueryRow(`SELECT version FROM work_items WHERE id='source'`).Scan(&version); err != nil || version != 7 {

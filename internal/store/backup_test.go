@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 	"github.com/sharper-flow/concord/internal/version"
 )
 
@@ -270,7 +271,7 @@ func captureEvidenceRows(t *testing.T, db *sql.DB, query string) []string {
 	return captured
 }
 
-// TestBackupRestorePreservesLivingEvidence checks workflow pins and law IDs, the
+// TestBackupRestorePreservesLivingEvidence checks workflow plans and law IDs, the
 // knowledge-home binding, work context, issue identity, and retained reports
 // through snapshot and restore.
 func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
@@ -285,8 +286,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	seedWork(t, s, contextWork)
 	seedWorkflowLaw(t, s)
 
-	// Workflow definition pin: the recorded actor and the selected definition
-	// are event-folded, so the rebuild must reproduce both pins from the log.
+	// Initialize the actor and retain the actual type template on the work item.
 	owner := WorkflowActor{PrincipalRef: "principal:evidence", ClientRef: "client:evidence", AgentRef: "agent:evidence", SessionRef: "session:evidence", ActorClass: ActorAgent}
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
@@ -300,26 +300,33 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, initTx, WorkflowInitializationRequest{WorkID: workID, Definition: workflowFixtureDefinition(t, 2), Actor: owner, Now: time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, initTx, WorkflowInitializationRequest{WorkID: workID, Actor: owner, Now: time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)}); err != nil {
 		initTx.Rollback()
 		t.Fatal(err)
 	}
 	if err := initTx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
+	workVersionBeforeApproval := readWorkVersion(t, s, workID)
 
 	// The approved contract retains its law mandate through backup and restore.
 	approval := workflowEventWithActor("evidence-contract", WorkflowContractApproved, workID, ownerRef, map[string]any{
-		"work_id": workID, "expected_version": int64(4), "resulting_version": int64(5), "contract_version": int64(1),
+		"work_id": workID, "expected_version": workVersionBeforeApproval, "resulting_version": workVersionBeforeApproval + 1, "contract_version": int64(1),
 		"premise":           "preserve living evidence across backup, restore, rebuild and as-of reads",
 		"outcome_kind":      "check",
 		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:evidence", "immutable_subject_ref": "commit:evidence", "expected_result": "pass"},
 		"required_evidence": []string{"verification"}, "route_conventions": []string{},
 		"spec_mandate": []string{"spec:one"}, "law_modifies": []string{},
 		"law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+		"decision_domains": []string{},
+		"architecture_binding": WorkflowArchitectureBinding{
+			HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
+			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
+		},
 	})
 	approval.PayloadVersion = CurrentEventPayloadVersion(WorkflowContractApproved)
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{approval}, ExpectedVersions: workVersion(workID, 4)}); err != nil {
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{approval}, ExpectedVersions: workVersion(workID, workVersionBeforeApproval)}); err != nil {
 		t.Fatalf("law-bearing contract approval refused: %v", err)
 	}
 
@@ -352,10 +359,6 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	contextDefinition, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, contextWork)
 	if err != nil {
 		t.Fatal(err)
@@ -364,37 +367,36 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeWorkflowRawTx(ctx, contextTx, WorkflowInitializationRequest{WorkID: contextWork, Definition: contextDefinition, Actor: contextOwner, Now: time.Date(2026, 10, 12, 1, 0, 0, 0, time.UTC)}); err != nil {
+	if err := initializeWorkflowRawTx(ctx, contextTx, WorkflowInitializationRequest{WorkID: contextWork, Actor: contextOwner, Now: time.Date(2026, 10, 12, 1, 0, 0, 0, time.UTC)}); err != nil {
 		contextTx.Rollback()
 		t.Fatal(err)
 	}
 	if err := contextTx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	seedWorkflowPlanFrontier(t, s, contextWork, WorkflowStepPlanFix, "implement")
+	contextContractVersion := readWorkVersion(t, s, contextWork)
 	contextContract := workflowEventWithActor("evidence-context-contract", WorkflowContractApproved, contextWork, contextOwnerRef, map[string]any{
-		"work_id": contextWork, "expected_version": int64(4), "resulting_version": int64(5), "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check",
+		"work_id": contextWork, "expected_version": contextContractVersion, "resulting_version": contextContractVersion + 1, "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check",
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:evidence-context", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:evidence-context", "immutable_subject_ref": "commit:" + workContextTestCommit(), "expected_result": "pass"}}},
 		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+		"decision_domains": []string{},
 		"architecture_binding": WorkflowArchitectureBinding{
 			HomeDomainID: workContextTestRoot, AffectedDomainIDs: []string{workContextTestRoot, workContextTestChild},
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
 		},
 	})
 	contextContract.PayloadVersion = CurrentEventPayloadVersion(WorkflowContractApproved)
-	contextContract = withPinnedDecisionFact(t, contextDefinition.Definition, contextContract)
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contextContract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, contextWork): 4}}); err != nil {
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contextContract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, contextWork): contextContractVersion}}); err != nil {
 		t.Fatalf("context consumer contract refused: %v", err)
-	}
-	if err := advanceWorkflowTestInstanceToStep(ctx, s, contextWork, "repair", contextOwnerRef); err != nil {
-		t.Fatalf("advance the context consumer to the repair step: %v", err)
 	}
 	contextActionVersion := readWorkVersion(t, s, contextWork)
 	actionTx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := applyWorkflowActionRawTx(ctx, actionTx, newWriteScope(actionTx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	if _, err := applyWorkflowActionRawTx(ctx, actionTx, newWriteScope(actionTx), WorkflowActionExecutionRequest{
 		WorkID: contextWork, ExpectedVersion: contextActionVersion, ActionID: "record_work_context",
 		Payload: mustJSONValue(map[string]any{
 			"required_reading": []map[string]any{},
@@ -445,8 +447,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	}{
 		{"effect_receipts", `SELECT effect_seq,event_id,kind,subject_type,subject_id,actor,payload_version,payload_digest,delivery_assertion,relation_seq FROM effect_receipts ORDER BY effect_seq`},
 		{"work_context_state", `SELECT work_id,source_frontier,declaration_seq,declaration_id,declaration_payload FROM work_context_state ORDER BY work_id`},
-		{"workflow_instances", `SELECT work_id,definition_ref,definition_digest,current_step,instance_state,completed_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY work_id`},
-		{"workflow_contracts", `SELECT work_id,contract_version,premise,spec_mandate,law_boundary_version,definition_ref,definition_digest FROM workflow_contracts ORDER BY work_id,contract_version`},
+		{"workflow_instances", `SELECT work_id,workflow_type,step_plan,prelude_state,instance_state,completed_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY work_id`},
+		{"workflow_contracts", `SELECT work_id,contract_version,premise,spec_mandate,law_boundary_version FROM workflow_contracts ORDER BY work_id,contract_version`},
 		{"workflow_review_state", `SELECT work_id,state FROM workflow_review_state ORDER BY work_id`},
 		{"linear_issue_links", `SELECT work_id,remote_issue_uuid,human_key,url,created_at,updated_at FROM linear_issue_links ORDER BY work_id`},
 		{"knowledge_homes", `SELECT product_id,project_id,locator_id FROM product_knowledge_homes ORDER BY product_id`},
@@ -469,6 +471,20 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	}
 	if len(want["workflow_instances"]) != 2 || len(want["workflow_contracts"]) != 2 {
 		t.Fatalf("workflow population = %d instances, %d contracts, want the evidence and context-consumer instances with their contracts", len(want["workflow_instances"]), len(want["workflow_contracts"]))
+	}
+	for _, fixture := range []struct {
+		workID   string
+		planType WorkflowStepPlanType
+		frontier string
+	}{{workID, WorkflowStepPlanChange, "plan"}, {contextWork, WorkflowStepPlanFix, "implement"}} {
+		plan, err := readWorkflowPlanTx(ctx, s.db, fixture.workID)
+		if err != nil || plan == nil || plan.Type != fixture.planType {
+			t.Fatalf("%s plan=%+v err=%v, want type %s", fixture.workID, plan, err, fixture.planType)
+		}
+		frontier := WorkflowStepPlanFrontier(*plan)
+		if len(frontier) != 1 || frontier[0].ID != fixture.frontier {
+			t.Fatalf("%s frontier=%v, want %s", fixture.workID, frontier, fixture.frontier)
+		}
 	}
 	var mandate string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT spec_mandate FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&mandate); err != nil || mandate != `["spec:one"]` {
@@ -524,6 +540,13 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	}
 
 	contextVersion := readWorkVersion(t, restored, contextWork)
+	var contextLifecycle string
+	if err := restored.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, contextWork).Scan(&contextLifecycle); err != nil {
+		t.Fatal(err)
+	}
+	if contextLifecycle != "in_progress" {
+		t.Fatalf("context consumer lifecycle=%s, want in_progress", contextLifecycle)
+	}
 	if err := ApplyOperation(ctx, restored, Operation{Events: []Event{{
 		EventID: "evidence-context-consumer-terminal", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: contextWork,
 		Actor: "operator", OccurredAt: time.Unix(60, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.transitioned"),
@@ -795,4 +818,42 @@ func TestInterruptedBackupVerificationDiscardsSnapshotAndStaging(t *testing.T) {
 		t.Fatalf("interrupted backup left verification staging files = %v (err=%v)", matches, err)
 	}
 	assertTableCount(t, s, "effect_receipts", 3)
+}
+
+// A snapshot whose schema_migrations holds no applied version is not a
+// Concord snapshot: no binary that stamps migrations can produce one, and a
+// manifest over it would carry schema version 0, which the restore verb's
+// identity rules refuse. The file-verification seam refuses it on every path,
+// and a backup of it fails typed with no partial output.
+func TestBackupRejectsSnapshotWithoutSchemaHistory(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "pre-schema.db")
+	db, err := sql.Open(driverName, sqlitedb.FileURI(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE schema_migrations (version INTEGER NOT NULL PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	_, err = verifyBackupFile(ctx, path, CurrentSchemaVersion(), nil)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || failure.Detail != "backup snapshot predates Concord schema versioning" {
+		t.Fatalf("verifyBackupFile() error = %v, want the typed pre-schema refusal", err)
+	}
+
+	destination := filepath.Join(t.TempDir(), "snapshot.db")
+	_, err = BackupDatabase(ctx, path, destination)
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || failure.Detail != "backup snapshot predates Concord schema versioning" {
+		t.Fatalf("BackupDatabase() error = %v, want the typed pre-schema refusal", err)
+	}
+	for _, candidate := range []string{destination, manifestPath(destination)} {
+		if _, statErr := os.Stat(candidate); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("refused backup left %s: %v", candidate, statErr)
+		}
+	}
 }

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/gittest"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -74,7 +75,10 @@ func TestCDReservationsListsProductReservationsFromHostWorktree(t *testing.T) {
 	claimedRoot := filepath.Join(repo, "worktrees", "work-wl")
 	run := func(arguments ...string) {
 		t.Helper()
-		cmd := exec.Command("git", append([]string{"-C", repo}, arguments...)...)
+		cmd, err := gittest.Command(repo, arguments...)
+		if err != nil {
+			t.Fatal(err)
+		}
 		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", arguments, err, out)

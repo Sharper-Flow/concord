@@ -10,78 +10,45 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func invokeWorkflowBoundary(t *testing.T, s *store.Store, service *Service, env CallEnvelope, input map[string]any, registry store.DefinitionRegistry) agentcontract.Envelope {
+func invokeWorkflowBoundary(t *testing.T, s *store.Store, service *Service, env CallEnvelope, input map[string]any) agentcontract.Envelope {
 	t.Helper()
 	raw, err := json.Marshal(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := InvokeWithRegistry(context.Background(), s, service, mustMarshalInvoke(t, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env), registry)
+	response, err := Invoke(context.Background(), s, service, mustMarshalInvoke(t, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return response
 }
 
-func TestWorkflowActionAvailabilityBeforePayloadOrAuth(t *testing.T) {
-	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
-	version := seedAgentWorkflow(t, s, grant)
-	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	env := mutationEnvelope(grant, scopeVersion)
-	input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "start_execution", "fields": map[string]any{}, "idempotency_key": "boundary-unavailable"}
-	response := invokeWorkflowBoundary(t, s, service, env, input, store.NewWorkflowDefinitionRegistry())
-	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_transition" {
-		t.Fatalf("unavailable action response outcome=%s error=%+v", response.Outcome, response.Error)
-	}
-	var started int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=?`, store.WorkflowActionStarted).Scan(&started); err != nil {
-		t.Fatal(err)
-	}
-	if started != 0 {
-		t.Fatalf("availability failure reached mutation authority: action_started=%d", started)
-	}
-}
-
 func advanceWorkflowBoundaryToExecution(t *testing.T, s *store.Store, service *Service, env CallEnvelope) (CallEnvelope, int64) {
 	t.Helper()
-	for _, action := range []string{"record_proposal", "record_alignment"} {
-		fields := map[string]any{}
-		if action == "record_proposal" {
-			fields = map[string]any{"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."}}
-		}
-		if action == "record_alignment" {
-			fields = map[string]any{"searched": "The bounded backlog search statement.", "outcome": "none_found"}
-		}
-		version, err := workVersionForWorkflow(t, s)
-		if err != nil {
-			t.Fatal(err)
-		}
-		input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": action, "fields": fields, "idempotency_key": "boundary-" + action}
-		response := invokeWorkflowBoundary(t, s, service, env, input, store.BuiltinWorkflowRegistry())
-		if response.Outcome != agentcontract.OutcomeOK {
-			t.Fatalf("advance action=%s response=%+v", action, response)
-		}
-	}
 	version, err := workVersionForWorkflow(t, s)
 	if err != nil {
 		t.Fatal(err)
 	}
-	challengeInput := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "approve_contract", "fields": map[string]any{}, "idempotency_key": "boundary-approve"}
-	addWorkflowContractApprovalFields(challengeInput)
-	challengeInput["fields"].(map[string]any)["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
-	response := invokeWorkflowBoundary(t, s, service, env, challengeInput, store.BuiltinWorkflowRegistry())
+	input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "approve_contract", "fields": map[string]any{}, "idempotency_key": "boundary-approve"}
+	addWorkflowContractApprovalFields(input)
+	input["fields"].(map[string]any)["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
+	response := invokeWorkflowBoundary(t, s, service, env, input)
 	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("approved action=%+v", response)
+		t.Fatalf("approved action=%+v", response.Error)
 	}
-	recordApprovedWorkDesign(t, s, service, env, "work-1", "boundary-design")
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
-		t.Fatal(err)
+	version = workVersion(t, s, "work-1")
+	response = invokeWorkflowBoundary(t, s, service, env, map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_plan", "fields": map[string]any{
+		"outcomes": "Working outcome", "approach": "Bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "Which approach?", "choice": "One approach", "rationale": "It fits", "rejected": []string{}}}, "touches": []string{"file:one"}, "merge_split": "One item", "risks": "Bounded risk",
+	}, "idempotency_key": "boundary-record-plan"})
+	if response.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("record plan=%+v", response.Error)
 	}
-	return env, version
+	version = workVersion(t, s, "work-1")
+	response = invokeWorkflowBoundary(t, s, service, env, map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "complete_step", "fields": map[string]any{"step_id": "plan", "note": "Plan is complete."}, "idempotency_key": "boundary-complete-plan"})
+	if response.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("complete plan=%+v", response.Error)
+	}
+	return env, workVersion(t, s, "work-1")
 }
 
 func TestWorkflowActionStrictInvokeBoundaryForStepActorAndPayload(t *testing.T) {
@@ -100,7 +67,7 @@ func TestWorkflowActionStrictInvokeBoundaryForStepActorAndPayload(t *testing.T) 
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE kind=?`, store.WorkflowActionCompleted).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	response := invokeWorkflowBoundary(t, s, service, env, input, store.BuiltinWorkflowRegistry())
+	response := invokeWorkflowBoundary(t, s, service, env, input)
 	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
 		t.Fatalf("malformed step/payload response=%+v", response)
 	}
@@ -115,7 +82,7 @@ func TestWorkflowActionStrictInvokeBoundaryForStepActorAndPayload(t *testing.T) 
 	actorEnv := env
 	actorEnv.AgentRef = "agent:malformed"
 	actorInput := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "start_execution", "fields": map[string]any{}, "idempotency_key": "boundary-malformed-actor"}
-	actorResponse := invokeWorkflowBoundary(t, s, service, actorEnv, actorInput, store.BuiltinWorkflowRegistry())
+	actorResponse := invokeWorkflowBoundary(t, s, service, actorEnv, actorInput)
 	if actorResponse.Outcome != agentcontract.OutcomeError || actorResponse.Error == nil || actorResponse.Error.Kind != "unauthorized" {
 		t.Fatalf("malformed actor response outcome=%s error=%+v", actorResponse.Outcome, actorResponse.Error)
 	}

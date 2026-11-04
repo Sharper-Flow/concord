@@ -1,7 +1,7 @@
 ---
 {
   "id": "CD-0112",
-  "title": "record_delivery exits the step a session executed",
+  "title": "record_delivery records delivery at its declared step",
   "authority": {
     "tier": "derived"
   },
@@ -9,7 +9,7 @@
   "applies_to_domain_ids": []
 }
 ---
-# CD-0112: record_delivery exits the step a session executed
+# CD-0112: record_delivery records delivery at its declared step
 
 - **Status:** Accepted
 - **Date:** 2026-09-05
@@ -28,25 +28,27 @@ finished. Delivery needs its own explicit result.
 `checkpoint_context` and `cross_context_boundary` are hold actions. They record
 continuity and never advance a stage.
 
-### D2. record_delivery exits a producing step
+### D2. record_delivery records at its declared step without moving it
 
-Every external-effect step declares `record_delivery` with an internal SQLite
-consequence, no independent approval and advance mode. The current step's
-fenced start must have run. Delivery applies the complete delivery admission,
-including Review, native proof and applicable approvals. Native Task execution
-neither supplies delivery nor prevents this route.
+A plan step that declares `record_delivery` carries it with an internal
+SQLite consequence and no independent approval. Delivery applies the
+complete delivery admission: the accepted Review and, when the active
+contract requires verification evidence, a passing verification report
+covering the current reviewed candidate, plus applicable approvals. Native
+Task execution neither supplies delivery nor prevents this route. Steps
+complete only through `complete_step`; delivery requires no step start.
 
 Replacing an existing delivery record follows
 [workflow-engine contract §4.2](../specs/workflow-engine-contract.md#42-ordinary-retry-and-record-correction).
 The replacement holds the current step and lifecycle, including completed work;
-it does not repeat the producing step's advance or assert new execution.
+it reruns no completion and asserts no new execution.
 
-### D3. Decision-record exits retain their declared meaning
+### D3. Retained decision records stay readable
 
-A retained architecture-spike definition remains excluded from new execution
-under CD-0218. Its `record_decision` records its typed checkpoint and advances
-to review. Its declared acceptance and premise-confirmation exits remain
-distinct. A typed checkpoint may accompany an advance.
+`workflow_decision_records` rows written before the step-plan cutover remain
+readable as recorded decisions. No current action writes new rows: in-flight
+decisions travel in the six-part plan record, and steps complete only
+through `complete_step`.
 
 ## Alternatives considered
 
@@ -62,7 +64,9 @@ host's subagent execution.
 
 ## Verification
 
-- `go test ./internal/store` checks hold-mode continuity and delivery admission,
-  including refusal without a current start and required evidence.
+- `go test ./internal/store ./internal/agent` checks hold-mode continuity
+  and delivery admission, including refusal without an accepted Review
+  (`TestRecordDeliveryRequiresAcceptedReview`) and missing or failed
+  verification (`TestDeliveryAdmissionRefusals`).
 - Committed law-folder snapshot validation checks the record's identity and
   content digest.

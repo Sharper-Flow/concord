@@ -29,8 +29,8 @@ with the real YAML parser (PyYAML), never from a curated copy:
 Pass changed files as whole `argv` elements; `--` keeps a dash-prefixed path
 positional.
 
-Suites are spawned with any inherited local Git namespace cleared
-(scripts/git_environment.py): when the selector runs under a Git hook or
+Suites are spawned with any inherited local Git namespace and external
+fixture configuration cleared (scripts/git_environment.py fixture mode): when the selector runs under a Git hook or
 another Git-launched process, a suite building its own scratch repository
 would otherwise have its Git operations redirected into the outer repository.
 If that namespace cannot be discovered, no suite is spawned at all.
@@ -269,7 +269,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     try:
-        child_environment = git_environment.sanitized_environment()
+        child_environment = git_environment.sanitized_environment(fixture=True)
     except git_environment.GitEnvironmentError as error:
         print(f"run-script-tests: {error}", file=sys.stderr)
         print("run-script-tests: refusing to spawn suites with an unknown Git environment", file=sys.stderr)

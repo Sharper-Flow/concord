@@ -14,7 +14,7 @@
 SQLite is Concord's sole
 durable local execution authority: transactional current state and finite
 verified snapshots, `synchronous=NORMAL`, WAL, and `busy_timeout=5000`; six binding invariants I1–I6
-map 1:1 to the Advance failure modes. **PM2 selects one global local SQLite
+remove the split-authority failure modes by construction. **PM2 selects one global local SQLite
 authority per Concord installation/operator-machine; Product/Project remain logical
 scopes.** Full records:
 [`../law/decisions/CD-0002-concord-state-authority.md`](../law/decisions/CD-0002-concord-state-authority.md).
@@ -48,8 +48,8 @@ The binary holds no Linear credential and makes no Linear API call. See
 authority in the core. Agents read work context explicitly under
 [CD-0016](../law/decisions/CD-0016-context-continuity.md).
 
-This is a **clean rewrite**, not a port of Advance's TypeScript plugin or its tool
-catalog. Go-core is greenfield Concord code.
+This is a **clean rewrite** in Go, not a port of any prior TypeScript plugin or
+tool catalog. Go-core is greenfield Concord code.
 
 ### Go owns
 
@@ -111,28 +111,28 @@ and transactional state—remains Go.
 
 These are the non-negotiable correctness properties any core topology must
 satisfy. They are consolidated here from
-[`design-constraints.md`](./design-constraints.md) §1, §4, §5, §13, §14–§19
-and the public predecessor lessons (see
-`advance-postmortem.md` for the canonical per-invariant source). Each invariant
+[`design-constraints.md`](./design-constraints.md) §1, §4, §5, §13, §14–§19.
+Each invariant
 is stated once; companion documents reference this section rather than restating.
 
 | # | Invariant | Source | What it means structurally |
 |---|---|---|---|
-| 1 | **Single derivation** | postmortem C1 | All current state derives from exactly one authoritative store (SQLite per CD-0002), no component holds a second writable authority, and no event log, fold, upcaster, or replay exists ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). |
-| 2 | **Atomic terminal transition** | postmortem C2 | Status, lifecycle, and gate completion commit together. Invalid combinations are unrepresentable. Terminal = one record/transition, not coordinated field updates. |
-| 3 | **Current-state writes, no history** | postmortem C2/C3 | Each mutation writes current rows in one transaction, checked by an expected version and recorded by its idempotency key; no append-only history exists ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). |
-| 4 | **Graded recovery** | postmortem C6 | Every reachable inconsistent state has an explicit repair path: reconcile current rows, restore a verified snapshot, and reconcile against Git, worktrees, artifacts, and external effects ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). |
-| 5 | **Ground-truth reclamation** | postmortem C4 | Resource reclamation keys off the resource's own facts, not a derived status field. Status disagreements are reconcilable, not silently vetoed. |
-| 6 | **Honest partial completion** | postmortem C3 | Sub-step failures degrade the verdict. `Result` has a distinct `Partial` state, not an error buried in an errors array. No advisory-only error beside unqualified success. |
-| 7 | **Per-item budgets** | postmortem C5 | APIs accept per-item budgets. A budget is honored or refused (`BudgetRefused`), never silently clamped. Operations scale with data, not with a fixed ceiling. Main sizes each assignment by complexity and relatedness, and scope, prerequisite, ownership, and safety checks remain; no attempt count, production-line cap, size measurement, or mandatory split exists ([CD-0242 D6](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)). |
+| 1 | **Single derivation** | design-constraints §14 | All current state derives from exactly one authoritative store (SQLite per CD-0002), no component holds a second writable authority, and no event log, fold, upcaster, or replay exists ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). |
+| 2 | **Atomic terminal transition** | design-constraints §15 | Status, lifecycle, and gate completion commit together. Invalid combinations are unrepresentable. Terminal = one record/transition, not coordinated field updates. |
+| 3 | **Current-state writes, no history** | design-constraints §15, §16 | Each mutation writes current rows in one transaction, checked by an expected version and recorded by its idempotency key; no append-only history exists ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). |
+| 4 | **Graded recovery** | design-constraints §19 | Every reachable inconsistent state has an explicit repair path: reconcile current rows, restore a verified snapshot, and reconcile against Git, worktrees, artifacts, and external effects ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). |
+| 5 | **Ground-truth reclamation** | design-constraints §17 | Resource reclamation keys off the resource's own facts, not a derived status field. Status disagreements are reconcilable, not silently vetoed. |
+| 6 | **Honest partial completion** | design-constraints §16 | Sub-step failures degrade the verdict. `Result` has a distinct `Partial` state, not an error buried in an errors array. No advisory-only error beside unqualified success. |
+| 7 | **Per-item budgets** | design-constraints §18 | APIs accept per-item budgets. A budget is honored or refused (`BudgetRefused`), never silently clamped. Operations scale with data, not with a fixed ceiling. Main sizes each assignment by complexity and relatedness, and scope, prerequisite, ownership, and safety checks remain; no attempt count, production-line cap, size measurement, or mandatory split exists ([CD-0242 D6](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)). |
 | 8 | **Concurrent-writer correctness** | [Data safety](../law/constitution/priorities.md#data-safety-constraint) | Many concurrent agents write to the same local state with zero escaped busy failures on the accepted population and zero lost or duplicated effects or invariant violations. [CD-0045](../law/decisions/CD-0045-writer-admission-invariant.md) requires ten-process correctness proof without a write-latency percentile target. Reads stay lock-free. Per-entity serialization, not a global mutex. CD-0011 owns storage-authority reopen conditions. |
 | 9 | **Bounded authoritative reads** | [Visibility and continuity](../law/constitution/priorities.md#visibility-and-continuity) | Reads are lock-free, bounded by Product scope, and paginated/streamed. Authority/freshness is typed and never guessed; related-work blocking follows CD-0006 R3 and CD-0222's architecture-overlap policy. |
 | 10 | **Typed degradation** | [Visibility and continuity](../law/constitution/priorities.md#visibility-and-continuity) | Every read carries an authority tag (`authoritative` / `degraded` / `unreachable`). Silent non-authoritative substitution is forbidden. |
 | 11 | **Single-source definitions** | [Data safety](../law/constitution/priorities.md#data-safety-constraint), [Composable workflows](../law/constitution/priorities.md#composable-workflows-goal-c) | Workflow and schema changes are safe for in-flight work. Workflow definitions and derived schemas are generated from one canonical source; no released workflow-definition version is retained for history and no hand-maintained version, pin, or catalog duplicates it ([CD-0242 D14](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)). |
 | 12 | **Architecture-bound Product truth** | [Product law and Domain architecture](../law/constitution/priorities.md#product-law-and-domain-architecture-goal-a) | Every current law has one Domain home. Product-changing work pins its Domain/law footprint, and unresolved concurrent Domain overlap cannot enter Product truth. Git merge success and heuristics confer no authority. |
 
-A Go core topology must satisfy all twelve invariants. The first eleven derive
-from the public predecessor postmortem's failure classes. Architecture-bound
+A Go core topology must satisfy all twelve invariants. The first seven derive
+from the failure classes in [`design-constraints.md`](./design-constraints.md)
+§14–§19; invariants 8–11 follow the standing-law sections cited per row. Architecture-bound
 Product truth follows CD-0222's many-agent Product-concordance requirement.
 
 ---
@@ -185,7 +185,6 @@ details; this table does not duplicate them.
 | [`../law/decisions/CD-0002-concord-state-authority.md`](../law/decisions/CD-0002-concord-state-authority.md) | State authority | Sole durable authority for SQLite; invariants I1–I6. |
 | [`clarifications.md`](./clarifications.md) | Build-authorizing decisions | The product-memory contracts shape Product memory; TS1–TS9 shape the current agent tool surface; CD-0006/CD-0007/CD-0008/CD-0222 settle root policy, repository boundary, mechanism hardening, and Product-law architecture. |
 | [`rollout-plan.md`](./rollout-plan.md) | Entry conditions | Go-core direction is not an entry condition. |
-| [`advance-postmortem.md`](./advance-postmortem.md) | Failure evidence | Public predecessor lessons source the resilience invariants in §2. |
 | [`capability-placement.md`](./capability-placement.md) | Placement rubric | Places capabilities under CD-0005; TS6 selects the plugin-entry adapter and rejects MCP v1. |
 | [`workflows.md`](./workflows.md) | Workflow families | Three retained execution families (§4), authored as plain Go definitions (§7). |
 

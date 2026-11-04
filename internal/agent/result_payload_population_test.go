@@ -138,7 +138,7 @@ func fullyPopulatedDomainPayloads(t *testing.T) domainReadPayloads {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES('work-1','workflow.break_fix',?,'repair','running','2026-08-19T00:00:00Z')`, breakFixFixtureDigest(t)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,workflow_type,step_plan,instance_state,execution_started_at) VALUES('work-1','fix',?,'running','2026-08-19T00:00:00Z')`, agentPlanFixtureJSON(t, store.WorkflowStepPlanFix, "implement")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
@@ -221,6 +221,7 @@ func TestFullyPopulatedResultPayloadsValidate(t *testing.T) {
 // declares, every internal pointer it does not, and the populated internal
 // slices a shaping that dropped only a copied list would have to name.
 func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
+	plan, _ := store.WorkflowStepPlanTemplate(store.WorkflowStepPlanChange)
 	binding := &store.WorkflowArchitectureBinding{
 		HomeDomainID:            "child",
 		AffectedDomainIDs:       []string{"root", "child"},
@@ -229,9 +230,9 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 		LawAdditions:            []store.WorkflowLawAddition{{LawID: "spec-2", HomeDomainID: "child"}},
 		VerificationObligations: []store.WorkflowVerificationObligation{{LawID: "spec-1", ObligationID: "verification"}},
 	}
-	return store.WorkflowReadProjection{
+	projection := store.WorkflowReadProjection{
 		WorkID: "work-1", State: "completed", CurrentStep: "acceptance",
-		Definition: store.WorkflowReadDefinition{Ref: "workflow.task", Digest: "sha256:" + repeatHex()},
+		Plan: &plan,
 		Contract: &store.WorkflowReadContract{
 			Version: 2, Premise: "the approved premise",
 			OutcomePredicates: []store.WorkflowReadPredicate{{PredicateID: "predicate:primary", Ordinal: 0, OutcomeKind: "check", OutcomePayload: `{"kind":"check"}`}},
@@ -255,6 +256,13 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 			ActorRef: "actor:owner", AssertedAt: "2026-01-01T00:00:00Z",
 		},
 	}
+	planDoc, _ := json.Marshal(agentPlanFields())
+	projection.PlanRecord = &store.WorkflowReadPlanDocument{WorkVersion: 2, Document: planDoc, RecordedAt: "2026-01-01T00:00:00Z", Actor: "actor:owner", EventRef: "event:plan"}
+	projection.RemovalScope = &store.WorkflowReadPlanDocument{WorkVersion: 2, Document: json.RawMessage(`{"removed":["file:one"],"retiring_clauses":[]}`), RecordedAt: "2026-01-01T00:00:00Z", Actor: "actor:owner", EventRef: "event:removal"}
+	if err := json.Unmarshal([]byte(`{"prelude":{"intake":{"outcome":"proceed","open_questions_found":false}}}`), &projection); err != nil {
+		panic(err)
+	}
+	return projection
 }
 
 // TestPublishedWorkflowReadMatchesDerivedContractSet runs the published
@@ -364,15 +372,11 @@ func enrichmentPinFixture(t *testing.T) (*store.Store, string, store.WorkPin) {
 	if err := pm1fixture.SeedWorkItem(ctx, s, project, workID, "Work one", 1); err != nil {
 		t.Fatal(err)
 	}
-	registered, err := store.BuiltinWorkflowRegistry().Register(store.BuiltinWorkflowDefinitions()[0])
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{
-			WorkID: workID, Definition: registered,
-			Actor: store.WorkflowActor{PrincipalRef: "principal/fixture", ClientRef: "client/fixture", AgentRef: "agent/fixture", SessionRef: "session/fixture", ActorClass: store.ActorAgent},
-			Now:   time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+			WorkID: workID,
+			Actor:  store.WorkflowActor{PrincipalRef: "principal/fixture", ClientRef: "client/fixture", AgentRef: "agent/fixture", SessionRef: "session/fixture", ActorClass: store.ActorAgent},
+			Now:    time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
 		})
 	}); err != nil {
 		t.Fatal(err)

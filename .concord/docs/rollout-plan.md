@@ -16,10 +16,6 @@ default branch `main`. Public authority begins
 at the annotated `constitutional-bootstrap` tag. The candidate does not import
 private history, dependency inventories, archive bundles, or synchronization files.
 
-Advance is a public predecessor and lesson source, not a runtime prerequisite or a
-second authority. Reachable issue-backed lessons are summarized in
-[`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md).
-
 ## 1. Work allowed after bootstrap
 
 Development follows [`../law/specs/managed-development-authority.md`](../law/specs/managed-development-authority.md).
@@ -52,10 +48,9 @@ research, or clarification work.
 
 ## 3. First-usable floor and release evidence
 
-The alpha maturity condition requires the first-usable floor to stay met; this
-does not make predecessor replacement current Product direction.
+The alpha maturity condition requires the first-usable floor to stay met.
 
-The six **usability-floor** conditions are defined in
+The five **usability-floor** conditions are defined in
 [`floor-readiness.md`](./floor-readiness.md) under *First-usable floor*. The
 **release-evidence bar** is defined below. Their conditions are linked rather than
 restated here.
@@ -104,7 +99,6 @@ promotion. It imposes no schedule, so the demand-driven model above still holds.
 | [`../law/decisions/CD-0089-concord-development-coordination.md`](../law/decisions/CD-0089-concord-development-coordination.md) | Concord development coordination and explicit managed participation. |
 | [`../law/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md`](../law/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md) | Explicit workflow participation, outside project work, authorized defect repair, and host-role preservation. |
 | [`../law/decisions/CD-0091-maturity-promotion-ladder.md`](../law/decisions/CD-0091-maturity-promotion-ladder.md) | Maturity and audience-commitment promotion evidence. |
-| [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md) | Public predecessor lessons; reference-only. |
 | [`clarifications.md`](./clarifications.md) | Accepted decisions and explicitly deferred questions. |
 
 *Each phase earns the next through public evidence, not calendar pressure.*

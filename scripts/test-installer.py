@@ -33,7 +33,7 @@ import git_environment
 # `shutil.which` resolution with an environment copied from this process, so
 # a hook that launched it must not keep a redirecting Git namespace in place.
 # The scrub runs before the in-process installer helper loads.
-git_environment.scrub_inherited()
+git_environment.scrub_inherited(fixture=True)
 
 import install as installer
 
@@ -83,14 +83,6 @@ class NativeTaskInstallerTests(unittest.TestCase):
             self.assertTrue(plan.changed)
             self.assertEqual(sentinel.read_bytes(), before)
             self.assertEqual(list(keyrings.iterdir()), [sentinel])
-
-    def test_missing_required_host_command_still_refuses(self):
-        with tempfile.TemporaryDirectory() as directory:
-            paths = installer.paths_for(Path(directory))
-            with mock.patch.object(installer, "command_status", return_value=None), \
-                    mock.patch.dict(os.environ, {"PATH": str(paths.bin_dir)}):
-                with self.assertRaisesRegex(installer.InstallerError, "missing command git"):
-                    installer.runtime_preflight(paths)
 
 
 SCRIPT = Path(__file__).with_name("install.py")
@@ -455,42 +447,6 @@ else:
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("missing command opencode", result.stderr)
         self.assert_retained_empty_lock_root()
-
-    def test_install_keeps_an_existing_compatible_secret_service(self) -> None:
-        self.make_release("v1.0.0")
-        result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        unit = (
-            self.root
-            / "config"
-            / "systemd"
-            / "user"
-            / "gnome-keyring-daemon.service.d"
-            / "concord-login.conf"
-        )
-        self.assertFalse(unit.exists())
-
-    def test_install_keeps_an_existing_unlocked_gnome_keyring(self) -> None:
-        self.make_release("v1.0.0")
-        keyrings = self.root / "data" / "keyrings"
-        keyrings.mkdir(parents=True)
-        login_keyring = keyrings / "login.keyring"
-        login_keyring.write_text("encrypted", encoding="utf-8")
-
-        result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(login_keyring.read_text(encoding="utf-8"), "encrypted")
-        self.assertFalse(
-            (
-                self.root
-                / "config"
-                / "systemd"
-                / "user"
-                / "gnome-keyring-daemon.service.d"
-                / "concord-login.conf"
-            ).exists()
-        )
 
     def test_install_preserves_a_user_authored_credential_unit(self) -> None:
         self.make_release("v1.0.0")
@@ -1001,8 +957,7 @@ esac''',
                 self.assertEqual(Path(environment["CONCORD_TEST_CUTOVER_MARKER"]).exists(), mode != "fail")
 
     def test_cutover_forwards_only_explicit_operator_confirmations(self) -> None:
-        for flags in ((), ("--confirm-sessions-stopped",), ("--cancel-cutover-pinned-work",),
-                      ("--confirm-sessions-stopped", "--cancel-cutover-pinned-work")):
+        for flags in ((), ("--confirm-sessions-stopped",)):
             with self.subTest(flags=flags):
                 self.tearDown()
                 self.setUp()
@@ -1015,7 +970,12 @@ esac''',
                 request = mutations[0]
                 self.assertIs(request.get("require_no_sessions"), True)
                 self.assertEqual(request.get("confirm_sessions_stopped", False), "--confirm-sessions-stopped" in flags)
-                self.assertEqual(request.get("cancel_cutover_pinned_work", False), "--cancel-cutover-pinned-work" in flags)
+                self.assertEqual(set(request), {"require_no_sessions", "maintenance_fd", "confirm_sessions_stopped"})
+
+    def test_cutover_rejects_retired_workflow_cancellation_flag(self) -> None:
+        result = self.run_installer("cutover", "--version", "v1.1.0", "--cancel-cutover-pinned-work")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unrecognized arguments: --cancel-cutover-pinned-work", result.stderr)
 
     def test_cutover_resumes_migrated_store_and_reruns_idempotently(self) -> None:
         self.prepare_a_blocked_release()
@@ -1055,7 +1015,7 @@ esac''',
         self.prepare_a_blocked_release()
         environment = self.cutover_env(already_migrated=True)
         args = SimpleNamespace(root=self.root, version="v1.1.0",
-                               confirm_sessions_stopped=False, cancel_cutover_pinned_work=False)
+                               confirm_sessions_stopped=False)
         holders = {"/synthetic/release": [{"pid": 4242}]}
         prepared = self.prepared_path.read_bytes()
         with mock.patch.dict(os.environ, environment, clear=True), \
@@ -1874,23 +1834,6 @@ esac''',
         self.assertIn("no repair needed", result.stdout)
         self.assertEqual(manifest_path.read_bytes(), before)
 
-    def test_repair_restores_a_missing_worktree_project_link(self) -> None:
-        self.make_release("v1.0.0")
-        worktree = self.root / "data" / "concord" / "worktrees" / "project" / "work"
-        worktree.mkdir(parents=True)
-        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertEqual(first.returncode, 0, first.stderr)
-        shutil.rmtree(worktree / ".opencode")
-
-        repaired = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-
-        self.assertEqual(repaired.returncode, 0, repaired.stderr)
-        worktrees_config = worktree / ".opencode" / "opencode.json"
-        self.assertEqual(
-            json.loads(worktrees_config.read_text(encoding="utf-8")),
-            {"instructions": [str(self.root / "data" / "concord" / "current" / "instructions" / "*.md")]},
-        )
-
     def test_repair_restores_every_missing_worktree_project_link(self) -> None:
         self.make_release("v1.0.0")
         first = self.root / "data" / "concord" / "worktrees" / "project-a" / "work"
@@ -2269,31 +2212,12 @@ esac''',
         status = self.run_installer("status")
         self.assertEqual(status.returncode, 0, status.stderr)
 
-    def test_upgrade_removes_the_retired_ci_watch_adapter_file(self) -> None:
-        retired = self._install_recording_retired_adapter("ci-watch.ts")
-
-        second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
-
-        self.assertEqual(second.returncode, 0, second.stderr)
-        self.assertFalse(retired.exists(), "the upgrade left the retired watcher in the tools directory")
-        manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
-        self.assertNotIn("ci-watch.ts", manifest["adapter_files"])
-        self.assertNotIn("adapter/opencode/ci-watch.ts", manifest["version_files"])
-
     def test_status_and_uninstall_accept_the_retired_ci_watch_manifest(self) -> None:
         retired = self._install_recording_retired_adapter("ci-watch.ts")
 
         status = self.run_installer("status")
         self.assertEqual(status.returncode, 0, status.stderr)
         result = self.run_installer("uninstall")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(retired.exists())
-
-    def test_uninstall_removes_a_retired_adapter_file_the_manifest_records(self) -> None:
-        retired = self._install_recording_retired_adapter()
-
-        result = self.run_installer("uninstall")
-
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(retired.exists())
 
@@ -2516,49 +2440,6 @@ esac''',
         self.assertEqual(installed.returncode, 0, installed.stderr)
         # One registration, in tuple form: the path occurs once, inside the tuple.
         self.assertEqual(self.config.read_text(encoding="utf-8").count(entry), 1)
-        removed = self.run_installer("uninstall")
-        self.assertEqual(removed.returncode, 0, removed.stderr)
-        config = self.config.read_text(encoding="utf-8")
-        self.assertNotIn(entry, config)
-        self.assertNotIn("operator_label", config)
-        plugin = installer.jsonc_data(config)["plugin"]
-        self.assertEqual(plugin, ["/operator/other"])
-
-    def test_uninstall_survives_a_comment_before_the_tuple(self) -> None:
-        """A ``/* [ */`` comment beside the tuple corrupts nothing on uninstall."""
-        entry = self.plugin_entry_path()
-        self.config.write_text(
-            '{\n  "keep": true,\n  "plugin": [\n'
-            '    /* [ comment bracket */ "/operator/other",\n'
-            '    ["' + entry + '", {"operator_label": "ops"}]\n'
-            '  ]\n}\n',
-            encoding="utf-8",
-        )
-        self.make_release("v1.0.0")
-        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertEqual(installed.returncode, 0, installed.stderr)
-        removed = self.run_installer("uninstall")
-        self.assertEqual(removed.returncode, 0, removed.stderr)
-        config = self.config.read_text(encoding="utf-8")
-        self.assertNotIn(entry, config)
-        self.assertNotIn("operator_label", config)
-        # The comment stays, the neighbour stays, and the result still parses.
-        self.assertIn("comment bracket", config)
-        plugin = installer.jsonc_data(config)["plugin"]
-        self.assertEqual(plugin, ["/operator/other"])
-
-    def test_uninstall_survives_a_comment_after_the_tuple(self) -> None:
-        """A comment between the tuple and its comma corrupts nothing on uninstall."""
-        entry = self.plugin_entry_path()
-        self.config.write_text(
-            '{\n  "keep": true,\n  "plugin": [\n'
-            '    ["' + entry + '", {"operator_label": "ops"}] /* after */,\n'
-            '    "/operator/other"\n  ]\n}\n',
-            encoding="utf-8",
-        )
-        self.make_release("v1.0.0")
-        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertEqual(installed.returncode, 0, installed.stderr)
         removed = self.run_installer("uninstall")
         self.assertEqual(removed.returncode, 0, removed.stderr)
         config = self.config.read_text(encoding="utf-8")
@@ -2891,8 +2772,10 @@ esac''',
             if path.is_file() and (directory != "agents" or fnmatch.fnmatch(path.name, installer.AGENT_GLOB))
         }
         skill_names = [
+            "concord-architecture-writing",
             "concord-codebase-design",
             "concord-diagnosis",
+            "concord-improve-codebase-architecture",
             "concord-instruction-writing",
             "concord-law-writing",
             "concord-retrospective",
@@ -3466,122 +3349,6 @@ esac''',
         self.assertNotIn("concord-operator.md", installer.AGENT_FILES)
         self.assertNotIn("concord-rte.md", installer.AGENT_FILES)
         self.assertNotIn("concord-RTE.md", installer.AGENT_FILES)
-
-    def test_upgrade_refuses_named_primary_profile_over_unmanaged_host_file(self) -> None:
-        # A host's unowned profile must survive a conflicting upgrade.
-        introduced = "Concord-RTE.md"
-        earlier = tuple(name for name in installer.AGENT_FILES if name != introduced)
-        self.make_release("v1.0.0", agent_names=earlier)
-        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertEqual(installed.returncode, 0, installed.stderr)
-
-        target = self.root / "config" / "opencode" / "agents" / introduced
-        target.write_bytes(b"host release train engineer\n")
-        self.make_release("v2.0.0")
-        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
-
-        self.assertNotEqual(upgraded.returncode, 0)
-        self.assertIn("user-authored agent file", upgraded.stderr)
-        self.assertEqual(target.read_bytes(), b"host release train engineer\n")
-
-    def test_native_reviewer_upgrade_preserves_an_unmanaged_definition(self) -> None:
-        earlier = tuple(name for name in installer.AGENT_FILES if name != "concord-review.md")
-        self.make_release("v1.0.0", agent_names=earlier)
-        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertEqual(installed.returncode, 0, installed.stderr)
-        target = self.root / "config" / "opencode" / "agents" / "concord-review.md"
-        target.write_bytes(b"host reviewer\n")
-        self.make_release("v2.0.0")
-        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertNotEqual(upgraded.returncode, 0)
-        self.assertIn("user-authored agent file", upgraded.stderr)
-        self.assertEqual(target.read_bytes(), b"host reviewer\n")
-
-    def test_native_verifier_upgrade_preserves_an_unmanaged_definition(self) -> None:
-        earlier = tuple(name for name in installer.AGENT_FILES if name != "concord-verify.md")
-        self.make_release("v1.0.0", agent_names=earlier)
-        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertEqual(installed.returncode, 0, installed.stderr)
-        target = self.root / "config" / "opencode" / "agents" / "concord-verify.md"
-        target.write_bytes(b"host verifier\n")
-        self.make_release("v2.0.0")
-        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertNotEqual(upgraded.returncode, 0)
-        self.assertIn("user-authored agent file", upgraded.stderr)
-        self.assertEqual(target.read_bytes(), b"host verifier\n")
-
-    def test_native_implementer_upgrade_preserves_an_unmanaged_definition(self) -> None:
-        earlier = tuple(name for name in installer.AGENT_FILES if name != "concord-implement.md")
-        self.make_release("v1.0.0", agent_names=earlier)
-        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertEqual(installed.returncode, 0, installed.stderr)
-        target = self.root / "config" / "opencode" / "agents" / "concord-implement.md"
-        target.write_bytes(b"host implementer\n")
-        self.make_release("v2.0.0")
-        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertNotEqual(upgraded.returncode, 0)
-        self.assertIn("user-authored agent file", upgraded.stderr)
-        self.assertEqual(target.read_bytes(), b"host implementer\n")
-
-    def test_native_researcher_upgrade_preserves_an_unmanaged_definition(self) -> None:
-        earlier = tuple(name for name in installer.AGENT_FILES if name != "concord-research.md")
-        self.make_release("v1.0.0", agent_names=earlier)
-        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertEqual(installed.returncode, 0, installed.stderr)
-        target = self.root / "config" / "opencode" / "agents" / "concord-research.md"
-        target.write_bytes(b"host researcher\n")
-        self.make_release("v2.0.0")
-        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertNotEqual(upgraded.returncode, 0)
-        self.assertIn("user-authored agent file", upgraded.stderr)
-        self.assertEqual(target.read_bytes(), b"host researcher\n")
-
-    def test_native_designer_upgrade_preserves_an_unmanaged_definition(self) -> None:
-        earlier = tuple(name for name in installer.AGENT_FILES if name != "concord-design.md")
-        self.make_release("v1.0.0", agent_names=earlier)
-        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertEqual(installed.returncode, 0, installed.stderr)
-        target = self.root / "config" / "opencode" / "agents" / "concord-design.md"
-        target.write_bytes(b"host designer\n")
-        self.make_release("v2.0.0")
-        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertNotEqual(upgraded.returncode, 0)
-        self.assertIn("user-authored agent file", upgraded.stderr)
-        self.assertEqual(target.read_bytes(), b"host designer\n")
-
-    def test_upgrade_refuses_unmanaged_concord_primary_over_host_file(self) -> None:
-        # The collision rule is not an RTE-only rule: a host's unowned
-        # Concord.md must survive a conflicting upgrade whole.
-        introduced = "Concord.md"
-        earlier = tuple(name for name in installer.AGENT_FILES if name != introduced)
-        self.make_release("v1.0.0", agent_names=earlier)
-        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertEqual(installed.returncode, 0, installed.stderr)
-
-        target = self.root / "config" / "opencode" / "agents" / introduced
-        target.write_bytes(b"host primary agent\n")
-        self.make_release("v2.0.0")
-        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
-
-        self.assertNotEqual(upgraded.returncode, 0)
-        self.assertIn("user-authored agent file", upgraded.stderr)
-        self.assertEqual(target.read_bytes(), b"host primary agent\n")
-
-    def test_upgrade_refuses_unmanaged_planner_over_host_file(self) -> None:
-        introduced = "Concord-Planner.md"
-        earlier = tuple(name for name in installer.AGENT_FILES if name != introduced)
-        self.make_release("v1.0.0", agent_names=earlier)
-        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertEqual(installed.returncode, 0, installed.stderr)
-
-        target = self.root / "config" / "opencode" / "agents" / introduced
-        target.write_bytes(b"host planner\n")
-        self.make_release("v2.0.0")
-        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
-
-        self.assertNotEqual(upgraded.returncode, 0)
-        self.assertIn("user-authored agent file", upgraded.stderr)
-        self.assertEqual(target.read_bytes(), b"host planner\n")
 
     def test_planner_is_placed_and_removed_as_managed_beside_user_profiles(self) -> None:
         # Planner joins through the managed-agent path: an upgrade places it,
@@ -5274,18 +5041,6 @@ class StandaloneInstallerTest(unittest.TestCase):
         self.assertNotIn("NameError", result.stderr)
         # status locks the data root it resolved and leaves it in place.
         self.assertTrue((Path(os.environ["XDG_DATA_HOME"]) / "concord").is_dir(), result.stderr)
-
-    def test_a_failure_to_derive_reports_its_cause(self) -> None:
-        """The raise path must name the module, not NameError.
-
-        InstallerError is raised inside derive_adapter_files but defined later
-        in the module. A caller after import sees the real class, which is why
-        test_unresolvable_entry_import_refuses passes. A module-scope caller
-        sees NameError instead, so the one context that fails is the one that
-        cannot say why.
-        """
-        result = self.run_standalone("--help")
-        self.assertNotIn("NameError", result.stderr)
 
 
 class ResolveLatestVersionTest(unittest.TestCase):

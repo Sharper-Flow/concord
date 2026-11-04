@@ -22,13 +22,13 @@
     },
     {
       "id": "go-test-store",
-      "purpose": "The local store test suite without the race detector, one CI shard per run.",
+      "purpose": "One CI shard of the store suite without the race detector, for reproducing a failing shard locally.",
       "invocation": "bin/oc-test store-shard 1 7",
       "tier": "slow",
       "cost_hint": "One CI shard under full admission; a shard is expected to finish well inside the 15-minute package alarm.",
       "config_path": "bin/oc-test",
       "automation_path": ".github/workflows/ci.yml",
-      "notes": "Run each shard index as its own invocation, store-shard 1 7 through store-shard 7 7, matching CI's current shard count; every run admits one shard and releases the shared slot between shards. The tier uses CI's scripts/go-test-shard.py selection with discovery inside admission. Required CI runs store tests in shards without race. Bounded verify-race remains a distinct CI-only selection, not this local invocation."
+      "notes": "Required CI owns the whole-suite store pass; this tier reproduces or investigates one failing shard locally and is not a pre-push step. Each invocation takes one shard index, 1 through 7 to match CI's shard count, runs that shard under one full admission, and releases the shared slot when it ends. The tier uses CI's scripts/go-test-shard.py selection with discovery inside admission. Bounded verify-race remains a distinct CI-only selection."
     },
     {
       "id": "go-vet",

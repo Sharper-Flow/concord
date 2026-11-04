@@ -20,10 +20,10 @@
   at 19:35 Eastern Daylight Time (EDT), relayed through the Snowball
   coordinator. Live migration and release activation require separate authority.
 - **Candidate supersession set:** CD-0007, CD-0012, CD-0013, CD-0039,
-  CD-0077, CD-0156, CD-0198. The D5 owner must resolve its current successor
+  CD-0077, CD-0198. The D5 owner must resolve its current successor
   identities before cutover.
 - **Related:** CD-0007, CD-0012, CD-0013, CD-0036, CD-0039, CD-0077,
-  CD-0156, CD-0198
+  CD-0198
 
 [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
 governs D1: Product-law changes require approval only under its six classes. Workflow-family and repository-law-route requirements remain required.
@@ -45,17 +45,16 @@ Research conclusions do not enact binding Product law.
 
 The store keeps current state, finite snapshots, and attribution facts ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Review inspects the accumulated solution, verifies the corrected candidate, and reports one disposition that Main records; completion and premise confirmation use their real authorized coordinators ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)). No retired family gains a new authoring route.
 
-### D1. Three families own new execution
+### D1. Four workflow types own new execution
 
-New execution selects `workflow.implementation`, `workflow.break_fix`, or
-`workflow.research`. The live catalog does not select architecture_spike,
-ops_runbook, static_analysis, or generic_one_off. No compatibility alias maps a
-retired family to a retained one.
-
-Task capture defaults to implementation. Bug capture defaults to break-fix.
-Research capture defaults to research. Decision and other captures require an
-explicit retained family. Operator kind and workflow family remain different
-vocabularies. A retired ref refuses before any capture or contract write.
+New execution picks one of four workflow types after intake: `change`, `fix`,
+`research`, or `removal`, whose required steps come from the template contract
+[`contracts/workflow-step-templates.v1.json`](../../../contracts/workflow-step-templates.v1.json)
+and are copied into the item's own step plan (CON-1574; the
+workflow-engine-contract §2). There is no per-kind family default: the work
+kind stays capture metadata and the driving agent picks the type. No
+compatibility alias maps a retired family ref to a type. A retired ref refuses
+before any capture or contract write.
 
 Implementation and break-fix allow exists, absent, and check predicates. Research
 allows outcome predicates with no_change, resolved, and report_recorded tokens.
@@ -70,7 +69,10 @@ claim, timer service, or new authority for external effects.
 
 ### D2. Fewer calls carry the same enforceable facts
 
-The live families are implementation, break-fix, and research, each family's plain definition sets its mandatory stages, break-fix keeps diagnosis and regression proof, and no agent waives a mandatory stage or an operator approval ([CD-0242 D4](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)).
+Each type's template sets its required steps, fix keeps diagnosis and the
+regression test that fails before the fix, and no agent waives a required step
+or an operator approval. The driving agent may insert steps between required
+steps; insertion never removes or rewrites a required step.
 
 ### D3. Ordinary writes preserve authority and proof
 
@@ -191,8 +193,7 @@ declared actions, and independent acceptance. CD-0039 D1 through D4 and D7 throu
 D9 govern attributed reports, failures, and effects.
 
 CD-0077 governs operator kind separation, stored historical names, and immutable
-migration checksums. CD-0156 governs mandatory backlog search. CD-0198 governs
-evidence, approval, and start floors.
+migration checksums. CD-0198 governs evidence, approval, and start floors.
 
 An architecture spike requires a separate reviewed and accepted decision. D5 cutover must
 resolve that obligation through an approved successor set.
@@ -206,10 +207,10 @@ set at the D5 boundary.
   content digest, and folder placement agree.
 - `python3 scripts/check-doc-links.py` proves document links hold; law
   placement is folder membership under `.concord/law/`.
-- Criterion 1 is covered by
-  `internal/agent.TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKinds`.
-  Authenticated capture of each retired family refuses with unchanged work,
-  contract, workflow-instance and event counts, and unchanged database write counts.
+- Verification-inventory update only; obligations are unchanged. Current type
+  selection and admission checks are in
+  [`workflow_plan_dispatch_test.go`](../../../internal/store/workflow_plan_dispatch_test.go)
+  and [`workflow_plan_preflight_test.go`](../../../internal/store/workflow_plan_preflight_test.go).
 - Criterion 2 keeps its diagnosis anchors:
   `go test ./internal/store/ -run TestRecordDiagnosisRefusalsLeaveZeroWrites`
   and `go test ./internal/store/ -run TestRecordDiagnosisRecordsAllSectionsAtomically`.
@@ -220,10 +221,9 @@ set at the D5 boundary.
   Retained definitions, digests, actors, subjects and evidence are read as recorded, without replay or relabeling.
   Collected execution state returns typed absence and its canonical outcome locator.
   `internal/store.TestPublishedExecutionAbsenceReaders` and `internal/store.TestDefectRetirementCollectedAbsenceReaders` bind the collected-state witnesses; retained-definition witnesses remain required.
-- Criterion 5 is covered by
-  `internal/store.TestCutoverRefusesNonterminalArchivedPinAtReadiness` and
-  `internal/store.TestCutoverAllowsTerminalHistoricalPinsAtReadiness`.
-  Readiness refuses the nonterminal archived pin without a live store mutation; terminal items return unchanged retained state or typed collected-state absence under CD-0242 D2.
+- For the current plan cutover, see
+  [`workflow_step_plan_migration_test.go`](../../../internal/store/workflow_step_plan_migration_test.go).
+  This pointer does not assert proof of the historical-pin readiness scenario.
 - Criterion 6 keeps its completion anchor:
   `go test ./internal/store/ -run TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict`.
 - Criterion 7 requires ordinary-update recovery coverage under

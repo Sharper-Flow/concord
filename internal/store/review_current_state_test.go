@@ -22,14 +22,14 @@ func TestReviewCurrentRequiresRecordedCandidate(t *testing.T) {
 }
 
 func TestReviewCurrentKeepsSharedAdmissionGuards(t *testing.T) {
-	entry, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	j := pReturnReviewFixture(t, "review-current-admission", WorkflowStepPlanChange, "")
+	report := currentReviewBlockForTest(t, j.s, j.workID, "continue")
+	_, err := WorkflowActionDefinitionFor(t.Context(), j.s, WorkflowActionPreflightRequest{
+		WorkID: j.workID, ExpectedVersion: readWorkVersion(t, j.s, j.workID),
+		ActionID: "record_review", Payload: mustJSONValue(map[string]any{"review": report}), Actor: j.fixture.owner,
+	})
 	if err != nil {
-		t.Fatal(err)
-	}
-	base := WorkflowAdmissionState{Step: "execution", InstanceState: "running", Lifecycle: "in_progress", ActiveContracts: 1,
-		Review: &WorkflowReviewState{}}
-	if decision := workflowAdmit(entry.Definition, base, "record_review"); !decision.Admitted {
-		t.Fatalf("ordinary Review was not admitted: %+v", decision.Failure)
+		t.Fatalf("ordinary Review was not admitted: %v", err)
 	}
 }
 
@@ -91,7 +91,10 @@ func TestReviewCurrentDispositionAdmission(t *testing.T) {
 				t.Fatalf("exit admitted=%v for %s: %v", err == nil, disposition, err)
 			}
 			if err != nil {
-				failure := workflowFailureOf(err)
+				var failure *Failure
+				if !failureAs(err, &failure) {
+					t.Fatalf("Review refusal is not typed: %v", err)
+				}
 				if failure.RecoveryAction == "" || failure.RecoveryAction == "contact_operator" {
 					t.Fatalf("refusal has no engineering recovery: %+v", failure)
 				}

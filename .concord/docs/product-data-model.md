@@ -54,7 +54,7 @@ through which law and work are organized.
 ### 2.1 Repositories
 - Git repos are locators on stable Project identities (e.g. `alpha-web`,
   `alpha-api`), not direct Product-membership keys.
-- **Recorded:** Project ID; path/remote and predecessor project identity as typed locators;
+- **Recorded:** Project ID; path/remote and external project identity as typed locators;
   optional PM6 `knowledge_locator`; Product role (`primary`/`secondary`) on accepted
   PM5 `product_projects` membership.
 - These are the *code* members — the units Concord orchestrates
@@ -292,7 +292,6 @@ respectively. The remaining model-internal open question is:
 | `design-constraints.md` §4 | The ownership record is Concord-owned state → lock-free, current rows with finite snapshots, no history to repair (CD-0242 D2). Stage transitions write current rows (§8.5). |
 | `self-documentation.md` §1 | The browse surface uses Product → Domain navigation. |
 | `workflows.md` §2.5 | Workflows are reached from Product → Domain. |
-| `vertical-integration.md` | Whether lgrep/vision become Product-scoped touches this model. |
 
 ---
 

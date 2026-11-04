@@ -117,7 +117,7 @@ Product.
 | Planning through Linear MCP | [CD-0213](../law/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md) | Reusable across Products; the generated primary states the operative planning rule. |
 | Source-edit boundary | [CD-0220](../law/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md) | Approved scope and law-change authority remain distinct from host tool permission. |
 | Committed-content conduct | [Shared conduct](../instructions/change.md) under [CD-0063](../law/decisions/CD-0063-shipped-operator-conduct-rules.md) | Loaded from the installed corpus, not inferred from a Product-relative filename. |
-| Concord repository engineering | [Concord's AGENTS.md](../../AGENTS.md) and the explicitly Concord-specific items 2 and 5 in [development authority](../law/specs/managed-development-authority.md#preserved-boundaries) | Repository instruction, not part of the shipped conduct corpus. Other boundaries keep their stated scope. |
+| Concord repository engineering | [Concord's AGENTS.md](../../AGENTS.md) and the explicitly Concord-specific item 2 in [development authority](../law/specs/managed-development-authority.md#preserved-boundaries) | Repository instruction, not part of the shipped conduct corpus. Other boundaries keep their stated scope. |
 | An adopting Product's law and facts | That Product's canonical knowledge home | Product-scoped knowledge reads and declared reading sources; not inherited from Concord's source checkout. |
 
 Decision identifiers in a generated profile identify Concord's governing source;
@@ -268,12 +268,10 @@ recovery instructions. After recovery, prepare a newer release that declares the
 protocol if needed. The installer does not infer support from the release version
 or send the new inputs to an older core.
 
-The command never confirms or cancels on the operator's behalf. If an installed
+The command never confirms on the operator's behalf. If an installed
 tree cannot honor the fence, inspect the named trees and use
-`--confirm-sessions-stopped` only after confirming none runs a session. If the
-authoring-cutover gate names pinned work, `--cancel-cutover-pinned-work` explicitly
-requests the existing snapshot-backed cancellation of every selected item.
-Without those flags, the original refusals remain in force.
+`--confirm-sessions-stopped` only after confirming none runs a session.
+Without that confirmation, the session fence remains in force.
 
 Only one maintenance command runs at a time: the migration command and every
 installer command share one lock. A second command refuses with `another

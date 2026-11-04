@@ -11,10 +11,7 @@ package store
 // evaluators re-read the cited writer's live AST on every run and fail closed
 // when the traced shape changes; none of them copies a number. Rows whose
 // producer carries no finite guard register unboundedOutput against the typed
-// byte-ceiling refusal that owns them; rows whose real finite derivation
-// cannot be expressed safely register an unproved source so the ledger stays
-// red and the parent can add the missing proof mechanism. An unproved row is
-// a gap report, never a bound.
+// byte-ceiling refusal that owns them.
 
 import (
 	"fmt"
@@ -975,7 +972,7 @@ func init() {
 	// yet; the rows stay unproved gap reports.
 	registerOutputBound("/$defs/mutation_result/properties/delivery/properties/branch/maxLength", pkFieldNeverWrittenBound("delivery", boundCharacters, "internal/agent/mutations.go"))
 	registerOutputBound("/$defs/mutation_result/properties/delivery/properties/commit/maxLength", pkFieldNeverWrittenBound("delivery", boundCharacters, "internal/agent/mutations.go"))
-	registerOutputBound("/$defs/mutation_result/properties/next_valid_intents/items/properties/required_fields/maxItems", schemaBound("contracts/workflow-definition.schema.json", "/$defs/payloadDefinition/properties/fields/maxItems"))
+	registerOutputBound("/$defs/mutation_result/properties/next_valid_intents/items/properties/required_fields/maxItems", requiredIntentFieldsBound())
 	registerOutputBound("/$defs/mutation_result/properties/next_valid_intents/maxItems", workPinIntentItemsBound())
 	registerOutputBound("/$defs/mutation_result/properties/work_pins/maxItems", pkSubsetChainItemsBound(
 		pkPlanEffectWorkPinsBound("internal/agent/mutations.go"),

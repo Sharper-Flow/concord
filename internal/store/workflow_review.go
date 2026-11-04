@@ -468,8 +468,8 @@ func workflowMissingCriterionAssociations(ctx context.Context, q queryer, work s
 	return missing, nil
 }
 
-func guardLateCriterionAssociations(ctx context.Context, q queryer, work string, definition WorkflowDefinition, step string, fields map[string]json.RawMessage) error {
-	if !workflowLateCriterionAssociationStep(definition, step) {
+func guardLateCriterionAssociations(ctx context.Context, q queryer, work string, planType WorkflowStepPlanType, step string, fields map[string]json.RawMessage) error {
+	if slices.Contains(WorkflowStepPlanTemplateActions(planType, step), "record_verdict") {
 		return nil
 	}
 	records, err := workflowCurrentRecords(ctx, q, work)

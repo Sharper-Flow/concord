@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -33,7 +34,7 @@ DELETE FROM write_guard`, work); err != nil {
 	var healthy int64
 	base := s
 	c := historicalFactCorpus{parents: func(t *testing.T, target *Store, guard string) {
-		copyFixtureDataToPrefix(t, base, target.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "result_disposition": "''", "unhealthy_verdict_seq": "0"}, "workflow_contracts": {"definition_version": "26", "law_change": "NULL"}}, guard)
+		copyFixtureDataToPrefix(t, base, target.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "workflow_contract_predicates"}, map[string]map[string]string{"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "definition_ref": "'workflow.implementation'", "definition_digest": "'sha256:" + strings.Repeat("0", 64) + "'", "current_step": "'plan'", "result_disposition": "''", "unhealthy_verdict_seq": "0"}, "workflow_contracts": {"definition_version": "26", "definition_ref": "'workflow.implementation'", "definition_digest": "'sha256:" + strings.Repeat("0", 64) + "'", "law_change": "NULL"}}, guard)
 	}}
 	for i, verdict := range []workflowVerdictRecordedPayload{
 		{ContractVersion: 1, PredicateID: primary, VerdictKind: "ok"},
@@ -85,7 +86,7 @@ func TestWorkflowHealthyFrontierWrittenByCurrentVerdict(t *testing.T) {
 		if changed {
 			contract["outcome_predicates"].([]any)[0].(map[string]any)["outcome_payload"].(map[string]any)["check_ref"] = "check:changed-frontier"
 		}
-		if err := reviseContractRecord(t, f.store, work, f.owner, contract, readWorkVersion(t, f.store, work), nil); err != nil {
+		if err := reviseContractRecord(t, f.store, work, f.owner, contract, readWorkVersion(t, f.store, work)); err != nil {
 			t.Fatal(err)
 		}
 		version, err := activeWorkflowContractVersion(t.Context(), f.store.db, work, "test")
@@ -124,19 +125,11 @@ func TestWorkflowHealthyBasisRequiresEveryComparablePredicate(t *testing.T) {
 			p.OutcomePayload = `{"kind":"exists","surface":"repo","subjects":["changed"]}`
 			b.history[2][p.PredicateID] = p
 		}},
-		{name: "changed definition", mutate: func(b *workflowHealthBasis, _ []workflowHealthVerdict) {
-			pin := b.pins[2]
-			pin.definitionRef = "workflow.changed"
-			b.pins[2] = pin
-		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			basis := workflowHealthBasis{version: 2, history: workflowContractPredicateHistoryData{
 				1: {predicate.PredicateID: predicate, other.PredicateID: other},
 				2: {predicate.PredicateID: predicate, other.PredicateID: other},
-			}, pins: workflowContractDefinitionPinsData{
-				1: {definitionRef: "workflow.test", definitionDigest: testManifestDigest},
-				2: {definitionRef: "workflow.test", definitionDigest: testManifestDigest},
 			}}
 			candidates := []workflowHealthVerdict{
 				{seq: 11, verdict: workflowVerdictRecordedPayload{ContractVersion: 2, PredicateID: predicate.PredicateID, VerdictKind: "ok"}},

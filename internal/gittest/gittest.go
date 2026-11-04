@@ -15,8 +15,10 @@ import (
 )
 
 // ScrubRepositoryEnvironment removes a launching hook's repository and injected
-// configuration before fixtures run. Call it before DisableBackgroundMaintenance
-// so the test harness, not the launching repository, owns child Git settings.
+// configuration before fixtures run. External config and templates can install
+// hooks in fixtures, so they are removed too. GIT_EXEC_PATH is retained because
+// Git exports it to hooks and needs it to find its own subcommands.
+// Call this before DisableBackgroundMaintenance so the harness owns Git settings.
 func ScrubRepositoryEnvironment() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -53,7 +55,12 @@ func repositoryEnvironmentKeys(output []byte) (map[string]bool, error) {
 		return nil, fmt.Errorf("git reported an empty repository environment namespace")
 	}
 	valid := regexp.MustCompile(`^GIT_[A-Z0-9_]+$`)
-	keys := map[string]bool{"GIT_QUARANTINE_PATH": true}
+	keys := map[string]bool{
+		"GIT_QUARANTINE_PATH": true,
+		"GIT_CONFIG_GLOBAL":   true,
+		"GIT_CONFIG_SYSTEM":   true,
+		"GIT_TEMPLATE_DIR":    true,
+	}
 	for _, name := range names {
 		if !valid.MatchString(name) {
 			return nil, fmt.Errorf("git reported an invalid repository environment variable: %q", name)

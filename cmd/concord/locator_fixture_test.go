@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/gittest"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -36,7 +36,10 @@ func initLocatorRepo(t *testing.T) string {
 	parent := t.TempDir()
 	repo := filepath.Join(parent, "repo")
 	run := func(dir string, args ...string) {
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd, err := gittest.Command(dir, args...)
+		if err != nil {
+			t.Fatal(err)
+		}
 		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
@@ -90,21 +93,13 @@ func seedCLIHostWorktree(t *testing.T, repo, workID, _ string) cliHostCheckout {
 
 func initializeCLILocatorWorkflow(t *testing.T, s *store.Store) {
 	t.Helper()
-	ref, err := store.DefaultWorkflowRefForKind("task")
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition, err := store.LiveWorkflowDefinitionForRef(ref)
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx, err := s.EstablishKnowledgeSourceSetProof(context.Background(), "work-wl")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{
-			WorkID: "work-wl", Definition: definition, Now: time.Unix(5, 0).UTC(),
+			WorkID: "work-wl", Now: time.Unix(5, 0).UTC(),
 			Actor: store.WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord", AgentRef: "agent/concord", SessionRef: "session/fixture", ActorClass: store.ActorOperator},
 		})
 	}); err != nil {
@@ -124,7 +119,11 @@ func seedCLISessionWorktree(t *testing.T, s *store.Store, repo string) cliWorktr
 
 func gitOutput(t *testing.T, repo string, args ...string) string {
 	t.Helper()
-	out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput()
+	cmd, err := gittest.Command(repo, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}

@@ -184,8 +184,7 @@ type relationInput struct {
 	Depth         int      `json:"depth"`
 }
 type workIDInput struct {
-	WorkID string      `json:"work_id"`
-	Budget budgetInput `json:"budget"`
+	WorkID string `json:"work_id"`
 }
 type domainReadInput struct {
 	ProductID string    `json:"product_id"`
@@ -197,7 +196,6 @@ type domainReadInput struct {
 type runtime struct {
 	Store                  *store.Store
 	Authority              *Service
-	Registry               store.DefinitionRegistry
 	Envelope               CallEnvelope
 	Tool, Operation        string
 	Budget                 budgetInput
@@ -209,17 +207,6 @@ type runtime struct {
 // and routes both read and transaction-bound mutation operations through the
 // generated contract surface.
 func Dispatch(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope) (agentcontract.Envelope, error) {
-	return DispatchWithRegistry(ctx, s, authority, request, env, store.BuiltinWorkflowRegistry())
-}
-
-// DispatchWithRegistry is the same authenticated agent boundary with an
-// explicitly pinned definition registry. Production callers use Dispatch; the
-// seam lets replay and availability tests prove a missing registry before any
-// payload or grant mutation path is reached.
-func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, registry store.DefinitionRegistry) (agentcontract.Envelope, error) {
-	if registry == nil {
-		registry = store.BuiltinWorkflowRegistry()
-	}
 	base := agentcontract.NewBase(env.RequestID, request.Tool, request.Operation)
 	op, ok := agentcontract.ValidateContractOperation(request.Tool, request.Operation)
 	if !ok {
@@ -236,7 +223,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	}
 	if op.ID == "concord_work_transition.workflow_action" {
 		var refusal *agentcontract.Envelope
-		ctx, refusal = preflightDispatchWorkflowAction(ctx, s, authority, request, env, registry, op, base)
+		ctx, refusal = preflightDispatchWorkflowAction(ctx, s, authority, request, env, op, base)
 		if refusal != nil {
 			return *refusal, nil
 		}
@@ -263,7 +250,7 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	if s == nil || authority == nil {
 		return coreError(base, "unreachable", "authority is not available", "contact_operator", true), nil
 	}
-	return dispatchAuthorizedRequest(ctx, s, authority, request, env, registry, op, base, budget)
+	return dispatchAuthorizedRequest(ctx, s, authority, request, env, op, base, budget)
 }
 
 func operationUsesCurrentLaw(op agentcontract.ContractOperation) bool {
@@ -277,11 +264,10 @@ func operationUsesCurrentLaw(op agentcontract.ContractOperation) bool {
 	return slices.Contains(agentcontract.GeneratedPayloadRules[op.ResultSchema].Properties, "work_pins")
 }
 
-func preflightDispatchWorkflowAction(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, registry store.DefinitionRegistry, op agentcontract.ContractOperation, base agentcontract.Envelope) (context.Context, *agentcontract.Envelope) {
+func preflightDispatchWorkflowAction(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, op agentcontract.ContractOperation, base agentcontract.Envelope) (context.Context, *agentcontract.Envelope) {
 	refuse := func(out agentcontract.Envelope) (context.Context, *agentcontract.Envelope) { return ctx, &out }
 	// Generated outer-shape validation rejects duplicate or missing action
-	// fields. Semantic workflow payload validation remains below the registry
-	// availability check.
+	// fields. Semantic workflow payload validation follows actor authorization.
 	if err := agentcontract.ValidateOperationPayload(request.Tool, request.Operation, request.Input, false); err != nil {
 		return refuse(coreError(base, "invalid_input", err.Error(), "correct_request", false))
 	}
@@ -304,34 +290,13 @@ func preflightDispatchWorkflowAction(ctx context.Context, s *store.Store, author
 	if actorErr != nil {
 		return refuse(failureEnvelope(base, actorErr))
 	}
-	available, availabilityErr := store.WorkflowActionAvailableWithRegistry(ctx, s, registry, strictAction.WorkID)
-	if availabilityErr != nil {
-		return refuse(failureEnvelope(base, availabilityErr))
-	}
-	if !available {
-		// The refusal names the unverifiable pin's cause and migration
-		// route (CD-0242 D13).
-		message := workflowRegistryUnavailableMessage(ctx, s, registry, strictAction.WorkID)
-		return refuse(coreError(base, "invalid_transition", message, "reread_entities", false))
-	}
-	if err := preflightWorkflowActionRequestWithRegistry(ctx, s, request.Input, env, actor, registry); err != nil {
+	if err := preflightWorkflowActionRequest(ctx, s, request.Input, env, actor); err != nil {
 		return refuse(failureEnvelope(base, err))
 	}
 	return ctx, nil
 }
 
-func workflowRegistryUnavailableMessage(ctx context.Context, s *store.Store, registry store.DefinitionRegistry, workID string) string {
-	message := "workflow action registry is unavailable"
-	if _, verifyErr := store.VerifyWorkflowInstanceDefinition(ctx, s, registry, workID); verifyErr != nil {
-		var failure *store.Failure
-		if errors.As(verifyErr, &failure) && failure.Detail != "" {
-			message += ": " + failure.Detail
-		}
-	}
-	return message
-}
-
-func dispatchAuthorizedRequest(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, registry store.DefinitionRegistry, op agentcontract.ContractOperation, base agentcontract.Envelope, budget budgetInput) (agentcontract.Envelope, error) {
+func dispatchAuthorizedRequest(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope, op agentcontract.ContractOperation, base agentcontract.Envelope, budget budgetInput) (agentcontract.Envelope, error) {
 	inv := envelopeInvocation(env, op.Capability, request.Operation)
 	if op.Kind != agentcontract.OperationRead && op.ID != "concord_work_transition.workflow_action" {
 		if _, identityExtractErr := extractMutationWorkIdentity(request.Input); identityExtractErr != nil {
@@ -373,7 +338,7 @@ func dispatchAuthorizedRequest(ctx context.Context, s *store.Store, authority *S
 	if err := validateRequestedScope(ctx, s, env, grant, request, op.Kind); err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	r := runtime{Store: s, Authority: authority, Registry: registry, Envelope: env, Tool: request.Tool, Operation: request.Operation, Budget: budget, Reader: grant, mutationIdempotencyKey: idempotencyKey(request.Input)}
+	r := runtime{Store: s, Authority: authority, Envelope: env, Tool: request.Tool, Operation: request.Operation, Budget: budget, Reader: grant, mutationIdempotencyKey: idempotencyKey(request.Input)}
 	if op.Kind != agentcontract.OperationRead {
 		return r.mutate(ctx, base, request.Input, grant, op)
 	}
@@ -555,19 +520,6 @@ func Invoke(ctx context.Context, s *store.Store, authority *Service, data []byte
 		return agentcontract.Envelope{}, err
 	}
 	response, dispatchErr := Dispatch(ctx, s, authority, request, env)
-	return shapeInvokeFailure(response, dispatchErr, request, env), nil
-}
-
-// InvokeWithRegistry is Invoke with an injected definition registry. Production
-// never needs it: Dispatch resolves the builtin registry, and the injection
-// point exists so the workflow corpus boundary runner can drive a scenario
-// registry through the real boundary.
-func InvokeWithRegistry(ctx context.Context, s *store.Store, authority *Service, data []byte, registry store.DefinitionRegistry) (agentcontract.Envelope, error) {
-	request, env, err := DecodeInvokeRequest(data)
-	if err != nil {
-		return agentcontract.Envelope{}, err
-	}
-	response, dispatchErr := DispatchWithRegistry(ctx, s, authority, request, env, registry)
 	return shapeInvokeFailure(response, dispatchErr, request, env), nil
 }
 

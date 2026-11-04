@@ -26,7 +26,7 @@ func TestResearchRetirementUpgradePreservesVerifiedExportAndSnapshot(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(report.Applied) != 1 || report.Applied[0] != 183 || report.ResearchExport != snapshot+".research" {
+	if len(report.Applied) != 2 || report.Applied[0] != 183 || report.Applied[1] != 184 || report.ResearchExport != snapshot+".research" {
 		t.Fatalf("upgrade = %+v", report)
 	}
 	if err := VerifyResearchExport(t.Context(), snapshot, report.ResearchExport); err != nil {

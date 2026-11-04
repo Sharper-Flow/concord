@@ -153,8 +153,8 @@ work context and delegate only to exploration and external lookup utilities.
 Its profile denies editing tools, CI watch and workflow writers, and declares
 no bash wildcard rule that could replace inherited host safety denies. Command-
 text restrictions are conduct controls, not a sandbox; connected tool exposure
-and model selection remain host-owned. Its result alone is not captured native
-verification proof. Utility boundaries remain unchanged.
+and model selection remain host-owned. Its result alone is not a bound
+verification report. Utility boundaries remain unchanged.
 
 `concord-implement` uses the same generated native Task distribution boundary
 for one bounded Change, Fix or Removal in the caller's worktree. Its assignment

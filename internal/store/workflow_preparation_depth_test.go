@@ -2,6 +2,7 @@ package store
 
 import (
 	"testing"
+	"time"
 )
 
 func TestSmallFixPreparationDepthNeedsNoArchitectureDocument(t *testing.T) {
@@ -15,14 +16,16 @@ func TestSmallFixPreparationDepthNeedsNoArchitectureDocument(t *testing.T) {
 			const workID = "small-fix-preparation"
 			seedWork(t, s, workID)
 			seedWorkflowLaw(t, s)
-			definition, err := LiveWorkflowDefinitionForRef("workflow.break_fix")
-			if err != nil {
+			owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+			if err := s.Transact(t.Context(), func(tx *Transaction) error {
+				return InitializeWorkflowTx(t.Context(), tx, WorkflowInitializationRequest{WorkID: workID, Actor: owner, Now: time.Unix(1, 0).UTC()})
+			}); err != nil {
 				t.Fatal(err)
 			}
-			livenessInitialize(t, s, workID, definition.Definition)
+			seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanFix, "diagnose")
 			act := func(action string, fields map[string]any) {
 				t.Helper()
-				if err := runCoordinatorActionTx(t, s, BuiltinWorkflowRegistry(), workID, action, livenessActor(), string(mustJSONValue(fields))); err != nil {
+				if err := runVerdictActionAs(t, s, workID, action, mustJSONValue(fields), 0, owner); err != nil {
 					t.Fatalf("%s: %v", action, err)
 				}
 			}
@@ -37,16 +40,29 @@ func TestSmallFixPreparationDepthNeedsNoArchitectureDocument(t *testing.T) {
 				"reproduction": "The comment says eight; the function and check return seven.", "searched": "No related correction exists in the isolated backlog.",
 				"outcome": "none_found", "root_cause": "The factual comment is incorrect; the existing architecture and behavior need no change.",
 			})
-			if readInstanceStep(t, s, workID) != "planning" {
-				t.Fatal("agent-selected preparation depth did not preserve the required diagnosis exit")
+			if workflowPlanFixtureFrontier(t, s, workID) != "diagnose" {
+				t.Fatal("recording diagnosis advanced the frontier")
 			}
+			act("complete_step", map[string]any{"step_id": "diagnose", "note": "diagnosis completed"})
 			act("approve_contract", map[string]any{
 				"premise": "Correct the factual comment without changing behavior.", "decision_domains": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 				"outcome_predicates":   []map[string]any{{"predicate_id": "predicate:comment", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:comment", "immutable_subject_ref": "commit:comment", "expected_result": "pass"}}},
 				"architecture_binding": WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}},
 			})
-			if readInstanceStep(t, s, workID) != "repair" {
-				t.Fatal("small fix required an architecture document before entering repair")
+			if workflowPlanFixtureFrontier(t, s, workID) != "plan" {
+				t.Fatal("approving the contract advanced the plan frontier")
+			}
+			act("record_plan", map[string]any{
+				"outcomes": "The comment matches the existing behavior.", "approach": "Correct the comment without changing the function.",
+				"decisions": []map[string]any{{"id": "decision:scope", "question": "What needs correction?", "choice": "The comment", "rationale": "The implementation and check agree.", "rejected": []string{"Change the implementation"}}},
+				"touches":   []string{"pkg/value.go"}, "merge_split": "One bounded fix", "risks": "The comment could misstate behavior again.",
+			})
+			if workflowPlanFixtureFrontier(t, s, workID) != "plan" {
+				t.Fatal("recording the plan advanced the frontier")
+			}
+			act("complete_step", map[string]any{"step_id": "plan", "note": "plan completed"})
+			if workflowPlanFixtureFrontier(t, s, workID) != "implement" {
+				t.Fatal("small fix required an architecture document before implementation")
 			}
 			design, err := readCurrentWorkflowDesign(t.Context(), s.db, workID)
 			if err != nil || design != nil {

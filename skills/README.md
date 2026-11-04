@@ -12,6 +12,11 @@ Load [Law writing](concord-law-writing/SKILL.md) to place or author Product
 knowledge, or draft, amend, or prune Product law. It guides placement and meaning review;
 the Product's existing authority and checks still own acceptance and publication.
 
+Load [Architecture writing](concord-architecture-writing/SKILL.md) to write or
+review a Product's durable architecture reference, glossary, or cross-cutting
+concepts, to plan an architectural change, or to route a plan's lasting outputs
+to law, reference, or glossary at final review.
+
 ## Portable engineering methods
 
 - [Instruction writing](concord-instruction-writing/SKILL.md): write, edit, or
@@ -20,6 +25,8 @@ the Product's existing authority and checks still own acceptance and publication
   not yet proven.
 - [Codebase design](concord-codebase-design/SKILL.md): an interface, seam, or
   abstraction that must earn its place, or a repository check's authority.
+- [Improve codebase architecture](concord-improve-codebase-architecture/SKILL.md):
+  find and rank shallow modules and structural friction across a codebase.
 - [Work shaping](concord-work-shaping/SKILL.md): triage a request and decompose
   it into independently verifiable outcomes.
 - [Retrospective](concord-retrospective/SKILL.md): move a recurring correction
@@ -41,6 +48,15 @@ upstream MIT notice in its `LICENSE` file.
 Review adapts the two-axis method from
 [code-review](https://github.com/mattpocock/skills/blob/a496f5513d4a4cf889bc48e189e579f4b0bdf6aa/skills/engineering/code-review/SKILL.md)
 and keeps its upstream MIT notice in `concord-review/LICENSE`.
+
+Improve codebase architecture adapts
+[improve-codebase-architecture](https://github.com/mattpocock/skills/blob/a496f5513d4a4cf889bc48e189e579f4b0bdf6aa/skills/engineering/improve-codebase-architecture/SKILL.md)
+and keeps its upstream MIT notice in `concord-improve-codebase-architecture/LICENSE`.
+
+Architecture writing adapts the glossary format, the ADR selection test, the
+to-spec plan additions, and the wayfinder decision-map idea from
+[mattpocock/skills](https://github.com/mattpocock/skills/commit/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d)
+and keeps its upstream MIT notice in `concord-architecture-writing/LICENSE`.
 
 ## Delivery
 

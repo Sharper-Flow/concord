@@ -17,7 +17,7 @@
 **Decision owner:** Operator
 **Accepted by operator:** 2026-08-08
 **Reviewer:** Independent review; five rounds, approved.
-**Scope:** Workflow engine authority, definition registry, instance lifecycle, progression,
+**Scope:** Workflow engine authority, type templates and per-item plans, instance lifecycle, progression,
 evidence binding, outcome verification, workflow composition, and the durable shapes a
 workflow engine must add to the existing storage spine.
 **Amends:** CD-0006 D3 (engine authority), D4 (rigor), D5 (spec-law), D10 (spec mandate);
@@ -44,7 +44,7 @@ and a strengthening-only delivery comparison; Review reports one disposition and
 
 The accepted law already defines:
 
-- three live workflow families with documented shapes and completion verbs;
+- four workflow types with required template steps copied into per-item plans;
 - composition as forward-linked successors with no nested child execution;
 - one durable transaction per logical step;
 - expected-version and idempotency checks for each atomic mutation;
@@ -60,18 +60,17 @@ The accepted law does **not** yet:
 - name how each workflow mutation persists; the store keeps current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))
 - name the typed edges (`modifies`, hard/soft `depends_on`, `forward_link`).
 
-[CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution)
-fixes the live workflow catalog at implementation, break-fix/RCA, and
-research/investigation.
+[CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution)
+sets the workflow types as change, fix, research, and removal.
 
 This decision resolves the design choices still named as deferred by CD-0012 and adds
 the implementation contract the engine needs.
 
 ## Decisions
 
-### D1. Workflow definitions are code-defined, not stored authority
+### D1. Workflow types use one template contract
 
-Workflow definitions are generated from one canonical source ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+The canonical template contract supplies required steps for each type; each work item holds its own plan ([CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution)).
 
 ### D2. Workflow state lives on the work-item subject
 
@@ -110,8 +109,8 @@ check:
 ```
 
 Research uses `outcome` with `no_change`, `resolved`, or `report_recorded`.
-Implementation and break-fix use only `exists`, `absent`, and `check`
-([CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution)).
+Change, fix and removal use only `exists`, `absent`, and `check`
+([CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution)).
 
 An `outcome` token is never self-satisfying. The contract's `required_evidence` must
 name the artifact that makes the token true, and premise confirmation refuses
@@ -178,8 +177,10 @@ the lifecycle transition in one transaction (PM4 invariant 7 extension).
 The legal terminal action and state, active contract, expected version,
 authenticated actor, idempotency and atomic rollback remain required under
 [workflow-engine contract §7](../specs/workflow-engine-contract.md#7-ordered-completion-gate).
-Completion does not re-evaluate evidence, candidate scope or mandates, criterion proof,
-verdicts, current Review, premise confirmation, staleness or commit drift.
+Completion requires the active contract's recorded premise confirmation and, for
+change, fix and removal, a recorded delivery assertion. It does not re-evaluate
+evidence, candidate scope or mandates, criterion proof, verdicts, current Review,
+staleness or commit drift.
 Their verification-stage obligations remain with their owning actions.
 
 CD-0012 D3 requires a *typed* outcome mismatch rather than a generic error. The
@@ -242,7 +243,7 @@ capability, state, evidence and exact-target checks remain required. Workflow ac
 destructive commands, deployment, release, credential disclosure, or
 force-push; host permissions still govern them.
 
-Live-family contracts require explicit classification. Retired families gain no new authoring route. Definitions generate from one canonical source with no released definition version retained for history ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+Type contracts require explicit classification. Each item's plan derives from the single template contract ([CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution)).
 
 [CD-0042 D2](CD-0042-pre-go-live-single-path.md#d2-the-current-agent-surface-has-one-identity)
 owns the current agent-tool contract identity, its digest binding, and
@@ -251,11 +252,10 @@ fail-closed mismatch.
 `concord_work_transition.workflow_action` is declared in the current manifest,
 capability map, consequence class, and strict envelope schema:
 
-- `WorkflowActionAvailable()` returns `true` only when the selected definition's
-  digest matches a registered entry.
+- Admission requires a readable workflow state.
 - The dispatcher validates the action payload against its strict schema, the
-  definition's `available_actions`, the running actor tuple, and the current
-  step. Unknown fields and unsupported discriminants fail closed.
+  action catalog, the running actor tuple, and the current plan frontier.
+  Unknown fields and unsupported discriminants fail closed.
 
 `workflow_action` remains the only surface for advancing a workflow. Free-form
 advancement is not accepted.
@@ -273,9 +273,9 @@ A record is stale exactly when a revision, candidate, or input digest it depende
 
 Recovery uses verified snapshots with tested restore and reconciles current rows with Git, worktrees, artifacts, and external effects ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
-### D14. The live families each bind to a concrete predicate form
+### D14. Workflow types bind to concrete predicate forms
 
-The families' predicate contract is generated from the one canonical source; adding a family or a default predicate form requires an accepted decision ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+The picked type determines the allowed predicate forms under [CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution). Adding a type or a default predicate form requires an accepted decision.
 
 ## Required conformance scenarios
 
@@ -336,11 +336,9 @@ The implementation acceptance suite must exercise:
 
 ### Workflow_action surface
 
-37. `WorkflowActionAvailable()` returns `false` until the engine registers and
-    verifies a definition's digest; the operation is refused structurally
-    otherwise.
-38. Each action validates its payload against the registered `available_actions`,
-    the actor tuple, and the current step.
+37. Workflow actions refuse when the workflow state cannot be read.
+38. Each action validates its payload against the action catalog,
+    the actor tuple, and the current plan frontier.
 39. TS7 envelopes emit `error` with the closed recovery_action set on refused
     actions; no fallback path exists.
 
@@ -375,12 +373,12 @@ This decision produces:
 
 - `.concord/law/specs/workflow-engine-contract.md` — implementation contract binding this
   decision to concrete Go/storage/agent/CLI behavior;
-- `contracts/workflow-definition.schema.json` — closed definition schema for
-  generated manifests;
+- `contracts/workflow-step-templates.v1.json` — closed template contract for
+  the workflow types and the stored step plan schema;
 - `contracts/workflow-outcome.schema.json` — closed outcome payload schema;
 - `.concord/scenarios/workflow-engine.v1.json` — the conformance scenario carriers listed
   above;
-- typed Go built-ins for each live family;
+- typed Go support for the four workflow types and their plans;
 - generated manifest extensions for `workflow_action`.
 
 ## Consequences
@@ -388,16 +386,15 @@ This decision produces:
 ### Positive
 
 - The workflow engine gains one state authority (current rows and finite
-  snapshots), one definition authority (one generated source), one predicate
+  snapshots), one template authority (one canonical contract), one predicate
   authority (closed union), and one
   evaluator authority (authenticated tuple) — no second authority is introduced.
 - CD-0012 deferred items 1–5 collapse to design choices this decision makes
   concrete; the remaining open items (cross-item outcome attribution, downstream
   notice class for end-state revisions) become behavior of the impact-propagation
   machinery.
-- The three live families become first-class workflow definitions generated
-  from Go, exposed through the reserved `workflow_action` operation, and backed by
-   ordinary atomic versioned mutations, operations and effect receipts.
+- The four workflow types use per-item plans through `workflow_action`, backed by
+  ordinary atomic versioned mutations, operations and effect receipts.
 - Recovery uses verified snapshots with tested restore; workflow state lives only as current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 ### Cost
@@ -406,9 +403,8 @@ This decision produces:
 - The workflow-action dispatcher reuses agent authority; an upgrade to
   `concord_work_transition.workflow_action` is required under TS8 once the engine
   ships.
-- Definition manifests become durable artifacts; drift detection between the Go
-  registry and the registered definition digest must run at every
-  `WorkflowActionAvailable` call.
+- Each item's step plan is a durable artifact; every plan write passes the one
+  plan-write check before it saves (CON-1574; the workflow-engine-contract §2.3).
 
 ### What this forecloses
 

@@ -8,13 +8,12 @@ import (
 func attributionItem(t *testing.T, s *Store, id string, laws, domains []string, configure ...func(map[string]json.RawMessage)) {
 	t.Helper()
 	seedWork(t, s, id)
-	entry := mustBuiltinDefinition(t, "workflow.implementation")
 	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: id, Definition: entry, Actor: lawChangeConstructorActor})
+		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: id, Actor: lawChangeConstructorActor})
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -22,7 +21,7 @@ func attributionItem(t *testing.T, s *Store, id string, laws, domains []string, 
 	for _, edit := range configure {
 		edit(fields)
 	}
-	constructLawChangeContract(t, s, entry.Definition, BuiltinWorkflowRegistry(), id, ownerRefForTest(t, lawChangeConstructorActor), fields)
+	constructLawChangeContract(t, s, WorkflowStepPlanChange, id, ownerRefForTest(t, lawChangeConstructorActor), fields)
 	var mandates []string
 	if err := json.Unmarshal(fields["spec_mandate"], &mandates); err != nil {
 		t.Fatal(err)
@@ -36,9 +35,7 @@ func attributionItem(t *testing.T, s *Store, id string, laws, domains []string, 
 			t.Fatal(err)
 		}
 	}
-	if err := advanceWorkflowTestInstanceToStep(t.Context(), s, id, "execution", ownerRefForTest(t, lawChangeConstructorActor)); err != nil {
-		t.Fatal(err)
-	}
+	moveWorkflowPlanFixtureFrontier(t, s, id, "implement")
 }
 
 func attributionCompletion(t *testing.T, s *Store, id string) Event {
@@ -65,9 +62,7 @@ func attributionCompletionWithConfirmation(t *testing.T, s *Store, id string, ca
 	j.bindVerification(t, run)
 	qAcceptCriterionReview(t, fixture, run.OperationRef)
 	owner := ownerRefForTest(t, lawChangeConstructorActor)
-	if err := advanceWorkflowTestInstanceToStep(t.Context(), s, id, "acceptance", owner); err != nil {
-		t.Fatal(err)
-	}
+	moveWorkflowPlanFixtureFrontier(t, s, id, "review")
 	f := acceptanceRecoveryFixture{store: s, workID: id, owner: lawChangeConstructorActor, repo: repo, receipt: run.OperationRef}
 	if err := runVerdictActionAs(t, s, id, "record_verdict", qAssociationPayload(t, f), 0, lawChangeConstructorActor); err != nil {
 		t.Fatal(err)
@@ -89,9 +84,7 @@ func attributionCompletionWithConfirmation(t *testing.T, s *Store, id string, ca
 	if err := confirm(f); err != nil {
 		t.Fatal(err)
 	}
-	if err := advanceWorkflowTestInstanceToStep(t.Context(), s, id, "release", owner); err != nil {
-		t.Fatal(err)
-	}
+	completeWorkflowPlanFixture(t, s, id)
 	v := readWorkVersion(t, s, id)
 	event := workflowEventWithActor("attribution-complete-"+id, WorkflowCompleted, id, owner, map[string]any{
 		"work_id": id, "expected_version": v, "resulting_version": v + 1, "terminal_state": "completed", "final_verdict_kind": "ok", "verdict_actor_ref": owner,

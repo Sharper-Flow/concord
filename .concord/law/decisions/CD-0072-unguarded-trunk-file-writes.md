@@ -24,19 +24,19 @@
 
 ## Context
 
-The predecessor enforced trunk protection in two halves. The first —
+Trunk protection was once enforced in two halves. The first —
 refusing a *mutating grant* bound to the main checkout — is Concord law and
 code: `authority.go` refuses the grant before any operation runs. The second
 — intercepting raw file writes (edit, write, delete) in the trunk checkout
-through an editor-host hook before execution — the predecessor shipped as a
-plugin in its own tooling.
+through an editor-host hook before execution — shipped as a plugin in the
+prior tooling.
 
 Ordinary file-write protection belongs to the host that owns write execution.
 Concord does not intercept ordinary writes by their target or checkout.
 
 On 2026-08-21 the operator chose to accept losing this enforcement rather
 than ship an editor plugin to retain it. The choice was never recorded, and
-the coverage row for worktree isolation read as though the full predecessor
+the coverage row for worktree isolation read as though the full combined
 guarantee stood.
 
 ## Decision
@@ -54,7 +54,7 @@ Concord's placement rubric does not offer.
   refused before any Concord operation runs (`internal/agent/authority.go`).
 - Host tools own worktree isolation and removal (CD-0088 D1).
 
-These are weaker than the predecessor's combined guarantee and are not
+These are weaker than a combined guarantee and are not
 presented as equivalent. An operator wanting trunk protection at the file
 level must configure it host-side; Concord records the boundary honestly
 instead.

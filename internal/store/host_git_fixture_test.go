@@ -3,13 +3,14 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/gittest"
 )
 
 func initBootstrapStoreRepo(t *testing.T) string {
@@ -46,11 +47,10 @@ func runTestGit(t *testing.T, repo string, args ...string) string {
 }
 
 func newTestGitCommand(repo string, args ...string) (*exec.Cmd, error) {
-	if !filepath.IsAbs(repo) {
-		return nil, fmt.Errorf("test git requires an absolute fixture directory: %q", repo)
+	command, err := gittest.Command(repo, args...)
+	if err != nil {
+		return nil, err
 	}
-	command := exec.Command("git", args...)
-	command.Dir = repo
 	command.Env = os.Environ()
 	return command, nil
 }

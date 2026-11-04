@@ -58,7 +58,7 @@ authority are forbidden.
 not retained historical definitions.
 
 **Direction.** [`workflows.md`](./workflows.md) owns the current family and
-composition model. [CD-0218 D1](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-three-families-own-new-execution)
+composition model. [CD-0218 D1](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution)
 owns the live family boundary; CD-0242 D14 owns generated definitions.
 
 ---
@@ -136,7 +136,7 @@ and [`product-data-model.md`](./product-data-model.md).
 
 **Requirement.** Concord's quality governance follows [`priorities.md` — Quality (goal E)](../law/constitution/priorities.md#quality-goal-e).
 
-**Implication.** Quality is **not** achieved by mandating Advance's seven-gate lifecycle for every work kind. Different workflow types may use different gates or none at all; the common denominator is the linked quality attributes.
+**Implication.** Quality is **not** achieved by mandating a fixed seven-gate lifecycle for every work kind. Different workflow types may use different gates or none at all; the common denominator is the linked quality attributes.
 
 **Direction.** Every workflow type declares its own artifacts, steps, and completion criteria. Independent review is required where the risk or consequence warrants it.
 
@@ -177,10 +177,8 @@ See [`capability-placement.md`](./capability-placement.md) for the canonical dir
 self-contained invocation envelope whose Product/Project scope and versions the core
 re-resolves on every call. A native subagent's prompt supplies no Concord authority.
 A project-local refusal can still be correct fail-closed behavior: this constraint
-targets second-class execution paths, not every scope restriction. The predecessor's
-explicit path-confirmation plumbing is the recorded anti-pattern reference — see
-the public lessons in
-[`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md).
+targets second-class execution paths, not every scope restriction. Explicit
+path-confirmation plumbing is the recorded anti-pattern.
 
 ---
 
@@ -192,8 +190,6 @@ the public lessons in
 
 **Direction.** CD-0002 and PM3 resolve one serialized writer whose accepted mutations write current rows in one transaction; derived read models are never a second write target ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
-Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
-
 ---
 
 ## 15. Atomic terminal transition
@@ -203,8 +199,6 @@ Derived from the public predecessor lessons (see [`advance-postmortem.md`](./adv
 **Implication.** No observer may witness a partially-terminal entity. An entity that is terminal by one field and active by another is an invalid state that the model must make unrepresentable, not merely unlikely.
 
 **Direction.** Model terminality as a single transition over one record rather than as coordinated updates to several fields. Prefer designs where the invalid combination cannot be expressed — correctness here should be structural, not enforced by convention or by the caller remembering to update every field.
-
-Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
 
 ---
 
@@ -216,8 +210,6 @@ Derived from the public predecessor lessons (see [`advance-postmortem.md`](./adv
 
 **Direction.** Operations report a completion status that is a function of all their sub-steps. Where partial completion is legitimate, it gets its own explicit status distinct from success, carrying what remains outstanding. A timeout within a sequence must either roll back or be surfaced as incomplete; it must never silently abandon later steps.
 
-Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
-
 ---
 
 ## 17. Reclamation keys off ground truth, not derived state
@@ -227,8 +219,6 @@ Derived from the public predecessor lessons (see [`advance-postmortem.md`](./adv
 **Implication.** Bookkeeping drift must never strand a resource. A disagreeing status field is a reason to investigate the field, not to retain the resource indefinitely. Host tools own worktree and branch removal under CD-0088 D1; Concord provides no reclamation operation.
 
 **Direction.** Cleanup paths verify the resource's own preconditions directly. Where a derived status is consulted as a convenience, disagreement between it and ground truth is surfaced as a reconcilable inconsistency rather than treated as a veto.
-
-Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
 
 ---
 
@@ -240,8 +230,6 @@ Derived from the public predecessor lessons (see [`advance-postmortem.md`](./adv
 
 **Direction.** Prefer per-item operations with independent budgets over whole-collection scans under one clamp. Where a caller supplies a budget, either honour it or refuse explicitly — silently clamping a requested budget to a smaller fixed value hides the constraint at the moment the caller most needs to see it.
 
-Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
-
 ---
 
 ## 19. Non-destructive recovery is a design requirement
@@ -251,8 +239,6 @@ Derived from the public predecessor lessons (see [`advance-postmortem.md`](./adv
 **Implication.** Recovery proportionality is a first-class design property, not an operational afterthought. If the only remedy for a bookkeeping inconsistency is a destructive operation, operators are forced to choose between an incorrect record and losing valid history — and will reasonably choose to leave the system broken, which is what accumulates.
 
 **Direction.** Recovery paths are designed alongside the states that need them, and graded to the severity of the problem: reconcile current rows, restore a verified snapshot, and reconcile against Git, worktrees, artifacts, and external effects before destructive operations ([CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). Refusal prechecks on a recovery tool must not shadow the very condition that tool exists to handle.
-
-Derived from the public predecessor lessons (see [`advance-postmortem.md`](./advance-postmortem.md)).
 
 ---
 
@@ -271,8 +257,8 @@ The cited decisions govern implementation conformance.
    [D11–D12](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d11-a-fresh-session-resumes-from-current-state)
    own resumption and admitted recovery actions. PM10 owns backup/restore, and
    CD-0008 D3 owns dependency-aware unreadable isolation.
-6. **Evidence-resolution completeness** (#325). **Resolved by CD-0008 D2 (2026-08-06):** verification, review, approval, commit, native-run, and durable-knowledge evidence binds to an immutable subject and an attributable producer record. The producer remains verdict authority. Concord atomically records the typed binding, and returns typed missing, unreachable, or degraded results when re-resolution cannot complete. Source record: [`advance-postmortem.md`](./advance-postmortem.md) §Evidence resolution; accepted mechanism: [`../law/decisions/CD-0008-concord-mechanism-hardening.md`](../law/decisions/CD-0008-concord-mechanism-hardening.md) §D2.
-7. **Validation-failure isolation** (#349). **Resolved by CD-0008 D3 (2026-08-06):** unreadable records contribute unknown, and independently provable positive reads may return typed degraded omissions. Negative and safety conclusions fail closed only when the unreadable record lies within the bounded closure needed for that conclusion. The unreadable set is explicit and unrelated operations are not globally blocked. Source record: [`advance-postmortem.md`](./advance-postmortem.md) §Write-path truthfulness; accepted mechanism: [`../law/decisions/CD-0008-concord-mechanism-hardening.md`](../law/decisions/CD-0008-concord-mechanism-hardening.md) §D3.
+6. **Evidence-resolution completeness** (#325). **Resolved by CD-0008 D2 (2026-08-06):** verification, review, approval, commit, native-run, and durable-knowledge evidence binds to an immutable subject and an attributable producer record. The producer remains verdict authority. Concord atomically records the typed binding, and returns typed missing, unreachable, or degraded results when re-resolution cannot complete. Accepted mechanism: [`../law/decisions/CD-0008-concord-mechanism-hardening.md`](../law/decisions/CD-0008-concord-mechanism-hardening.md) §D2.
+7. **Validation-failure isolation** (#349). **Resolved by CD-0008 D3 (2026-08-06):** unreadable records contribute unknown, and independently provable positive reads may return typed degraded omissions. Negative and safety conclusions fail closed only when the unreadable record lies within the bounded closure needed for that conclusion. The unreadable set is explicit and unrelated operations are not globally blocked. Accepted mechanism: [`../law/decisions/CD-0008-concord-mechanism-hardening.md`](../law/decisions/CD-0008-concord-mechanism-hardening.md) §D3.
 8. **State-authority engine for a single-operator local orchestrator** (operator decision D1, 2026-08-05). **✅ Resolved-by-CD-0002 + PM2–PM5** — SQLite is the sole authority per [`../law/decisions/CD-0002-concord-state-authority.md`](../law/decisions/CD-0002-concord-state-authority.md). Four records refine it:
    - **one global local authority** per [`../law/specs/product-memory-authority-scope.md`](../law/specs/product-memory-authority-scope.md);
    - one authoritative current-state store per [`../law/specs/product-memory-domain-schema.md`](../law/specs/product-memory-domain-schema.md);
@@ -302,12 +288,6 @@ The cited decisions govern implementation conformance.
 | §11 declarative ownership | [`product-data-model.md`](./product-data-model.md) |
 | §12 ownership-aligned placement | [`capability-placement.md`](./capability-placement.md) |
 | §13 ambient product context | [`product-data-model.md`](./product-data-model.md) |
-| §14 single derivation | [`advance-postmortem.md`](./advance-postmortem.md) §C1 |
-| §15 atomic terminal transition | [`advance-postmortem.md`](./advance-postmortem.md) §C2 |
-| §16 partial completion honesty | [`advance-postmortem.md`](./advance-postmortem.md) §C3 |
-| §17 reclamation ground truth | [`advance-postmortem.md`](./advance-postmortem.md) §C4 |
-| §18 operations scale with data | [`advance-postmortem.md`](./advance-postmortem.md) §C5 |
-| §19 non-destructive recovery | [`advance-postmortem.md`](./advance-postmortem.md) §C6 |
 
 ---
 

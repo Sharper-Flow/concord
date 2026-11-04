@@ -3,9 +3,7 @@
   "id": "CD-0108",
   "title": "The ZLauncher replacement retired with the session entry route",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "operator-surface",
   "applies_to_domain_ids": []
@@ -63,7 +61,6 @@ surface.
 
 ## Consequences
 
-- `vertical-integration.md` cites this record for the interface direction.
 - No acceptance gate transfers to the host start or to managed
   entry.
 - Documents that restate the R1 split (`design-constraints.md` §6,
@@ -79,8 +76,7 @@ the gap too wide, and issue 908 deleted the surface rather than iterating.
 and resume belong to the host (CD-0078), and a second launch entry keeps that
 responsibility in two owners.
 
-**Port ZLauncher as it stands.** Rejected: predecessor law forbids routing
-Concord work through predecessor paths. The replacement mapped features, not
+**Port ZLauncher as it stands.** Rejected: the replacement mapped features, not
 code.
 
 **A launch registry in the entry route.** Rejected: it duplicates store-owned
@@ -91,9 +87,10 @@ write authority beside the typed mutation surface.
 
 ## Verification
 
-- The manifest registers this record as an accepted decision.
-- `clarifications.md` R1 and `vertical-integration.md` cite this record.
 - `go test ./cmd/concord/ -run
   'TestRemovedLaunchEntriesRefuseWithoutExecuting|TestRemovedLaunchArgvZeroDoesNotForward'`
   proves the removed entry verbs reach no launch and start no process.
-- Repository document, knowledge-index, and link validators pass.
+- [The Domain registry checker](../../../scripts/check-domain-registry.py) checks
+  that law-record Domain fields and Domain registry entries resolve to declared
+  Domains and current law; [the document link checker](../../../scripts/check-doc-links.py)
+  checks bounded relative Markdown paths and heading anchors.

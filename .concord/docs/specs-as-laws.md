@@ -30,11 +30,11 @@ count ([CD-0243](../law/decisions/CD-0243-four-roles-and-six-operator-approval-c
 
 ## 1. The problem this fixes
 
-ADV today: specs are laws; `adv_change_validate` detects conflicts; agents are
-pushed back. But when a user request implies behavior that conflicts with a spec,
+In the prior system, specs were laws, change validation detected conflicts, and
+agents were pushed back. But when a user request implied behavior that conflicted with a spec,
 agents too often **silently cut scope** during research / design / prep — *"this
 goes against spec law X, so I'll drop that part"* — instead of explicitly
-resolving the conflict. The user discovers the scope reduction
+resolving the conflict. The user discovered the scope reduction
 **late**, after the agent already complied.
 
 The conflict needs an explicit resolution, not an unrecorded scope cut. The
@@ -45,8 +45,8 @@ or the agent.
 
 ## 2. The principle: specs are laws; law-change authority follows CD-0230
 
-- **Specs are laws:** agents respect them; drift is prevented. (ADV strength —
-  unchanged.)
+- **Specs are laws:** agents respect them; drift is prevented. (Prior-system
+  strength — unchanged.)
 - **Law changes use the six approval classes:** operator approval is required
   only under CD-0243 D2. Seriousness, size, and Domain count are not independent
   triggers. Outside those classes, the agent changes law within scope and records
@@ -116,7 +116,7 @@ CD-0006 D10 adds the **spec mandate** refinement:
 - When planning approves spec deltas, the approved change contract carries a
   mandate listing exactly which specs that change may modify.
 - During execution, modifications to mandated specs are authorized work, not law
-  violations. This prevents the Advance failure mode where a change created to
+  violations. This prevents the failure mode where a change created to
   replace a spec blocks itself during execution.
 - Specs outside the mandate still enforce as laws.
 
@@ -164,17 +164,17 @@ shows the legislative moments explicitly.
 
 ---
 
-## 7. Relationship to predecessor evidence
+## 7. Relationship to prior-system evidence
 
-| Public predecessor behavior | Concord treatment |
+| Prior-system behavior | Concord treatment |
 |---|---|
 | Change validation detected spec conflicts | **Preserved as an outcome, redesigned structurally** through Git-derived law checks and typed refusals. |
 | Spec deltas modified or superseded accepted law | **Preserved as an outcome** through Git law deltas and revision identity, with approval following CD-0243 D2 and D4. |
 | Agreement/design checkpoints surfaced legislative choices | **Preserved as explicit decisions** with operator consent only under the six classes, without requiring one universal workflow shape. |
 | Concurrent changes may affect the same architecture | **CD-0222 D6-D7** requires Git integration and dependency-specific revalidation, not an overlap gate. |
 
-Concord does not call, mirror, or dual-write predecessor runtime state. These rows
-record public lesson evidence only.
+These rows record how observed prior-system outcomes map to Concord shapes.
+Concord does not call, mirror, or dual-write another coordination system's runtime state.
 
 ---
 

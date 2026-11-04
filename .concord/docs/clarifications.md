@@ -1,7 +1,7 @@
 # Concord Clarifications & Open Questions
 
 > **Status:** Living doc. Companion to [`README.md`](./README.md) and the others.
-> **Amended:** 2026-10-18.
+> **Amended:** 2026-11-03.
 > **Purpose:** The unresolved decisions and ambiguities that need operator
 > direction before Concord moves from vision to build, plus resolved directions
 > that already have an answer and must be honored by the document set.
@@ -38,8 +38,9 @@ surface versions, compatibility/deprecation paths, supported-model release gates
 and unreleased replay paths are not current policy. Deterministic PM1/TS1, strict
 schema, authority, transaction, negative, and conformance evidence remains required;
 the first go-live decision must define future compatibility and measurement law.
-Open clarifications remain open; acceptance of these records does not close C8–C10
-or other explicitly deferred questions.
+Open clarifications remain open; acceptance of these records does not close C9–C10
+or other explicitly deferred questions. C8 is closed by
+[CD-0250](../law/decisions/CD-0250-outside-tools-stay-in-host-or-product-configuration.md).
 
 [`goals.md`](./goals.md) records the unranked goals as guidance;
 [`../law/constitution/priorities.md`](../law/constitution/priorities.md) owns the operating envelope, constraints, conflict rules, and standing law.
@@ -76,8 +77,7 @@ re-litigate them silently.
 - **Why:** Concord is optimized for a solo dev + many local agents. The terminal
   is the fastest path; optional views are for convenience, not correctness.
 - **Effect:** `design-constraints.md` §6, `workflows.md` §0,
-  `self-documentation.md` §1.1, `vertical-integration.md` are aligned to
-  this direction.
+  `self-documentation.md` §1.1 are aligned to this direction.
 - **Decision:** Substantive decisions happen inside the selected Product/workflow.
   The host owns operator session start, resume, and worktree lifecycle
   (CD-0088 D1); Concord derives managed session context.
@@ -142,8 +142,9 @@ re-litigate them silently.
 - **External systems:** learned usage is a Product-scoped `lesson` tagged
   `resource:<resource_id>`. A
   record stores a vendor documentation locator, never vendor content.
-- **Effect:** recorded in [`vertical-integration.md`](./vertical-integration.md),
-  which covers lgrep and vision only.
+- **Effect:** the outside-tool boundary is
+  [CD-0250](../law/decisions/CD-0250-outside-tools-stay-in-host-or-product-configuration.md);
+  lgrep and vision stay in host or Product configuration.
 
 ---
 
@@ -263,8 +264,7 @@ re-litigate them silently.
   unrelated to that tier and must be named **context continuity** to avoid collision.
 - **Predecessor evidence:** [Advance #422](https://github.com/Sharper-Flow/Advance/issues/422),
   [#423](https://github.com/Sharper-Flow/Advance/issues/423), and
-  [#424](https://github.com/Sharper-Flow/Advance/issues/424), recorded in
-  [`advance-predecessor-lessons.md`](./advance-predecessor-lessons.md). These identify
+  [#424](https://github.com/Sharper-Flow/Advance/issues/424). These identify
   mechanisms to prevent structurally; they are not work Concord must reproduce.
 - **Direction:** Durable checkpoints and
   boundary records own the working state; pinned continuity is re-derived from
@@ -277,16 +277,13 @@ re-litigate them silently.
 
 ## 🟡 Medium — resolve as they come up
 
-### C8. lgrep / vision
-- **Question:** Confirm *product-scoping first*, or seriously evaluate
-  owning/swallowing now? (`vertical-integration.md`)
-- **Lean:** product-scoping first; revisit only on measured need.
-- **Direction (2026-07-25):** 🟡 unchanged. See `vertical-integration.md` for
-  the native-tool integration boundary.
-- **Scope (2026-08-14):** narrowed to lgrep and vision. Both are general-purpose
-  beyond Concord and neither has a recorded integration pain that orchestration
-  cannot resolve, so they share one decision trigger. R7 removes episode on its
-  separate evidence and does not move C8.
+### C8. lgrep / vision ✅ Accepted 2026-11-03
+- **Decision:** [CD-0250](../law/decisions/CD-0250-outside-tools-stay-in-host-or-product-configuration.md)
+  governs: outside tools reach Concord agents only through host or Product
+  configuration, and Concord adds no tool-specific code, store state, CLI
+  verb, contract, generated-profile rule, shipped skill or helper
+  integration for them. Concord never owns, swallows, or product-scopes
+  lgrep or vision.
 
 ### C9. Capability-placement rubric enforcement
 - **Question:** Structural (blocks misplaced capabilities) or advisory + recorded?
@@ -486,5 +483,5 @@ CD-0006/CD-0007/CD-0008/CD-0082 fix root policy, public authority boundaries,
 evidence binding, unreadable-record isolation, execution mechanics, and
 demand-driven migration/correction. PM1 remains the shared query/read-tool corpus.
 No storage table or CLI command automatically earns a tool. Remaining open
-clarifications resolve through their own evidence gates; C5 and C8–C10 remain
+clarifications resolve through their own evidence gates; C5 and C9–C10 remain
 deferred.

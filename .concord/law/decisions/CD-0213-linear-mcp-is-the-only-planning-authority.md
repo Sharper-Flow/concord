@@ -22,10 +22,10 @@
 - **Scope:** Where planning facts live, how agents read and write them, which
   Linear facts Concord keeps, and how pull requests link to Linear,
   [Concord (CON) issue 801](https://linear.app/sharper-flow/issue/CON-801)
-- **Preserves:** CD-0122 in full, CD-0156 in full, CD-0142 removal handoff,
+- **Preserves:** CD-0122 in full, CD-0142 removal handoff,
   CD-0146 external-reference collision refusal, repository review and merge
   evidence, and branch and worktree isolation
-- **Related:** CD-0036, CD-0122, CD-0222, CD-0142, CD-0146, CD-0156
+- **Related:** CD-0036, CD-0122, CD-0222, CD-0142, CD-0146
 - **Approval:** The operator approved this route on 2026-10-09 under CON-801.
 
 ## Context
@@ -99,6 +99,20 @@ server.
 
 The store keeps current state and finite verified snapshots; retired planning kinds are not retained as history ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
+At the snapshot-backed initiative cutover, remove a surviving work unit's
+alignment match to a retired initiative only when its lifecycle is terminal,
+it has no non-terminal workflow instance, and at least one match to
+non-initiative work survives. Such a match is not a retirement dependency.
+Preserve the search declaration, its original outcome, author and time, other
+matches, surviving work, and effect and idempotency evidence.
+
+Otherwise refuse the upgrade with the named dependency and leave the store
+unchanged. A sole-initiative-match declaration therefore refuses instead of
+becoming an empty `related_found` or a fabricated `none_found`
+([CD-0156 D3](https://github.com/Sharper-Flow/concord/tree/4d225f002146d0b4776718665ecaef5805647565^/.concord/law/decisions/CD-0156-mandatory-backlog-alignment-step.md)).
+Research dependencies and foreign-owned impact or overlap records still refuse;
+terminal lifecycle alone does not retire them.
+
 ## Alternatives considered
 
 - Repair the mirror: fix outbox reclaim, title limits, and membership comments.
@@ -127,3 +141,8 @@ The store keeps current state and finite verified snapshots; retired planning ki
   actionable work, idempotency records and a verified predecessor snapshot.
 - The Initiative retirement rollback tests exercise atomic refusal when
   foreign-owned dependencies remain or a deletion fails.
+- `internal/store.TestInitiativeRetirementTerminalAlignment` exercises removal
+  of only the retired match, native snapshot/restore, and preservation of the
+  terminal owner's declaration, other matches, work and evidence.
+- `internal/store.TestInitiativeRetirementAlignmentRefusal` exercises atomic
+  refusal for live owners, non-terminal instances and sole-initiative matches.

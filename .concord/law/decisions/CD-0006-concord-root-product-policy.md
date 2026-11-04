@@ -16,13 +16,13 @@
 **Date:** 2026-08-06
 **Decision owner:** Operator
 **Scope:** Concord purpose, workflow constitution, governance, operator boundary,
-knowledge authority, audience policy, release evidence, and Advance migration.
+knowledge authority, audience policy, release evidence, and migration policy.
 
 ## Context
 
 PM1–PM10 and TS1–TS9 settled Concord's Product-memory
 and agent-surface mechanics. Root Product documents still carried older
-leans: indefinite Advance coexistence, Product-by-Product usability before full
+leans: indefinite coexistence with a prior system, Product-by-Product usability before full
 readiness, workflow ownership left open, exposure inferred as reachability, a future
 team-server ambition, and production-call evidence before initial release.
 
@@ -39,9 +39,8 @@ governs D5 and D10: law mandates and enactment require approval only under its s
 
 ### D1. Product direction follows the goals
 
-[`goals.md`](../../docs/goals.md) owns Concord's purpose, goals, and measures. Advance
-replacement is not current Product direction. Concord has no full-successor or
-predecessor-replacement-readiness requirement.
+[`goals.md`](../../docs/goals.md) owns Concord's purpose, goals, and measures. Concord
+has no successor-readiness requirement toward any other system.
 
 Usability and delivery are judged against those goals and applicable current law.
 This removes no accepted release, maturity, quality, or data-integrity obligation.
@@ -138,7 +137,7 @@ authorized to modify. During execution:
 - If execution discovers it needs to modify a spec outside the mandate, that is a
   genuine new conflict → routes back to planning.
 
-This prevents the Advance failure mode where a change created to replace a spec
+This prevents the failure mode where a change created to replace a spec
 blocks itself during execution because the agent treats its own approved purpose as
 a violation. The legislator (human) enacted the spec change during planning;
 execution is enacting that approval.

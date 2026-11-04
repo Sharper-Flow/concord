@@ -410,7 +410,7 @@
       "id": "concord_work_transition.workflow_action",
       "tool": "concord_work_transition",
       "kind": "mutation",
-      "availability": "workflow_definition",
+      "availability": "always",
       "query_id": null,
       "input_schema": "#/schemas/work_transition_action_input",
       "result_schema": "#/schemas/projectable_mutation_result",
@@ -764,6 +764,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:4d9ebaee98d0935a097806398d5c7884e26cfcf56bf014826ab14b5d7b2713c5",
-  "digest": "sha256:6242d151bbffed3c952a93c85bae2cb4c0fdf5cfd68c788289d44fdac9378f1e"
+  "payload_digest": "sha256:2bf8ff0f455cca6b310d9191ba5de755d7428734c052b5d3b63913b151f96388",
+  "digest": "sha256:ae07eec4745ea06dcad1be608dbcefba2c928c2dc0954257a515d091d7039f79"
 }

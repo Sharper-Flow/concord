@@ -249,14 +249,25 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
 
   const memberships = await invoke("concord_work_relate", "set_memberships", { work_id: workID, expected_version: await version(), memberships: [{ project_id: SOURCE_PROJECT, role: "primary" }, { project_id: RECEIVE_PROJECT, role: "secondary" }], idempotency_key: "handoff-e2e-memberships" }, sourceContext)
   expect(memberships.outcome, JSON.stringify(memberships)).toBe("ok")
-  const walk = async (actionID: string, fields: JSONRecord) => {
-    const response = await invoke("concord_work_transition", "workflow_action", { work_id: workID, expected_version: await version(), action_id: actionID, idempotency_key: `handoff-e2e-${actionID}`, fields }, sourceContext)
+  const walk = async (actionID: string, fields: JSONRecord, key = actionID) => {
+    const response = await invoke("concord_work_transition", "workflow_action", { work_id: workID, expected_version: await version(), action_id: actionID, idempotency_key: `handoff-e2e-${key}`, fields }, sourceContext)
     expect(response.outcome, `${actionID}: ${JSON.stringify(response)}`).toBe("ok")
   }
+  await walk("record_intake", {
+    checks_found: ["freshness", "overtaken", "already_delivered", "still_reproducible", "observed_or_theoretical", "defect_or_feature", "duplicate_or_overlap", "right_owner", "conflicts", "value", "cost_against_value", "one_outcome_or_several", "checkable_end_state", "blocked"],
+    outcome: "proceed", open_questions_found: false,
+  })
+  await walk("pick_type", { type: "fix", reason: "The fixture reproduces a defect." })
   // CD-0198 D2: the merged diagnosis record carries the reproduction,
   // alignment search, and root cause sections the three retired records
   // carried separately.
   await walk("record_diagnosis", { reproduction: "The defect reproduces from a clean store.", searched: "Searched the backlog for duplicate defect work.", outcome: "none_found", root_cause: "The defect is the fold's own pool." })
+  await walk("complete_step", { step_id: "diagnose", note: "Diagnosis recorded." }, "complete-diagnosis")
+  await walk("record_plan", {
+    outcomes: "The bounded handoff crosses Projects.", approach: "Exercise the real handoff route.",
+    decisions: [{ id: "decision:handoff", question: "How should the route run?", choice: "Use the real core.", rationale: "The handoff gates must remain active.", rejected: [] }],
+    touches: ["adapter/opencode"], merge_split: "One bounded item.", risks: "The handoff may fail its preservation checks.",
+  })
   const domainList = await invoke("concord_domain", "list", { product_id: PRODUCT_ID, page: { cursor: null, limit: 10 } }, sourceContext)
   expect(domainList.outcome).toBe("ok")
   await walk("approve_contract", {
@@ -278,6 +289,7 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
       verification_obligations: [],
     },
   })
+  await walk("complete_step", { step_id: "plan", note: "Plan and contract recorded." }, "complete-plan")
   const artifactPath = join(sourceWorktree, "README.md")
   const artifactRef = `sha256:${createHash("sha256").update(new Uint8Array(await Bun.file(artifactPath).arrayBuffer())).digest("hex")}:${artifactPath}`
   const recorded = await invoke("concord_work_transition", "project_handoff_record", {
@@ -467,7 +479,7 @@ routeDeclaration("prepares, consumes, and retires through the real core routes",
     const retirement = await invoke("concord_work_trace", "project_retirement", { work_id: workID }, contextFor(SOURCE_SESSION, sourceWorktree))
     expect(retirement.outcome, JSON.stringify(retirement)).toBe("ok")
     const readiness = retirement.result as JSONRecord
-    expect(readiness.state).toBe("ready_to_close_or_replace")
+    expect(readiness.state, JSON.stringify(readiness)).toBe("ready_to_close_or_replace")
     expect(readiness.recorded_handoff).toBe(true)
     expect(readiness.artifacts_preserved).toBe(true)
     expect(readiness.blockers).toEqual([])

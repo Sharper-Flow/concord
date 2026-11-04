@@ -7,7 +7,7 @@
   },
   "home_domain_id": "product-root:concord",
   "applies_to_domain_ids": [],
-  "product_wide_rationale": "Keeps migration and correction demand-driven without a predecessor-replacement mission, while preserving current release, maturity, and data-integrity requirements across Domains."
+  "product_wide_rationale": "Keeps migration and correction demand-driven without a replacement mission, while preserving current release, maturity, and data-integrity requirements across Domains."
 }
 ---
 # CD-0082: Migration and replacement controls are demand-driven
@@ -20,8 +20,8 @@
   2026-08-29.
 - **Approval:** 2026-10-17. Coordinator approval under the operator's delegation
   for [Concord (CON) issue 1063](https://linear.app/sharper-flow/issue/CON-1063).
-- **Related:** CD-0006 D1-D2, CD-0053 D4, CD-0222, PM4, and issue #571
-- **Preserves:** CD-0053's three accepted predecessor-strength answers; CD-0222's
+- **Related:** CD-0006 D1-D2, CD-0222, PM4, and issue #571
+- **Preserves:** CD-0222's
   Domain-overlap execution block and Domain `replaces` relation; PM4 work-item
   supersession; immutable schema migrations and the other data-integrity
   controls that keep current state authoritative
@@ -36,7 +36,7 @@ surface implements or needs.
 
 Migration and correction start from a concrete demand and use an operation
 whose scope and evidence fit that demand. No current demand requires an
-Advance inventory, importer, or parallel migration mode.
+importer or parallel migration mode.
 
 ## Decision
 
@@ -49,21 +49,22 @@ migration record.
 
 When a concrete demand calls for migration or correction, the selected operation
 defines its local authority, input, idempotency, provenance, recovery, and native
-execution boundary. Concord has no predecessor inventory or import utility,
-snapshot or harvest contract, or parallel predecessor migration mode. Their
+execution boundary. Concord has no inventory or import utility,
+snapshot or harvest contract, or parallel migration mode. Their
 implementation, importer-only store probes, and tests of those retired
 behaviors are removed, not disabled or retained for compatibility.
 
 Work already imported remains ordinary Concord work. Its identity, intent,
 provenance metadata, lifecycle, and Project membership remain unchanged and
 readable through ordinary work reads. Retirement performs no schema or data
-rewrite. The predecessor lessons and CD-0019/CD-0053 strength obligations remain.
+rewrite. No capability obligation is retired here; each keeps its surviving
+owner.
 
 ### D2. Readiness follows current Product law
 
 CD-0006 D1 owns Product direction, without a full-successor requirement.
-The recorded first-usable assessment remains in
-[`floor-readiness.md`](../../docs/floor-readiness.md) and its manifest. Accepted release,
+The first-usable floor is defined in
+[`floor-readiness.md`](../../docs/floor-readiness.md). Accepted release,
 maturity, and development-authority requirements keep their owning records;
 migration activity does not prove them or create an adoption gate.
 
@@ -75,11 +76,6 @@ operation that atomically changes the predecessor's terminal state.
 
 No generic Product, Project, resource, or workflow replacement relation is added
 by this decision. The store keeps current state in one transaction per mutation; immutable schema migrations, native authority, and the other data-integrity controls remain current ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-
-## Explicit amendments
-
-The accepted predecessor-strength answers and their cited mechanisms may
-inform a concrete migration demand. They create no global cutover obligation.
 
 ## Consequences
 

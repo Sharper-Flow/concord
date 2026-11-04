@@ -18,9 +18,8 @@
   lifetime
 - **Approval:** The operator approved the knowledge-ladder contract on
   2026-09-03 after shaping in Concord work-cec2c530525706b8574ce633.
-- **Related:** CD-0026, C8, and issue #771
-- **Preserves:** Concord authority for Product law and formalized knowledge;
-  the lgrep and vision lean under C8
+- **Related:** CD-0026 and issue #771
+- **Preserves:** Concord authority for Product law and formalized knowledge
 
 ## Context
 
@@ -28,8 +27,7 @@ CD-0086 kept episode as an optional external memory authority and gave
 Concord one promotion seam that targeted `spec` or `decision`. Shaping on
 2026-09-03 measured what that seam served.
 
-The episode store held 7 rows. Every row was a predecessor import with source
-`adv_wisdom`. The `global` namespace was empty. No row was manual and no row
+The episode store held 7 rows. Every row was an imported row. The `global` namespace was empty. No row was manual and no row
 was session-ingested. The cross-Product recall capability had never been used.
 
 Every durable learning already had an owner. A procedure belongs to host
@@ -85,8 +83,6 @@ freshness is never a stored property and no stored copy can age.
 
 ## Consequences
 
-- C8 does not move. lgrep and vision keep the product-scoping lean.
-- `vertical-integration.md` covers lgrep and vision only.
 - D4's no-vendor-content rule governs every lesson that cites vendor
   documentation.
 - No storage, schema, or event change follows from this record.
@@ -104,7 +100,5 @@ already holds learned usage.
 
 ## Verification
 
-- `vertical-integration.md` names lgrep and vision only and carries no
-  promotion receiving contract.
 - This record sits under `.concord/law/decisions/` on the default branch.
 - Repository document and link validators pass.

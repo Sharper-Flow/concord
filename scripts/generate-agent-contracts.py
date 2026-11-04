@@ -305,7 +305,7 @@ def validate_persisted_manifest(manifest, ir):
     schema_validate(manifest, ir, ir, "manifest")
 
 
-def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict, list[dict]]:
+def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict, list[dict], int]:
     result = subprocess.run(
         ["go", "run", "./scripts/workflow-action-contracts"],
         cwd=ROOT,
@@ -315,7 +315,7 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict
         check=True,
     )
     projection = json.loads(result.stdout)
-    if set(projection) != {"schema_version", "actions", "workflows", "teaching", "schema_refs", "contract_updates"} or projection["schema_version"] != "2.0":
+    if set(projection) != {"schema_version", "actions", "workflows", "teaching", "schema_refs", "contract_updates", "catalog_action_count"} or projection["schema_version"] != "2.0":
         fail("workflow action contract projection is invalid")
     schema_refs = projection["schema_refs"]
     if set(schema_refs) != {"current"}:
@@ -333,6 +333,9 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict
     actions = projection["actions"]
     if not actions or len({action.get("id") for action in actions}) != len(actions):
         fail("workflow action contract projection has no unique actions")
+    catalog_count = projection["catalog_action_count"]
+    if type(catalog_count) is not int or catalog_count < len(actions):
+        fail("workflow action catalog count cannot bound projected actions")
     for action in actions:
         if set(action) != {"id", "variants", "cross_field"}:
             fail("workflow action contract projection contains an open record")
@@ -351,13 +354,9 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict
     if not workflows or len({workflow.get("ref") for workflow in workflows}) != len(workflows):
         fail("workflow outcome contract projection has no unique workflows")
     for workflow in workflows:
-        if set(workflow) != {"ref", "allowed_kinds", "allowed_outcome_tokens", "decision_record_required"}:
-            fail(f"workflow outcome contract projection contains an open record: {workflow.get('ref')}")
-        if not isinstance(workflow["allowed_kinds"], list) or not workflow["allowed_kinds"]:
-            fail(f"workflow outcome contract projection names no predicate kinds: {workflow.get('ref')}")
-        if not isinstance(workflow["allowed_outcome_tokens"], list):
-            fail(f"workflow outcome contract projection has no token list: {workflow.get('ref')}")
-    return actions, workflows, teaching, schema_refs, projection["contract_updates"]
+        if set(workflow) != {"ref", "allowed_kinds", "allowed_outcome_tokens"} or not workflow["allowed_kinds"] or not isinstance(workflow["allowed_outcome_tokens"], list):
+            fail("workflow outcome contract projection is invalid")
+    return actions, workflows, teaching, schema_refs, projection["contract_updates"], catalog_count
 
 
 def validate_workflow_cross_field(action: dict, payload: dict) -> None:
@@ -440,63 +439,6 @@ def single_variant(action: dict) -> dict:
     if len(action["variants"]) != 1:
         fail(f"action {action['id']} carries {len(action['variants'])} current variants; this projection requires exactly one")
     return action["variants"][0]
-
-
-def workflow_allowed_tokens_description(workflows: list[dict]) -> str:
-    """Compose the allowed-token annotation from the store's pinned outcome schemas.
-
-    The store owns the map (internal/store/workflow_registry.go); this renders
-    the projection into a description so the annotated schema cannot drift
-    from what the store enforces at admission.
-    """
-    with_tokens = sorted((workflow for workflow in workflows if workflow["allowed_outcome_tokens"]), key=lambda workflow: workflow["ref"])
-    for workflow in with_tokens:
-        if "outcome" not in workflow["allowed_kinds"]:
-            fail(f"workflow {workflow['ref']} pins outcome tokens without the outcome predicate kind")
-    without = sorted(workflow["ref"] for workflow in workflows if not workflow["allowed_outcome_tokens"])
-    for ref in without:
-        kinds = next(workflow["allowed_kinds"] for workflow in workflows if workflow["ref"] == ref)
-        if "outcome" in kinds:
-            fail(f"workflow {ref} allows the outcome predicate kind without pinned outcome tokens")
-    clauses = []
-    for workflow in with_tokens:
-        clauses.append(f"{workflow['ref']} admits " + ", ".join(workflow["allowed_outcome_tokens"]))
-    if without:
-        clauses.append(", ".join(without) + " admit no outcome tokens (only exists, absent and check predicate kinds)")
-    return (
-        "The store pins which outcome tokens the contract of the work item being approved "
-        "may carry, per its workflow type: " + "; ".join(clauses) + "."
-    )
-
-
-def narrow_live_outcome_union(defs: dict, workflows: list[dict]) -> None:
-    """Narrow the projected outcome union to what the live heads pin (S4).
-
-    The published authoring outcome carries only the outcome tokens some
-    live workflow head pins — the research trio today — and never a
-    decision_record: new contract authoring names explicit outcome
-    predicates only (CD-0218 D1). The frozen historical decoder keeps the
-    full retired vocabulary, so retained pins replay unchanged. A live head
-    demanding a decision_record or a token outside its pins fails
-    generation instead of publishing a shape admission would refuse.
-    """
-    outcome = defs.get("workflow_outcome_outcome")
-    if not isinstance(outcome, dict) or not isinstance(outcome.get("properties"), dict):
-        fail("the projected workflow_outcome_outcome schema is unavailable for live narrowing")
-    live_tokens = sorted({token for workflow in workflows for token in workflow["allowed_outcome_tokens"]})
-    if not live_tokens:
-        fail("no live workflow pins outcome tokens; the projected outcome union would be empty")
-    allowed = outcome["properties"].get("allowed")
-    if not isinstance(allowed, dict) or not isinstance(allowed.get("items"), dict):
-        fail("the projected workflow_outcome_outcome schema names no allowed token array")
-    allowed["items"]["enum"] = live_tokens
-    allowed["maxItems"] = len(live_tokens)
-    if any(workflow.get("decision_record_required") for workflow in workflows):
-        fail("a live workflow head requires a decision_record; new authoring projects no decision_record (CD-0218 D1)")
-    outcome["properties"].pop("decision_record", None)
-    # Projection is idempotent: the drop also clears a stale copy the
-    # previous document generation may still carry.
-    defs.pop("workflow_outcome_decision_record", None)
 
 
 # A workflow action field whose value an author writes against a shared
@@ -1152,6 +1094,54 @@ def project_schema_guidance(document: dict, names: list[str], *, bounds_only: bo
     return projected
 
 
+def project_workflow_plan_read_schemas(defs: dict, actions: list[dict]) -> None:
+    template = json.loads((ROOT / "contracts/workflow-step-templates.v1.json").read_text())
+    plan = copy.deepcopy(template["plan_schema"])
+    nested = plan.pop("$defs")
+    names = {name: "workflow_plan_" + name for name in nested}
+
+    def rewrite(node):
+        if isinstance(node, list):
+            return [rewrite(value) for value in node]
+        if isinstance(node, dict):
+            result = {key: rewrite(value) for key, value in node.items()}
+            if "enum" in result and "type" not in result and all(isinstance(value, str) for value in result["enum"]):
+                result["type"] = "string"
+            ref = result.get("$ref")
+            if isinstance(ref, str) and ref.startswith("#/$defs/"):
+                name = ref.removeprefix("#/$defs/")
+                if name not in names:
+                    fail(f"workflow plan schema references unknown definition {name}")
+                result["$ref"] = "#/$defs/" + names[name]
+            return result
+        return node
+
+    defs["workflow_step_plan"] = rewrite(plan)
+    defs["workflow_read"]["properties"]["prelude"]["properties"]["intake"]["properties"]["outcome"].setdefault("type", "string")
+    for name, schema in nested.items():
+        defs[names[name]] = rewrite(schema)
+    action_by_id = {action["id"]: action for action in actions}
+    for name, action_id in (("workflow_plan_read_document", "record_plan"),
+                            ("workflow_removal_read_document", "record_removal_scope")):
+        action = action_by_id.get(action_id)
+        if action is None:
+            fail(f"workflow plan read schema has no {action_id} action")
+        document = workflow_payload_object_schema(single_variant(action)["payload"], defs)
+        defs[name] = {
+            "type": "object", "additionalProperties": False,
+            "required": ["work_version", "document", "recorded_at", "actor", "event_ref"],
+            "properties": {
+                "work_version": {"type": "integer"}, "document": document,
+                "recorded_at": {"type": "string"}, "actor": {"type": "string"},
+                "event_ref": {"type": "string"},
+            },
+        }
+
+
+def project_continuity_action_bound(defs: dict, catalog_count: int) -> None:
+    defs["continuity_snapshot"]["properties"]["pinned"]["properties"]["step_actions"]["maxItems"] = catalog_count
+
+
 def project_workflow_action_schema(document: dict, actions: list[dict], workflows: list[dict], teaching: dict, contract_updates: list[dict]) -> tuple[dict, list[dict]]:
     projected = copy.deepcopy(document)
     remove_generated_guidance(projected)
@@ -1172,26 +1162,22 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     common_required = ["work_id", "expected_version", "action_id", "idempotency_key"]
 
     outcome_payload = install_workflow_outcome_schema(defs)
-    # The retained output shapes are preserved and their uses retargeted
-    # before the live outcome union narrows: stored predicates replay the
-    # full frozen vocabulary, and the narrowing must never leak
-    # into the copies.
     preserve_retained_outcome_outputs(defs)
-    # The live outcome union narrows before any branch copy is taken: the
-    # published tokens are exactly what the live heads pin, and the
-    # decision_record authoring surface retires (CD-0218 D1). The frozen
-    # historical decoder keeps the full retired vocabulary for replay.
-    narrow_live_outcome_union(defs, workflows)
     defs["workflow_action_outcome"] = copy.deepcopy(outcome_payload)
     defs["workflow_contract_version"] = {"$ref": "#/$defs/version"}
-    # The pinned-token annotation lands on the outcome def BEFORE any branch
-    # copies are taken: the per-kind item branches and the supersede pair
-    # branches deepcopy the outcome branches, and each copy must teach the
-    # per-workflow allowed tokens.
     allowed_property = defs.get("workflow_outcome_outcome", {}).get("properties", {}).get("allowed")
     if not isinstance(allowed_property, dict):
         fail("projected workflow_outcome_outcome schema names no allowed property for the token annotation")
-    allowed_property["description"] = workflow_allowed_tokens_description(workflows)
+    tokens = sorted({token for workflow in workflows for token in workflow["allowed_outcome_tokens"]})
+    if not tokens:
+        fail("workflow plans admit no outcome tokens")
+    allowed_property["items"]["enum"] = tokens
+    allowed_property["maxItems"] = len(tokens)
+    clauses = []
+    for workflow in sorted(workflows, key=lambda value: value["ref"]):
+        allowed = workflow["allowed_outcome_tokens"]
+        clauses.append(f"{workflow['ref']} admits " + (", ".join(allowed) if allowed else "no outcome tokens"))
+    allowed_property["description"] = "Outcome tokens by plan type: " + "; ".join(clauses) + "."
     # Each published predicate item is closed per kind: outcome_kind and
     # outcome_payload.kind are one value, the equality the store's
     # contract_approved fold enforces through DecodeWorkflowPredicate and
@@ -1240,10 +1226,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     defs["workflow_completion_payload"] = {"type": "object", "additionalProperties": False, "properties": {"evidence_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "current_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "staleness": {"type": "object", "additionalProperties": False, "required": ["drifted"], "properties": {"drifted": {"type": "boolean"}, "severity": {"type": "string", "enum": ["block", "warning"]}}}}}
     defs["proposal_affected_text"] = {"type": "string", "minLength": 1, "maxLength": 256}
     defs["proposal_text"] = {"type": "string", "minLength": 1, "maxLength": 512}
-    design_action = next((action for action in actions if action["id"] == "record_design"), None)
-    if design_action is None:
-        fail("the live projection names no record_design action; the design-content def has no live owner")
-    defs["workflow_design_content"] = workflow_payload_object_schema(single_variant(design_action)["payload"], defs)
 
     outer_properties = copy.deepcopy(common)
     outer_properties["fields"] = {}
@@ -1316,6 +1298,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
                        for payload in contract_updates]
     defs["workflow_contract_update"] = closed_field_union(update_branches, defs, "workflow_contract_update")
     defs["work_define_revise_input"]["properties"]["contract"] = {"$ref": "#/$defs/workflow_contract_update"}
+    project_workflow_plan_read_schemas(defs, actions)
     install_retained_output_twins(defs)
     contracts = {"approve_contract"}
     guidance_names = [f"work_transition_action_variant_{action}" for action in sorted(contracts)]
@@ -1487,7 +1470,7 @@ def validate(manifest: dict) -> str:
         if op["capability"] not in capabilities or op["consequence"] not in consequences: fail(f"operation classification is not declared: {op['id']}")
         if op["kind"] == "read" and not op.get("query_id"): fail(f"read operation lacks query id: {op['id']}")
         if op["kind"] == "mutation" and op.get("query_id") is not None: fail(f"mutation has query id: {op['id']}")
-        if op["id"] == "concord_work_transition.workflow_action" and op.get("availability") != "workflow_definition": fail("workflow_action must be accepted but unavailable")
+        if op["id"] == "concord_work_transition.workflow_action" and op.get("availability", "always") != "always": fail("workflow_action must be available at intake")
         if op["input_schema"] not in {f"#/schemas/{key}" for key in manifest.get("schemas", {})} or op["result_schema"] not in {f"#/schemas/{key}" for key in manifest.get("schemas", {})}:
             fail(f"operation schema reference missing: {op['id']}")
     # CD-0038 D2: workflow_action has the evidence-fixed TS1 ceiling.
@@ -1566,7 +1549,7 @@ def go_projection(manifest: dict, digest: str) -> str:
             for field, owners in sorted(field_owners[owner_key].items())
         )
         owner_rules.append("\t" + json.dumps(owner_key) + ": map[string][]string{" + fields + "},")
-    return f'''// Code generated by scripts/generate-agent-contracts.py; DO NOT EDIT.\npackage agentcontract\n\nimport ("encoding/json"; "fmt"; "sort"; "strings")\nconst ManifestDigest = "{digest}"\n\ntype OperationKind string\nconst ( OperationRead OperationKind = "read"; OperationMutation OperationKind = "mutation" )\ntype Capability string\ntype OperationConsequence string\ntype Availability string\nconst ( AvailabilityAlways Availability = "always"; AvailabilityWorkflowDefinition Availability = "workflow_definition" )\ntype ContractOperation struct {{ ID, Tool, Operation string; Kind OperationKind; QueryID string; Capability Capability; Consequence OperationConsequence; Availability Availability; SupportedBudgetSeconds int; InputSchema, ResultSchema string }}\nvar ContractOperations = []ContractOperation{{\n{ops},\n}}\nfunc ValidateContractOperation(tool, operation string) (ContractOperation, bool) {{\n    for _, candidate := range ContractOperations {{ if candidate.Tool == tool && candidate.Operation == operation {{ return candidate, true }} }}\n    return ContractOperation{{}}, false\n}}\nfunc WorkflowActionAvailable() bool {{ return false }}\ntype GeneratedPayloadRule struct {{ Required []string; Properties []string }}\nvar GeneratedPayloadRules = map[string]GeneratedPayloadRule{{\n{chr(10).join(rules)}\n}}\nvar GeneratedPayloadFieldOwners = map[string]map[string][]string{{\n{chr(10).join(owner_rules)}\n}}\n// ValidateGeneratedPayload admits an operation's payload against the closed\n// per-operation rule. The published host tool schema is one permissive shape\n// merged across a tool's operations, so a caller can send a field a sibling\n// operation owns; naming that owner here is the only place the caller can\n// learn it, because the published schema cannot discriminate and no validator\n// runs in front of the core.\n// One refusal names every missing required field in declared order, then\n// every undeclared field sorted by name, so a caller repairs the payload in\n// one retry; each segment keeps its per-field message.\nfunc ValidateGeneratedPayload(tool, operation, schemaName string, data []byte, result bool) error {{\n    rule, ok := GeneratedPayloadRules[schemaName]; if !ok {{ return fmt.Errorf("unknown payload schema %s", schemaName) }}\n    var object map[string]json.RawMessage; if err := json.Unmarshal(data, &object); err != nil {{ return fmt.Errorf("payload is not an object: %w", err) }}\n    allowed := map[string]bool{{}}; for _, name := range rule.Properties {{ allowed[name] = true }}\n    segments := []string{{}}\n    for _, name := range rule.Required {{ if _, ok := object[name]; !ok {{ segments = append(segments, fmt.Sprintf("missing payload field %s", name)) }} }}\n    unknown := []string{{}}\n    for name := range object {{ if !allowed[name] {{ unknown = append(unknown, name) }} }}\n    sort.Strings(unknown)\n    direction := "input"; if result {{ direction = "result" }}\n    for _, name := range unknown {{\n        owners := GeneratedPayloadFieldOwners[tool+"/"+direction][name]\n        if len(owners) != 0 {{ segments = append(segments, fmt.Sprintf("unknown payload field %s for operation %s; field is declared by operation(s) %s", name, operation, strings.Join(owners, ", "))) }} else {{ segments = append(segments, fmt.Sprintf("unknown payload field %s", name)) }}\n    }}\n    if len(segments) != 0 {{ return fmt.Errorf("%s", strings.Join(segments, "; ")) }}\n    return nil\n}}\n'''
+    return f'''// Code generated by scripts/generate-agent-contracts.py; DO NOT EDIT.\npackage agentcontract\n\nimport ("encoding/json"; "fmt"; "sort"; "strings")\nconst ManifestDigest = "{digest}"\n\ntype OperationKind string\nconst ( OperationRead OperationKind = "read"; OperationMutation OperationKind = "mutation" )\ntype Capability string\ntype OperationConsequence string\ntype Availability string\nconst AvailabilityAlways Availability = "always"\ntype ContractOperation struct {{ ID, Tool, Operation string; Kind OperationKind; QueryID string; Capability Capability; Consequence OperationConsequence; Availability Availability; SupportedBudgetSeconds int; InputSchema, ResultSchema string }}\nvar ContractOperations = []ContractOperation{{\n{ops},\n}}\nfunc ValidateContractOperation(tool, operation string) (ContractOperation, bool) {{\n    for _, candidate := range ContractOperations {{ if candidate.Tool == tool && candidate.Operation == operation {{ return candidate, true }} }}\n    return ContractOperation{{}}, false\n}}\ntype GeneratedPayloadRule struct {{ Required []string; Properties []string }}\nvar GeneratedPayloadRules = map[string]GeneratedPayloadRule{{\n{chr(10).join(rules)}\n}}\nvar GeneratedPayloadFieldOwners = map[string]map[string][]string{{\n{chr(10).join(owner_rules)}\n}}\n// ValidateGeneratedPayload admits an operation's payload against the closed\n// per-operation rule. The published host tool schema is one permissive shape\n// merged across a tool's operations, so a caller can send a field a sibling\n// operation owns; naming that owner here is the only place the caller can\n// learn it, because the published schema cannot discriminate and no validator\n// runs in front of the core.\n// One refusal names every missing required field in declared order, then\n// every undeclared field sorted by name, so a caller repairs the payload in\n// one retry; each segment keeps its per-field message.\nfunc ValidateGeneratedPayload(tool, operation, schemaName string, data []byte, result bool) error {{\n    rule, ok := GeneratedPayloadRules[schemaName]; if !ok {{ return fmt.Errorf("unknown payload schema %s", schemaName) }}\n    var object map[string]json.RawMessage; if err := json.Unmarshal(data, &object); err != nil {{ return fmt.Errorf("payload is not an object: %w", err) }}\n    allowed := map[string]bool{{}}; for _, name := range rule.Properties {{ allowed[name] = true }}\n    segments := []string{{}}\n    for _, name := range rule.Required {{ if _, ok := object[name]; !ok {{ segments = append(segments, fmt.Sprintf("missing payload field %s", name)) }} }}\n    unknown := []string{{}}\n    for name := range object {{ if !allowed[name] {{ unknown = append(unknown, name) }} }}\n    sort.Strings(unknown)\n    direction := "input"; if result {{ direction = "result" }}\n    for _, name := range unknown {{\n        owners := GeneratedPayloadFieldOwners[tool+"/"+direction][name]\n        if len(owners) != 0 {{ segments = append(segments, fmt.Sprintf("unknown payload field %s for operation %s; field is declared by operation(s) %s", name, operation, strings.Join(owners, ", "))) }} else {{ segments = append(segments, fmt.Sprintf("unknown payload field %s", name)) }}\n    }}\n    if len(segments) != 0 {{ return fmt.Errorf("%s", strings.Join(segments, "; ")) }}\n    return nil\n}}\n'''
 
 
 # The named host-tool validators: one named check per host-published tool.
@@ -1709,6 +1692,21 @@ def docs_projection(manifest: dict) -> str:
     rows.extend(f"| `{o['id']}` | `{o['kind']}` | `{o.get('query_id') or '—'}` | `{o['capability']}` | `{o['consequence']}` | `{o.get('availability', 'always')}` |" for o in manifest["operations"])
     return "\n".join(rows) + "\n"
 
+def go_workflow_templates_projection() -> str:
+    document = (ROOT / "contracts/workflow-step-templates.v1.json").read_text()
+    if "`" in document:
+        fail("workflow step templates contract contains a Go raw-string delimiter")
+    body = subprocess.run(["gofmt"], input=(
+        "// Code generated by scripts/generate-agent-contracts.py; DO NOT EDIT.\n"
+        "package store\n\n"
+        "// GeneratedWorkflowStepTemplatesDocument is contracts/workflow-step-templates.v1.json,\n"
+        "// the single authority for each workflow type's ordered required steps and the\n"
+        "// stored step plan's schema. The store parses it at initialization; regenerate\n"
+        "// this file after changing the contract.\n"
+        "const GeneratedWorkflowStepTemplatesDocument = `" + document + "`\n"
+    ), text=True, capture_output=True, check=True).stdout
+    return body
+
 def ts_validator_projection(manifest: dict) -> str:
     envelope_schema = json.dumps(json.loads((ROOT / "contracts/agent-tool-envelope.schema.json").read_text()), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return f'''// Code generated by scripts/generate-agent-contracts.py; DO NOT EDIT.
@@ -1804,8 +1802,8 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
   if (typeof ordinalRule !== "string" || !ordinalRule.includes("zero-based position")) gaps.push("ordinal description does not teach the zero-based position rule");
   const allowedBranch = kindBranches.find((branch) => branch?.properties?.outcome_kind?.const === "outcome");
   const tokens: unknown = allowedBranch?.properties?.outcome_payload?.properties?.allowed?.description;
-  if (typeof tokens !== "string" || !tokens.includes("workflow.research") || !tokens.includes("report_recorded") || !tokens.includes("no outcome tokens")) {{
-    gaps.push("allowed description does not name the per-workflow pinned outcome tokens");
+  if (typeof tokens !== "string" || !tokens.includes("research") || !tokens.includes("change") || !tokens.includes("fix") || !tokens.includes("removal") || !tokens.includes("report_recorded") || !tokens.includes("no outcome tokens")) {{
+    gaps.push("allowed description does not name the plan-type outcome tokens");
   }}
   // Every fields branch that carries outcome_predicates on every carrier
   // action must teach the rule,
@@ -1944,32 +1942,15 @@ def main() -> int:
     try:
         check = args.check
         manifest = json.loads(MANIFEST.read_text())
-        fixture_path = ROOT / "contracts/workflow-engine.fixtures.json"
-        fixture_text = fixture_path.read_text()
-        first_case = json.loads(fixture_text)["cases"][0]
-        if first_case["schema"] != "workflow-definition.schema.json" or first_case["valid"] is not True:
-            fail("the first workflow engine fixture must be a valid workflow definition")
-        instance_start = fixture_text.index("{", fixture_text.index('"instance":'))
-        instance, instance_length = json.JSONDecoder().raw_decode(fixture_text[instance_start:])
-        canonical_fixture = subprocess.run(
-            ["go", "run", "./scripts/workflow-action-contracts", "--canonical-definition"],
-            cwd=ROOT, input=json.dumps(instance), text=True, capture_output=True,
-            timeout=300, check=True,
-        )
-        instance_text = json.dumps(json.loads(canonical_fixture.stdout), ensure_ascii=False, indent=2).replace("\n", "\n      ")
-        expected_fixture = fixture_text[:instance_start] + instance_text + fixture_text[instance_start + instance_length:]
-        if expected_fixture != fixture_text:
-            if check:
-                fail("generated definition fixture drift: contracts/workflow-engine.fixtures.json")
-            fixture_path.write_text(expected_fixture)
         ir = json.loads(IR.read_text())
         payload = json.loads(PAYLOAD.read_text())
-        actions, workflows, teaching, schema_refs, contract_updates = load_workflow_action_contracts()
+        actions, workflows, teaching, schema_refs, contract_updates, catalog_count = load_workflow_action_contracts()
         bun = shutil.which("bun")
         if bun is None and (not check or os.environ.get("CONCORD_REQUIRE_BUN") == "1"):
             fail("Bun is not installed: the publication measurement requires Bun, so write mode and strict check refuse rather than skip it")
         validate_current_schema_refs(schema_refs, payload.get("$defs", {}))
         projected_payload, public_variants = project_workflow_action_schema(payload, actions, workflows, teaching, contract_updates)
+        project_continuity_action_bound(projected_payload["$defs"], catalog_count)
         prune_payload_definitions(projected_payload, manifest, public_variants, schema_refs["current"])
         input_names = [operation["input_schema"].rsplit("/", 1)[-1] for operation in manifest["operations"]
                        if operation["id"] != "concord_work_transition.workflow_action"]
@@ -2011,7 +1992,6 @@ def main() -> int:
             manifest["digest"] = digest
             MANIFEST.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
         formatted_go = subprocess.run(["gofmt"], input=go_projection(manifest, digest), text=True, capture_output=True, check=True).stdout
-        formatted_go = formatted_go.replace("func WorkflowActionAvailable() bool { return false }\n", "")
         expected = {
             ROOT / "internal/agentcontract/generated_contracts.go": formatted_go,
             ROOT / "adapter/opencode/generated-contracts.ts": ts_projection(manifest, digest, host_manifest, host_digest, public_variants),
@@ -2020,6 +2000,7 @@ def main() -> int:
             ROOT / ".concord/docs/generated-agent-tool-surface.md": docs_projection(manifest),
             ROOT / "adapter/opencode/generated-contract-tests.ts": ts_validator_projection(manifest),
             ROOT / "internal/payloadschema/generated_typed_error_kinds.go": subprocess.run(["gofmt"], input=go_typed_error_kind_projection(envelope), text=True, capture_output=True, check=True).stdout,
+            ROOT / "internal/store/generated_workflow_templates.go": go_workflow_templates_projection(),
         }
         publication_tests = ROOT / "adapter/opencode/generated-contract-tests.ts"
         if check:

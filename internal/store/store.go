@@ -107,10 +107,6 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := s.checkBinaryCompatibility(ctx); err != nil {
-		_ = s.db.Close()
-		return nil, err
-	}
 	if err := s.migrateOpen(ctx); err != nil {
 		_ = s.db.Close()
 		return nil, err
@@ -164,9 +160,8 @@ type UpgradeReport struct {
 	// Applied lists the migration versions this call applied, in order.
 	Applied []int `json:"applied"`
 	// SchemaVersion is the highest applied migration after the call.
-	SchemaVersion      int                 `json:"schema_version"`
-	CutoverDisposition *CutoverDisposition `json:"cutover_disposition,omitempty"`
-	ResearchExport     string              `json:"research_export,omitempty"`
+	SchemaVersion  int    `json:"schema_version"`
+	ResearchExport string `json:"research_export,omitempty"`
 }
 
 // Upgrade applies every pending migration, breaking steps included. It refuses
@@ -180,10 +175,6 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema, options ...Upg
 		return UpgradeReport{}, err
 	}
 	defer func() { _ = s.db.Close() }()
-	if err := s.checkBinaryCompatibility(ctx); err != nil {
-		return UpgradeReport{}, err
-	}
-
 	unstampedFresh := false
 	var before map[int]appliedMigration
 	if version.Value == version.Development {
@@ -229,17 +220,10 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema, options ...Upg
 			return UpgradeReport{}, err
 		}
 	}
-	var disposition *CutoverDisposition
-	if upgradeCancelsCutover(options) {
-		disposition, err = s.cancelCutoverPinnedWork(ctx)
-		if err != nil {
-			return UpgradeReport{}, err
-		}
-	}
 	if err := s.finishOpen(ctx); err != nil {
 		return UpgradeReport{}, err
 	}
-	report := UpgradeReport{Applied: []int{}, CutoverDisposition: disposition, ResearchExport: researchExport}
+	report := UpgradeReport{Applied: []int{}, ResearchExport: researchExport}
 	for _, m := range migrations {
 		if _, was := before[m.Version]; was {
 			continue
@@ -378,9 +362,6 @@ func openUnmigrated(ctx context.Context, path string) (*Store, error) {
 // closed cleanly, so ordinary use stays refused until offline recovery runs.
 func (s *Store) finishOpen(ctx context.Context) error {
 	if err := mechanismFailure(sqlitedb.RefuseStrandedWriteGuard(ctx, s.db)); err != nil {
-		return err
-	}
-	if err := s.checkBinaryCompatibility(ctx); err != nil {
 		return err
 	}
 	if err := os.Chmod(s.path, 0o600); err != nil { //nolint:gosec // the explicit authority file is forced to private file permissions after migration.

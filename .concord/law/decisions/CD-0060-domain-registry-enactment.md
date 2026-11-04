@@ -110,13 +110,6 @@ excludes paths, tags, and repository names from Domain identity. A
 record's own title is the same kind of evidence and is excluded on the same
 ground.
 
-CD-0019 and CD-0053 carry "predecessor" in their titles. Neither governs
-migration. CD-0019 is a preservation mandate whose D4 states it "does not
-authorize implementation". CD-0053 rules three features absorbed or
-preserved-with-shape. Both are Product-wide and home to the root. Reading the
-titles alone would have homed both to a migration Domain and left that Domain
-holding the only two records that do not belong in it.
-
 ## Consequences
 
 - The knowledge manifest and the registry shard carry eight Domain entries: the

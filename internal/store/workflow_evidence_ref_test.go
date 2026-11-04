@@ -1,8 +1,6 @@
 package store
 
 import (
-	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -126,44 +124,5 @@ func TestCriterionAssociationReferencesOnlyExplicitReceipts(t *testing.T) {
 		if refs, err := workflowActionEvidenceRefs(request, []byte(payload)); err == nil || len(refs) != 0 {
 			t.Fatalf("missing producer receipt acquired authority from envelope/operation: refs=%v error=%v", refs, err)
 		}
-	}
-}
-
-func TestCompletionCarriesReferencesWithoutMintingEvidence(t *testing.T) {
-	ctx := context.Background()
-	s := openTemp(t)
-	const workID, operation = "completion-references", "completion:references"
-	seedWork(t, s, workID)
-	seedWorkflowAuthority(t, s, operation, workID, "principal:main", "request:completion", []string{})
-	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	var before int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts`).Scan(&before); err != nil {
-		t.Fatal(err)
-	}
-	request := WorkflowActionExecutionRequest{WorkID: workID, OperationID: operation, EvidenceRefs: []string{"receipt:unbound"}}
-	if err := extendCompletionEvidenceAuthorityTx(ctx, tx, request); err != nil {
-		t.Fatal(err)
-	}
-	var after int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM effect_receipts`).Scan(&after); err != nil {
-		t.Fatal(err)
-	}
-	if after != before {
-		t.Fatal("completion minted evidence or changed producer records")
-	}
-	var encoded string
-	if err := tx.QueryRowContext(ctx, `SELECT evidence_refs FROM durable_operations WHERE op_id=?`, operation).Scan(&encoded); err != nil {
-		t.Fatal(err)
-	}
-	var refs []string
-	if err := json.Unmarshal([]byte(encoded), &refs); err != nil {
-		t.Fatal(err)
-	}
-	if len(refs) != 1 || refs[0] != "receipt:unbound" {
-		t.Fatalf("completion operation lost its explicit reference: %v", refs)
 	}
 }

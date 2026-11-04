@@ -6,13 +6,9 @@ import (
 )
 
 // A clean observed Git subject precedes the ordinary Review action.
-func pReturnReviewFixture(t *testing.T, id, family, disposition string) *candidateJourney {
+func pReturnReviewFixture(t *testing.T, id string, planType WorkflowStepPlanType, disposition string) *candidateJourney {
 	t.Helper()
-	effect := "execution"
-	if family == "workflow.break_fix" {
-		effect = "repair"
-	}
-	f := seedWorkflowReturnRouteFixture(t, id, family, effect)
+	f := seedWorkflowReturnRouteFixture(t, id, planType, "implement")
 	t.Cleanup(func() { _ = f.store.Close() })
 	j := pReturnClaim(t, f, id)
 	pReturnProduce(t, j, "initial")

@@ -19,15 +19,25 @@ func TestContractRevisionInvalidatesPriorPremiseConfirmation(t *testing.T) {
 		t.Fatalf("first confirmation count = %d, want 1: %v", confirmed, err)
 	}
 	contract := pContractSuccessor(t, s, workID, "Align the five sibling provider services.")
-	if err := reviseContractRecord(t, s, workID, f.owner, contract, readWorkVersion(t, s, workID), nil); err != nil {
+	frontier := currentStep(t, s, workID)
+	var planBefore string
+	if err := s.db.QueryRow(`SELECT step_plan FROM workflow_instances WHERE work_id=?`, workID).Scan(&planBefore); err != nil {
+		t.Fatal(err)
+	}
+	if err := reviseContractRecord(t, s, workID, f.owner, contract, readWorkVersion(t, s, workID)); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_premise_confirmations c WHERE c.work_id=? AND c.contract_version=(SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL)`, workID, workID).Scan(&confirmed); err != nil || confirmed != 0 {
 		t.Fatalf("revised contract borrowed the old confirmation: %d, %v", confirmed, err)
 	}
-	if step := currentStep(t, s, workID); step != "release" {
-		t.Fatalf("revision reset release to %s", step)
+	if step := currentStep(t, s, workID); step != frontier {
+		t.Fatalf("revision changed frontier from %s to %s", frontier, step)
 	}
+	var planAfter string
+	if err := s.db.QueryRow(`SELECT step_plan FROM workflow_instances WHERE work_id=?`, workID).Scan(&planAfter); err != nil || planAfter != planBefore {
+		t.Fatalf("revision changed plan or attempts: %v", err)
+	}
+	completeWorkflowPlanFixture(t, s, workID)
 	pin := issue1013Pin(t, s, workID)
 	if issue1013HasIntent(pin, "confirm_premise") || !issue1013HasIntent(pin, "complete") {
 		t.Fatal("terminal update advertised late confirmation or hid completion")

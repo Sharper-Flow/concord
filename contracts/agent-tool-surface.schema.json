@@ -145,8 +145,7 @@
           },
           "availability": {
             "enum": [
-              "always",
-              "workflow_definition"
+              "always"
             ],
             "type": "string"
           },

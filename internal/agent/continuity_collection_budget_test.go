@@ -20,6 +20,30 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
+func TestWorkflowActionFieldsNormalization(t *testing.T) {
+	for _, input := range []string{`{"finding_refs":["finding-a"]}`, `[{"name":"finding_refs","value":["finding-a"]}]`} {
+		payload, err := workflowActionFields(json.RawMessage(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got struct {
+			FindingRefs []string `json:"finding_refs"`
+		}
+		if err := json.Unmarshal(payload, &got); err != nil || len(got.FindingRefs) != 1 || got.FindingRefs[0] != "finding-a" {
+			t.Fatalf("normalized fields = %s, err = %v", payload, err)
+		}
+	}
+	for _, input := range []string{
+		`{"finding_refs":[],"finding_refs":[]}`,
+		`[{"name":"finding_refs","value":[]},{"name":"finding_refs","value":[]}]`,
+		`{"context_findings":[{"id":"a","id":"b"}]}`,
+	} {
+		if _, err := workflowActionFields(json.RawMessage(input)); err == nil {
+			t.Fatalf("ambiguous fields passed normalization: %s", input)
+		}
+	}
+}
+
 type collectionReadPointer struct {
 	Tool      string          `json:"tool"`
 	Operation string          `json:"operation"`
@@ -773,17 +797,18 @@ func TestContinuityProjectionContinuationContract(t *testing.T) {
 			t.Fatal("fixture produced no projection continuation to continue")
 		}
 		// Change the projection without moving its event watermark.
-		var step string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&step); err != nil {
+		var plan string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT step_plan FROM workflow_instances WHERE work_id='work-1'`).Scan(&plan); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'; DELETE FROM write_guard`); err != nil {
+		changedPlan := agentPlanFixtureJSON(t, store.WorkflowStepPlanFix, "plan")
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET step_plan=? WHERE work_id='work-1'; DELETE FROM write_guard`, changedPlan); err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() {
 			db := s.DatabaseForTesting()
 			_, _ = db.Exec(`INSERT INTO write_guard(active) VALUES(1)`)
-			_, _ = db.Exec(`UPDATE workflow_instances SET current_step=? WHERE work_id='work-1'`, step)
+			_, _ = db.Exec(`UPDATE workflow_instances SET step_plan=? WHERE work_id='work-1'`, plan)
 			_, _ = db.Exec(`DELETE FROM write_guard`)
 		})
 		continued := request()

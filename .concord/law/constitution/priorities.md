@@ -14,7 +14,7 @@
 
 > **Status:** Public constitutional planning authority.\
 > **Codename:** Concord (concordance: bringing scattered work into one view).\
-> **Created:** 2026-07-25, from predecessor-state analysis and product-design work.\
+> **Created:** 2026-07-25, from product-design work.\
 > **Authority:** The public [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord) repository is the authority for this document and its accepted companions. This file ranks first among Concord's law. It is the **sole canonical source** for the operating envelope, the constraints, the conflict rules (Appendix A), and the standing law that serves the operator's goals in [`../../docs/goals.md`](../../docs/goals.md). `goals.md` is guidance, not law. A decision record it cites stays the authority for what that record decides. Companion documents link here; they do not redefine them.
 
 ---
@@ -165,7 +165,7 @@ attributes, not by a fixed gate count.
 - Required-obligation blocking — unmet blocking obligations halt the work.
 - Human authority at consequence boundaries — the operator decides the six classes in [CD-0243 D2](../decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision), including law changes within those classes (U, R3, P12). Seriousness, Domain count, and crucial size do not independently require approval.
 - Durable proof — evidence is retained and inspectable after the work is finished.
-- Proportional rigor — each live family's definition sets its mandatory stages, Main may add depth, and no agent may waive a mandatory stage or an operator approval ([CD-0242 D4](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)).
+- Proportional rigor — each type's template sets its mandatory steps in the item's plan, Main may add depth, and no agent may waive a mandatory step or an operator approval ([CD-0242 D4](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)).
 
 **What scales proportional rigor.** One input to proportional rigor is the
 **declared lifecycle stage** of the thing being worked on (`maturity` and
@@ -218,15 +218,13 @@ they become blockers or contradictory Product truth.
 
 ### Composable workflows (goal C)
 
-A workflow is a plain Go definition (goal C in
-[`../../docs/goals.md`](../../docs/goals.md) §2; CD-0229 D1).
-Each live family's definition sets its mandatory stages ([CD-0242 D4](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)). Common runtime action and payload implementations remain shared; no parts catalog or composition compiler assembles definitions.
+A workflow picks a type and copies its mandatory steps from one template contract into its own plan ([CD-0242 D4](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d4-families-compose-shared-stages-and-rules-set-the-minimum)). Common runtime action and payload implementations remain shared.
 
 - Concord owns a full workflow coordination engine: progression, branching,
   retries, evidence, recovery, and forward-linked successor composition. Native
   systems retain external effects.
-- The registry validates definitions and derives their canonical digests.
-- Definition changes preserve in-flight work through the existing pin and recovery rules.
+- One plan-write check validates each plan change.
+- Template changes do not alter copied plans for in-flight work.
 - Each workflow declares its artifacts, completion evidence, and whether it
   changes Product truth.
 

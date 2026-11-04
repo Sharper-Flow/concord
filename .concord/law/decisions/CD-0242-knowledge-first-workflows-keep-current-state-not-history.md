@@ -193,8 +193,8 @@ has one implementation that every family reuses.
 
 ### D4. Families compose shared stages, and rules set the minimum
 
-The live families are implementation, break-fix, and research. For
-architecture-bearing implementation work the dependency order is: accepted
+The workflow types are change, fix, research, and removal. For
+architecture-bearing change work the dependency order is: accepted
 criteria, applicable design approval, validated architecture, delivery plan,
 execution loop, required preview approval, delivery.
 
@@ -202,8 +202,8 @@ D9's preview and early visual-design approvals are ordinary questions Main asks
 the operator and records in the existing work record. They are not
 machine-enforced stage exits.
 
-Each live family's definition sets its mandatory stages without a work-item
-size classification.
+The single template contract sets each type's mandatory steps, copied into each
+item's plan, without a work-item size classification.
 Main may add research, architecture, or planning depth. No agent may waive a
 mandatory stage or an operator approval. Current validated knowledge may
 satisfy a requirement without a new document. Break-fix keeps diagnosis and

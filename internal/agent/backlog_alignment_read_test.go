@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -14,15 +15,17 @@ import (
 
 func TestTraceHistoryReadsBacklogAlignment(t *testing.T) {
 	t.Parallel()
-	for _, workflow := range []string{"workflow.implementation", "workflow.break_fix"} {
-		for _, matches := range []int{0, 2, 64} {
+	// workflow-engine-contract §§2.1, 5.1, 11 and 12 retire record_alignment;
+	// diagnosis remains the authoring path for these retained alignment facts.
+	for _, workflow := range []store.WorkflowStepPlanType{store.WorkflowStepPlanFix} {
+		for _, matches := range []int{0, 1, 2, 64} {
 			t.Run(fmt.Sprintf("%s/%d", workflow, matches), func(t *testing.T) {
 				s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
-				registered, err := store.LiveWorkflowDefinitionForRef(workflow)
-				if err != nil {
-					t.Fatal(err)
+				step := "plan"
+				if workflow == store.WorkflowStepPlanFix {
+					step = "diagnose"
 				}
-				version := seedAgentWorkflowAt(t, s, grant, registered)
+				version := seedAgentWorkflowAt(t, s, grant, workflow, step)
 				scopeVersion, _, err := s.ScopeVersion(t.Context(), "project-1")
 				if err != nil {
 					t.Fatal(err)
@@ -46,11 +49,6 @@ func TestTraceHistoryReadsBacklogAlignment(t *testing.T) {
 					t.Fatal("never-checked work carries backlog_alignment")
 				}
 				action := "record_diagnosis"
-				if workflow == "workflow.implementation" {
-					invokeWorkflowIssue31Action(t, s, service, env, "record_proposal", version, "alignment-read-proposal")
-					version = workOneVersion(t, s)
-					action = "record_alignment"
-				}
 				outcome := "none_found"
 				related := []string{}
 				for i := matches - 1; i >= 0; i-- {
@@ -89,9 +87,10 @@ func TestTraceHistoryReadsBacklogAlignment(t *testing.T) {
 					t.Fatalf("%s: %+v", action, response.Error)
 				}
 				var alignment struct {
-					Searched   string   `json:"searched"`
-					Outcome    string   `json:"outcome"`
-					RelatedIDs []string `json:"related_ids"`
+					Searched          string   `json:"searched"`
+					Outcome           string   `json:"outcome"`
+					RelatedIDs        []string `json:"related_ids"`
+					AllMatchesRemoved *bool    `json:"all_matches_removed"`
 				}
 				commits := s.DurableCommits()
 				slices.Sort(related)
@@ -100,12 +99,65 @@ func TestTraceHistoryReadsBacklogAlignment(t *testing.T) {
 					if err := json.Unmarshal(page["backlog_alignment"], &alignment); err != nil {
 						t.Fatalf("recorded alignment absent or malformed: %s: %v", page["backlog_alignment"], err)
 					}
-					if alignment.Searched != searched || alignment.Outcome != outcome || alignment.RelatedIDs == nil || !slices.Equal(alignment.RelatedIDs, related) {
+					if alignment.Searched != searched || alignment.Outcome != outcome || alignment.RelatedIDs == nil || !slices.Equal(alignment.RelatedIDs, related) || alignment.AllMatchesRemoved == nil || *alignment.AllMatchesRemoved {
 						t.Fatalf("alignment facts differ: %+v", alignment)
 					}
 				}
 				if s.DurableCommits() != commits {
 					t.Fatal("reading alignment committed a write")
+				}
+				if matches == 1 {
+					effectKind := store.WorkflowBacklogAlignmentRecorded
+					if action == "record_diagnosis" {
+						effectKind = store.WorkflowDiagnosisRecorded
+					}
+					evidence := func() [5]string {
+						t.Helper()
+						var facts [5]string
+						if err := s.DatabaseForTesting().QueryRow(`SELECT event_id,payload_digest FROM effect_receipts WHERE subject_id='work-1' AND kind=?`, effectKind).Scan(&facts[0], &facts[1]); err != nil {
+							t.Fatal(err)
+						}
+						if err := s.DatabaseForTesting().QueryRow(`SELECT canonical_digest,op_id,result_event_ids FROM idempotency_records WHERE idempotency_key='alignment-read-record'`).Scan(&facts[2], &facts[3], &facts[4]); err != nil {
+							t.Fatal(err)
+						}
+						return facts
+					}
+					before := evidence()
+					if err := s.Transact(t.Context(), func(tx *store.Transaction) error {
+						_, err := store.RecordLinearIssueLinkTx(t.Context(), tx, store.LinearIssueLink{WorkID: related[0], RemoteIssueUUID: "remote-align-related", HumanKey: "CON-1", URL: "https://linear.app/example/issue/CON-1"})
+						return err
+					}); err != nil {
+						t.Fatal(err)
+					}
+					removalHandoff := store.WorkRemovalHandoff{Findings: []string{"finding"}, RemainingScope: []string{"scope"}, Blockers: []string{"blocker"}, Artifacts: []string{"artifact"}, RenewalConditions: []string{"renewal"}}
+					removalHandoffJSON, err := json.Marshal(removalHandoff)
+					if err != nil {
+						t.Fatal(err)
+					}
+					removalHandoffHash := sha256.Sum256(removalHandoffJSON)
+					removalScope, _, err := s.ScopeVersion(t.Context(), "project-1")
+					if err != nil {
+						t.Fatal(err)
+					}
+					removal, err := json.Marshal(map[string]any{"operation_id": "remove-related", "idempotency_key": "remove-related-key", "work_id": related[0], "expected_version": workVersion(t, s, related[0]), "reason": "shelved", "actor": "human-1", "product_id": "product-1",
+						"execution_relinquished": true, "writes_reconciled": true, "effects_reconciled": true, "dependencies_resolved": true, "artifacts_verified": true,
+						"handoff": removalHandoff,
+						"linear":  store.LinearHandoffConfirmation{ProductID: "product-1", RemoteIssueUUID: "remote-align-related", Destination: "linear", HandoffDigest: fmt.Sprintf("sha256:%x", removalHandoffHash)}})
+					if err != nil {
+						t.Fatal(err)
+					}
+					if removed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "remove", Input: removal}, mutationEnvelope(grant, removalScope)); removed.Outcome != agentcontract.OutcomeOK {
+						t.Fatalf("related removal refused: %+v", removed.Error)
+					}
+					if after := evidence(); after != before {
+						t.Fatalf("alignment evidence changed: before=%v after=%v", before, after)
+					}
+					if err := json.Unmarshal(read()["backlog_alignment"], &alignment); err != nil {
+						t.Fatal(err)
+					}
+					if alignment.Searched != searched || alignment.Outcome != "related_found" || alignment.RelatedIDs == nil || len(alignment.RelatedIDs) != 0 || alignment.AllMatchesRemoved == nil || !*alignment.AllMatchesRemoved {
+						t.Fatalf("removed alignment: %+v", alignment)
+					}
 				}
 			})
 		}

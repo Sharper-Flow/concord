@@ -15,7 +15,7 @@ import git_environment
 # This suite's checker resolves repository files through Git, so a
 # hook that launched it must not redirect those reads into another
 # repository. The scrub runs before the in-process checker loads.
-git_environment.scrub_inherited()
+git_environment.scrub_inherited(fixture=True)
 
 spec = importlib.util.spec_from_file_location(
     "check_agents_md", Path(__file__).with_name("check-agents-md.py")
@@ -191,7 +191,7 @@ def test_hook_inherited_git_dir_cannot_redirect_repository_reads() -> None:
         not_a_repository = Path(scratch) / "not-a-repository"
         not_a_repository.mkdir()
         before = sorted(str(path.relative_to(scratch)) for path in Path(scratch).rglob("*"))
-        env = git_environment.sanitized_environment()
+        env = git_environment.sanitized_environment(fixture=True)
         env["GIT_DIR"] = str(not_a_repository)
         env["CON896_TRANSITIVE_CHILD"] = "1"
         child = subprocess.run(

@@ -63,14 +63,6 @@
       "kind": "decision"
     },
     {
-      "record_id": "CD-0019",
-      "kind": "decision"
-    },
-    {
-      "record_id": "CD-0020",
-      "kind": "decision"
-    },
-    {
       "record_id": "CD-0021",
       "kind": "decision"
     },
@@ -88,14 +80,6 @@
     },
     {
       "record_id": "CD-0027",
-      "kind": "decision"
-    },
-    {
-      "record_id": "CD-0029",
-      "kind": "decision"
-    },
-    {
-      "record_id": "CD-0030",
       "kind": "decision"
     },
     {
@@ -155,10 +139,6 @@
       "kind": "decision"
     },
     {
-      "record_id": "CD-0053",
-      "kind": "decision"
-    },
-    {
       "record_id": "CD-0055",
       "kind": "decision"
     },
@@ -208,10 +188,6 @@
     },
     {
       "record_id": "CD-0075",
-      "kind": "decision"
-    },
-    {
-      "record_id": "CD-0076",
       "kind": "decision"
     },
     {
@@ -287,10 +263,6 @@
       "kind": "decision"
     },
     {
-      "record_id": "CD-0114",
-      "kind": "decision"
-    },
-    {
       "record_id": "CD-0122",
       "kind": "decision"
     },
@@ -357,10 +329,6 @@
     {
       "record_id": "CD-0163",
       "kind": "decision"
-    },
-    {
-      "record_id": "knowledge-formalization-procedure",
-      "kind": "constitution"
     },
     {
       "record_id": "priorities",

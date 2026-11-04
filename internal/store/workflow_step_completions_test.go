@@ -3,7 +3,6 @@ package store
 import (
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -11,36 +10,42 @@ import (
 func TestWorkflowStepCompletionFrontier(t *testing.T) {
 	s := openTemp(t)
 	const work = "step-completions"
-	actor, _ := continuityTestWorkflow(t, s, work)
-	actorRef, err := WorkflowActorRef(actor)
-	if err != nil {
-		t.Fatal(err)
+	actor, version := continuityTestWorkflow(t, s, work)
+	version = issue31WorkflowActionWithPayload(t, s, work, version, "record_plan", "frontier-plan", actor, json.RawMessage(testWorkflowPlanDocument))
+	if got := workflowPlanFixtureFrontier(t, s, work); got != "plan" {
+		t.Fatalf("record_plan advanced frontier to %s", got)
 	}
 	var previous int64
-	for _, epoch := range []int64{2, 3, 77} {
-		version := readWorkVersion(t, s, work)
-		fields := map[string]any{"work_id": work, "expected_version": version, "resulting_version": version + 1, "step_id": "proposal", "attempt_epoch": epoch, "actor_ref": actorRef, "action_id": "checkpoint_context"}
-		id := fmt.Sprintf("completion-%d", epoch)
-		if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{workflowEventWithActor(id, WorkflowActionCompleted, work, actorRef, fields)}}); err != nil {
+	var earlier []WorkflowPlanAttempt
+	for i := 1; i <= 3; i++ {
+		id := fmt.Sprintf("completion-%d", i)
+		version = issue31WorkflowActionWithPayload(t, s, work, version, "complete_step", id, actor, json.RawMessage(fmt.Sprintf(`{"step_id":"plan","note":"attempt %d"}`, i)))
+		plan, err := readWorkflowPlanTx(t.Context(), s.db, work)
+		if err != nil || plan == nil {
+			t.Fatalf("read plan: %v", err)
+		}
+		step, ok := stepByID(plan.Steps, "plan")
+		if !ok || len(step.Attempts) != i {
+			t.Fatalf("attempts=%+v, want %d", step.Attempts, i)
+		}
+		for j := range earlier {
+			if step.Attempts[j] != earlier[j] {
+				t.Fatalf("attempt %d changed: got %+v want %+v", j, step.Attempts[j], earlier[j])
+			}
+		}
+		var receipt int64
+		if err := s.db.QueryRow(`SELECT effect_seq FROM effect_receipts WHERE event_id=?`, id+":semantic").Scan(&receipt); err != nil {
 			t.Fatal(err)
 		}
-		var current, receipt int64
-		if err := s.db.QueryRow(`SELECT completion_seq FROM workflow_step_completions WHERE work_id=? AND step_id='proposal'`, work).Scan(&current); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.db.QueryRow(`SELECT effect_seq FROM effect_receipts WHERE event_id=?`, id).Scan(&receipt); err != nil {
-			t.Fatal(err)
-		}
+		current := step.Attempts[i-1].CompletionSeq
 		if current != receipt || current <= previous {
 			t.Fatalf("completion frontier=%d receipt=%d previous=%d", current, receipt, previous)
 		}
 		previous = current
-	}
-	queries := []string{`SELECT json_array(step_id,completion_seq) FROM workflow_step_completions ORDER BY work_id,step_id`}
-	want := workerFactsQueryRows(t, s, queries)
-	assertWorkflowCurrentFactsWithIndependentMigration142(t, s)
-	if got := workerFactsQueryRows(t, s, queries); !reflect.DeepEqual(got, want) {
-		t.Fatalf("backfill changed completion frontier: got %v, want %v", got, want)
+		earlier = append([]WorkflowPlanAttempt(nil), step.Attempts...)
+		if got := workflowPlanFixtureFrontier(t, s, work); got != "implement" {
+			t.Fatalf("frontier after attempt %d = %s, want implement", i, got)
+		}
 	}
 	assertEventLogAbsent(t, s)
 }
@@ -50,7 +55,7 @@ func TestWorkflowCompletionBackfillPreservesUnknownKeys(t *testing.T) {
 	const work = "completion-unknown-keys"
 	continuityTestWorkflow(t, base, work)
 	c := historicalFactCorpus{parents: func(t *testing.T, target *Store, guard string) {
-		copyFixtureDataToPrefix(t, base, target.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts"}, map[string]map[string]string{"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "result_disposition": "''", "latest_non_dispatch_start_seq": "0", "unhealthy_verdict_seq": "0"}, "workflow_contracts": {"definition_version": "26", "law_change": "NULL"}}, guard)
+		copyFixtureDataToPrefix(t, base, target.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts"}, map[string]map[string]string{"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "definition_ref": "'workflow.implementation'", "definition_digest": "'sha256:" + strings.Repeat("0", 64) + "'", "current_step": "'plan'", "result_disposition": "''", "latest_non_dispatch_start_seq": "0", "unhealthy_verdict_seq": "0"}, "workflow_contracts": {"definition_version": "26", "definition_ref": "'workflow.implementation'", "definition_digest": "'sha256:" + strings.Repeat("0", 64) + "'", "law_change": "NULL"}}, guard)
 	}}
 	for _, f := range []struct{ id, payload string }{
 		{"missing-epoch-completion", `{"step_id":"unknown","action_id":"checkpoint_context"}`},

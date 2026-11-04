@@ -14,11 +14,6 @@ __pycache__/
 .idea/
 .vscode/
 
-# Predecessor tooling artifacts. Advance may write project.json and .adv/ into a
-# working copy; Concord never reads them and must never commit them (CD-0010).
-/project.json
-/.adv/
-
 # Concord-Planner writes research notes and prototypes here; they are never
 # repository content.
 /.planning/

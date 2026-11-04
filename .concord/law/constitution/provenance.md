@@ -19,7 +19,7 @@
 ## Purpose
 
 This record fixes the provenance boundary of the public Concord snapshot:
-what the public repository contains, what private predecessor material it
+what the public repository contains, what private pre-public material it
 deliberately excludes, and how public identifiers relate to the private
 design history they came from. The sections below carry that law — the
 origin and boundary itself, the authority transition, and the date record.
@@ -34,7 +34,7 @@ synthetic scenarios required to explain the accepted design.
 
 The snapshot preserves the public-facing CD, R, PM, and TS identifiers and their
 decision dates. Those identifiers are document lineage, not a claim that excluded
-private predecessor artifacts are present here. Superseded private pre-public
+private pre-public artifacts are present here. Superseded private pre-public
 decisions remain private; CD-0002 is the first public retained authority decision.
 
 `.concord/law/decisions/` holds the active public decisions. A superseded public record may

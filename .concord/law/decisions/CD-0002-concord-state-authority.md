@@ -24,18 +24,17 @@
 > **Decided:** 2026-08-05 (operator decision D1).
 > **Confirmed by operator:** 2026-08-05.
 > **Resolves:** [`../../docs/core-architecture.md`](../../docs/core-architecture.md) §2; [`../../docs/design-constraints.md`](../../docs/design-constraints.md) research backlog #8; [`../../docs/clarifications.md`](../../docs/clarifications.md) C2.
-> **Sourced basis:** adv-researcher D1 findings + 2026-08-05 stack re-validation (sqlite.org WAL / whentouse / busy_timeout / intern-v-extern-blob / fasterthanfs; Litestream; Temporal #9686; PostgreSQL MVCC docs; etcd-io/bbolt; PGlite; DuckDB), plus a **measured** ADV workload profile (§2a).
+> **Sourced basis:** D1 research findings + 2026-08-05 stack re-validation (sqlite.org WAL / whentouse / busy_timeout / intern-v-extern-blob / fasterthanfs; Litestream; Temporal #9686; PostgreSQL MVCC docs; etcd-io/bbolt; PGlite; DuckDB), plus a **measured** coordination-workload profile (§2a).
 
 ## Decision
 
 **SQLite is Concord's sole durable authority.** The store keeps current rows and finite verified snapshots; each mutation writes current rows in one transaction ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). No second store holds
 authoritative state. No separate workflow engine.
 
-This decision is the structural prevention of the Advance failure cluster
-([`../../docs/advance-postmortem.md`](../../docs/advance-postmortem.md) §root cause and the
-2026-08-02→08-05 cluster): that disease was **split state authority** between
-Temporal and a disk projection, plus the reconciliation machinery around it.
-Concord removes the split by construction, not by policy.
+This decision is the structural prevention of the failure cluster it was written
+against (2026-08-02→08-05): that disease was **split state authority** between
+a coordination engine and a disk projection, plus the reconciliation machinery
+around it. Concord removes the split by construction, not by policy.
 
 ### Configuration (binding)
 
@@ -69,17 +68,17 @@ Concord removes the split by construction, not by policy.
 
 ## 1. The structural invariants (this is the decision's real content)
 
-These six invariants are binding. Each maps to a named Advance failure mode and
-removes it structurally — so the disease cannot recur by "forgetting" a policy.
+These six invariants are binding. Each removes a named failure mode
+structurally — so the disease cannot recur by "forgetting" a policy.
 
-| # | Invariant | Advance failure mode it removes |
+| # | Invariant | Failure mode it removes |
 |---|---|---|
-| **I1** | **Single authority.** SQLite is the only component whose state is authoritative. No projection, cache, or second store is ever treated as a transition-decision input. | Split state authority (Temporal ↔ disk projection) — `fixAdvStateAuthority`, the central anti-pattern. |
+| **I1** | **Single authority.** SQLite is the only component whose state is authoritative. No projection, cache, or second store is ever treated as a transition-decision input. | Split state authority between a coordination engine and a disk projection — the central anti-pattern. |
 | **I2** | **One owner per kind of state.** Each kind of state has one owner ([CD-0242 D1](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d1-each-kind-of-state-has-one-owner)), and the store keeps current rows and finite verified snapshots ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). | Destructive/in-place mutation of retained Product/work state with no replayable history. |
-| **I3** | **Recovery restores verified snapshots.** Recovery restores a verified snapshot and reconciles current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). | Projection drift — the disk projection became a co-authority that lagged Temporal truth (read-timeout cluster, stale reads). |
-| **I4** | **Terminal transitions are single-statement atomic.** A move to a terminal state is ONE transaction that writes every affected current row, with no two-phase "mark, then converge." ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))| Terminal-durability gap — `fixArchiveTerminalDurability`; archive proof required signal application + attributable commit evidence, not bare liveness. |
-| **I5** | **Recovery reconciles current state.** Recovery uses verified snapshots, tested restore, and reconciliation of current rows with Git, worktrees, artifacts, and external effects ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). | Destructive-only recovery (postmortem C6); cross-authority reconciliation surfaces. |
-| **I6** | **Errors and retries are recorded state.** Errors, retries, and recovery actions are current rows written in one transaction, not log rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). | Doom-loop accumulator — `clampDoomLoopAccumulator`; the retry recorder wrote unreadable records and bricked changes. |
+| **I3** | **Recovery restores verified snapshots.** Recovery restores a verified snapshot and reconciles current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). | Projection drift — the disk projection became a co-authority that lagged the authoritative truth (read-timeout cluster, stale reads). |
+| **I4** | **Terminal transitions are single-statement atomic.** A move to a terminal state is ONE transaction that writes every affected current row, with no two-phase "mark, then converge." ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))| Terminal-durability gap — archive proof required signal application + attributable commit evidence, not bare liveness. |
+| **I5** | **Recovery reconciles current state.** Recovery uses verified snapshots, tested restore, and reconciliation of current rows with Git, worktrees, artifacts, and external effects ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). | Destructive-only recovery; cross-authority reconciliation surfaces. |
+| **I6** | **Errors and retries are recorded state.** Errors, retries, and recovery actions are current rows written in one transaction, not log rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). | Doom-loop accumulator — the retry recorder wrote unreadable records and bricked changes. |
 
 An implementation that violates any invariant is not Concord, regardless of
 whether it uses SQLite.
@@ -91,10 +90,9 @@ whether it uses SQLite.
 The D1 research surveyed five options ranked by simplicity-for-reliability.
 SQLite single-authority won; the reasoning, condensed:
 
-- **The disease was the split, not Temporal.** The public predecessor postmortem
-  supports the narrower conclusion that the cost was the *projection* we
-  built next to it and the reconciliation machinery that drifts. SQLite has no
-  second store to drift from.
+- **The disease was the split, not the engine.** The cost of a split topology is
+  the *projection* built next to the authoritative store and the reconciliation
+  machinery that drifts. SQLite has no second store to drift from.
 - **Replay value collapses under LLM non-determinism.** Temporal's headline
   deterministic-replay guarantee is meaningful only for steps that can be
   re-executed identically. Concord's workflow steps are LLM calls (non-deterministic
@@ -122,8 +120,8 @@ Rejected alternatives (full tradeoffs in D1 research):
 
 ## 2a. Measured workload (the evidence this decision rests on)
 
-The original analysis assumed a load. It was re-validated against **measured ADV
-behaviour** (ADV is the predecessor running this exact workload), 2026-08-05:
+The original analysis assumed a load. It was re-validated against a **measured
+coordination-workload profile**, 2026-08-05:
 
 | Dimension | Measured |
 |---|---|
@@ -186,14 +184,14 @@ Selected research reasoning may use normal decision, specification and lesson fo
 5. **Greppable.** An agent must be able to answer "have we solved this before?" by
    searching the durable tier.
 
-**Anti-pattern being corrected.** A predecessor-style archive that duplicates
+**Anti-pattern being corrected.** An archive that duplicates
 workflow state, embeds process exhaust, and leaves a template separate from its
 real content is both a split source and a dump. Concord does neither: SQLite owns
 live state, while approved git notes contain distilled durable knowledge.
 
 ### Why this does not recreate the split-authority disease
 
-Adding a second store is precisely how Advance got sick, so the safety property is
+Adding a second store is the root failure this design removes, so the safety property is
 explicit and binding. **The git tier is not a second authority.** It is:
 
 - **(a) Independently published knowledge** — reviewed through its owning law or lesson route, not a workflow compaction operation.
@@ -239,12 +237,11 @@ is trivial.
 ### What this gives Concord
 - **Simplicity.** One file, one writer, one language boundary fewer (see CD-0003).
   The entire durability story is SQLite + six invariants.
-- **Reliability by construction.** The Advance disease class is structurally
+- **Reliability by construction.** The split-authority disease class is structurally
   impossible while the invariants hold — there is no second authority to drift
   from and no two-phase terminal transition to gap.
 - **Operability.** Back up, inspect, and debug by copying/opening one file. No
-  Temporal server to keep alive (the "target project worker not live" failure mode
-  does not exist).
+  coordination-engine server to keep alive.
 - **Crash safety for free.** `synchronous=FULL` is a tested, decades-old guarantee.
 
 ### What this costs
@@ -281,8 +278,8 @@ is trivial.
 ## 5. Core language and internal boundary (agent adapter resolved by CD-0005)
 
 The six invariants are language-independent, but the core needs a language.
-**Operator direction (2026-08-05): Go core + short-lived CLI**, with Temporal
-removed and SQLite as the core's durable store. Accepted TS6/CD-0005 now selects one
+**Operator direction (2026-08-05): Go core + short-lived CLI**, with no workflow
+engine and SQLite as the core's durable store. Accepted TS6/CD-0005 now selects one
 global `concord.ts` custom-tool adapter; the internal CLI still does not define tools.
 
 - **Go core** holds the SQLite authority, the transition logic, the recovery path,

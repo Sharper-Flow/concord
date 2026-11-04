@@ -14,7 +14,7 @@
     },
     {
       "criterion": 2,
-      "exemption": "Cross-tier deduplication and authority composition are query properties. Integrated historical-tier coverage remains unmeasured."
+      "exemption": "Current-state population composition and unreachable refusal are query properties. Q2/Q3 read retained current-state rows only; no historical-tier union or coverage composition exists to measure."
     }
   ]
 }
@@ -66,13 +66,12 @@ and superseded work; PM1's `terminal_at` maps to it. A superseded historical
 item's recorded successor remains readable. Historical edges carry no mutable
 blocker, readiness, evidence or per-Project status.
 
-Q2/Q3 union live terminal work and historical work and deduplicate by work ID
-before counting, ordering or pagination. Counts use the same population.
-Historical filters use frozen Product, Project, Domain and tag associations;
-current work retains PM5 membership semantics. Complete authority requires both
-the store watermark and applicable historical Git coverage. Incomplete reachable
-coverage is degraded with bounded omissions; unreachable Git authority is
-unreachable, never authoritative empty.
+Q2/Q3 answer over the retained current-state population with PM5 membership
+semantics; neither query unions historical projections, and neither computes a
+cross-tier watermark or coverage check. Authority levels on the answer envelope
+follow [TS7](agent-result-envelope.md): an OK answer is authoritative over the
+store read, and a store that cannot answer refuses as `unreachable` rather than
+serving stale or guessed rows.
 
 Q7 reads available current-state records, not an exact event history or process
 receipt. Q8 resolves historical supersession from verified recorded metadata.
@@ -99,9 +98,11 @@ promise.
   When upgrade or a historical read runs
   Then its locator, note content hash, lesson tags and frozen scope remain intact.
 
-- Given historical and live work in one population
-  When Q2/Q3 counts it
-  Then the result deduplicates by work ID and composes authority across both tiers.
+- Given terminal work retained in the current-state population
+  When Q2/Q3 counts or lists it
+  Then counts and items come from the retained current-state read alone, with no
+  historical union or coverage composition, and an unreachable store refuses as
+  `unreachable` rather than returning stale rows.
 
 ## Verification
 

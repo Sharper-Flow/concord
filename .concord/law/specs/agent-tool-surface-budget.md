@@ -42,7 +42,7 @@
 TS1's eight evidenced job families need a governed tool surface that avoids
 both CRUD explosion and mega-dispatch. The binding inputs are the accepted
 TS1 canonical jobs and their 23-scenario corpus, PM1's bounded-query
-requirements, the Advance postmortem's large-catalog lessons, and the
+requirements, the large-catalog lessons recorded when this budget was set, and the
 external tool-design evidence TS1 records. This record fixes the budget and
 the granularity rule that TS3 and TS4 chose inside, and the evaluation law
 any candidate surface must pass.
@@ -183,9 +183,9 @@ approval, transaction, or recovery boundary.
   calls, retries, schema tokens, output bytes, latency, interventions, and outcome.
 - PM1 rejects repeated list→show→search choreography and requires bounded,
   typed queries rather than free-form SQL or dispatch.
-- Advance's large tool catalog and repeated target-path/repair surfaces are
-  predecessor evidence against mechanical command-to-tool mapping, not a candidate
-  Concord surface ([`../../docs/advance-postmortem.md`](../../docs/advance-postmortem.md)).
+- A large tool catalog and repeated target-path/repair surfaces are
+  evidence against mechanical command-to-tool mapping, not a candidate
+  Concord surface.
 - Anthropic recommends consolidating related operations and keeping tool sets
   focused to reduce selection ambiguity:
   <https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools>.

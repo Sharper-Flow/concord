@@ -36,7 +36,7 @@
 > projection model, and PM4 lifecycle/relation semantics.
 > **Operator choices:** cross-Product work is allowed when explicit; primary Project
 > is optional for both Products and work items.
-> **Research basis:** public predecessor lessons plus official/public models from
+> **Research basis:** official/public models from
 > Linear, GitLab, GitHub Projects, Changesets, Jira, and Bugzilla. No benchmark or
 > proof of concept (PoC) is part of this decision.
 > **Does not decide:** PM6 canonical note placement,
@@ -158,7 +158,7 @@ asks a shared Project to choose one ambient Product without an explicit override
 ## 4. Stable identity and locators
 
 Product and Project identity use stable Concord-assigned IDs. Repository path,
-remote URL, ADV project ID, deployment target, and similar values are typed locator
+remote URL, external project ID, deployment target, and similar values are typed locator
 attributes of a Project; they are not membership keys.
 
 - Moving or renaming a repository updates locators without changing Project ID.

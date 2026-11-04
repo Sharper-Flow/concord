@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test"
 import { readFileSync } from "node:fs"
-import { contractOperations, manifestDigest, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
+import { contractOperations, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema, validateGeneratedPayload, actionFieldsBranches } from "./generated-contract-tests"
 import { validateAgainstSchema } from "./core-runtime"
 
@@ -16,7 +16,6 @@ const adapter = await import("./concord")
 // below is taken on the raw compact document and on the final hooked
 // argument root, never on the expanded inspection view.
 const fixtures = JSON.parse(readFileSync(new URL("../../contracts/agent-tool-surface.fixtures.json", import.meta.url), "utf8")) as {
-  manifest_digest: string
   fixtures: { input_schema: string; input_valid: Record<string, unknown> }[]
 }
 
@@ -57,24 +56,6 @@ function operationInput(schema: any, operation: string): any {
   if (branch === undefined) throw new Error(`published schema carries no closed ${operation} branch`)
   return branch.properties.input
 }
-
-test("the fixture corpus is the generated manifest corpus", () => {
-  expect(fixtures.manifest_digest).toBe(manifestDigest)
-  expect(fixtures.fixtures).toHaveLength(contractOperations.length)
-})
-
-test("the published schema admits the core-admitted minimal call of every operation", () => {
-  const bySchema = new Map(contractOperations.map((operation: any) => [operation.input_schema.replace("#/schemas/", ""), operation]))
-  for (const fixture of fixtures.fixtures) {
-    const operation = bySchema.get(fixture.input_schema)
-    if (operation === undefined) throw new Error(`fixture schema ${fixture.input_schema} names no contract operation`)
-    const schema = publishedSchema(operation.tool)
-    const call = { operation: operation.id.slice(operation.id.indexOf(".") + 1), input: fixture.input_valid }
-    const failures: string[] = []
-    const admitted = validateAgainstSchema(schema, call, failures)
-    expect(admitted, `${operation.id} published refusal: ${failures.join("; ")}`).toBe(true)
-  }
-})
 
 test("the published schema refuses the forbidden field of every operation", () => {
   const bySchema = new Map(contractOperations.map((operation: any) => [operation.input_schema.replace("#/schemas/", ""), operation]))

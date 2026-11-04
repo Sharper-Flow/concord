@@ -26,8 +26,6 @@ Linux amd64 is the only release platform.
   Use the general Build fallback only when Concord cannot act because its own
   generated profile or role prompt is defective, or its plugin does not load;
   make no Concord workflow writes for that repair and name CD-0122 D2 in the PR body.
-- Advance is public predecessor evidence only. Do not create or dual-write
-  Advance state. Never commit a local `project.json`.
 
 ## Prohibitions
 
@@ -51,7 +49,7 @@ Linux amd64 is the only release platform.
 - Do not place any of the following in the repository, even temporarily:
   personal filesystem paths, machine names, private network details, local
   service addresses, private environment paths, copied private logs, or private
-  predecessor history. Use synthetic scenarios and reachable public sources.
+  prior-development history. Use synthetic scenarios and reachable public sources.
 
 ## The store connection invariant
 

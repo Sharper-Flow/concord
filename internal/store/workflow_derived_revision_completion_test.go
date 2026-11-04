@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 )
@@ -28,33 +27,21 @@ func TestCompletionDoesNotRecheckMandatedLaw(t *testing.T) {
 	if err := runDerivedLawApproval(t, s, workID, version, owner, approval); err != nil {
 		t.Fatalf("the derived revision was not admitted at approval: %v", err)
 	}
-	for _, step := range []struct {
-		action  string
-		payload string
-	}{
-		{"bind_evidence", `{"evidence_kind":"artifact","immutable_subject_ref":"spec:legislated"}`},
-		{"bind_evidence", `{"evidence_kind":"artifact","immutable_subject_ref":"spec:one"}`},
-		{"record_finding", `{}`},
-		{"record_report", `{"evidence_kind":"artifact","immutable_subject_ref":"evidence:research-report"}`},
-		{"record_conclusion", `{}`},
-	} {
-		if err := runVerdictActionAs(t, s, workID, step.action, json.RawMessage(step.payload), 0, owner); err != nil {
-			t.Fatalf("%s: %v", step.action, err)
+	moveWorkflowPlanFixtureFrontier(t, s, workID, "conclude")
+	for _, ref := range []string{"spec:legislated", "spec:one"} {
+		if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": ref}), 0, owner); err != nil {
+			t.Fatalf("bind mandated law %s: %v", ref, err)
 		}
 	}
 	f := workContextFixture{store: s, workID: workID, owner: owner}
 	proof := qAssociateCurrentProofAt(t, f, "conclude", "", false)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", mustJSONValue(map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{proof.receipt}}}}), 0, owner); err != nil {
-		t.Fatalf("receipt association: %v", err)
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", criterionAssociationPayload(proof.receipt, "predicate:primary"), 0, owner); err != nil {
+		t.Fatalf("associate proof: %v", err)
 	}
-	ownerRef, _ := WorkflowActorRef(owner)
-	premiseVersion := readWorkVersion(t, s, workID)
-	premise := workflowEventWithActor("derived-lands-premise", WorkflowPremiseConfirmed, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": premiseVersion, "resulting_version": premiseVersion + 1, "contract_version": 1, "confirming_actor_ref": ownerRef, "confirmation_authority": "coordinator"})
-	premise.PayloadVersion = 2
-	premiseCompleted := workflowActionCompletedFixture("derived-lands-premise-done", workID, ownerRef, premiseVersion+1, "conclude", "confirm_premise")
-	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{premise, premiseCompleted}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): premiseVersion}}); err != nil {
-		t.Fatalf("premise confirmation: %v", err)
+	if err := runVerdictActionAs(t, s, workID, "confirm_premise", json.RawMessage(`{}`), 0, owner); err != nil {
+		t.Fatalf("confirm premise: %v", err)
 	}
+	completeWorkflowPlanFixture(t, s, workID)
 	// Completion reads no law: an unreadable mandated law cannot refuse it.
 	commitFixtureLawFile(t, home, "spec:one", "---\nnot json\n---\n\nbroken\n")
 	if err := runVerdictActionAs(t, s, workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), 0, owner); err != nil {

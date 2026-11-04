@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -84,8 +85,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		t.Fatal(err)
 	}
 	backupDestination := filepath.Join(t.TempDir(), "neighbor-backup.db")
-	proposalPayload := []byte(`{"problem":"A bounded problem.","affected":["The store."],"stakes":"The committed proposal survives.","user_outcomes":["A durable proposal."]}`)
-	preflightRequest := WorkflowActionPreflightRequest{WorkID: "neighbor-work", ExpectedVersion: version, ActionID: "record_proposal", Payload: proposalPayload, Actor: actor}
+	preflightRequest := WorkflowActionPreflightRequest{WorkID: "neighbor-work", ExpectedVersion: version, ActionID: "complete_step", Payload: []byte(`{"step_id":"plan","note":"plan recorded"}`), Actor: actor}
 	if _, err := s.db.Exec("PRAGMA busy_timeout=50"); err != nil {
 		t.Fatal(err)
 	}
@@ -228,25 +228,8 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			return nil
 		}},
 		{name: "WorkflowActionDefinitionFor", run: func() error {
-			_, _, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), "neighbor-work", "record_proposal")
+			_, err := WorkflowActionDefinitionFor(ctx, s, preflightRequest)
 			return err
-		}},
-		{name: "VerifyWorkflowInstanceDefinition", run: func() error {
-			_, err := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), "neighbor-work")
-			return err
-		}},
-		{name: "WorkflowActionAvailableWithRegistry", run: func() error {
-			available, err := WorkflowActionAvailableWithRegistry(ctx, s, BuiltinWorkflowRegistry(), "neighbor-work")
-			if err != nil {
-				return err
-			}
-			if !available {
-				return fmt.Errorf("action unavailable")
-			}
-			return nil
-		}},
-		{name: "WorkflowActionPreflightWithRegistry", run: func() error {
-			return WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), preflightRequest)
 		}},
 		{name: "readSnapshot activeWorkflowContractVersions", run: func() error {
 			var versions []int64
@@ -387,7 +370,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		}},
 
 		// Snapshot and launcher reads.
-		{name: "readAppliedFromDB", run: func() error { _, _, err := readAppliedFromDB(ctx, s.db, s.Path(), nil); return err }},
+		{name: "readAppliedFromDB", run: func() error { _, _, err := readAppliedFromDB(ctx, s.db, s.Path()); return err }},
 		{name: "Backup", scratch: true, run: func() error {
 			// The destination persists across modes; each run needs a clean
 			// scratch path, which the entry point refuses to overwrite.
@@ -428,26 +411,27 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			})
 		}
 	}
-	// A duplicate active contract must not block reading a declared action.
-	// Keep that ambiguity out of the other read rows.
+	// A duplicate active contract refuses a declared binding at preflight:
+	// binding requires exactly one active contract. The refusal stays typed
+	// and fast under neighbor load, and the pin read keeps its own recovery
+	// route for the ambiguity.
 	for _, mode := range []neighbor.Mode{neighbor.Reader, neighbor.Writer} {
-		t.Run(string(mode)+"/WorkflowActionDefinitionForRecordVerdictWithAmbiguousContract", func(t *testing.T) {
-			f := newAcceptanceRecoveryFixture(ctx, t)
-			duplicateActiveWorkflowContract(ctx, t, f.store, f.workID)
+		t.Run(string(mode)+"/WorkflowActionDefinitionForBindEvidenceWithAmbiguousContract", func(t *testing.T) {
+			workID := "neighbor-ambiguous"
+			f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", []string{}, nil)
+			duplicateActiveWorkflowContract(ctx, t, f.store, workID)
+			version := readWorkVersion(t, f.store, workID)
 			if _, err := f.store.db.Exec("PRAGMA busy_timeout=50"); err != nil {
 				t.Fatal(err)
 			}
 			neighbor.Start(t, f.store.Path(), mode)
 			started := time.Now()
-			_, action, err := WorkflowActionDefinitionFor(ctx, f.store, BuiltinWorkflowRegistry(), f.workID, "record_verdict")
-			if err != nil {
-				t.Fatalf("record_verdict discovery under %s neighbor: %v", mode, err)
-			}
-			if action.ID != "record_verdict" {
-				t.Fatalf("declared action=%+v, want record_verdict", action)
+			_, err := WorkflowActionDefinitionFor(ctx, f.store, WorkflowActionPreflightRequest{WorkID: workID, ExpectedVersion: version, ActionID: "bind_evidence", Payload: []byte(`{"evidence_kind":"artifact","immutable_subject_ref":"artifact:neighbor"}`), Actor: f.owner})
+			if err == nil || !hasFailureKind(err, KindInvariantViolation) || !strings.Contains(err.Error(), "multiple active contracts") {
+				t.Fatalf("bind_evidence preflight under %s neighbor: %v", mode, err)
 			}
 			if mode == neighbor.Writer && time.Since(started) >= neighbor.WriterHold {
-				t.Fatal("record_verdict discovery waited for writer release")
+				t.Fatal("bind_evidence preflight waited for writer release")
 			}
 		})
 	}

@@ -13,7 +13,7 @@ func terminalStepsMigrationFixture(t *testing.T) (*sql.DB, string) {
 	db, path := retirementUpgradeFixture(t)
 	advanceHistoricalPrefix(t, db, 176)
 	digest := "sha256:" + strings.Repeat("a", 64)
-	definitionDigest := mustBuiltinDefinition(t, "workflow.implementation").Digest
+	definitionDigest := "sha256:" + strings.Repeat("a", 64)
 	actor := "actor:" + strings.Repeat("a", 64)
 	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
 	retirementUpgradeExec(t, db, `UPDATE work_items SET lifecycle='completed' WHERE id='work-upgrade-from'`)
@@ -45,9 +45,11 @@ func TestTerminalStepsRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	useStampedBuild(t)
 	db, path := terminalStepsMigrationFixture(t)
 	before := retirementUpgradeSnapshot(t, db)
-	retainedContracts := retainedWorkflowContractRows(t, db)
-	const instanceColumns = `SELECT work_id,definition_ref,definition_digest,current_step,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY work_id`
+	retainedContracts := cutoverRetainedContractRows(t, db)
+	const instanceColumns = `SELECT work_id,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY work_id`
 	instances := retirementUpgradeRows(t, db, instanceColumns)
+	const completedOwnerColumns = `SELECT work_id,execution_actor_ref,execution_model FROM workflow_instances WHERE work_id='work-upgrade-from'`
+	completedOwner := retirementUpgradeRows(t, db, completedOwnerColumns)
 	const deliveryColumns = `SELECT work_id,assertion_seq,assertion_id,actor,occurred_at,payload_version,payload FROM workflow_delivery_state ORDER BY work_id`
 	deliveries := retirementUpgradeRows(t, db, deliveryColumns)
 	bindings := retirementUpgradeRows(t, db, `SELECT * FROM workflow_evidence_bindings WHERE binding_id='binding:ordinary'`)
@@ -78,16 +80,14 @@ func TestTerminalStepsRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 			t.Errorf("retirement changed surviving %s", table)
 		}
 	}
-	if got := retainedWorkflowContractRows(t, db); !reflect.DeepEqual(got, retainedContracts) {
+	if got := cutoverRetainedContractRows(t, db); !reflect.DeepEqual(got, retainedContracts) {
 		t.Error("current contract facts changed")
 	}
 	if after := retirementUpgradeRows(t, db, deliveryColumns); !reflect.DeepEqual(deliveries, after) {
 		t.Errorf("retirement changed effective delivery: before=%v after=%v", deliveries, after)
 	}
-	for _, table := range []string{"workflow_step_epochs", "workflow_step_completions"} {
-		if after := retirementUpgradeRows(t, db, "SELECT work_id FROM "+table); !reflect.DeepEqual(after, [][]any{{"work-upgrade-to"}}) {
-			t.Errorf("%s retained=%v, want only the live work", table, after)
-		}
+	if after := retirementUpgradeRows(t, db, `SELECT work_id FROM workflow_step_epochs`); len(after) != 0 {
+		t.Errorf("workflow step epochs retained=%v, want no predecessor step state", after)
 	}
 	for _, table := range []string{"durable_operations", "idempotency_records"} {
 		if after := retirementUpgradeRows(t, db, "SELECT op_id FROM "+table); !reflect.DeepEqual(after, [][]any{{"successful-operation"}}) {
@@ -97,13 +97,16 @@ func TestTerminalStepsRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	if after := retirementUpgradeRows(t, db, instanceColumns); !reflect.DeepEqual(after, instances) {
 		t.Errorf("instance rebuild changed surviving fields: before=%v after=%v", instances, after)
 	}
+	if after := retirementUpgradeRows(t, db, completedOwnerColumns); !reflect.DeepEqual(after, completedOwner) {
+		t.Errorf("completed work owner changed: before=%v after=%v", completedOwner, after)
+	}
 	if after := retirementUpgradeRows(t, db, `SELECT * FROM workflow_evidence_bindings`); !reflect.DeepEqual(after, bindings) {
 		t.Errorf("evidence binding retirement changed ordinary bindings: before=%v after=%v", bindings, after)
 	}
 	if guards := retirementUpgradeRows(t, db, `SELECT * FROM write_guard`); len(guards) != 0 {
 		t.Errorf("upgrade left write guards=%v", guards)
 	}
-	if states := retirementUpgradeRows(t, db, `SELECT work_id,instance_state FROM workflow_instances ORDER BY work_id`); !reflect.DeepEqual(states, [][]any{{"work-upgrade-from", "completed"}, {"work-upgrade-to", "running"}}) {
+	if states := retirementUpgradeRows(t, db, `SELECT work_id,instance_state FROM workflow_instances ORDER BY work_id`); !reflect.DeepEqual(states, [][]any{{"work-upgrade-from", "completed"}, {"work-upgrade-to", "intake"}}) {
 		t.Errorf("outside-repair retirement changed ordinary or terminal identity: %v", states)
 	}
 	if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name IN ('outside_repair_dispositions','outside_repair_reconciliations','workflow_instances_v177','durable_operations_v178')`); len(rows) != 0 {

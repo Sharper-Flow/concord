@@ -14,10 +14,13 @@ profiles are rejected on sight.
 from __future__ import annotations
 
 import importlib.util
+import contextlib
+import io
 import re
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,8 +43,8 @@ class PrimaryPromptCheckTests(unittest.TestCase):
             shutil.copy2(ROOT / check_primary_prompts.PROMPT_DIR / name, prompts / name)
         profiles = self.root / check_primary_prompts.PROFILE_DIR
         profiles.mkdir(parents=True)
-        for name in check_primary_prompts.NAMED_PROFILE_FILES:
-            shutil.copy2(ROOT / check_primary_prompts.PROFILE_DIR / name, profiles / name)
+        for path in (ROOT / check_primary_prompts.PROFILE_DIR).glob("*.md"):
+            shutil.copy2(path, profiles / path.name)
 
     def tearDown(self) -> None:
         self.tempdir.cleanup()
@@ -50,7 +53,7 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         return check_primary_prompts.check_primary_prompts(self.root)
 
     def rewrite(self, name: str, transform) -> None:
-        directory = check_primary_prompts.PROFILE_DIR if name in check_primary_prompts.NAMED_PROFILE_FILES else check_primary_prompts.PROMPT_DIR
+        directory = check_primary_prompts.PROFILE_DIR if (self.root / check_primary_prompts.PROFILE_DIR / name).is_file() else check_primary_prompts.PROMPT_DIR
         path = self.root / directory / name
         before = path.read_text(encoding="utf-8")
         after = transform(before)
@@ -147,6 +150,50 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         self.assertEqual(check_primary_prompts.evaluate(rules, "gh pr view 1"), "allow")
         self.assertEqual(check_primary_prompts.evaluate(rules, "gh pr merge 1"), "deny")
         self.assertEqual(check_primary_prompts.evaluate([], "anything"), "ask")
+
+    def test_connected_tool_name_boundaries(self) -> None:
+        match = check_primary_prompts.CONNECTED_TOOL_NAME.search
+        for naming in ("lgrep", "tools.lgrep.search_semantic", "Context7", "context7", "Exa", "query Exa for research"):
+            with self.subTest(naming=naming):
+                self.assertIsNotNone(match(naming))
+        # Word boundaries: ordinary prose must not trip the rule.
+        for prose in ("For example, use glob first", "execute the plan", "examples"):
+            with self.subTest(prose=prose):
+                self.assertIsNone(match(prose))
+
+    def test_generated_helper_names_connected_tool_reports(self) -> None:
+        self.rewrite("concord-explore.md", lambda text: text + "\nFor example, call `tools.lgrep.search_semantic`.\n")
+        self.assertEqual(self.findings(), [])
+        with patch.object(check_primary_prompts, "ROOT", self.root), contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(check_primary_prompts.main(), 0)
+        self.assertIn("primary agent advisory:", output.getvalue())
+        self.assertIn("concord-explore.md", output.getvalue())
+        self.assertIn("'lgrep'", output.getvalue())
+
+    def test_generated_helper_research_service_name_reports(self) -> None:
+        self.rewrite("concord-lookup.md", lambda text: text + "\nQuery Exa for current research.\n")
+        self.assertEqual(self.findings(), [])
+        self.assertTrue(any("concord-lookup.md" in item and "'Exa'" in item for item in check_primary_prompts.generated_profile_name_advisories(self.root)))
+
+    def test_named_profile_body_connected_tool_name_reports(self) -> None:
+        self.rewrite("Concord.md", lambda text: text + "\nUse Context7 for library documentation.\n")
+        self.assertEqual(self.findings(), [])
+        self.assertTrue(any("Concord.md" in item and "'Context7'" in item for item in check_primary_prompts.generated_profile_name_advisories(self.root)))
+
+    def test_generated_helper_host_tool_fragment_does_not_add_findings(self) -> None:
+        self.rewrite("concord-advisor.md", lambda text: text.replace("  bash: true\n", "  bash: true\n  exa_search: false\n", 1))
+        self.assertEqual(self.findings(), [])
+
+    def test_advisory_does_not_change_existing_blocking_findings(self) -> None:
+        self.rewrite("Concord.md", lambda text: text.replace("  edit: allow\n", "", 1))
+        before = self.findings()
+        self.assertTrue(before)
+        self.rewrite("concord-lookup.md", lambda text: text + "\nQuery Exa.\n")
+        self.assertEqual(self.findings(), before)
+        with patch.object(check_primary_prompts, "ROOT", self.root), contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(check_primary_prompts.main(), 1)
+        self.assertIn("primary agent advisory:", output.getvalue())
+        self.assertIn("primary agent finding:", output.getvalue())
 
     def test_planner_edit_outside_planning_reports(self) -> None:
         self.assert_planner_finding(lambda text: text.replace('  edit:\n    "*": deny\n', '  edit:\n    "*": allow\n', 1), "permission.edit")

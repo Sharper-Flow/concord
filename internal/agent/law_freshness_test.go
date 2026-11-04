@@ -3,12 +3,12 @@ package agent
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/gittest"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -27,7 +27,10 @@ func TestLawFreshnessDisclosureThroughInvoke(t *testing.T) {
 			}
 			git := func(repo string, args ...string) string {
 				t.Helper()
-				cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", repo}, args...)...)
+				cmd, err := gittest.CommandContext(t.Context(), repo, args...)
+				if err != nil {
+					t.Fatal(err)
+				}
 				out, err := cmd.CombinedOutput()
 				if err != nil {
 					t.Fatalf("git %v: %v: %s", args, err, out)
@@ -98,13 +101,13 @@ func TestLawFreshnessDisclosureThroughInvoke(t *testing.T) {
 			env.ScopeVersion = scopeVersion
 			capture := invoke("concord_work_define", "capture", map[string]any{
 				"title": "Freshness disclosure", "value_statement": "Disclose unchecked remote law freshness", "kind": "bug",
-				"project_ids": []string{"project-1"}, "workflow_type_ref": "workflow.break_fix", "idempotency_key": "freshness-capture",
+				"project_ids": []string{"project-1"}, "idempotency_key": "freshness-capture",
 			})
 			requireLawFreshnessNotice(t, capture)
 			workID := (*capture.ChangedRefs)[0].ID
 			actionInput := map[string]any{
-				"work_id": workID, "expected_version": agentCompositionWorkVersion(t, s, workID), "action_id": "record_diagnosis", "idempotency_key": "freshness-action",
-				"fields": map[string]any{"reproduction": "A stale law read.", "searched": "The owning read boundary.", "outcome": "none_found", "root_cause": "Unchecked remote freshness."},
+				"work_id": workID, "expected_version": agentCompositionWorkVersion(t, s, workID), "action_id": "record_intake", "idempotency_key": "freshness-action",
+				"fields": map[string]any{"outcome": "proceed", "open_questions_found": false},
 			}
 			for attempt := range 2 {
 				action := invoke("concord_work_transition", "workflow_action", actionInput)

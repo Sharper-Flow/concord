@@ -15,10 +15,7 @@ package store
 // and sumBound only for values assembled from parts. Rows registered as
 // "unbounded, byte-ceiling only" name the producer that accumulates without a
 // finite guard and the typed refusal that owns the envelope ceiling; their
-// schema maxima are redundant caps the parent removes. Rows of kind "unproved"
-// are deliberate failures: the real derivation is named, and no safe source
-// expresses it yet, so the row must stay RED rather than claim an invented
-// bound.
+// schema maxima are redundant caps the parent removes.
 
 func init() {
 	// ------------------------------------------------------------------
@@ -181,7 +178,7 @@ func init() {
 	// display and stage fields, so the producer is the shape admitted by
 	// the shared id primitive on every operation input.
 	registerOutputBound("/$defs/domain_registry/properties/product_id/maxLength",
-		schemaBound("contracts/agent-tool-surface-payloads.schema.json", "/$defs/id/maxLength"))
+		schemaBound("/$defs/id/maxLength"))
 
 	// The registry product key is stored under CHECK length 1..256; the
 	// manifest parse guard validProductKey bounds it tighter at 64.

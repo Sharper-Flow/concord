@@ -25,26 +25,3 @@ func workflowAcceptanceSubjectCurrent(ctx context.Context, q queryer, workID str
 
 // Only the current accepted report contributes readiness. Finishing an older
 // report later does not replace that report or its integrated candidate.
-func workflowAcceptedSubjectCurrent(ctx context.Context, q queryer, workID string) error {
-	state, err := loadWorkflowReviewState(ctx, q, workID)
-	if err != nil {
-		return err
-	}
-	var candidate *ReviewCandidate
-	if state.Accepted != nil {
-		candidate = &state.Accepted.Report.OutputCandidate
-	}
-	version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
-	if err != nil {
-		return err
-	}
-	verdicts, err := latestWorkflowVerdicts(ctx, q, workID, version)
-	if err != nil {
-		return err
-	}
-	var refs []string
-	for _, verdict := range verdicts {
-		refs = append(refs, verdict.EvaluationEvidence...)
-	}
-	return workflowAcceptanceSubjectCurrent(ctx, q, workID, candidate, refs)
-}

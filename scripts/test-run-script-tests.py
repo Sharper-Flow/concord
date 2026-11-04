@@ -22,7 +22,7 @@ import git_environment
 
 # This suite builds Git repositories itself, so a hook that
 # launched it must not keep a redirecting Git namespace in place.
-git_environment.scrub_inherited()
+git_environment.scrub_inherited(fixture=True)
 
 
 REPO = Path(__file__).resolve().parents[1]

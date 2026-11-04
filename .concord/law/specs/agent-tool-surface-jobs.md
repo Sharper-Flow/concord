@@ -34,7 +34,7 @@
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** TS1; binding input to CD-0005 §1 and TS2–TS9.
 > **Binding inputs:** accepted PM1 query contract and scenario corpus, PM2–PM10,
-> Concord priorities, workflows, design constraints, and Advance postmortem.
+> Concord priorities, workflows, and design constraints.
 > **Scenario corpus:** [`agent-jobs.v1.json`](../../scenarios/agent-jobs.v1.json).
 > **Does not decide:** tool count or names (TS2), read or mutation schemas
 > (TS3/TS4), context and authorization (TS5), transport (TS6), result envelopes
@@ -45,8 +45,8 @@
 
 Concord's agent surface must serve the Product-memory jobs the operator and
 its agents repeatedly perform. The binding inputs are the accepted PM1 query
-contract and corpus, PM2 through PM10, Concord priorities, workflows, design
-constraints, and the Advance postmortem. This record defines the smallest
+contract and corpus, PM2 through PM10, Concord priorities, workflows, and design
+constraints. This record defines the smallest
 evidenced set of end-to-end agent jobs AJ1 through AJ8 and the tool-neutral
 scenario corpus that judges every later surface candidate.
 ## Contract
@@ -69,7 +69,7 @@ TS1 defines the smallest evidenced set of **end-to-end agent jobs** Concord's
 agent surface must support and the tool-neutral scenarios used to judge later
 surface candidates. A job starts with an agent-visible intent and ends with an
 observable Product-memory or external-authority outcome. It is not a table, CLI
-command, workflow phase, existing Advance tool, or proposed Concord tool.
+command, workflow phase, or proposed Concord tool.
 
 PM1's Q1–Q8 remain the canonical read contract. TS1 composes those reads with
 the mutation, completion, and operational outcomes already required
@@ -159,13 +159,14 @@ surface expansion or pruning. No universal numeric tool ceiling is assumed.
   cross-Project identity, history, and relations (`product-memory-query-contract.md` §§4–5).
 - Concord's first-usable floor requires one Product view, required work capture,
   visible ready/blocked/next work, evidence-backed completion, and durable Product
-  knowledge and architecture-bound Product law (`priorities.md` §§1, 3–6).
+  knowledge and architecture-bound Product law
+  ([`floor-readiness.md`](../../docs/floor-readiness.md)).
 - The live families are implementation, break-fix, and research; completion is a
   contract outcome rather than a process-liveness flag (`workflows.md` §§2–4;
   CD-0218 D1).
-- The Advance postmortem supplies adversarial cases: split authority, partial
+- The adversarial cases this corpus must cover: split authority, partial
   terminality, dishonest top-level success, bookkeeping-blocked reclamation,
-  silently clamped budgets, and destructive recovery (`advance-postmortem.md`).
+  silently clamped budgets, and destructive recovery.
 
 ### External evaluation and tool-design evidence
 
@@ -190,7 +191,7 @@ surface expansion or pruning. No universal numeric tool ceiling is assumed.
 
 ## 6. Rejected or deferred as jobs
 
-- Existing Advance tool identities, CRUD verbs, table operations, CLI subcommands,
+- Existing tool identities from any prior system, CRUD verbs, table operations, CLI subcommands,
   generic repair commands, and orchestration internals do not become jobs merely
   because they exist.
 - Launcher navigation and optional web/admin projections are human surfaces, not

@@ -20,6 +20,32 @@ func replayFixtureEnvelope(t *testing.T, s *store.Store, grant Authority) CallEn
 	return mutationEnvelope(grant, scopeVersion)
 }
 
+func prepareCurrentImplement(t *testing.T, s *store.Store, service *Service, grant Authority, env CallEnvelope, prefix string) int64 {
+	t.Helper()
+	seedCurrentWorkflowDomainFixture(t, s)
+	ctx := agentWorkflowSourceProof(t, context.Background(), s, "work-1")
+	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Actor: actor, Now: fixedTime()})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	advanceCapturedWorkToContract(t, s, service, env, "work-1", prefix)
+	for _, action := range []struct {
+		id     string
+		fields map[string]any
+	}{
+		{"approve_contract", workflowContractFieldsForSeededRegistry(t, s)},
+		{"complete_step", map[string]any{"step_id": "plan", "note": "Plan is complete."}},
+	} {
+		response := invokeWorkflowBoundary(t, s, service, env, map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": action.id, "fields": action.fields, "idempotency_key": prefix + "-" + action.id})
+		if response.Outcome != agentcontract.OutcomeOK {
+			t.Fatalf("%s: %+v", action.id, response.Error)
+		}
+	}
+	return workVersion(t, s, "work-1")
+}
+
 // A separate read snapshot pins the WAL while replay writes append to it.
 // Only this synthetic store shortens lock waits; production settings stay fixed.
 func holdReplayDurabilityReader(t *testing.T, s *store.Store) func() {
@@ -102,14 +128,12 @@ func TestWorkflowReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
 			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
-			if version := seedAgentWorkflow(t, s, grant); version != 4 {
-				t.Fatalf("fixture workflow version=%d, want 4", version)
-			}
 			env := replayFixtureEnvelope(t, s, grant)
+			version := prepareCurrentImplement(t, s, service, grant, env, "durability-setup")
 			release := holdReplayDurabilityReader(t, s)
 			request := InvokeRequest{
 				Tool: "concord_work_transition", Operation: "workflow_action",
-				Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"durability-replay"}`),
+				Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "start_execution", "fields": map[string]any{}, "idempotency_key": "durability-replay"}),
 			}
 			var originalPayload string
 			if normalCommit {
@@ -162,10 +186,10 @@ func TestWorkflowReplayDurableWriteFailureDoesNotAcknowledge(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition"})
-	seedAgentWorkflow(t, s, grant)
 	env := replayFixtureEnvelope(t, s, grant)
+	version := prepareCurrentImplement(t, s, service, grant, env, "failure-setup")
 	release := holdReplayDurabilityReader(t, s)
-	request := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"durability-replay"}`)}
+	request := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "start_execution", "fields": map[string]any{}, "idempotency_key": "durability-replay"})}
 	seedCurrentWorkflowActionReplay(t, s, env, request.Input, "completed")
 	var originalPayload string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT result_payload FROM idempotency_records WHERE idempotency_key='durability-replay'`).Scan(&originalPayload); err != nil {

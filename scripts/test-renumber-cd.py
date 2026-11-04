@@ -16,7 +16,7 @@ import git_environment
 # This suite drives Git directly, so a hook that launched it must
 # not keep a redirecting Git namespace in place. The scrub runs before the
 # in-process renumber tool loads.
-git_environment.scrub_inherited()
+git_environment.scrub_inherited(fixture=True)
 
 
 SCRIPT = Path(__file__).with_name("renumber-cd.py")

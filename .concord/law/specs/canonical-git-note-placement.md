@@ -18,7 +18,7 @@
     },
     {
       "criterion": 3,
-      "exemption": "Typed historical uncertainty is a read and resolution property. Integrated evidence must distinguish missing, ambiguous, degraded and unreachable outcomes without rewriting a locator."
+      "exemption": "Typed historical uncertainty is a read and resolution property. Integrated evidence must distinguish missing, ambiguous and unreachable outcomes without rewriting a locator."
     }
   ]
 }
@@ -122,11 +122,12 @@ belongs to the consumer or to PM10 recovery, never to the read.
 | `ambiguous` | multiple retained notes claim the work ID |
 | `missing` | the retained locator names a Git object the consumer or PM10 recovery did not find; the read itself claims nothing about the object |
 
-| Authority | Meaning |
-|---|---|
-| `authoritative` | every applicable authority needed for the historical answer is covered |
-| `degraded` | reachable coverage is incomplete or lagging; bounded omissions are explicit |
-| `unreachable` | a required Git authority cannot be opened or contacted |
+The historical read computes no authority tier of its own: an OK read is
+authoritative over the retained record, and a store that cannot answer refuses
+as `unreachable` rather than guessing. The envelope levels `authoritative`,
+`degraded` and `unreachable` are [TS7](agent-result-envelope.md) vocabulary; no
+historical read sets `degraded`, because it returns the retained record whole
+or refuses.
 
 An offline or lost remote does not prove absence. Historical Product visibility
 uses frozen associations, not later home-Project memberships. A renamed, moved or

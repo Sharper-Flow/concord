@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -441,7 +440,7 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *w
 		return illegalTransition(payload.From, payload.To)
 	}
 	if payload.To == "completed" {
-		if err := requireWorkCompletionTx(ctx, tx, event.SubjectID, scopeDefinitionRegistry(scope)); err != nil {
+		if err := requireWorkCompletionTx(ctx, tx, event.SubjectID); err != nil {
 			return err
 		}
 	}
@@ -454,85 +453,8 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *w
 	return nil
 }
 
-func requireWorkCompletionTx(ctx context.Context, tx *sql.Tx, workID string, registry DefinitionRegistry) error {
-	if err := refuseUnreconciledDelivery(ctx, tx, registry, workID); err != nil {
-		return err
-	}
-	// CD-0183 D4: refuse a completed target while the
-	// item's workflow instance has not reached a terminal state, so the
-	// lifecycle cannot bypass the workflow's completion gate. An absent
-	// instance is an imported item, and a terminal instance admits the
-	// repair of a stranded item.
-	if err := refuseLiveWorkflowLifecycleCompletionTx(ctx, tx, workID); err != nil {
-		return err
-	}
-	var pin WorkflowDefinitionPin
-	var instanceState string
-	definitionErr := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Digest, &instanceState)
-	if definitionErr != nil && definitionErr != sql.ErrNoRows {
-		return workflowProjectionError(definitionErr, "cannot read workflow definition for work completion")
-	}
-	var definition WorkflowDefinition
-	if definitionErr == nil {
-		registered, err := verifyWorkflowDefinitionPinForFold(registry, pin)
-		if err != nil {
-			return err
-		}
-		definition = registered.Definition
-	}
-	// CD-0013 D4 binds a DecisionRecordRequired completion to the recorded
-	// row on the lifecycle path. A completed instance proves the ordered
-	// completion gate ran, and the gate owns the decision through the
-	// approved outcome, so the fold does not re-ask for a row the gate
-	// never required.
-	if definitionErr == nil && instanceState == "completed" {
-		definition.OutcomeSchema.DecisionRecordRequired = false
-	}
-	if definition.OutcomeSchema.DecisionRecordRequired {
-		if err := requireBoundDecisionRecordTx(ctx, tx, workID, definition); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// requireBoundDecisionRecordTx binds completion of a DecisionRecordRequired
-// definition to the record the record_decision fold wrote (CD-0013 D4): the
-// latest accepted row in workflow_decision_records must exist, stand
-// unsuperseded, and carry a decision token the pinned definition allows.
-func requireBoundDecisionRecordTx(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition) error {
-	var decision string
-	err := tx.QueryRowContext(ctx, `SELECT decision FROM workflow_decision_records WHERE work_id=? AND superseded_by IS NULL ORDER BY recorded_at DESC LIMIT 1`, workID).Scan(&decision)
-	if err == sql.ErrNoRows {
-		return newFailure(KindDecisionRecordRequired, "fold_event", "completion requires a bound, accepted decision record", false, "record_decision, then accept_decision, before completing")
-	}
-	if err != nil {
-		return workflowProjectionError(err, "cannot read workflow decision record")
-	}
-	if !slices.Contains(definition.OutcomeSchema.AllowedOutcomeTokens, decision) {
-		return newFailure(KindDecisionRecordRequired, "fold_event", "decision record token "+decision+" is outside the approved outcome set", false, "record a decision the pinned definition allows")
-	}
-	return nil
-}
-
-func refuseUnreconciledDelivery(ctx context.Context, tx *sql.Tx, registry DefinitionRegistry, workID string) error {
-	var pin WorkflowDefinitionPin
-	var currentStep string
-	if err := tx.QueryRowContext(ctx, `SELECT definition_ref,definition_digest,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.Ref, &pin.Digest, &currentStep); err != nil {
-		if err == sql.ErrNoRows {
-			return nil
-		}
-		return workflowProjectionError(err, "cannot read workflow delivery state")
-	}
-	registered, err := verifyWorkflowDefinitionPinForFold(registry, pin)
-	if err != nil {
-		return err
-	}
-	step := workflowStep(registered.Definition, currentStep)
-	if !workflowStepIsDeliveryGate(step) {
-		return nil
-	}
-	return newFailure(KindNotTerminal, "fold_event", "workflow has an unreconciled delivery", false, "record the delivery with record_delivery, then complete the workflow with the workflow_action complete action")
+func requireWorkCompletionTx(ctx context.Context, tx *sql.Tx, workID string) error {
+	return refuseLiveWorkflowLifecycleCompletionTx(ctx, tx, workID)
 }
 
 func foldWorkReopened(ctx context.Context, tx *sql.Tx, event Event) error {

@@ -197,6 +197,30 @@ undivided program or one session per issue. Allocating does not start an issue:
 leave it Todo with the owner set; it moves to In Progress only when that owner
 begins work on it. Route already-delivered scope to
 its planning owner instead of duplicating repairs.
+
+Launch an additional writing stream when an independent outcome can shorten
+delivery and capacity remains to integrate and review its result. Judge
+capacity each time; there is no fixed writing-session cap. Count read-only
+helpers separately, not as implementation throughput. Owners decide how to split
+their own items and coordinate their helpers without RTE permission.
+
+Before launching a writing stream, choose its base and confirm there that its
+outcome is still undelivered. Establish a write set independent of other active
+streams, including no shared helper, schema, migration, or generator change.
+Confirm stable consumed interfaces, a runnable check, and the owner's recorded
+release of the write set. For a defect, require reproduction at that base. If
+any of these conditions or that capacity is missing, sequence the work instead
+of launching a competing stream. Do not urge a freeze or a skipped gate to gain
+speed.
+
+Record each stream's brief on its delivery issue: objective, write set,
+exclusions, consumed interface, checks, stop conditions, and return point.
+Require workers to return coherent, committed change sets to their owner.
+Report per-stream time to a reviewed result, integration conflicts and rework,
+findings routed back to the owner, and token use from existing records, not
+agent self-report. State when evidence is unavailable, including timing or token
+data; do not invent measurements or build telemetry.
+
 Follow host instructions for session launch, reuse, and lifecycle. Use a fresh
 primary for a new assignment while resources permit; reuse only for continuation
 of its own item. Check remaining closeout first, then verify the new primary's

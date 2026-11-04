@@ -1121,7 +1121,7 @@ func TestDerivationGoPatternBound(t *testing.T) {
 			t.Fatalf("%s: evaluated %+v, want one characters constraint of %d", tc.name, evaluated.constraints, tc.want)
 		}
 	}
-	if _, err := (newLedgerRuntime(ledgerRepoRoot(t))).evaluateSource(goPatternBound("internal/store/workflow_registry.go", "workflowIDPattern"), nil); err != nil {
+	if _, err := (newLedgerRuntime(ledgerRepoRoot(t))).evaluateSource(goPatternBound("internal/store/workflow_action_policy.go", "workflowIDPattern"), nil); err != nil {
 		t.Fatalf("the real workflow id pattern derivation was refused: %v", err)
 	}
 }

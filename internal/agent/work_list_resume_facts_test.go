@@ -130,7 +130,7 @@ func TestWorkListDispatchAddressedProjectHandoff(t *testing.T) {
 	if recorded.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record: %+v", recorded.Error)
 	}
-	id := resultField(t, recorded, "handoff_id")
+	id := handoffIDField(t, recorded)
 	if id == "" {
 		t.Fatal("record returned no handoff ID")
 	}

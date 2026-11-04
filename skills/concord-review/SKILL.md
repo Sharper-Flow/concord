@@ -22,9 +22,12 @@ inputs to the caller rather than inventing requirements from the diff.
 
 For the final review of an architectural change, or of a change that altered
 a documented boundary, flow, or state authority, load the shipped
-`concord-architecture-writing` skill: its final-review section routes each
-lasting plan output to law, current reference, glossary, or the temporary
-work record.
+`concord-architecture-writing` skill. Account for every lasting plan output
+using its final-review routing method. Check each required destination against
+the delivered change, and check that any work-record explanation for no update
+is supported. A missing required destination or unsupported explanation is a
+finding that blocks delivery. Ordinary work with no architectural outputs owes
+no architecture documents solely for this review.
 
 ## Review two axes
 

@@ -64,8 +64,8 @@ its limited evidence claim. Only anchored full-name Go selections populate
 full names or a claim that no tests will run. Unknown command grammars, shell scripts,
 whole packages, wildcard packages, benchmarks, fuzzing, regex subtest selection
 and suite/shard execution use the explicit `broad` tier. The store suite is the
-one exception: its declared local route is the `store-shard` tier, one CI shard
-per invocation:
+one exception: it uses the `store-shard` tier, one CI shard per invocation,
+instead of `broad`:
 
 ```sh
 bin/oc-test plan broad -- go test ./internal/store
@@ -99,8 +99,10 @@ bin/oc-test store-shard 1 7
 The tier runs the same `scripts/go-test-shard.py` selection CI's shard jobs
 run, one shard per invocation under full admission, and the shared slot is
 released between shards. The unsharded store suite cannot finish inside one
-15-minute alarm on a loaded host, so it has no declared single-command local
-route. Run every shard index for a whole-suite local pass.
+15-minute alarm on a loaded host, so it has no single-command local route.
+Required CI owns the whole-suite store pass. Locally, `store-shard` reproduces
+or investigates one failing shard; it is not a pre-push step. Before a push,
+the installed pre-push hook and your focused selection are the local checks.
 
 Sharding assigns the discovered inventory, not affected behavior. A shard is a
 CI-placement tool, not a default local coverage choice. `go test -list` executes
@@ -111,7 +113,7 @@ initialization/TestMain and is not a non-executing planning operation.
 | Change or risk | Focused iteration | Widen when |
 |---|---|---|
 | One Go behavior | Anchored named regression plus existing owner and direct-caller tests in explicit packages | A caller, runtime input or test dependency cannot be bounded |
-| Store fixture, transaction or connection handling | Owner tests plus transaction/rollback/connection-invariant consumers; private database per test | Shared setup changes affect the package; admit the package or use required CI |
+| Store fixture, transaction or connection handling | Owner tests plus transaction/rollback/connection-invariant consumers; private database per test | Shared setup changes affect the package; prefer required CI to a local whole-package run |
 | Migration or current-state recovery | Relevant pre/post-migration and recovery tests, including failure/rollback paths | Migration ordering or shared registry changes affect all store opens |
 | Reported verification | Report binding and same-commit Review/acceptance consumers | Evidence identity or shared workflow setup changes |
 | Adapter | Explicit changed test files and caller files, with Product selection cleared | Shared adapter contract, setup or native host behavior changes |

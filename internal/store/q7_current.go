@@ -150,17 +150,6 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 		out.NextCursor = &next
 	}
 	out.Result = &Q7ResultPayload{Entries: out.Entries}
-	workflow, err := readWorkflowProjectionTx(ctx, tx, WorkflowReadRequest{WorkID: req.Work, ContractVersion: req.ContractVersion})
-	if err != nil {
-		return out, err
-	}
-	if workflow.WorkID == "" && req.ContractVersion != 0 {
-		return out, newFailure(KindUnknownScope, "PM1.Q7", "the work item has no workflow contract", false, "omit contract_version for work outside a workflow")
-	}
-	if workflow.WorkID != "" {
-		out.Workflow = &workflow
-		out.Result.Workflow = &workflow
-	}
 	next := out.NextCursor
 	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q7", ResolvedScope{WorkID: req.Work}, []string{"effect_seq", "entry_kind", "entry_id"})
 	out.NextCursor = next

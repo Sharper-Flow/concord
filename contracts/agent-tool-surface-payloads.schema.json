@@ -1344,9 +1344,6 @@
           "type": "string",
           "description": "Native work capture timestamp, preserved verbatim across later reads and work updates."
         },
-        "work_pin": {
-          "$ref": "#/$defs/work_pin"
-        },
         "pending_project_handoff": {
           "$ref": "#/$defs/continuity_pending_project_handoff"
         },

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"slices"
 	"sort"
 	"strconv"
@@ -161,7 +160,6 @@ type WorkItem struct {
 	Terminal              bool                `json:"terminal"`
 	Liveness              *WorkLiveness       `json:"liveness,omitempty"`
 	Blockers              []WorkItem          `json:"blockers,omitempty"`
-	WorkPin               *WorkPin            `json:"work_pin,omitempty"`
 	PendingProjectHandoff *ProjectHandoff     `json:"pending_project_handoff,omitempty"`
 	LawContext            *WorkflowLawContext `json:"law_context,omitempty"`
 	NativeRuns            []NativeRunReport   `json:"native_runs,omitempty"`
@@ -169,14 +167,12 @@ type WorkItem struct {
 
 type Q7Result struct {
 	ResultMeta
-	Entries  []HistoryEntry          `json:"entries"`
-	Result   *Q7ResultPayload        `json:"result"`
-	Workflow *WorkflowReadProjection `json:"workflow,omitempty"`
+	Entries []HistoryEntry   `json:"entries"`
+	Result  *Q7ResultPayload `json:"result"`
 }
 
 type Q7ResultPayload struct {
-	Entries  []HistoryEntry          `json:"entries"`
-	Workflow *WorkflowReadProjection `json:"workflow,omitempty"`
+	Entries []HistoryEntry `json:"entries"`
 }
 
 type RelationEdge struct {
@@ -758,21 +754,7 @@ func q3FilterSQL(req Q3Request, states []string) (string, []any) {
 }
 
 func attachQ3FullDetail(ctx context.Context, tx *sql.Tx, items []WorkItem) error {
-	if err := attachRecordedIntent(ctx, tx, items); err != nil {
-		return err
-	}
-	for i := range items {
-		pin, pinErr := ReadWorkPinTx(ctx, tx, items[i].ID)
-		if pinErr != nil {
-			var failure *Failure
-			if errors.As(pinErr, &failure) && failure.Kind == KindProjectionNotFound {
-				continue
-			}
-			return pinErr
-		}
-		items[i].WorkPin = &pin
-	}
-	return nil
+	return attachRecordedIntent(ctx, tx, items)
 }
 
 // attachRecordedIntent copies the recorded mutable-intent detail onto each

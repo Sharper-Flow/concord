@@ -13,8 +13,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-06
-- **Scope:** The mutation result envelope of the agent tool surface, the read
-  projections that carry the same state, and the derivation of
+- **Scope:** The mutation result envelope of the agent tool surface and the derivation of
   `next_valid_intents`
 - **Approval:** The operator approved this decision for issue #857 on work item
   `work-201ad0df0700db9255d3f256`.
@@ -81,13 +80,6 @@ counts as admitted, so the pin names that route
 A result that carries a pin takes its intents from the pin
 alone, so no hand-written intent reaches it. A result without a pin keeps the
 intents its operation writes, if any: reads that verify the write, never a work mutation.
-
-### D4. Reads embed the same pin
-
-`concord_work_trace.continuity` and `concord_work_browse.list` with
-`detail: full` embed the pin. When the final serialized envelope does not fit,
-[TS7 §8.2](../specs/agent-result-envelope.md#82-lossless-oversized-result-transport)
-permits a closed projection reference and lossless reconstruction instead.
 
 ### D5. Structural tests
 

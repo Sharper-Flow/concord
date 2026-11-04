@@ -1076,7 +1076,6 @@ type workSummary struct {
 	Narrative             string                    `json:"narrative,omitempty"`
 	TerminalAt            *string                   `json:"terminal_at"`
 	CreatedAt             string                    `json:"created_at"`
-	WorkPin               *store.WorkPin            `json:"work_pin,omitempty"`
 	PendingProjectHandoff *store.ProjectHandoff     `json:"pending_project_handoff,omitempty"`
 	LawContext            *store.WorkflowLawContext `json:"law_context,omitempty"`
 	NativeRuns            []store.NativeRunReport   `json:"native_runs,omitempty"`
@@ -1095,7 +1094,7 @@ func summary(w store.WorkItem) workSummary {
 	if w.TerminalAt != "" {
 		terminal = &w.TerminalAt
 	}
-	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, CreatedAt: w.CreatedAt, WorkPin: w.WorkPin, PendingProjectHandoff: w.PendingProjectHandoff, LawContext: w.LawContext, NativeRuns: w.NativeRuns}
+	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, CreatedAt: w.CreatedAt, PendingProjectHandoff: w.PendingProjectHandoff, LawContext: w.LawContext, NativeRuns: w.NativeRuns}
 }
 func (r runtime) q1(base agentcontract.Envelope, q store.Q1Result) (agentcontract.Envelope, error) {
 	projects := []map[string]any{}
@@ -1144,71 +1143,7 @@ func (r runtime) q7(base agentcontract.Envelope, q store.Q7Result) (agentcontrac
 	if entries == nil {
 		entries = []store.HistoryEntry{}
 	}
-	payload := map[string]any{"entries": entries}
-	if q.Workflow != nil {
-		workflow, err := publishedWorkflowRead(q.Workflow)
-		if err != nil {
-			return base, err
-		}
-		payload["workflow"] = workflow
-	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
-}
-
-// workflowReadPublishedFields derives the published workflow_read field set
-// from the generated contract's $defs/workflow_read/properties. The contract
-// schema is the declared boundary, so the published read is exactly the set
-// it declares: a projection field the contract names is published, and one it
-// does not name is dropped, without a hand-maintained list that can drift.
-func workflowReadPublishedFields() map[string]any {
-	defs, _ := payloadschema.Document()["$defs"].(map[string]any)
-	read, _ := defs["workflow_read"].(map[string]any)
-	properties, _ := read["properties"].(map[string]any)
-	return properties
-}
-
-// publishedWorkflowRead shapes the store projection into the published
-// workflow_read subset. The history page carries it so a reader sees the
-// current effective delivery assertion beside the unchanged original, with
-// the target_payload_version a correction admission consumes.
-func publishedWorkflowRead(projection *store.WorkflowReadProjection) (map[string]any, error) {
-	raw, err := json.Marshal(projection)
-	if err != nil {
-		return nil, err
-	}
-	var shaped map[string]any
-	if err := json.Unmarshal(raw, &shaped); err != nil {
-		return nil, err
-	}
-	pruneWorkflowReadObject(shaped, workflowReadPublishedFields())
-	return shaped, nil
-}
-
-// pruneWorkflowReadObject follows inline object and array shapes. Referenced
-// definitions remain unchanged and are checked by payload validation.
-func pruneWorkflowReadObject(value, properties map[string]any) {
-	for field, child := range value {
-		schema, ok := properties[field].(map[string]any)
-		if !ok {
-			delete(value, field)
-			continue
-		}
-		switch child := child.(type) {
-		case map[string]any:
-			if nested, ok := schema["properties"].(map[string]any); ok {
-				pruneWorkflowReadObject(child, nested)
-			}
-		case []any:
-			items, _ := schema["items"].(map[string]any)
-			if nested, ok := items["properties"].(map[string]any); ok {
-				for _, item := range child {
-					if object, ok := item.(map[string]any); ok {
-						pruneWorkflowReadObject(object, nested)
-					}
-				}
-			}
-		}
-	}
+	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"entries": entries})
 }
 
 // ContinuityPayload is the single public rendering of CD-0016 continuity.

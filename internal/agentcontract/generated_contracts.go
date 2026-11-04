@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:4685483969ba89909f53f6c6b867ae19f8d748581ce5a8564a698eda671197cd"
+const ManifestDigest = "sha256:1f93aa26ca825ab77e5676cc1a36bdbe08fd471e4f96bbb238e2fde9dc9b5449"
 
 type OperationKind string
 
@@ -137,7 +137,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_relate_resolve_overlap_input":                     {Required: []string{"from_work_id", "to_work_id", "from_expected_version", "to_expected_version", "from_contract_version", "to_contract_version", "resolution_kind", "reason", "idempotency_key"}, Properties: []string{"from_work_id", "to_work_id", "from_expected_version", "to_expected_version", "from_contract_version", "to_contract_version", "resolution_kind", "reason", "idempotency_key", "requested_budget_seconds"}},
 	"work_relation_graph":                                   {Required: []string{"nodes", "edges"}, Properties: []string{"nodes", "edges", "replacement_state"}},
 	"work_removal_handoff":                                  {Required: []string{"findings", "remaining_scope", "blockers", "artifacts", "renewal_conditions"}, Properties: []string{"findings", "remaining_scope", "blockers", "artifacts", "renewal_conditions"}},
-	"work_summary":                                          {Required: []string{"id", "kind", "title", "lifecycle", "version"}, Properties: []string{"id", "kind", "title", "task", "value_statement", "tags", "workflow_type_ref", "lifecycle", "version", "priority", "urgency", "project_ids", "ready", "narrative", "terminal_at", "created_at", "work_pin", "pending_project_handoff", "law_context", "native_runs", "liveness"}},
+	"work_summary":                                          {Required: []string{"id", "kind", "title", "lifecycle", "version"}, Properties: []string{"id", "kind", "title", "task", "value_statement", "tags", "workflow_type_ref", "lifecycle", "version", "priority", "urgency", "project_ids", "ready", "narrative", "terminal_at", "created_at", "pending_project_handoff", "law_context", "native_runs", "liveness"}},
 	"work_trace_continuity_input":                           {Required: []string{"work_id"}, Properties: []string{"work_id", "page", "limit", "requested_budget_seconds"}},
 	"work_trace_history_input":                              {Required: []string{"work_id"}, Properties: []string{"work_id", "direction", "record_kinds", "page", "limit", "requested_budget_seconds", "contract_version"}},
 	"work_trace_mutation_result_input":                      {Required: []string{"source_tool", "source_operation", "idempotency_key", "digest"}, Properties: []string{"source_tool", "source_operation", "idempotency_key", "digest", "page", "limit", "requested_budget_seconds"}},

@@ -318,6 +318,7 @@ func (r runtime) readTraceContinuity(ctx context.Context, base agentcontract.Env
 type resumeInput struct {
 	WorkID string    `json:"work_id"`
 	Page   pageInput `json:"page"`
+	Limit  int       `json:"limit,omitempty"`
 }
 
 type resumeCursor struct {
@@ -331,6 +332,10 @@ func (r runtime) readTraceResume(ctx context.Context, base agentcontract.Envelop
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
 	}
+	// Like mutation_result, the TS3 §3 limit alias is query identity for the
+	// fragment transport, not a fragment size: pageBinding marshals the whole
+	// input with the cursor cleared, so a continuation that changes the limit
+	// refuses alongside principal, work and document drift.
 	bindingData, _ := json.Marshal([]string{r.Reader.PrincipalRef, pageBinding(in, func(p *resumeInput) { p.Page.Cursor = nil })})
 	binding := string(bindingData)
 	inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), binding, "resume")

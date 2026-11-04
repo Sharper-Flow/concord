@@ -19,6 +19,22 @@ def canonical(value: object) -> bytes:
 def fail(message: str) -> None:
     raise ValueError(message)
 
+# A failed Go producer can bury its one-line cause (for example
+# `undefined: containsString`) under every compiler error a broken merge
+# produced. Failure messages keep a bounded head of the producer's stderr —
+# the first error is the root cause — and say when they truncated.
+PRODUCER_STDERR_LIMIT = 4096
+
+
+def bounded_producer_stderr(detail: str) -> str:
+    text = detail.strip()
+    if len(text) <= PRODUCER_STDERR_LIMIT:
+        return text
+    return (
+        f"{text[:PRODUCER_STDERR_LIMIT].rstrip()}\n"
+        f"[producer stderr truncated: first {PRODUCER_STDERR_LIMIT} of {len(text)} characters]"
+    )
+
 # CD-0184: agents read contracts through the projected tool surface, so the
 # delivery-decidable rule travels in the descriptions the published schema
 # carries. The emitted admission-teaching gap check asserts the same markers.
@@ -1082,7 +1098,7 @@ def project_schema_guidance(document: dict, names: list[str], *, bounds_only: bo
         input=json.dumps(document), cwd=ROOT, text=True, capture_output=True, timeout=120,
     )
     if result.returncode:
-        fail(f"schema guidance generation failed: {result.stderr.strip()}")
+        fail(f"schema guidance generation failed: {bounded_producer_stderr(result.stderr)}")
     projected = json.loads(result.stdout)
     def preserve_order(original: object, annotated: object) -> object:
         if isinstance(original, dict) and isinstance(annotated, dict):
@@ -2063,6 +2079,6 @@ def main() -> int:
     except (OSError, json.JSONDecodeError, ValueError, subprocess.SubprocessError) as exc:
         print(f"agent contract generation failed: {exc}", file=sys.stderr)
         if isinstance(exc, subprocess.CalledProcessError) and exc.stderr:
-            print(exc.stderr, file=sys.stderr, end="")
+            print(bounded_producer_stderr(exc.stderr), file=sys.stderr)
         return 1
 if __name__ == "__main__": raise SystemExit(main())

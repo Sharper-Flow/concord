@@ -37,6 +37,10 @@ func assertLegislatorRefusal(t *testing.T, err error, wantDetail string) {
 	}
 }
 
+// authorityLegislatorDeclaredVersion is the contract version the fixture
+// law's declared legislative reference names.
+const authorityLegislatorDeclaredVersion int64 = 6
+
 // seedPlanlessLegislatorFixture seeds one historical legislator in the
 // recorded post-cutover shape: a completed planless instance, an approved
 // active contract at the declared version whose changes_product_truth is NULL
@@ -44,9 +48,11 @@ func assertLegislatorRefusal(t *testing.T, err error, wantDetail string) {
 // approval persisted at that version, and the primary Project membership that
 // resolves the work's designated law home. Synthetic fixture evidence about
 // the rule, never a claim of real approval.
-func seedPlanlessLegislatorFixture(t *testing.T, s *Store, workID string, version int64, lawModifies string) {
+func seedPlanlessLegislatorFixture(t *testing.T, s *Store, lawModifies string) {
 	t.Helper()
 	db := s.DatabaseForTesting()
+	workID := authoritySyntheticWork
+	version := authorityLegislatorDeclaredVersion
 	seedLegislatorPrimaryMembership(t, s, workID)
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
@@ -103,10 +109,10 @@ func seedLegislatorPrimaryMembership(t *testing.T, s *Store, workID string) {
 // predates stored step plans.
 func TestContinuityResolvesPlanlessHistoricalLegislator(t *testing.T) {
 	t.Parallel()
-	s, _ := authorityLawScenario(t, authorityLawFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 6})
+	s, _ := authorityLawScenario(t, authorityLawFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: authorityLegislatorDeclaredVersion})
 	defer s.Close()
 	seedAuthorityWork(t, s, authoritySyntheticWork)
-	seedPlanlessLegislatorFixture(t, s, authoritySyntheticWork, 6, `["CD-8751"]`)
+	seedPlanlessLegislatorFixture(t, s, `["CD-8751"]`)
 	if _, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: authoritySyntheticWork}); err != nil {
 		t.Fatalf("continuity must resolve law whose legislator predates stored plans: %v", err)
 	}
@@ -116,10 +122,10 @@ func TestContinuityResolvesPlanlessHistoricalLegislator(t *testing.T) {
 // approving contract is genuinely not Product-changing, plan or no migration.
 func TestContinuityRefusesResearchPlanLegislator(t *testing.T) {
 	t.Parallel()
-	s, _ := authorityLawScenario(t, authorityLawFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 6})
+	s, _ := authorityLawScenario(t, authorityLawFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: authorityLegislatorDeclaredVersion})
 	defer s.Close()
 	seedAuthorityWork(t, s, authoritySyntheticWork)
-	seedAuthorityContract(t, s, authoritySyntheticWork, 6, WorkflowStepPlanResearch, []string{"CD-8751"}, nil)
+	seedAuthorityContract(t, s, authoritySyntheticWork, authorityLegislatorDeclaredVersion, WorkflowStepPlanResearch, []string{"CD-8751"}, nil)
 	seedLegislatorPrimaryMembership(t, s, authoritySyntheticWork)
 	_, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: authoritySyntheticWork})
 	assertLegislatorRefusal(t, err, "the approving contract is not Product-changing")
@@ -133,10 +139,10 @@ func TestContinuityRefusesResearchPlanLegislator(t *testing.T) {
 // column to standing.
 func TestContinuityRefusesPlanlessLegislatorWithoutRetainedBinding(t *testing.T) {
 	t.Parallel()
-	s, _ := authorityLawScenario(t, authorityLawFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 6})
+	s, _ := authorityLawScenario(t, authorityLawFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: authorityLegislatorDeclaredVersion})
 	defer s.Close()
 	seedAuthorityWork(t, s, authoritySyntheticWork)
-	seedPlanlessLegislatorFixture(t, s, authoritySyntheticWork, 6, `["CD-8751"]`)
+	seedPlanlessLegislatorFixture(t, s, `["CD-8751"]`)
 	db := s.DatabaseForTesting()
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
@@ -158,12 +164,12 @@ func TestContinuityRefusesPlanlessLegislatorWithoutRetainedBinding(t *testing.T)
 func TestContinuityRefusesPlanlessLegislatorWithoutAdmittedReference(t *testing.T) {
 	t.Parallel()
 	s, _ := authorityLawScenario(t,
-		authorityLawFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 6},
+		authorityLawFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: authorityLegislatorDeclaredVersion},
 		authorityLawFixture{ID: "CD-8752", Kind: "decision", Derived: true},
 	)
 	defer s.Close()
 	seedAuthorityWork(t, s, authoritySyntheticWork)
-	seedPlanlessLegislatorFixture(t, s, authoritySyntheticWork, 6, `[]`)
+	seedPlanlessLegislatorFixture(t, s, `[]`)
 	db := s.DatabaseForTesting()
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
@@ -187,10 +193,10 @@ func TestContinuityRefusesPlanlessLegislatorWithoutAdmittedReference(t *testing.
 func TestWorkflowWriteAdmitsPlanlessHistoricalLegislator(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _ := authorityLawScenario(t, authorityLawFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 6})
+	s, _ := authorityLawScenario(t, authorityLawFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: authorityLegislatorDeclaredVersion})
 	defer s.Close()
 	seedAuthorityWork(t, s, authoritySyntheticWork)
-	seedPlanlessLegislatorFixture(t, s, authoritySyntheticWork, 6, `["CD-8751"]`)
+	seedPlanlessLegislatorFixture(t, s, `["CD-8751"]`)
 	writeWork := "work-write-path-neighbor"
 	db := s.DatabaseForTesting()
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {

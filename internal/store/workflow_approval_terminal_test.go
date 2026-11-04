@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -131,6 +132,39 @@ func TestWorkflowPlanConfirmationRequiresCriterionProof(t *testing.T) {
 	_ = planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindMissingEvidence)
 	_ = planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindMissingEvidence)
 	assertApprovalRefusalUnchanged(t, f, version, events)
+}
+
+// The fold owns the same two terminal facts the admission checks: a raw
+// completion event against a completed plan still refuses when the premise
+// confirmation or the delivery record is missing.
+func TestWorkflowCompletionFoldRequiresRecordedFacts(t *testing.T) {
+	for _, fault := range []struct {
+		name string
+		sql  string
+	}{
+		{"missing-confirmation", `DELETE FROM workflow_premise_confirmations WHERE work_id=?`},
+		{"missing-delivery", `DELETE FROM workflow_delivery_state WHERE work_id=?`},
+	} {
+		t.Run(fault.name, func(t *testing.T) {
+			const workID = "completion-fold-facts"
+			s, completion := seedCompletionGateCase(t, workID, completionGateCase{
+				requiredEvidence: []string{"verification", "review"}, emptyMandate: true,
+				includeVerdict: true, includePremise: true, verdictKind: "ok", omitClosure: true,
+			})
+			initialVersion := readWorkVersion(t, s, workID)
+			completeReviewedPlanForTerminalTest(t, s, workID, workflowActorForRef(t, s, completion.Actor))
+			completion = shiftWorkflowTestEventVersions(completion, readWorkVersion(t, s, workID)-initialVersion)
+			execInFold(t, s, strings.Replace(fault.sql, "?", "'"+workID+"'", 1))
+			err := CompleteWorkflow(t.Context(), s, completion)
+			if !hasFailureKind(err, KindMissingEvidence) {
+				t.Fatalf("fold completion with %s = %v, want missing_evidence", fault.name, err)
+			}
+			var state string
+			if err := s.db.QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state); err != nil || state != "running" {
+				t.Fatalf("refused fold changed instance state: %q err=%v", state, err)
+			}
+		})
+	}
 }
 
 func TestWorkflowPlanCompletionRequiresPlanAndRecordedFacts(t *testing.T) {

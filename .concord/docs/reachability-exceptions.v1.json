@@ -112,10 +112,8 @@
         "internal/store.validateCrossFieldDeclaration",
         "internal/store.validateCrossFieldKindMatches",
         "internal/store.validateEngineCrossFieldDeclarations",
-        "internal/store.validatePayloadFieldBounds",
         "internal/store.verdictBatchActionFields",
         "internal/store.workflowAcceptanceSubjectCurrent",
-        "internal/store.workflowCallerEvidenceBinder",
         "internal/store.workflowProjectionInvariant"
       ],
       "reason": "These helpers are the contract generator's projection surface and retained typed validators exercised by store conformance and review-admission tests through package seams the CLI does not reach."

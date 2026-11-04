@@ -220,19 +220,6 @@ func validPredicateKind(value PredicateKind) bool {
 	return value == PredicateExists || value == PredicateAbsent || value == PredicateOutcome || value == PredicateCheck
 }
 
-func validatePayloadFieldBounds(field WorkflowPayloadField) bool {
-	if field.NonBlank && field.ValueType != PayloadString && field.ValueType != PayloadRef && field.ValueType != PayloadDigest || len(field.Forbidden) > 32 || !uniqueStrings(field.Forbidden) || len(field.Forbidden) != 0 && field.ValueType != PayloadString && field.ValueType != PayloadRef && field.ValueType != PayloadDigest {
-		return false
-	}
-	if field.MinLength != nil && (*field.MinLength < 0 || *field.MinLength > 16384) || field.MaxLength != nil && (*field.MaxLength < 0 || *field.MaxLength > 16384) || field.MinItems != nil && (*field.MinItems < 0 || *field.MinItems > 64) || field.MaxItems != nil && (*field.MaxItems < 0 || *field.MaxItems > 64) || field.Minimum != nil && (*field.Minimum < -2147483648 || *field.Minimum > 2147483647) || field.Maximum != nil && (*field.Maximum < -2147483648 || *field.Maximum > 2147483647) {
-		return false
-	}
-	if field.MinLength != nil && field.MaxLength != nil && *field.MinLength > *field.MaxLength || field.MinItems != nil && field.MaxItems != nil && *field.MinItems > *field.MaxItems || field.Minimum != nil && field.Maximum != nil && *field.Minimum > *field.Maximum {
-		return false
-	}
-	return true
-}
-
 // validateCrossFieldDeclaration holds the shape of an engine policy's
 // declared cross-field rules so a declaration that drifts from its own
 // fields fails validation rather than publishing a rule nothing enforces.
@@ -839,16 +826,9 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 // workflowCallerEvidenceBinders names the actions whose completed event binds
 // the evidence kind the call submitted. Each payload declares the
 // evidence_kind enum (evidenceBindingActionFields), so one action can produce
-// any declared kind. The evidence-reference payload revisions select binders
-// through workflowCallerEvidenceBinder, and
-// TestEvidenceBinderCaseArmMatchesTheProducerTable binds the
-// workflowSemanticActionEvents case arm to this list, so producibility and
-// routing cannot disagree.
+// any declared kind. The workflowSemanticActionEvents case arm reads this
+// list, so producibility and routing cannot disagree.
 var workflowCallerEvidenceBinders = []string{"bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation"}
-
-func workflowCallerEvidenceBinder(actionID string) bool {
-	return slices.Contains(workflowCallerEvidenceBinders, actionID)
-}
 
 func currentActionDefinition(id string, payloadContracts bool) WorkflowActionDefinition {
 	policy, ok := builtinActionPolicies[id]

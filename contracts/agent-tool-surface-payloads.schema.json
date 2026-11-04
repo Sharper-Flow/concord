@@ -3408,6 +3408,9 @@
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
         },
+        "page": {
+          "$ref": "#/$defs/page"
+        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
@@ -3415,7 +3418,20 @@
       }
     },
     "resume_read_result": {
-      "description": "The concord_work_trace.resume result: the item's stored step plan exactly as written, with the ids of the derived next steps in plan order and the work version the expected-version writes use. Before the type is picked the plan fields are absent and opening_steps answers instead: intake first, clarify only while intake found open questions and no clarification is recorded, then pick_type. The intake outcomes that end or replace the item without a type pick leave opening_steps empty. A terminal item still answers with its stored plan.",
+      "description": "The complete resume document when it fits, otherwise authenticated lossless JSON fragments. Reconstruct the entire document and verify its digest and byte length before validating resume_read_document and using it.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "work_id": {}, "version": {}, "state": {}, "type": {}, "steps": {}, "next_steps": {}, "opening_steps": {},
+        "encoding": {}, "digest": {}, "total_bytes": {}, "offset": {}, "data": {}, "fragment_bytes": {}, "document_complete": {}
+      },
+      "oneOf": [
+        {"$ref": "#/$defs/resume_read_document"},
+        {"$ref": "#/$defs/json_fragment_page"}
+      ]
+    },
+    "resume_read_document": {
+      "description": "The item's stored step plan exactly as written, derived next step ids and work version. Before intake, opening_steps contains intake and pick_type; clarify is conditional on the intake outcome. After clarify-required intake it contains clarify and pick_type, and after proceed or clarification it contains pick_type. Terminal items carry neither next_steps nor opening_steps.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -3432,6 +3448,15 @@
           "minimum": 1
         },
         "state": {
+          "enum": [
+            "intake",
+            "running",
+            "blocked",
+            "verifying",
+            "completed",
+            "cancelled",
+            "superseded"
+          ],
           "type": "string"
         },
         "type": {

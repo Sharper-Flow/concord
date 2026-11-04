@@ -582,7 +582,7 @@
       "operation": "concord_work_trace.resume",
       "result_invalid_cases": [
         {
-          "state": "id-1",
+          "state": "intake",
           "unknown": true,
           "version": 1,
           "work_id": "id-1"
@@ -590,7 +590,7 @@
       ],
       "result_schema": "resume_read_result",
       "result_valid": {
-        "state": "id-1",
+        "state": "intake",
         "version": 1,
         "work_id": "id-1"
       }
@@ -1937,5 +1937,5 @@
       }
     }
   ],
-  "manifest_digest": "sha256:512942981d91d79febf4140c21506468070700d5a4fa07748f7190ba52e9c781"
+  "manifest_digest": "sha256:798e3666a173b3d9e1f9c9d6c956bd9102453e132be438593875bad8edf14892"
 }

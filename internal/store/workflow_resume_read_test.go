@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 // writeResumePreludeFixture records one intake (and optional clarify) prelude
@@ -42,8 +43,8 @@ func TestReadWorkflowResumeAnswersOpeningStepsBeforeIntake(t *testing.T) {
 	if resume.Type != "" || resume.Steps != nil || resume.NextSteps != nil {
 		t.Fatalf("fresh item answers plan fields: %+v", resume)
 	}
-	if got := strings.Join(resume.OpeningSteps, ","); got != "intake" {
-		t.Fatalf("opening steps=%q, want intake", got)
+	if got := strings.Join(resume.OpeningSteps, ","); got != "intake,pick_type" {
+		t.Fatalf("opening steps=%q, want intake,pick_type", got)
 	}
 	if resume.Version != version {
 		t.Fatalf("version=%d, want the work version %d", resume.Version, version)
@@ -144,6 +145,48 @@ func TestReadWorkflowResumeCompletePlanHasNoNextStep(t *testing.T) {
 	}
 	if len(resume.NextSteps) != 0 {
 		t.Fatalf("complete plan answers next steps %v, want none", resume.NextSteps)
+	}
+}
+
+// cancelResumeWorkFixture cancels one needed work item through the lifecycle
+// fold, which closes its workflow instance in the same write.
+func cancelResumeWorkFixture(t *testing.T, s *Store, workID string) {
+	t.Helper()
+	version := readWorkVersion(t, s, workID)
+	payload, err := json.Marshal(map[string]any{"from": "needed", "to": "cancelled", "reason": "no longer wanted", "expected_version": version, "resulting_version": version + 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{
+		{EventID: "resume-cancel-" + workID, Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: payload},
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A terminal item still answers its stored plan, but nothing remains to do:
+// neither an opening step nor a plan step is offered to a resuming session.
+func TestReadWorkflowResumeTerminalItemOffersNoStep(t *testing.T) {
+	t.Parallel()
+	s, _ := seedBootstrapCapturedWork(t, "resume-cancelled-intake")
+	cancelResumeWorkFixture(t, s, "resume-cancelled-intake")
+	resume, err := ReadWorkflowResume(context.Background(), s, "resume-cancelled-intake")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resume.State != "cancelled" || len(resume.OpeningSteps) != 0 {
+		t.Fatalf("cancelled intake item answers state=%q opening=%v, want cancelled and none", resume.State, resume.OpeningSteps)
+	}
+
+	s2, _ := seedBootstrapCapturedWork(t, "resume-cancelled-planned")
+	seedWorkflowPlanFrontier(t, s2, "resume-cancelled-planned", WorkflowStepPlanChange, "implement")
+	cancelResumeWorkFixture(t, s2, "resume-cancelled-planned")
+	resume, err = ReadWorkflowResume(context.Background(), s2, "resume-cancelled-planned")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resume.State != "cancelled" || len(resume.Steps) == 0 || len(resume.NextSteps) != 0 {
+		t.Fatalf("cancelled planned item answers state=%q steps=%d next=%v, want cancelled, its plan, and no next step", resume.State, len(resume.Steps), resume.NextSteps)
 	}
 }
 

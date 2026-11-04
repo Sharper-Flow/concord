@@ -5,24 +5,25 @@ import (
 	"database/sql"
 )
 
-// The one resume view (CON-1575 end state 1). A session resuming a work item
-// reads the item's stored step plan (CON-1574 end state 7) with the derived
-// next steps and the work version. Before the type is picked, the plan is nil
-// and the read derives the remaining opening steps from the recorded intake
-// and clarification prelude.
+// The one resume view. A session resuming a work item reads the item's stored
+// step plan with the derived next steps and the work version. Before the type
+// is picked, the plan is nil and the read derives the remaining opening steps
+// from the recorded intake and clarification prelude.
 
-// WorkflowResumeRead is the single resume read's bounded answer. Steps are the
-// stored plan exactly as written, attempts included; NextSteps holds the ids of
-// the derived frontier steps in plan order; OpeningSteps replaces Steps before
-// the type is picked. A terminal item still answers with its stored plan.
+// WorkflowResumeRead is the single resume read's answer. Steps are the stored
+// plan exactly as written, attempts included; NextSteps holds the ids of the
+// derived frontier steps in plan order; OpeningSteps replaces Steps before the
+// type is picked. A terminal item still answers with its stored plan but
+// offers no next or opening step: nothing remains to resume.
 type WorkflowResumeRead struct {
-	WorkID       string               `json:"work_id"`
-	Version      int64                `json:"version"`
-	State        string               `json:"state"`
-	Type         WorkflowStepPlanType `json:"type,omitempty"`
-	Steps        []WorkflowPlanStep   `json:"steps,omitempty"`
-	NextSteps    []string             `json:"next_steps,omitempty"`
-	OpeningSteps []string             `json:"opening_steps,omitempty"`
+	SourceVersionWatermark int64                `json:"-"`
+	WorkID                 string               `json:"work_id"`
+	Version                int64                `json:"version"`
+	State                  string               `json:"state"`
+	Type                   WorkflowStepPlanType `json:"type,omitempty"`
+	Steps                  []WorkflowPlanStep   `json:"steps,omitempty"`
+	NextSteps              []string             `json:"next_steps,omitempty"`
+	OpeningSteps           []string             `json:"opening_steps,omitempty"`
 }
 
 // ReadWorkflowResume answers the one resume read for one work item. The read
@@ -41,6 +42,10 @@ func ReadWorkflowResume(ctx context.Context, s *Store, workID string) (WorkflowR
 		return out, wrapFailure(KindUnavailable, "C19.Resume", "cannot open a consistent resume read", true, "retry once the database is readable", err)
 	}
 	defer tx.Rollback()
+	out.SourceVersionWatermark, err = storeRevision(ctx, tx)
+	if err != nil {
+		return out, err
+	}
 	if err := publishedWorkAbsenceQ(ctx, tx, workID, "C19.Resume"); err != nil {
 		return out, err
 	}
@@ -60,6 +65,7 @@ func ReadWorkflowResume(ctx context.Context, s *Store, workID string) (WorkflowR
 		return out, wrapFailure(KindUnavailable, "C19.Resume", "cannot read the workflow plan", true, "retry once the database is readable", err)
 	}
 	out.WorkID = workID
+	terminal := workflowInstanceTerminal(out.State)
 	if !typ.Valid && !raw.Valid {
 		// Intake: no type has been picked, so the plan is nil and the read
 		// answers the remaining opening steps from the recorded prelude.
@@ -67,7 +73,9 @@ func ReadWorkflowResume(ctx context.Context, s *Store, workID string) (WorkflowR
 		if preludeErr != nil {
 			return out, preludeErr
 		}
-		out.OpeningSteps = workflowOpeningSteps(prelude)
+		if !terminal {
+			out.OpeningSteps = workflowOpeningSteps(prelude)
+		}
 		return out, nil
 	}
 	plan, err := decodeStoredPlanTx(typ, raw)
@@ -76,12 +84,21 @@ func ReadWorkflowResume(ctx context.Context, s *Store, workID string) (WorkflowR
 	}
 	out.Type = plan.Type
 	out.Steps = plan.Steps
+	if terminal {
+		return out, nil
+	}
 	frontier := WorkflowStepPlanFrontier(*plan)
 	out.NextSteps = make([]string, 0, len(frontier))
 	for _, step := range frontier {
 		out.NextSteps = append(out.NextSteps, step.ID)
 	}
 	return out, nil
+}
+
+// workflowInstanceTerminal reports the instance states that end the item's
+// workflow; no step remains to take in them.
+func workflowInstanceTerminal(state string) bool {
+	return state == "completed" || state == "cancelled" || state == "superseded"
 }
 
 // readResumePreludeTx reads the intake/clarification prelude for the resume
@@ -105,11 +122,10 @@ func readResumePreludeTx(ctx context.Context, tx *sql.Tx, workID string) (*workf
 // workflowOpeningSteps derives the remaining opening steps from the recorded
 // prelude: intake first, clarify only while intake found open questions and no
 // clarification is recorded, then picking the type. The outcomes that end or
-// replace the item without a type pick leave no opening step (CON-1574 end
-// state 9).
+// replace the item without a type pick leave no opening step.
 func workflowOpeningSteps(prelude *workflowPreludeState) []string {
 	if prelude == nil {
-		return []string{"intake"}
+		return []string{"intake", "pick_type"}
 	}
 	switch prelude.Intake.Outcome {
 	case WorkflowIntakeProceed:

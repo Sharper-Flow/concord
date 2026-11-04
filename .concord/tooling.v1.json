@@ -28,7 +28,7 @@
       "cost_hint": "One CI shard under full admission; a shard is expected to finish well inside the 15-minute package alarm.",
       "config_path": "bin/oc-test",
       "automation_path": ".github/workflows/ci.yml",
-      "notes": "Required CI owns the whole-suite store pass; this tier reproduces or investigates one failing shard locally and is not a pre-push step. Run each shard index as its own invocation, store-shard 1 7 through store-shard 7 7, matching CI's shard count; every run admits one shard and releases the shared slot between shards. The tier uses CI's scripts/go-test-shard.py selection with discovery inside admission. Bounded verify-race remains a distinct CI-only selection."
+      "notes": "Required CI owns the whole-suite store pass; this tier reproduces or investigates one failing shard locally and is not a pre-push step. Each invocation takes one shard index, 1 through 7 to match CI's shard count, runs that shard under one full admission, and releases the shared slot when it ends. The tier uses CI's scripts/go-test-shard.py selection with discovery inside admission. Bounded verify-race remains a distinct CI-only selection."
     },
     {
       "id": "go-vet",

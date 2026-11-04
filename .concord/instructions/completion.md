@@ -16,12 +16,12 @@ gate demands fresh execution. Evidence must still bind the subject and producer
 the gate requires; never relabel an earlier commit's result.
 
 Before pushing, run the repository's declared pre-push or pre-merge checks
-through existing host admission. Where a pre-push hook is installed, the hook
-runner's configuration is that declared check: let the installed hook run it;
-never bypass it. Only where the repository installs no such hook do the checks
-its contributing or testing docs name stand in as the declared check. A failed
-declared check stops the push. If the repository declares no such checks, say
-so in the completion report.
+through existing host admission. Where the repository configures a pre-push
+hook, the hook runner's configuration is that declared check: let the
+installed hook run it; never bypass it. Only where the repository configures
+no such hook do the checks its contributing or testing docs name stand in as
+the declared check. A failed declared check stops the push. If the repository
+declares no such checks, say so in the completion report.
 
 Stop when required acceptance and checks pass and material change-related risks
 have adequate evidence. Do not add verification merely to repeat a passing

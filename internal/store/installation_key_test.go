@@ -41,6 +41,12 @@ func containsUncertainRollbackFailure(err error) bool {
 	return false
 }
 
+// exactEnvelope reports whether a mechanism envelope matches every public
+// field a caller consumes.
+func exactEnvelope(failure *Failure, detail string, retrySafe bool, recovery string, effectPossible bool) bool {
+	return failure.Detail == detail && failure.RetrySafe == retrySafe && failure.RecoveryAction == recovery && failure.EffectPossible == effectPossible
+}
+
 // cancelKeyInsertConnector cancels the test context while the installation-key
 // INSERT prepares, so the cancellation lands inside the write transaction and
 // database/sql settles it by automatic or deferred rollback.
@@ -79,7 +85,7 @@ func (c *cancelKeyInsertConn) PrepareContext(ctx context.Context, query string) 
 
 func TestInstallationKeyFailureFieldsAndCauses(t *testing.T) {
 	t.Parallel()
-	for _, mode := range []string{"missing row", "invalid length", "canceled inspection", "canceled during insert", "missing revision", "missing revision with uncertain rollback", "insert refusal", "refused insert with uncertain cleanup", "ignored insert rollback failure"} {
+	for _, mode := range []string{"missing row", "invalid length", "canceled inspection", "missing revision", "missing revision with uncertain rollback", "insert refusal", "refused insert with uncertain cleanup", "ignored insert rollback failure"} {
 		t.Run(mode, func(t *testing.T) {
 			s := openTemp(t)
 			ctx := t.Context()
@@ -117,31 +123,6 @@ func TestInstallationKeyFailureFieldsAndCauses(t *testing.T) {
 					t.Fatalf("cancellation persisted a revision: %d -> %d", before, after)
 				}
 				want = Failure{Kind: KindUnavailable, Op: "open", Detail: "cannot inspect the installation cursor key", RetrySafe: true, RecoveryAction: "confirm the database is readable"}
-			case "canceled during insert":
-				if _, err := s.db.Exec(`DELETE FROM agent_installation_keys`); err != nil {
-					t.Fatal(err)
-				}
-				before := revisionValue(t, s.db)
-				cancelCtx, cancel := context.WithCancel(ctx)
-				connector := &cancelKeyInsertConnector{dsn: dataSourceName(s.Path()), cancel: cancel}
-				db := sql.OpenDB(connector)
-				db.SetMaxOpenConns(1)
-				defer db.Close()
-				err = ensureInstallationKey(cancelCtx, db)
-				// database/sql's automatic rollback waits for the running
-				// statement, so the exec itself reports the cancellation;
-				// which rollback settles the transaction does not change the
-				// persisted state.
-				if !errors.Is(err, context.Canceled) {
-					t.Fatalf("cancellation during insert cause: %v", err)
-				}
-				if after := revisionValue(t, s.db); after != before {
-					t.Fatalf("cancellation during insert persisted a revision: %d -> %d", before, after)
-				}
-				if count := cursorKeyCount(t, s.db); count != 0 {
-					t.Fatalf("cancellation during insert created %d keys", count)
-				}
-				want = Failure{Kind: KindUnavailable, Op: "open", Detail: "cannot persist the installation cursor key", RetrySafe: true, RecoveryAction: "retry once the database is writable"}
 			case "missing revision", "missing revision with uncertain rollback":
 				if _, err := s.db.Exec(`DELETE FROM agent_installation_keys; DELETE FROM store_revision`); err != nil {
 					t.Fatal(err)
@@ -243,5 +224,46 @@ func TestInstallationKeyFailureFieldsAndCauses(t *testing.T) {
 				t.Fatalf("mechanism error escaped the store envelope: %v", err)
 			}
 		})
+	}
+}
+
+// Cancellation during the insert settles the open write transaction either in
+// scope (a proved rollback: only the persist failure, no possible effect) or
+// through database/sql's context watchdog (whose discarded rollback error
+// reports the unproved settlement: a cleanup failure with a possible effect).
+// Both outcomes keep the cancellation cause and persist nothing.
+func TestInstallationKeyCancellationDuringInsertReportsTruthfulSettlement(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	if _, err := s.db.Exec(`DELETE FROM agent_installation_keys`); err != nil {
+		t.Fatal(err)
+	}
+	before := revisionValue(t, s.db)
+	cancelCtx, cancel := context.WithCancel(t.Context())
+	connector := &cancelKeyInsertConnector{dsn: dataSourceName(s.Path()), cancel: cancel}
+	db := sql.OpenDB(connector)
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	err := ensureInstallationKey(cancelCtx, db)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation during insert cause: %v", err)
+	}
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindUnavailable || failure.Op != "open" {
+		t.Fatalf("creation envelope: %v", err)
+	}
+	proved := exactEnvelope(failure, "cannot persist the installation cursor key", true, "retry once the database is writable", false)
+	unproved := exactEnvelope(failure, "cannot clean up installation cursor key creation", false, "reconcile database state before retrying", true)
+	if !proved && !unproved {
+		t.Fatalf("settlement envelope is neither proved nor unproved rollback: %+v", failure)
+	}
+	if unprovedSettled := containsUncertainRollbackFailure(err); unprovedSettled != failure.EffectPossible {
+		t.Fatalf("settlement uncertainty and effect flag disagree: %v", err)
+	}
+	if after := revisionValue(t, s.db); after != before {
+		t.Fatalf("cancellation during insert persisted a revision: %d -> %d", before, after)
+	}
+	if count := cursorKeyCount(t, s.db); count != 0 {
+		t.Fatalf("cancellation during insert created %d keys", count)
 	}
 }

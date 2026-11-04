@@ -152,7 +152,7 @@ func TestWorkContextFactsAnchorSelectionBackfillAndLogBlind(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "context-selection-144.db")
 		db := openMigratedTo(t, path, 144)
 		copyFixtureDataToPrefix(t, f.store, db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_contracts", "workflow_architecture_bindings", "workflow_contract_affected_domains"}, map[string]map[string]string{
-			"workflow_contracts":             {"definition_ref": "'workflow.break_fix'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "law_change": "NULL"},
+			"workflow_contracts":             {"required_evidence": "'[]'", "definition_ref": "'workflow.break_fix'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "law_change": "NULL"},
 			"workflow_architecture_bindings": {"domain_registry_content_hash": "'sha256:" + strings.Repeat("a", 64) + "'"},
 		}, "fold_guard")
 		var definitionRef, definitionDigest string

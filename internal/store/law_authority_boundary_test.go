@@ -192,8 +192,8 @@ func seedAuthorityContract(t *testing.T, s *Store, workID string, version int64,
 	if planType != WorkflowStepPlanResearch {
 		truthValue = 1
 	}
-	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,changes_product_truth,legislative_subjects) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		workID, version, "Synthetic fixture premise for the authority resolver.", "internal_sqlite", `[]`, `[]`, "2026-10-11T00:00:00Z", authorityActorRef, `[]`, string(encodedModifies), 0, "prototype_internal", truthValue, string(encodedSubjects)); err != nil {
+	if _, err := db.Exec(`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,changes_product_truth,legislative_subjects) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		workID, version, "Synthetic fixture premise for the authority resolver.", "internal_sqlite", `[]`, "2026-10-11T00:00:00Z", authorityActorRef, `[]`, string(encodedModifies), 0, "prototype_internal", truthValue, string(encodedSubjects)); err != nil {
 		t.Fatal(err)
 	}
 }

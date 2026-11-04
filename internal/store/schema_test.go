@@ -215,7 +215,7 @@ func TestMigration88BackfillsWorkflowContractDefinitionAuthorityPins(t *testing.
 	if ref != definitionRef || version != 6 || digest != historicalDefinitionDigest {
 		t.Fatalf("migration 88 pins = %q, %d, %q", ref, version, digest)
 	}
-	const retained = `SELECT work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate FROM workflow_contracts WHERE work_id='migration-88-contract-pins'`
+	const retained = `SELECT work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate FROM workflow_contracts WHERE work_id='migration-88-contract-pins'`
 	want := retirementUpgradeRows(t, db, retained)
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
@@ -1693,7 +1693,7 @@ func insertRigorClassContract(ctx context.Context, db *sql.DB, actorRef, rigorCl
 		_, err := db.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('rigor-class-work',1,'rigor class','check','{"kind":"check"}','internal_sqlite','[]','[]','now',?,'[]','[]',0,?)`, actorRef, rigorClass)
 		return err
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('rigor-class-work',1,'rigor class','internal_sqlite','[]','[]','now',?,'[]','[]',0,?)`, actorRef, rigorClass); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('rigor-class-work',1,'rigor class','internal_sqlite','[]','now',?,'[]','[]',0,?)`, actorRef, rigorClass); err != nil {
 		return err
 	}
 	var predicatesTable int

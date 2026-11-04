@@ -17,7 +17,7 @@ func TestMutationEnvelopePublishesCompleteWorkPin(t *testing.T) {
 	version := seedAgentWorkflow(t, s, grant)
 	actor := store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef)
 	_, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-1',1,'fixture premise','internal_sqlite','[]','[]','now',?,'[]','[]',1,'prototype_internal');
+		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-1',1,'fixture premise','internal_sqlite','[]','now',?,'[]','[]',1,'prototype_internal');
 		INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES('work-1',1,'product-1','root','sha256:' || printf('%064d',0));
 		INSERT INTO workflow_contract_verification_obligations(work_id,contract_version,law_id,obligation_id) VALUES('work-1',1,'law:fixture','verification'),('work-1',1,'law:fixture','review');
 		DELETE FROM write_guard`, actor)

@@ -108,11 +108,11 @@ names its `law_id` in `legislative_subjects`.
 
 `legislative_subjects` is part of the contract presented for approval and is
 stored at that exact contract version. It holds up to 800 subjects; an empty
-list establishes no standing. Before predicate storage is removed, migrate the
-union of all `exists` and `absent` predicate subjects into this list for every
-retained contract version and Product. Do not filter the union by current law,
-claims, or active contracts. Other predicate kinds contribute no subjects.
-A malformed source or failed transfer prevents the destructive removal.
+list establishes no standing. For every retained contract version and Product,
+the list preserves the union of historical `exists` and `absent` predicate
+subjects, without filtering by current law, claims, or active contracts. Other
+predicate kinds contribute no subjects. Malformed source or failed transfer
+prevents destructive removal.
 
 A record outside the closed D5 default cohort is `derived` until an
 operator-approved contract meets this test. The test reads the

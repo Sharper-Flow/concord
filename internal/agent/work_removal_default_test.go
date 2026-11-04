@@ -282,7 +282,7 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	commitAgentFixtureLaw(t, root, ".concord/law/specs/shelving-fixture.md",
 		agentFixtureLawFrontmatter("spec:shelving-fixture", registry.RootDomainID, "The shelving fixture registry declares no child Domain, so this law has no child home available."))
 	execProjection(t, s, []string{
-		`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) SELECT 'work-1',1,'Preserve the planning goal','internal_sqlite','[]','[]','2026-08-08T12:00:00Z',execution_actor_ref,'["spec:shelving-fixture"]','[]',1,'prototype_internal' FROM workflow_instances WHERE work_id='work-1'`,
+		`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) SELECT 'work-1',1,'Preserve the planning goal','internal_sqlite','[]','2026-08-08T12:00:00Z',execution_actor_ref,'["spec:shelving-fixture"]','[]',1,'prototype_internal' FROM workflow_instances WHERE work_id='work-1'`,
 	}, [][]any{nil})
 	var workflowType, stepPlan any
 	if err := s.DatabaseForTesting().QueryRow(`SELECT workflow_type,step_plan FROM workflow_instances WHERE work_id='work-1'`).Scan(&workflowType, &stepPlan); err != nil {

@@ -22,6 +22,8 @@ type outcomeRetirementProof struct {
 	checksum string
 	digest   string
 	verified bool
+	// refusal is raised only if migration 185 has rows that need the proof.
+	refusal error
 }
 
 func withOutcomeRetirementProof(ctx context.Context, snapshot string, manifest BackupManifest) context.Context {
@@ -49,7 +51,8 @@ func prepareOutcomeRetirementSnapshot(ctx context.Context, path string) (context
 
 // A supplied snapshot is compared with the same current-state digest as the
 // backup verifier, under the migration transaction, before any pending
-// migration changes rows. Migration 185 itself decides whether it needs one.
+// migration changes rows. Drift is recorded rather than refused here: only
+// migration 185 knows whether it has rows the snapshot must preserve.
 func verifyOutcomeRetirementSnapshot(ctx context.Context, tx *sql.Tx, scope migrationScope, applied map[int]appliedMigration) error {
 	if scope != migrateForUpgrade || len(applied) == 0 {
 		return nil
@@ -63,35 +66,43 @@ func verifyOutcomeRetirementSnapshot(ctx context.Context, tx *sql.Tx, scope migr
 	}
 	checksum, err := fileSHA256(proof.snapshot)
 	if err != nil || checksum != proof.checksum {
-		return newFailure(KindUpgradeBlocked, "migrate", "outcome retirement snapshot changed after verification", false, "create a fresh verified snapshot")
+		proof.refusal = newFailure(KindUpgradeBlocked, "migrate", "outcome retirement snapshot changed after verification", false, "create a fresh verified snapshot")
+		return nil
 	}
 	digest, err := sqlitedb.CurrentStateDigestTx(ctx, tx)
 	if err != nil {
 		return mechanismFailure(err)
 	}
 	if digest != proof.digest || digest == "" {
-		return newFailure(KindUpgradeBlocked, "migrate", "store changed after the verified snapshot", false, "create a fresh verified snapshot")
+		proof.refusal = newFailure(KindUpgradeBlocked, "migrate", "store changed after the verified snapshot", false, "create a fresh verified snapshot")
+		return nil
 	}
 	proof.verified = true
 	return nil
 }
 
-// Migration 185 requires verified preservation of outcome rows. Empty tables
-// allow fresh creation and lower-level fixtures to apply the schema. The
+// Migration 185 requires verified preservation of outcome rows and evidence
+// declarations. Empty sources allow fresh creation and lower-level fixtures. The
 // upgrade command independently snapshots existing databases before breaking
 // migrations, regardless of the outcome tables' population.
 func requireOutcomeRetirementSnapshot(ctx context.Context, q migrationRunner) error {
 	var populated bool
 	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_contract_predicates)
  OR EXISTS(SELECT 1 FROM workflow_predicate_verdicts)
- OR EXISTS(SELECT 1 FROM workflow_review_state)`).Scan(&populated); err != nil {
+ OR EXISTS(SELECT 1 FROM workflow_review_state)
+ OR EXISTS(SELECT 1 FROM workflow_contracts WHERE json_array_length(required_evidence)>0)`).Scan(&populated); err != nil {
 		return err
 	}
 	if !populated {
 		return nil
 	}
-	if proof, ok := ctx.Value(outcomeRetirementProofKey{}).(*outcomeRetirementProof); ok && proof.verified {
-		return nil
+	if proof, ok := ctx.Value(outcomeRetirementProofKey{}).(*outcomeRetirementProof); ok {
+		if proof.verified {
+			return nil
+		}
+		if proof.refusal != nil {
+			return proof.refusal
+		}
 	}
 	return newFailure(KindUpgradeBlocked, "migrate", "outcome retirement requires a verified snapshot", false, "run concord upgrade with a verified snapshot")
 }

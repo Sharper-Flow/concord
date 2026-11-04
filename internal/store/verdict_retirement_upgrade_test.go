@@ -76,6 +76,97 @@ func seedRetirementRawPredicate(t *testing.T, db *sql.DB, work string, version, 
 	}
 }
 
+func seedRetirementRetainedFacts(t *testing.T, db *sql.DB) {
+	t.Helper()
+	actor := DeriveWorkflowActorRef("principal:one", "client:one", "agent:one", "session:one")
+	_, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
+UPDATE workflow_contracts SET superseded_by=2, route_conventions='["route:one"]', spec_mandate='["spec:mandate"]',
+ rigor_class='production_public', law_modifies='["law:one"]', law_boundary_version=1,
+ self_repair_json='{"reason":"fixture"}', supersession_seq=17, last_healthy_seq=12,
+ decision_domains='["legal","security"]', changes_product_truth=0 WHERE work_id='work-one' AND contract_version=1;
+INSERT INTO workflow_candidate_sets VALUES('work-one',1,'work_item','candidate:one','include','fixture scope','candidate-time',?1);
+INSERT INTO workflow_premise_confirmations VALUES('work-one',1,?1,'confirmed-time');
+INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES('work-one',1,'product-one','domain:home',?2);
+INSERT INTO workflow_contract_affected_domains VALUES('work-one',1,'domain:affected');
+INSERT INTO workflow_contract_domain_modifications VALUES('work-one',1,'domain:modified');
+INSERT INTO workflow_contract_domain_relation_modifications VALUES('work-one',1,'domain:home','depends_on','domain:other');
+INSERT INTO workflow_law_addition_reservations VALUES('product-one','law:new','work-one',1,'domain:home');
+INSERT INTO workflow_contract_law_additions VALUES('work-one',1,'product-one','law:new','domain:home','work-one',1);
+INSERT INTO workflow_contract_verification_obligations VALUES('work-one',1,'law:new','obligation:one');
+INSERT INTO workflow_contract_law_modifications VALUES('work-one',1,'law:existing');
+INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version) VALUES('event:overlap',41,'workflow.overlap','work_item','work-one',?1,1);
+INSERT INTO workflow_overlap_resolutions(resolution_id,event_seq,product_id,from_work_id,to_work_id,from_contract_version,to_contract_version,resolution_kind,reason,created_at) VALUES('resolution:one',41,'product-one','work-one','work-two',1,1,'compatible_with','fixture reason','overlap-time');
+INSERT INTO relations(work_id_from,work_id_to,kind,created_at,resolution_id,reason,record_version) VALUES('work-one','work-two','compatible_with','overlap-time','resolution:one','fixture reason',1);
+DELETE FROM write_guard;`, actor, "sha256:"+strings.Repeat("b", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func retainedContractRows(t *testing.T, db *sql.DB) map[string][][]any {
+	t.Helper()
+	rows := map[string][][]any{}
+	rows["workflow_contracts"] = retirementUpgradeRows(t, db, `SELECT work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,superseded_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json,supersession_seq,last_healthy_seq,decision_domains,changes_product_truth FROM workflow_contracts ORDER BY work_id,contract_version`)
+	for _, table := range []string{"workflow_candidate_sets", "workflow_premise_confirmations", "workflow_architecture_bindings", "workflow_contract_affected_domains", "workflow_contract_domain_modifications", "workflow_contract_domain_relation_modifications", "workflow_law_addition_reservations", "workflow_contract_law_additions", "workflow_contract_verification_obligations", "workflow_contract_law_modifications", "workflow_overlap_resolutions", "relations"} {
+		rows[table] = retirementUpgradeRows(t, db, `SELECT * FROM `+table+` ORDER BY rowid`)
+		if len(rows[table]) == 0 {
+			t.Fatalf("fixture missing retained rows in %s", table)
+		}
+	}
+	return rows
+}
+
+func assertRetirementContractGuards(t *testing.T, db *sql.DB) {
+	t.Helper()
+	tx, err := db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	insert := `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,decision_domains) SELECT work_id,3,'Guard fixture',consequence_class,route_conventions,approved_at,approved_by,spec_mandate,?,? FROM workflow_contracts WHERE work_id='work-one' AND contract_version=2`
+	for _, op := range []struct {
+		query string
+		args  []any
+	}{
+		{insert, []any{"prototype_internal", `["legal"]`}},
+		{`UPDATE workflow_contracts SET premise='changed' WHERE work_id='work-one' AND contract_version=2`, nil},
+		{`DELETE FROM workflow_contracts WHERE work_id='work-one' AND contract_version=2`, nil},
+	} {
+		if _, err := tx.Exec(op.query, op.args...); err == nil || !strings.Contains(err.Error(), "write-seam-only") {
+			t.Fatalf("unguarded operation %s: %v", op.query, err)
+		}
+	}
+	if err := enterWrite(t.Context(), tx); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		query   string
+		args    []any
+		message string
+	}{
+		{insert, []any{"invalid", `["legal"]`}, "rigor class"},
+		{insert, []any{"prototype_internal", `["security","legal"]`}, "decision_domains"},
+		{`UPDATE workflow_contracts SET rigor_class='invalid' WHERE work_id='work-one' AND contract_version=2`, nil, "rigor class"},
+		{`UPDATE workflow_contracts SET decision_domains='["security","legal"]' WHERE work_id='work-one' AND contract_version=2`, nil, "decision_domains"},
+	} {
+		if _, err := tx.Exec(tc.query, tc.args...); err == nil || !strings.Contains(err.Error(), tc.message) {
+			t.Fatalf("invalid guarded operation %s: %v", tc.query, err)
+		}
+	}
+	if _, err := tx.Exec(insert, "production_public", `["legal","security"]`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`UPDATE workflow_contracts SET rigor_class='critical_public', decision_domains='["product"]' WHERE work_id='work-one' AND contract_version=3`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`DELETE FROM workflow_contracts WHERE work_id='work-one' AND contract_version=3`); err != nil {
+		t.Fatal(err)
+	}
+	if err := leaveWrite(t.Context(), tx); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestOutcomeRetirementPreservesAllContractVersions(t *testing.T) {
 	previous := version.Value
 	version.Value = "v-test"
@@ -92,6 +183,8 @@ func TestOutcomeRetirementPreservesAllContractVersions(t *testing.T) {
 	}
 	seedRetirementPredicate(t, db, 2, 0, "absent", []string{"spec:second", "decision:second", "constitution:second"})
 	seedRetirementWorkPredicate(t, db, "work-two", 1, 0, "exists", []string{"spec:other", "decision:other", "constitution:other"})
+	seedRetirementRetainedFacts(t, db)
+	retained := retainedContractRows(t, db)
 	before := retirementUpgradeSnapshot(t, db)
 	if _, err := Upgrade(t.Context(), path, nil); !hasFailureKind(err, KindUpgradeBlocked) || !strings.Contains(err.Error(), "outcome retirement requires a verified snapshot") {
 		t.Fatalf("upgrade without snapshot: %v", err)
@@ -111,6 +204,11 @@ func TestOutcomeRetirementPreservesAllContractVersions(t *testing.T) {
 	if !reflect.DeepEqual(report.Applied, []int{185}) {
 		t.Fatalf("applied = %v", report.Applied)
 	}
+	if after := retainedContractRows(t, db); !reflect.DeepEqual(retained, after) {
+		t.Fatalf("retained contract facts changed: before=%#v after=%#v", retained, after)
+	}
+	retirementUpgradeHealthy(t, db)
+	assertRetirementContractGuards(t, db)
 	var encoded string
 	if err := db.QueryRow(`SELECT legislative_subjects FROM workflow_contracts WHERE work_id='work-one' AND contract_version=1`).Scan(&encoded); err != nil {
 		t.Fatal(err)
@@ -266,6 +364,24 @@ func TestOutcomeRetirementFailedTransferRollsBack(t *testing.T) {
 	assertOutcomeTransferRollback(t, db, "transfer refused")
 }
 
+func TestOutcomeRetirementFailedRebuildRollsBack(t *testing.T) {
+	_, db := outcomeRetirementFixture(t)
+	seedRetirementPredicate(t, db, 1, 0, "exists", []string{"spec:valid"})
+	seedRetirementRetainedFacts(t, db)
+	if _, err := db.Exec(`CREATE TRIGGER reject_retirement_rebuild BEFORE DELETE ON workflow_contract_affected_domains BEGIN SELECT RAISE(ABORT,'rebuild refused'); END`); err != nil {
+		t.Fatal(err)
+	}
+	before := retirementUpgradeSnapshot(t, db)
+	ctx := outcomeSnapshotContext(t, t.Context(), db)
+	if err := Migrate(ctx, db); err == nil || !strings.Contains(err.Error(), "rebuild refused") {
+		t.Fatalf("failed rebuild = %v", err)
+	}
+	if after := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(before, after) {
+		t.Fatal("failed rebuild changed predecessor schema, rows or applied migrations")
+	}
+	retirementUpgradeHealthy(t, db)
+}
+
 func assertOutcomeTransferRollback(t *testing.T, db *sql.DB, cause string) {
 	t.Helper()
 	before := retirementUpgradeSnapshot(t, db)
@@ -296,6 +412,17 @@ func TestOutcomeRetirementEmptyContractsSnapshotUpgrade(t *testing.T) {
 	version.Value = "v-test"
 	t.Cleanup(func() { version.Value = previous })
 	path, db := outcomeRetirementFixture(t)
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_contracts SET required_evidence='["artifact"]' WHERE work_id='work-one' AND contract_version=1; DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	before := retirementUpgradeSnapshot(t, db)
+	if _, err := Upgrade(t.Context(), path, nil); !hasFailureKind(err, KindUpgradeBlocked) || !strings.Contains(err.Error(), "outcome retirement requires a verified snapshot") {
+		t.Fatalf("evidence declarations without snapshot: %v", err)
+	}
+	if after := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(before, after) {
+		t.Fatal("snapshot refusal changed predecessor schema, rows or applied migrations")
+	}
+	retirementUpgradeHealthy(t, db)
 	report, err := Upgrade(t.Context(), path, nil, outcomeSnapshotOption(t, t.Context(), path))
 	if err != nil {
 		t.Fatalf("upgrade of contracts without outcome rows: %v", err)
@@ -313,10 +440,12 @@ func TestOutcomeRetirementSnapshotDriftRefused(t *testing.T) {
 	previous := version.Value
 	version.Value = "v-test"
 	t.Cleanup(func() { version.Value = previous })
-	for _, mode := range []string{"source", "snapshot"} {
+	for _, mode := range []string{"source", "snapshot", "unneeded"} {
 		t.Run(mode, func(t *testing.T) {
 			path, db := outcomeRetirementFixture(t)
-			seedRetirementPredicate(t, db, 1, 0, "exists", []string{"spec:valid"})
+			if mode != "unneeded" {
+				seedRetirementPredicate(t, db, 1, 0, "exists", []string{"spec:valid"})
+			}
 			snapshot := filepath.Join(t.TempDir(), "snapshot.db")
 			if _, err := BackupDatabase(t.Context(), path, snapshot); err != nil {
 				t.Fatal(err)
@@ -325,12 +454,19 @@ func TestOutcomeRetirementSnapshotDriftRefused(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if mode == "source" {
+			if mode != "snapshot" {
 				if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET title='Changed' WHERE id='work-one'; DELETE FROM write_guard`); err != nil {
 					t.Fatal(err)
 				}
 			} else if err := os.WriteFile(snapshot, []byte("tampered"), 0o600); err != nil {
 				t.Fatal(err)
+			}
+			// Drift blocks only a migration with rows the snapshot must preserve.
+			if mode == "unneeded" {
+				if err := Migrate(ctx, db); err != nil {
+					t.Fatalf("drift without outcome rows refused: %v", err)
+				}
+				return
 			}
 			if err := Migrate(ctx, db); err == nil || !strings.Contains(err.Error(), "changed") {
 				t.Fatalf("drift admitted: %v", err)

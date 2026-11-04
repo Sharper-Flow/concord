@@ -41,7 +41,7 @@ INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updat
 INSERT INTO work_projects(work_id,project_id,role) VALUES('work:test','project:test','primary');
 INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?1,'principal:test','client:test','agent:test','session:test','operator','now');
 INSERT INTO workflow_instances(work_id,instance_state,workflow_type,step_plan) VALUES('work:test','running','change',?2);
-INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work:test',1,'test','internal_sqlite','[]','[]','now',?1,'[]','[]',1,'prototype_internal');
+INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work:test',1,'test','internal_sqlite','[]','now',?1,'[]','[]',1,'prototype_internal');
 DELETE FROM write_guard;`, actorRef, string(planJSON))
 	if err != nil {
 		t.Fatal(err)

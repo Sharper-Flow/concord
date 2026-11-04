@@ -154,7 +154,7 @@ func TestSixClassMigrationCanonicalConstraint(t *testing.T) {
 	for _, raw := range []string{`null`, `{}`, `"security"`, `[1]`, `[true]`, `[null]`, `["unknown"]`, `["legal","legal"]`, `["security","legal"]`, `[ "legal" ]`, `["\u006cegal"]`, `not-json`} {
 		for _, query := range []string{
 			`UPDATE workflow_contracts SET decision_domains=? WHERE work_id='six-class' AND contract_version=9`,
-			`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,decision_domains) VALUES('six-class',10,'Constraint witness','internal_sqlite','[]','[]','t',(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]',?)`,
+			`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,decision_domains) VALUES('six-class',10,'Constraint witness','internal_sqlite','[]','t',(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]',?)`,
 		} {
 			if _, err := db.Exec(query, raw); err == nil {
 				t.Errorf("stored %s accepted by %s", raw, query)

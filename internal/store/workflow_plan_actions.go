@@ -61,10 +61,19 @@ func readWorkflowPreludeTx(ctx context.Context, tx *sql.Tx, workID string) (*wor
 		return nil, nil
 	}
 	var prelude workflowPreludeState
-	if err := json.Unmarshal([]byte(raw.String), &prelude); err != nil || prelude.Intake.Outcome == "" {
-		return nil, newFailure(KindInvariantViolation, "fold_event", "stored workflow prelude is invalid", false, "restore a verified backup")
+	if err := unmarshalWorkflowPrelude(raw.String, &prelude); err != nil {
+		return nil, err
 	}
 	return &prelude, nil
+}
+
+// unmarshalWorkflowPrelude decodes one stored prelude projection. A prelude
+// without an intake outcome is an invariant violation, not an empty prelude.
+func unmarshalWorkflowPrelude(raw string, prelude *workflowPreludeState) error {
+	if err := json.Unmarshal([]byte(raw), prelude); err != nil || prelude.Intake.Outcome == "" {
+		return newFailure(KindInvariantViolation, "fold_event", "stored workflow prelude is invalid", false, "restore a verified backup")
+	}
+	return nil
 }
 
 func writeWorkflowPreludeTx(ctx context.Context, tx *sql.Tx, workID string, prelude workflowPreludeState) error {

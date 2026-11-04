@@ -314,6 +314,22 @@ func (r runtime) readTraceContinuity(ctx context.Context, base agentcontract.Env
 	return response, nil
 }
 
+// readTraceResume answers concord_work_trace.resume (CON-1575 end state 1):
+// the one resume view over the item's stored step plan. The read is bounded by
+// the plan's own 64-step cap, so it pages nothing and carries no cursor.
+func (r runtime) readTraceResume(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
+	var in workIDInput
+	if err := decodeOperationInput(input, &in); err != nil {
+		return base, err
+	}
+	resume, err := store.ReadWorkflowResume(ctx, r.Store, in.WorkID)
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	meta := store.ResultMeta{QueryID: "C19.Resume", ContractVersion: "CON-1575/1.0", ResolvedScope: store.ResolvedScope{WorkID: in.WorkID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: r.Authority.now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"plan:" + in.WorkID}}
+	return r.resultEnvelope(base, meta, r.scope(store.ResultMeta{}), resume)
+}
+
 // continuityProjectionPage renders one page of the canonical continuity
 // document. A non-nil captured snapshot is the exact capture the initial
 // read already made, so its first page renders that capture without a second

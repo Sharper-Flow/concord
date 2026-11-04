@@ -198,8 +198,7 @@ type relationInput struct {
 	Depth         int      `json:"depth"`
 }
 type workIDInput struct {
-	WorkID string      `json:"work_id"`
-	Budget budgetInput `json:"budget"`
+	WorkID string `json:"work_id"`
 }
 type domainReadInput struct {
 	ProductID string    `json:"product_id"`

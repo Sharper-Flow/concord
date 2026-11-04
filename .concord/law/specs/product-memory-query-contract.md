@@ -201,7 +201,7 @@ The JSON corpus is executable through a candidate adapter implementing
   intentionally not mutually exclusive.
 - **Order:** explicit priority, relevant lifecycle time, stable ID; terminal
   preview by terminal time descending.
-- **Oracle:** lifecycle counts match Q3, derived blocked count matches Q4, preview
+- **Oracle:** lifecycle counts match Q3, derived blocked count follows live blockers, preview
   items are unique, and cross-Project work is not double-counted.
 - **PM4/PM5 semantics:** lifecycle/derived views follow PM4; canonical membership,
   deduplication, and cross-Product scope follow accepted PM5.
@@ -225,45 +225,10 @@ The JSON corpus is executable through a candidate adapter implementing
 - **Retention semantics:** terminal listings union live and git-derived historical rows;
   frozen historical scope is explicit and never silently rewritten by later moves.
 
-### Q4. Explain blocked work
-
-- **Intent:** "What is blocked, by what, and what must change?"
-- **Input:** Product with optional Project/work/kind filters; relation depth
-  default `1`, maximum `3`.
-- **Output:** actionable blocked work plus unresolved blocker nodes/edges, blocker
-  authority, age, and external-blocker marker. Blocked is derived, never a competing state.
-- **Order/bounds:** priority, oldest blocker age, stable ID; graph node/edge caps.
-- **Oracle:** work with resolved dependencies is absent; no stored `blocked` flag
-  can disagree with the relation graph.
-- **PM4 semantics:** blocked is derived from canonical `blocks` edges and blocker
-  terminality; no stored blocked flag exists.
-
-### Q5. Highest-priority ready work
-
-- **Intent:** "What should I do next?"
-- **Input:** Product; optional Project/work-kind; limit/cursor.
-- **Output:** actionable needed work with no unresolved blockers, including
-  priority, value, Projects, and readiness evidence.
-- **Order:** explicit priority rank, created time, stable ID. Lifecycle stage is
-  displayed for rigor but **does not silently rewrite business priority**.
-- **Oracle:** a higher-priority blocked item is excluded; the next unblocked item
-  wins deterministically.
-- **PM4 semantics:** ready means actionable `needed` work with no unresolved
-  canonical `blocks` edge. Stage is never a hidden business-priority input.
-
-### Q6. Cross-Project work
-
-- **Intent:** "Which work spans this Project, and which Projects does this work touch?"
-- **Input:** ambient or explicitly resolved Product context plus either Project or
-  work reference.
-- **Output:** one canonical work record with ordered Project memberships and roles;
-  never per-Project status copies.
-- **Order:** work by priority/update/ID; memberships primary before secondary,
-  then Project ID.
-- **Oracle:** multi-Project work appears once and both query directions agree.
-- **PM5 semantics:** one canonical work item, role-only Project memberships,
-  optional singular primary, and derived cross-Product scope are binding. PM1's
-  fixture `product` is an expected-scope assertion per PM5, not stored work state.
+List exposes readiness derived from lifecycle and live canonical `blocks`
+edges. A needed item with `ready` absent or false is blocked; the relations
+read supplies its bounded blocker graph. Lifecycle stage is not a hidden
+business-priority input. Work remains canonical across Project memberships.
 
 ### Q7. Explain work history
 
@@ -338,15 +303,9 @@ PM2–PM5 and CD-0008 govern storage, membership, evidence binding, and unreadab
   When Q3 lists Product work
   Then the answer is authoritative empty with `items=[]`, not missing data.
 
-- Given one higher-priority blocked item and one lower-priority unblocked item
-  When Q5 selects highest-priority ready work
-  Then the blocked item is excluded and the unblocked item wins
-  deterministically.
-
-- Given work blocked by an unresolved dependency
-  When Q4 explains blocked work
-  Then the answer carries the unresolved blocker nodes and edges, derived from
-  the relation graph.
+- Given needed work held by a live blocker
+  When Q3 lists it
+  Then `ready` is absent or false and Q8 can report its blocker relation.
 
 - Given a stale snapshot that requires review
   When Q2 orients to a Product's work

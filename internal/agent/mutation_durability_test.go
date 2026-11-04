@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
-	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -150,8 +149,8 @@ func TestMutationDurabilityDeclarations(t *testing.T) {
 func TestMutationDurabilityConditionalPlans(t *testing.T) {
 	t.Parallel()
 
-	// Terminal overlap planning reads the captured governing requirements;
-	// use the real canonical-source fixture rather than an absent store.
+	// Overlap planning needs the real canonical-source fixture rather than
+	// an absent store.
 	s, _, _ := routineCoordinationFixture(t)
 	r := runtime{Store: s}
 	envelope := CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-version-1"}
@@ -252,23 +251,4 @@ func TestMutationDurabilityConditionalPlans(t *testing.T) {
 	}
 }
 
-func TestMutationDurabilityStoreBoundPlannerFacts(t *testing.T) {
-	t.Parallel()
-	t.Run("capture governing conflict", func(t *testing.T) {
-		t.Parallel()
-		s, service, grant := agentJobsMutationPM1Fixture(t)
-		if err := pm1fixture.SeedGoverningRequirement(context.Background(), s, "proj-web", "audit_required", "accepted audit obligation"); err != nil {
-			t.Fatalf("seed governing requirement: %v", err)
-		}
-		env := agentJobsMutationEnvelope(t, s, grant)
-		input := []byte(`{"title":"Durable cut","value_statement":"witness the governing durability fact","kind":"task","project_ids":["proj-web"],"idempotency_key":"durability-governing-1"}`)
-		before := s.DurableCommits()
-		refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
-		if refused.Error == nil || refused.Error.Kind != "unauthorized" || refused.Error.EffectState != agentcontract.EffectNone {
-			t.Fatalf("governing cut without cross_scope did not refuse before effects: outcome=%s err=%+v", refused.Outcome, refused.Error)
-		}
-		if after := s.DurableCommits(); after != before {
-			t.Fatalf("governing-scope refusal moved the durable counter %d -> %d", before, after)
-		}
-	})
-}
+

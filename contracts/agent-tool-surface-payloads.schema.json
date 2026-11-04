@@ -3288,16 +3288,6 @@
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
         },
-        "governing_requirements": {
-          "type": "array",
-          "maxItems": 32,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/id",
-            "description": "Bounds: 1..128 code points inclusive"
-          },
-          "description": "Bounds: <=32 items inclusive"
-        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"

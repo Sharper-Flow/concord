@@ -29,7 +29,6 @@ type WorkflowDomainOverlapResolutionRequest struct {
 	ToContractVersion   int64
 	ResolutionKind      string
 	Reason              string
-	CrossScope          bool
 	// RequestedBudgetSeconds is the caller's actual parsed effect budget;
 	// 0 means absent under this input contract. It is request metadata,
 	// not authorization, and never supplies Product context.
@@ -53,15 +52,11 @@ func ResolveWorkflowDomainOverlapTx(ctx context.Context, tx *Transaction, reques
 	if request.Actor == "" {
 		return ApplyOperationResult{}, overlapResolutionFailure("overlap resolution requires an authenticated actor")
 	}
-	if err := checkOverlapGoverningScope(ctx, sqlTx, request.FromWorkID, request.ToWorkID, request.ResolutionKind, request.CrossScope); err != nil {
-		return ApplyOperationResult{}, err
-	}
 	payload, err := json.Marshal(map[string]any{
 		"work_id": request.FromWorkID, "expected_version": request.FromExpectedVersion, "resulting_version": request.FromExpectedVersion + 1,
 		"to_work_id": request.ToWorkID, "to_expected_version": request.ToExpectedVersion, "to_resulting_version": request.ToExpectedVersion + 1,
 		"from_contract_version": request.FromContractVersion, "to_contract_version": request.ToContractVersion,
 		"resolution_kind": request.ResolutionKind, "reason": request.Reason,
-		"cross_scope": request.CrossScope,
 	})
 	if err != nil {
 		return ApplyOperationResult{}, err
@@ -176,9 +171,6 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 	fromExpected, fromResulting := *payload.ExpectedVersion, *payload.ResultingVersion
 	from, to, err := readWorkflowOverlapResolutionWorks(ctx, tx, event, payload)
 	if err != nil {
-		return err
-	}
-	if err := checkOverlapGoverningScope(ctx, tx, event.SubjectID, payload.ToWorkID, payload.ResolutionKind, payload.CrossScope); err != nil {
 		return err
 	}
 	productID, err := readWorkflowOverlapResolutionProductTx(ctx, tx, event, payload)

@@ -27,17 +27,8 @@ type workCreatedPayload struct {
 	WorkflowTypeRef       string    `json:"workflow_type_ref,omitempty"`
 	ExternalRef           string    `json:"external_ref,omitempty"`
 	RaisedFromWorkID      string    `json:"raised_from_work_id,omitempty"`
-	GoverningRequirements *[]string `json:"governing_requirements,omitempty"`
-}
 
-// validateWorkCreatedPayload enforces capture fact bounds.
-func validateWorkCreatedPayload(event Event, payload workCreatedPayload) error {
-	if payload.GoverningRequirements != nil {
-		if err := validateDeclaredGoverningRequirements(*payload.GoverningRequirements); err != nil {
-			return err
-		}
-	}
-	return nil
+
 }
 
 type workTransitionPayload struct {
@@ -69,7 +60,7 @@ type workIntentPayload struct {
 
 // workIntentProjection is the stored intent_json shape. Creation and revision
 // both encode exactly this block: the closed mutable intent plus the
-// capture-owned external reference and governing scope. Event
+// capture-owned external reference. Event
 // bookkeeping (reason, versions) never enters the projection, and revision
 // carries those capture facts forward unchanged.
 type workIntentProjection struct {
@@ -84,7 +75,8 @@ type workIntentProjection struct {
 	WorkflowTypeRef string   `json:"workflow_type_ref"`
 	ExternalRef     string   `json:"external_ref"`
 	// nil is unknown historical scope; a non-nil empty set is a known capture.
-	GoverningRequirements *[]string `json:"governing_requirements,omitempty"`
+
+
 }
 
 type workMembershipsPayload struct {
@@ -210,7 +202,6 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		Title: payload.Title, Task: payload.Task, ValueStatement: payload.ValueStatement, Kind: payload.WorkKind,
 		Priority: *payload.Priority, Urgency: urgency, Tags: payload.Tags,
 		ComponentID: payload.ComponentID, WorkflowTypeRef: payload.WorkflowTypeRef, ExternalRef: payload.ExternalRef,
-		GoverningRequirements: payload.GoverningRequirements,
 	})
 	if err != nil {
 		return wrapFailure(KindInvalidPayload, "fold_event", "cannot encode work intent", false, "supply a JSON-safe intent", err)

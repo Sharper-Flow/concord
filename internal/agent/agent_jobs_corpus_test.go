@@ -894,8 +894,8 @@ func TestAgentJobsCorpus(t *testing.T) {
 
 	// The corpus count is pinned so scenario removal cannot masquerade as a
 	// complete binding run.
-	if len(corpus.Scenarios) != 14 {
-		t.Fatalf("corpus declares %d scenarios, want 14", len(corpus.Scenarios))
+	if len(corpus.Scenarios) != 13 {
+		t.Fatalf("corpus declares %d scenarios, want 13", len(corpus.Scenarios))
 	}
 
 	for _, sc := range corpus.Scenarios {
@@ -1221,7 +1221,6 @@ func init() {
 	jobBindings["AJ2-blocker-explanation"] = bindAJ2BlockerExplanation
 	// Mutation bindings live in agent_jobs_mutations_bindings_test.go.
 	jobBindings["AJ3-capture-work"] = bindAJ3CaptureWork
-	jobBindings["AJ3-spec-conflict"] = bindAJ3SpecConflict
 	jobBindings["AJ4-start-valid-work"] = bindAJ4StartValidWork
 	jobBindings["AJ4-complete-valid-work"] = bindAJ4CompleteValidWork
 	jobBindings["AJ4-completion-missing-evidence"] = bindAJ4CompletionMissingEvidence

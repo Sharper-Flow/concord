@@ -426,34 +426,6 @@ func writeFixtureRegistry(repo string) error {
 	return WriteKnowledgeShards(repo, registry)
 }
 
-// SeedGoverningRequirement declares one CD-0035 governing requirement against a
-// seeded Project. It stays separate from Seed to keep base Project versions stable.
-func SeedGoverningRequirement(ctx context.Context, s *store.Store, projectID, requirementRef, reason string) error {
-	var current int64
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM projects WHERE id=?`, projectID).Scan(&current); err != nil {
-		return fmt.Errorf("pm1fixture: read Project %s version: %w", projectID, err)
-	}
-	event := fixtureEvent(
-		"governing-requirement-"+projectID+"-"+requirementRef,
-		"project.governing_requirement_declared",
-		1,
-		store.SubjectProject,
-		projectID,
-		"operator",
-		"2026-08-07T12:00:00Z",
-		map[string]any{
-			"project_id":        projectID,
-			"requirement_ref":   requirementRef,
-			"reason":            reason,
-			"expected_version":  current,
-			"resulting_version": current + 1,
-		},
-	)
-	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProject, projectID): current}}); err != nil {
-		return fmt.Errorf("pm1fixture: declare governing requirement %s on %s: %w", requirementRef, projectID, err)
-	}
-	return nil
-}
 
 func fixtureEvent(id, kind string, payloadVersion int, subject store.SubjectType, subjectID, actor, occurred string, payload map[string]any) store.Event {
 	raw, err := json.Marshal(payload)

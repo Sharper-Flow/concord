@@ -162,8 +162,8 @@ func validateOptions(err TypedError) error {
 			return fmt.Errorf("unknown operator option %q", option)
 		}
 	}
-	// CD-0035 D1: options are permitted only on a governing-law conflict, and
-	// only alongside the recovery action that returns the choice to the operator.
+	// Options travel only on an invariant violation whose recovery action
+	// returns the choice to the operator.
 	if err.Kind != "invariant_violation" || err.RecoveryAction.Kind != "contact_operator" {
 		return errors.New("operator options coupling violated")
 	}

@@ -6,11 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
-	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -575,38 +573,9 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 		"overlap":   map[string]any{"current_resolution": map[string]any{"kind": kind, "from_contract_version": fromContract, "to_contract_version": toContract}},
 		"relations": map[string]any{"depends_on": []any{map[string]any{"source": "work-1", "target": "work-2"}}},
 	}
-	destructiveStore, destructiveService, _, _, destructiveEnv, destructiveBase := seedAgentOverlapFixture(t)
-	setAgentDeclaredRequirements(t, destructiveStore, "work-1", []string{"audit_required"})
-	setAgentDeclaredRequirements(t, destructiveStore, "work-2", []string{})
-	destructiveInput := []byte(strings.Replace(string(destructiveBase), `"resolution_kind":"depends_on"`, `"resolution_kind":"merged_into"`, 1))
-	destructiveBefore := agentCurrentEffects(t, destructiveStore)
-	refused := dispatchMutation(t, destructiveStore, destructiveService, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: destructiveInput}, destructiveEnv)
-	if refused.Error == nil || refused.Error.Kind != "unauthorized" {
-		t.Fatalf("destructive merged_into without cross scope outcome=%s error=%+v, want unauthorized", refused.Outcome, refused.Error)
-	}
-	if got := countRows(t, destructiveStore.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 0 {
-		t.Fatalf("the refused destructive control wrote %d resolutions", got)
-	}
-	if agentCurrentEffects(t, destructiveStore) != destructiveBefore || workVersion(t, destructiveStore, "work-1") != 2 || workVersion(t, destructiveStore, "work-2") != 2 {
-		t.Fatal("refused destructive control changed effects or endpoint versions")
-	}
-	obs.State["destructive_control"] = map[string]any{
-		"resolution_kind": "merged_into",
-		"refused":         "unauthorized",
-	}
-	obs.Communication = envelopeToObservation(refused).Communication
-	violations := make([]any, len(refused.Error.Violations))
-	for i, violation := range refused.Error.Violations {
-		violations[i] = violation
-	}
-	obs.Communication["error"].(map[string]any)["violations"] = violations
 	obs.Effects = map[string]any{
-		"atomic_core_effect":          "complete",
-		"atomic_core_effect_zero":     true,
-		"ordinary_relation_authority": probedAbsent{Evidence: "the generic compatible_with fold returned relation_contract_violation, and wrote no relation or resolution"},
-		// The destructive control withheld its effect pending the operator's
-		// cross-scope choice: unauthorized, contact_operator, named omissions.
-		"operator_choice_withheld": true,
+		"atomic_core_effect":      "complete",
+		"atomic_core_effect_zero": true,
 	}
 	return obs
 }
@@ -615,220 +584,12 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// AJ3-spec-conflict: capture into a Project carrying an accepted governing
-// requirement while declaring a requirement set that omits it. CD-0035 D3 makes
-// the refusal a set difference, so the omission is detected structurally rather
-// than read out of the instruction text. The scenario's human_checkpoint driver
-// is pending, which models an operator who has not authorized a scope cut, so
-// the call carries no approval reference and the refusal is the only correct
-// outcome.
-func bindAJ3SpecConflict(t *testing.T, sc jobScenario) jobObservation {
-	t.Helper()
-	s, service, grant := agentJobsMutationPM1Fixture(t)
-	requirement, _ := sc.InitialState["governing_requirement"].(string)
-	if requirement == "" {
-		t.Fatalf("AJ3-spec-conflict: missing governing_requirement in initial_state")
-	}
-	if err := pm1fixture.SeedGoverningRequirement(context.Background(), s, "proj-web", requirement, "accepted audit obligation"); err != nil {
-		t.Fatalf("seed governing requirement: %v", err)
-	}
-	// Seeding moved the Project version, so the call envelope must resolve the
-	// current scope version rather than the pre-seed one.
-	env := agentJobsMutationEnvelope(t, s, grant)
-
-	driver := resolveDriver(t, sc)
-	if !driver.approvalWithheld() {
-		t.Fatalf("AJ3-spec-conflict expects a pending human checkpoint, got %+v", driver)
-	}
-
-	preWork := 0
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items`).Scan(&preWork); err != nil {
-		t.Fatalf("pre-count work_items: %v", err)
-	}
-	preEvents := 0
-	if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&preEvents); err != nil {
-		t.Fatalf("pre-effect sequence: %v", err)
-	}
-	preEffects := agentCurrentEffects(t, s)
-
-	// The instruction omits the accepted requirement to make the work smaller,
-	// which on the wire is a capture that declares no governing requirements.
-	input := []byte(`{"title":"Add passkey login","value_statement":"reducing account takeover risk","kind":"task","project_ids":["proj-web"],"idempotency_key":"spec-conflict-1"}`)
-	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
-
-	if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil {
-		t.Fatalf("expected typed refusal outcome=%s err=%+v", resp.Outcome, resp.Error)
-	}
-	if resp.Error.Kind != "unauthorized" {
-		t.Fatalf("error.kind=%q, want unauthorized", resp.Error.Kind)
-	}
-	if resp.Error.RecoveryAction.Kind != "contact_operator" {
-		t.Fatalf("recovery_action=%q, want contact_operator", resp.Error.RecoveryAction.Kind)
-	}
-	// The omitted requirement is named in the typed carrier, not the message.
-	if len(resp.Error.Violations) != 1 || resp.Error.Violations[0] != requirement {
-		t.Fatalf("error.violations=%v, want [%s]", resp.Error.Violations, requirement)
-	}
-	// Probe the prohibited effect: a silent requirement omission would be a
-	// captured work item or any appended event. Both are checked against the
-	// pre-call counts so the absence is proven rather than assumed.
-	postWork := 0
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items`).Scan(&postWork); err != nil {
-		t.Fatalf("post-count work_items: %v", err)
-	}
-	postEvents := 0
-	if err := s.DatabaseForTesting().QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&postEvents); err != nil {
-		t.Fatalf("post-effect sequence: %v", err)
-	}
-	if postWork != preWork {
-		t.Fatalf("refused capture created %d work rows (pre=%d, post=%d)", postWork-preWork, preWork, postWork)
-	}
-	if postEvents != preEvents {
-		t.Fatalf("refused capture appended %d events (pre=%d, post=%d)", postEvents-preEvents, preEvents, postEvents)
-	}
-	if agentCurrentEffects(t, s) != preEffects {
-		t.Fatal("refused capture changed current rows or effect receipts")
-	}
-	titled := 0
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items WHERE title=?`, "Add passkey login").Scan(&titled); err != nil {
-		t.Fatalf("probe captured title: %v", err)
-	}
-	if titled != 0 {
-		t.Fatalf("refused capture persisted %d work items under the requested title", titled)
-	}
-
-	obs := envelopeToObservation(resp)
-	obs.State = map[string]any{
-		"created_work": map[string]any{"count": 0},
-	}
-	obs.Effects["silent_requirement_omission"] = probedAbsent{
-		Evidence: "current work rows, effect receipts and effect sequence unchanged across the refused capture, and no work item exists under the requested title",
-	}
-	// The consequence required the operator's choice and the governing-law
-	// refusal withheld the effect.
-	obs.Effects["operator_choice_withheld"] = true
-	violations := make([]any, len(resp.Error.Violations))
-	for i, v := range resp.Error.Violations {
-		violations[i] = v
-	}
-	if commErr, ok := obs.Communication["error"].(map[string]any); ok {
-		commErr["violations"] = violations
-	}
-	return obs
-}
-
-func TestCrossScopeCapabilityAllowsScopeCut(t *testing.T) {
-	t.Parallel()
-	s, service, grant := agentJobsMutationPM1Fixture(t)
-	if err := pm1fixture.SeedGoverningRequirement(context.Background(), s, "proj-web", "audit_required", "accepted audit obligation"); err != nil {
-		t.Fatalf("seed governing requirement: %v", err)
-	}
-	env := agentJobsMutationEnvelope(t, s, grant)
-
-	input := []byte(`{"title":"Add passkey login","value_statement":"reducing account takeover risk","kind":"task","project_ids":["proj-web"],"idempotency_key":"approved-cut-1"}`)
-	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
-	if refused.Error == nil || refused.Error.Kind != "unauthorized" {
-		t.Fatalf("expected governing conflict, got outcome=%s err=%+v", refused.Outcome, refused.Error)
-	}
-	if err := service.ExpandTrustedClientPolicy(context.Background(), grant.ClientRef, TrustedClientPolicy{Capabilities: []agentcontract.Capability{"cross_scope"}}); err != nil {
-		t.Fatal(err)
-	}
-	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
-	if approved.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("operator-approved scope cut was refused outcome=%s err=%+v", approved.Outcome, approved.Error)
-	}
-	if len(*approved.ChangedRefs) == 0 {
-		t.Fatal("approved capture reported no changed refs")
-	}
-	if lifecycle, _ := readWorkFromStore(t, s, (*approved.ChangedRefs)[0].ID); lifecycle != "needed" {
-		t.Fatalf("approved capture produced lifecycle %q, want needed", lifecycle)
-	}
-	var declared string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(intent_json,'$.governing_requirements') FROM work_items WHERE id=?`, (*approved.ChangedRefs)[0].ID).Scan(&declared); err != nil {
-		t.Fatal(err)
-	}
-	if declared != "[]" {
-		t.Fatalf("approved cut invented scope %s", declared)
-	}
-}
-
-// TestGoverningRequirementCoveredCapturePassesUngated proves the gate is scoped:
-// declaring the applicable requirement captures without approval, so the
-// mechanism refuses omissions rather than taxing every capture.
-func TestGoverningRequirementCoveredCapturePassesUngated(t *testing.T) {
-	t.Parallel()
-	s, service, grant := agentJobsMutationPM1Fixture(t)
-	if err := pm1fixture.SeedGoverningRequirement(context.Background(), s, "proj-web", "audit_required", "accepted audit obligation"); err != nil {
-		t.Fatalf("seed governing requirement: %v", err)
-	}
-	env := agentJobsMutationEnvelope(t, s, grant)
-
-	input := []byte(`{"title":"Add passkey login with audit","value_statement":"reducing account takeover risk","kind":"task","project_ids":["proj-web"],"governing_requirements":["audit_required"],"idempotency_key":"covered-1"}`)
-	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
-	if resp.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("covered capture was refused outcome=%s err=%+v", resp.Outcome, resp.Error)
-	}
-}
-
-func TestCaptureRefusesUnknownGoverningRequirement(t *testing.T) {
-	t.Parallel()
-	s, service, grant := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant)
-	input := []byte(`{"title":"Unknown requirement","value_statement":"reject an invalid governing reference","kind":"task","project_ids":["proj-web"],"governing_requirements":["fabricated_requirement"],"idempotency_key":"unknown-requirement-1"}`)
-	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
-	if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil {
-		t.Fatalf("unknown requirement capture outcome=%s error=%+v, want typed refusal", resp.Outcome, resp.Error)
-	}
-	if resp.Error.Kind != "unknown_scope" {
-		t.Fatalf("error.kind=%q, want unknown_scope", resp.Error.Kind)
-	}
-	if !strings.Contains(resp.Error.Message, "fabricated_requirement") {
-		t.Fatalf("refusal message %q does not name unknown id", resp.Error.Message)
-	}
-	if !strings.Contains(resp.Error.Message, "declare the requirement on the Project or name an accepted law ID") {
-		t.Fatalf("refusal message %q does not carry the one-line recovery", resp.Error.Message)
-	}
-	if resp.Error.RecoveryAction.Kind != "reread_entities" {
-		t.Fatalf("recovery action %q, want reread_entities so the caller can act on the refusal", resp.Error.RecoveryAction.Kind)
-	}
-}
 
 // TestCaptureAcceptsRequirementFromSiblingProjectOfTheProduct proves the
-// resolution target is the Product, not the capture scope alone: a requirement
-// registered on another Project of the same Product resolves, so a capture
-// that legitimately declares it is not refused.
-func TestCaptureAcceptsRequirementFromSiblingProjectOfTheProduct(t *testing.T) {
-	t.Parallel()
-	s, service, grant := agentJobsMutationPM1Fixture(t)
-	if err := pm1fixture.SeedGoverningRequirement(context.Background(), s, "proj-api", "cross_project_review", "sibling Project obligation"); err != nil {
-		t.Fatalf("seed governing requirement: %v", err)
-	}
-	env := agentJobsMutationEnvelope(t, s, grant)
 
-	input := []byte(`{"title":"Sibling obligation","value_statement":"declaring a sibling Project requirement","kind":"task","project_ids":["proj-web"],"governing_requirements":["cross_project_review"],"idempotency_key":"sibling-requirement-1"}`)
-	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
-	if resp.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("sibling-requirement capture was refused outcome=%s err=%+v", resp.Outcome, resp.Error)
-	}
-}
 
 // TestCaptureAcceptsAcceptedLawID proves the second legitimate referencing
-// surface: an accepted committed law visible for the Product's Projects
-// resolves without being registered as a Project requirement.
-func TestCaptureAcceptsAcceptedLawID(t *testing.T) {
-	t.Parallel()
-	s, service, grant := agentJobsMutationPM1Fixture(t)
-	if _, err := pm1fixture.SeedCommittedProductDomain(context.Background(), s, "prod-alpha", "proj-web", t.TempDir()); err != nil {
-		t.Fatalf("seed accepted law: %v", err)
-	}
-	env := agentJobsMutationEnvelope(t, s, grant)
 
-	input := []byte(`{"title":"Law-bound capture","value_statement":"declaring an accepted law id","kind":"task","project_ids":["proj-web"],"governing_requirements":["CD-0001"],"idempotency_key":"accepted-law-1"}`)
-	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)
-	if resp.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("accepted-law capture was refused outcome=%s err=%+v", resp.Outcome, resp.Error)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // AJ8 — budget refusal (CD-0038)

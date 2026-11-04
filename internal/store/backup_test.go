@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 	"github.com/sharper-flow/concord/internal/version"
 )
 
@@ -980,4 +981,42 @@ func TestInterruptedBackupVerificationDiscardsSnapshotAndStaging(t *testing.T) {
 		t.Fatalf("interrupted backup left verification staging files = %v (err=%v)", matches, err)
 	}
 	assertTableCount(t, s, "effect_receipts", 3)
+}
+
+// A snapshot whose schema_migrations holds no applied version is not a
+// Concord snapshot: no binary that stamps migrations can produce one, and a
+// manifest over it would carry schema version 0, which the restore verb's
+// identity rules refuse. The file-verification seam refuses it on every path,
+// and a backup of it fails typed with no partial output.
+func TestBackupRejectsSnapshotWithoutSchemaHistory(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "pre-schema.db")
+	db, err := sql.Open(driverName, sqlitedb.FileURI(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE schema_migrations (version INTEGER NOT NULL PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	_, err = verifyBackupFile(ctx, path, CurrentSchemaVersion(), nil)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || failure.Detail != "backup snapshot predates Concord schema versioning" {
+		t.Fatalf("verifyBackupFile() error = %v, want the typed pre-schema refusal", err)
+	}
+
+	destination := filepath.Join(t.TempDir(), "snapshot.db")
+	_, err = BackupDatabase(ctx, path, destination)
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || failure.Detail != "backup snapshot predates Concord schema versioning" {
+		t.Fatalf("BackupDatabase() error = %v, want the typed pre-schema refusal", err)
+	}
+	for _, candidate := range []string{destination, manifestPath(destination)} {
+		if _, statErr := os.Stat(candidate); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("refused backup left %s: %v", candidate, statErr)
+		}
+	}
 }

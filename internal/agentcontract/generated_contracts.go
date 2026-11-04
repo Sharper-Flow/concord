@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:36f8fe080c8cf5601c20bdd378fa6c36c889531c659c8ad4d8fc9b05b4fa9b62"
+const ManifestDigest = "sha256:c9d269a76d846e7146d54fe4485f4c3c687871eeb7eff08e6a202b454d2a190b"
 
 type OperationKind string
 
@@ -126,7 +126,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"retained_worker_oracle_finding":                        {Required: []string{"classification"}, Properties: []string{"classification", "owner_id", "failure_family", "predicate_ids", "law_bindings", "case_ids", "control_ids", "evidence_refs", "entry_point", "continues_finding_id", "variant_of"}},
 	"retained_workflow_law_context":                         {Required: []string{"laws", "domains"}, Properties: []string{"laws", "domains", "registry_path"}},
 	"retained_workflow_law_context_law":                     {Required: []string{"roles", "law_id"}, Properties: []string{"roles", "law_id", "obligation_ids", "kind", "status", "title", "path", "criteria"}},
-	"session_boot_packet":                                   {Required: []string{"schema_version", "session_type", "session_contract_version", "manifest_digest", "product_id", "project_id", "work_id", "watermark", "workflow_instance", "resume"}, Properties: []string{"schema_version", "session_type", "session_contract_version", "manifest_digest", "product_id", "project_id", "work_id", "watermark", "workflow_instance", "resume", "pending_project_handoff"}},
+	"session_boot_packet":                                   {Required: []string{"schema_version", "session_type", "session_contract_version", "manifest_digest", "product_id", "project_id", "work_id", "source_version_watermark", "workflow_instance", "resume"}, Properties: []string{"schema_version", "session_type", "session_contract_version", "manifest_digest", "product_id", "project_id", "work_id", "source_version_watermark", "workflow_instance", "resume", "pending_project_handoff"}},
 	"work_browse_blocked_input":                             {Required: []string{}, Properties: []string{"product_id", "project_id", "work_id", "kind", "depth", "page", "limit", "requested_budget_seconds"}},
 	"work_browse_list_input":                                {Required: []string{}, Properties: []string{"product_id", "project_ids", "work_ids", "lifecycle", "kind", "tag_ids", "priority_min", "priority_max", "detail", "terminal_since", "page", "limit", "requested_budget_seconds"}},
 	"work_browse_list_result":                               {Required: []string{}, Properties: []string{"items", "next_cursor", "readiness_evidence", "encoding", "digest", "total_bytes", "offset", "data", "fragment_bytes", "document_complete", "next_kind"}},

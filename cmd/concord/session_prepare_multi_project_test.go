@@ -11,8 +11,71 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/sessionboot"
 	"github.com/sharper-flow/concord/internal/store"
 )
+
+func TestSessionPrepareFitsPacketWithLongTask(t *testing.T) {
+	repo := initLocatorRepo(t)
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	s := mustOpenStore(t, dbPath)
+	seedLocatorAuthority(t, s, repo)
+	result := seedCLISessionWorktree(t, s, repo)
+	t.Chdir(result.Entry.Path)
+	t.Setenv(dbOverrideEnv, dbPath)
+	handoff := &store.ProjectHandoff{HandoffID: "handoff-1", WorkID: result.WorkID, ContractVersion: 1,
+		SourceProjectID: "source-1", TargetProjectID: "project-wl", SourceSessionRef: "session-1",
+		BoundedJob: strings.Repeat("<", 4000), Changes: []string{}, Verification: []string{}, ArtifactRefs: []string{},
+		Blockers: []string{}, NextAction: "act", State: "recorded", RecordedAt: "2026-01-01T00:00:00Z"}
+	for i := 0; i < 9; i++ {
+		handoff.Changes = append(handoff.Changes, strings.Repeat("<", 512))
+	}
+	snapshot := store.SessionResumeRead{WorkID: result.WorkID, ProductIdentity: []string{"product-wl"}, SourceVersionWatermark: 42,
+		Resume: &store.WorkflowResumeRead{WorkID: result.WorkID, SourceVersionWatermark: 42, Version: 3, State: "intake", OpeningSteps: []string{"intake", "pick_type"}}, PendingProjectHandoff: handoff}
+	inline, err := sessionboot.Build("product-wl", "project-wl", snapshot, func([]byte) (bool, error) { return true, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	const specialTask = `"<&`
+	base, err := json.Marshal(sessionPrepareOutput{SchemaVersion: "1.0", Agent: "agent", Directory: result.Entry.Path, ProductID: "product-wl", WorkID: result.WorkID, Title: "Locator Work", Prompt: sessionPreparePromptPrefix + string(inline) + "\nTask: " + specialTask})
+	if err != nil {
+		t.Fatal(err)
+	}
+	padding := 65536 - len(base)
+	if padding <= 0 || padding+len(specialTask) >= 8192 {
+		t.Fatalf("fixture task padding=%d base=%d", padding, len(base))
+	}
+	for _, tc := range []struct {
+		name      string
+		task      string
+		reference bool
+	}{
+		{"exact fit", specialTask + strings.Repeat("t", padding), false}, {"one over", specialTask + strings.Repeat("t", padding+1), true}, {"long task", specialTask + strings.Repeat("t", 8192-len(specialTask)), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, tc.task), s, &out, &errOut,
+				hostCommandAt(defaultHostResolution()),
+				func(context.Context, string, hostCommandResolution, string) (string, error) { return "agent", nil },
+				func(_ context.Context, _, _, _, _ string, fits func([]byte) (bool, error)) ([]byte, error) {
+					return sessionboot.Build("product-wl", "project-wl", snapshot, fits)
+				})
+			if code != 0 {
+				t.Fatalf("prepare code=%d stderr=%q", code, errOut.String())
+			}
+			var prepared sessionPrepareOutput
+			if err := json.Unmarshal(out.Bytes(), &prepared); err != nil {
+				t.Fatal(err)
+			}
+			if len(out.Bytes())-1 > 65536 || len(prepared.Prompt) > 65536 || strings.Contains(prepared.Prompt, `"projection_omitted":true`) != tc.reference || !strings.HasSuffix(prepared.Prompt, "\nTask: "+tc.task) {
+				t.Fatalf("prompt does not fit or retain referenced packet and task: length=%d", len(prepared.Prompt))
+			}
+			if !tc.reference && len(out.Bytes())-1 != 65536 {
+				t.Fatalf("exact serialized output length=%d", len(out.Bytes())-1)
+			}
+		})
+	}
+}
 
 // TestSessionPrepareMultiProject proves directory selection: one work item
 // with memberships in two Projects and an active worktree in each admits
@@ -65,7 +128,7 @@ func TestSessionPrepareMultiProject(t *testing.T) {
 				identityCalls++
 				return "agent", nil
 			},
-			func(context.Context, string, string, string, string) ([]byte, error) {
+			func(context.Context, string, string, string, string, func([]byte) (bool, error)) ([]byte, error) {
 				bootCalls++
 				return []byte(`{"watermark":"test"}`), nil
 			})

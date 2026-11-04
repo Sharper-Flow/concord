@@ -8,6 +8,7 @@
     "agent-adapter",
     "agent-call-boundary",
     "agent-contract",
+    "agent-evolution",
     "agent-surface",
     "workflow-engine"
   ]
@@ -32,7 +33,7 @@ selection preserve [CD-0182 D5](CD-0182-session-opener.md#d5-the-project-selecte
 
 The closed generated `session_boot_packet` schema binds its schema version,
 operator-session type, session-contract version `2.0`, current agent-tool
-manifest digest, Product, Project, work and source watermark.
+manifest digest, Product, Project, work and integer source-version watermark.
 
 For work with a workflow instance, the packet carries the canonical resume
 document: the stored step plan, derived next steps and work version. Before
@@ -50,7 +51,9 @@ until their separate retirement.
 ## D3. Bounds and current-read references
 
 The complete packet must fit its 65,536-byte bound and validate before a
-managed action. When its complete documents do not fit, deterministic
+managed action. Preparation also measures the complete launch prompt and
+serialized command output against their bounds. When the complete documents
+do not fit those bounds, deterministic
 references replace them without truncating their contents. Each reference
 names the digest and serialized byte length of its exact document and the
 existing canonical read with identity-bound input. The resume reference uses
@@ -60,7 +63,12 @@ existing canonical read with identity-bound input. The resume reference uses
 
 References carry no complete authority. Before use, reconstruct through the
 existing authenticated paging, extract the named document, and verify its
-digest and byte length. A reference retains no historical snapshot: source
+digest and byte length. The digest covers compact UTF-8 JSON in source member
+order with Go JSON escaping for `<`, `>`, `&`, U+2028 and U+2029. Fragment
+strings preserve those exact bytes. Inline documents require restoring that
+escaping after transport serialization; keys must not be sorted.
+
+A reference retains no historical snapshot: source
 drift, a consumed or replaced handoff, or an unavailable read requires fresh
 preparation. No stale reference grants permission to proceed.
 
@@ -72,3 +80,20 @@ document or read-pointer identities refuse. A prepared packet is authoritative
 only at its captured revision; consequential actions reread the current resume
 and item-scoped full record and remain subject to current workflow admission.
 Neither host placement nor packet preparation advances the workflow.
+
+## Verification
+
+- `go test ./internal/store/ -run TestReadSessionResume` proves D1's single
+  revision, the explicit instance absence, unknown-work refusal and the
+  addressed, fallback and consumed handoff frontier.
+- `go test ./internal/sessionboot/` proves D2's closed packet, byte-exact inline
+  documents and instance absence, D3's deterministic references and D4's
+  identity, Product, manifest and read-pointer refusals.
+- `go test ./internal/agent/ -run 'TestSessionBoot(Resume|Handoff)Reconstruction'`
+  proves D3: each reference matches the document reconstructed through its
+  named public read, and drift or a consumed handoff requires a fresh packet.
+- `go test ./cmd/concord/ -run TestSessionPrepare` proves preparation renders
+  the session-contract `2.0` packet with the addressed handoff per Project and
+  fits the serialized launch output, including escaped task text.
+- The adapter test `boot reference documents survive the adapter JSON transport`
+  proves inline-document escape restoration and byte-preserving fragments.

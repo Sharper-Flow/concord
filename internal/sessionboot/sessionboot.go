@@ -28,7 +28,7 @@ type Packet struct {
 	ProductID              string          `json:"product_id"`
 	ProjectID              string          `json:"project_id"`
 	WorkID                 string          `json:"work_id"`
-	Watermark              string          `json:"watermark"`
+	SourceVersionWatermark int64           `json:"source_version_watermark"`
 	WorkflowInstance       string          `json:"workflow_instance"`
 	Resume                 json.RawMessage `json:"resume"`
 	PendingProjectHandoff  json.RawMessage `json:"pending_project_handoff,omitempty"`
@@ -37,50 +37,26 @@ type Packet struct {
 // Build preserves the captured documents inline whenever the complete packet
 // fits. References require reconstruction through the existing current reads;
 // source drift requires preparing another packet, never historical replay.
-func Build(productID, projectID string, snapshot store.SessionResumeRead) ([]byte, error) {
-	if !slices.Contains(snapshot.ProductIdentity, productID) {
-		return nil, fmt.Errorf("session boot Product identity %q is not bound to work %q", productID, snapshot.WorkID)
+func Build(productID, projectID string, snapshot store.SessionResumeRead, fits func([]byte) (bool, error)) ([]byte, error) {
+	if fits == nil {
+		return nil, fmt.Errorf("session boot packet fit measurement is required")
 	}
-	packet := Packet{
-		SchemaVersion: SchemaVersion, SessionType: SessionType,
-		SessionContractVersion: SessionContractVersion, ManifestDigest: agentcontract.ManifestDigest,
-		ProductID: productID, ProjectID: projectID, WorkID: snapshot.WorkID,
-		Watermark:        fmt.Sprintf("seq:%d", snapshot.SourceVersionWatermark),
-		WorkflowInstance: store.WorkflowInstancePresent, Resume: json.RawMessage("null"),
-	}
-	if snapshot.WorkflowInstanceAbsent {
-		if snapshot.Resume != nil {
-			return nil, fmt.Errorf("session boot absent workflow carries a resume document")
-		}
-		packet.WorkflowInstance = store.WorkflowInstanceAbsent
-	} else {
-		if snapshot.Resume == nil || snapshot.Resume.WorkID != snapshot.WorkID || snapshot.Resume.SourceVersionWatermark != snapshot.SourceVersionWatermark {
-			return nil, fmt.Errorf("session boot resume identity or watermark mismatch")
-		}
-		raw, err := json.Marshal(snapshot.Resume)
-		if err != nil {
-			return nil, err
-		}
-		if err := payloadschema.Validate("resume_read_document", raw); err != nil {
-			return nil, err
-		}
-		packet.Resume = raw
-	}
-	if snapshot.PendingProjectHandoff != nil {
-		raw, err := json.Marshal(snapshot.PendingProjectHandoff)
-		if err != nil {
-			return nil, err
-		}
-		if err := payloadschema.Validate("continuity_pending_project_handoff", raw); err != nil {
-			return nil, err
-		}
-		packet.PendingProjectHandoff = raw
+	packet, err := inlinePacket(productID, projectID, snapshot)
+	if err != nil {
+		return nil, err
 	}
 	raw, err := json.Marshal(packet)
 	if err != nil {
 		return nil, err
 	}
-	if len(raw) > MaxBootPacketBytes {
+	fit := false
+	if len(raw) <= MaxBootPacketBytes {
+		fit, err = fits(raw)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !fit {
 		if !snapshot.WorkflowInstanceAbsent {
 			packet.Resume, err = reference(packet.Resume, map[string]any{
 				"tool": "concord_work_trace", "operation": "resume",
@@ -107,7 +83,56 @@ func Build(productID, projectID string, snapshot store.SessionResumeRead) ([]byt
 	if err := Validate(raw); err != nil {
 		return nil, err
 	}
+	fit, err = fits(raw)
+	if err != nil {
+		return nil, err
+	}
+	if !fit {
+		return nil, fmt.Errorf("session boot packet does not fit caller output")
+	}
 	return raw, nil
+}
+
+func inlinePacket(productID, projectID string, snapshot store.SessionResumeRead) (Packet, error) {
+	packet := Packet{
+		SchemaVersion: SchemaVersion, SessionType: SessionType,
+		SessionContractVersion: SessionContractVersion, ManifestDigest: agentcontract.ManifestDigest,
+		ProductID: productID, ProjectID: projectID, WorkID: snapshot.WorkID,
+		SourceVersionWatermark: snapshot.SourceVersionWatermark,
+		WorkflowInstance:       store.WorkflowInstancePresent, Resume: json.RawMessage("null"),
+	}
+	if !slices.Contains(snapshot.ProductIdentity, productID) {
+		return packet, fmt.Errorf("session boot Product identity %q is not bound to work %q", productID, snapshot.WorkID)
+	}
+	if snapshot.WorkflowInstanceAbsent {
+		if snapshot.Resume != nil {
+			return packet, fmt.Errorf("session boot absent workflow carries a resume document")
+		}
+		packet.WorkflowInstance = store.WorkflowInstanceAbsent
+	} else {
+		if snapshot.Resume == nil || snapshot.Resume.WorkID != snapshot.WorkID || snapshot.Resume.SourceVersionWatermark != snapshot.SourceVersionWatermark {
+			return packet, fmt.Errorf("session boot resume identity or watermark mismatch")
+		}
+		raw, err := json.Marshal(snapshot.Resume)
+		if err != nil {
+			return packet, err
+		}
+		if err := payloadschema.Validate("resume_read_document", raw); err != nil {
+			return packet, err
+		}
+		packet.Resume = raw
+	}
+	if snapshot.PendingProjectHandoff != nil {
+		raw, err := json.Marshal(snapshot.PendingProjectHandoff)
+		if err != nil {
+			return packet, err
+		}
+		if err := payloadschema.Validate("continuity_pending_project_handoff", raw); err != nil {
+			return packet, err
+		}
+		packet.PendingProjectHandoff = raw
+	}
+	return packet, nil
 }
 
 func reference(document []byte, pointer map[string]any, path string) (json.RawMessage, error) {

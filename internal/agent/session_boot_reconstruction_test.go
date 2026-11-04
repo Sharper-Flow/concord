@@ -31,7 +31,7 @@ func bootPacketForTest(t *testing.T, s *store.Store, work, product, project stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := sessionboot.Build(product, project, snapshot)
+	raw, err := sessionboot.Build(product, project, snapshot, func([]byte) (bool, error) { return true, nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,28 @@ func TestSessionBootHandoffReconstruction(t *testing.T) {
 	if recorded.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record: %+v", recorded.Error)
 	}
+	plan, err := store.WorkflowStepPlanTemplate(store.WorkflowStepPlanChange)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.Steps[0].Attempts = []store.WorkflowPlanAttempt{{Note: "<>&\u2028\u2029界\b\f", CompletedAt: "2026-09-12T00:00:00Z"}}
+	planJSON, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET workflow_type=?, step_plan=? WHERE work_id=?; DELETE FROM write_guard`, store.WorkflowStepPlanChange, string(planJSON), "work-1"); err != nil {
+		t.Fatal(err)
+	}
 	packet := bootPacketForTest(t, s, "work-1", "product-1", "project-2")
+	resumeRef := bootRefForTest(t, packet.Resume)
+	resume := dispatchRead(t, s, receiver, InvokeRequest{Tool: resumeRef.Pointer.Tool, Operation: resumeRef.Pointer.Operation, Input: retryJSON(resumeRef.Pointer.Input)}, receiverEnv)
+	if resume.Outcome != agentcontract.OutcomeOK || !bootMatches(resumeRef, resume.Result) {
+		t.Fatalf("small referenced resume did not reconstruct inline: %s", resume.Result)
+	}
+	assertBoundedRead(t, resume)
+	if !bytes.Contains(resume.Result, []byte(`\u003c\u003e\u0026\u2028\u2029界\b\f`)) {
+		t.Fatalf("inline resume did not preserve canonical escaping: %s", resume.Result)
+	}
 	ref := bootRefForTest(t, packet.PendingProjectHandoff)
 	if ref.Pointer.Tool != "concord_work_browse" || ref.Pointer.Operation != "list" || ref.Path != "items[0].pending_project_handoff" {
 		t.Fatalf("pointer: %+v", ref)

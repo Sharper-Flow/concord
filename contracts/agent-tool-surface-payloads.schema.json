@@ -5007,7 +5007,7 @@
         "product_id",
         "project_id",
         "work_id",
-        "watermark",
+        "source_version_watermark",
         "workflow_instance",
         "resume"
       ],
@@ -5033,9 +5033,9 @@
         "work_id": {
           "$ref": "#/$defs/id"
         },
-        "watermark": {
-          "type": "string",
-          "pattern": "^seq:(0|[1-9][0-9]*)$"
+        "source_version_watermark": {
+          "type": "integer",
+          "minimum": 0
         },
         "workflow_instance": {
           "type": "string",

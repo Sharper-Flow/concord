@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -37,9 +38,14 @@ func mustJSON(t *testing.T, v any) []byte {
 	return raw
 }
 
+func alwaysFit([]byte) (bool, error) { return true, nil }
+func fitsWithin(limit int) func([]byte) (bool, error) {
+	return func(raw []byte) (bool, error) { return len(raw) <= limit, nil }
+}
+
 func buildPacket(t *testing.T, s store.SessionResumeRead) ([]byte, Packet) {
 	t.Helper()
-	raw, err := Build("product-1", "project-1", s)
+	raw, err := Build("product-1", "project-1", s, alwaysFit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +63,7 @@ func TestBuildMatchesPublicResumeDocument(t *testing.T) {
 	s := testSnapshot()
 	s.PendingProjectHandoff = testHandoff()
 	raw, packet := buildPacket(t, s)
-	if packet.SchemaVersion != "1.0" || packet.SessionType != "operator" || packet.SessionContractVersion != "2.0" || packet.ManifestDigest != agentcontract.ManifestDigest || packet.Watermark != "seq:42" {
+	if packet.SchemaVersion != "1.0" || packet.SessionType != "operator" || packet.SessionContractVersion != "2.0" || packet.ManifestDigest != agentcontract.ManifestDigest || packet.SourceVersionWatermark != 42 {
 		t.Fatalf("packet identity = %#v", packet)
 	}
 	if want := mustJSON(t, s.Resume); !bytes.Equal(packet.Resume, want) {
@@ -93,7 +99,7 @@ func TestBuildRejectsInconsistentSnapshot(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s := testSnapshot()
 			mutate(&s)
-			if _, err := Build("product-1", "project-1", s); err == nil {
+			if _, err := Build("product-1", "project-1", s, alwaysFit); err == nil {
 				t.Fatal("inconsistent snapshot accepted")
 			}
 		})
@@ -113,6 +119,8 @@ func TestValidateRejectsUnknownSessionIdentityAndManifest(t *testing.T) {
 		"session type":   func(v map[string]any) { v["session_type"] = "generic" },
 		"old contract":   func(v map[string]any) { v["session_contract_version"] = "1.0" },
 		"manifest":       func(v map[string]any) { v["manifest_digest"] = "sha256:" + strings.Repeat("0", 64) },
+		"unknown member": func(v map[string]any) { v["surface_version"] = "9.0.0" },
+		"absent resume":  func(v map[string]any) { v["workflow_instance"] = store.WorkflowInstanceAbsent },
 	} {
 		t.Run(name, func(t *testing.T) {
 			var v map[string]any
@@ -232,6 +240,60 @@ func TestBuildKeepsMidBandPacketInline(t *testing.T) {
 				t.Fatal("handoff did not remain byte-exact inline")
 			}
 		})
+	}
+}
+
+func TestBuildCallerBudget(t *testing.T) {
+	s := testSnapshot()
+	s.Resume = largeResume(18)
+	s.PendingProjectHandoff = testHandoff()
+	inline, _ := buildPacket(t, s)
+	for _, tc := range []struct {
+		name       string
+		budget     int
+		referenced bool
+	}{
+		{"exact fit", len(inline), false},
+		{"one over", len(inline) - 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := Build("product-1", "project-1", s, fitsWithin(tc.budget))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var packet Packet
+			if err := json.Unmarshal(raw, &packet); err != nil {
+				t.Fatal(err)
+			}
+			if got := !bytes.Equal(packet.Resume, mustJSON(t, s.Resume)); got != tc.referenced {
+				t.Fatalf("referenced=%v want %v", got, tc.referenced)
+			}
+			if len(raw) > tc.budget {
+				t.Fatalf("packet size %d exceeds %d", len(raw), tc.budget)
+			}
+		})
+	}
+	for _, budget := range []int{-1, 0, 1} {
+		if _, err := Build("product-1", "project-1", s, fitsWithin(budget)); err == nil {
+			t.Errorf("budget %d accepted", budget)
+		}
+	}
+	if _, err := Build("product-1", "project-1", s, nil); err == nil {
+		t.Error("nil measurement accepted")
+	}
+	measurementErr := errors.New("measurement failed")
+	for _, failAt := range []int{1, 2} {
+		calls := 0
+		_, err := Build("product-1", "project-1", s, func([]byte) (bool, error) {
+			calls++
+			if calls == failAt {
+				return false, measurementErr
+			}
+			return false, nil
+		})
+		if !errors.Is(err, measurementErr) {
+			t.Errorf("measurement %d: got %v", failAt, err)
+		}
 	}
 }
 

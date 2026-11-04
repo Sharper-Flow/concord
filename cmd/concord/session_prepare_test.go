@@ -50,7 +50,7 @@ func TestSessionPrepareRefusesWrongDirectoryBeforeIdentity(t *testing.T) {
 			identityCalls++
 			return "agent", nil
 		},
-		func(context.Context, string, string, string, string) ([]byte, error) {
+		func(context.Context, string, string, string, string, func([]byte) (bool, error)) ([]byte, error) {
 			return []byte(`{"watermark":"test"}`), nil
 		})
 	if code == 0 || identityCalls != 0 || !strings.Contains(errOut.String(), "main checkout") {
@@ -99,7 +99,7 @@ func TestSessionPrepareRefusesForeignScopeBeforeCallbacks(t *testing.T) {
 					calls++
 					return "agent", nil
 				},
-				func(context.Context, string, string, string, string) ([]byte, error) {
+				func(context.Context, string, string, string, string, func([]byte) (bool, error)) ([]byte, error) {
 					calls++
 					return []byte(`{}`), nil
 				})
@@ -133,7 +133,7 @@ func TestSessionPrepareRunsIdentityBeforeBoot(t *testing.T) {
 			}
 			return "orchestrator", nil
 		},
-		func(context.Context, string, string, string, string) ([]byte, error) {
+		func(context.Context, string, string, string, string, func([]byte) (bool, error)) ([]byte, error) {
 			if identityCalls != 1 {
 				t.Error("boot ran before identity")
 			}
@@ -169,7 +169,7 @@ func TestSessionPrepareRunsIdentityBeforeBoot(t *testing.T) {
 			identityCalls++
 			return "orchestrator", nil
 		},
-		func(context.Context, string, string, string, string) ([]byte, error) {
+		func(context.Context, string, string, string, string, func([]byte) (bool, error)) ([]byte, error) {
 			bootCalls++
 			return []byte(`{"watermark":"test"}`), nil
 		})
@@ -201,7 +201,9 @@ func TestSessionPrepareReportsAKilledRegistryProbeAsRetryable(t *testing.T) {
 			identityCalls++
 			return "concord-1", nil
 		},
-		func(context.Context, string, string, string, string) ([]byte, error) { return []byte(`{}`), nil })
+		func(context.Context, string, string, string, string, func([]byte) (bool, error)) ([]byte, error) {
+			return []byte(`{}`), nil
+		})
 	if code != 1 || identityCalls != 0 || !strings.Contains(errOut.String(), "killed") {
 		t.Fatalf("killed probe code=%d identity_calls=%d stderr=%q", code, identityCalls, errOut.String())
 	}
@@ -235,7 +237,9 @@ func TestTimedOutRegistryProbeTypedAndExit1(t *testing.T) {
 			identityCalls++
 			return "concord-1", nil
 		},
-		func(context.Context, string, string, string, string) ([]byte, error) { return []byte(`{}`), nil })
+		func(context.Context, string, string, string, string, func([]byte) (bool, error)) ([]byte, error) {
+			return []byte(`{}`), nil
+		})
 	if code != 1 || identityCalls != 0 || !strings.Contains(errOut.String(), "deadline") {
 		t.Fatalf("timed-out probe code=%d identity_calls=%d stderr=%q", code, identityCalls, errOut.String())
 	}
@@ -273,7 +277,9 @@ func TestDeterministicHostRegistryRefusalsExit2(t *testing.T) {
 					t.Fatal("identity ran after refused probe")
 					return "", nil
 				},
-				func(context.Context, string, string, string, string) ([]byte, error) { return []byte(`{}`), nil })
+				func(context.Context, string, string, string, string, func([]byte) (bool, error)) ([]byte, error) {
+					return []byte(`{}`), nil
+				})
 			if code != sessionPrepareRefusalExit || !strings.Contains(errOut.String(), want) {
 				t.Fatalf("probe code=%d stderr=%q want %q", code, errOut.String(), want)
 			}
@@ -309,7 +315,9 @@ func TestSessionPrepareProbesTheCallingHostOnce(t *testing.T) {
 					}
 					return agent, nil
 				},
-				func(context.Context, string, string, string, string) ([]byte, error) { return []byte(`{}`), nil })
+				func(context.Context, string, string, string, string, func([]byte) (bool, error)) ([]byte, error) {
+					return []byte(`{}`), nil
+				})
 			if count := hostRecord(t, recordDir, "probe-count"); count != "1" {
 				t.Fatalf("bare probes=%s", count)
 			}
@@ -338,7 +346,7 @@ func TestSessionPrepareAcceptsEmptyTask(t *testing.T) {
 		func(context.Context, string, hostCommandResolution, string) (string, error) {
 			return "agent", nil
 		},
-		func(context.Context, string, string, string, string) ([]byte, error) {
+		func(context.Context, string, string, string, string, func([]byte) (bool, error)) ([]byte, error) {
 			return []byte(`{"watermark":"test"}`), nil
 		})
 	if code != 0 {

@@ -712,17 +712,9 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	args = append(args, stateArgs...)
 	args = append(args, cursorArgs...)
 	args = append(args, limit+1)
-	proofs := map[string]context.Context{}
-	if req.Detail == "full" && len(req.WorkIDs) > 0 {
-		for _, id := range req.WorkIDs {
-			if _, ok := proofs[id]; ok {
-				continue
-			}
-			proofs[id], err = s.PrepareWorkLawProof(ctx, id)
-			if err != nil {
-				return out, err
-			}
-		}
+	proofs, err := prepareItemScopedLawProofs(ctx, s, req)
+	if err != nil {
+		return out, err
 	}
 	tx, err := beginRead(ctx, s, "PM1.Q3")
 	if err != nil {
@@ -744,33 +736,8 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 		if err := attachQ3FullDetail(ctx, tx, items); err != nil {
 			return out, err
 		}
-		if len(req.WorkIDs) > 0 {
-			for i := range items {
-				item := &items[i]
-				itemCtx := proofs[item.ID]
-				version, err := activeWorkflowContractVersion(itemCtx, tx, item.ID, "PM1.Q3")
-				if err != nil && err != sql.ErrNoRows {
-					return out, err
-				}
-				item.PendingProjectHandoff, err = selectProjectHandoffTx(itemCtx, tx, item.ID, req.AmbientProject, version)
-				if err != nil {
-					return out, err
-				}
-				contract, err := readWorkflowContractVersion(itemCtx, tx, item.ID, version)
-				if err != nil && err != sql.ErrNoRows {
-					return out, err
-				}
-				if err == nil {
-					item.LawContext, err = readWorkflowLawContext(itemCtx, tx, item.ID, &contract)
-					if err != nil {
-						return out, err
-					}
-				}
-				item.NativeRuns, err = readWorkflowNativeRunsTx(itemCtx, tx, item.ID)
-				if err != nil {
-					return out, err
-				}
-			}
+		if err := attachItemScopedResumeFacts(ctx, tx, items, proofs, req.AmbientProject); err != nil {
+			return out, err
 		}
 	}
 	out.Items = items
@@ -782,6 +749,66 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 		return out, err
 	}
 	return out.LimitPage(req, limit)
+}
+
+// prepareItemScopedLawProofs prepares the per-item verified law-folder
+// contexts an item-scoped full-detail read needs, before its transaction
+// opens (CD-0195 D2). Broad scans prepare nothing: law proof is per-item
+// work and must not multiply over inventory reads.
+func prepareItemScopedLawProofs(ctx context.Context, s *Store, req Q3Request) (map[string]context.Context, error) {
+	proofs := map[string]context.Context{}
+	if req.Detail != "full" || len(req.WorkIDs) == 0 {
+		return proofs, nil
+	}
+	for _, id := range req.WorkIDs {
+		if _, ok := proofs[id]; ok {
+			continue
+		}
+		proof, err := s.PrepareWorkLawProof(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		proofs[id] = proof
+	}
+	return proofs, nil
+}
+
+// attachItemScopedResumeFacts attaches the three per-item facts the one
+// resume view re-homes onto full detail: the pending project handoff, the
+// resolved law context, and the attributed native runs. It runs inside the
+// caller's transaction with the caller's prepared law proofs; items without
+// a prepared proof keep the facts absent.
+func attachItemScopedResumeFacts(ctx context.Context, tx *sql.Tx, items []WorkItem, proofs map[string]context.Context, ambientProject string) error {
+	for i := range items {
+		item := &items[i]
+		itemCtx, ok := proofs[item.ID]
+		if !ok {
+			continue
+		}
+		version, err := activeWorkflowContractVersion(itemCtx, tx, item.ID, "PM1.Q3")
+		if err != nil && err != sql.ErrNoRows {
+			return err
+		}
+		item.PendingProjectHandoff, err = selectProjectHandoffTx(itemCtx, tx, item.ID, ambientProject, version)
+		if err != nil {
+			return err
+		}
+		contract, err := readWorkflowContractVersion(itemCtx, tx, item.ID, version)
+		if err != nil && err != sql.ErrNoRows {
+			return err
+		}
+		if err == nil {
+			item.LawContext, err = readWorkflowLawContext(itemCtx, tx, item.ID, &contract)
+			if err != nil {
+				return err
+			}
+		}
+		item.NativeRuns, err = readWorkflowNativeRunsTx(itemCtx, tx, item.ID)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func q3FilterSQL(req Q3Request, states []string) (string, []any) {

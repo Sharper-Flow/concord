@@ -732,7 +732,6 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"start_poc":           actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
 	"checkpoint_poc":      actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
 	"discard_poc":         actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric),
-	"accept_decision":     actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
 	"approve_operation":   actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
 	"start_run":           actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric, nativeRunActionFields("started", "failed_to_start")...),
 	"checkpoint_run":      actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),

@@ -46,9 +46,9 @@ it reruns no completion and asserts no new execution.
 ### D3. Retained decision records stay readable
 
 `workflow_decision_records` rows written before the step-plan cutover remain
-readable as recorded decisions; `accept_decision` still consumes them as
-proof. No current action writes new rows: in-flight decisions travel in the
-six-part plan record, and steps complete only through `complete_step`.
+readable as recorded decisions. No current action writes new rows: in-flight
+decisions travel in the six-part plan record, and steps complete only
+through `complete_step`.
 
 ## Alternatives considered
 
@@ -64,8 +64,8 @@ host's subagent execution.
 
 ## Verification
 
-- `go test ./internal/store` checks hold-mode continuity and delivery
-  admission, including refusal without an accepted Review
+- `go test ./internal/store ./internal/agent` checks hold-mode continuity
+  and delivery admission, including refusal without an accepted Review
   (`TestRecordDeliveryRequiresAcceptedReview`) and missing or failed
   verification (`TestDeliveryAdmissionRefusals`).
 - Committed law-folder snapshot validation checks the record's identity and

@@ -25,10 +25,9 @@ type actionContract struct {
 }
 
 type workflowOutcomeContract struct {
-	Ref                    string   `json:"ref"`
-	AllowedKinds           []string `json:"allowed_kinds"`
-	AllowedOutcomeTokens   []string `json:"allowed_outcome_tokens"`
-	DecisionRecordRequired bool     `json:"decision_record_required"`
+	Ref                  string   `json:"ref"`
+	AllowedKinds         []string `json:"allowed_kinds"`
+	AllowedOutcomeTokens []string `json:"allowed_outcome_tokens"`
 }
 
 // schemaRefProjection names the live catalog's payload schema refs.

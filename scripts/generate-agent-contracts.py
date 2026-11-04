@@ -354,7 +354,7 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict
     if not workflows or len({workflow.get("ref") for workflow in workflows}) != len(workflows):
         fail("workflow outcome contract projection has no unique workflows")
     for workflow in workflows:
-        if set(workflow) != {"ref", "allowed_kinds", "allowed_outcome_tokens", "decision_record_required"} or not workflow["allowed_kinds"] or not isinstance(workflow["allowed_outcome_tokens"], list):
+        if set(workflow) != {"ref", "allowed_kinds", "allowed_outcome_tokens"} or not workflow["allowed_kinds"] or not isinstance(workflow["allowed_outcome_tokens"], list):
             fail("workflow outcome contract projection is invalid")
     return actions, workflows, teaching, schema_refs, projection["contract_updates"], catalog_count
 

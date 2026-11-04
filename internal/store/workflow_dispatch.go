@@ -366,7 +366,7 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, planType Work
 		return workflowRecordDiagnosisEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "record_review":
 		return workflowRecordedReviewEvents(request, actor, eventID, expected)
-	case "bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation":
+	case "bind_evidence", "record_research", "record_report", "approve_operation":
 		return workflowEvidenceBindingEvents(request, actor, fields, eventID, expected)
 	case "record_verdict":
 		events, err := workflowRecordVerdictEvents(ctx, tx, request, actor, fields, eventID, expected)

@@ -75,6 +75,11 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(beforePlan, afterPlan) {
 		t.Fatalf("plan changed: before=%+v after=%+v err=%v", beforePlan, afterPlan, err)
 	}
+	diagnosis := workflowTypedEvent("schema-evolution-diagnosis", WorkflowActionCompleted, workID, actorRef, time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC), version, map[string]any{"step_id": "diagnose", "action_id": "record_diagnosis", "attempt_epoch": 1, "actor_ref": actorRef, "result_evidence_refs": []string{}, "changed_refs": []string{workID}})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{diagnosis}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		t.Fatalf("in-flight diagnosis could not record: %v", err)
+	}
+	version = readWorkVersion(t, s, workID)
 	event := workflowTypedEvent("schema-evolution-step", WorkflowStepCompleted, workID, actorRef, time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC), version, map[string]any{"step_id": "diagnose", "note": "diagnosis completed"})
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("in-flight work could not advance: %v", err)

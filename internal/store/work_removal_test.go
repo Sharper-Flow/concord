@@ -34,8 +34,12 @@ func TestWorkRemovalRefusesCompletedWork(t *testing.T) {
 	}
 	producer := removalTestRequest()
 	producer.WorkID, producer.ExpectedVersion = "cleanup-producer", readWorkVersion(t, s, "cleanup-producer")
+	confirmRemovalHandoff(t, s, &producer)
 	err := removeWorkForTest(t.Context(), s, producer)
 	assertFailureKind(t, err, KindInvalidOperation)
+	if err == nil || !strings.Contains(err.Error(), "completed and superseded work cannot be removed") {
+		t.Fatalf("completed work refusal=%v", err)
+	}
 }
 
 func removalTestRequest() WorkRemovalRequest {
@@ -50,14 +54,38 @@ func removalTestRequest() WorkRemovalRequest {
 	}
 }
 
+// confirmRemovalHandoff records a Linear issue identity for the work item and
+// attaches the matching Linear handoff confirmation, so a removal fixture
+// exercises its own gate instead of the CD-0142 D3 destination admission.
+func confirmRemovalHandoff(t *testing.T, s *Store, req *WorkRemovalRequest) {
+	t.Helper()
+	remote := "remote-" + req.WorkID
+	if err := s.Transact(context.Background(), func(tx *Transaction) error {
+		_, err := RecordLinearIssueLinkTx(context.Background(), tx, LinearIssueLink{WorkID: req.WorkID, RemoteIssueUUID: remote, HumanKey: "EX-1", URL: "https://linear.app/example/issue/EX-1"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	req.ProductID = "product"
+	req.Linear = &LinearHandoffConfirmation{ProductID: "product", Destination: "linear", RemoteIssueUUID: remote, HandoffDigest: removalHandoffDigest(req.Handoff)}
+}
+
 func TestWorkRemovalLinearHandoffRequiresRecordedIdentity(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	seedWork(t, s, "remove-work-1")
 	req := removalTestRequest()
 	req.ProductID = "product"
-	req.Linear = &LinearHandoffConfirmation{ProductID: "product", Destination: "linear", RemoteIssueUUID: "fabricated-issue"}
+	// CD-0142 D3: unlinked work with no Linear handoff confirmation refuses;
+	// Linear is the only planning authority (CD-0213 D1), so no unconfirmed
+	// removal path remains.
 	err := validateRemovalDestinationQ(ctx, s.DatabaseForTesting(), req)
+	assertFailureKind(t, err, KindInvalidOperation)
+	if !strings.Contains(err.Error(), "no recorded Linear issue identity") || !strings.Contains(err.Error(), "carries no Linear handoff confirmation") {
+		t.Fatalf("unlinked unconfirmed refusal=%v", err)
+	}
+	req.Linear = &LinearHandoffConfirmation{ProductID: "product", Destination: "linear", RemoteIssueUUID: "fabricated-issue"}
+	err = validateRemovalDestinationQ(ctx, s.DatabaseForTesting(), req)
 	assertFailureKind(t, err, KindInvalidRelation)
 	if !strings.Contains(err.Error(), "no recorded Linear issue identity") {
 		t.Fatalf("unrecorded handoff refusal=%v", err)
@@ -108,6 +136,7 @@ DELETE FROM write_guard`); err != nil {
 	req.WorkID = "cancelled-removal-work"
 	req.ExpectedVersion = readWorkVersion(t, s, req.WorkID)
 	req.Reason = "cancelled"
+	confirmRemovalHandoff(t, s, &req)
 	if err := removeWorkForTest(context.Background(), s, req); err != nil {
 		t.Fatal(err)
 	}
@@ -176,6 +205,7 @@ func TestWorkRemovalRefusesRequiredResearchConsumer(t *testing.T) {
 		return req
 	}()
 	refuseReq.Reason = "shelved"
+	confirmRemovalHandoff(t, s, &refuseReq)
 	if err := removeWorkForTest(ctx, s, refuseReq); err == nil || !strings.Contains(err.Error(), "required research consumer") {
 		t.Fatalf("required consumer removal error = %v", err)
 	}

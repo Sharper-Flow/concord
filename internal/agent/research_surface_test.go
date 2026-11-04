@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -611,6 +612,21 @@ func TestResearchRetireReplayAfterOwnerRemovalFailsClosed(t *testing.T) {
 	}
 	// Setup removal through the real agent removal path: the owner's pack is
 	// retired, so the remove mutation's gates admit it.
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		_, err := store.RecordLinearIssueLinkTx(context.Background(), tx, store.LinearIssueLink{WorkID: "retire-owner-0", RemoteIssueUUID: "remote-retire-owner-0", HumanKey: "CON-1", URL: "https://linear.app/example/issue/CON-1"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ownerHandoff := store.WorkRemovalHandoff{
+		Findings: []string{"finding"}, RemainingScope: []string{"scope"}, Blockers: []string{"blocker"},
+		Artifacts: []string{"artifact"}, RenewalConditions: []string{"new approval"},
+	}
+	ownerHandoffJSON, err := json.Marshal(ownerHandoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerHandoffHash := sha256.Sum256(ownerHandoffJSON)
 	version, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -620,10 +636,8 @@ func TestResearchRetireReplayAfterOwnerRemovalFailsClosed(t *testing.T) {
 		"reason": "shelved", "actor": "human-1", "product_id": "product-1",
 		"execution_relinquished": true, "writes_reconciled": true, "effects_reconciled": true,
 		"dependencies_resolved": true, "artifacts_verified": true,
-		"handoff": store.WorkRemovalHandoff{
-			Findings: []string{"finding"}, RemainingScope: []string{"scope"}, Blockers: []string{"blocker"},
-			Artifacts: []string{"artifact"}, RenewalConditions: []string{"new approval"},
-		},
+		"handoff": ownerHandoff,
+		"linear":  store.LinearHandoffConfirmation{ProductID: "product-1", RemoteIssueUUID: "remote-retire-owner-0", Destination: "linear", HandoffDigest: fmt.Sprintf("sha256:%x", ownerHandoffHash)},
 	}
 	raw, err := json.Marshal(removal)
 	if err != nil {

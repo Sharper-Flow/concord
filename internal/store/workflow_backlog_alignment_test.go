@@ -23,6 +23,7 @@ func TestWorkRemovalClearsBacklogAlignmentAtBothEnds(t *testing.T) {
 			request.OperationID = "remove-align-" + tc.removed
 			request.IdempotencyKey = "remove-align-key-" + tc.removed
 			request.Reason = "shelved"
+			confirmRemovalHandoff(t, s, &request)
 			if err := removeWorkForTest(ctx, s, request); err != nil {
 				t.Fatalf("remove %s: %v", tc.removed, err)
 			}
@@ -69,6 +70,7 @@ func TestBacklogAlignmentPartialRemoval(t *testing.T) {
 	before := retirementUpgradeRows(t, s.DatabaseForTesting(), `SELECT * FROM workflow_backlog_alignment WHERE related_work_id IS NULL OR related_work_id='align-keep' ORDER BY related_work_id`)
 	request := removalTestRequest()
 	request.WorkID = "align-related"
+	confirmRemovalHandoff(t, s, &request)
 	if err := removeWorkForTest(t.Context(), s, request); err != nil {
 		t.Fatal(err)
 	}

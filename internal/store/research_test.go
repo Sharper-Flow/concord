@@ -409,6 +409,7 @@ func TestWorkRemovalRefusesUntilOwnedPacksRetire(t *testing.T) {
 	req.WorkID = "owner"
 	req.ExpectedVersion = 3
 	req.Reason = "shelved"
+	confirmRemovalHandoff(t, s, &req)
 	if err := removeWorkForTest(ctx, s, req); err == nil {
 		t.Fatal("removal succeeded while the work still owned a research pack")
 	} else if !hasFailureKind(err, KindNotTerminal) || !strings.Contains(err.Error(), "research pack") {
@@ -446,6 +447,7 @@ func TestWorkRemovalReleasesOptionalConsumerPin(t *testing.T) {
 	req.WorkID = "consumer"
 	req.ExpectedVersion = 2
 	req.Reason = "shelved"
+	confirmRemovalHandoff(t, s, &req)
 	if err := removeWorkForTest(ctx, s, req); err != nil {
 		t.Fatalf("removal of an optional-pin consumer refused: %v", err)
 	}

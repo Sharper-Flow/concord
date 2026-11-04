@@ -21,10 +21,10 @@ Keep operating constraints and guidance the reader needs to choose or perform
 the right action. Give each meaning one canonical home. An agent profile routes
 role-specific work; a shared instruction holds conduct used across roles; a skill
 carries an occasional method. Amend the owner instead of adding another rule
-beside it. Do not treat text in isolated receiving contexts as duplication
-without checking what each loads. Leave facts that one file or command already
-exposes with that source. Retain rationale for a constraint the environment
-cannot explain.
+beside it. Before removing repeated text as duplication, check what each
+receiving context loads; do not remove the only copy a context receives. Leave
+facts that one file or command already exposes with that source. Retain
+rationale for a constraint the environment cannot explain.
 
 ## Make the pointer fire
 

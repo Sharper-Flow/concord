@@ -7,7 +7,8 @@ whether the rule is right.
 
 Before extending something you did not introduce, establish that it should
 exist. State what it is for and what breaks without it. If you cannot say,
-that is the finding.
+that is the finding. Something can be present, called, and working, and still
+not be warranted.
 
 Default to subtraction. When work retires or replaces something, remove now
 what the approved plan retires, including law that requires it, through the

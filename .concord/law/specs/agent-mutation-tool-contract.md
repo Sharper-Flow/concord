@@ -34,8 +34,8 @@
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** TS4; binding input to CD-0005 §4 and TS5–TS9.
 > **Binding inputs:** accepted PM3–PM6, compaction-retention-policy domain operations, TS1 jobs/scenarios,
-> TS2 budget/granularity, TS3 read surface, capability-placement native-authority
-> rule, and the Advance postmortem.
+> TS2 budget/granularity, TS3 read surface, and the capability-placement native-authority
+> rule.
 > **Does not decide:** request context/authorization/idempotency envelope (TS5),
 > transport (TS6), shared result/error schema (TS7), surface evolution (TS8),
 > measurement evidence (TS9), or workflow-type registration/gate vocabulary.
@@ -44,8 +44,8 @@
 
 TS1's mutation jobs need a bounded mutation surface. The binding inputs are
 the accepted PM3 through PM6 and compaction-retention-policy domain operations, TS1 jobs and scenarios, TS2
-budget and granularity, the TS3 read surface, the capability-placement
-native-authority rule, and the Advance postmortem. This record fixes the three
+budget and granularity, the TS3 read surface, and the capability-placement
+native-authority rule. This record fixes the three
 always-visible mutation tools, their operation tables, the batch boundary,
 and the inline-versus-durable execution rule. CD-0222 requires typed
 architecture binding for Product-changing work; CD-0213 removes planning writes; CD-0042 makes the

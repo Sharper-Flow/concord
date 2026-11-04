@@ -236,8 +236,10 @@ addressable by the versions and subjects they originally named. The update
 preserves the current workflow step, instance state, checkpoints, and attempts.
 Evidence for a different candidate does not prove the current candidate.
 Version-bound premise confirmations stay bound to their recorded version.
-`confirm_premise` is admitted only at its declared step; a contract update
-does not add a confirmation action at the terminal step. Unchanged valid proof
+`confirm_premise` is admitted only at its declared step: while that step is on
+the frontier or, once the plan completes, while the active contract's
+confirmation is missing (§4.2). A contract update adds the action to no other
+step. Unchanged valid proof
 needs no replacement merely because a contract version was appended.
 
 Tests of ordinary contract validation, atomic refusals, provenance retention,

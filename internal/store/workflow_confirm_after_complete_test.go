@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// removeFixturePremiseConfirmation leaves the dead-end state of CON-1701:
-// every plan step complete, the delivery assertion recorded, and the active
+// removeFixturePremiseConfirmation leaves the plan-complete dead end: every
+// plan step complete, the delivery assertion recorded, and the active
 // contract's premise confirmation missing.
 func removeFixturePremiseConfirmation(t testing.TB, s *Store, workID string) {
 	t.Helper()
@@ -73,8 +73,8 @@ func TestPlanCompleteUnconfirmedItemHasConfirmationRoute(t *testing.T) {
 }
 
 // TestConfirmPremiseStaysFrontierBoundBeforePlanComplete pins the route's
-// scope: before the plan completes, confirm_premise remains declared only on a
-// frontier step that declares it, and a terminal instance admits nothing.
+// scope: before the plan completes, confirm_premise is admitted only on a
+// frontier step that declares it.
 func TestConfirmPremiseStaysFrontierBoundBeforePlanComplete(t *testing.T) {
 	t.Parallel()
 	const id = "confirm-midplan"

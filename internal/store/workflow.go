@@ -1515,8 +1515,9 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 		}
 		// A completed plan admits only the plan-level premise confirmation
 		// off its frontier (CON-1701), on the declaring step the dispatch
-		// used, and only once the paired premise_confirmed event has
-		// recorded the confirmation this event is folded after.
+		// used, and only while the active contract's confirmation is
+		// recorded; the paired premise_confirmed event folds first and
+		// records it.
 		if !retained {
 			owner, confirmed, err := workflowPlanCompleteConfirmationTx(ctx, tx, event.SubjectID, plan, p.ActionID)
 			if err != nil {

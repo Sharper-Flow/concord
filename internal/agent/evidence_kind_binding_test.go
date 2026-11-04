@@ -56,12 +56,8 @@ func ekbWorkAtExecute(t *testing.T, ctx context.Context, s *store.Store, service
 	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract: %+v", approved.Error)
 	}
-	after := recordApprovedWorkDesign(t, s, service, env, workID, "ekb-design-"+key)
-	started, after := ekbDispatch(t, s, service, env, workID, after, "start_execution", nil, nil, "ekb-start-"+key)
-	if started.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("start_execution: %+v", started.Error)
-	}
-	return workID, after
+	seedAgentPlanFrontier(t, s, workID, store.WorkflowStepPlanChange, "implement")
+	return workID, agentCompositionWorkVersion(t, s, workID)
 }
 
 func ekbEvidenceBoundEvents(t *testing.T, s *store.Store, workID string) []string {

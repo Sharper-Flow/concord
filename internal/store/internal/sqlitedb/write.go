@@ -20,6 +20,14 @@ type WriteTx struct {
 	ctx     context.Context
 	conn    *sql.Conn
 	durable *atomic.Uint64
+	// commitRan and rollbackRan record settlements this scope observed
+	// through its own calls: the driver commit ran, or a driver-level
+	// rollback ran. database/sql's context watchdog can also settle the
+	// transaction between this scope's statements, and it discards its
+	// rollback error (Tx.awaitDone), so only these observations prove what
+	// ErrTxDone from a later call means.
+	commitRan   bool
+	rollbackRan bool
 }
 
 type WriteAdmissionKind uint8
@@ -88,6 +96,19 @@ func (w *WriteTx) Commit() error {
 		}
 	}
 	err := w.Tx.Commit()
+	// ErrTxDone means the context watchdog settled the transaction before
+	// the commit ran; that outcome is unobservable here, so Rollback must
+	// report it as unproved. A context error with a done context means
+	// Tx.Commit refused before attempting the driver commit, so no commit
+	// ran either. Every other outcome, including a failed commit, proves
+	// the driver commit call ran and the commit envelope owns the effect
+	// truth from here on.
+	switch {
+	case errors.Is(err, sql.ErrTxDone):
+	case contextCanceled(err) && w.ctx.Err() != nil:
+	default:
+		w.commitRan = true
+	}
 	if err == nil && w.durable != nil {
 		w.durable.Add(1)
 	}
@@ -106,10 +127,31 @@ func durableCommitFailure(detail string, err error) *Error {
 }
 
 // Rollback releases a pinned connection even if rollback cannot be proved.
+//
+// ErrTxDone is proof of settlement only when this scope observed the
+// settlement itself: its own commit call ran the driver commit (the commit
+// envelope then owns the effect truth), or an earlier Rollback ran a
+// driver-level rollback. Any other ErrTxDone means database/sql's context
+// watchdog settled the transaction while this scope was between statements,
+// and the watchdog unconditionally discards its rollback error, so the
+// rollback outcome cannot be observed through the returned error. On this
+// driver a failed watchdog rollback leaves the write transaction open on a
+// connection database/sql may return to the pool (modernc.org/sqlite
+// implements SessionResetter and Validator, whose checks do not reject it),
+// where a later commit would commit those writes. Such a settlement reports
+// the unproved-rollback failure instead of settled.
 func (w *WriteTx) Rollback() error {
 	err := w.Tx.Rollback()
 	if errors.Is(err, sql.ErrTxDone) {
-		err = nil
+		if w.commitRan || w.rollbackRan {
+			err = nil
+		} else {
+			f := failure(Unavailable, "transaction_rollback", "cannot prove the transaction rolled back", false, "reconcile the requested effect before retrying", w.release())
+			f.EffectPossible = true
+			return f
+		}
+	} else {
+		w.rollbackRan = true
 	}
 	if err != nil {
 		f := failure(Unavailable, "transaction_rollback", "cannot prove the transaction rolled back", false, "reconcile the requested effect before retrying", errors.Join(err, w.release()))
@@ -117,6 +159,13 @@ func (w *WriteTx) Rollback() error {
 		return f
 	}
 	return errors.Join(err, w.release())
+}
+
+// contextCanceled reports whether err is a context cancellation, which
+// Tx.Commit returns unchanged when it refuses to attempt the commit of a
+// transaction whose context is already done.
+func contextCanceled(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func (w *WriteTx) release() error {

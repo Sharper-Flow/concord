@@ -1,51 +1,70 @@
 package store
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
-func TestAcceptedCriteriaPrecedeArchitecture(t *testing.T) {
-	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
-	for _, edge := range definition.StepGraph.Edges {
-		if edge.From == "planning" && edge.Kind == WorkflowEdgeForward {
-			if edge.To != "design" {
-				t.Fatalf("accepted criteria advance to %q, want architecture before execution", edge.To)
-			}
-			return
-		}
-	}
-	t.Fatal("accepted criteria have no forward architecture stage")
-}
-
-func TestArchitectureReviewGuardsDelivery(t *testing.T) {
-	report := reviewBlockFixture()
-	report.Disposition = "ready_for_final_proof"
-	report.Findings = []ReviewFinding{}
-	report.Dependencies.ArchitectureNotApplicable = false
-	report.Dependencies.ArchitectureDigest = testManifestDigest
-	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
-	for _, phase := range []string{"unreviewed", "current", "stale"} {
+func TestWorkflowReviewCurrentCriteriaAndArchitecture(t *testing.T) {
+	for _, phase := range []string{"unreviewed", "current", "criterion-changed", "architecture-changed", "architecture-removed"} {
 		t.Run(phase, func(t *testing.T) {
-			state := WorkflowReviewState{Dependencies: &report.Dependencies, Findings: []ReviewFinding{}}
-			want := KindMissingEvidence
+			report := reviewBlockFixture()
+			report.Disposition = "ready_for_final_proof"
+			report.Findings = []ReviewFinding{}
+			report.Dependencies.ArchitectureNotApplicable = false
+			report.Dependencies.ArchitectureDigest = "sha256:" + strings.Repeat("a", 64)
+			current := report.Dependencies
+			current.Criteria = append([]ReviewCriterion(nil), report.Dependencies.Criteria...)
+			switch phase {
+			case "criterion-changed":
+				current.Criteria[0].ContentDigest = "sha256:" + strings.Repeat("b", 64)
+			case "architecture-changed":
+				current.ArchitectureDigest = "sha256:" + strings.Repeat("b", 64)
+			case "architecture-removed":
+				current.ArchitectureDigest, current.ArchitectureNotApplicable = "", true
+			}
+			state := WorkflowReviewState{Dependencies: &current, Findings: []ReviewFinding{}}
 			if phase != "unreviewed" {
 				state.Candidate = &report.OutputCandidate
 				state.Accepted = &WorkflowAcceptedReview{ReportRef: "review:recorded", Report: *report}
-				state.DependenciesCurrent = phase == "current"
-				want = KindStaleRequiresReview
+				state.DependenciesCurrent = sameReviewDependencies(report.Dependencies, current)
 			}
-			if err := workflowAdmitReview(state); phase == "current" && err != nil || phase != "current" && !hasFailureKind(err, want) {
-				t.Fatalf("architecture Review exit=%v, phase=%s", err, phase)
-			}
-			if phase == "current" {
-				return
-			}
-			for _, action := range []string{"record_delivery"} {
-				admission := WorkflowAdmissionState{Step: "execution", InstanceState: "running", Lifecycle: "in_progress", ActiveContracts: 1,
-					Review: &state, Delivery: workflowDeliveryAdmission{Started: true}}
-				decision := workflowAdmit(definition, admission, action)
-				if decision.Admitted || decision.Failure == nil || decision.Failure.Kind != want {
-					t.Fatalf("%s bypassed %s architecture: %+v", action, phase, decision)
+			err := workflowAdmitReview(state)
+			switch phase {
+			case "unreviewed":
+				_ = planAdmissionFailure(t, err, KindMissingEvidence)
+			case "current":
+				if err != nil {
+					t.Fatalf("current Review refused: %v", err)
 				}
+			default:
+				_ = planAdmissionFailure(t, err, KindStaleRequiresReview)
 			}
 		})
+	}
+}
+
+func TestWorkflowPlanDeliveryRefusesReviewOfChangedCriterion(t *testing.T) {
+	const workID = "plan-delivery-changed-criterion"
+	f, _ := deliveryPlanFixture(t, workID, []string{}, "ready_for_final_proof")
+	successor := pContractSuccessor(t, f.store, workID, "Deliver the changed criterion.")
+	predicates := successor["outcome_predicates"].([]any)
+	predicate := predicates[0].(map[string]any)
+	predicate["outcome_payload"].(map[string]any)["check_ref"] = "check:changed"
+	if err := reviseContractRecord(t, f.store, workID, f.owner, successor, readWorkVersion(t, f.store, workID)); err != nil {
+		t.Fatalf("revise criterion: %v", err)
+	}
+	state, err := loadWorkflowReviewState(t.Context(), f.store.db, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = planAdmissionFailure(t, workflowAdmitReview(state), KindStaleRequiresReview)
+	version := readWorkVersion(t, f.store, workID)
+	request := planAdmissionRequest(workID, "record_delivery", version, f.owner, json.RawMessage(`{"delivery_artifact":"artifact:changed","delivery_state":"asserted"}`))
+	first := planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), KindStaleRequiresReview)
+	second := planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), KindStaleRequiresReview)
+	if first.Detail != second.Detail || readWorkVersion(t, f.store, workID) != version {
+		t.Fatalf("stale Review delivery parity or rollback: %v / %v", first, second)
 	}
 }

@@ -114,17 +114,18 @@ func TestWorkPinOutstandingEvidenceKindsContinuity(t *testing.T) {
 	s := openTemp(t)
 	const workID = "workpin-outstanding-continuity"
 	seedLawContextFixture(t, s, workID)
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, currentWorkflowPlanFixture(t, WorkflowStepPlanChange).Steps[0].ID)
 	binding := WorkflowArchitectureBinding{
 		HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
 		DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 		VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}},
 	}
-	approveLawContextContract(t, s, workID, []string{"spec:one"}, []string{}, binding)
+	approveCurrentLawContextContract(t, s, workID, []string{"spec:one"}, []string{}, binding)
 	pin, err := ReadWorkPin(ctx, s, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	requireWorkPinOutstandingKinds(t, &pin, []string{"artifact", "review", "verification"})
+	requireWorkPinOutstandingKinds(t, &pin, []string{"review", "verification"})
 	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +133,7 @@ func TestWorkPinOutstandingEvidenceKindsContinuity(t *testing.T) {
 	if snapshot.WorkPin == nil || snapshot.WorkPin.Version != pin.Version || snapshot.WorkPin.Step != pin.Step {
 		t.Fatalf("continuity pin = %+v, direct pin = %+v", snapshot.WorkPin, pin)
 	}
-	requireWorkPinOutstandingKinds(t, snapshot.WorkPin, []string{"artifact", "review", "verification"})
+	requireWorkPinOutstandingKinds(t, snapshot.WorkPin, []string{"review", "verification"})
 }
 
 func TestWorkPinOutstandingEvidenceKindsIncludeRecoveryCheck(t *testing.T) {
@@ -143,7 +144,7 @@ func TestWorkPinOutstandingEvidenceKindsIncludeRecoveryCheck(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			workID := "workpin-debt-" + name
-			fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+			fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "review")
 			if missingProducer {
 				if _, err := fixture.store.DatabaseForTesting().Exec(`DELETE FROM durable_operations WHERE op_id=?`, "return-authority-verification-"+workID); err != nil {
 					t.Fatal(err)
@@ -224,46 +225,35 @@ func TestWorkPinOutstandingEvidenceKindsOmittedWithoutContractAuthority(t *testi
 	})
 }
 
-func TestWorkPinOutstandingEvidenceKindsRecoveryIntentAcrossDefinitions(t *testing.T) {
-	for _, ref := range []string{"workflow.implementation", "workflow.break_fix", "workflow.research"} {
-		current, err := BuiltinWorkflowDefinitionForRef(ref)
-		if err != nil {
-			t.Fatal(err)
-		}
+func TestWorkPinOutstandingEvidenceKindsRecoveryIntentAcrossPlans(t *testing.T) {
+	for _, planType := range []WorkflowStepPlanType{WorkflowStepPlanChange, WorkflowStepPlanFix, WorkflowStepPlanResearch} {
 		{
-			name := ref
+			name := string(planType)
 			t.Run(name, func(t *testing.T) {
-				registered := current
-				workID := "workpin-debt-" + ref
-				var completionStep string
-				for _, step := range registered.Definition.StepGraph.Steps {
-					if slices.Contains(step.Actions, "complete") {
-						completionStep = step.ID
-					}
-				}
-				if completionStep == "" {
-					t.Fatalf("definition %s has no completion step", name)
-				}
-				f := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, completionStep, []string{"commit"}, []string{"verification", "review", "artifact"})
+				workID := "workpin-debt-" + name
+				plan := currentWorkflowPlanFixture(t, planType)
+				frontier := plan.Steps[len(plan.Steps)-1].ID
+				f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, planType, frontier, []string{"commit"}, []string{"verification", "review", "artifact"})
 				pin, err := ReadWorkPin(context.Background(), f.store, workID)
 				if err != nil {
 					t.Fatal(err)
 				}
 				want := []string{"commit"}
-				for _, kind := range registered.Definition.OutcomeSchema.AllowedKinds {
+				allowedKinds, _ := WorkflowPlanAllowedPredicates(planType)
+				for _, kind := range allowedKinds {
 					if kind == PredicateCheck {
 						want = append(want, "verification")
 					}
 				}
 				requireWorkPinOutstandingKinds(t, &pin, want)
 				var requiredFields []string
-				for _, action := range registered.Definition.ActionDefinitions {
-					if action.ID == "bind_evidence" {
-						for _, field := range publicWorkflowActionPayload(action).Fields {
-							if field.Required {
-								requiredFields = append(requiredFields, field.Name)
-							}
-						}
+				action, err := catalogAction("bind_evidence")
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, field := range publicWorkflowActionPayload(action).Fields {
+					if field.Required {
+						requiredFields = append(requiredFields, field.Name)
 					}
 				}
 				count := 0

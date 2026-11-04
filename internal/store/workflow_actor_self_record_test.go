@@ -13,22 +13,14 @@ import (
 // operator-class bootstrap actor. The agent session that then works the item is
 // always new to workflow_actors, because the host cannot know that session at
 // capture time.
-func seedBootstrapCapturedWork(t *testing.T, workID, kind string) (*Store, int64) {
+func seedBootstrapCapturedWork(t *testing.T, workID string) (*Store, int64) {
 	t.Helper()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedWork(t, s, workID)
-	ref, err := DefaultWorkflowRefForKind(kind)
-	if err != nil {
-		t.Fatal(err)
-	}
-	definition, err := BuiltinWorkflowDefinitionForRef(ref)
-	if err != nil {
-		t.Fatal(err)
-	}
 	bootstrap := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord", AgentRef: "agent/concord", SessionRef: "session/bootstrap-" + workID, ActorClass: ActorOperator}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Definition: definition, Actor: bootstrap, Now: time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC)})
+		return InitializeWorkflowTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: bootstrap, Now: time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC)})
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -52,22 +44,25 @@ func countWorkflowActor(t *testing.T, s *Store, actorRef string) int {
 func TestFirstWorkflowActionRecordsTheActingActor(t *testing.T) {
 	t.Parallel()
 	for _, testCase := range []struct {
-		kind     string
 		step     string
+		planType WorkflowStepPlanType
 		actionID string
+		payload  map[string]any
 	}{
-		{kind: "task", step: "proposal", actionID: "record_proposal"},
-		// The bug head opens at the merged diagnosis step whose only advance
-		// exit is record_diagnosis.
-		{kind: "bug", step: "diagnosis", actionID: "record_diagnosis"},
+		{step: "intake", actionID: "record_intake", payload: map[string]any{"outcome": "proceed", "open_questions_found": false}},
+		{step: "plan", planType: WorkflowStepPlanChange, actionID: "record_plan", payload: map[string]any{"outcomes": "working outcome", "approach": "bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "which?", "choice": "one", "rationale": "fits", "rejected": []string{}}}, "touches": []string{"file:one"}, "merge_split": "one item", "risks": "bounded risk"}},
+		{step: "diagnose", planType: WorkflowStepPlanFix, actionID: "record_diagnosis", payload: map[string]any{"reproduction": "The bounded reproduction steps.", "searched": "The bounded searched area.", "outcome": "none_found", "root_cause": "The bounded root cause."}},
 	} {
 		t.Run(testCase.actionID, func(t *testing.T) {
 			ctx := context.Background()
 			workID := "issue740-" + testCase.actionID
-			s, version := seedBootstrapCapturedWork(t, workID, testCase.kind)
-
-			if got := currentStep(t, s, workID); got != testCase.step {
-				t.Fatalf("captured work opened at step=%q, want %q", got, testCase.step)
+			s, version := seedBootstrapCapturedWork(t, workID)
+			if testCase.planType != "" {
+				seedWorkflowPlanFrontier(t, s, workID, testCase.planType, testCase.step)
+				if got := workflowPlanFixtureFrontier(t, s, workID); got != testCase.step {
+					t.Fatalf("frontier=%q, want %q", got, testCase.step)
+				}
+				version = readWorkVersion(t, s, workID)
 			}
 
 			agent := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/agent-" + workID, ActorClass: ActorAgent}
@@ -78,13 +73,7 @@ func TestFirstWorkflowActionRecordsTheActingActor(t *testing.T) {
 			if got := countWorkflowActor(t, s, agentRef); got != 0 {
 				t.Fatalf("fixture already recorded the acting session: rows=%d, want 0", got)
 			}
-			payload := mustJSONValue(map[string]any{})
-			if testCase.actionID == "record_proposal" {
-				payload = mustJSONValue(map[string]any{"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."}})
-			}
-			if testCase.actionID == "record_diagnosis" {
-				payload = mustJSONValue(map[string]any{"reproduction": "The bounded reproduction steps.", "searched": "The bounded searched area.", "outcome": "none_found", "root_cause": "The bounded root cause."})
-			}
+			payload := mustJSONValue(testCase.payload)
 
 			request := WorkflowActionExecutionRequest{
 				WorkID: workID, ExpectedVersion: version, ActionID: testCase.actionID,
@@ -97,7 +86,7 @@ func TestFirstWorkflowActionRecordsTheActingActor(t *testing.T) {
 				ContractDigest: testManifestDigest, Now: time.Date(2026, 9, 3, 1, 0, 0, 0, time.UTC),
 			}
 			if err := s.Transact(ctx, func(tx *Transaction) error {
-				_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), request)
+				_, err := ApplyWorkflowActionTx(ctx, tx, request)
 				return err
 			}); err != nil {
 				t.Fatalf("first workflow action by an unrecorded session: %v", err)
@@ -113,8 +102,11 @@ func TestFirstWorkflowActionRecordsTheActingActor(t *testing.T) {
 			if principal != agent.PrincipalRef || client != agent.ClientRef || agentField != agent.AgentRef || session != agent.SessionRef || class != string(ActorAgent) {
 				t.Fatalf("recorded tuple=%q/%q/%q/%q class=%q, want the acting session's tuple", principal, client, agentField, session, class)
 			}
-			if got := currentStep(t, s, workID); got == testCase.step {
-				t.Fatalf("action did not advance the workflow: step=%q", got)
+			if got := readWorkVersion(t, s, workID); got <= version {
+				t.Fatalf("action did not advance work version: got %d, before %d", got, version)
+			}
+			if testCase.planType != "" && workflowPlanFixtureFrontier(t, s, workID) != testCase.step {
+				t.Fatal("typed action changed the plan frontier")
 			}
 		})
 	}
@@ -160,7 +152,7 @@ func readActorRecordedPrefixEvent(t *testing.T, s *Store, eventID string, expect
 func readActorPrefixActionTime(t *testing.T, s *Store, eventID string) time.Time {
 	t.Helper()
 	var occurredAt string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT i.last_checkpoint_at FROM workflow_instances i JOIN workflow_phase_exits x ON x.work_id=i.work_id JOIN effect_receipts r ON r.effect_seq=x.exit_seq WHERE r.event_id=? AND r.kind=?`, eventID, WorkflowActionCompleted).Scan(&occurredAt); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT p.recorded_at FROM workflow_plan_records p JOIN effect_receipts r ON r.event_id=p.event_ref WHERE r.event_id=? AND r.kind=?`, eventID, WorkflowPlanRecorded).Scan(&occurredAt); err != nil {
 		t.Fatalf("read current action time for %s: %v", eventID, err)
 	}
 	parsed, parseErr := time.Parse(time.RFC3339Nano, occurredAt)
@@ -190,20 +182,22 @@ func TestWorkflowActorRecordPrefixCharacterization(t *testing.T) {
 			ContractDigest: testManifestDigest, Now: time.Date(2026, 9, 3, 1, 0, 0, 0, time.UTC),
 		}
 	}
-	proposalPayload := map[string]any{"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."}}
+	planPayload := map[string]any{"outcomes": "working outcome", "approach": "bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "which?", "choice": "one", "rationale": "fits", "rejected": []string{}}}, "touches": []string{"file:one"}, "merge_split": "one item", "risks": "bounded risk"}
 	ctx := context.Background()
 
 	t.Run("missing tuple records one exact prefix", func(t *testing.T) {
 		workID := "issue740-prefix-missing"
-		s, version := seedBootstrapCapturedWork(t, workID, "task")
+		s, _ := seedBootstrapCapturedWork(t, workID)
+		seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
+		version := readWorkVersion(t, s, workID)
 		agent := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/agent-" + workID, ActorClass: ActorAgent}
 		agentRef, err := WorkflowActorRef(agent)
 		if err != nil {
 			t.Fatal(err)
 		}
-		request := buildAction(workID, "record_proposal", workID, agent, version, proposalPayload)
+		request := buildAction(workID, "record_plan", workID, agent, version, planPayload)
 		if err := s.Transact(ctx, func(tx *Transaction) error {
-			_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), request)
+			_, err := ApplyWorkflowActionTx(ctx, tx, request)
 			return err
 		}); err != nil {
 			t.Fatalf("first workflow action by an unrecorded session: %v", err)
@@ -231,34 +225,32 @@ func TestWorkflowActorRecordPrefixCharacterization(t *testing.T) {
 
 	t.Run("recorded tuple appends no prefix", func(t *testing.T) {
 		workID := "issue740-prefix-recorded"
-		s, version := seedBootstrapCapturedWork(t, workID, "task")
+		s, _ := seedBootstrapCapturedWork(t, workID)
+		seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
+		version := readWorkVersion(t, s, workID)
 		agent := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/agent-" + workID, ActorClass: ActorAgent}
 		agentRef, err := WorkflowActorRef(agent)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if err := s.Transact(ctx, func(tx *Transaction) error {
-			_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), buildAction(workID, "record_proposal", workID, agent, version, proposalPayload))
+			_, err := ApplyWorkflowActionTx(ctx, tx, buildAction(workID, "record_plan", workID, agent, version, planPayload))
 			return err
 		}); err != nil {
 			t.Fatalf("first workflow action by an unrecorded session: %v", err)
 		}
-		// Alignment is the actual next step after proposal on this
-		// definition, and record_alignment is its only advance exit. From
-		// source: a none_found alignment emits exactly one typed event, and
-		// the generic completion follows it, so the recorded session's
-		// action adds exactly two versions and no actor prefix.
+		// A plan revision emits a typed record and a completion, with no new actor prefix.
 		recordedVersion := readWorkVersion(t, s, workID)
 		actorEventsBefore := countActorRecordedEvents(t, s)
-		alignmentPayload := map[string]any{"searched": "The bounded searched area.", "outcome": "none_found"}
+		revision := map[string]any{"outcomes": "working outcome", "approach": "bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "which?", "choice": "one", "rationale": "fits", "rejected": []string{}}}, "touches": []string{"file:one"}, "merge_split": "one item", "risks": "bounded risk", "reason": "new evidence"}
 		if err := s.Transact(ctx, func(tx *Transaction) error {
-			_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), buildAction(workID, "record_alignment", workID+"-second", agent, recordedVersion, alignmentPayload))
+			_, err := ApplyWorkflowActionTx(ctx, tx, buildAction(workID, "record_plan", workID+"-second", agent, recordedVersion, revision))
 			return err
 		}); err != nil {
 			t.Fatalf("second workflow action by the recorded session: %v", err)
 		}
 		if got := readWorkVersion(t, s, workID); got != recordedVersion+2 {
-			t.Fatalf("already-recorded action moved version to %d, want the alignment semantic and completion pair at %d", got, recordedVersion+2)
+			t.Fatalf("already-recorded action moved version to %d, want the plan semantic and completion pair at %d", got, recordedVersion+2)
 		}
 		if got := countActorRecordedEvents(t, s); got != actorEventsBefore {
 			t.Fatalf("matched tuple added %d actor events, want 0", got-actorEventsBefore)
@@ -283,16 +275,18 @@ func TestWorkflowActorRecordPrefixCharacterization(t *testing.T) {
 
 	t.Run("zero request time records the normalized action time", func(t *testing.T) {
 		workID := "issue740-prefix-zero-now"
-		s, version := seedBootstrapCapturedWork(t, workID, "task")
+		s, _ := seedBootstrapCapturedWork(t, workID)
+		seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
+		version := readWorkVersion(t, s, workID)
 		agent := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/agent-" + workID, ActorClass: ActorAgent}
 		agentRef, err := WorkflowActorRef(agent)
 		if err != nil {
 			t.Fatal(err)
 		}
-		request := buildAction(workID, "record_proposal", workID, agent, version, proposalPayload)
+		request := buildAction(workID, "record_plan", workID, agent, version, planPayload)
 		request.Now = time.Time{}
 		if err := s.Transact(ctx, func(tx *Transaction) error {
-			_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), request)
+			_, err := ApplyWorkflowActionTx(ctx, tx, request)
 			return err
 		}); err != nil {
 			t.Fatalf("first workflow action with zero request time: %v", err)
@@ -304,7 +298,7 @@ func TestWorkflowActorRecordPrefixCharacterization(t *testing.T) {
 		if event.OccurredAt.IsZero() {
 			t.Fatalf("actor prefix occurred_at is zero, want the normalized action time")
 		}
-		completedAt := readActorPrefixActionTime(t, s, request.OperationID+":completed")
+		completedAt := readActorPrefixActionTime(t, s, request.OperationID+":semantic")
 		if !event.OccurredAt.Equal(completedAt) {
 			t.Fatalf("actor prefix occurred_at=%v, want the action's normalized event time %v", event.OccurredAt, completedAt)
 		}

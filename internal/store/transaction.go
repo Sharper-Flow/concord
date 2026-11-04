@@ -21,16 +21,6 @@ func beginReadTx(ctx context.Context, db beginTxSource) (*sql.Tx, error) {
 	return sqlitedb.BeginRead(ctx, db)
 }
 
-// beginOrdinaryTx uses the write owner without changing NORMAL commit or raw
-// transaction lifecycle semantics. Only durable writes need a pinned connection.
-func beginOrdinaryTx(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
-	tx, err := beginWriteTx(ctx, db, nil, stateWriteAdmission)
-	if err != nil {
-		return nil, err
-	}
-	return tx.Tx, nil
-}
-
 // Transaction is an opaque unit of work owned by Store. Callers can pass it
 // back to store-owned Tx methods, but cannot execute SQL or control its
 // lifecycle directly.

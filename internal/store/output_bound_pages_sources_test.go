@@ -974,7 +974,7 @@ func init() {
 	// yet; the rows stay unproved gap reports.
 	registerOutputBound("/$defs/mutation_result/properties/delivery/properties/branch/maxLength", pkFieldNeverWrittenBound("delivery", boundCharacters, "internal/agent/mutations.go"))
 	registerOutputBound("/$defs/mutation_result/properties/delivery/properties/commit/maxLength", pkFieldNeverWrittenBound("delivery", boundCharacters, "internal/agent/mutations.go"))
-	registerOutputBound("/$defs/mutation_result/properties/next_valid_intents/items/properties/required_fields/maxItems", schemaBound("contracts/workflow-definition.schema.json", "/$defs/payloadDefinition/properties/fields/maxItems"))
+	registerOutputBound("/$defs/mutation_result/properties/next_valid_intents/items/properties/required_fields/maxItems", requiredIntentFieldsBound())
 	registerOutputBound("/$defs/mutation_result/properties/next_valid_intents/maxItems", workPinIntentItemsBound())
 	registerOutputBound("/$defs/mutation_result/properties/work_pins/maxItems", pkSubsetChainItemsBound(
 		pkPlanEffectWorkPinsBound("internal/agent/mutations.go"),

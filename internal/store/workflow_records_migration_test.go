@@ -142,7 +142,11 @@ func TestOrdinaryRecordsMigrationRefusesPartialOverlay(t *testing.T) {
 }
 
 func TestOrdinaryRecordsDiscoverRetainedReviewWithoutExit(t *testing.T) {
-	db, _, _, _ := lawPinUpgradeFixtureAt(t, 175)
+	useStampedBuild(t)
+	db, path, _, _ := lawPinUpgradeFixtureAt(t, 175)
+	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+		t.Fatal(err)
+	}
 	work := "upgrade-review-1-true"
 	records, err := workflowCurrentRecords(t.Context(), db, work)
 	if err != nil {

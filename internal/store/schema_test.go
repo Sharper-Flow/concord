@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -214,14 +215,13 @@ func TestMigration88BackfillsWorkflowContractDefinitionAuthorityPins(t *testing.
 	if ref != definitionRef || version != 6 || digest != historicalDefinitionDigest {
 		t.Fatalf("migration 88 pins = %q, %d, %q", ref, version, digest)
 	}
+	const retained = `SELECT work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate FROM workflow_contracts WHERE work_id='migration-88-contract-pins'`
+	want := retirementUpgradeRows(t, db, retained)
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRowContext(ctx, `SELECT definition_ref,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&ref, &digest); err != nil {
-		t.Fatal(err)
-	}
-	if ref != definitionRef || digest != historicalDefinitionDigest {
-		t.Fatalf("current contract content identity = %q, %q", ref, digest)
+	if got := retirementUpgradeRows(t, db, retained); !reflect.DeepEqual(got, want) {
+		t.Fatalf("retained contract facts changed: got %v, want %v", got, want)
 	}
 	if tableColumns(t, db, "workflow_contracts")["definition_version"] {
 		t.Fatal("migration 152 retained the definition counter")

@@ -22,7 +22,7 @@ func runIssue933OperatorAction(t *testing.T, s *Store, workID, action string, pa
 	}
 	defer tx.Rollback()
 	operationID := fmt.Sprintf("issue933-%s-%s-%d", action, workID, version)
-	_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: operationID, OperationID: operationID,
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
@@ -37,11 +37,18 @@ func runIssue933OperatorAction(t *testing.T, s *Store, workID, action string, pa
 func contractCorrectionEffectSnapshot(t *testing.T, s *Store, workID string) string {
 	t.Helper()
 	var version, events, operations int64
-	var step string
-	if err := s.db.QueryRow(`SELECT w.version,i.current_step,(SELECT count(*) FROM effect_receipts WHERE subject_id=w.id),(SELECT count(*) FROM durable_operations WHERE work_id=w.id) FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&version, &step, &events, &operations); err != nil {
+	var plan *string
+	if err := s.db.QueryRow(`SELECT w.version,i.step_plan,(SELECT count(*) FROM effect_receipts WHERE subject_id=w.id),(SELECT count(*) FROM durable_operations WHERE work_id=w.id) FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&version, &plan, &events, &operations); err != nil {
 		t.Fatal(err)
 	}
-	return fmt.Sprintf("version=%d step=%s events=%d operations=%d", version, step, events, operations)
+	return fmt.Sprintf("version=%d plan=%v events=%d operations=%d", version, planValue(plan), events, operations)
+}
+
+func planValue(plan *string) string {
+	if plan == nil {
+		return "<nil>"
+	}
+	return *plan
 }
 
 func pContractSuccessor(t *testing.T, s *Store, id, premise string) map[string]any {
@@ -76,9 +83,10 @@ func pContractSuccessor(t *testing.T, s *Store, id, premise string) map[string]a
 
 func issue1013Preflight(t *testing.T, s *Store, workID, action string, payload json.RawMessage, actor WorkflowActor) error {
 	t.Helper()
-	return WorkflowActionPreflightWithRegistry(context.Background(), s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{
-		WorkID: workID, ActionID: action, Payload: payload, Actor: actor,
+	_, err := WorkflowActionDefinitionFor(context.Background(), s, WorkflowActionPreflightRequest{
+		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: action, Payload: payload, Actor: actor,
 	})
+	return err
 }
 
 func issue1013Pin(t *testing.T, s *Store, workID string) WorkPin {
@@ -111,8 +119,8 @@ func latestStepStartEpoch(t *testing.T, s *Store, workID, stepID string) int64 {
 func seedDuplicateContractProjection(t *testing.T, s *Store, workID, ownerRef string) {
 	t.Helper()
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_digest)
-SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,?,spec_mandate,law_modifies,law_boundary_version,rigor_class,definition_ref,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=1;
+INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
+SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,?,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=1;
 INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload)
 SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1;
 DELETE FROM write_guard`, ownerRef, workID, workID); err != nil {

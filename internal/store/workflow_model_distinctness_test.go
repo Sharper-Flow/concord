@@ -61,14 +61,26 @@ func TestWorkflowExecutionModelProjectionPreservesReadback(t *testing.T) {
 			s := openTemp(t)
 			seedWork(t, s, "d6-work")
 			seedWorkflowLaw(t, s)
-			digest := workflowFixtureDigest(t)
-			executor := DeriveWorkflowActorRef("principal/operator", "client/concord-1", "agent/executor", "session/exec")
-			setup := []Event{
-				workflowEvent("d6-executor", WorkflowActorRecorded, "d6-work", map[string]any{"work_id": "d6-work", "expected_version": 2, "resulting_version": 3, "actor_ref": executor, "principal_ref": "principal/operator", "client_ref": "client/concord-1", "agent_ref": "agent/executor", "session_ref": "session/exec", "actor_class": "agent"}),
-				workflowEvent("d6-definition", WorkflowDefinitionSelected, "d6-work", map[string]any{"work_id": "d6-work", "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 1, "digest": digest, "work_kind": workflowFixtureWorkKind}),
-				workflowEventWithActor("d6-start", WorkflowActionStarted, "d6-work", executor, map[string]any{"work_id": "d6-work", "expected_version": 4, "resulting_version": 5, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64), "idempotency_identity": "d6-operation", "actor_ref": executor, "execution_model": testCase.executionModel}),
+			actor := distinctnessActor("agent/executor", "session/exec", ActorAgent, testCase.executionModel)
+			executor, err := WorkflowActorRef(actor)
+			if err != nil {
+				t.Fatal(err)
 			}
-			if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "d6-work"): 2}}); err != nil {
+			tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: "d6-work", Actor: actor}); err != nil {
+				tx.Rollback()
+				t.Fatal(err)
+			}
+			if err := tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			seedWorkflowPlanFrontier(t, s, "d6-work", WorkflowStepPlanChange, "implement")
+			version := readWorkVersion(t, s, "d6-work")
+			start := workflowEventWithActor("d6-start", WorkflowActionStarted, "d6-work", executor, map[string]any{"work_id": "d6-work", "expected_version": version, "resulting_version": version + 1, "step_id": "implement", "action_id": "start_execution", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("b", 64), "idempotency_identity": "d6-operation", "actor_ref": executor, "execution_model": testCase.executionModel})
+			if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "d6-work"): version}}); err != nil {
 				t.Fatal(err)
 			}
 

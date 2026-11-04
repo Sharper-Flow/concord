@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -56,21 +55,15 @@ func TestWorkflowCompleteRefusesNonCompletedTerminalState(t *testing.T) {
 	for _, terminal := range []string{"superseded", "cancelled"} {
 		t.Run(terminal, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
 			workID := "complete-refuses-" + terminal
-			s, completion := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
-			var payload map[string]any
-			if err := json.Unmarshal(completion.Payload, &payload); err != nil {
-				t.Fatal(err)
-			}
-			payload["terminal_state"] = terminal
-			completion.Payload = mustJSONValue(payload)
+			s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
+			payload := mustJSONValue(map[string]any{"impact_verdict": "non-breaking", "terminal_state": terminal})
 			var eventsBefore int
 			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&eventsBefore); err != nil {
 				t.Fatal(err)
 			}
 
-			err := CompleteWorkflow(ctx, s, completion)
+			_, err := validateWorkflowPlanActionPayload("complete", payload)
 			var failure *Failure
 			if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload {
 				t.Fatalf("completion with terminal_state %s = %v, want %s", terminal, err, KindInvalidPayload)

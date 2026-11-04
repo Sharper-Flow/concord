@@ -317,12 +317,16 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
     fixture = corpus["fixtures"]
     work_ids = {item["id"] for item in fixture["work_items"]}
     actor_refs = {item["actor_ref"] for item in fixture["actors"]}
-    definition_refs = {item["ref"] for item in fixture["definitions"]}
     evidence_ids = {item["id"] for item in fixture["evidence"]}
     relation_ids = {item["id"] for item in fixture["relations"]}
+    workflow_types = set(fixture["workflow_types"])
+    templates = _load_json(ROOT / "contracts/workflow-step-templates.v1.json")
+    template_types = {item["id"] for item in templates["types"]}
+    template_steps = {item["id"]: {step["id"] for step in item["steps"]} for item in templates["types"]}
+    if workflow_types != template_types:
+        findings.append("scenario workflow types differ from the template contract")
     required = {
         "capture": {"payload", "title", "value_statement", "project_ids"},
-        "record_proposal": {"problem", "affected", "stakes", "user_outcomes"},
         "approve_contract": {"premise", "decision_domains"},
         "record_verdict": {"verdicts"},
         "confirm_premise": set(),
@@ -340,13 +344,12 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
             findings.append(f"{item.get('id')}: mandatory structured request field(s) missing: {sorted(missing)}")
         if request.get("actor_ref") not in actor_refs:
             findings.append(f"{item.get('id')}: dangling fixture reference actor {request.get('actor_ref')}")
-        definition_ref = request.get("definition_ref")
-        if definition_ref not in definition_refs:
-            findings.append(f"{item.get('id')}: dangling fixture reference definition")
-        if "current_state" in setup and "definition_ref" not in request:
-            findings.append(f"{item.get('id')}: current setup requires a current family selector")
-        if "definition_ref" in request and "current_state" not in setup:
-            findings.append(f"{item.get('id')}: current family selector requires current-state setup")
+        workflow_type = request.get("workflow_type")
+        step = (setup.get("current_state") or {}).get("step")
+        if workflow_type in template_steps and step not in template_steps[workflow_type] and step != "":
+            findings.append(f"{item.get('id')}: current step is not in the selected workflow template")
+        if workflow_type is None and step not in {"intake", "clarify"}:
+            findings.append(f"{item.get('id')}: unpicked workflow type requires an intake or clarify step")
         refs = setup.get("fixture_refs") or {}
         if not set(refs.get("actors", [])) <= actor_refs or request.get("actor_ref") not in refs.get("actors", []):
             findings.append(f"{item.get('id')}: dangling fixture reference setup actor")
@@ -358,14 +361,22 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
             findings.append(f"{item.get('id')}: request scope mismatch")
         if refs.get("work_item") not in work_ids:
             findings.append(f"{item.get('id')}: dangling fixture reference work {refs.get('work_item')}")
-        if not set(refs.get("definitions", [])) <= definition_refs:
-            findings.append(f"{item.get('id')}: dangling fixture reference definition")
-        if definition_ref not in refs.get("definitions", []):
-            findings.append(f"{item.get('id')}: dangling fixture reference definition selector")
+        if not set(refs.get("workflow_types", [])) <= workflow_types:
+            findings.append(f"{item.get('id')}: dangling fixture reference workflow type")
+        if workflow_type is not None and workflow_type not in refs.get("workflow_types", []):
+            findings.append(f"{item.get('id')}: dangling fixture reference workflow type selector")
+        if workflow_type is None and refs.get("workflow_types"):
+            findings.append(f"{item.get('id')}: unpicked workflow type has type references")
         if not set(refs.get("evidence", [])) <= evidence_ids:
             findings.append(f"{item.get('id')}: dangling fixture reference evidence")
         if not set(refs.get("relations", [])) <= relation_ids:
             findings.append(f"{item.get('id')}: dangling fixture reference relation")
+        if workflow_type is not None and workflow_type not in workflow_types:
+            findings.append(f"{item.get('id')}: dangling fixture reference workflow type")
+        if "current_state" in setup and "workflow_type" not in request:
+            findings.append(f"{item.get('id')}: current setup requires a workflow type selector")
+        if "workflow_type" in request and "current_state" not in setup:
+            findings.append(f"{item.get('id')}: workflow type selector requires current-state setup")
         findings.extend(
             f"{item.get('id')}: unknown structured fault kind {fault.get('kind')}"
             for fault in setup.get("faults", [])
@@ -381,11 +392,6 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
         walk(item)
     return findings
 
-def _derive_definition_digest(definition: dict) -> str:
-    body = copy.deepcopy(definition)
-    body.pop("digest", None)
-    return "sha256:" + hashlib.sha256(json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
-
 def _validate_instance(schema_path: Path, value: object) -> str | None:
     schema = _load_json(schema_path)
     try:
@@ -394,78 +400,14 @@ def _validate_instance(schema_path: Path, value: object) -> str | None:
         return str(exc)
     return None
 
-def _validate_definition_semantics(definition: dict) -> str | None:
-    capabilities = definition.get("capabilities", [])
-    if capabilities != sorted(set(capabilities)):
-        return "definition capabilities must be sorted and unique"
-    graph = definition["step_graph"]
-    step_ids = [step["id"] for step in graph["steps"]]
-    if len(step_ids) != len(set(step_ids)):
-        return "duplicate step ID"
-    step_set = set(step_ids)
-    if graph["start_step"] not in step_set:
-        return "graph start endpoint"
-    if any(step not in step_set for step in graph["terminal_steps"]):
-        return "graph terminal endpoint"
-    action_ids = set(definition["available_actions"])
-    action_definition_ids = [action["id"] for action in definition["action_definitions"]]
-    if len(action_definition_ids) != len(set(action_definition_ids)):
-        return "duplicate action ID"
-    if action_ids != set(action_definition_ids):
-        return "root action definitions do not match available actions"
-    for step in graph["steps"]:
-        if not set(step["actions"]).issubset(action_ids):
-            return "step action not declared at root"
-    for edge in graph["edges"]:
-        if edge["from"] not in step_set or edge["to"] not in step_set:
-            return "graph edge endpoint"
-    adjacency = {step: [] for step in step_ids}
-    for edge in graph["edges"]:
-        if edge["kind"] != "retry":
-            adjacency[edge["from"]].append(edge["to"])
-    visiting: set[str] = set()
-    visited: set[str] = set()
-    def walk(node: str) -> bool:
-        if node in visiting:
-            return True
-        if node in visited:
-            return False
-        visiting.add(node)
-        if any(walk(child) for child in adjacency[node]):
-            return True
-        visiting.remove(node)
-        visited.add(node)
-        return False
-    if any(walk(step) for step in step_ids):
-        return "non-retry graph cycle"
-    for action in definition["action_definitions"]:
-        names = [field["name"] for field in action["payload"]["fields"]]
-        if len(names) != len(set(names)):
-            return "duplicate action payload field"
-    if definition.get("digest") != _derive_definition_digest(definition):
-        return "definition digest mismatch"
-    return None
-
-def _validate_outcome_semantics(work_kind: str, outcome: dict) -> str | None:
-    if outcome.get("kind") != "outcome":
-        return None
-    tokens = set(outcome.get("allowed", []))
-    spike_tokens = {"accepted_decision", "insufficient_evidence"}
-    if work_kind == "research" and tokens & spike_tokens:
-        return "research cannot allow spike-only outcome"
-    return None
-
 def _validate_predicate_against_family(work_kind: str, predicate: dict) -> str | None:
     rules = {
-        "implementation": ("check", {"exists", "absent", "check"}, set()),
-        "break_fix": ("absent", {"exists", "absent", "check"}, set()),
-        "research": ("outcome", {"outcome"}, {"no_change", "resolved", "report_recorded"}),
-        "architecture_spike": ("outcome", {"outcome"}, {"accepted_decision", "insufficient_evidence"}),
-        "ops_runbook": ("check", {"exists", "absent", "check"}, set()),
-        "static_analysis": ("check", {"exists", "absent", "check"}, set()),
-        "generic_one_off": ("outcome", {"exists", "absent", "outcome", "check"}, {"no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"}),
+        "change": ({"exists", "absent", "check"}, set()),
+        "fix": ({"exists", "absent", "check"}, set()),
+        "research": ({"outcome"}, {"no_change", "resolved", "report_recorded"}),
+        "removal": ({"exists", "absent", "check"}, set()),
     }
-    _, allowed_kinds, allowed_tokens = rules[work_kind]
+    allowed_kinds, allowed_tokens = rules[work_kind]
     kind = predicate.get("kind")
     if kind not in allowed_kinds:
         return "predicate kind not allowed"
@@ -499,7 +441,7 @@ def _current_scenario_carrier_check(corpus: dict) -> list[str]:
             }
             item["setup"]["event_history"] = [event]
         elif mutation == "pin":
-            pin = {"ref": item["request"]["definition_ref"], "version": 1, "digest": "sha256:" + "0" * 64}
+            pin = {"ref": "workflow.implementation", "version": 1, "digest": "sha256:" + "0" * 64}
             item["request"]["definition_pin"] = pin
         elif mutation == "missing_step":
             del item["setup"]["current_state"]["step"]
@@ -515,16 +457,11 @@ def _current_scenario_carrier_check(corpus: dict) -> list[str]:
 
 def check_workflow_contracts() -> list[str]:
     findings = []
-    for schema_path in (ROOT / "contracts/workflow-definition.schema.json", ROOT / "contracts/workflow-outcome.schema.json", ROOT / "contracts/workflow-engine-scenarios.schema.json"):
+    for schema_path in (ROOT / "contracts/workflow-outcome.schema.json", ROOT / "contracts/workflow-engine-scenarios.schema.json"):
         try:
             _generator.check_schema_keywords(_load_json(schema_path), str(schema_path.relative_to(ROOT)))
         except (OSError, json.JSONDecodeError, ValueError) as exc:
             findings.append(f"{schema_path.relative_to(ROOT)}: unsupported or invalid schema keyword: {exc}")
-    findings += _check_closed_schema(ROOT / "contracts/workflow-definition.schema.json", {
-        "schema_version", "ref", "digest", "work_kind", "capabilities", "step_graph",
-        "available_actions", "action_definitions", "required_evidence_kinds", "outcome_schema", "rigor_rules",
-        "staleness_rules", "composition_rules", "evaluator_independence",
-    })
     outcome = ROOT / "contracts/workflow-outcome.schema.json"
     findings += _check_closed_schema(outcome, set())
     scenario_schema = ROOT / "contracts/workflow-engine-scenarios.schema.json"
@@ -542,47 +479,17 @@ def check_workflow_contracts() -> list[str]:
             findings.append(f".concord/scenarios/workflow-engine.v1.json: expected scenarios {expected_ids}, got {[item.get('id') for item in corpus['scenarios']]}")
             return findings
         fixtures = _load_json(fixture_path)
-        fixture_by_id = {case["id"]: case for case in fixtures["cases"]}
         for case in fixtures["cases"]:
             schema_path = ROOT / "contracts" / case["schema"]
             error = _validate_instance(schema_path, case["instance"])
-            if error is None and case.get("work_kind"):
-                error = _validate_outcome_semantics(case["work_kind"], case["instance"])
-            if case["schema"] == "workflow-definition.schema.json" and error is None:
-                error = _validate_definition_semantics(case["instance"])
             if case["valid"] and error:
                 findings.append(f"{case['id']}: expected valid instance: {error}")
             if not case["valid"] and (error is None or case.get("expected_error") not in error):
                 findings.append(f"{case['id']}: wrong validation reason: {error}")
-            if case["schema"] == "workflow-definition.schema.json" and case["valid"]:
-                semantic_error = _validate_definition_semantics(case["instance"])
-                if semantic_error:
-                    findings.append(f"{case['id']}: semantic validation failed: {semantic_error}")
         for case in fixtures.get("predicate_negative_cases", []):
             predicate_error = _validate_predicate_against_family(case["work_kind"], case["predicate"])
             if predicate_error is None or case["expected_error"] not in predicate_error:
                 findings.append(f"{case['id']}: wrong predicate validation reason: {predicate_error}")
-        base_definition = copy.deepcopy(fixture_by_id["definition-implementation-valid"]["instance"])
-        for case in fixtures.get("semantic_negative_cases", []):
-            mutated = copy.deepcopy(base_definition)
-            mutation = case["mutation"]
-            if mutation == "start_step":
-                mutated["step_graph"]["start_step"] = "missing"
-            elif mutation == "terminal_step":
-                mutated["step_graph"]["terminal_steps"] = ["missing"]
-            elif mutation == "edge_endpoint":
-                mutated["step_graph"]["edges"][0]["to"] = "missing"
-            elif mutation == "non_retry_cycle":
-                mutated["step_graph"]["edges"].append({"from": "design", "to": "proposal", "kind": "forward"})
-            elif mutation == "step_action":
-                mutated["step_graph"]["steps"][0]["actions"] = ["ghost_action"]
-            elif mutation == "root_action":
-                mutated["available_actions"].append("ghost_action")
-            elif mutation == "definition_digest":
-                mutated["digest"] = "sha256:" + ("0" * 64)
-            semantic_error = _validate_definition_semantics(mutated)
-            if semantic_error is None or case["expected_error"] not in semantic_error:
-                findings.append(f"{case['id']}: wrong semantic validation reason: {semantic_error}")
         negative_scenario = copy.deepcopy(corpus)
         negative_scenario["scenarios"][0]["scenario_number"] = 0
         negative_error = _validate_instance(scenario_schema, negative_scenario)

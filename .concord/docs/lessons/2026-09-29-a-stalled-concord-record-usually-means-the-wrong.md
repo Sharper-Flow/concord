@@ -2,7 +2,7 @@ Four items (work-ffd855dd, work-13e6717f, work-e103255e, work-aad52b54) shipped 
 
 1. Read the current step, the pinned contract, and the declared recovery intents before concluding that recovery is unavailable. Contract content changes use the ordinary record update; retained evidence still needs to prove the current criteria and candidate ([workflow-engine contract §4.1](../../law/specs/workflow-engine-contract.md#41-ordinary-contract-updates)).
 
-2. confirm_premise requires the contract's evidence kinds and verification obligations to be bound (internal/store/workflow_completion.go, requireAcceptanceDeliverables). The action records the authenticated coordinator; it carries no operator selection or question digest.
+2. confirm_premise requires the contract's evidence kinds and verification obligations to be bound (internal/store/workflow_event_constructors.go, workflowConfirmationDeliverablesTx). The action records the authenticated coordinator; it carries no operator selection or question digest.
 
 3. A review lane refusing dispatch at an external-effect step is not a missing review route. docs/managed-development-authority.md gives pull requests plus required checks the review and merge authority. Bind the merged PR as review evidence.
 

@@ -225,14 +225,6 @@ func resolveKnowledgeLegislatedAuthorityTx(ctx context.Context, tx *sql.Tx, reco
 	if !live {
 		return true, nil
 	}
-	pins, err := workflowContractDefinitionPins(ctx, tx, workID, version)
-	if err != nil {
-		return false, err
-	}
-	pin, ok := pins[version]
-	if !ok || pin.definitionRef == "" || !validDigest(pin.definitionDigest) {
-		return false, heldNegative("declares no approved contract at the exact version")
-	}
 	var approvedAt, approvedBy, lawModifies string
 	err = tx.QueryRowContext(ctx, `SELECT approved_at, approved_by, law_modifies FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, version).Scan(&approvedAt, &approvedBy, &lawModifies)
 	if err == sql.ErrNoRows {
@@ -244,11 +236,11 @@ func resolveKnowledgeLegislatedAuthorityTx(ctx context.Context, tx *sql.Tx, reco
 	if approvedAt == "" || approvedBy == "" {
 		return false, heldNegative("the exact contract row carries no recorded approval")
 	}
-	registered, err := verifyReadWorkflowDefinition(WorkflowReadDefinition{Ref: pin.definitionRef, Digest: pin.definitionDigest})
+	plan, err := readWorkflowPlanTx(ctx, tx, workID)
 	if err != nil {
 		return false, err
 	}
-	if registered.Definition.ChangesProductTruth == nil || !*registered.Definition.ChangesProductTruth {
+	if plan == nil || plan.Type == WorkflowStepPlanResearch {
 		return false, heldNegative("the approving contract is not Product-changing")
 	}
 	admitted, err := knowledgeContractAdmitsLawTx(ctx, tx, record, lawModifies)

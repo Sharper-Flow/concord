@@ -62,7 +62,7 @@ func seedAgentOverlapFixtureWith(t *testing.T, capabilities []agentcontract.Capa
 		// instance carries the execution-start fact, so the fixture gives both
 		// sides a started instance. Without this the pair claims nothing and
 		// derives no overlap to resolve.
-		{"started instances", `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state,execution_started_at) VALUES('work-1','workflow.break_fix',?, 'repair','running','2026-08-19T00:00:00Z'),('work-2','workflow.break_fix',?,'repair','running','2026-08-19T00:00:00Z')`, []any{breakFixFixtureDigest(t), breakFixFixtureDigest(t)}},
+		{"started instances", `INSERT INTO workflow_instances(work_id,workflow_type,step_plan,instance_state,execution_started_at) VALUES('work-1','fix',?,'running','2026-08-19T00:00:00Z'),('work-2','fix',?,'running','2026-08-19T00:00:00Z')`, []any{agentPlanFixtureJSON(t, store.WorkflowStepPlanFix, "implement"), agentPlanFixtureJSON(t, store.WorkflowStepPlanFix, "implement")}},
 		{"started lifecycles", `UPDATE work_items SET lifecycle='in_progress' WHERE id IN ('work-1','work-2')`, nil},
 		// Only a write intersection blocks, so the pair must modify the same
 		// Domain. A shared affected Domain alone derives no overlap.
@@ -167,15 +167,4 @@ func TestResolveOverlapBlocksRemovesWorkFromReady(t *testing.T) {
 	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || agentCurrentEffects(t, s) != beforeEvents {
 		t.Fatalf("blocks resolution replay=%+v", replay)
 	}
-}
-
-// breakFixFixtureDigest resolves the registered break-fix digest the overlap
-// fixture's synthetic instance pins, so pin reads verify the fixture.
-func breakFixFixtureDigest(t *testing.T) string {
-	t.Helper()
-	registered, ok := store.BuiltinWorkflowRegistry().Current("workflow.break_fix")
-	if !ok {
-		t.Fatal("workflow.break_fix v9 is unavailable")
-	}
-	return registered.Digest
 }

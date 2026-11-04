@@ -20,7 +20,7 @@ func contractRevisionInput(t *testing.T, s *store.Store, workID string, version 
 		t.Fatal(err)
 	}
 	input := map[string]any{"work_id": workID, "expected_version": version, "contract": contract, "reason": "Update the recorded plan", "idempotency_key": key}
-	for _, field := range []string{"title", "value_statement", "kind", "priority", "urgency", "tags", "component_id", "workflow_type_ref", "task"} {
+	for _, field := range []string{"title", "value_statement", "kind", "priority", "urgency", "tags", "component_id", "task"} {
 		if value, ok := intent[field]; ok && value != nil && value != "" {
 			input[field] = value
 		}
@@ -43,17 +43,13 @@ func TestReviseIntentUpdatesContractAtomicallyAndReplays(t *testing.T) {
 	if _, err := pm1fixture.SeedCommittedProductDomain(t.Context(), s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	definition, err := store.LiveWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), "work-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Registry: store.BuiltinWorkflowRegistry(), Actor: actor, Now: fixedTime()})
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Actor: actor, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +62,7 @@ func TestReviseIntentUpdatesContractAtomicallyAndReplays(t *testing.T) {
 			t.Fatalf("%s: %+v", action, response.Error)
 		}
 	}
-	invokeAction("record_diagnosis", map[string]any{"reproduction": "The plan needs revision.", "searched": "No overlapping work.", "outcome": "none_found", "root_cause": "The recorded premise was incomplete."})
+	advanceCapturedWorkToContract(t, s, service, env, "work-1", "update-prelude")
 	contract := workflowContractFieldsFixture()
 	contract["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
 	contract["decision_domains"] = []string{}

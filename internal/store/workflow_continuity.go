@@ -126,14 +126,6 @@ type ContinuityRequest struct {
 }
 
 func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest) (ContinuitySnapshot, error) {
-	return readWorkflowContinuityForRegistry(ctx, s, req, nil)
-}
-
-// readWorkflowContinuityForRegistry is the registry-threaded continuity
-// core: a caller registry verifies the stored pin and projects the same
-// folded confirmation answer the admission state stores, with no builtin
-// fallback. A nil registry keeps the builtin convenience.
-func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req ContinuityRequest, registry DefinitionRegistry) (ContinuitySnapshot, error) {
 	var out ContinuitySnapshot
 	if s == nil || s.db == nil {
 		return out, newFailure(KindUnavailable, "C19.Continuity", "store is not open", false, "open the authority database")
@@ -172,7 +164,7 @@ func readWorkflowContinuityForRegistry(ctx context.Context, s *Store, req Contin
 	if err != nil {
 		return out, err
 	}
-	if err := continuityReadManagedHistoryTx(ctx, tx, req, registry, offset, &out); err != nil {
+	if err := continuityReadManagedHistoryTx(ctx, tx, req, offset, &out); err != nil {
 		return out, err
 	}
 	if err := tx.Rollback(); err != nil {
@@ -222,8 +214,8 @@ func continuityReadIdentityTx(ctx context.Context, tx *sql.Tx, workID string, ou
 	return out, nil
 }
 
-func continuityReadManagedHistoryTx(ctx context.Context, tx *sql.Tx, req ContinuityRequest, registry DefinitionRegistry, offset int, out *ContinuitySnapshot) error {
-	err := readContinuityInstanceForRegistryTx(ctx, tx, req.Work, registry, out)
+func continuityReadManagedHistoryTx(ctx context.Context, tx *sql.Tx, req ContinuityRequest, offset int, out *ContinuitySnapshot) error {
+	err := readContinuityInstanceTx(ctx, tx, req.Work, out)
 	if err != nil {
 		return err
 	}
@@ -274,28 +266,13 @@ func continuityReadManagedHistoryTx(ctx context.Context, tx *sql.Tx, req Continu
 // that hangs off it: predicates, architecture binding, self-repair and current
 // law context. A work item with no contract row leaves the snapshot without one.
 func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot, activeContractVersion int64) error {
-	var contract WorkflowReadContract
-	var required, routes, mandates, modifies string
-	if err := tx.QueryRowContext(ctx, `SELECT contract_version,premise,required_evidence,route_conventions,spec_mandate,law_modifies,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=? AND superseded_by IS NULL`, work, activeContractVersion).Scan(&contract.Version, &contract.Premise, &required, &routes, &mandates, &modifies, &contract.RigorClass); err == nil {
-		if json.Unmarshal([]byte(required), &contract.RequiredEvidence) != nil || json.Unmarshal([]byte(routes), &contract.RouteConventions) != nil || json.Unmarshal([]byte(mandates), &contract.SpecMandate) != nil || json.Unmarshal([]byte(modifies), &contract.LawModifies) != nil {
-			return newFailure(KindInvariantViolation, "C19.Continuity", "workflow contract projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
+	contract, err := readWorkflowContractVersion(ctx, tx, work, activeContractVersion)
+	if err == nil {
+		plan, planErr := readWorkflowPlanTx(ctx, tx, work)
+		if planErr != nil {
+			return planErr
 		}
-		contract.RequiredEvidence = nonNilStrings(contract.RequiredEvidence)
-		contract.RouteConventions = nonNilStrings(contract.RouteConventions)
-		contract.SpecMandate = nonNilStrings(contract.SpecMandate)
-		contract.LawModifies = nonNilStrings(contract.LawModifies)
-		predicates, predicateErr := readWorkflowContractPredicates(ctx, tx, work, contract.Version)
-		if predicateErr != nil {
-			return predicateErr
-		}
-		contract.OutcomePredicates = predicates
-		changes := out.ChangesProductTruth
-		contract.ChangesProductTruth = &changes
-		binding, bindingErr := readWorkflowArchitectureBinding(ctx, tx, work, contract.Version)
-		if bindingErr != nil {
-			return bindingErr
-		}
-		contract.ArchitectureBinding = binding
+		out.ChangesProductTruth = workflowCurrentProductTruth(&contract, plan)
 		out.ArchitectureBinding = contract.ArchitectureBinding
 		out.Contract = &contract
 		lawContext, lawErr := readWorkflowLawContext(ctx, tx, work, &contract)
@@ -305,7 +282,7 @@ func continuityReadContractTx(ctx context.Context, tx *sql.Tx, work string, out 
 		out.LawContext = lawContext
 		out.SpecMandate = nonNilStrings(append([]string(nil), contract.SpecMandate...))
 	} else if err != sql.ErrNoRows {
-		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow contract", true, "retry once the database is readable", err)
+		return err
 	}
 	return nil
 }
@@ -416,13 +393,9 @@ func continuityReadTrailingTx(ctx context.Context, tx *sql.Tx, work string, out 
 	return nil
 }
 
-// readContinuityInstanceForRegistryTx is the registry-threaded continuity
-// instance phase: a caller registry verifies the stored pin and seats the
-// work pin through itself with no builtin fallback.
-func readContinuityInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, work string, registry DefinitionRegistry, out *ContinuitySnapshot) error {
-	var stepID string
-	var definition WorkflowReadDefinition
-	err := tx.QueryRowContext(ctx, `SELECT current_step,definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, work).Scan(&stepID, &definition.Ref, &definition.Digest)
+func readContinuityInstanceTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) error {
+	var state string
+	err := tx.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, work).Scan(&state)
 	if err == sql.ErrNoRows {
 		exists, existsErr := workExistsCore(ctx, tx, work)
 		if existsErr != nil {
@@ -438,19 +411,19 @@ func readContinuityInstanceForRegistryTx(ctx context.Context, tx *sql.Tx, work s
 		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read workflow step", true, "retry once the database is readable", err)
 	}
 	out.WorkflowInstance = WorkflowInstancePresent
-	pin, err := readWorkPinForRegistryTx(ctx, tx, work, registry)
+	pin, err := ReadWorkPinTx(ctx, tx, work)
 	if err != nil {
 		return err
 	}
 	out.WorkPin = &pin
-	out.WorkflowStep = stepID
-	registered, err := verifyReadWorkflowDefinitionForRegistry(definition, registry)
+	out.WorkflowStep = pin.Step
+	plan, err := readWorkflowPlanTx(ctx, tx, work)
 	if err != nil {
 		return err
 	}
-	out.ChangesProductTruth = registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth
-	if step := workflowStep(registered.Definition, stepID); step != nil {
-		out.StepActions = append(out.StepActions, step.Actions...)
+	out.ChangesProductTruth = workflowCurrentProductTruth(nil, plan)
+	for _, intent := range pin.NextValidIntents {
+		out.StepActions = append(out.StepActions, intent.ActionID)
 	}
 	return nil
 }

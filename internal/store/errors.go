@@ -131,11 +131,6 @@ const (
 	// KindUnknownDomain marks a Domain reference that does not resolve to a
 	// current Domain in the Product's projected registry.
 	KindUnknownDomain FailureKind = "unknown_domain"
-	// KindDecisionRecordRequired marks the completion boundary for definitions
-	// whose outcome schema requires a decision record: the bound, accepted row
-	// in workflow_decision_records is the proof, and its token must sit inside
-	// the approved outcome set.
-	KindDecisionRecordRequired FailureKind = "decision_record_required"
 	// KindWorkflowCompletionRequired marks a completion event attempted outside
 	// the ordered, single-transaction workflow completion entry point.
 	KindWorkflowCompletionRequired FailureKind = "workflow_completion_required"

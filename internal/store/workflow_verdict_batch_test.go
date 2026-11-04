@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -12,7 +13,7 @@ import (
 
 func seedWorkflowVerdictBatchFixture(t *testing.T, workID string) workflowReturnRouteFixture {
 	t.Helper()
-	return seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, "workflow.implementation"), "acceptance", []string{"verification"}, []string{"verification", "review", "artifact"}, batchVerdictContractPredicates(workID)...)
+	return seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", []string{"verification"}, []string{"verification", "review", "artifact"}, batchVerdictContractPredicates(workID)...)
 }
 
 func batchVerdictContractPredicates(workID string) []map[string]any {
@@ -30,7 +31,7 @@ func pReceiptFixture(t *testing.T, workID string, criteria, receiptsPerCriterion
 	for i := 0; i < criteria; i++ {
 		predicates = append(predicates, map[string]any{"predicate_id": fmt.Sprintf("predicate:p%d", i), "ordinal": i, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": fmt.Sprintf("check:p%d", i), "immutable_subject_ref": "commit:fixture", "expected_result": "pass"}})
 	}
-	route := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, mustBuiltinDefinition(t, "workflow.implementation"), "execution", []string{}, []string{}, predicates...)
+	route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", []string{}, []string{}, predicates...)
 	f := workContextFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
 	t.Cleanup(func() { _ = f.store.Close() })
 	for _, setup := range beforeProduction {
@@ -46,6 +47,7 @@ func pReceiptFixture(t *testing.T, workID string, criteria, receiptsPerCriterion
 		acceptCurrentReviewForTest(t, f, "continue")
 	}
 	conformanceImplementChange(t, j, "criterion-proof")
+	// Synthetic reports all name the observed candidate, with distinct receipt refs.
 	proof := j.observeRun(t, "criterion-proof")
 	refs := make([][]string, criteria)
 	for i := range refs {
@@ -61,10 +63,7 @@ func pReceiptFixture(t *testing.T, workID string, criteria, receiptsPerCriterion
 	if err := runVerdictActionAs(t, f.store, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": "commit:" + runTestGit(t, repo, "rev-parse", "HEAD")}), 0, f.owner); err != nil {
 		t.Fatalf("bind the checked candidate artifact: %v", err)
 	}
-	owner, _ := WorkflowActorRef(f.owner)
-	if err := advanceWorkflowTestInstanceToStep(t.Context(), f.store, workID, "acceptance", owner); err != nil {
-		t.Fatal(err)
-	}
+	moveWorkflowPlanFixtureFrontier(t, f.store, workID, "review")
 	return f, repo, refs
 }
 
@@ -96,7 +95,7 @@ func pConfirmReceiptPremise(t *testing.T, f workContextFixture) error {
 	version := readWorkVersion(t, f.store, f.workID)
 	id := fmt.Sprintf("confirm-%s-%d", f.workID, version)
 	return f.store.Transact(ctx, func(tx *Transaction) error {
-		_, err := ApplyWorkflowActionTx(ctx, tx, BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		_, err := ApplyWorkflowActionTx(ctx, tx, WorkflowActionExecutionRequest{
 			WorkID: f.workID, ExpectedVersion: version, ActionID: "confirm_premise", Payload: json.RawMessage(`{}`), Actor: f.owner,
 			AcceptedInputsDigest: nativeDigest([]byte(id)), IdempotencyIdentity: id, OperationID: id,
 			PrincipalRef: f.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: id, RequestID: "request:" + id, ContractDigest: testManifestDigest, Now: time.Now().UTC(),
@@ -189,7 +188,7 @@ func TestWorkflowVerdictBatchAtomicRefusal(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			payload := mustJSONValue(map[string]any{"verdicts": tc.entries})
 			before := contractCorrectionEffectSnapshot(t, f.store, f.workID)
-			preflight := WorkflowActionPreflightWithRegistry(t.Context(), f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: f.workID, ActionID: "record_verdict", Payload: payload, Actor: f.owner})
+			_, preflight := WorkflowActionDefinitionFor(t.Context(), f.store, WorkflowActionPreflightRequest{WorkID: f.workID, ExpectedVersion: readWorkVersion(t, f.store, f.workID), ActionID: "record_verdict", Payload: payload, Actor: f.owner})
 			err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", payload, 0, f.owner)
 			if !hasFailureKind(preflight, tc.kind) || !hasFailureKind(err, tc.kind) {
 				t.Fatalf("preflight=%v mutation=%v want %s", preflight, err, tc.kind)
@@ -216,8 +215,8 @@ func TestWorkflowVerdictBatchLateRecoveryResolvesActiveContract(t *testing.T) {
 	f, ref := seedLateCriterionAssociation(t, "batch-late-current")
 	// Isolate active-version resolution from the separate contract-return journey.
 	if _, err := f.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
-		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains,definition_ref,definition_digest)
-		SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains,definition_ref,definition_digest FROM workflow_contracts WHERE work_id=? AND contract_version=1;
+		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains)
+		SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains FROM workflow_contracts WHERE work_id=? AND contract_version=1;
 		UPDATE workflow_contracts SET superseded_by=2 WHERE work_id=? AND contract_version=1;
 		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id=? AND contract_version=1;
 		DELETE FROM write_guard`, "batch-late-current", "batch-late-current", "batch-late-current"); err != nil {
@@ -227,13 +226,13 @@ func TestWorkflowVerdictBatchLateRecoveryResolvesActiveContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := criterionAssociationPayload(ref, "predicate:first", "predicate:second")
-	preflight := WorkflowActionPreflightWithRegistry(t.Context(), f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: "batch-late-current", ActionID: "record_verdict", Payload: payload, Actor: f.owner})
+	_, preflight := WorkflowActionDefinitionFor(t.Context(), f.store, WorkflowActionPreflightRequest{WorkID: "batch-late-current", ExpectedVersion: readWorkVersion(t, f.store, "batch-late-current"), ActionID: "record_verdict", Payload: payload, Actor: f.owner})
 	err := runVerdictActionAs(t, f.store, "batch-late-current", "record_verdict", payload, 0, f.owner)
 	if preflight != nil || err != nil {
 		t.Fatalf("mixed late batch preflight=%v mutation=%v", preflight, err)
 	}
 	payload = criterionAssociationPayload(ref, "predicate:second")
-	if err := WorkflowActionPreflightWithRegistry(t.Context(), f.store, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: "batch-late-current", ActionID: "record_verdict", Payload: payload, Actor: f.owner}); err != nil {
+	if _, err := WorkflowActionDefinitionFor(t.Context(), f.store, WorkflowActionPreflightRequest{WorkID: "batch-late-current", ExpectedVersion: readWorkVersion(t, f.store, "batch-late-current"), ActionID: "record_verdict", Payload: payload, Actor: f.owner}); err != nil {
 		t.Fatal(err)
 	}
 	if err := runVerdictActionAs(t, f.store, "batch-late-current", "record_verdict", payload, 0, f.owner); err != nil {
@@ -248,8 +247,8 @@ func TestWorkflowVerdictBatchLateRecoveryResolvesActiveContract(t *testing.T) {
 			t.Fatalf("association did not capture active criterion and exact proof: %+v", v)
 		}
 	}
-	if step := currentStep(t, f.store, "batch-late-current"); step != "complete" {
-		t.Fatalf("late association moved step to %s", step)
+	if step := workflowPlanFixtureFrontier(t, f.store, "batch-late-current"); step != "conclude" {
+		t.Fatalf("association moved frontier to %s", step)
 	}
 }
 
@@ -262,11 +261,11 @@ func TestWorkflowVerdictBatchOmissionStaysMissing(t *testing.T) {
 	if err != nil || !slices.Equal(missing, []string{"predicate:p2"}) {
 		t.Fatalf("missing=%v err=%v", missing, err)
 	}
-	err = runIssue933OperatorAction(t, f.store, f.workID, "confirm_premise", json.RawMessage(`{}`), f.owner)
+	err = pConfirmReceiptPremise(t, f)
 	if !hasFailureKind(err, KindMissingEvidence) || !strings.Contains(err.Error(), "predicate:p2") {
 		t.Fatalf("confirmation did not name omitted criterion: %v", err)
 	}
-	if step := currentStep(t, f.store, f.workID); step != "acceptance" {
+	if step := workflowPlanFixtureFrontier(t, f.store, f.workID); step != "review" {
 		t.Fatalf("refused confirmation moved to %s", step)
 	}
 	if err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, 2), 0, f.owner); err != nil {
@@ -279,8 +278,8 @@ func TestWorkflowVerdictBatchOmissionStaysMissing(t *testing.T) {
 	if err := pConfirmReceiptPremise(t, f); err != nil {
 		t.Fatalf("confirm after full coverage: %v", err)
 	}
-	if step := currentStep(t, f.store, f.workID); step != "release" {
-		t.Fatalf("confirmation moved to %s, want release", step)
+	if step := workflowPlanFixtureFrontier(t, f.store, f.workID); step != "review" {
+		t.Fatalf("confirmation moved frontier to %s, want review", step)
 	}
 }
 
@@ -315,9 +314,9 @@ func pAssertReceiptUnion(t *testing.T, criteria, perCriterion int) {
 	}
 	version := readWorkVersion(t, f.store, f.workID)
 	op := fmt.Sprintf("record_verdict-%s-%d", f.workID, version)
-	var step string
+	step := workflowPlanFixtureFrontier(t, f.store, f.workID)
 	var epoch int64
-	if err := f.store.db.QueryRow(`SELECT current_step,COALESCE((SELECT MAX(attempt_epoch) FROM workflow_step_epochs WHERE work_id=i.work_id AND step_id=i.current_step),1) FROM workflow_instances i WHERE work_id=?`, f.workID).Scan(&step, &epoch); err != nil {
+	if err := f.store.db.QueryRow(`SELECT COALESCE((SELECT MAX(attempt_epoch) FROM workflow_step_epochs WHERE work_id=? AND step_id=?),1)`, f.workID, step).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
 	if err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, indexes...), 0, f.owner); err != nil {
@@ -419,9 +418,9 @@ func missingPredicateVerdictsCtx(t *testing.T, s *Store, workID string) ([]strin
 }
 
 func missingPredicateVerdicts(ctx context.Context, tx queryer, workID string) ([]string, error) {
-	contract, err := workflowCompletionContract(ctx, tx, BuiltinWorkflowRegistry(), workID)
+	missing, err := workflowMissingCriterionAssociations(ctx, tx, workID)
 	if err != nil {
 		return nil, err
 	}
-	return missingPredicateVerdictsForContract(ctx, tx, workID, contract)
+	return slices.Sorted(maps.Keys(missing)), nil
 }

@@ -13,8 +13,7 @@ import (
 // bindAJ4HistoryOfASupersededContract approves contract v1, revises it
 // with v2 through the ordinary update route, then reads
 // concord_work_trace.history with contract_version 1. It proves the
-// workflow summary answers v1 (not the active v2) with its successor and its
-// own verified definition pin, that a version the work never had refuses
+// workflow summary answers v1 (not the active v2) with its successor, that a version the work never had refuses
 // unknown_scope, and that the reads leave the store revision unchanged.
 func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObservation {
 	t.Helper()
@@ -25,15 +24,15 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	for _, actionID := range []string{"record_proposal", "record_alignment"} {
-		invokeWorkflowIssue31Action(t, s, service, env, actionID, version, "aj4-history-"+actionID)
-		version = workOneVersion(t, s)
+	plan, version := dispatchWorkflowActionResult(t, s, service, env, version, "record_plan", agentPlanFields(), "aj4-history-plan")
+	if plan.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("record_plan: %+v", plan.Error)
 	}
 	approved, _ := approvedWorkflowContract(t, s, service, env, version, workflowContractFieldsForSeededRegistry(t, s), "aj4-history-approve")
 	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract = %+v", approved.Error)
 	}
-	version = recordApprovedWorkDesign(t, s, service, env, "work-1", "aj4-history-design")
+	version = workOneVersion(t, s)
 	revised, _ := dispatchContractRevisionResult(t, s, service, env, "work-1", version, map[string]any{
 		"contract_version":     2,
 		"premise":              "corrected premise",
@@ -78,11 +77,8 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 		} `json:"entries"`
 		Workflow struct {
 			Contract struct {
-				Version       int  `json:"version"`
-				SupersededBy  *int `json:"superseded_by"`
-				DefinitionPin *struct {
-					Verified bool `json:"verified"`
-				} `json:"definition_pin"`
+				Version      int  `json:"version"`
+				SupersededBy *int `json:"superseded_by"`
 			} `json:"contract"`
 		} `json:"workflow"`
 	}
@@ -99,7 +95,6 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 	obs.Result = map[string]any{
 		"entry_kinds":               kinds,
 		"selected_contract_version": contract.Version,
-		"definition_pin_verified":   contract.DefinitionPin != nil && contract.DefinitionPin.Verified,
 	}
 	if contract.SupersededBy != nil {
 		obs.Result["selected_contract_superseded_by"] = *contract.SupersededBy

@@ -12,18 +12,10 @@ import (
 // contract, whose confirmation folds the coordinator authority.
 func seedActiveBreakFixContract(t *testing.T, s *Store, workID string) {
 	t.Helper()
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
-	digest, err := WorkflowDefinitionDigest(registered.Definition)
-	if err != nil {
-		t.Fatal(err)
-	}
 	actorRef := DeriveWorkflowActorRef("principal/withheld", "client/withheld", "agent/withheld", "session/withheld")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains,definition_ref,definition_digest) VALUES(?,1,'active contract premise','internal_sqlite','[]','[]','2026-08-01T00:00:00Z',?,'[]','[]',1,'prototype_internal','[]',?,?);
-		DELETE FROM write_guard`, workID, actorRef, registered.Definition.Ref, digest); err != nil {
+		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains) VALUES(?,1,'active contract premise','internal_sqlite','[]','[]','2026-08-01T00:00:00Z',?,'[]','[]',1,'prototype_internal','[]');
+		DELETE FROM write_guard`, workID, actorRef); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -68,24 +60,13 @@ func TestWorkPinEngineeringConfirmPremiseOmitsDigest(t *testing.T) {
 // TestConfirmPremisePayloadValidation checks the closed action payload.
 func TestConfirmPremisePayloadValidation(t *testing.T) {
 	t.Parallel()
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	action, err := WorkflowPlanActionContract("confirm_premise")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload WorkflowPayloadDefinition
-	for _, action := range registered.Definition.ActionDefinitions {
-		if action.ID == "confirm_premise" {
-			payload = action.Payload
-			break
-		}
-	}
-	if len(payload.Fields) == 0 {
+	if len(action.Payload.Fields) == 0 {
 		t.Fatal("the current confirm_premise declaration declares no fields")
 	}
-	definition := WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{{
-		ID:      "confirm_premise",
-		Payload: payload,
-	}}}
 	cases := []struct {
 		name        string
 		payload     string
@@ -97,7 +78,7 @@ func TestConfirmPremisePayloadValidation(t *testing.T) {
 		{name: "digest is not a field", payload: `{"decision_context_digest":"sha256:bad"}`, wantRefusal: `"decision_context_digest"`},
 	}
 	for _, testCase := range cases {
-		err := validateWorkflowActionPayload(definition, "confirm_premise", json.RawMessage(testCase.payload))
+		_, err := validateWorkflowPlanActionPayload("confirm_premise", json.RawMessage(testCase.payload))
 		if testCase.wantRefusal == "" {
 			if err != nil {
 				t.Fatalf("%s: %v", testCase.name, err)

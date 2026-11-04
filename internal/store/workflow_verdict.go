@@ -14,7 +14,7 @@ import (
 // acceptance verdict.
 type WorkflowReadVerdict struct {
 	TerminalState    string `json:"terminal_state"`
-	FinalVerdictKind string `json:"final_verdict_kind"`
+	FinalVerdictKind string `json:"final_verdict_kind,omitempty"`
 	VerdictActorRef  string `json:"verdict_actor_ref"`
 	ImpactVerdict    string `json:"impact_verdict"`
 	CompletedAt      string `json:"completed_at"`

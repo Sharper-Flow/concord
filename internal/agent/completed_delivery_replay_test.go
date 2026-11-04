@@ -17,7 +17,8 @@ func TestCompletedDeliverySameIdentityReplay(t *testing.T) {
 	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{
 		"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise", "idempotency_key": "completed-replay-confirm",
 	}))
-	spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))
+	f.completeReview(t)
+	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{"work_id": f.work, "expected_version": workVersion(t, f.s, f.work), "action_id": "complete", "fields": map[string]any{"impact_verdict": "non-breaking"}, "idempotency_key": "completed-replay-complete"}))
 	if pin := f.read(t).Pinned.Pin; pin.Lifecycle != "completed" {
 		t.Fatalf("fixture not completed: %+v", pin)
 	}
@@ -31,9 +32,10 @@ func TestCompletedDeliverySameIdentityReplay(t *testing.T) {
 	if got := workVersion(t, f.s, f.work); got <= version {
 		t.Fatalf("edit did not advance version: %d -> %d", version, got)
 	}
-	var artifact, step, state, lifecycle string
-	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(d.payload,'$.delivery_artifact'),i.current_step,i.instance_state,w.lifecycle FROM workflow_delivery_state d JOIN workflow_instances i ON i.work_id=d.work_id JOIN work_items w ON w.id=d.work_id WHERE d.work_id=?`, f.work).Scan(&artifact, &step, &state, &lifecycle); err != nil || artifact != "https://example.com/corrected" || step != "complete" || state != "completed" || lifecycle != "completed" {
-		t.Fatalf("delivery/progress=%q/%q/%q/%q err=%v", artifact, step, state, lifecycle, err)
+	var artifact, state, lifecycle string
+	var planRetained bool
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT json_extract(d.payload,'$.delivery_artifact'),i.instance_state,w.lifecycle,i.workflow_type IS NOT NULL AND i.step_plan IS NOT NULL FROM workflow_delivery_state d JOIN workflow_instances i ON i.work_id=d.work_id JOIN work_items w ON w.id=d.work_id WHERE d.work_id=?`, f.work).Scan(&artifact, &state, &lifecycle, &planRetained); err != nil || artifact != "https://example.com/corrected" || state != "completed" || lifecycle != "completed" || !planRetained {
+		t.Fatalf("delivery/progress=%q/%q/%q plan retained=%t err=%v", artifact, state, lifecycle, planRetained, err)
 	}
 	baseline := agentCurrentEffects(t, f.s)
 	replay := dispatchMutation(t, f.s, f.service, request, f.env)

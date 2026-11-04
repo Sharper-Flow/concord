@@ -210,8 +210,8 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {
   if (typeof ordinalRule !== "string" || !ordinalRule.includes("zero-based position")) gaps.push("ordinal description does not teach the zero-based position rule");
   const allowedBranch = kindBranches.find((branch) => branch?.properties?.outcome_kind?.const === "outcome");
   const tokens: unknown = allowedBranch?.properties?.outcome_payload?.properties?.allowed?.description;
-  if (typeof tokens !== "string" || !tokens.includes("workflow.research") || !tokens.includes("report_recorded") || !tokens.includes("no outcome tokens")) {
-    gaps.push("allowed description does not name the per-workflow pinned outcome tokens");
+  if (typeof tokens !== "string" || !tokens.includes("research") || !tokens.includes("change") || !tokens.includes("fix") || !tokens.includes("removal") || !tokens.includes("report_recorded") || !tokens.includes("no outcome tokens")) {
+    gaps.push("allowed description does not name the plan-type outcome tokens");
   }
   // Every fields branch that carries outcome_predicates on every carrier
   // action must teach the rule,
@@ -292,4 +292,4 @@ function validateSchema(schema: any, value: unknown, root: Record<string, unknow
   return pass(evaluated);
 }
 
-export const PINNED_PUBLISHED_TOTAL_BYTES = 98017;
+export const PINNED_PUBLISHED_TOTAL_BYTES = 105002;

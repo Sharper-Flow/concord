@@ -30,11 +30,7 @@ func progressHistory(t *testing.T) (*sql.DB, func(string, any) int64) {
 		}
 		return seq
 	}
-	entry, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
-	}
-	appendEvent(WorkflowDefinitionSelected, workflowDefinitionSelectedPayload{Ref: entry.Definition.Ref, Digest: entry.Digest})
+	appendEvent(WorkflowDefinitionSelected, workflowDefinitionSelectedPayload{Ref: "retired.definition", Digest: "sha256:retired"})
 	appendEvent(WorkflowContractApproved, workflowContractApprovedPayload{ContractVersion: 1, RequiredEvidence: []string{"artifact"}, OutcomePredicates: []workflowContractPredicatePayload{{PredicateID: "predicate:one", OutcomeKind: "exists", OutcomePayload: mustJSONValue(map[string]any{"kind": "exists", "surface": "source.go", "subjects": []string{"owner"}})}}, DecisionDomains: []string{}})
 	return db, appendEvent
 }

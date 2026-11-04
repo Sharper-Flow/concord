@@ -198,9 +198,7 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("capture response=%+v err=%v", response, err)
 	}
-	// Every capture pins a workflow instance (#650), so the changed version
-	// reflects the definition-selected events, not the bare creation pair.
-	if len(*response.ChangedRefs) != 1 || (*response.ChangedRefs)[0].Version != "4" {
+	if len(*response.ChangedRefs) != 1 || (*response.ChangedRefs)[0].Version != "3" {
 		t.Fatalf("changed refs=%#v", response.ChangedRefs)
 	}
 	var count int
@@ -212,7 +210,7 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("capture replay=%+v err=%v", replay, err)
 	}
-	revise := InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: json.RawMessage(`{"work_id":"work-` + (*replay.ChangedRefs)[0].ID[len("work-"):] + `","expected_version":4,"title":"Need revised","value_statement":"Revised value","kind":"task","priority":3,"tags":[],"reason":"clarified","evidence":[{"kind":"commit","authority":"git","locator_kind":"commit","locator":"commit:7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"}],"idempotency_key":"revise-idem-1"}`)}
+	revise := InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: json.RawMessage(`{"work_id":"work-` + (*replay.ChangedRefs)[0].ID[len("work-"):] + `","expected_version":3,"title":"Need revised","value_statement":"Revised value","kind":"task","priority":3,"tags":[],"reason":"clarified","evidence":[{"kind":"commit","authority":"git","locator_kind":"commit","locator":"commit:7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"}],"idempotency_key":"revise-idem-1"}`)}
 	env.RequestID = "revise-request-1"
 	revised, err := Dispatch(ctx, s, service, revise, env)
 	if err != nil || revised.Outcome != agentcontract.OutcomeOK {
@@ -223,7 +221,7 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest,actor FROM effect_receipts WHERE kind='work.intent_revised' AND subject_id=?`, (*replay.ChangedRefs)[0].ID).Scan(&revisionDigest, &revisionActor); err != nil {
 		t.Fatal(err)
 	}
-	expectedRevision, err := json.Marshal(map[string]any{"title": "Need revised", "value_statement": "Revised value", "kind": "task", "priority": 3, "urgency": "standard", "tags": []string{}, "workflow_type_ref": "", "reason": "clarified", "evidence_refs": []string{"commit:7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"}, "expected_version": 4, "resulting_version": 5})
+	expectedRevision, err := json.Marshal(map[string]any{"title": "Need revised", "value_statement": "Revised value", "kind": "task", "priority": 3, "urgency": "standard", "tags": []string{}, "reason": "clarified", "evidence_refs": []string{"commit:7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"}, "expected_version": 3, "resulting_version": 4})
 	if err != nil {
 		t.Fatal(err)
 	}

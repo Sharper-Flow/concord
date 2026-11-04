@@ -23,8 +23,9 @@ import (
 
 var actionLabel = regexp.MustCompile(`^[a-z_]+$`)
 
-// semanticCaseActions returns the action IDs workflowSemanticActionEvents builds
-// a typed event for — the case labels of its switch on request.ActionID.
+// semanticCaseActions returns typed action IDs from both branches of the plan
+// dispatcher. The AST check also verifies that the plan-control map feeds the
+// typed-event branch and that its fallback reaches the semantic dispatcher.
 func semanticCaseActions(t *testing.T) map[string]bool {
 	t.Helper()
 	fset := token.NewFileSet()
@@ -70,6 +71,95 @@ func semanticCaseActions(t *testing.T) map[string]bool {
 	if len(actions) == 0 {
 		t.Fatal("found no case labels on request.ActionID in workflowSemanticActionEvents")
 	}
+	var dispatch *ast.BlockStmt
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "workflowPlanActionEventsTx" {
+			dispatch = fn.Body
+		}
+	}
+	if dispatch == nil {
+		t.Fatal("plan action dispatcher not found")
+	}
+	var planMap *ast.CompositeLit
+	var branch *ast.IfStmt
+	ast.Inspect(dispatch, func(node ast.Node) bool {
+		if assign, ok := node.(*ast.AssignStmt); ok && len(assign.Lhs) == 1 && len(assign.Rhs) == 1 {
+			if id, ok := assign.Lhs[0].(*ast.Ident); ok && id.Name == "planKinds" {
+				planMap, _ = assign.Rhs[0].(*ast.CompositeLit)
+			}
+		}
+		if stmt, ok := node.(*ast.IfStmt); ok && stmt.Init != nil {
+			if init, ok := stmt.Init.(*ast.AssignStmt); ok && len(init.Lhs) == 2 && len(init.Rhs) == 1 {
+				if index, ok := init.Rhs[0].(*ast.IndexExpr); ok {
+					name, nameOK := index.X.(*ast.Ident)
+					kind, kindOK := init.Lhs[0].(*ast.Ident)
+					present, presentOK := init.Lhs[1].(*ast.Ident)
+					cond, condOK := stmt.Cond.(*ast.Ident)
+					if nameOK && name.Name == "planKinds" && exprText(index.Index) == "request.ActionID" && kindOK && kind.Name == "kind" && presentOK && condOK && cond.Name == present.Name {
+						branch = stmt
+					}
+				}
+			}
+		}
+		return true
+	})
+	hasCall := func(node ast.Node, name string) bool {
+		found := false
+		ast.Inspect(node, func(node ast.Node) bool {
+			if call, ok := node.(*ast.CallExpr); ok {
+				if id, ok := call.Fun.(*ast.Ident); ok && id.Name == name {
+					found = true
+				}
+			}
+			return true
+		})
+		return found
+	}
+	if planMap == nil || branch == nil || !hasCall(branch.Body, "workflowTypedEvent") || !hasCall(dispatch, "assemblePlanWorkflowActionEventsTx") {
+		t.Fatal("plan-control map is not connected to the typed event and semantic fallback branches")
+	}
+	typedKind := false
+	ast.Inspect(branch.Body, func(node ast.Node) bool {
+		if call, ok := node.(*ast.CallExpr); ok && len(call.Args) > 1 {
+			if fn, ok := call.Fun.(*ast.Ident); ok && fn.Name == "workflowTypedEvent" {
+				if kind, ok := call.Args[1].(*ast.Ident); ok && kind.Name == "kind" {
+					typedKind = true
+				}
+			}
+		}
+		return true
+	})
+	if !typedKind {
+		t.Fatal("plan-control branch does not use the mapped typed event kind")
+	}
+	guards, err := parser.ParseFile(fset, "workflow_action_guards.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse workflow_action_guards.go: %v", err)
+	}
+	var assembly *ast.BlockStmt
+	for _, decl := range guards.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "assemblePlanWorkflowActionEventsTx" {
+			assembly = fn.Body
+		}
+	}
+	if assembly == nil || !hasCall(assembly, "workflowSemanticActionEvents") {
+		t.Fatal("plan action assembly does not call the semantic dispatcher")
+	}
+	for _, element := range planMap.Elts {
+		entry, ok := element.(*ast.KeyValueExpr)
+		if !ok {
+			t.Fatal("plan-control map has a non-keyed entry")
+		}
+		key, ok := entry.Key.(*ast.BasicLit)
+		if !ok || key.Kind != token.STRING {
+			t.Fatal("plan-control action key is not a string literal")
+		}
+		value, err := strconv.Unquote(key.Value)
+		if err != nil || !actionLabel.MatchString(value) {
+			t.Fatalf("invalid plan-control action key %q", key.Value)
+		}
+		actions[value] = true
+	}
 	return actions
 }
 
@@ -99,9 +189,7 @@ func TestTypedEventShapeMatchesTheSemanticDispatcher(t *testing.T) {
 	}
 	if len(unbuilt) != 0 {
 		sort.Strings(unbuilt)
-		t.Errorf("actions declared ActionEventTyped that workflowSemanticActionEvents has no case arm for: %v\n"+
-			"these reach its default and append a generic WorkflowActionCompleted instead — the action succeeds and the event is wrong. "+
-			"Add the case arm, or declare the action ActionEventGeneric", unbuilt)
+		t.Errorf("typed actions missing from the plan and semantic dispatchers: %v", unbuilt)
 	}
 	if len(undeclared) != 0 {
 		sort.Strings(undeclared)
@@ -155,53 +243,5 @@ func TestEveryActionDeclaresOneKnownEventShape(t *testing.T) {
 	if len(completion) != 1 || completion[0] != "complete" {
 		t.Errorf("ActionEventCompletion is held by %v; applyWorkflowActionRawTx guards the semantic switch "+
 			`with request.ActionID != "complete", which admits exactly one action`, completion)
-	}
-}
-
-// TestEvidenceBinderCaseArmMatchesTheProducerTable binds the dispatcher arm
-// that routes to workflowEvidenceBindingEvents to workflowCallerEvidenceBinders.
-// The reachability walk reads that table to decide which actions can produce
-// any evidence kind, so an arm label missing from the table would call a
-// producible kind unproducible, and a table entry with no arm would call a
-// kind producible that no action binds.
-func TestEvidenceBinderCaseArmMatchesTheProducerTable(t *testing.T) {
-	t.Parallel()
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "workflow_dispatch.go", nil, 0)
-	if err != nil {
-		t.Fatalf("parse workflow_dispatch.go: %v", err)
-	}
-	var arm []string
-	ast.Inspect(file, func(node ast.Node) bool {
-		clause, ok := node.(*ast.CaseClause)
-		if !ok || len(clause.Body) != 1 {
-			return true
-		}
-		ret, ok := clause.Body[0].(*ast.ReturnStmt)
-		if !ok || len(ret.Results) != 1 {
-			return true
-		}
-		call, ok := ret.Results[0].(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		if ident, ok := call.Fun.(*ast.Ident); !ok || ident.Name != "workflowEvidenceBindingEvents" {
-			return true
-		}
-		for _, expr := range clause.List {
-			if lit, ok := expr.(*ast.BasicLit); ok && lit.Kind == token.STRING {
-				if value, err := strconv.Unquote(lit.Value); err == nil {
-					arm = append(arm, value)
-				}
-			}
-		}
-		return true
-	})
-	if len(arm) == 0 {
-		t.Fatal("found no case arm in workflow_dispatch.go that returns workflowEvidenceBindingEvents")
-	}
-	if !uniqueStrings(arm) || !sameStrings(arm, workflowCallerEvidenceBinders) {
-		sort.Strings(arm)
-		t.Fatalf("evidence binder case arm %v differs from workflowCallerEvidenceBinders %v", arm, workflowCallerEvidenceBinders)
 	}
 }

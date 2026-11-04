@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,8 +96,8 @@ func researchContextRequireRefusal(t *testing.T, err error, wantKind string) {
 // admission nor the production fold or authoritative workflow append route.
 func researchContextDeclareRetainedSelection(t *testing.T, f researchScopeEnv, packIDs []string) {
 	t.Helper()
-	var stepID, workflowRef, workflowDigest string
-	if err := f.store.DatabaseForTesting().QueryRow(`SELECT current_step,definition_ref,definition_digest FROM workflow_instances WHERE work_id=?`, researchScopeConsumer).Scan(&stepID, &workflowRef, &workflowDigest); err != nil {
+	var stepID, workflowType string
+	if err := f.store.DatabaseForTesting().QueryRow(`SELECT COALESCE(workflow_type,''),COALESCE(json_extract(step_plan,'$.steps[0].id'),'intake') FROM workflow_instances WHERE work_id=?`, researchScopeConsumer).Scan(&workflowType, &stepID); err != nil {
 		t.Fatal(err)
 	}
 	var attemptEpoch int64
@@ -113,7 +114,7 @@ func researchContextDeclareRetainedSelection(t *testing.T, f researchScopeEnv, p
 		"step_id": stepID, "attempt_epoch": attemptEpoch,
 		"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{},
 		"research_finding_refs": selections,
-		"workflow_ref":          workflowRef, "workflow_definition_digest": workflowDigest,
+		"workflow_ref":          "workflow." + workflowType, "workflow_definition_digest": "sha256:" + strings.Repeat("0", 64),
 		"actor_ref":  store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-1"),
 		"request_id": "request:research-context-retained",
 	}
@@ -329,7 +330,7 @@ func TestResearchContextSelectionOwnerScope(t *testing.T) {
 	// refuse if the replay re-authorized.
 	t.Run("exact_replay_no_duplicate_effect", func(t *testing.T) {
 		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
-		input := researchScopeBindingAction(t, f, "record_proposal", "rc-replay-bind", []map[string]any{researchScopeBinding(researchScopePackA, 1, true)})
+		input := researchScopeBindingAction(t, f, "record_plan", "rc-replay-bind", []map[string]any{researchScopeBinding(researchScopePackA, 1, true)})
 		first := researchScopeInvoke(t, f, "workflow_action", input)
 		if first.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("allowed declaration failed: %+v", first.Error)
@@ -353,7 +354,7 @@ func TestResearchContextSelectionOwnerScope(t *testing.T) {
 	// selection reads as the typed fail-closed missing entry.
 	t.Run("retained_reads_survive_unavailable_author_grant", func(t *testing.T) {
 		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
-		bound := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_proposal", "rc-retained-bind", []map[string]any{researchScopeBinding(researchScopePackA, 1, true)}))
+		bound := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_plan", "rc-retained-bind", []map[string]any{researchScopeBinding(researchScopePackA, 1, true)}))
 		if bound.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("in-scope binding failed: %+v", bound.Error)
 		}

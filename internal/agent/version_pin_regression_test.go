@@ -78,7 +78,7 @@ func transitionFixture(t *testing.T) (*store.Store, *Service, CallEnvelope, stri
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	capture := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Version pin work","value_statement":"Pin the live version","kind":"task","project_ids":["project-1"],"workflow_type_ref":"workflow.implementation","idempotency_key":"capture-version-pin"}`)}
+	capture := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Version pin work","value_statement":"Pin the live version","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-version-pin"}`)}
 	captured, err := Dispatch(context.Background(), s, service, capture, env)
 	if err != nil || captured.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("capture response=%+v err=%v", captured, err)
@@ -95,13 +95,13 @@ func transitionFixture(t *testing.T) (*store.Store, *Service, CallEnvelope, stri
 func TestVersionConflictOnExistingWorkMarshals(t *testing.T) {
 	t.Parallel()
 	s, service, env, workID := transitionFixture(t)
+	advanceCapturedWorkToContract(t, s, service, env, workID, "pin-setup")
 
 	stale := workItemProjectionVersion(t, s, workID)
 	advance := InvokeRequest{
 		Tool:      "concord_work_transition",
 		Operation: "workflow_action",
-		Input: json.RawMessage(`{"work_id":"` + workID + `","expected_version":` +
-			jsonInt(stale) + `,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"advance-before-stale"}`),
+		Input:     retryJSON(map[string]any{"work_id": workID, "expected_version": stale, "action_id": "record_plan", "fields": func() map[string]any { p := agentPlanFields(); p["reason"] = "Update the plan"; return p }(), "idempotency_key": "advance-before-stale"}),
 	}
 	advanced, err := Dispatch(context.Background(), s, service, advance, env)
 	if err != nil || advanced.Outcome != agentcontract.OutcomeOK {
@@ -113,7 +113,7 @@ func TestVersionConflictOnExistingWorkMarshals(t *testing.T) {
 		Tool:      "concord_work_transition",
 		Operation: "workflow_action",
 		Input: json.RawMessage(`{"work_id":"` + workID + `","expected_version":` +
-			jsonInt(stale) + `,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"stale-pin-marshals"}`),
+			jsonInt(stale) + `,"action_id":"record_intake","fields":{"outcome":"proceed","open_questions_found":false},"idempotency_key":"stale-pin-marshals"}`),
 	}
 	resp, err := Dispatch(context.Background(), s, service, action, env)
 	if err != nil {
@@ -140,7 +140,7 @@ func TestVersionConflictOnExistingWorkMarshals(t *testing.T) {
 	if !found {
 		t.Fatalf("current_versions did not carry %s at %d: %+v", workID, current, resp.Error.CurrentVersions)
 	}
-	if len(resp.Error.InterveningActions) != 1 || resp.Error.InterveningActions[0].ActionID != "record_proposal" || resp.Error.InterveningActions[0].SessionRef == "" {
+	if len(resp.Error.InterveningActions) != 1 || resp.Error.InterveningActions[0].ActionID != "record_plan" || resp.Error.InterveningActions[0].SessionRef == "" {
 		t.Fatalf("intervening_actions=%v, want the action and recording session", resp.Error.InterveningActions)
 	}
 }
@@ -156,7 +156,7 @@ func TestVersionConflictOnMissingWorkIsUnknownScope(t *testing.T) {
 	action := InvokeRequest{
 		Tool:      "concord_work_transition",
 		Operation: "workflow_action",
-		Input:     json.RawMessage(`{"work_id":"work-does-not-exist","expected_version":3,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"missing-subject-pin"}`),
+		Input:     json.RawMessage(`{"work_id":"work-does-not-exist","expected_version":3,"action_id":"record_intake","fields":{"outcome":"proceed","open_questions_found":false},"idempotency_key":"missing-subject-pin"}`),
 	}
 	resp, err := Dispatch(context.Background(), s, service, action, env)
 	if err != nil {

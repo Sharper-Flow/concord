@@ -12,24 +12,15 @@ func workflowReviewReportSequence(ctx context.Context, q queryer, workID, report
 // starts are not record edits; their step and held-attempt rules still apply.
 func workflowRecordAction(action string) bool {
 	switch action {
-	case "record_proposal", "record_design", "record_diagnosis", "record_alignment",
+	case "record_intake", "record_clarify", "record_plan", "record_diagnosis",
 		"record_delivery", "record_review", "record_verdict", "revise_candidates":
 		return true
 	}
 	return false
 }
 
-func workflowRefinementStepID(definition WorkflowDefinition) string {
-	for _, step := range definition.StepGraph.Steps {
-		if stepDeclaresAction(definition, step.ID, "checkpoint_refine") {
-			return step.ID
-		}
-	}
-	return ""
-}
-
 func workflowCurrentRecords(ctx context.Context, q queryer, work string) (map[string]bool, error) {
-	rows, err := q.QueryContext(ctx, `SELECT action_id FROM workflow_completed_exits WHERE work_id=? UNION SELECT 'record_delivery' FROM workflow_delivery_state WHERE work_id=? UNION SELECT 'record_review' FROM workflow_review_state WHERE work_id=? AND json_type(state,'$.accepted')='object'`, work, work, work)
+	rows, err := q.QueryContext(ctx, `SELECT action_id FROM workflow_completed_exits WHERE work_id=? UNION SELECT 'record_delivery' FROM workflow_delivery_state WHERE work_id=? UNION SELECT 'record_review' FROM workflow_review_state WHERE work_id=? AND json_type(state,'$.accepted')='object' UNION SELECT 'record_plan' FROM workflow_plan_records WHERE work_id=? UNION SELECT 'record_intake' FROM workflow_instances WHERE work_id=? AND prelude_state IS NOT NULL UNION SELECT 'record_clarify' FROM workflow_instances WHERE work_id=? AND json_type(prelude_state,'$.clarify')='object'`, work, work, work, work, work, work)
 	if err != nil {
 		return nil, workflowProjectionError(err, "cannot read current workflow records")
 	}

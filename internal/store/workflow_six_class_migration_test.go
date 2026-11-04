@@ -97,7 +97,7 @@ func TestSixClassMigrationPreservesContractsAndGuards(t *testing.T) {
 	db := seedSixClassMigration(t)
 	tables := []string{"work_items", "workflow_actors", "workflow_contract_predicates"}
 	before := sixClassSnapshot(t, db, tables...)
-	contracts := retainedWorkflowContractRows(t, db)
+	contracts := cutoverContractRows(t, db)
 	var guardBefore string
 	if err := db.QueryRow(`SELECT group_concat(sql,';') FROM (SELECT sql FROM sqlite_schema WHERE name LIKE 'workflow_contracts_guard_%' ORDER BY name)`).Scan(&guardBefore); err != nil {
 		t.Fatal(err)
@@ -108,7 +108,7 @@ func TestSixClassMigrationPreservesContractsAndGuards(t *testing.T) {
 	if got := sixClassSnapshot(t, db, tables...); !reflect.DeepEqual(got, before) {
 		t.Fatalf("migration changed existing rows: got %v, want %v", got, before)
 	}
-	if got := retainedWorkflowContractRows(t, db); !reflect.DeepEqual(got, contracts) {
+	if got := cutoverContractRows(t, db); !reflect.DeepEqual(got, contracts) {
 		t.Fatalf("migration changed current contract facts: got %v, want %v", got, contracts)
 	}
 	var guardAfter string

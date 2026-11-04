@@ -428,7 +428,7 @@ func workflowReviewedCommandReceipt(ctx context.Context, q queryer, work, predic
 
 func workflowResearchCriterionFamily(ctx context.Context, q queryer, work string) (bool, error) {
 	var research bool
-	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_instances WHERE work_id=? AND definition_ref='workflow.research')`, work).Scan(&research)
+	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_instances WHERE work_id=? AND workflow_type='research')`, work).Scan(&research)
 	return research, err
 }
 
@@ -507,8 +507,8 @@ func workflowMissingCriterionAssociations(ctx context.Context, q queryer, work s
 	return missing, nil
 }
 
-func guardLateCriterionAssociations(ctx context.Context, q queryer, work string, definition WorkflowDefinition, step string, fields map[string]json.RawMessage) error {
-	if !workflowLateCriterionAssociationStep(definition, step) {
+func guardLateCriterionAssociations(ctx context.Context, q queryer, work string, planType WorkflowStepPlanType, step string, fields map[string]json.RawMessage) error {
+	if slices.Contains(WorkflowStepPlanTemplateActions(planType, step), "record_verdict") {
 		return nil
 	}
 	records, err := workflowCurrentRecords(ctx, q, work)

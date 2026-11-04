@@ -8,10 +8,8 @@ import (
 )
 
 // A work pin is the one point-in-time projection a caller needs to prepare an
-// action. For an item whose contract projection is ambiguous the pin stops
-// early by design: it reports the item's position without granting action
-// authority. The watermark required by closed-schema response validation must
-// still be present while the contract projection remains ambiguous.
+// action. An ambiguous contract must not produce a false contract projection;
+// declared plan routes are not admission to a contract-dependent mutation.
 
 // TestWorkPinAmbiguousContractsCarryWatermark is the reproduction. It builds a
 // workflow with two active contracts and holds the pin to the shape every
@@ -19,7 +17,7 @@ import (
 func TestWorkPinAmbiguousContractsCarryWatermark(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
-	_, version := continuityTestWorkflow(t, s, "workpin-ambiguous")
+	actor, version := continuityTestWorkflow(t, s, "workpin-ambiguous")
 
 	db := s.DatabaseForTesting()
 	var actorRef string
@@ -56,7 +54,18 @@ DELETE FROM write_guard`, actorRef, actorRef); err != nil {
 	if watermark, _ := decoded["watermark"].(string); !strings.HasPrefix(watermark, "seq:") {
 		t.Fatalf("serialized ambiguous pin watermark=%q, want a sequence watermark", watermark)
 	}
-	if len(pin.NextValidIntents) != 0 {
-		t.Fatalf("ambiguous pin grants action authority: %+v", pin.NextValidIntents)
+	if !workPinContainsAction(pin.NextValidIntents, "insert_step") || !workPinContainsAction(pin.NextValidIntents, "pick_type") {
+		t.Fatalf("ambiguous pin omitted independent plan routes: %+v", pin.NextValidIntents)
+	}
+	if pin.Obligations != nil || pin.OutstandingEvidenceKinds != nil || len(pin.VerifiedCriteria) != 0 {
+		t.Fatalf("ambiguous pin selected contract facts: %+v", pin)
+	}
+	before := outsideRepairDatabaseSnapshot(t, s)
+	err = reviseContractRecord(t, s, "workpin-ambiguous", actor, map[string]any{}, version)
+	if !hasFailureKind(err, KindInvariantViolation) || !strings.Contains(err.Error(), "multiple active contracts") {
+		t.Fatalf("ambiguous contract revision = %v", err)
+	}
+	if outsideRepairDatabaseSnapshot(t, s) != before || readWorkVersion(t, s, "workpin-ambiguous") != version {
+		t.Fatal("refused ambiguous contract revision changed durable state")
 	}
 }

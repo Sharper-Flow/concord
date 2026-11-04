@@ -68,12 +68,37 @@ func (catalog workflowActionCatalog) action(actionID string) (WorkflowActionDefi
 }
 
 func cloneWorkflowAction(action WorkflowActionDefinition) WorkflowActionDefinition {
-	return cloneWorkflowDefinition(WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{action}}).ActionDefinitions[0]
+	clonePayload := func(payload WorkflowPayloadDefinition) WorkflowPayloadDefinition {
+		payload.Fields = slices.Clone(payload.Fields)
+		for i := range payload.Fields {
+			field := &payload.Fields[i]
+			field.Enum = slices.Clone(field.Enum)
+			field.Forbidden = slices.Clone(field.Forbidden)
+			for _, bound := range []**int64{&field.MinLength, &field.MaxLength, &field.MinItems, &field.MaxItems, &field.Minimum, &field.Maximum} {
+				if *bound != nil {
+					value := **bound
+					*bound = &value
+				}
+			}
+		}
+		return payload
+	}
+	action.Payload = clonePayload(action.Payload)
+	if action.PublicPayload != nil {
+		payload := clonePayload(*action.PublicPayload)
+		action.PublicPayload = &payload
+	}
+	return action
 }
 
 // catalogAction returns one action as the current catalog declares it.
 func catalogAction(actionID string) (WorkflowActionDefinition, error) {
 	return builtinWorkflowActionCatalog().action(actionID)
+}
+
+// WorkflowActionCatalogSize bounds distinct actions emitted by the catalog.
+func WorkflowActionCatalogSize() int {
+	return len(builtinWorkflowActionCatalog())
 }
 
 // builtinWorkflowActionCatalog is the current catalog for built-in workflows.
@@ -86,17 +111,21 @@ func builtinWorkflowActionCatalog() workflowActionCatalog {
 		"checkpoint_refine":      nil,
 		"checkpoint_repair":      nil,
 		"complete":               nil,
+		"complete_step":          nil,
 		"confirm_premise":        {confirmPremisePayload},
 		"cross_context_boundary": nil,
 		"frame_research":         nil,
+		"insert_step":            nil,
 		"link_successor":         nil,
-		"record_alignment":       nil,
+		"pick_type":              nil,
+		"record_clarify":         nil,
 		"record_conclusion":      nil,
 		"record_delivery":        nil,
-		"record_design":          {designDecisionItemSchema},
 		"record_diagnosis":       nil,
 		"record_finding":         nil,
-		"record_proposal":        {proposalOutOfScopePayload},
+		"record_intake":          nil,
+		"record_plan":            nil,
+		"record_removal_scope":   nil,
 		"record_report":          nil,
 		"record_review": {workTransitionAction, withClosedPayload(func() []WorkflowPayloadField {
 			return []WorkflowPayloadField{actionObjectField("review", true, "workflow_review_report")}

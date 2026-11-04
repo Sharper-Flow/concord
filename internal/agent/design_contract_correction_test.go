@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -18,10 +19,9 @@ func TestContractReassessmentPreservesDesignAndRefusesInlineReplacement(t *testi
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	for _, action := range []string{"record_proposal", "record_alignment"} {
-		invokeWorkflowIssue31Action(t, s, service, env, action, version, "design-correction-"+action)
-		version = workOneVersion(t, s)
-	}
+	plan := agentPlanFields()
+	spineOK(t, dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_plan", "fields": plan, "idempotency_key": "design-plan"})}, env))
+	version = workOneVersion(t, s)
 	fields := workflowContractFieldsForSeededRegistry(t, s)
 	fields["required_evidence"] = []string{"verification"}
 	fields["route_conventions"] = []string{}
@@ -30,13 +30,18 @@ func TestContractReassessmentPreservesDesignAndRefusesInlineReplacement(t *testi
 	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve contract: %+v", approved.Error)
 	}
-	version = recordApprovedWorkDesign(t, s, service, env, "work-1", "design-correction-design")
-	before, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: "work-1"})
-	if err != nil {
+	version = workOneVersion(t, s)
+	plan["approach"] = "A revised implementation boundary"
+	plan["reason"] = "Clarify the implementation boundary"
+	spineOK(t, dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_plan", "fields": plan, "idempotency_key": "design-plan-revision"})}, env))
+	version = workOneVersion(t, s)
+	var beforePlan string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM workflow_plan_records WHERE work_id='work-1'`).Scan(&beforePlan); err != nil {
 		t.Fatal(err)
 	}
-	if before.DesignRecord == nil {
-		t.Fatal("initial approved contract has no design record")
+	var revisedPlan map[string]any
+	if err := json.Unmarshal([]byte(beforePlan), &revisedPlan); err != nil || revisedPlan["approach"] != plan["approach"] || revisedPlan["reason"] != plan["reason"] {
+		t.Fatalf("plan revision not retained: %s, err=%v", beforePlan, err)
 	}
 	fields["contract_version"] = 2
 	corrected, version := dispatchContractRevisionResult(t, s, service, env, "work-1", version, fields, "design-correction-revise")
@@ -50,8 +55,9 @@ func TestContractReassessmentPreservesDesignAndRefusesInlineReplacement(t *testi
 	if after.Contract == nil || after.Contract.Version != 2 {
 		t.Fatalf("corrected contract not current: %+v", after.Contract)
 	}
-	if !reflect.DeepEqual(after.DesignRecord, before.DesignRecord) {
-		t.Fatalf("contract-only reassessment changed the design: before=%+v after=%+v", before.DesignRecord, after.DesignRecord)
+	var afterPlan string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM workflow_plan_records WHERE work_id='work-1'`).Scan(&afterPlan); err != nil || afterPlan != beforePlan {
+		t.Fatalf("contract-only reassessment changed the plan: before=%s after=%s err=%v", beforePlan, afterPlan, err)
 	}
 	fields["contract_version"] = 3
 	fields["premise"] = "Use a replacement approach rather than the original design"
@@ -61,7 +67,6 @@ func TestContractReassessmentPreservesDesignAndRefusesInlineReplacement(t *testi
 		"touched_refs": []string{"internal/store/workflow_design.go"},
 	}
 	eventsBefore := workEventCount(t, s, "work-1")
-	designsBefore := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_design_records WHERE work_id='work-1'`)
 	refused, _ := dispatchContractRevisionResult(t, s, service, env, "work-1", version, fields, "design-correction-invalid")
 	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_input" {
 		t.Fatalf("inline design replacement accepted: %+v", refused.Error)
@@ -73,10 +78,11 @@ func TestContractReassessmentPreservesDesignAndRefusesInlineReplacement(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(unchanged.Contract, after.Contract) || !reflect.DeepEqual(unchanged.DesignRecord, after.DesignRecord) {
+	if !reflect.DeepEqual(unchanged.Contract, after.Contract) {
 		t.Fatal("invalid replacement changed the current contract or design")
 	}
-	if workEventCount(t, s, "work-1") != eventsBefore || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_design_records WHERE work_id='work-1'`) != designsBefore {
+	var unchangedPlan string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM workflow_plan_records WHERE work_id='work-1'`).Scan(&unchangedPlan); err != nil || unchangedPlan != afterPlan || workEventCount(t, s, "work-1") != eventsBefore {
 		t.Fatal("invalid replacement wrote an event or design")
 	}
 }

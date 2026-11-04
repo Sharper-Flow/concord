@@ -6,7 +6,7 @@ import "context"
 // delivery, law attribution, evidence producers and mutation receipts survive.
 func discardTerminalWorkflowStepsTx(ctx context.Context, q migrationRunner, workID string) error {
 	for _, table := range []string{
-		"workflow_step_epochs", "workflow_step_completions", "workflow_phase_exits",
+		"workflow_step_epochs", "workflow_phase_exits",
 		"workflow_completed_exits", "workflow_checkpoints", "workflow_context_checkpoints",
 		"workflow_context_boundaries", "workflow_coordinator_actions",
 		"work_context_findings", "work_context_state",

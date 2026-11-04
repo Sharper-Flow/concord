@@ -68,7 +68,7 @@ func premiseConsentSnapshot(t *testing.T, s *store.Store) map[string]string {
 	state := map[string]string{}
 	queries := map[string]string{
 		"versions":  `SELECT id,version FROM work_items ORDER BY id`,
-		"instances": `SELECT work_id,instance_state,current_step FROM workflow_instances ORDER BY work_id`,
+		"instances": `SELECT work_id,instance_state,COALESCE(workflow_type,'') FROM workflow_instances ORDER BY work_id`,
 		"actors":    `SELECT actor_ref,actor_class FROM workflow_actors ORDER BY actor_ref`,
 	}
 	for _, table := range []string{"effect_receipts", "workflow_instances", "workflow_contracts", "workflow_candidate_sets", "workflow_actors", "workflow_checkpoints", "workflow_impact_edges", "workflow_decision_records", "workflow_premise_confirmations"} {

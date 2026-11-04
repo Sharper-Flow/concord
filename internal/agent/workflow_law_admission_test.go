@@ -15,19 +15,20 @@ import (
 func TestReviseInitializesProductWorkflow(t *testing.T) {
 	ctx := t.Context()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define"})
-	if _, err := store.VerifyWorkflowInstanceDefinition(ctx, s, store.BuiltinWorkflowRegistry(), "work-1"); err == nil {
+	var instances int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_instances WHERE work_id='work-1'`).Scan(&instances); err != nil || instances != 0 {
 		t.Fatal("fixture must have no workflow instance")
 	}
 	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Initialization itself reads no Git: unavailable knowledge metadata must
-	// not refuse the revision that starts the workflow.
+	// Unavailable knowledge metadata must not refuse an intent revision.
 	if err := os.Rename(filepath.Join(home.RepoPath, ".git"), filepath.Join(home.RepoPath, "unavailable-git")); err != nil {
 		t.Fatal(err)
 	}
-	input, err := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "kind": "task", "title": "Verified revised start", "value_statement": "Initialize from accepted Product law", "workflow_type_ref": "workflow.implementation", "reason": "Initialize the existing item", "idempotency_key": "revise-verified-start"})
+	version := workVersion(t, s, "work-1")
+	input, err := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": version, "kind": "task", "title": "Verified revised start", "value_statement": "Initialize from accepted Product law", "reason": "Initialize the existing item", "idempotency_key": "revise-verified-start"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,8 +36,13 @@ func TestReviseInitializesProductWorkflow(t *testing.T) {
 	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("revise initialization: %+v error=%v", response.Error, err)
 	}
-	if _, err := store.VerifyWorkflowInstanceDefinition(ctx, s, store.BuiltinWorkflowRegistry(), "work-1"); err != nil {
-		t.Fatalf("revise omitted workflow initialization: %v", err)
+	if got := workVersion(t, s, "work-1"); got != version+1 {
+		t.Fatalf("revised version = %d, want %d", got, version+1)
+	}
+	// workflow-engine-contract.md §5.1 no longer makes revision create intake.
+	var title string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT title FROM work_items WHERE id='work-1'`).Scan(&title); err != nil || title != "Verified revised start" {
+		t.Fatalf("revision title = %q, err=%v", title, err)
 	}
 }
 
@@ -61,7 +67,7 @@ func TestCaptureProductWorkflowReplaysWithoutKnowledge(t *testing.T) {
 	if err != nil || replayed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("exact capture replay re-probed unavailable knowledge: %+v error=%v", replayed, err)
 	}
-	reviseInput, err := json.Marshal(map[string]any{"work_id": id, "expected_version": 4, "kind": "task", "title": "Retained current pin", "value_statement": "Keep the existing workflow identity", "workflow_type_ref": "workflow.implementation", "reason": "Update the task without replacing its workflow identity", "idempotency_key": "revise-retained-start"})
+	reviseInput, err := json.Marshal(map[string]any{"work_id": id, "expected_version": workVersion(t, s, id), "kind": "task", "title": "Retained intake", "value_statement": "Keep the existing workflow", "reason": "Update the task", "idempotency_key": "revise-retained-start"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,11 +102,6 @@ func testWorkflowLawChangeAdmission(t *testing.T, tier string) {
 		commitAgentFixtureLaw(t, home.RepoPath, ".concord/law/decisions/CD-0002-fixture-derived-law.md",
 			agentFixtureLawFrontmatter(lawID, pm1fixture.FixtureRootDomainID, "The law-change fixture registry declares no child Domain, so this law has no child home available."))
 	}
-	registered, err := store.LiveWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
-	registry := store.BuiltinWorkflowRegistry()
 	db := s.DatabaseForTesting()
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, "work-1")
@@ -108,7 +109,7 @@ func testWorkflowLawChangeAdmission(t *testing.T, tier string) {
 		t.Fatal(err)
 	}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Registry: registry, Actor: actor, Now: fixedTime()})
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Actor: actor, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -126,10 +127,7 @@ func testWorkflowLawChangeAdmission(t *testing.T, tier string) {
 		input := map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": action, "idempotency_key": key, "fields": fields}
 		return invokeInput(env, input)
 	}
-	response := invoke("record_diagnosis", "law-diagnosis", map[string]any{"reproduction": "The fixture law needs an amendment.", "searched": "The fixture backlog contains no related item.", "outcome": "none_found", "root_cause": "The fixture law text needs correction."})
-	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("diagnosis: %+v", response.Error)
-	}
+	advanceCapturedWorkToContract(t, s, service, env, "work-1", "law-prelude")
 	fields := workflowContractFieldsFixture()
 	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
 	fields["spec_mandate"] = []string{lawID}

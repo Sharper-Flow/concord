@@ -153,7 +153,7 @@ try:
         return original_run(argv, *args, **kwargs)
     with mock.patch.object(subprocess, "run", side_effect=supersede_before_upgrade), mock.patch.dict(os.environ, case.env, clear=True):
         try:
-            fixture.installer.cutover(SimpleNamespace(root=root, version=version, confirm_sessions_stopped=False, cancel_cutover_pinned_work=False))
+            fixture.installer.cutover(SimpleNamespace(root=root, version=version, confirm_sessions_stopped=False))
         except RuntimeError as error:
             assert str(error) == "fixture: concurrent maintenance refused"
         else:

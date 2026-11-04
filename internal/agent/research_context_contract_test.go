@@ -246,15 +246,13 @@ func TestResearchContextContractPublishesSelectedResearch(t *testing.T) {
 		t.Parallel()
 		f := researchScopeFixture(t, []agentcontract.Capability{"product_read", "work_transition"}, []string{"product-a"})
 		_, child := seedResearchContextDomainRegistry(t, f)
-		// The promoted record_proposal payload never declares the selection
+		// The record_plan payload never declares the selection
 		// member, so the coordinator declaration action is the only authoring
 		// surface: the closed payload refuses the field before any effect.
-		input := researchScopeBindingAction(t, f, "record_proposal", "rc-worker-authority", nil)
-		input["fields"] = map[string]any{
-			"problem": "Synthetic bounded change", "affected": []string{"Synthetic users"},
-			"stakes": "Preserve the test boundary", "user_outcomes": []string{"A bounded verified result"},
-			"research_finding_refs": []map[string]any{researchContextSelectedRef(researchScopePackA, "f-"+researchScopePackA, child, "")},
-		}
+		input := researchScopeBindingAction(t, f, "record_plan", "rc-worker-authority", nil)
+		fields := agentPlanFields()
+		fields["research_finding_refs"] = []map[string]any{researchContextSelectedRef(researchScopePackA, "f-"+researchScopePackA, child, "")}
+		input["fields"] = fields
 		before := researchScopeSnapshot(t, f.store, researchScopePackA)
 		refused := researchScopeInvoke(t, f, "workflow_action", input)
 		// The generated action schema refuses the undeclared member outright.

@@ -19,7 +19,6 @@ func TestWorkflowVerdictCurrentFactsWithoutLog(t *testing.T) {
 		t.Fatalf("nonempty verdict fixture: %+v, %v", verdicts, err)
 	}
 	assertWorkerFactsLogBlind(t, s, map[string]func() (any, error){
-		"G27-latest-verdict":     func() (any, error) { return latestWorkflowVerdict(ctx, s.db, work) },
 		"G27-predicate-verdicts": func() (any, error) { return latestWorkflowVerdicts(ctx, s.db, work, version) },
 	})
 }

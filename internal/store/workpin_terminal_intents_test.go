@@ -30,7 +30,7 @@ func TestTerminalWorkOffersNoWorkflowIntent(t *testing.T) {
 		t.Fatal("the live pin offers no intent, so this test cannot show that terminality removes them")
 	}
 
-	if err := applyWorkEvent(t, s, workTransitionEvent("end-it", "workpin-terminal", "in_progress", "cancelled", version, version+1), workVersion("workpin-terminal", version)); err != nil {
+	if err := applyWorkEvent(t, s, workTransitionEvent("end-it", "workpin-terminal", "needed", "cancelled", version, version+1), workVersion("workpin-terminal", version)); err != nil {
 		t.Fatalf("end the work item: %v", err)
 	}
 
@@ -44,7 +44,7 @@ func TestTerminalWorkOffersNoWorkflowIntent(t *testing.T) {
 
 	// The fold is the authority the pin must agree with. Ask it directly
 	// rather than restating its rule here.
-	refusal := WorkflowActionPreflightWithRegistry(ctx, s, BuiltinWorkflowRegistry(), WorkflowActionPreflightRequest{WorkID: "workpin-terminal", ActionID: live.NextValidIntents[0].ActionID})
+	_, refusal := WorkflowActionDefinitionFor(ctx, s, WorkflowActionPreflightRequest{WorkID: "workpin-terminal", ActionID: live.NextValidIntents[0].ActionID})
 	if refusal == nil {
 		t.Fatalf("the fold still admits %q on terminal work, so the pin is not the defect", live.NextValidIntents[0].ActionID)
 	}

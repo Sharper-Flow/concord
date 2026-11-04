@@ -169,7 +169,7 @@ func TestMainCheckoutRefusesImplementationOperations(t *testing.T) {
 		operation string
 		input     string
 	}{
-		{operation: "workflow_action", input: `{"work_id":"work-1","expected_version":2,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"main-action"}`},
+		{operation: "workflow_action", input: `{"work_id":"work-1","expected_version":2,"action_id":"record_intake","fields":{"outcome":"proceed","open_questions_found":false},"idempotency_key":"main-action"}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.operation, func(t *testing.T) {

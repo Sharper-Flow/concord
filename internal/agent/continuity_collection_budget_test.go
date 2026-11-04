@@ -749,11 +749,11 @@ func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) 
 	// so the proof is established before the boundary tx opens and rides the
 	// context into it.
 	ctx = agentWorkflowSourceProof(t, ctx, s, "work-1")
-	if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.BuiltinWorkflowRegistry(), store.WorkflowActionPreflightRequest{
+	if err := store.AuthorizeWorkflowActionAtBoundaryTx(ctx, s, store.WorkflowActionPreflightRequest{
 		WorkID: "work-1", ExpectedVersion: declarationVersion, ActionID: "record_work_context", Payload: declarationRaw,
 		Actor: store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-session-exec-aaaa", AgentRef: "agent-exec", SessionRef: "session-exec-aaaa", ActorClass: store.ActorAgent},
 	}, nil, func(tx *store.Transaction) error {
-		_, err := store.ApplyWorkflowActionTx(ctx, tx, store.BuiltinWorkflowRegistry(), store.WorkflowActionExecutionRequest{
+		_, err := store.ApplyWorkflowActionTx(ctx, tx, store.WorkflowActionExecutionRequest{
 			WorkID: "work-1", ExpectedVersion: declarationVersion, ActionID: "record_work_context", Payload: declarationRaw,
 			Actor:                store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-session-exec-aaaa", AgentRef: "agent-exec", SessionRef: "session-exec-aaaa", ActorClass: store.ActorAgent},
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("3", 64), IdempotencyIdentity: "continuation-research-declaration",
@@ -858,17 +858,18 @@ func TestContinuityProjectionContinuationContract(t *testing.T) {
 			t.Fatal("fixture produced no projection continuation to continue")
 		}
 		// Change the projection without moving its event watermark.
-		var step string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&step); err != nil {
+		var plan string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT step_plan FROM workflow_instances WHERE work_id='work-1'`).Scan(&plan); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1'; DELETE FROM write_guard`); err != nil {
+		changedPlan := agentPlanFixtureJSON(t, store.WorkflowStepPlanFix, "plan")
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET step_plan=? WHERE work_id='work-1'; DELETE FROM write_guard`, changedPlan); err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() {
 			db := s.DatabaseForTesting()
 			_, _ = db.Exec(`INSERT INTO write_guard(active) VALUES(1)`)
-			_, _ = db.Exec(`UPDATE workflow_instances SET current_step=? WHERE work_id='work-1'`, step)
+			_, _ = db.Exec(`UPDATE workflow_instances SET step_plan=? WHERE work_id='work-1'`, plan)
 			_, _ = db.Exec(`DELETE FROM write_guard`)
 		})
 		continued := request()

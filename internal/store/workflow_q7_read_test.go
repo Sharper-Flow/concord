@@ -88,7 +88,7 @@ func TestQ7ProjectsParkedDelivery(t *testing.T) {
 			if parked == nil {
 				t.Fatal("Q7 omitted the parked delivery")
 			}
-			if parked.WorkID != "work-deliv" || parked.StepID != "delivery" || parked.ResumeAction != "record_delivery" || parked.Unreconciled != tc.cancelled || parked.ParkedSeconds < 0 {
+			if parked.WorkID != "work-deliv" || parked.StepID != "review" || parked.ResumeAction != "record_delivery" || parked.Unreconciled != tc.cancelled || parked.ParkedSeconds < 0 {
 				t.Fatalf("Q7 parked delivery = %+v, want delivery gate with unreconciled=%v and nonnegative age", parked, tc.cancelled)
 			}
 		})

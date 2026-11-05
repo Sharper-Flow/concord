@@ -172,8 +172,9 @@ type workflowCandidateSetRevisedPayload struct {
 	Removed         []string `json:"removed"`
 }
 
-// workflowBacklogAlignmentRecordedPayload carries the mandatory
-// backlog-alignment search result. related_ids is present only when outcome
+// workflowBacklogAlignmentRecordedPayload carries the typed
+// backlog-alignment search result: the alignment section the diagnosis
+// record requires. related_ids is present only when outcome
 // is related_found; an omitted optional list and a deliberate empty result
 // must stay distinguishable, so none_found records no list at all.
 type workflowBacklogAlignmentRecordedPayload struct {

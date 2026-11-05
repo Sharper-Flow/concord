@@ -259,13 +259,13 @@ func workflowPlanCompleteConfirmationTx(ctx context.Context, q queryer, workID s
 // workflowPlanCompletePrerequisiteTx reports the declaring step that carries
 // a completion-prerequisite action on a completed plan, whether the
 // prerequisite is recorded, and whether the action's own fold records it
-// after admission. On a completed plan the declaring step keeps admitting the
-// action until the prerequisite is recorded: approve_contract's paired
-// contract_approved event folds first, and record_delivery records the
-// delivery assertion inside its own fold, so both folds admit while the
-// prerequisite is still missing and no other action can record the first
-// one. Once the prerequisite is recorded, the frontier and retained-record
-// rules own the action again.
+// after admission. On a completed plan the declaring step keeps admitting
+// the action while the prerequisite is missing: approve_contract's paired
+// contract_approved event folds first, so its fold admits once the contract
+// exists, while record_delivery records the delivery assertion inside its
+// own fold, so its fold admits while the assertion is still missing. No
+// other action records the initial contract. Once the prerequisite is
+// recorded, the frontier and retained-record rules own the action again.
 func workflowPlanCompletePrerequisiteTx(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, actionID string) (string, bool, bool, error) {
 	if plan == nil || !WorkflowStepPlanComplete(*plan) {
 		return "", false, false, nil

@@ -4820,12 +4820,12 @@ CREATE UNIQUE INDEX worktree_claims_one_active_branch ON worktree_claims(reposit
     WHERE state IN ('pending','verified');
 `,
 	},
-	// The mandatory backlog-alignment step records its search
+	// The backlog-alignment search the diagnosis record requires writes
 	// here. The table holds one declaration row per work item and, when
 	// the search found related work, one row per named work id. It does
 	// not reuse workflow_candidate_sets: that table's composite foreign
 	// key binds to workflow_contracts(work_id, contract_version), and the
-	// alignment step runs before planning approves a contract, so no
+	// diagnosis step runs before planning approves a contract, so no
 	// parent row would exist. The related id is nullable: a none_found
 	// outcome records the declaration alone, and the closed check keeps
 	// a found outcome from recording a match-less row. It creates no

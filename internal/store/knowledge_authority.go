@@ -1,6 +1,6 @@
 package store
 
-// The closed default cohort supplies its own standing. The Go store
+// The frozen vehicle claim supplies the closed default cohort's standing. The Go store
 // embeds the committed cohort asset, enforces the frozen vehicle claim on
 // every committed law read, and resolves every other declared legislative
 // reference through its exact approved contract at the law-source

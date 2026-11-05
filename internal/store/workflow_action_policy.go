@@ -135,8 +135,8 @@ type WorkflowActionDefinition struct {
 	// RequiredCapability names the agent capability the dispatcher must
 	// present to invoke this action. It is structural: the runtime reads it
 	// from the registry entry instead of branching on actionID. A zero
-	// value (empty string) carries no enforcement, mirroring the older
-	// surface for actions and tests that do not assert a capability.
+	// value (empty string) carries no enforcement, so actions and tests
+	// that do not assert a capability keep a permissive default.
 	RequiredCapability string                    `json:"required_capability,omitempty"`
 	Payload            WorkflowPayloadDefinition `json:"payload"`
 	// PublicPayload replaces Payload only at the agent boundary.

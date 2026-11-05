@@ -156,8 +156,8 @@ func mutationReplayDurability(durable bool, authorizedScope map[string]any, sele
 		}
 		durable = durable || committedDurably
 	}
-	// Preserve cross-Product durability on replay: retiring ordinary
-	// coordination consent does not retire re-authorization of the Product set.
+	// On replay, re-verify the recorded Product set even though ordinary
+	// coordination consent is gone: cross-Product durability still binds.
 	if products, present := authorizedScope["product_ids"].([]any); present && selectedProduct != "" {
 		for _, rawProduct := range products {
 			product, valid := rawProduct.(string)
@@ -854,7 +854,7 @@ func (r runtime) planLifecycle(_ context.Context, base agentcontract.Envelope, r
 	if in.Target != "needed" && in.Target != "in_progress" && in.Target != "completed" && in.Target != "cancelled" && in.Target != "reopen" {
 		return coreError(base, "invalid_input", "unknown lifecycle target "+in.Target, "reread_entities", false), nil, true
 	}
-	// Terminal-status consent is retired; verification evidence is not.
+	// A terminal lifecycle transition requires verification evidence.
 	if (in.Target == "completed" || in.Target == "cancelled") && len(in.Evidence) == 0 {
 		response := coreError(base, "missing_evidence", "terminal lifecycle transition requires verification evidence", "provide_evidence", false)
 		response.Error.Details = map[string]any{"operation_digest": digest, "work_id": in.WorkID, "expected_version": in.ExpectedVersion, "required_kind": "verification"}

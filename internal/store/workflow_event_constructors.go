@@ -144,16 +144,6 @@ func workflowReviseCandidatesEvents(request WorkflowActionExecutionRequest, acto
 	return []Event{workflowTypedEvent(eventID, WorkflowCandidateSetRevised, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": workflowContractVersionField(fields, 1), "candidate_kind": workflowFieldStringDefault(fields, "candidate_kind", "work_item"), "candidate_ref": workflowFieldStringDefault(fields, "candidate_ref", request.WorkID), "added": added, "removed": removed})}, nil
 }
 
-// workflowRecordAlignmentEvents builds the typed alignment event. The
-// action records the candidate set only: it creates no relation, so the
-// related ids travel as recorded search output, and relation creation stays
-// with resolve_overlap. The outcome enum and the
-// outcome/related_ids legal input combinations are declared on the
-// record_alignment registry payload and enforced by
-// validateWorkflowActionPayload before any event is built, so this
-// constructor does not restate them. Each related id names a real work item,
-// refused here at the boundary rather than at the fold's foreign key.
-
 // workflowRecordDiagnosisEvents builds the typed diagnosis event.
 // The action records all three required sections in one act: the
 // reproduction record, the alignment search, and the root-cause record. The

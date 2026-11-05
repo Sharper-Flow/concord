@@ -84,7 +84,7 @@ DELETE FROM write_guard WHERE active = 1;`,
 // own row untouched.
 func TestMigrateLawAdditionReservationsToCanonicalIdentity(t *testing.T) {
 	ctx := context.Background()
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "reservation-identity.db"), len(migrations)-1)
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "reservation-identity.db"), migrationPrefixBefore(t, "law_addition_reservation_identity"))
 	seedReservationSpellingUpgrade(t, db)
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("migrate: %v", err)

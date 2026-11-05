@@ -11,6 +11,15 @@ import (
 	"github.com/sharper-flow/concord/internal/version"
 )
 
+func captureRetirementMigration(t *testing.T) migration {
+	t.Helper()
+	m := migrations[migrationPrefixBefore(t, "minimal_capture_retirement")]
+	if m.Version != 186 {
+		t.Fatalf("expected migration 186, got %d", m.Version)
+	}
+	return m
+}
+
 func TestCaptureRetirementPreservesForeignKeys(t *testing.T) {
 	_, db := outcomeRetirementFixture(t)
 	advanceHistoricalPrefix(t, db, 185)
@@ -20,7 +29,7 @@ func TestCaptureRetirementPreservesForeignKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := applyMigration(ctx, tx, migrations[len(migrations)-1]); err != nil {
+	if err := applyMigration(ctx, tx, captureRetirementMigration(t)); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := tx.QueryContext(ctx, `PRAGMA foreign_key_check`)
@@ -106,7 +115,8 @@ func TestCaptureRetirementPreservesSeededRows(t *testing.T) {
 	if got := retirementUpgradeRows(t, db, instanceQuery); !reflect.DeepEqual(got, instanceBefore) {
 		t.Errorf("other instance fields changed: %v", got)
 	}
-	if got := retirementUpgradeRows(t, db, `SELECT name,checksum,breaking FROM schema_migrations WHERE version=186`); !reflect.DeepEqual(got, [][]any{{migrations[len(migrations)-1].Name, migrations[len(migrations)-1].checksum(), int64(1)}}) {
+	m := captureRetirementMigration(t)
+	if got := retirementUpgradeRows(t, db, `SELECT name,checksum,breaking FROM schema_migrations WHERE version=186`); !reflect.DeepEqual(got, [][]any{{m.Name, m.checksum(), int64(1)}}) {
 		t.Errorf("migration manifest: %v", got)
 	}
 	for table, rows := range before {
@@ -118,8 +128,17 @@ func TestCaptureRetirementPreservesSeededRows(t *testing.T) {
 			t.Errorf("%s changed: before=%v after=%v", table, rows, after[table])
 		}
 	}
-	if !reflect.DeepEqual(after["store_revision"], [][]any{{int64(1), int64(2)}}) {
-		t.Errorf("store revision = %v", after["store_revision"])
+	priorRevision := before["store_revision"]
+	if len(priorRevision) != 1 || len(priorRevision[0]) != 2 {
+		t.Fatalf("unexpected pre-upgrade store revision: %v", priorRevision)
+	}
+	revision, ok := priorRevision[0][1].(int64)
+	if !ok {
+		t.Fatalf("unexpected pre-upgrade store revision: %v", priorRevision)
+	}
+	wantRevision := [][]any{{priorRevision[0][0], revision + int64(len(migrations)-migrationPrefixBefore(t, "minimal_capture_retirement"))}}
+	if !reflect.DeepEqual(after["store_revision"], wantRevision) {
+		t.Errorf("store revision = %v, want %v", after["store_revision"], wantRevision)
 	}
 	for _, table := range []string{"work_context_state", "work_context_findings", "project_governing_requirements"} {
 		if _, ok := after[table]; ok {
@@ -206,10 +225,7 @@ func TestCaptureRetirementLaterFailureRollsBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := migrations[len(migrations)-1]
-	if m.Version != 186 {
-		t.Fatalf("expected migration 186, got %d", m.Version)
-	}
+	m := captureRetirementMigration(t)
 	m.SQL += `
 INSERT INTO nonexistent_capture_failure VALUES(1);`
 	if err := applyMigration(ctx, tx, m); err == nil || !strings.Contains(err.Error(), "nonexistent_capture_failure") {

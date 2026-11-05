@@ -336,8 +336,12 @@ func repairManifestBreakingColumn(ctx context.Context, db *sql.DB) error {
 			return err
 		}
 		if commitRefusedBeforeDriver(err, ctx) {
-			return wrapFailure(KindUnavailable, "upgrade", "cannot commit the manifest repair", true,
+			// database/sql's watchdog may own the refused commit's
+			// settlement; finish reports one this scope did not observe.
+			var refused error = wrapFailure(KindUnavailable, "upgrade", "cannot commit the manifest repair", true,
 				"retry once the database is writable", err)
+			write.finish(&refused)
+			return refused
 		}
 		failure = wrapFailure(KindUnavailable, "upgrade", "cannot commit the manifest repair", false,
 			"reconcile database state before retrying", err)

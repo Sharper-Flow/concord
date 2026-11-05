@@ -9350,8 +9350,12 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, lawIndex
 			return rollback(err)
 		}
 		if commitRefusedBeforeDriver(err, ctx) {
-			return rollback(wrapFailure(KindUnavailable, "migrate", "cannot commit schema migration", true,
-				"retry once the database is writable", err))
+			// database/sql's watchdog may own the refused commit's
+			// settlement; finish reports one this scope did not observe.
+			var refused error = wrapFailure(KindUnavailable, "migrate", "cannot commit schema migration", true,
+				"retry once the database is writable", err)
+			write.finish(&refused)
+			return refused
 		}
 		failure = wrapFailure(KindUnavailable, "migrate", "cannot commit schema migration", false,
 			"reconcile database state before retrying", err)

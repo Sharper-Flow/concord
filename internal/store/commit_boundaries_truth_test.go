@@ -12,12 +12,22 @@ import (
 )
 
 // boundaryConnector runs real SQLite statements and records driver settlement.
+// With rollbackFault set, the cancellation also arms the base connector's
+// uncertain rollback, which commits the writes and reports an error that
+// database/sql's context watchdog discards.
 type boundaryConnector struct {
-	base      *restoreFaultConnector
-	cancel    context.CancelFunc
-	cancelSQL string
-	commits   atomic.Int32
-	canceled  atomic.Bool
+	base          *restoreFaultConnector
+	cancel        context.CancelFunc
+	cancelSQL     string
+	rollbackFault bool
+	commits       atomic.Int32
+	canceled      atomic.Bool
+}
+
+func (c *boundaryConnector) cancelAtBoundary() {
+	c.base.failRollback.Store(c.rollbackFault)
+	c.canceled.Store(true)
+	c.cancel()
 }
 
 func (c *boundaryConnector) Driver() driver.Driver { return c.base.Driver() }
@@ -44,8 +54,7 @@ func (c *boundaryConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driv
 func (c *boundaryConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	result, err := c.restoreFaultConn.ExecContext(ctx, query, args)
 	if err == nil && c.owner.cancel != nil && c.owner.cancelSQL != "" && strings.Contains(query, c.owner.cancelSQL) {
-		c.owner.canceled.Store(true)
-		c.owner.cancel()
+		c.owner.cancelAtBoundary()
 	}
 	return result, err
 }
@@ -70,7 +79,7 @@ func commitBoundaryDB(t *testing.T, path string, landed bool) (*sql.DB, *boundar
 	return db, c
 }
 
-func commitBoundaryFailure(t *testing.T, err error, landed bool, durable bool, op, detail string) {
+func commitBoundaryFailure(t *testing.T, err error, landed, unprovedRollback, durable bool, op, detail string) {
 	t.Helper()
 	var failure *Failure
 	if !errors.As(err, &failure) {
@@ -105,6 +114,10 @@ func commitBoundaryFailure(t *testing.T, err error, landed bool, durable bool, o
 		}
 		return
 	}
+	if unprovedRollback && (!failure.EffectPossible || failure.RetrySafe) {
+		t.Errorf("refused commit with an unproved rollback claimed a clean retry: %+v; error=%v", failure, err)
+		return
+	}
 	if failure.Detail == "cannot clean up the transaction" {
 		if !failure.EffectPossible || failure.RetrySafe {
 			t.Errorf("unproved cleanup envelope: %+v", failure)
@@ -129,11 +142,8 @@ func commitBoundaryFailure(t *testing.T, err error, landed bool, durable bool, o
 
 func TestCommitBoundaryTruth(t *testing.T) {
 	for _, boundary := range []string{"operation", "workflow_replay", "workflow_normal", "manifest_repair", "migration"} {
-		for _, landed := range []bool{true, false} {
-			mode := "canceled"
-			if landed {
-				mode = "landed"
-			}
+		for _, mode := range []string{"landed", "canceled", "unproved_rollback"} {
+			landed, unprovedRollback := mode == "landed", mode == "unproved_rollback"
 			t.Run(boundary+"/"+mode, func(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
@@ -154,10 +164,11 @@ func TestCommitBoundaryTruth(t *testing.T) {
 					}
 					_ = seed.Close()
 					db, connector = commitBoundaryDB(t, path, landed)
+					connector.cancel, connector.rollbackFault = cancel, unprovedRollback
 					s := &Store{db: db, path: path}
 					var hook preCommitHook
 					if !landed {
-						hook = func() error { reachedBoundary = true; cancel(); return nil }
+						hook = func() error { reachedBoundary = true; connector.cancelAtBoundary(); return nil }
 					}
 					operation := Operation{Events: []Event{
 						productCreatedEvent("boundary-product", "boundary-event"),
@@ -187,7 +198,7 @@ func TestCommitBoundaryTruth(t *testing.T) {
 					db, connector = commitBoundaryDB(t, path, landed)
 					s.db = db
 					if !landed {
-						connector.cancel = cancel
+						connector.cancel, connector.rollbackFault = cancel, unprovedRollback
 						connector.cancelSQL = "INSERT INTO durability_commits"
 					}
 					payload := []byte(`{"step_id":"plan","note":"Boundary witness."}`)
@@ -225,7 +236,7 @@ func TestCommitBoundaryTruth(t *testing.T) {
 					_ = seed.Close()
 					db, connector = commitBoundaryDB(t, path, landed)
 					if !landed {
-						connector.cancel = cancel
+						connector.cancel, connector.rollbackFault = cancel, unprovedRollback
 						connector.cancelSQL = "ALTER TABLE schema_migrations ADD COLUMN breaking"
 					}
 					err = repairManifestBreakingColumn(ctx, db)
@@ -249,7 +260,7 @@ func TestCommitBoundaryTruth(t *testing.T) {
 					_ = seed.Close()
 					db, connector = commitBoundaryDB(t, path, landed)
 					if !landed {
-						connector.cancel = cancel
+						connector.cancel, connector.rollbackFault = cancel, unprovedRollback
 						connector.cancelSQL = "INSERT INTO schema_migrations (version, name, checksum, applied_at, breaking)"
 					}
 					err = migrateOnce(ctx, db, migrateForOpen, nil, func() time.Time { return time.Unix(1, 0) })
@@ -267,16 +278,16 @@ func TestCommitBoundaryTruth(t *testing.T) {
 				if !landed && connector.commits.Load() != 0 {
 					t.Errorf("canceled driver commits=%d", connector.commits.Load())
 				}
-				if !landed && boundary != "operation" && !connector.canceled.Load() {
+				if !landed && !connector.canceled.Load() {
 					t.Errorf("cancellation did not reach the boundary's commit fixture: %v", err)
 				}
 				if (boundary == "operation" && !landed || durable) && !reachedBoundary {
 					t.Errorf("boundary callback was not reached: %v", err)
 				}
-				commitBoundaryFailure(t, err, landed, durable, op, detail)
+				commitBoundaryFailure(t, err, landed, unprovedRollback, durable, op, detail)
 				got := witness()
 				want := 0
-				if landed {
+				if landed || unprovedRollback {
 					want = 1
 				}
 				if got != want {

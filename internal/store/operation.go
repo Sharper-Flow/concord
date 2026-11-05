@@ -511,8 +511,12 @@ func applyOperationWithResult(ctx context.Context, s *Store, operation Operation
 			return output, err
 		}
 		if commitRefusedBeforeDriver(err, ctx) {
-			return output, wrapFailure(KindUnavailable, "apply_operation", "cannot commit domain operation", true,
+			// database/sql's watchdog may own the refused commit's
+			// settlement; finish reports one this scope did not observe.
+			var refused error = wrapFailure(KindUnavailable, "apply_operation", "cannot commit domain operation", true,
 				"retry once the database is writable", err)
+			tx.finish(&refused)
+			return output, refused
 		}
 		failure = wrapFailure(KindUnavailable, "apply_operation", "cannot commit domain operation", false,
 			"reconcile database state before retrying", err)

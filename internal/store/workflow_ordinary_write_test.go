@@ -177,6 +177,25 @@ func TestOrdinaryCandidateDeltaHoldsProgress(t *testing.T) {
 	if got := currentStep(t, s, work); got != step {
 		t.Fatalf("candidate delta moved progress: %s -> %s", step, got)
 	}
+	rows, err := s.db.Query(`SELECT candidate_ref FROM workflow_candidate_sets WHERE work_id=? ORDER BY candidate_ref`, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var candidates []string
+	for rows.Next() {
+		var ref string
+		if err := rows.Scan(&ref); err != nil {
+			t.Fatal(err)
+		}
+		candidates = append(candidates, ref)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"candidate:keep", "candidate:new"}; !reflect.DeepEqual(candidates, want) {
+		t.Fatalf("candidates=%v want=%v", candidates, want)
+	}
 }
 
 func TestOrdinaryDeliveryWritesHoldProgress(t *testing.T) {

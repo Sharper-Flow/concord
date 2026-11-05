@@ -13,7 +13,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-06
-- **Scope:** The mutation result envelope of the agent tool surface and the derivation of
+- **Scope:** The mutation result envelope of the agent tool surface, the
+  continuity read that carries the same state, and the derivation of
   `next_valid_intents`
 - **Approval:** The operator approved this decision for issue #857 on work item
   `work-201ad0df0700db9255d3f256`.
@@ -80,6 +81,10 @@ counts as admitted, so the pin names that route
 A result that carries a pin takes its intents from the pin
 alone, so no hand-written intent reaches it. A result without a pin keeps the
 intents its operation writes, if any: reads that verify the write, never a work mutation.
+
+### D4. Continuity embeds the same pin
+
+`concord_work_trace.continuity` embeds the pin.
 
 ### D5. Structural tests
 

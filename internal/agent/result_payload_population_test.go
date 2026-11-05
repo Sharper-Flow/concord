@@ -771,12 +771,21 @@ func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 		}
 	})
 	t.Run("typed_anyOf_sibling_constraints_hold", func(t *testing.T) {
-		value := schemaFixtureValue(t, defs["work_scope"], defs, 0)
-		data, err := json.Marshal(value)
-		if err != nil {
-			t.Fatal(err)
+		union := map[string]any{
+			"type": "object", "additionalProperties": false,
+			"required": []any{"items"},
+			"properties": map[string]any{
+				"work":        map[string]any{"type": "string", "minLength": json.Number("12")},
+				"memberships": map[string]any{"type": "array", "minItems": json.Number("1"), "items": map[string]any{"type": "string"}},
+				"items":       map[string]any{"type": "array", "maxItems": json.Number("100"), "items": map[string]any{"type": "string"}},
+			},
+			"anyOf": []any{
+				map[string]any{"required": []any{"work", "memberships"}},
+				map[string]any{"required": []any{"items"}},
+			},
 		}
-		if err := payloadschema.Validate("work_scope", data); err != nil {
+		value := schemaFixtureValue(t, union, defs, 0)
+		if err := payloadschema.ValidateValue(value, union, map[string]any{}, "$"); err != nil {
 			t.Fatalf("typed anyOf fixture violates the schema's own sibling constraints: %v", err)
 		}
 	})

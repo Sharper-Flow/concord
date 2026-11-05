@@ -18,7 +18,7 @@
     },
     {
       "criterion": 3,
-      "exemption": "The corpus has no item-scoped readiness scenario. TestOverlapBlocksRemovesWorkFromReady (internal/store/planning_operation_retirement_test.go) checks the list readiness flag and relation read before and after the blocker becomes terminal."
+      "exemption": "The corpus has no item-scoped readiness scenario. TestOverlapBlocksRemovesWorkFromReady (internal/store/planning_operation_retirement_test.go) checks the list readiness flag and the blocker relation while the blocker is live, and the released readiness flag after it becomes terminal."
     },
     {
       "criterion": 4,
@@ -188,8 +188,9 @@ The JSON corpus is executable through a candidate adapter implementing
 - **Intent:** "What is happening in this Product now?"
 - **Input:** Product, optional Project subset, preview limit per bucket.
 - **Output:** `lifecycle_counts` (PM4 states), separate `derived_counts` (including
-  blocked), and a bounded union of preview items. Each work item appears once even
-  when it spans Projects. No public per-item `blocked` flag is returned.
+  blocked), and a bounded union of preview items. Each work item appears once with
+  view flags (`active`, `ready`, `terminal`) even when it spans Projects. No public
+  per-item `blocked` flag is returned.
   Blocked work remains counted in its lifecycle state; the two count families are
   intentionally not mutually exclusive.
 - **Order:** explicit priority, relevant lifecycle time, stable ID; terminal
@@ -207,7 +208,8 @@ The JSON corpus is executable through a candidate adapter implementing
 - **Intent:** inspect needed, in-progress, completed, cancelled, or superseded work.
 - **Input:** Product; lifecycle states; optional Project, work-kind, Domain,
   tag, priority, terminal-window, detail, cursor, limit.
-- **Output:** bounded work summaries with lifecycle, priority, Projects, and version;
+- **Output:** bounded work summaries with value statement, lifecycle, priority,
+  Projects, readiness, stage, version, and durable-note reference when terminal;
   full detail carries the recorded work facts.
 - **Order:** priority rank, relevant lifecycle timestamp descending, stable ID;
   terminal-only queries use terminal time descending first.

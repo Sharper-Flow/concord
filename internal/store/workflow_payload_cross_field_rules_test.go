@@ -278,13 +278,35 @@ func mergeRefSiblingsValue(defs map[string]any, value any) any {
 
 func TestCrossFieldSampleObjectUnion(t *testing.T) {
 	defs := firstCallPublishedDefs(t)
+	id := map[string]any{"$ref": "#/$defs/id"}
+	// An enclosing requirement plus exclusive branch requirements: a sample
+	// must satisfy both, and dropping either required field must refuse.
+	union := func(keyword string) map[string]any {
+		return map[string]any{
+			"type": "object", "additionalProperties": false,
+			"required":   []any{"product_id"},
+			"properties": map[string]any{"product_id": id, "project_id": id, "work_id": id},
+			keyword: []any{
+				map[string]any{"required": []any{"work_id"}, "not": map[string]any{"required": []any{"project_id"}}},
+				map[string]any{"required": []any{"project_id"}, "not": map[string]any{"required": []any{"work_id"}}},
+			},
+		}
+	}
+	root := map[string]any{"$defs": defs}
+	validate := func(schema map[string]any, data []byte) error {
+		decoder := json.NewDecoder(strings.NewReader(string(data)))
+		decoder.UseNumber()
+		var value any
+		if err := decoder.Decode(&value); err != nil {
+			return err
+		}
+		return payloadschema.ValidateValue(value, schema, root, "$")
+	}
 	for _, keyword := range []string{"oneOf", "anyOf"} {
 		for _, entry := range []string{"object", "value"} {
 			t.Run(keyword+"/"+entry, func(t *testing.T) {
-				node := mergeRefSiblings(defs, defs["work_browse_scope_input"].(map[string]any))
-				branches := node["oneOf"]
-				delete(node, "oneOf")
-				node[keyword] = branches
+				schema := union(keyword)
+				node := mergeRefSiblings(defs, union(keyword))
 				var sample any
 				if entry == "object" {
 					sample = crossFieldSampleObject(defs, node)
@@ -295,7 +317,7 @@ func TestCrossFieldSampleObjectUnion(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := payloadschema.Validate("work_browse_scope_input", encoded); err != nil {
+				if err := validate(schema, encoded); err != nil {
 					t.Fatalf("sample lost enclosing or branch requirements: %v: %s", err, encoded)
 				}
 				for _, field := range []string{"product_id", "work_id"} {
@@ -308,7 +330,7 @@ func TestCrossFieldSampleObjectUnion(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					if err := payloadschema.Validate("work_browse_scope_input", data); err == nil {
+					if err := validate(schema, data); err == nil {
 						t.Fatalf("sample without required %s was accepted: %s", field, data)
 					}
 				}

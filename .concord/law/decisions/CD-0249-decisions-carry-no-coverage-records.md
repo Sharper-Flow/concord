@@ -156,6 +156,11 @@ excuse new dead material.
   and rows before dropping it (D1).
 - `cmd/concord.TestUpgradeSnapshotFailurePreventsTheCoverageDrop` proves a
   snapshot failure leaves the schema and rows unchanged (D1).
+- `internal/store.TestMigrateV162ToV165FailedStepRollsBack` (with
+  `internal/store.TestMigrateV171ToV172FailedDropRollsBack` as its sibling)
+  proves a failed drop migration rolls back leaving the pre-upgrade catalog,
+  schema, and rows unchanged — the same one-transaction route the coverage
+  drop takes (D1).
 - `python3 scripts/test-reachability.py` proves the reachability refusals in
   both directions — an undeclared unreachable subject and a declaration that
   has become reachable — and that state obligations and the live-issue rule

@@ -124,8 +124,9 @@ This route neither closes the planning goal nor enacts outside effects. It grant
 
 ## Verification
 
-- `internal/store.TestWorkRemovalDeletesExecutionAndRetriesIdempotently` verifies
-  projection removal, audit retention, and idempotent retry.
+- `internal/store.TestWorkRemovalReconcilesUnknownCommitOutcome` and
+  `internal/agent.TestDefaultCheckoutShelvingRemoval` verify projection
+  removal, audit retention, and idempotent retry.
 - `internal/store.TestWorkRemovalRefusesMissingSafetyEvidence` verifies a required
   removal gate.
 - `go test ./internal/store -run 'TestWorkRemoval'` verifies removal.

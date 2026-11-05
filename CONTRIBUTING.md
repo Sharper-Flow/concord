@@ -32,12 +32,19 @@ the operator (CD-0213 D5).
 
 ## Verification
 
-Run `go test` on each changed package during development. Run the relevant
-repository checks before opening a pull request:
+During development, test the behavior you changed with a focused selection
+instead of a whole-package run:
 
 ```sh
-go test ./path/to/changed/package
+go test -run '^TestChangedBehavior$' ./path/to/changed/package
 ```
+
+CI splits `internal/store`, `internal/agent`, and `cmd/concord` into shard
+jobs and owns each whole-suite pass; reproduce one failing `internal/store`
+shard locally through the `store-shard` tier, another package's shard
+through `broad`, and see [TESTING.md](TESTING.md) for suite selection. Run
+the relevant repository checks before opening a pull request; the installed
+pre-push hook owns the pre-push gates.
 
 The CI workflow runs the repository validators, formatting, module tidiness,
 vetting, and race-detector test run. The individual commands remain available:

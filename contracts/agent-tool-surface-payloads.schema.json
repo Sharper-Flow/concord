@@ -5417,7 +5417,7 @@
                   },
                   "minItems": 1,
                   "maxItems": 64,
-                  "description": "record_alignment couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination. Bounds: 1..64 items inclusive"
+                  "description": "record_diagnosis couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination. Bounds: 1..64 items inclusive"
                 },
                 "root_cause": {
                   "type": "string",

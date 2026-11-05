@@ -595,6 +595,27 @@ test("every operation's minimal call and forbidden field agree across the author
   }
 })
 
+// The contract interior is closed at the core boundary: an undeclared field
+// inside contract earns a typed refusal there. Both published surfaces must
+// agree, or the schema an agent reads before its first call would admit a
+// revision the core refuses. The every-operation battery above proves the
+// contract-omitted call and top-level closure; this case carries a full
+// contract and probes inside it.
+test("revise_intent contract revisions keep their closed shape on both published surfaces", async () => {
+  const toolName = "concord_work_define"
+  const inputSchema = "work_define_revise_input"
+  const authored = authoredInput(inputSchema)
+  const minimal: Record<string, unknown> = {}
+  for (const key of authored.required ?? []) minimal[key] = sample(authored.properties[key])
+  const revision = { ...minimal, contract: sample(authored.properties.contract) }
+  expect(authoredVerdict(inputSchema, revision).ok, "sampled contract revision is core-admitted").toBe(true)
+  await expectParity(toolName, inputSchema, { operation: "revise_intent", input: revision }, "revise_intent full contract")
+  const forbidden = structuredClone(revision)
+  ;(forbidden.contract as Record<string, unknown>).zz_forbidden_probe = true
+  expect(authoredVerdict(inputSchema, forbidden).ok, "authored contract refuses the undeclared field").toBe(false)
+  await expectParity(toolName, inputSchema, { operation: "revise_intent", input: forbidden }, "revise_intent contract forbidden field")
+})
+
 test("nested oneOf selectors keep their exactly-one exclusions on both published surfaces", async () => {
   // product_view resolve: product_id and project_id are exclusive.
   const resolveInput = { operation: "resolve", input: { product_id: "prod-1", project_id: "proj-1" } }

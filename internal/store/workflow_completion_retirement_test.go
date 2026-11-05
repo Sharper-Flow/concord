@@ -64,8 +64,8 @@ func TestWorkflowCompletionIgnoresRetiredModifyingScope(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, id).Scan(&lifecycle); err != nil || lifecycle != "completed" {
 		t.Fatalf("lifecycle=%q err=%v", lifecycle, err)
 	}
-	delivery, err := workflowDeliveryAssertionRead(t.Context(), s.db, id)
-	if err != nil || delivery == nil || delivery.Artifact != "https://example.com/delivery/scope" {
-		t.Fatalf("delivery=%+v err=%v", delivery, err)
+	var delivery string
+	if err := s.db.QueryRow(`SELECT json_extract(payload,'$.delivery_artifact') FROM workflow_delivery_state WHERE work_id=?`, id).Scan(&delivery); err != nil || delivery != "https://example.com/delivery/scope" {
+		t.Fatalf("delivery=%q err=%v", delivery, err)
 	}
 }

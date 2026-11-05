@@ -42,8 +42,13 @@ returned.
 
 List full detail no longer embeds a WorkPin. Mutation results retain their pins
 and derived intents under CD-0113 D1–D3. The continuity read is unchanged.
-History no longer carries the `workflow` sub-projection; resume and item-scoped
-list full detail carry current step state and per-item facts.
+History no longer carries the `workflow` sub-projection. Agent reads retire for
+the `record_plan` and `record_removal_scope` documents, `record_delivery`
+assertion and parked-delivery state, `record_diagnosis` backlog-alignment
+search, and intake and clarify answers, candidate IDs and completion warnings.
+Linear owns planning, so Concord does not read back the plan, diagnosis or
+removal-scope documents; workflow gates retain their internal facts, mutation
+results provide `next_valid_intents`, and resume provides step state.
 The history read's `contract_version` selector retires with that sub-projection.
 
 The Product snapshot and work list retain their derived readiness behavior. The

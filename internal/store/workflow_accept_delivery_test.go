@@ -35,7 +35,7 @@ func workflowLatestDeliveryAssertionSeq(ctx context.Context, s *Store, workID st
 	return seq, err
 }
 
-func TestDeliveryAssertionReaders(t *testing.T) {
+func TestDeliveryAssertionRecorded(t *testing.T) {
 	const workID = "delivery-assertion-readers"
 	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", []string{})
 	s := f.store
@@ -46,9 +46,9 @@ func TestDeliveryAssertionReaders(t *testing.T) {
 	if err != nil || seq == 0 {
 		t.Fatalf("delivery assertion sequence = %d, %v", seq, err)
 	}
-	assertion, err := workflowDeliveryAssertionRead(t.Context(), s.db, workID)
-	if err != nil || assertion == nil || assertion.Artifact != "artifact:delivery" || assertion.Seq != seq {
-		t.Fatalf("assertion read = %+v, %v", assertion, err)
+	var artifact string
+	if err := s.db.QueryRow(`SELECT json_extract(payload,'$.delivery_artifact') FROM workflow_delivery_state WHERE work_id=? AND assertion_seq=?`, workID, seq).Scan(&artifact); err != nil || artifact != "artifact:delivery" {
+		t.Fatalf("assertion artifact = %q, %v", artifact, err)
 	}
 	var completions int
 	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=? AND delivery_assertion=1`, workID, WorkflowActionCompleted).Scan(&completions); err != nil || completions != 1 {

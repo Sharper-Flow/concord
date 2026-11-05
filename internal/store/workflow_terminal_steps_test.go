@@ -14,9 +14,9 @@ func TestReportedCompletionDiscardsStepsAndPreservesDelivery(t *testing.T) {
 	if _, err := s.db.Exec(`INSERT INTO write_guard VALUES(1); INSERT OR REPLACE INTO workflow_delivery_state(work_id,assertion_seq,assertion_id,actor,occurred_at,payload_version,payload) VALUES(?,1,'reported-delivery','principal/operator','2026-11-01T00:00:00Z',1,'{"delivery_artifact":"https://example.com/change/1","delivery_state":"asserted"}'); DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
-	before, err := workflowDeliveryAssertionRead(t.Context(), s.db, workID)
-	if err != nil || before == nil || before.Artifact == "" {
-		t.Fatalf("reported delivery = %+v, %v", before, err)
+	before := retirementUpgradeRows(t, s.db, `SELECT * FROM workflow_delivery_state`)
+	if len(before) != 1 {
+		t.Fatalf("reported delivery = %+v", before)
 	}
 	bindings := retirementUpgradeRows(t, s.db, `SELECT * FROM workflow_evidence_bindings ORDER BY rowid`)
 	actor := workflowActorForRef(t, s, completion.Actor)
@@ -30,9 +30,9 @@ func TestReportedCompletionDiscardsStepsAndPreservesDelivery(t *testing.T) {
 	if err := CompleteWorkflow(t.Context(), s, completion); err != nil {
 		t.Fatal(err)
 	}
-	after, err := workflowDeliveryAssertionRead(t.Context(), s.db, workID)
-	if err != nil || !reflect.DeepEqual(before, after) {
-		t.Fatalf("completion changed reported delivery: before=%+v after=%+v err=%v", before, after, err)
+	after := retirementUpgradeRows(t, s.db, `SELECT * FROM workflow_delivery_state`)
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("completion changed reported delivery: before=%+v after=%+v", before, after)
 	}
 	if afterBindings := retirementUpgradeRows(t, s.db, `SELECT * FROM workflow_evidence_bindings ORDER BY rowid`); !reflect.DeepEqual(bindings, afterBindings) || len(bindings) == 0 {
 		t.Fatalf("completion changed ordinary evidence bindings: before=%v after=%v", bindings, afterBindings)

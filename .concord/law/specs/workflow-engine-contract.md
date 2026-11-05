@@ -473,7 +473,7 @@ Recording guards still refuse `related_found` without match IDs and
 `none_found` with match IDs. The initiative cutover still refuses
 sole-initiative matches under
 [CD-0213 D8](../decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d8-retired-planning-kinds-keep-no-history);
-the ordinary removal read state does not relax that upgrade gate.
+the ordinary removal state does not relax that upgrade gate.
 
 `concord_work_transition.workflow_action` is the only advancement surface. The
 dispatcher performs this order:

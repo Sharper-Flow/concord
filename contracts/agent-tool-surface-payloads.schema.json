@@ -337,7 +337,6 @@
       "properties": {
         "items": {},
         "next_cursor": {},
-        "readiness_evidence": {},
         "encoding": {},
         "digest": {},
         "total_bytes": {},
@@ -1557,13 +1556,6 @@
         },
         "next_cursor": {
           "$ref": "#/$defs/cursor_output"
-        },
-        "readiness_evidence": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/evidence"
-          }
         }
       }
     },

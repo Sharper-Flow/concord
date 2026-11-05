@@ -75,25 +75,6 @@ func init() {
 	registerOutputBound("/$defs/digest/maxLength",
 		inputBound("/$defs/digest/maxLength"))
 
-	// evidence.locator: values enter only through boundary admission of the
-	// same shared def (<= 2048 code points), then the workflow evidence fold
-	// re-checks the byte fit of stored refs
-	// (internal/store/workflow.go:workflowEvidenceRef, 1..2048 UTF-8 bytes,
-	// applied at the evidence-bound fold and the merged result refs). The
-	// fold is a second net over admitted values, never a wider writer: the
-	// admission bound is the family maximum. The read-side synthesis
-	// (internal/agent/runtime.go:q7) copies stored refs verbatim into the
-	// locator member.
-	registerOutputBound("/$defs/evidence/properties/locator/maxLength",
-		inputBound("/$defs/evidence/properties/locator/maxLength"))
-
-	// evidence.version: no active producer emits this member. The q7
-	// evidence synthesis sets kind, authority, locator_kind, and locator
-	// only, and readiness_evidence has no emitter; the only writer route is
-	// admitted input evidence (<= 256 code points), which this row cites.
-	registerOutputBound("/$defs/evidence/properties/version/maxLength",
-		inputBound("/$defs/evidence/properties/version/maxLength"))
-
 	// id: the family maximum is the boundary admission itself (<= 128 code
 	// points with the ASCII pattern), cited live — a full-string bound,
 	// unlike the store's TEXT length() CHECKs, which under the NUL model

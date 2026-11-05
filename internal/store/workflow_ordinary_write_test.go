@@ -251,9 +251,9 @@ func TestOrdinaryDeliveryWritesHoldProgress(t *testing.T) {
 				if gotPlan != plan || gotState != state || gotLifecycle != lifecycle {
 					t.Fatalf("record write changed plan or lifecycle: %s/%s -> %s/%s", state, lifecycle, gotState, gotLifecycle)
 				}
-				current, err := workflowDeliveryAssertionRead(ctx, s.db, work)
-				if err != nil || current == nil || current.Artifact != artifact {
-					t.Fatalf("delivery=%+v error=%v", current, err)
+				var current string
+				if err := s.db.QueryRowContext(ctx, `SELECT json_extract(payload,'$.delivery_artifact') FROM workflow_delivery_state WHERE work_id=?`, work).Scan(&current); err != nil || current != artifact {
+					t.Fatalf("delivery=%q error=%v", current, err)
 				}
 			}
 			if variant == "migrated" {

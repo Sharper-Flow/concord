@@ -954,7 +954,6 @@ func pkStructFieldType(goS *goSource, structName, field string) string {
 
 func init() {
 
-
 	// The folds store the caller text that parseRFC3339 admitted: the Go
 	// standard library takes any number of fractional-second digits
 	// (time/format.go stdFracSecond9), so the stored render is byte-ceiling
@@ -1028,11 +1027,9 @@ func init() {
 	registerOutputBound("/$defs/native_run_report/properties/native_subject_ref/maxLength", goInlineBound("internal/store/native_runs.go", "validateNativeRunShape", "len(payload.NativeSubjectRef)", boundBytes))
 	registerOutputBound("/$defs/native_run_report/properties/evidence_ref/maxLength", goInlineBound("internal/store/native_runs.go", "validateNativeRunShape", "len(payload.EvidenceRef)", boundBytes))
 	registerOutputBound("/$defs/native_run_report/properties/evidence_digest/maxLength", goInlineBound("internal/store/native_runs.go", "validateNativeRunShape", "len(payload.EvidenceDigest)", boundBytes))
-	registerOutputBound("/$defs/work_page/properties/readiness_evidence/maxItems", pkFieldNeverWrittenBound("readiness_evidence", boundItems, "internal/agent/runtime.go", "internal/agent/runtime_read_handlers.go"))
 
 	registerOutputBound("/$defs/work_relation_graph/properties/edges/maxItems", unboundedOutput("internal/store/query.go:readRelationDepth and readQ8DirectEdges apply no LIMIT and the relations table caps nothing per work, so a depth-1 read returns one edge per related work without bound", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_relation_graph/properties/nodes/maxItems", pkEmptyLiteralItemsBound("internal/agent/runtime.go", "q8", "nodes"))
-
 
 	registerOutputBound("/$defs/work_summary/properties/narrative/maxLength", unboundedOutput("the narrative writer is retired (initiative.narrative_revised registers under EventAppendAuthorityRetired, internal/store/operation.go:249) and retained work_items.narrative rows project verbatim (internal/store/query.go:1323, internal/store/worker_packet_binding.go:108) with only CHECK(length(narrative) <= 16384), a NUL-terminated prefix count that bounds no complete string; no full-string guard exists on any current writer", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_summary/properties/project_ids/maxItems", unboundedOutput("internal/store/query.go:attachWorkMemberships appends one entry per work_projects row with no LIMIT; a page LIMIT does not bound per-item memberships", "internal/agent/runtime.go:readSizeRefusal"))
@@ -2426,7 +2423,6 @@ func TestPkDerivations(t *testing.T) {
 		"blockers":       pkAppendSitesItemsBound("internal/store/project_handoffs.go", "EvaluateProjectSessionRetirement", "out.Blockers"),
 		"refusal kinds":  pkTypedConstVocabularyLongestBound("FailureKind", "internal/store/errors.go", "internal/store/readiness.go"),
 		"delivery":       pkFieldNeverWrittenBound("delivery", boundCharacters, "internal/agent/mutations.go"),
-		"readiness":      pkFieldNeverWrittenBound("readiness_evidence", boundItems, "internal/agent/runtime.go", "internal/agent/runtime_read_handlers.go"),
 		"task guard":     pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkCreated", "len(payload.Task)"),
 		"last progress":  pkTimeLayoutWidthBound("internal/store/work_effect_seq.go", "advanceWorkEffectSeqTx", "time.RFC3339Nano"),
 		"verdict time":   pkTimeLayoutWidthBound("internal/store/workflow.go", "foldWorkflowCompleted", "time.RFC3339Nano"),

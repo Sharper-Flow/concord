@@ -171,7 +171,7 @@ func TestReopenDeclinedIntakeCanProceed(t *testing.T) {
 func TestReopenDispatch(t *testing.T) {
 	for _, name := range []string{"exact", "stale", "live", "holder"} {
 		t.Run(name, func(t *testing.T) {
-			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition", "product_read"})
 			scope, _, err := s.ScopeVersion(context.Background(), "project-1")
 			if err != nil {
 				t.Fatal(err)

@@ -1587,10 +1587,10 @@ func (r runtime) executeMutation(ctx context.Context, base agentcontract.Envelop
 			return response, nil
 		}
 		var failure *store.Failure
-		if errors.As(err, &failure) && failure.HoldingWorkID != "" {
-			// Disclosure follows the caller's authorized Product scope, the read
-			// boundary in validateWorkReferenceScope. The store carries the ID
-			// without publishing it.
+		if errors.As(err, &failure) && failure.HoldingWorkID != "" && containsCapability(r.Reader.Capabilities, agentcontract.Capability("product_read")) {
+			// Disclosure follows the caller's read authority (CD-0146): product_read
+			// and a holder Product inside the grant's Product scope. The store
+			// carries the ID without publishing it.
 			products, readErr := r.Store.ProductsForWorkIDs(ctx, []string{failure.HoldingWorkID})
 			if readErr == nil && scopeIntersects(products[failure.HoldingWorkID], r.Reader.ProductScope) {
 				disclosed := *failure

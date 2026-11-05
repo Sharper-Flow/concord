@@ -47,12 +47,14 @@ func TestCaptureCollisionDispatchRollsBack(t *testing.T) {
 
 func TestCaptureCollisionDisclosureUsesGrantScope(t *testing.T) {
 	for _, tc := range []struct {
-		name      string
-		products  []string
-		wantNamed bool
+		name         string
+		products     []string
+		capabilities []agentcontract.Capability
+		wantNamed    bool
 	}{
-		{"hidden_holder", []string{"product-1"}, false},
-		{"readable_holder_without_shared_project", []string{"product-1", "product-2"}, true},
+		{"hidden_holder", []string{"product-1"}, []agentcontract.Capability{"work_define", "product_read"}, false},
+		{"readable_holder_without_shared_project", []string{"product-1", "product-2"}, []agentcontract.Capability{"work_define", "product_read"}, true},
+		{"holder_in_scope_without_read_capability", []string{"product-1", "product-2"}, []agentcontract.Capability{"work_define"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, _, _, _ := captureTaskFixture(t)
@@ -80,7 +82,7 @@ func TestCaptureCollisionDisclosureUsesGrantScope(t *testing.T) {
 				t.Fatalf("holder error: %+v", holder.Error)
 			}
 			holderID := (*holder.ChangedRefs)[0].ID
-			service, _, grant := newAuthorizedService(t, s, "scope-client", "scope-human", []agentcontract.Capability{"work_define"}, tc.products, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+			service, _, grant := newAuthorizedService(t, s, "scope-client", "scope-human", tc.capabilities, tc.products, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 			scope, _, err := s.ScopeVersion(ctx, "project-1")
 			if err != nil {
 				t.Fatal(err)

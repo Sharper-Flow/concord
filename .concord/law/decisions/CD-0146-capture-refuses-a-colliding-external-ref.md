@@ -21,11 +21,8 @@ does not bypass this refusal. Terminal links remain recorded and do not prevent
 capture of a new item. Reopening a terminal item refuses if another live item
 holds its key or UUID.
 
-A collision refusal names the live holder's work ID only when the holder's
-Product scope intersects the caller's authorized Product scope, because that
-scope is exactly what the caller may read. The store carries the holder's work
-ID on the typed refusal without publishing it in the refusal message; the agent
-boundary decides the disclosure at the caller's grant. This rule covers capture,
-link attachment, and reopen. A holder outside the caller's authorized Product
-scope stays unnamed, which is the recorded reason the refusal withholds it: the
-caller cannot read that holder.
+A collision refusal from capture, link attachment, or reopen names the live
+holder's work ID only when the caller's grant could read that holder: the grant
+holds `product_read` and its authorized Product scope includes a Product of the
+holder. Otherwise the refusal leaves the holder unnamed, because naming it
+would disclose work the caller cannot read.

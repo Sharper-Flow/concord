@@ -56,12 +56,13 @@ Static v1 exposure; no discovery meta-tool.
 
 Binding: [`../specs/agent-tool-surface-budget.md`](../specs/agent-tool-surface-budget.md).
 
-### D3. Three read tools
+### D3. Four read tools
 
 ```text
 concord_product_view   resolve | snapshot
 concord_work_browse    list
 concord_work_trace     history | resume | mutation_result | relations | project_retirement
+concord_domain         list | detail
 ```
 
 Reads are strict, bounded, cursor-based, authority/freshness-aware, and never repair
@@ -72,9 +73,9 @@ Binding: [`../specs/agent-read-tool-contract.md`](../specs/agent-read-tool-contr
 ### D4. Mutation tools
 
 ```text
-concord_work_define       capture | revise_intent
-concord_work_transition   lifecycle | workflow_action
-concord_work_relate       membership and overlap-relation intents
+concord_work_define       capture | revise_intent | issue_link_record
+concord_work_transition   lifecycle | remove | workflow_action | project_handoff_record | project_handoff_consume
+concord_work_relate       set_memberships | resolve_overlap
 ```
 
 One domain intent per call; no generic patch/mixed batch. SQLite effects are atomic.

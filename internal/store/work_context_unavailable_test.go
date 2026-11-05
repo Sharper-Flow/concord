@@ -20,7 +20,7 @@ import (
 // work_context_unavailable marker with reason limit_exceeded when the
 // work-wide view exceeds its bound. Marker assertions read the JSON envelope.
 
-// workContextExpectation names the one work-context state a compound read
+// workContextExpectation names the one work-context state a work pin read
 // must show.
 type workContextExpectation int
 
@@ -30,23 +30,22 @@ const (
 	expectWorkContextUnavailable
 )
 
-// workContextUnavailableState is one compound read's marker and view state
-// per surface. It is comparable, so replay and reopen checks compare it
-// directly.
+// workContextUnavailableState is one work pin read's marker and view state.
+// It is comparable, so replay and reopen checks compare it directly.
 type workContextUnavailableState struct {
 	pinMarker string
 	pinView   bool
 }
 
 // workContextUnavailableMarker extracts the work_context_unavailable member
-// from one marshaled compound-read payload: "" when absent, otherwise the
+// from one marshaled work pin payload: "" when absent, otherwise the
 // member's JSON, which must decode to an object naming exactly the
 // limit_exceeded reason.
 func workContextUnavailableMarker(t *testing.T, raw []byte) string {
 	t.Helper()
 	var payload map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatalf("compound read payload is not a JSON object: %v", err)
+		t.Fatalf("work pin payload is not a JSON object: %v", err)
 	}
 	member, ok := payload["work_context_unavailable"]
 	if !ok {
@@ -61,9 +60,9 @@ func workContextUnavailableMarker(t *testing.T, raw []byte) string {
 	return string(member)
 }
 
-// assertWorkContextCompoundReads checks the work pin against the strict view,
+// assertWorkPinWorkContext checks the work pin against the strict view,
 // validates the pin schema, and checks the limit_exceeded marker when needed.
-func assertWorkContextCompoundReads(t *testing.T, f workContextFixture, want workContextExpectation) workContextUnavailableState {
+func assertWorkPinWorkContext(t *testing.T, f workContextFixture, want workContextExpectation) workContextUnavailableState {
 	t.Helper()
 	pin, err := ReadWorkPin(context.Background(), f.store, f.workID)
 	if err != nil {
@@ -93,49 +92,36 @@ func assertWorkContextCompoundReads(t *testing.T, f workContextFixture, want wor
 		pinView:   pin.WorkContext != nil,
 	}
 	if want == expectWorkContextAvailable {
-		exact := mustJSONValue(view)
-		for _, surface := range []struct {
-			name string
-			view *WorkContextView
-		}{{"work pin", pin.WorkContext}} {
-			if surface.view == nil || !bytes.Equal(mustJSONValue(surface.view), exact) {
-				t.Fatalf("%s omits the exact current strict view bytes", surface.name)
-			}
+		if pin.WorkContext == nil || !bytes.Equal(mustJSONValue(pin.WorkContext), mustJSONValue(view)) {
+			t.Fatal("work pin omits the exact current strict view bytes")
 		}
 	}
 	marked, wantView := want == expectWorkContextUnavailable, want == expectWorkContextAvailable
-	for _, surface := range []struct {
-		name   string
-		marker string
-		view   bool
-	}{{"work pin", state.pinMarker, state.pinView}} {
-		if (surface.marker != "") != marked {
-			t.Fatalf("%s carries a work_context_unavailable marker = %t, want %t", surface.name, surface.marker != "", marked)
-		}
-		if surface.view != wantView {
-			t.Fatalf("%s carries a current view = %t, want %t beside marker presence %t", surface.name, surface.view, wantView, marked)
-		}
+	if (state.pinMarker != "") != marked {
+		t.Fatalf("work pin carries a work_context_unavailable marker = %t, want %t", state.pinMarker != "", marked)
+	}
+	if state.pinView != wantView {
+		t.Fatalf("work pin carries a current view = %t, want %t beside marker presence %t", state.pinView, wantView, marked)
 	}
 	return state
 }
 
 // One work item walks every state: the typed absence, the current view under
 // a live declaration, and the over-bound view behind the historical fold
-// route. Each state shows identically on all three surfaces, never as view
-// and marker at once.
-func TestWorkContextUnavailableCompoundReads(t *testing.T) {
+// route. The work pin shows each state, never as view and marker at once.
+func TestWorkPinWorkContextStates(t *testing.T) {
 	t.Parallel()
-	fixture := seedWorkContextFixture(t, "ctx-unavailable-compound")
+	fixture := seedWorkContextFixture(t, "ctx-unavailable-states")
 	defer fixture.store.Close()
-	assertWorkContextCompoundReads(t, fixture, expectWorkContextAbsent)
+	assertWorkPinWorkContext(t, fixture, expectWorkContextAbsent)
 	declareSampleWorkContext(t, fixture, "the unbounded log scan was rejected")
-	assertWorkContextCompoundReads(t, fixture, expectWorkContextAvailable)
+	assertWorkPinWorkContext(t, fixture, expectWorkContextAvailable)
 	seedWorkContextOverflow(t, fixture)
-	assertWorkContextCompoundReads(t, fixture, expectWorkContextUnavailable)
+	assertWorkPinWorkContext(t, fixture, expectWorkContextUnavailable)
 }
 
 // Historical claims stay byte-identical when their current view overflows,
-// compound reads report unavailability, and a new declaration deselects them.
+// work pin reads report unavailability, and a new declaration deselects them.
 func TestWorkContextUnavailableHistoricalClaimCustody(t *testing.T) {
 	t.Parallel()
 	retained := []WorkContextFinding{{Kind: "observation", Statement: "retained but unselected", SubjectRef: "internal/store/fold.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
@@ -173,14 +159,14 @@ func TestWorkContextUnavailableHistoricalClaimCustody(t *testing.T) {
 				t.Fatalf("historical claim changed during retention: %s", findingJSON)
 			}
 			before := currentEffectRows(t, s)
-			assertWorkContextCompoundReads(t, fixture, expectWorkContextUnavailable)
+			assertWorkPinWorkContext(t, fixture, expectWorkContextUnavailable)
 			if !reflect.DeepEqual(before, currentEffectRows(t, s)) {
-				t.Fatal("compound reads changed retained event headers, order, or bytes")
+				t.Fatal("work pin reads changed retained event headers, order, or bytes")
 			}
 			if err := fixture.recordWorkContext(t, map[string]any{"required_reading": []map[string]any{}, "finding_refs": []string{}, "context_findings": []map[string]any{}}); err != nil {
 				t.Fatalf("bounded live declaration refused: %v", err)
 			}
-			assertWorkContextCompoundReads(t, fixture, expectWorkContextAvailable)
+			assertWorkPinWorkContext(t, fixture, expectWorkContextAvailable)
 			var retainedPayload string
 			if err := s.DatabaseForTesting().QueryRow(`SELECT finding FROM work_context_findings WHERE work_id=? AND source_seq=? AND ordinal=0`, fixture.workID, seq).Scan(&retainedPayload); err != nil {
 				t.Fatal(err)
@@ -192,14 +178,14 @@ func TestWorkContextUnavailableHistoricalClaimCustody(t *testing.T) {
 	}
 }
 
-// An over-bound declaration keeps its compound-read state across reopen.
+// An over-bound declaration keeps its work pin state across reopen.
 func TestWorkContextUnavailableSurvivesReopen(t *testing.T) {
 	t.Parallel()
 	fixture := seedWorkContextFixture(t, "ctx-unavailable-replay")
 	defer fixture.store.Close()
 	seedWorkContextOverflow(t, fixture)
 	before := currentEffectRows(t, fixture.store)
-	state := assertWorkContextCompoundReads(t, fixture, expectWorkContextUnavailable)
+	state := assertWorkPinWorkContext(t, fixture, expectWorkContextUnavailable)
 	path := fixture.store.path
 	if err := fixture.store.Close(); err != nil {
 		t.Fatal(err)
@@ -210,12 +196,12 @@ func TestWorkContextUnavailableSurvivesReopen(t *testing.T) {
 	if !reflect.DeepEqual(before, currentEffectRows(t, reopened)) {
 		t.Fatal("reopen changed retained event headers, order, or bytes")
 	}
-	if after := assertWorkContextCompoundReads(t, fixture, expectWorkContextUnavailable); after != state {
-		t.Fatalf("reopen changed the compound-read state:\nbefore %#v\nafter  %#v", state, after)
+	if after := assertWorkPinWorkContext(t, fixture, expectWorkContextUnavailable); after != state {
+		t.Fatalf("reopen changed the work pin state:\nbefore %#v\nafter  %#v", state, after)
 	}
 }
 
-// Overflow must retain ordinary findings and native runs while compound reads
+// Overflow must retain ordinary findings and native runs while work pin reads
 // report unavailability without changing event receipts.
 func TestWorkContextUnavailableNativeCustody(t *testing.T) {
 	t.Parallel()
@@ -260,9 +246,9 @@ func TestWorkContextUnavailableNativeCustody(t *testing.T) {
 				t.Fatal("the work item carries no attributed native runs for the seeded report")
 			}
 			events := currentEffectRows(t, s)
-			assertWorkContextCompoundReads(t, fixture, expectWorkContextUnavailable)
+			assertWorkPinWorkContext(t, fixture, expectWorkContextUnavailable)
 			if !reflect.DeepEqual(events, currentEffectRows(t, s)) {
-				t.Fatal("compound reads changed retained event headers, order, or bytes")
+				t.Fatal("work pin reads changed retained event headers, order, or bytes")
 			}
 		})
 	}

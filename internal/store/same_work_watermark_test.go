@@ -10,37 +10,33 @@ import (
 )
 
 func TestSameWorkWatermarksWithoutLog(t *testing.T) {
-	for _, reader := range []string{"work_pin"} {
-		t.Run(reader, func(t *testing.T) {
-			s := openTemp(t)
-			seedWork(t, s, "watermark-work")
-			seedWork(t, s, "watermark-other")
-			ctx := context.Background()
-			var want int64
-			if err := s.db.QueryRow(`SELECT COALESCE(MAX(effect_seq),0) FROM effect_receipts WHERE subject_type='work_item' AND subject_id='watermark-work'`).Scan(&want); err != nil {
-				t.Fatal(err)
-			}
-			read := func() string {
-				t.Helper()
-				tx, err := s.db.BeginTx(ctx, nil)
-				if err != nil {
-					t.Fatal(err)
-				}
-				defer tx.Rollback()
-				var pin WorkPin
-				if err := workPinReadIdentityTx(ctx, tx, "watermark-work", &pin); err != nil {
-					t.Fatal(err)
-				}
-				return pin.Watermark
-			}
-			if got := read(); got != fmt.Sprintf("seq:%d", want) || want == 0 {
-				t.Fatalf("watermark=%s, want seq:%d", got, want)
-			}
-			assertEventLogAbsent(t, s)
-			if got := read(); got != fmt.Sprintf("seq:%d", want) {
-				t.Fatalf("log-blind watermark=%s, want seq:%d", got, want)
-			}
-		})
+	s := openTemp(t)
+	seedWork(t, s, "watermark-work")
+	seedWork(t, s, "watermark-other")
+	ctx := context.Background()
+	var want int64
+	if err := s.db.QueryRow(`SELECT COALESCE(MAX(effect_seq),0) FROM effect_receipts WHERE subject_type='work_item' AND subject_id='watermark-work'`).Scan(&want); err != nil {
+		t.Fatal(err)
+	}
+	read := func() string {
+		t.Helper()
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback()
+		var pin WorkPin
+		if err := workPinReadIdentityTx(ctx, tx, "watermark-work", &pin); err != nil {
+			t.Fatal(err)
+		}
+		return pin.Watermark
+	}
+	if got := read(); got != fmt.Sprintf("seq:%d", want) || want == 0 {
+		t.Fatalf("watermark=%s, want seq:%d", got, want)
+	}
+	assertEventLogAbsent(t, s)
+	if got := read(); got != fmt.Sprintf("seq:%d", want) {
+		t.Fatalf("log-blind watermark=%s, want seq:%d", got, want)
 	}
 }
 

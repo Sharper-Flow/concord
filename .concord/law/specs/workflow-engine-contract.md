@@ -151,6 +151,34 @@ step it comes after, or alters a completed step. A repeated step adds another
 attempt instead of altering it. A type switch keeps completed steps and adds
 the new type's missing required steps; it never removes a step.
 
+### 2.4 Step helpers are the default delegates
+
+A step's `helper` names the step subagent that does that step's work. At a step
+that carries a helper, the driving agent hands the step's work to that
+helper through native Task and records the outcome. The driving agent keeps the
+plan, the commits, and the workflow records. The exception is a tiny edit: a
+change small enough that writing the assignment costs more than doing it. A
+tiny edit is done inline. The exception covers doing the work, never its
+review: a reviewed step still needs the independent review of
+[section 6](#6-independent-review). The step's completion note says which case
+applied: the helper that did the work, or the inline exception. No field,
+action or check beyond that note records or verifies the case.
+
+Implementation runs as a loop of slices. Each slice is delegated to the
+`implement` step's helper — `concord-design` when the slice is visual work —
+and each slice is followed by a `concord-review` of that slice. Slices run in
+parallel only when their files are disjoint; each parallel slice gets its own
+review. The combined change gets one final clean `concord-review` before
+completion.
+
+Required steps carry their helper in the template contract
+([section 2.1](#21-one-template-contract)). An inserted step may name any step
+subagent as its helper: `concord-implement`, `concord-design`,
+`concord-review`, `concord-research` or `concord-verify`. `concord-research`
+serves diagnosis and investigation, `concord-verify` serves test-only work and
+CI failure triage, and `concord-design` may also produce wireframes or mocks
+during planning.
+
 ## 3. Workflow instance state machine
 
 `instance_state` is closed:

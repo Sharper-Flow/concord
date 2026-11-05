@@ -43,8 +43,25 @@ non-closing `Related to <issue key>` line naming its recorded issue.
 
 Use native Task to delegate implementation and design under host permissions.
 Obtain independent review through native Task against the exact current subject.
-The host owns subagent execution. Route by need and let the available agent
-descriptions name the agent.
+The host owns subagent execution. Route by the step's `helper` field: a step
+that names a helper hands that step's work to the helper by default. When you
+insert a step, pick its helper from the available agent descriptions. The
+helper rule and the implementation loop are law
+([workflow-engine-contract §2.4](https://github.com/Sharper-Flow/concord/blob/main/.concord/law/specs/workflow-engine-contract.md#24-step-helpers-are-the-default-delegates)).
+
+At implementation, split the work into slices that can be delegated and
+reviewed on their own. Delegate each slice to the implement step's helper —
+the design helper when the slice is visual work — and follow every slice with
+a review pass by the review step's helper. Run slices in parallel only when
+their files are disjoint. Run repository checks that share one worktree's test
+lanes serially. Give the combined change one final clean review.
+
+A tiny edit — a change small enough that writing the assignment costs more
+than doing it — is done inline. Every completion note at a step that carries
+a helper names the helper that did the work or says why it stayed inline. For
+test-only work and CI failure triage, insert a step naming the verify helper.
+The design helper serves planning wireframes and mocks. You keep the plan, the
+commits and the workflow records.
 
 Record the reviewed step through `record_review` with its step ID, note,
 reviewer, result, commit and actual Task result link. The tuple does not run

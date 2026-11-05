@@ -116,7 +116,8 @@ func validateRemovalHandoff(h WorkRemovalHandoff) error {
 		}
 		for _, value := range values {
 			if strings.TrimSpace(value) == "" || len(value) > 4096 {
-				return newFailure(KindInvalidOperation, "work_removal", name+" contains an empty or oversized entry", false, "supply bounded non-empty handoff entries")
+				field := "handoff." + strings.ReplaceAll(name, " ", "_")
+				return newFailure(KindInvalidPayload, "work_removal", field+" contains an empty or oversized entry", false, "supply bounded non-empty entries in "+field)
 			}
 		}
 	}
@@ -142,7 +143,7 @@ func linearConfirmationJSON(linear *LinearHandoffConfirmation) (string, error) {
 
 func validateRemovalRequest(req WorkRemovalRequest) error {
 	if len(req.OperationID) < 2 || len(req.OperationID) > 128 || len(req.IdempotencyKey) < 2 || len(req.IdempotencyKey) > 128 || len(req.WorkID) < 2 || len(req.WorkID) > 128 {
-		return newFailure(KindInvalidOperation, "work_removal", "operation, idempotency, and work identities must be bounded", false, "supply identities from 2 to 128 characters")
+		return newFailure(KindInvalidPayload, "work_removal", "operation_id, idempotency_key, and work_id identities must be bounded", false, "supply operation_id, idempotency_key, and work_id from 2 to 128 characters")
 	}
 	if req.ExpectedVersion < 1 || strings.TrimSpace(req.Actor) == "" {
 		return newFailure(KindInvalidOperation, "work_removal", "positive expected version and actor are required", false, "pin the current work version and operator")
@@ -151,7 +152,7 @@ func validateRemovalRequest(req WorkRemovalRequest) error {
 		return newFailure(KindInvalidOperation, "work_removal", "removal reason is not recognized", false, "use shelved or cancelled")
 	}
 	if !req.ExecutionRelinquished || !req.WritesReconciled || !req.EffectsReconciled || !req.DependenciesResolved || !req.ArtifactsVerified {
-		return newFailure(KindInvalidOperation, "work_removal", "removal safety evidence is incomplete", false, "reconcile execution, writes, effects, dependencies, and artifacts")
+		return newFailure(KindInvalidPayload, "work_removal", "removal safety evidence is incomplete: execution_relinquished, writes_reconciled, effects_reconciled, dependencies_resolved, and artifacts_verified must be true", false, "supply true for execution_relinquished, writes_reconciled, effects_reconciled, dependencies_resolved, and artifacts_verified after reconciliation")
 	}
 	if err := validateRemovalHandoff(req.Handoff); err != nil {
 		return err
@@ -196,7 +197,7 @@ func PrepareWorkRemovalTx(ctx context.Context, transaction *Transaction, req Wor
 		return WorkRemovalReceipt{}, err
 	}
 	if req.Linear != nil && (req.Linear.HandoffDigest != digest || req.Linear.Destination != "linear" || req.Linear.RemoteIssueUUID == "") {
-		return WorkRemovalReceipt{}, newFailure(KindInvalidOperation, "work_removal_prepare", "Linear confirmation does not match the handoff", false, "confirm the exact Product, issue, destination, and handoff digest")
+		return WorkRemovalReceipt{}, newFailure(KindInvalidPayload, "work_removal_prepare", "Linear confirmation does not match the handoff: check linear.handoff_digest", false, "supply the exact linear.handoff_digest for the handoff")
 	}
 	handoffJSON, err := json.Marshal(req.Handoff)
 	if err != nil {
@@ -254,9 +255,9 @@ func validateRemovalDestinationQ(ctx context.Context, q queryer, req WorkRemoval
 	}
 	if req.Linear == nil {
 		if recorded {
-			return newFailure(KindInvalidOperation, "work_removal_prepare", "the work item records a Linear issue but the removal carries no Linear handoff confirmation", false, "confirm the handoff on the recorded Linear issue before removal")
+			return newFailure(KindInvalidPayload, "work_removal_prepare", "the work item records a Linear issue but the removal carries no Linear handoff confirmation in linear", false, "confirm the handoff on the recorded Linear issue and supply linear before removal")
 		}
-		return newFailure(KindInvalidOperation, "work_removal_prepare", "the work item has no recorded Linear issue identity and the removal carries no Linear handoff confirmation", false, "create or adopt the Linear issue through the planning authority, record its identity, and confirm the handoff before removal")
+		return newFailure(KindInvalidPayload, "work_removal_prepare", "the work item has no recorded Linear issue identity and the removal carries no Linear handoff confirmation in linear", false, "create or adopt the Linear issue through the planning authority, record its identity, and supply linear confirming the handoff before removal")
 	}
 	if !recorded {
 		return newFailure(KindInvalidRelation, "work_removal_prepare", "the work item has no recorded Linear issue identity", false, "record the issue identity before confirming its handoff")

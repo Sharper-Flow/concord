@@ -305,7 +305,7 @@ func dedupeWorkflowRefs(values []string) []string {
 
 // workflowSemanticActionEvents constructs typed events. An empty result uses
 // the ordinary action_completed event.
-func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, request WorkflowActionExecutionRequest, stepID, actor string, raw json.RawMessage, expected int64) ([]Event, error) {
+func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage, expected int64) ([]Event, error) {
 	fields, err := workflowActionObject(raw)
 	if err != nil {
 		return nil, err

@@ -157,7 +157,7 @@ func assemblePlanWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, request
 	if plan != nil {
 		planType = plan.Type
 	}
-	events, err = workflowSemanticActionEvents(ctx, tx, planType, request, stepID, actor, request.Payload, version)
+	events, err = workflowSemanticActionEvents(ctx, tx, planType, request, actor, request.Payload, version)
 	if err != nil {
 		return nil, err
 	}

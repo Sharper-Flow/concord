@@ -6,8 +6,7 @@ needs neither an RTE nor a Planner to deliver.
 
 Each session owns its design, code, tests, review, law text, publication,
 CI follow-through, deployment, and planning issue. The RTE coordinates dependencies,
-not another session's technical choices or operator approvals. They contact you
-for coordination, not permission.
+not another session's technical choices or operator approvals.
 
 ## Authority
 

@@ -61,7 +61,7 @@ Binding: [`../specs/agent-tool-surface-budget.md`](../specs/agent-tool-surface-b
 ```text
 concord_product_view   resolve | snapshot
 concord_work_browse    list
-concord_work_trace     history | relations
+concord_work_trace     history | resume | mutation_result | relations | project_retirement
 ```
 
 Reads are strict, bounded, cursor-based, authority/freshness-aware, and never repair

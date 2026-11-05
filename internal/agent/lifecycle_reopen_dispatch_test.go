@@ -24,8 +24,8 @@ func TestReopenRestoresPlanAndAdmitsInsertStep(t *testing.T) {
 			id := captureCompositionWork(t, ctx, s, service, env, "Reopen plan", "task", "", "reopen-plan")
 			compositionAction(t, ctx, s, service, env, id, "record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false})
 			compositionAction(t, ctx, s, service, env, id, "pick_type", map[string]any{"type": "change", "reason": "fixture"})
-			var planBefore string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT step_plan FROM workflow_instances WHERE work_id=?`, id).Scan(&planBefore); err != nil {
+			var planBefore, preludeBefore string
+			if err := s.DatabaseForTesting().QueryRow(`SELECT step_plan,prelude_state FROM workflow_instances WHERE work_id=?`, id).Scan(&planBefore, &preludeBefore); err != nil {
 				t.Fatal(err)
 			}
 			transition := func(target, key string) agentcontract.Envelope {
@@ -66,13 +66,13 @@ func TestReopenRestoresPlanAndAdmitsInsertStep(t *testing.T) {
 			}
 			reopenVersion := agentCompositionWorkVersion(t, s, id)
 			reopened := transition("reopen", "reopen-plan-reopen")
-			var state, planAfter string
+			var state, planAfter, preludeAfter string
 			var completedAt, completionPayload, completionOccurredAt *string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state,step_plan,completed_at,completion_payload,completion_occurred_at FROM workflow_instances WHERE work_id=?`, id).Scan(&state, &planAfter, &completedAt, &completionPayload, &completionOccurredAt); err != nil {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state,step_plan,prelude_state,completed_at,completion_payload,completion_occurred_at FROM workflow_instances WHERE work_id=?`, id).Scan(&state, &planAfter, &preludeAfter, &completedAt, &completionPayload, &completionOccurredAt); err != nil {
 				t.Fatal(err)
 			}
-			if state != "running" || planAfter != planBefore || completedAt != nil || completionPayload != nil || completionOccurredAt != nil {
-				t.Fatalf("state=%s plan retained=%v completed_at=%v completion_payload=%v completion_occurred_at=%v", state, planAfter == planBefore, completedAt, completionPayload, completionOccurredAt)
+			if state != "running" || planAfter != planBefore || preludeAfter != preludeBefore || completedAt != nil || completionPayload != nil || completionOccurredAt != nil {
+				t.Fatalf("state=%s plan retained=%v prelude retained=%v completed_at=%v completion_payload=%v completion_occurred_at=%v", state, planAfter == planBefore, preludeAfter == preludeBefore, completedAt, completionPayload, completionOccurredAt)
 			}
 			replayInput, err := json.Marshal(map[string]any{"work_id": id, "expected_version": reopenVersion, "target": "reopen", "reason": "test", "evidence": []map[string]string{{"kind": "verification", "authority": "test", "locator_kind": "file", "locator": "README.md"}}, "idempotency_key": "reopen-plan-reopen"})
 			if err != nil {
@@ -97,6 +97,74 @@ func TestReopenRestoresPlanAndAdmitsInsertStep(t *testing.T) {
 			}
 			compositionAction(t, ctx, s, service, env, id, "insert_step", map[string]any{"id": "follow_up", "after": []string{"plan"}, "reason": "additional work"})
 		})
+	}
+}
+
+func TestReopenDeclinedIntakeCanProceed(t *testing.T) {
+	ctx := context.Background()
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+	scope, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scope)
+	id := captureCompositionWork(t, ctx, s, service, env, "Reopen declined intake", "task", "", "reopen-decline")
+	compositionAction(t, ctx, s, service, env, id, "record_intake", map[string]any{"outcome": "decline", "open_questions_found": false})
+	cancelInput, err := json.Marshal(map[string]any{"work_id": id, "expected_version": agentCompositionWorkVersion(t, s, id), "target": "cancelled", "reason": "declined", "evidence": []map[string]string{{"kind": "verification", "authority": "test", "locator_kind": "file", "locator": "README.md"}}, "idempotency_key": "cancel-decline"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: cancelInput}, env)
+	if err != nil || cancelled.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("cancel: response=%+v err=%v", cancelled, err)
+	}
+	var lifecycle, state string
+	var prelude, plan *string
+	readState := func() {
+		t.Helper()
+		if err := s.DatabaseForTesting().QueryRow(`SELECT w.lifecycle,i.instance_state,i.prelude_state,i.step_plan FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, id).Scan(&lifecycle, &state, &prelude, &plan); err != nil {
+			t.Fatal(err)
+		}
+	}
+	readState()
+	if lifecycle != "cancelled" || state != "cancelled" || prelude == nil || *prelude == "" || plan != nil {
+		t.Fatalf("decline: lifecycle=%s state=%s prelude=%v plan=%v", lifecycle, state, prelude, plan)
+	}
+	version := agentCompositionWorkVersion(t, s, id)
+	raw, err := json.Marshal(map[string]any{"work_id": id, "expected_version": version, "target": "reopen", "reason": "test", "evidence": []map[string]string{{"kind": "verification", "authority": "test", "locator_kind": "file", "locator": "README.md"}}, "idempotency_key": "reopen-decline"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.RequestID = "reopen-decline"
+	request := InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: raw}
+	response, err := Dispatch(ctx, s, service, request, env)
+	if err != nil || response.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("reopen: response=%+v err=%v", response, err)
+	}
+	readState()
+	if lifecycle != "needed" || state != "intake" || prelude != nil || plan != nil {
+		t.Fatalf("reopen: lifecycle=%s state=%s prelude=%v plan=%v", lifecycle, state, prelude, plan)
+	}
+	replay, err := Dispatch(ctx, s, service, request, env)
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || agentCompositionWorkVersion(t, s, id) != version+1 {
+		t.Fatalf("reopen replay: response=%+v err=%v", replay, err)
+	}
+	pin, err := store.ReadWorkPin(ctx, s, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, intent := range pin.NextValidIntents {
+		found = found || intent.ActionID == "record_intake"
+	}
+	if !found {
+		t.Fatalf("reopened intake intents missing record_intake: %+v", pin.NextValidIntents)
+	}
+	compositionAction(t, ctx, s, service, env, id, "record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false})
+	compositionAction(t, ctx, s, service, env, id, "pick_type", map[string]any{"type": "change", "reason": "fixture"})
+	readState()
+	if lifecycle != "in_progress" || state != "running" || plan == nil || *plan == "" {
+		t.Fatalf("after type pick: lifecycle=%s state=%s plan=%v", lifecycle, state, plan)
 	}
 }
 

@@ -122,10 +122,11 @@ cancelled   → needed       (explicit reopen)
 - Reopen is an explicit recorded transition with actor, reason, expected version, and prior
   terminal state. It keeps the work identity and refuses if another live item holds
   the same Linear issue key or UUID.
-- In the same transaction, reopen returns an existing workflow instance to `running`,
-  keeps its plan, and clears its terminal completion metadata. The agent can then
-  insert the next step without recapturing the item. An instance with no plan
-  returns to `intake`.
+- In the same transaction, reopen clears an existing workflow instance's terminal
+  completion metadata. An instance with a plan returns to `running` and keeps its
+  plan and prelude state, allowing the agent to insert the next step. An instance
+  without a plan returns to `intake` and clears its prelude state so the agent can
+  record intake again. Neither case requires a new capture.
 - `in_progress → needed` means intentionally paused/returned to the queue; it is
   not a hidden blocked state.
 - Terminal reason/evidence fields required by the accepted operation commit in the

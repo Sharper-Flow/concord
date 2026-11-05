@@ -360,7 +360,7 @@ func foldWorkReopened(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	// A plan resumes running; a workflow that ended before any type was
 	// picked returns to intake, which only writing a plan leaves.
-	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=CASE WHEN step_plan IS NULL THEN 'intake' ELSE 'running' END,completed_at=NULL,completion_payload=NULL,completion_occurred_at=NULL WHERE work_id=?`, event.SubjectID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=CASE WHEN step_plan IS NULL THEN 'intake' ELSE 'running' END,prelude_state=CASE WHEN step_plan IS NULL THEN NULL ELSE prelude_state END,completed_at=NULL,completion_payload=NULL,completion_occurred_at=NULL WHERE work_id=?`, event.SubjectID); err != nil {
 		return workflowProjectionError(err, "cannot reopen workflow instance")
 	}
 	return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion)

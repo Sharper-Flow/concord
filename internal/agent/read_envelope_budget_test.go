@@ -153,6 +153,35 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 	}
 }
 
+func TestSingleMaximumTaskFitsFullWorkEnvelope(t *testing.T) {
+	t.Parallel()
+	s, _, _ := workflowEngineFixture(t, "maximum task")
+	task := strings.Repeat("<", 8192)
+	intent, err := json.Marshal(map[string]any{"title": "maximum task", "kind": "task", "task": task})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET intent_json=? WHERE id='work-1'; DELETE FROM write_guard`, string(intent)); err != nil {
+		t.Fatal(err)
+	}
+	r := runtime{Store: s, Tool: "concord_work_browse", Operation: "list", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
+	response, err := r.read(t.Context(), agentcontract.NewBase("maximum-task", r.Tool, r.Operation), []byte(`{"product_id":"product-1","detail":"full","limit":1}`), "PM1.Q3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertBoundedRead(t, response)
+	var page struct {
+		Items []workSummary `json:"items"`
+	}
+	if err := json.Unmarshal(response.Result, &page); err != nil || response.Error != nil || response.NextCursor != nil || len(page.Items) != 1 || page.Items[0].Task != task {
+		t.Fatalf("maximum task did not fit intact: %s %+v %v", response.Result, response.Error, err)
+	}
+	raw, err := response.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("maximum task envelope: %d bytes of %d", len(raw), agentcontract.MaxResultEnvelopeBytes)
+}
 
 func TestWorkSummaryBytePagesKeepContinuation(t *testing.T) {
 	t.Parallel()

@@ -509,7 +509,7 @@ func bindAJ4StaleVersion(t *testing.T, sc jobScenario) jobObservation {
 // ---------------------------------------------------------------------------
 
 // AJ5-resolve-domain-overlap proves ordinary relation authority cannot settle
-// coordination and a destructive scope cut requires the cross-scope capability.
+// coordination and an unsigned sequencing answer records its directed graph.
 func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, _, _, env, input := seedAgentOverlapFixture(t)
@@ -564,6 +564,9 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 	if relationCount != 1 {
 		t.Fatalf("resolution relation rows=%d, want 1", relationCount)
 	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE work_id_from='work-2' AND work_id_to='work-1' AND kind='depends_on'`); got != 0 {
+		t.Fatalf("reverse depends_on relation rows=%d, want 0", got)
+	}
 	if workVersion(t, s, "work-1") != 3 || workVersion(t, s, "work-2") != 3 {
 		t.Fatal("routine resolution left the endpoints off the single-step versions")
 	}
@@ -574,8 +577,7 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 		"relations": map[string]any{"depends_on": []any{map[string]any{"source": "work-1", "target": "work-2"}}},
 	}
 	obs.Effects = map[string]any{
-		"atomic_core_effect":      "complete",
-		"atomic_core_effect_zero": true,
+		"atomic_core_effect": "complete",
 	}
 	return obs
 }
@@ -583,13 +585,6 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-
-// TestCaptureAcceptsRequirementFromSiblingProjectOfTheProduct proves the
-
-
-// TestCaptureAcceptsAcceptedLawID proves the second legitimate referencing
-
 
 // ---------------------------------------------------------------------------
 // AJ8 — budget refusal (CD-0038)

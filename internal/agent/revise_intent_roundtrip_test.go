@@ -1,9 +1,9 @@
 package agent
 
 import (
-	"fmt"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"testing"
 
@@ -12,76 +12,44 @@ import (
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
-// CON-835 regression. revise_intent is complete replacement (TS4 2.1), so a
-// coordinator that revises only the task must carry every other revisable
-// value out of the authoritative typed read. external_ref stays capture-owned.
-func TestTaskOnlyRevisionCarriesCompleteTaskIntentThroughFullListRead(t *testing.T) {
-	t.Parallel()
-	s, ctx, service, env, workID := seedIntentRoundtripWork(t, map[string]any{
-		"title": "Preserve the recorded intent",
-		"task": "Original recorded instruction", "kind": "task",
-		"human_key": "ZZ-7005", "remote_issue_uuid": "fixture-roundtrip-capture-1",
-		"url":       "https://linear.app/example/issue/ZZ-7005",
-		"idempotency_key": "roundtrip-capture-1",
-	})
-
-	before := roundtripFullListItem(t, ctx, s, service, env, workID)
-	assertCompleteIntentRead(t, before, map[string]any{
-		"kind": "task", "title": "Preserve the recorded intent", "task": "Original recorded instruction",
-	})
-
-	revise := carriedTaskOnlyRevision(t, before, workID, "Replacement instruction that changes nothing else", "roundtrip-revise-1")
-	revised := roundtripDispatchOK(t, ctx, s, service, env, "roundtrip-revise-1", "concord_work_define", "revise_intent", revise)
-	if len(*revised.ChangedRefs) != 1 || (*revised.ChangedRefs)[0].Version != strconv.FormatInt(int64(before["version"].(float64))+1, 10) {
-		t.Fatalf("changed refs=%#v, want the expected version to advance by exactly one", revised.ChangedRefs)
-	}
-
-	after := roundtripFullListItem(t, ctx, s, service, env, workID)
-	assertCompleteIntentRead(t, after, map[string]any{
-		"kind": "task", "title": "Preserve the recorded intent", "task": "Replacement instruction that changes nothing else",
-	})
-}
-
-// A coordinator must be able to carry the complete revisable intent from a
-// full-detail list read into a task-only revision.
+// A task-only revision carries the complete intent from a full-detail list read.
 func TestTaskOnlyRevisionCarriesCompleteIntentThroughFullListRead(t *testing.T) {
 	t.Parallel()
-	s, ctx, service, env, workID := seedIntentRoundtripWork(t, map[string]any{
-		"title": "Preserve intent through the list read",
-		"task": "Original list instruction", "kind": "bug",
-		"human_key": "ZZ-7006", "remote_issue_uuid": "fixture-roundtrip-capture-2",
-		"url":       "https://linear.app/example/issue/ZZ-7006",
-		"idempotency_key": "roundtrip-capture-2",
-	})
-
-	before := roundtripFullListItem(t, ctx, s, service, env, workID)
-	assertCompleteIntentRead(t, before, map[string]any{
-		"kind": "bug", "title": "Preserve intent through the list read", "task": "Original list instruction",
-	})
-
-	revise := carriedTaskOnlyRevision(t, before, workID, "Replacement instruction from the list read", "roundtrip-revise-2")
-	revised := roundtripDispatchOK(t, ctx, s, service, env, "roundtrip-revise-2", "concord_work_define", "revise_intent", revise)
-	if len(*revised.ChangedRefs) != 1 || (*revised.ChangedRefs)[0].Version != strconv.FormatInt(int64(before["version"].(float64))+1, 10) {
-		t.Fatalf("changed refs=%#v, want the expected version to advance by exactly one", revised.ChangedRefs)
+	for _, tc := range []struct {
+		kind, title, original, replacement, key, issue string
+	}{
+		{"task", "Preserve the recorded intent", "Original recorded instruction", "Replacement instruction that changes nothing else", "1", "ZZ-7005"},
+		{"bug", "Preserve intent through the list read", "Original list instruction", "Replacement instruction from the list read", "2", "ZZ-7006"},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			t.Parallel()
+			s, ctx, service, env, workID := seedIntentRoundtripWork(t, map[string]any{
+				"title": tc.title, "task": tc.original, "kind": tc.kind,
+				"human_key": tc.issue, "remote_issue_uuid": "fixture-roundtrip-capture-" + tc.key,
+				"url": "https://linear.app/example/issue/" + tc.issue, "idempotency_key": "roundtrip-capture-" + tc.key,
+			})
+			before := roundtripFullListItem(t, ctx, s, service, env, workID)
+			assertCompleteIntentRead(t, before, map[string]any{"kind": tc.kind, "title": tc.title, "task": tc.original})
+			key := "roundtrip-revise-" + tc.key
+			revise := carriedTaskOnlyRevision(t, before, workID, tc.replacement, key)
+			revised := roundtripDispatchOK(t, ctx, s, service, env, key, "concord_work_define", "revise_intent", revise)
+			if len(*revised.ChangedRefs) != 1 || (*revised.ChangedRefs)[0].Version != strconv.FormatInt(int64(before["version"].(float64))+1, 10) {
+				t.Fatalf("changed refs=%#v, want the expected version to advance by exactly one", revised.ChangedRefs)
+			}
+			after := roundtripFullListItem(t, ctx, s, service, env, workID)
+			assertCompleteIntentRead(t, after, map[string]any{"kind": tc.kind, "title": tc.title, "task": tc.replacement})
+		})
 	}
-
-	after := roundtripFullListItem(t, ctx, s, service, env, workID)
-	assertCompleteIntentRead(t, after, map[string]any{
-		"kind": "bug", "title": "Preserve intent through the list read", "task": "Replacement instruction from the list read",
-	})
 }
 
-// Lawful zero, empty, and absent states must survive unchanged: an omitted
-// priority stays zero, a default urgency stays standard, an explicitly empty
-// tag array stays an empty array rather than becoming an invented value or a
-// null, and an absent optional intent field stays absent.
+// An absent task stays absent until a revision supplies it.
 func TestTaskOnlyRevisionPreservesZeroEmptyAndAbsentIntentStates(t *testing.T) {
 	t.Parallel()
 	s, ctx, service, env, workID := seedIntentRoundtripWork(t, map[string]any{
-		"title": "Default states survive",
-		"kind": "bug",
+		"title":     "Default states survive",
+		"kind":      "bug",
 		"human_key": "ZZ-7007", "remote_issue_uuid": "fixture-roundtrip-capture-3",
-		"url":       "https://linear.app/example/issue/ZZ-7007",
+		"url":             "https://linear.app/example/issue/ZZ-7007",
 		"idempotency_key": "roundtrip-capture-3",
 	})
 
@@ -242,4 +210,3 @@ func assertCompleteIntentRead(t *testing.T, read map[string]any, want map[string
 		}
 	}
 }
-

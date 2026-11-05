@@ -13,9 +13,5 @@ func TestUnopenedStoreKnowledgeMethods(t *testing.T) {
 			_, err := s.EstablishKnowledgeSourceSetProof(ctx, "work-1")
 			return err
 		}},
-		{"EstablishKnowledgeSourceSetProofForProject", func(s *Store) error {
-			_, err := s.EstablishKnowledgeSourceSetProofForProject(ctx, "project-1")
-			return err
-		}},
 	})
 }

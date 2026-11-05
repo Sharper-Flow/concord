@@ -28,7 +28,7 @@ func TestReviseInitializesProductWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	version := workVersion(t, s, "work-1")
-	input, err := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": version, "kind": "task", "title": "Verified revised start",  "reason": "Initialize the existing item", "idempotency_key": "revise-verified-start"})
+	input, err := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": version, "kind": "task", "title": "Verified revised start", "reason": "Initialize the existing item", "idempotency_key": "revise-verified-start"})
 	if err != nil {
 		t.Fatal(err)
 	}

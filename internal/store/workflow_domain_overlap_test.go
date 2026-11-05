@@ -231,7 +231,7 @@ func setWorkTerminalForTesting(t *testing.T, s *Store, workID string) {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='completed',completed_at='2026-08-19T00:00:00Z' WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded')`, workID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='completed',completed_at='2026-08-19T00:00:00Z' WHERE work_id=? AND instance_state NOT IN ('completed','cancelled')`, workID); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -306,7 +306,6 @@ func TestResolveOverlapRecordsRoutineRelations(t *testing.T) {
 }
 
 // merged_into and supersedes terminalize one endpoint atomically;
-
 
 // Ordinary relation writes cannot create resolution-owned relations.
 func TestOrdinaryRelationsCannotWriteResolutionRelations(t *testing.T) {

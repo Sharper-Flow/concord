@@ -85,7 +85,7 @@ func TestValidateEventKindRegistryRejectsIncompleteRegistration(t *testing.T) {
 	}
 }
 
-func TestIntentRevisionPreservesExternalRefAndNormalizesShape(t *testing.T) {
+func TestIntentRevisionNormalizesShape(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	seedSchemaEvolutionBase(t, s)
@@ -106,7 +106,7 @@ func TestIntentRevisionPreservesExternalRefAndNormalizesShape(t *testing.T) {
 	if err := json.Unmarshal([]byte(stored), &intent); err != nil {
 		t.Fatal(err)
 	}
-	wantKeys := []string{"title", "value_statement", "kind", "priority", "urgency", "tags", "component_id", "workflow_type_ref", "external_ref"}
+	wantKeys := []string{"title", "kind"}
 	if len(intent) != len(wantKeys) {
 		t.Fatalf("intent_json key set = %d keys (%v), want exactly %d", len(intent), intent, len(wantKeys))
 	}
@@ -120,10 +120,7 @@ func TestIntentRevisionPreservesExternalRefAndNormalizesShape(t *testing.T) {
 			t.Fatalf("intent_json leaked event field %q: %s", forbidden, stored)
 		}
 	}
-	if intent["external_ref"] != "tracker:issue-42" {
-		t.Fatalf("revision dropped the capture-owned external_ref: %s", stored)
-	}
-	if intent["title"] != "Revised" || intent["priority"] != float64(3) || intent["urgency"] != "standard" {
+	if intent["title"] != "Revised" || intent["kind"] != "task" {
 		t.Fatalf("revision did not replace the mutable block: %s", stored)
 	}
 }

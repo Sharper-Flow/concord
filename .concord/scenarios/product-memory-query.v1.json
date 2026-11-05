@@ -439,7 +439,7 @@
             "path": "$.items[*].id",
             "op": "eq",
             "value": [
-              "work-blocked",
+              "work-new",
               "work-ready-high"
             ]
           },
@@ -473,8 +473,8 @@
             "path": "$.items[*].id",
             "op": "eq",
             "value": [
-              "work-new",
-              "work-ready-low"
+              "work-ready-low",
+              "work-blocked"
             ]
           },
           {

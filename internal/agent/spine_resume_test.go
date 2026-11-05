@@ -174,10 +174,10 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 	f := &spineFixture{s: s, service: service, env: mutationEnvelope(grant, scope), base: base}
 	capture := map[string]any{
 		"title": "Resume a checked value change",
-		"task": "The synthetic value needs a checked implementation and reviewed delivery.",
-		"kind": "task", "project_ids": []string{"project-1"},
+		"task":  "The synthetic value needs a checked implementation and reviewed delivery.",
+		"kind":  "task", "project_ids": []string{"project-1"},
 		"human_key": "ZZ-7002", "remote_issue_uuid": "fixture-spine-capture",
-		"url": "https://linear.app/example/issue/ZZ-7002",
+		"url":             "https://linear.app/example/issue/ZZ-7002",
 		"idempotency_key": "spine-capture",
 	}
 	if family == "workflow.break_fix" {

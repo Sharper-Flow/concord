@@ -425,13 +425,13 @@ test("capture keeps its closed surface and source-free research inputs validate"
   await publishRequestDefinition({ toolID: "concord_work_define" }, output)
   const expanded: any = expandedPublishedRequestSchema(output.jsonSchema)
   const capture = expanded.oneOf.find((branch: any) => branch.properties.operation.const === "capture").properties.input
-  const input = { title: "Research", value_statement: "Findings without source changes", kind: "research", task: "Investigate only", project_ids: ["project-1"], idempotency_key: "research" }
+  const input = { title: "Research", kind: "research", task: "Investigate only", project_ids: ["project-1"], human_key: "EX-1", remote_issue_uuid: "00000000-0000-4000-8000-000000000001", url: "https://example.com/issue/EX-1", idempotency_key: "research" }
   expect(validateAgainstSchema(capture, input, [])).toBe(true)
   expect(validateGeneratedPayload("work_define_capture_input", input)).toBe(true)
   const size_inputs = { behavior: "investigate", security: false, user_visible: false, blast_radius: "contained", estimated_production_lines: 20 }
   expect(validateAgainstSchema(capture, { ...input, size_inputs }, [])).toBe(false)
   expect(validateGeneratedPayload("work_define_capture_input", { ...input, size_inputs })).toBe(false)
-  const revise = { work_id: "work-1", expected_version: 1, title: "Research", value_statement: "Findings", kind: "research", reason: "Update", idempotency_key: "revise" }
+  const revise = { work_id: "work-1", expected_version: 1, title: "Research", kind: "research", reason: "Update", idempotency_key: "revise" }
   expect(validateGeneratedPayload("work_define_revise_input", revise)).toBe(true)
   expect(validateGeneratedPayload("work_define_revise_input", { ...revise, size_inputs })).toBe(false)
   expect((payloadSchemas as SchemaTable).work_summary.properties).not.toHaveProperty("size")

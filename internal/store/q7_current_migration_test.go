@@ -151,7 +151,7 @@ func TestQ7CreationMetadataDoesNotUseUnrelatedFrom(t *testing.T) {
 	// data into a real pre-receipt prefix; 145 and 150 backfill normally.
 	path := filepath.Join(t.TempDir(), "q7-creation-144.db")
 	db := openMigratedTo(t, path, 144)
-	copyFixtureDataToPrefix(t, s, db, []string{"products", "projects", "product_projects", "work_items", "work_projects"}, nil, "fold_guard")
+	copyFixtureDataToPrefix(t, s, db, []string{"products", "projects", "product_projects", "work_items", "work_projects"}, map[string]map[string]string{"work_items": {"priority": "0", "urgency": "'standard'"}}, "fold_guard")
 	for _, source := range append(parents, events...) {
 		var seq int64
 		if err := s.db.QueryRow(`SELECT effect_seq FROM effect_receipts WHERE event_id=?`, source.EventID).Scan(&seq); err != nil {

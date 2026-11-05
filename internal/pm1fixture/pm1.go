@@ -341,17 +341,10 @@ func fixtureTransitionStates(event Event, from, to string) (string, string) {
 
 func seedWorkRelations(ctx context.Context, s *store.Store, c Corpus, versions map[string]int64) error {
 	for _, r := range c.Fixtures.Relations {
-		switch r.Kind {
-		case "depends_on":
+		if r.Kind == "depends_on" {
 			event := fixtureEvent("relation-depends-"+r.Source+"-"+r.Target, "relation.added", 1, store.SubjectWorkItem, r.Target, "operator", "2026-08-06T00:00:00Z", map[string]any{"from": r.Target, "to": r.Source, "kind": "blocks", "reason": "fixture dependency", "expected_version": versions[r.Target], "resulting_version": versions[r.Target] + 1})
 			if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{event}}); err != nil {
 				return fmt.Errorf("pm1fixture: seed depends_on relation %s->%s: %w", r.Source, r.Target, err)
-			}
-			versions[r.Target]++
-		case "supersedes":
-			event := fixtureEvent("relation-supersedes", "work.superseded", 1, store.SubjectWorkItem, r.Target, "operator", "2026-08-06T00:00:00Z", map[string]any{"successor": r.Source, "superseded": r.Target, "reason": "fixture supersession", "expected_version": versions[r.Target], "resulting_version": versions[r.Target] + 1})
-			if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{event}}); err != nil {
-				return fmt.Errorf("pm1fixture: seed supersedes relation %s->%s: %w", r.Source, r.Target, err)
 			}
 			versions[r.Target]++
 		}
@@ -426,7 +419,6 @@ func writeFixtureRegistry(repo string) error {
 	}
 	return WriteKnowledgeShards(repo, registry)
 }
-
 
 func fixtureEvent(id, kind string, payloadVersion int, subject store.SubjectType, subjectID, actor, occurred string, payload map[string]any) store.Event {
 	raw, err := json.Marshal(payload)

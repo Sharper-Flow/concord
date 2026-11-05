@@ -455,7 +455,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		Payload: mustJSONValue(map[string]any{
 			"checkpoint_id": "checkpoint:evidence-context", "active_unit": "implementation",
 			"hypothesis": "the checked change holds", "diagnosis": "the evidence population holds the step",
-			"strategy": "hold the step and advance the version",
+			"strategy":     "hold the step and advance the version",
 			"touched_refs": []string{"internal/store/backup_test.go"}, "evidence_refs": []string{"internal/store/backup_test.go"},
 			"pending_questions": []string{}, "pending_decisions": []string{},
 		}),
@@ -582,7 +582,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 
 	// The restored store carries every population with full identity.
 	compareFingerprints("restored", restored.DatabaseForTesting())
-	if gotView := readCheckpointBytes("restored", restored.DatabaseForTesting()); string(gotView) != string(wantViewRaw) {
+	if gotView := readCheckpointBytes("restored", restored.DatabaseForTesting()); gotView != wantViewRaw {
 		t.Fatalf("restored view =\n%s\nwant\n%s", gotView, wantViewRaw)
 	}
 

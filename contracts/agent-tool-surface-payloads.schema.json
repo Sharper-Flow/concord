@@ -532,14 +532,13 @@
       ]
     },
     "lifecycle": {
-      "description": "Observed work lifecycle state. Every value the store can persist is permitted here so read paths and the work_browse_list_input filter can return/select any current state, including 'superseded'. Use this def for outputs and read-side filters; do NOT use it for transition targets, where supersession must remain atomic with its relation and only four agent-requestable values are permitted.",
+      "description": "Observed work lifecycle state for outputs and read-side filters.",
       "type": "string",
       "enum": [
         "needed",
         "in_progress",
         "completed",
-        "cancelled",
-        "superseded"
+        "cancelled"
       ]
     },
     "lifecycle_transition_target": {
@@ -2435,8 +2434,7 @@
             "blocked",
             "verifying",
             "completed",
-            "cancelled",
-            "superseded"
+            "cancelled"
           ],
           "type": "string"
         },

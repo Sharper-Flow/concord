@@ -20,7 +20,7 @@ func TestBoundedWorkReadsOmitIntentDetailButCarryUrgency(t *testing.T) {
 		"title": "Bounded reads stay bounded",
 		"task":  "Recorded instruction", "kind": "task",
 		"human_key": "ZZ-7004", "remote_issue_uuid": "fixture-bounds-capture-1",
-		"url":       "https://linear.app/example/issue/ZZ-7004",
+		"url":             "https://linear.app/example/issue/ZZ-7004",
 		"idempotency_key": "bounds-capture-1",
 	})
 	intentOnly := []string{"task"}

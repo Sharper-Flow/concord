@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -38,32 +39,189 @@ func TestFullWorkListProjectionMixedEnumeration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	task := strings.Repeat("<", 8188) + "界😀\\\""
+	task := strings.Repeat("<", 8183) + "界😀\\\""
 	intent, _ := json.Marshal(map[string]any{"task": task})
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1); UPDATE work_items SET intent_json=? WHERE id='work-1'; DELETE FROM write_guard`, string(intent)); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1); UPDATE work_items SET intent_json=?; DELETE FROM write_guard`, string(intent)); err != nil {
 		t.Fatal(err)
 	}
 	r := runtime{Store: s, Tool: "concord_work_browse", Operation: "list", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
+	base := agentcontract.NewBase("mixed-list", r.Tool, r.Operation)
+	for range 3 {
+		base.EvidenceRefs = append(base.EvidenceRefs, agentcontract.EvidenceRef{Kind: "artifact", Authority: "test", LocatorKind: "file", Locator: strings.Repeat("x", 2048)})
+	}
 	for _, limit := range []int{0, 1, 100} {
 		input := map[string]any{"product_id": "product-1", "detail": "full"}
 		if limit != 0 {
 			input["limit"] = limit
 		}
-		items, fragments := readFullListDocuments(t, ctx, r, input)
+		items, fragments := readFullListDocumentsWithBase(t, ctx, r, input, base)
 		seen := map[string]bool{}
 		for _, item := range items {
 			if seen[item.ID] {
 				t.Fatalf("duplicate item %s", item.ID)
 			}
 			seen[item.ID] = true
-			if item.ID == "work-1" && item.Task != task {
+			if item.Task != task {
 				t.Fatal("lost full oversized item")
 			}
 		}
-		if len(seen) != 3 || !seen["work-1"] || !seen["work-2"] || !seen["work-3"] {
+		if len(seen) != 3 || !seen["work-1"] || !seen["work-2"] || !seen["work-3"] || fragments < 2 {
 			t.Fatalf("limit=%d items=%v fragments=%d", limit, seen, fragments)
 		}
+		q, err := s.QueryQ3(ctx, store.Q3Request{Product: "product-1", Detail: "full", Limit: 100})
+		if err != nil || len(q.Items) != len(items) {
+			t.Fatalf("current order query: %v", err)
+		}
+		for i := range items {
+			if items[i].ID != q.Items[i].ID {
+				t.Fatalf("mixed page order at %d: got %s want %s", i, items[i].ID, q.Items[i].ID)
+			}
+		}
+	}
+}
 
+func projectionFixture(t *testing.T) (*store.Store, runtime, agentcontract.Envelope) {
+	t.Helper()
+	s, _, _ := workflowEngineFixture(t, "projection cursor")
+	task := strings.Repeat("<", 8192)
+	intent, err := json.Marshal(map[string]any{"title": "projection cursor", "kind": "task", "task": task})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET intent_json=? WHERE id='work-1'; DELETE FROM write_guard`, string(intent)); err != nil {
+		t.Fatal(err)
+	}
+	r := runtime{Store: s, Tool: "concord_work_browse", Operation: "list", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
+	base := agentcontract.NewBase("cursor-integrity", r.Tool, r.Operation)
+	for range 3 {
+		base.EvidenceRefs = append(base.EvidenceRefs, agentcontract.EvidenceRef{Kind: "artifact", Authority: "test", LocatorKind: "file", Locator: strings.Repeat("x", 2048)})
+	}
+	return s, r, base
+}
+
+func TestFullWorkListProjectionCursorIntegrity(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s, r, base := projectionFixture(t)
+	read := func(in map[string]any) agentcontract.Envelope {
+		raw, _ := json.Marshal(in)
+		out, err := r.read(ctx, base, raw, "PM1.Q3")
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertBoundedRead(t, out)
+		return out
+	}
+	input := map[string]any{"product_id": "product-1", "detail": "full", "limit": 1}
+	first := read(input)
+	var firstPart workListTestFragment
+	if err := json.Unmarshal(first.Result, &firstPart); err != nil || first.Error != nil || first.NextCursor == nil || firstPart.Encoding != "json-fragment" || firstPart.Complete {
+		t.Fatalf("first projection: %s %+v %v", first.Result, first.Error, err)
+	}
+	binding := pageBinding(workListInput{ProductID: "product-1", Detail: "full", Limit: 1}, func(in *workListInput) { in.Page.Cursor = nil })
+	inner, err := r.unwrapCursor(ctx, *first.NextCursor, binding, "summary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cursor workListProjectionCursor
+	if err := json.Unmarshal([]byte(inner), &cursor); err != nil {
+		t.Fatal(err)
+	}
+	refuse := func(in map[string]any) {
+		out := read(in)
+		if out.Error == nil || out.Error.Kind != "invalid_cursor" || out.Error.EffectState != agentcontract.EffectNone || len(out.Result) != 0 && string(out.Result) != "null" {
+			t.Fatalf("cursor emitted content: %+v", out)
+		}
+	}
+	for _, change := range []map[string]any{{"detail": "summary"}, {"work_ids": []string{"work-1"}}, {"limit": 2}, {"product_id": "product-other"}} {
+		in := map[string]any{"product_id": "product-1", "detail": "full", "limit": 1, "page": map[string]any{"cursor": *first.NextCursor}}
+		for k, v := range change {
+			in[k] = v
+		}
+		refuse(in)
+	}
+	parts := strings.Split(*first.NextCursor, ".")
+	outerRaw, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var outer SignedCursor
+	if err := json.Unmarshal(outerRaw, &outer); err != nil {
+		t.Fatal(err)
+	}
+	altered := cursor
+	altered.NextByteOffset++
+	innerRaw, _ := json.Marshal(altered)
+	outer.Inner = string(innerRaw)
+	outerRaw, _ = json.Marshal(outer)
+	tampered := base64.RawURLEncoding.EncodeToString(outerRaw) + "." + parts[1]
+	refuse(map[string]any{"product_id": "product-1", "detail": "full", "limit": 1, "page": map[string]any{"cursor": tampered}})
+	for _, offset := range []int64{-1, 0, 1 << 62} {
+		bad := cursor
+		bad.NextByteOffset = offset
+		raw, _ := json.Marshal(bad)
+		envelope := first
+		value := string(raw)
+		envelope.NextCursor = &value
+		signed, err := r.wrapCursor(ctx, envelope, binding, "summary")
+		if err != nil {
+			t.Fatal(err)
+		}
+		refuse(map[string]any{"product_id": "product-1", "detail": "full", "limit": 1, "page": map[string]any{"cursor": *signed.NextCursor}})
+	}
+	before, err := s.Revision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET title='different' WHERE id='work-1'; DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if after, err := s.Revision(ctx); err != nil || before != after {
+		t.Fatalf("digest fixture changed revision %d -> %d: %v", before, after, err)
+	}
+	refuse(map[string]any{"product_id": "product-1", "detail": "full", "limit": 1, "page": map[string]any{"cursor": *first.NextCursor}})
+	if err := pm1fixture.SeedWorkItem(ctx, s, "project-1", "work-drift", "drift", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.unwrapCursor(ctx, *first.NextCursor, binding, "summary"); err == nil {
+		t.Fatal("source drift must refuse independently of digest")
+	}
+}
+
+func TestFullWorkListProjectionFitsCapturedPageWithoutReread(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s, r, base := projectionFixture(t)
+	queries := 0
+	var expected json.RawMessage
+	response, err := pagedQuery(r, ctx, base, pageInput{}, 1, "captured-binding", func(inner string, limit int) store.Q3Request {
+		return store.Q3Request{Product: "product-1", Detail: "full", Limit: limit, Cursor: inner}
+	}, func(ctx context.Context, req store.Q3Request) (store.Q3Result, error) {
+		queries++
+		q, err := s.QueryQ3(ctx, req)
+		if err != nil {
+			return q, err
+		}
+		original, err := r.q3(base, q)
+		if err != nil {
+			return q, err
+		}
+		expected = original.Result
+		_, err = s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET title='changed after capture' WHERE id='work-1'; DELETE FROM write_guard`)
+		return q, err
+	}, r.q3, func(req store.Q3Request, q store.Q3Result, _ int) (agentcontract.Envelope, error) {
+		return r.workListProjectionPage(ctx, base, "captured-binding", workListProjectionCursor{Version: 1, ListCursor: req.Cursor}, q)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertBoundedRead(t, response)
+	var fragment workListTestFragment
+	if err := json.Unmarshal(response.Result, &fragment); err != nil {
+		t.Fatal(err)
+	}
+	if queries != 1 || fragment.Encoding != "json-fragment" || fragment.Digest != sha256Hex(expected) || fragment.Offset != 0 || fragment.Data != string(expected[:len(fragment.Data)]) {
+		t.Fatalf("fit recaptured or changed document: queries=%d error=%+v", queries, response.Error)
 	}
 }
 
@@ -71,8 +229,8 @@ func TestFullWorkListProjectionMultibyteEnvelopeFit(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _, _ := workflowEngineFixture(t, "multibyte projection")
-	task := strings.Repeat("界😀", 4096)
-	intent, _ := json.Marshal(map[string]any{"task": task, "workflow_type_ref": "workflow.break_fix"})
+	task := strings.Repeat("<", 8189) + "界"
+	intent, _ := json.Marshal(map[string]any{"task": task})
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1); UPDATE work_items SET intent_json=? WHERE id='work-1'; DELETE FROM write_guard`, string(intent)); err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +286,7 @@ func TestFullWorkListProjectionMultibyteEnvelopeFit(t *testing.T) {
 		t.Fatalf("mid-rune cursor emitted content: %+v", refusal.Error)
 	}
 	items, fragments := readFullListDocumentsWithBase(t, ctx, r, map[string]any{"product_id": "product-1", "detail": "full", "limit": 1}, base)
-	if len(items) != 1 || items[0].Task != task || fragments < 1 {
+	if len(items) != 1 || items[0].Task != task || fragments < 2 {
 		t.Fatalf("multibyte reconstruction lost content: items=%d fragments=%d", len(items), fragments)
 	}
 }
@@ -234,4 +392,3 @@ func readFullListDocumentsWithBase(t *testing.T, ctx context.Context, r runtime,
 	t.Fatal("list did not finish")
 	return nil, 0
 }
-

@@ -258,6 +258,8 @@ func TestLawIndexRetirementUpgradeAdmitsFolderAuthorityAndPreservesCurrentState(
 	)
 	before := retirementUpgradeSnapshot(t, db)
 	preservedBefore := catalogUpgradeRows(t, db, lawIndexPreservedTables...)
+	work := historicalCaptureWorkRows(t, db, "")
+	delete(preservedBefore, "work_items")
 
 	s, err := Open(t.Context(), path)
 	if err == nil {
@@ -278,7 +280,7 @@ func TestLawIndexRetirementUpgradeAdmitsFolderAuthorityAndPreservesCurrentState(
 		t.Fatalf("verified predecessor = %+v, %v", verified, err)
 	}
 
-	report, err := Upgrade(t.Context(), path, nil)
+	report, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot})
 	if err != nil {
 		t.Fatalf("guarded upgrade refused a folder-accounted law index: %v", err)
 	}
@@ -295,8 +297,13 @@ func TestLawIndexRetirementUpgradeAdmitsFolderAuthorityAndPreservesCurrentState(
 	if got := retirementUpgradeRows(t, db, `SELECT count(*) FROM schema_migrations WHERE version=174 AND breaking=1`); !reflect.DeepEqual(got, [][]any{{int64(1)}}) {
 		t.Fatalf("law index retirement manifest record = %v, want one breaking row for schema 174", got)
 	}
-	if after := catalogUpgradeRows(t, db, lawIndexPreservedTables...); !reflect.DeepEqual(preservedBefore, after) {
+	after := catalogUpgradeRows(t, db, lawIndexPreservedTables...)
+	delete(after, "work_items")
+	if !reflect.DeepEqual(preservedBefore, after) {
 		t.Fatal("the retirement changed preserved current state")
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT * FROM work_items ORDER BY id`); !reflect.DeepEqual(got, work) {
+		t.Fatalf("retained work changed: got %v want %v", got, work)
 	}
 
 	// The verified predecessor snapshot still holds the full pre-drop
@@ -364,7 +371,7 @@ func TestLawIndexRetirementRefusesMissingFolderLawAndAdmitsAfterMigration(t *tes
 	if moved == commit {
 		t.Fatal("the folder move produced no new commit")
 	}
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, outcomeSnapshotOption(t, t.Context(), path)); err != nil {
 		t.Fatalf("upgrade after the source migration refused: %v", err)
 	}
 	assertLawIndexRetired(t, db)
@@ -398,7 +405,7 @@ func TestLawIndexRetirementIgnoresUndesignatedHomeRows(t *testing.T) {
 			t.Fatalf("seed %s: %v", stmt.query, err)
 		}
 	}
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, outcomeSnapshotOption(t, t.Context(), path)); err != nil {
 		t.Fatalf("an undesignated home's legacy rows blocked the upgrade: %v", err)
 	}
 	assertLawIndexRetired(t, db)
@@ -430,7 +437,7 @@ func TestLawIndexRetirementRefusesInvalidFolderLawAndAdmitsAfterRepair(t *testin
 	if repaired == commit {
 		t.Fatal("the folder repair produced no new commit")
 	}
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, outcomeSnapshotOption(t, t.Context(), path)); err != nil {
 		t.Fatalf("upgrade after the folder repair refused: %v", err)
 	}
 	assertLawIndexRetired(t, db)
@@ -514,7 +521,7 @@ INSERT INTO law_index_drop_blocker VALUES('project-upgrade','law-home-locator','
 	retirementUpgradeHealthy(t, db)
 
 	retirementUpgradeExec(t, db, `DROP TABLE law_index_drop_blocker`)
-	report, err := Upgrade(t.Context(), path, nil)
+	report, err := Upgrade(t.Context(), path, nil, outcomeSnapshotOption(t, t.Context(), path))
 	if err != nil {
 		t.Fatalf("retry after removing the drop blocker: %v", err)
 	}

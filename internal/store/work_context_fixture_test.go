@@ -133,7 +133,7 @@ func workContextCheckpointPayload(id string) json.RawMessage {
 	payload := map[string]any{
 		"checkpoint_id": id, "active_unit": "implementation",
 		"hypothesis": "the checked change holds", "diagnosis": "the fixture holds the step",
-		"strategy": "hold the step and advance the version",
+		"strategy":     "hold the step and advance the version",
 		"touched_refs": []string{"internal/store/workflow.go"}, "evidence_refs": []string{"internal/store/workflow_test.go"},
 		"pending_questions": []string{}, "pending_decisions": []string{},
 	}

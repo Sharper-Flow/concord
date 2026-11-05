@@ -96,17 +96,6 @@ The read returns the inline payload whenever the complete result fits the
 fragment that fits that limit with its metadata and signed envelope. Every page
 carries at least one code point, so reconstruction always advances.
 
-## Work context
-
-The work-context declaration surface this section governed is retired
-([CON-1571](https://linear.app/sharper-flow/issue/CON-1571) end state 2, CD-0243 D3):
-the `record_work_context` action, the `workflow.work_context_recorded` event,
-the `work_context*` projections and their reads are gone. Migration 186 drops
-the tables; frozen migration replay code keeps historical stores upgradeable.
-No current action, fold, or read produces or consumes a work-context
-declaration. The context-checkpoint and context-boundary actions above are
-unaffected.
-
 ## Consequences
 
 Context continuity is held in current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) and does not add a

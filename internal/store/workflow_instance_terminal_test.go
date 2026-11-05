@@ -188,10 +188,7 @@ func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
 		t.Fatalf("seeded %d live instances, want %d", live, len(orphans))
 	}
 
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatalf("migration over orphaned instances: %v", err)
-	}
-	assertOrphansClosed := func(phase string) {
+	assertOrphansClosed := func(phase string, historical bool) {
 		t.Helper()
 		for workID, lifecycle := range orphans {
 			var state, completedAt, terminalTime string
@@ -199,9 +196,9 @@ func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := "cancelled"
-			if lifecycle == "superseded" {
+			if historical && lifecycle == "superseded" {
 				want = "superseded"
-			} else if lifecycle == "completed" {
+			} else if !historical && lifecycle == "completed" {
 				want = "completed"
 			}
 			if state != want {
@@ -212,5 +209,10 @@ func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
 			}
 		}
 	}
-	assertOrphansClosed("after migration")
+	advanceHistoricalPrefix(t, db, 75)
+	assertOrphansClosed("after migration 75", true)
+	if err := Migrate(outcomeSnapshotContext(t, ctx, db), db); err != nil {
+		t.Fatalf("migration over orphaned instances: %v", err)
+	}
+	assertOrphansClosed("after current migration", false)
 }

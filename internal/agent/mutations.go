@@ -705,7 +705,7 @@ func (plan *mutationPlan) declareInitialDurability(durable bool) {
 }
 
 // planCapture plans concord_work_define.capture.
-func (r runtime) planCapture(ctx context.Context, base agentcontract.Envelope, raw []byte, digest string, grant Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
+func (r runtime) planCapture(ctx context.Context, base agentcontract.Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
 	var in captureMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -1135,7 +1135,7 @@ func (r runtime) planSetMemberships(_ context.Context, base agentcontract.Envelo
 }
 
 // planResolveOverlap plans concord_work_relate.resolve_overlap.
-func (r runtime) planResolveOverlap(ctx context.Context, base agentcontract.Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
+func (r runtime) planResolveOverlap(_ context.Context, base agentcontract.Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
 	var in resolveOverlapMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true

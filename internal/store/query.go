@@ -768,18 +768,6 @@ func decodeRecordedIntent(item *WorkItem, intentJSON string) error {
 	return nil
 }
 
-func terminalOnlyQ3(states []string) bool {
-	if len(states) == 0 {
-		return false
-	}
-	for _, state := range states {
-		if !terminalState(state) {
-			return false
-		}
-	}
-	return true
-}
-
 func scanWorkItems(ctx context.Context, tx queryer, query string, args ...any) ([]WorkItem, error) {
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {

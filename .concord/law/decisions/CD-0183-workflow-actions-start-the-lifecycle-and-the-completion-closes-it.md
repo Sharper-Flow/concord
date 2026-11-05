@@ -56,8 +56,8 @@ wins. The value is a current row written in the starting transaction ([CD-0242 D
 The workflow complete action records `work.transitioned` and the workflow's
 terminal state in one transaction, so the lifecycle and the Linear status
 follow; these are current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). The terminal state for this action is `completed`. A completion that names
-`cancelled` or `superseded` refuses before any effect: cancellation keeps the
-lifecycle route, and supersession stays atomic with its relation. The instance keeps its completed
+`cancelled` refuses before any effect: cancellation keeps the
+lifecycle route. The instance keeps its completed
 state: the terminal-lifecycle close admits an item whose instance is already
 terminal and writes nothing there.
 
@@ -69,7 +69,7 @@ typed, and its remedy names the `workflow_action complete` action. At a parked
 delivery gate the remedy names `record_delivery` first, then the same
 completion action. It admits
 the target when the instance is already terminal: a completed instance is the
-stranded-item repair, and a cancelled or superseded instance closed before the
+stranded-item repair, and a cancelled instance closed before the
 item ended keeps the lifecycle route with its evidence gates. It
 also admits the target when the item carries no instance, which keeps imported
 items completable (CD-0094 D2). A `cancelled` target is unchanged. Recorded rows read back as they stand, and none is rewritten ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).

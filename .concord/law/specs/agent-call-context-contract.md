@@ -247,8 +247,6 @@ Every mutation of an existing canonical entity carries its expected version.
 - `revise_intent`, lifecycle, and workflow actions carry the work version.
 - membership replacement carries the work version.
 - relation link/unlink carries every affected endpoint version.
-- supersede/restore carries predecessor, current successor, and replacement
-  successor versions as applicable.
 - capture has no prior entity version but requires idempotency.
 
 Version mismatch fails before any effect and returns current

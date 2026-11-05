@@ -248,5 +248,3 @@ func TestMutationDurabilityConditionalPlans(t *testing.T) {
 		t.Error("membership replacement did not raise its durable effect boundary")
 	}
 }
-
-

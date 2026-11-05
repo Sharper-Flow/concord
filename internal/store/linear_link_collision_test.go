@@ -3,11 +3,12 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
-// One live work item per Linear issue (CON-1571 end state 1): the Linear
-// identity rides linear_issue_links, capture writes the link row in its own
+// One live work item per Linear issue (CD-0146): the Linear identity rides
+// linear_issue_links, capture writes the link row in the capture's
 // transaction, and a live holder of the key or UUID refuses. A terminal
 // holder never blocks a fresh capture.
 
@@ -49,24 +50,11 @@ func TestLinearLinkOneLiveItemPerIssue(t *testing.T) {
 			if !errors.As(err, &failure) || failure.Kind != KindInvalidRelation {
 				t.Fatalf("collision error = %v, want typed %s naming the live holder", err, KindInvalidRelation)
 			}
-			if !contains(failure.Detail, "link-first") {
+			if !strings.Contains(failure.Detail, "link-first") {
 				t.Fatalf("refusal must name the live holder: %+v", failure)
 			}
 		})
 	}
-}
-
-func contains(haystack, needle string) bool {
-	return len(haystack) >= len(needle) && (haystack == needle || len(needle) == 0 || indexOf(haystack, needle) >= 0)
-}
-
-func indexOf(haystack, needle string) int {
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if haystack[i:i+len(needle)] == needle {
-			return i
-		}
-	}
-	return -1
 }
 
 func TestLinearLinkTerminalHolderDoesNotBlock(t *testing.T) {
@@ -101,4 +89,40 @@ func TestLinearLinkWorkHoldsOneIdentity(t *testing.T) {
 	if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation {
 		t.Fatalf("different identity error = %v, want %s", err, KindInvalidOperation)
 	}
+}
+
+func TestLinearLinkReopenRefusesLiveHolder(t *testing.T) {
+	s := openTemp(t)
+	seedLinkWork(t, s, "link-old")
+	recordLink(t, s, "link-old", "CON-8110", "uuid-reopen")
+	v := readWorkVersion(t, s, "link-old")
+	if err := applyWorkEvent(t, s, workTransitionEvent("close-old", "link-old", "needed", "cancelled", v, v+1), workVersion("link-old", v)); err != nil {
+		t.Fatal(err)
+	}
+	seedLinkWork(t, s, "link-new")
+	recordLink(t, s, "link-new", "CON-8110", "uuid-reopen")
+	v = readWorkVersion(t, s, "link-old")
+	err := applyWorkEvent(t, s, workReopenedEvent("reopen-old", "link-old", "cancelled", v, v+1), workVersion("link-old", v))
+	if !hasFailureKind(err, KindInvalidRelation) {
+		t.Fatalf("reopen collision = %v, want invalid_relation", err)
+	}
+	if got := readWorkVersion(t, s, "link-old"); got != v {
+		t.Fatalf("refused reopen changed version: %d -> %d", v, got)
+	}
+	var state string
+	if err := s.db.QueryRow(`SELECT lifecycle FROM work_items WHERE id='link-old'`).Scan(&state); err != nil || state != "cancelled" {
+		t.Fatalf("refused reopen state %q: %v", state, err)
+	}
+}
+
+func TestLinearLinkTerminalAttachmentDoesNotClaimLiveIssue(t *testing.T) {
+	s := openTemp(t)
+	seedLinkWork(t, s, "link-live")
+	recordLink(t, s, "link-live", "CON-8111", "uuid-attach")
+	seedLinkWork(t, s, "link-past")
+	v := readWorkVersion(t, s, "link-past")
+	if err := applyWorkEvent(t, s, workTransitionEvent("close-past", "link-past", "needed", "cancelled", v, v+1), workVersion("link-past", v)); err != nil {
+		t.Fatal(err)
+	}
+	recordLink(t, s, "link-past", "CON-8111", "uuid-attach")
 }

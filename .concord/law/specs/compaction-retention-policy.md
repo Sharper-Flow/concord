@@ -58,14 +58,13 @@ stable canonical-home context:
 ```text
 id, type, title, completed_at, outcome_tag, lesson_tags,
 home_project_id, home_locator_id, note_path, commit_oid, content_hash,
-terminal_state, priority, summary,
-product_ids[], project_ids[], domain_ids[], tag_ids[], successor_work_id?
+terminal_state, summary,
+product_ids[], project_ids[], domain_ids[], tag_ids[]
 ```
 
 Scope is frozen at the note's recorded revision. Later memberships do not
-rewrite it. `completed_at` is the terminal timestamp for completed, cancelled
-and superseded work; PM1's `terminal_at` maps to it. A superseded historical
-item's recorded successor remains readable. Historical edges carry no mutable
+rewrite it. `completed_at` is the terminal timestamp for completed and cancelled
+work; PM1's `terminal_at` maps to it. Historical edges carry no mutable
 blocker, readiness, evidence or per-Project status.
 
 Q2/Q3 answer over the retained current-state population with PM5 membership
@@ -76,7 +75,7 @@ store read, and a store that cannot answer refuses as `unreachable` rather than
 serving stale or guessed rows.
 
 Q7 reads available current-state records, not an exact event history or process
-receipt. Q8 resolves historical supersession from retained recorded metadata.
+receipt.
 An already historical identity cannot reopen; renewed need uses a new identity
 linked to the old one without changing the historical note.
 

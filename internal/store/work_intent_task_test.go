@@ -14,7 +14,7 @@ func TestCapturePersistsTaskAndFullReadReturnsIt(t *testing.T) {
 	seedBootstrapStoreAuthority(t, s, repo)
 
 	const workID, task = "captured-task", "persist this task"
-	create := operationEvent("captured-task-create", "work.created", SubjectWorkItem, workID, map[string]any{"work_kind": "task", "title": "Task", "task": task,})
+	create := operationEvent("captured-task-create", "work.created", SubjectWorkItem, workID, map[string]any{"work_kind": "task", "title": "Task", "task": task})
 	create.PayloadVersion = CurrentEventPayloadVersion("work.created")
 	membership := operationEvent("captured-task-membership", "work.memberships_replaced", SubjectWorkItem, workID, map[string]any{"memberships": []workMembershipPayload{{ProjectID: "project-bootstrap", Role: "primary"}}, "expected_version": 1, "resulting_version": 2})
 	if err := ApplyOperation(t.Context(), s, Operation{Events: []Event{create, membership}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
@@ -60,7 +60,7 @@ func TestIntentRevisionTaskRoundTripPreservesAbsentAndReplacesPresent(t *testing
 	assertStoredTask(t, s, "task-work", "initial task")
 
 	updatedTask := "updated task"
-	withTaskPayload, err := json.Marshal(map[string]any{"title": "Revised again", "value_statement": "Revised statement again", "kind": "task", "task": updatedTask, "priority": 4, "tags": []string{}, "reason": "clarified again", "expected_version": 3, "resulting_version": 4})
+	withTaskPayload, err := json.Marshal(map[string]any{"title": "Revised again", "kind": "task", "task": updatedTask, "reason": "clarified again", "expected_version": 3, "resulting_version": 4})
 	if err != nil {
 		t.Fatal(err)
 	}

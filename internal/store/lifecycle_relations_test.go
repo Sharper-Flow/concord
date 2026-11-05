@@ -28,7 +28,6 @@ func workReopenedEvent(eventID, id, from string, expected, resulting int64) Even
 	})
 }
 
-
 func relationAddedEvent(eventID, kind, from, to string, expected, resulting int64) Event {
 	return operationEvent(eventID, "relation.added", SubjectWorkItem, from, map[string]any{
 		"from": from, "to": to, "kind": kind, "reason": "test", "expected_version": expected, "resulting_version": resulting,
@@ -184,33 +183,6 @@ func TestWorkLifecycleRejectsStaleExpectedVersionWithoutMutation(t *testing.T) {
 
 func TestPM4EvidenceFieldsRequireReasons(t *testing.T) {
 	t.Parallel()
-	t.Run("supersession", func(t *testing.T) {
-		s := openTemp(t)
-		seedWork(t, s, "a")
-		seedWork(t, s, "b")
-		before := fullPM4Snapshot(t, s)
-		err := applyWorkEvent(t, s, operationEvent("missing-reason", "work.superseded", SubjectWorkItem, "b", map[string]any{
-			"successor": "a", "superseded": "b", "reason": "", "expected_version": 1, "resulting_version": 2,
-		}), workVersion("b", 2))
-		assertFailureKind(t, err, KindInvalidPayload)
-		if got := fullPM4Snapshot(t, s); got != before {
-			t.Fatalf("missing supersession reason mutated projection =\n%s\nwant\n%s", got, before)
-		}
-	})
-
-	t.Run("reopen from superseded", func(t *testing.T) {
-		s := openTemp(t)
-		seedState(t, s, "b", "superseded")
-		before := fullPM4Snapshot(t, s)
-		err := applyWorkEvent(t, s, operationEvent("missing-reason", "work.reopened_from_superseded", SubjectWorkItem, "b", map[string]any{
-			"superseded": "b", "replacement_successor": "replacement", "reason": "", "expected_version": 2, "resulting_version": 3,
-		}), workVersion("b", 3))
-		assertFailureKind(t, err, KindInvalidPayload)
-		if got := fullPM4Snapshot(t, s); got != before {
-			t.Fatalf("missing reopen reason mutated projection =\n%s\nwant\n%s", got, before)
-		}
-	})
-
 	t.Run("relation added", func(t *testing.T) {
 		s := openTemp(t)
 		seedWork(t, s, "a")
@@ -276,7 +248,6 @@ func TestRelationRemovedRejectsStaleExpectedVersionWithoutMutation(t *testing.T)
 		t.Fatalf("stale relation removal mutated projection =\n%s\nwant\n%s", got, before)
 	}
 }
-
 
 func TestRelationKindsEnforceTheirOwnGraphRules(t *testing.T) {
 	t.Parallel()
@@ -380,7 +351,7 @@ func TestRelationRemovalAndFoldGuard(t *testing.T) {
 		name string
 		stmt string
 	}{
-		{"work insert", `INSERT INTO work_items (id, kind, title, lifecycle, priority, version, created_at, updated_at) VALUES ('x', 'task', 'x', 'needed', 1, 1, 'now', 'now')`},
+		{"work insert", `INSERT INTO work_items (id, kind, title, lifecycle, version, created_at, updated_at) VALUES ('x', 'task', 'x', 'needed', 1, 'now', 'now')`},
 		{"work update", `UPDATE work_items SET title = 'changed' WHERE id = 'a'`},
 		{"work delete", `DELETE FROM work_items`},
 		{"relation insert", `INSERT INTO relations (work_id_from, work_id_to, kind, created_at) VALUES ('a', 'b', 'parent', 'now')`},
@@ -401,7 +372,7 @@ func fullPM4Snapshot(t *testing.T, s *Store) string {
 		query string
 		work  bool
 	}{
-		{`SELECT id, kind, title, lifecycle, priority, version, created_at, updated_at, coalesce(terminal_time, '') FROM work_items ORDER BY id`, true},
+		{`SELECT id, kind, title, lifecycle, version, created_at, updated_at, coalesce(terminal_time, '') FROM work_items ORDER BY id`, true},
 		{`SELECT id, work_id_from, work_id_to, kind, created_at FROM relations ORDER BY id`, false},
 	} {
 		rows, err := s.DatabaseForTesting().Query(tc.query)
@@ -411,12 +382,12 @@ func fullPM4Snapshot(t *testing.T, s *Store) string {
 		defer rows.Close()
 		for rows.Next() {
 			var id, from, to, kind, title, lifecycle, createdAt, updatedAt, terminal string
-			var priority, version int64
+			var version int64
 			if tc.work {
-				if err := rows.Scan(&id, &kind, &title, &lifecycle, &priority, &version, &createdAt, &updatedAt, &terminal); err != nil {
+				if err := rows.Scan(&id, &kind, &title, &lifecycle, &version, &createdAt, &updatedAt, &terminal); err != nil {
 					t.Fatal(err)
 				}
-				out += fmt.Sprintf("work|%s|%s|%s|%s|%d|%d|%s|%s|%s\n", id, kind, title, lifecycle, priority, version, createdAt, updatedAt, terminal)
+				out += fmt.Sprintf("work|%s|%s|%s|%s|%d|%s|%s|%s\n", id, kind, title, lifecycle, version, createdAt, updatedAt, terminal)
 			} else {
 				if err := rows.Scan(&id, &from, &to, &kind, &createdAt); err != nil {
 					t.Fatal(err)
@@ -502,7 +473,7 @@ func TestWorkCreatedRejectsMismatchedWorkID(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	event := operationEvent("mismatched-create", "work.created", SubjectWorkItem, "work-subject", map[string]any{
-		"work_id": "work-payload", "work_kind": "task", "title": "Mismatch", 
+		"work_id": "work-payload", "work_kind": "task", "title": "Mismatch",
 	})
 	err := applyWorkEvent(t, s, event, workVersion("work-subject", 0))
 	assertFailureKind(t, err, KindInvalidPayload)

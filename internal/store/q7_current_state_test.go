@@ -47,7 +47,7 @@ func TestQ7CurrentTransitionAndTieCursor(t *testing.T) {
 	// live is retired (CON-1571 end state 2).
 	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,relation_seq) VALUES('q7-capture',(SELECT COALESCE(MAX(effect_seq),0)+5 FROM effect_receipts),'relation.added','work_item','q7-captured','operator',1,1);
-INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,transition_from,transition_reason,transition_actor,transition_evidence_refs,transition_seq,transition_version) VALUES('q7-captured','task','Tie cursor witness','needed',0,1,'2026-08-07T12:00:00Z','2026-08-07T12:00:00Z',NULL,'capture acknowledges the colliding external reference','operator','[]',(SELECT COALESCE(MAX(effect_seq),0) FROM effect_receipts),1);
+INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at,transition_from,transition_reason,transition_actor,transition_evidence_refs,transition_seq,transition_version) VALUES('q7-captured','task','Tie cursor witness','needed',1,'2026-08-07T12:00:00Z','2026-08-07T12:00:00Z',NULL,'capture acknowledges the colliding external reference','operator','[]',(SELECT COALESCE(MAX(effect_seq),0) FROM effect_receipts),1);
 INSERT INTO relations(id,work_id_from,work_id_to,kind,created_at,reason,record_version) VALUES(1,'q7-captured','q7-origin','raised_from','2026-08-07T12:00:00Z','capture acknowledges the colliding external reference',1);
 DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
@@ -104,7 +104,7 @@ DELETE FROM write_guard`); err != nil {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = s.QueryQ7(t.Context(), Q7Request{Work: "q7-prior", Direction: direction, Cursor: base64.RawURLEncoding.EncodeToString(raw)})
+		_, err = s.QueryQ7(t.Context(), Q7Request{Work: "q7-captured", Direction: direction, Cursor: base64.RawURLEncoding.EncodeToString(raw)})
 		assertFailureKind(t, err, KindInvalidCursor)
 		if err := s.Transact(t.Context(), func(tx *Transaction) error { return advanceStoreRevision(t.Context(), tx.tx) }); err != nil {
 			t.Fatal(err)

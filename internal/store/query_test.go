@@ -110,23 +110,6 @@ func TestQueryRejectsInvalidFilterAndCursorBinding(t *testing.T) {
 	assertFailureKind(t, err, KindInvalidCursor)
 }
 
-func TestTerminalOnlyQ3RecognizesEveryTerminalFilter(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		states []string
-		want   bool
-	}{
-		{states: []string{"completed"}, want: true},
-		{states: []string{"cancelled"}, want: true},
-		{states: []string{"needed", "completed"}, want: false},
-		{states: nil, want: false},
-	} {
-		if got := terminalOnlyQ3(tc.states); got != tc.want {
-			t.Fatalf("terminalOnlyQ3(%v) = %t, want %t", tc.states, got, tc.want)
-		}
-	}
-}
-
 func TestQueryDeduplicatesMultipleProjectMemberships(t *testing.T) {
 	t.Parallel()
 	s := seedQueryFixture(t)

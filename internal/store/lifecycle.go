@@ -68,7 +68,6 @@ type workReopenedPayload struct {
 	ResultingVersion int64  `json:"resulting_version"`
 }
 
-
 type relationPayload struct {
 	From               string `json:"from"`
 	To                 string `json:"to"`
@@ -97,8 +96,7 @@ func isTerminalLifecycle(v string) bool {
 	return false
 }
 
-// The ordinary transition table deliberately excludes supersession and reopen.
-// Those composite operations have extra relation and terminality invariants.
+// Reopen checks the issue identity before returning terminal work to needed.
 var ordinaryTransitions = map[string]map[string]bool{
 	"needed":      {"in_progress": true, "completed": true, "cancelled": true},
 	"in_progress": {"needed": true, "completed": true, "cancelled": true},
@@ -144,8 +142,8 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 		return wrapFailure(KindInvalidPayload, "fold_event", "cannot encode work intent", false, "supply a JSON-safe intent", err)
 	}
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO work_items (id, kind, title, lifecycle, priority, urgency, version, created_at, updated_at, terminal_time, intent_json, transition_actor, transition_seq)
-		VALUES (?, ?, ?, 'needed', 0, 'standard', 1, ?, ?, NULL, ?, ?, ?)`,
+		INSERT INTO work_items (id, kind, title, lifecycle, version, created_at, updated_at, terminal_time, intent_json, transition_actor, transition_seq)
+		VALUES (?, ?, ?, 'needed', 1, ?, ?, NULL, ?, ?, ?)`,
 		event.SubjectID, payload.WorkKind, payload.Title, now, now, string(intent), event.Actor, event.Seq)
 	if err != nil {
 		if sqlitedb.IsUniqueViolation(err) {
@@ -344,6 +342,15 @@ func foldWorkReopened(ctx context.Context, tx *sql.Tx, event Event) error {
 	if current.lifecycle != payload.From {
 		return illegalTransition(current.lifecycle, "needed")
 	}
+	link, found, err := readLinearLinkCore(ctx, tx, event.SubjectID)
+	if err != nil {
+		return err
+	}
+	if found {
+		if err := requireAvailableLinearIssue(ctx, tx, link); err != nil {
+			return err
+		}
+	}
 	if err := validateWorkVersion(event.SubjectID, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}
@@ -352,7 +359,6 @@ func foldWorkReopened(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion)
 }
-
 
 func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
@@ -530,19 +536,6 @@ func readWork(ctx context.Context, tx *sql.Tx, id string) (workProjection, error
 	return work, nil
 }
 
-func workExists(ctx context.Context, tx *sql.Tx, id string) (bool, error) {
-	var exists int
-	err := tx.QueryRowContext(ctx, `SELECT 1 FROM work_items WHERE id = ?`, id).Scan(&exists)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, wrapFailure(KindUnavailable, "fold_event", "cannot inspect work item projection", true,
-			"retry once the database is readable", err)
-	}
-	return true, nil
-}
-
 // validateWorkVersion refuses when subjectID's stored version disagrees with the
 // version the caller pinned for it. A two-sided fold validates one version per
 // endpoint, so the subject is a parameter rather than the event's subject: an
@@ -602,7 +595,7 @@ func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle
 			"reload the work item before applying the lifecycle event")
 	}
 	if isTerminalLifecycle(lifecycle) {
-		if err := closeWorkflowInstanceForTerminalLifecycle(ctx, tx, event.SubjectID, lifecycle, now); err != nil {
+		if err := closeWorkflowInstanceForTerminalLifecycle(ctx, tx, event.SubjectID, now); err != nil {
 			return err
 		}
 		return discardTerminalWorkflowStepsTx(ctx, tx, event.SubjectID)
@@ -638,11 +631,10 @@ func refuseLiveWorkflowLifecycleCompletionTx(ctx context.Context, tx *sql.Tx, wo
 // records the abandoned workflow as cancelled while the item's lifecycle
 // carries the outcome and its evidence. An instance that already reached a
 // terminal state keeps that record: workflow.completed is the only fold that
-// may mark an instance completed. Historical 'superseded' instance rows from
-// the retired supersession kinds stay readable untouched.
-func closeWorkflowInstanceForTerminalLifecycle(ctx context.Context, tx *sql.Tx, workID, lifecycle, at string) error {
+// may mark an instance completed.
+func closeWorkflowInstanceForTerminalLifecycle(ctx context.Context, tx *sql.Tx, workID, at string) error {
 	state := "cancelled"
-	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?, completed_at=? WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded')`, state, at, workID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?, completed_at=? WHERE work_id=? AND instance_state NOT IN ('completed','cancelled')`, state, at, workID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot close the workflow instance of a terminal work item", true,
 			"retry once the database is writable", err)
 	}

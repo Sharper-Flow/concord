@@ -29,7 +29,7 @@ func TestWorkReadsKeepCaptureTimeAcrossRevisionAndResume(t *testing.T) {
 	t.Parallel()
 	s, ctx, service, env, workID := seedIntentRoundtripWork(t, map[string]any{
 		"title": "Read native capture time",
-		"kind": "task", "task": "Original instruction",
+		"kind":  "task", "task": "Original instruction",
 		"human_key": "ZZ-7011", "remote_issue_uuid": "fixture-capture-time",
 		"url": "https://linear.app/example/issue/ZZ-7011", "idempotency_key": "capture-time",
 	})

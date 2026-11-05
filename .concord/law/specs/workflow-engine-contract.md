@@ -155,7 +155,7 @@ the new type's missing required steps; it never removes a step.
 
 `instance_state` is closed:
 `intake`, `running`, `blocked`, `verifying`,
-`completed`, `cancelled`, `superseded`.
+`completed`, `cancelled`.
 
 | From | To | Operation | Authority/fence |
 |---|---|---|---|
@@ -169,7 +169,7 @@ the new type's missing required steps; it never removes a step.
 
 An action failure records its typed failure result; it does not invent a state.
 Recoverable failures leave the instance in `running` or `blocked`.
-A completed, cancelled, or superseded instance is immutable.
+A completed or cancelled instance is immutable.
 Each action is one expected-version-checked, idempotent domain
 transaction with its operation result and effect receipts. There is no separate
 step claim, takeover or claim/settle protocol. Native authorities own external
@@ -207,7 +207,7 @@ the rows below do not repeat this pair.
 | `workflow.native_run_recorded` | `work_id`, `run_id` (1–128), `native_subject_ref` (1–2048 opaque non-secret), `subject_digest` (core-derived), `phase` (`start`/`health`/`rollback`/`cleanup`, fixed by the action ID), `status` (closed per-phase vocabulary), `evidence_ref`, `evidence_digest`, `asserted_at` (RFC3339, within the two-minute report skew bound), `reporting_authority_ref` (the authenticated actor's client, never caller input), `actor_ref`, and the embedded CD-0040 capture component: `capture_method`, the closed `observed_universe` structure (one item, exactly scoped, complete by closed-structure digest — validated by the shared D4 rules when recorded and read), the derived content-hashed `freshness_policy_ref`/`divergence_policy_ref` from the reviewed per-kind register, and the `observation_id` the run's phases share. The mutation registers that observation in `external_observations` as its shared provenance home, so one verification record answers every phase row and the attributed read (`NativeRunReport`) carries the derived verification state. |
 | `workflow.premise_confirmed` | `work_id`, `contract_version`, `confirming_actor_ref` |
 | `workflow.successor_linked` | `work_id`, `successor_work_id`, `relation_kind` (`forward_link`) |
-| `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`, `superseded`), `premise_confirmed` (boolean), `evidence_count` (non-negative, derived from the item's bound evidence history), `changed_refs_digest` (digest), `impact_verdict` (`breaking` or `non-breaking`), `warnings` (0–16 staleness-rule IDs) |
+| `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`), `premise_confirmed` (boolean), `evidence_count` (non-negative, derived from the item's bound evidence history), `changed_refs_digest` (digest), `impact_verdict` (`breaking` or `non-breaking`), `warnings` (0–16 staleness-rule IDs) |
 
 `legislative_subjects` belongs to the exact contract version that recorded it.
 Legislative standing also requires the operator-approved contract and the other
@@ -380,14 +380,14 @@ Workflow state is current rows written by each mutation in one transaction, and 
 | step completed | append the step's attempt through the plan-write check; the frontier derives from completions, and no step pointer is stored |
 | contract recorded/updated | insert the immutable contract version; an ordinary update atomically makes the next version current under §4.1 |
 | candidate set revised | insert added candidates and delete only the named removed candidates for that contract; premise and outcome bytes are untouched |
-| backlog alignment recorded | insert the declaration row and, when the outcome is `related_found`, one row per named work id; the alignment action records the candidate set only and creates no relation, so work-to-work relation creation stays with `resolve_overlap`, capture's `raised_from` provenance, and the workflow `link_successor` action |
+| backlog alignment recorded | insert the declaration row and, when the outcome is `related_found`, one row per named work id; the alignment action records the candidate set only and creates no relation |
 | actor recorded | insert once; a different tuple for an existing `actor_ref` is refused |
 | action started/checkpointed/completed/failed | update instance state/checkpoint timestamps and insert/update checkpoint rows; a repeated idempotency key returns the stored result without a second effect |
 | evidence bound | write to the existing evidence authority; it is not copied into a workflow-only authority |
 | premise confirmed | insert operator confirmation |
 | successor linked | write the existing `forward_link` relation; workflow state remains independent |
 | completed | retain terminal current-state identity and reported delivery links and dispose workflow step records atomically after the completion transaction's prior clauses pass; no publication, closure hash or deferred cleanup |
-| work item terminal (`work.transitioned` to `completed` or `cancelled`, `work.superseded`) | close a live instance in the same transaction: `superseded` mirrors the lifecycle, `cancelled` and completed-by-lifecycle both record `cancelled` because the completion gate never ran; an instance already terminal keeps its record |
+| work item terminal (`work.transitioned` to `completed` or `cancelled`) | close a live instance in the same transaction: `cancelled` and completed-by-lifecycle both record `cancelled` because the completion gate never ran; an instance already terminal keeps its record |
 
 ## 6. Independent Review
 

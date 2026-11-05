@@ -1,9 +1,9 @@
 package agent
 
 import (
-	"fmt"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"testing"
 
@@ -89,11 +89,11 @@ func captureCompositionWork(t *testing.T, ctx context.Context, s *store.Store, s
 	t.Helper()
 	input := map[string]any{
 		"title": title, "kind": kind,
-		"project_ids": []string{"project-1"},
-		"human_key":   fmt.Sprintf("ZZ-%d", len(idempotencyKey)+7000),
+		"project_ids":       []string{"project-1"},
+		"human_key":         fmt.Sprintf("ZZ-%d", len(idempotencyKey)+7000),
 		"remote_issue_uuid": "fixture-" + idempotencyKey,
-		"url":              "https://linear.app/example/issue/ZZ",
-		"idempotency_key":  idempotencyKey,
+		"url":               "https://linear.app/example/issue/ZZ",
+		"idempotency_key":   idempotencyKey,
 	}
 	raw, err := json.Marshal(input)
 	if err != nil {

@@ -46,7 +46,7 @@
       "properties": {
         "id": {"$ref": "#/$defs/id"},
         "kind": {"type": "string", "enum": ["task", "bug", "decision", "research", "other"]},
-        "state": {"type": "string", "enum": ["needed", "in_progress", "completed", "cancelled", "superseded"]},
+        "state": {"type": "string", "enum": ["needed", "in_progress", "completed", "cancelled"]},
         "workflow_type": {"$ref": "#/$defs/nullableWorkflowType"}
       }
     },

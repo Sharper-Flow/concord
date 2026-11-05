@@ -27,7 +27,7 @@ func TestLawProofPreservesSourceResolutionFailure(t *testing.T) {
 				} else if err := os.Remove(filepath.Join(home.RepoPath, ".git", "refs", "remotes", "origin", "HEAD")); err != nil {
 					t.Fatal(err)
 				}
-				ctx, err := s.EstablishKnowledgeSourceSetProofForProject(t.Context(), home.HomeProjectID)
+				ctx, err := establishKnowledgeSourceSetProofForProject(t.Context(), s, home.HomeProjectID)
 				if !designated {
 					if err != nil {
 						t.Fatalf("standalone preparation must defer its source failure: %v", err)

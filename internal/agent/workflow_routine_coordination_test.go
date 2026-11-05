@@ -361,4 +361,3 @@ func TestRoutineCoordinationCrossProductRoutineKindRefusesWithoutCrossScope(t *t
 		t.Fatal("unauthorized request changed the pair")
 	}
 }
-

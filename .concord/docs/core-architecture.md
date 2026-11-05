@@ -54,7 +54,7 @@ tool catalog. Go-core is greenfield Concord code.
 ### Go owns
 
 - Domain model: Product, membership, lifecycle stage, bounded Domain relations,
-  and work-item supersession.
+  and work-item relations.
 - Durable-state rules: current-state transactions checked by expected version
   and idempotency key, with no event log, fold, upcaster, or replay, and
   single-derivation enforcement (SQLite sole authority per CD-0002;

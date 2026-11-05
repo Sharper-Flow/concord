@@ -18,14 +18,10 @@
     },
     {
       "criterion": 3,
-      "exemption": "Atomicity of the supersede operation is not observable through a query fixture. The guarantee is proved by TestSupersessionIsAtomicAndRejectsCyclesAndSecondSuccessors (internal/store/lifecycle_relations_test.go)."
+      "exemption": "Reopen is proved by TestLifecycleTransitionsAreClosedAndTyped (internal/store/lifecycle_relations_test.go)."
     },
     {
       "criterion": 4,
-      "exemption": "The composite reopen event is an operation property, not a query answer. The guarantee is proved by TestSupersessionRejectsAlreadySupersededAndReopenRequiresCompositeEvent (internal/store/lifecycle_relations_test.go)."
-    },
-    {
-      "criterion": 5,
       "exemption": "List readiness and blocker release are proved by TestOverlapBlocksRemovesWorkFromReady (internal/store/planning_operation_retirement_test.go)."
     }
   ]
@@ -72,8 +68,7 @@ MCP server; Concord keeps no grouping projection or membership authoring.
 
 The binding contract is sections 1 through 6: the decision, the closed
 lifecycle state set and transitions, the derived work views, the relation
-model, the validation and atomic operations including supersession and
-external blockers, and the structural invariants. Sections 7 through 11
+model, validation and atomic operations, and structural invariants. Sections 7 through 11
 record corpus fixture compatibility, rejected alternatives, deferred scope,
 falsifiers, and sources, and carry no obligation.
 ## 1. Decision
@@ -97,7 +92,9 @@ summary flags to drift from truth. Accepted PM5 supplies membership identity.
 | `in_progress` | nonterminal | Work is actively underway. |
 | `completed` | terminal | Intended outcome was delivered. |
 | `cancelled` | terminal | Work intentionally ended without delivery. |
-| `superseded` | terminal | Another canonical work item replaced this item. |
+
+Upgrade maps previously superseded work to `cancelled` and retains the verified
+snapshot under the existing upgrade admission rule.
 
 `blocked`, `ready`, `active`, and `terminal` are not lifecycle states. No independent
 `is_blocked`, `is_ready`, or `is_terminal` column exists.
@@ -117,16 +114,14 @@ needed      → in_progress | completed | cancelled
 in_progress → needed | completed | cancelled
 completed   → needed       (explicit reopen)
 cancelled   → needed       (explicit reopen)
-needed | in_progress | completed | cancelled
-            → superseded   (only through the atomic supersession operation)
-superseded  → needed       (only after removing/replacing its supersession edge)
 ```
 
 - Every transition is one recorded current-row mutation in one
   SQLite transaction (CD-0002 I4;
   [CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 - Reopen is an explicit recorded transition with actor, reason, expected version, and prior
-  terminal state. It never edits or deletes the terminal record it reopens.
+  terminal state. It never edits or deletes the terminal record it reopens. It refuses
+  if another live item holds the same Linear issue key or UUID.
 - `in_progress → needed` means intentionally paused/returned to the queue; it is
   not a hidden blocked state.
 - Terminal reason/evidence fields required by the accepted operation commit in the
@@ -146,7 +141,7 @@ new identity from the surviving planning record.
 For work item `W`:
 
 - `actionable(W)` iff its work kind is not retired from execution;
-- `terminal(W)` iff lifecycle is `completed`, `cancelled`, or `superseded`;
+- `terminal(W)` iff lifecycle is `completed` or `cancelled`;
 - `active(W)` iff `actionable(W)` and lifecycle is `in_progress`;
 - `blocked(W)` iff `actionable(W)` and at least one actionable nonterminal work
   item has a stored `blocks` edge to `W`;
@@ -160,14 +155,12 @@ CD-0213 retires the `initiative` kind from execution. Its historical lifecycle
 and record remain readable, but actionable views do not select it.
 
 A terminal blocker resolves its outgoing blocking effect regardless of which
-terminal state it reached. History still explains whether it completed, was
-cancelled, or was superseded. Under CD-0213 D8, a blocker of a kind retired from
+terminal state it reached. Under CD-0213 D8, a blocker of a kind retired from
 execution has no blocking effect. Its stored edge stays readable as history.
 Parent relations do not silently block children or auto-transition parents.
 Any progress roll-up is a derived read model.
 
-PM1 ranking remains: explicit priority, creation time, stable ID. Lifecycle stage
-is displayed but does not silently rewrite business priority.
+PM1 defines deterministic ordering. Lifecycle stage does not imply business priority.
 
 ## 4. Relation model
 
@@ -178,23 +171,16 @@ read names are part of the contract; callers never create mirrored rows.
 |---|---|---|---|
 | `parent`: A parent-of B | B child-of A | Work hierarchy/containment | no self-edge, duplicate, or cycle |
 | `blocks`: A blocks B | B depends-on A (`blocked-by` display alias) | B is not ready while A is nonterminal | no self-edge, duplicate, or cycle |
-| `supersedes`: A supersedes B | B superseded-by A | A is B's canonical replacement | no self-edge, duplicate, cycle, or second direct successor for B |
 | `implements`: A implements B | B implemented-by A | A fulfills another work item | no self-edge or duplicate; no lifecycle effect |
+| `raised_from`: B raised-from A | A raised B | B was raised while working on A | no self-edge, duplicate, or cycle; non-blocking |
 
-CD-0222's work-pair grammar adds version-pinned `merged_into` and
-architecture-sequencing use of `blocks`/`depends_on`/`supersedes`; its
-implementation issue must update this table, schemas, records, and conformance in
-one major rather than partially accepting new relation strings.
+The `raised_from` relation carries a nonempty reason, records provenance only, and asserts no
+dependency, hierarchy, or replacement. It does not bypass Linear issue collision
+admission and has no removal operation. It does not create an assignment, claim,
+lease, executor, or per-work-item concurrency fence.
 
-`depends_on` is not a second stored relation kind. “A depends on B” is stored once
-as `B blocks A`. This removes mirrored-edge reconciliation and follows the relation
-models used by Jira, Bugzilla, Linear, Plane, and GitHub Issues.
-
-`implements` is a non-governing fulfillment link: it does not determine readiness,
-terminality, or hierarchy, so PM4 imposes no transitive-closure/cycle rule on it.
-
-PM4 supersession is a work-item relation only. It does not imply a generic
-Product, Project, resource, or other entity migration model.
+`implements` is a non-governing fulfillment link. It does not determine readiness,
+terminality, or hierarchy, and imposes no transitive-closure or cycle rule.
 
 `relates_to` is excluded because no accepted PM1 job requires an untyped symmetric
 link. Add it only through a future demonstrated query need.
@@ -203,7 +189,7 @@ link. Add it only through a future demonstrated query need.
 
 ### 5.1 Graph validity
 
-Before inserting `parent`, `blocks`, or `supersedes`, Concord evaluates the
+Before inserting `parent`, `blocks`, or `raised_from`, Concord evaluates the
 **resulting graph** inside the same transaction. A cycle-creating operation fails
 closed with typed `invariant_violation`; no row commits.
 
@@ -212,35 +198,15 @@ operation to reverse a dependency without falsely detecting the outgoing edge th
 the same transaction removes. Exact closure-query/index strategy is implementation
 acceptance work at Concord's measured scale.
 
-### 5.2 Supersession
-
-`supersede(successor=A, predecessor=B)` is one domain operation:
-
-1. validate same Product scope, expected versions, edge uniqueness, and acyclicity;
-2. record the supersession edge and B's terminal transition in one transaction;
-3. commit the edge and `B.lifecycle_state = superseded` atomically;
-4. return A as B's canonical direct successor.
-
-Following a chain yields the current canonical successor. A predecessor has at most
-one direct successor, while one successor may replace multiple predecessors.
-
-Reopening B requires an explicit operation that first removes/replaces the active
-supersession relation and then transitions B to `needed` in the same transaction.
-Directly changing `superseded → needed` is invalid.
-
-PM4 does not extend its supersession semantics to other entity types.
-
 ## 6. Structural invariants
 
 1. **One lifecycle truth:** every work item has exactly one state from §2.1.
 2. **Derived status only:** blocked/ready/active/terminal are pure projections of
    lifecycle and relations, never independent mutation inputs.
 3. **One edge, two reads:** inverse relation labels never create mirrored rows.
-4. **Atomic supersession:** successor edge and predecessor terminal state cannot
-   disagree at a committed version.
-5. **Acyclic governing graphs:** parent, `blocks`, and supersession cycles are
+4. **Acyclic governing graphs:** parent, `blocks`, and `raised_from` cycles are
    rejected before commit.
-6. **Explainability:** every lifecycle/edge change is one recorded mutation with
+5. **Explainability:** every lifecycle/edge change is one recorded mutation with
    actor, reason, expected version, and resulting version
    ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 7. **No partial terminality:** terminal state and required terminal metadata commit
@@ -253,8 +219,6 @@ normalizes it as follows:
 
 - fixture `depends_on` with `source=A, target=B` becomes the canonical stored edge
   `blocks` with `source=B, target=A`—the direction is inverted;
-- fixture `supersedes` already uses canonical direction (`source=successor`,
-  `target=predecessor`) and is not inverted;
 - fixture `resolved` is compatibility input only. No resolved flag is stored on an
   edge; resolution is derived from the blocking work item's terminal lifecycle.
 
@@ -308,12 +272,8 @@ Reopen PM4 if:
 2. repeated real work requires a soft/hard dependency distinction that cannot be a
    typed relation attribute;
 3. external blockers repeatedly fail the work-item model;
-4. canonical supersession legitimately requires multiple simultaneous direct
-   successors;
-5. `implements` repeatedly needs a non-work typed target;
-6. reopen-from-superseded is frequent enough that relation replacement is the wrong
-   primary operation;
-7. an accepted PM1 job requires a lifecycle state or relation absent here.
+4. `implements` repeatedly needs a non-work typed target;
+5. an accepted PM1 job requires a lifecycle state or relation absent here.
 
 ## 11. Primary sources
 
@@ -334,22 +294,16 @@ jobs/oracles, CD-0002 invariants, and the falsifiers above remain controlling.
 
 - Given any work item
   When its lifecycle is read
-  Then its state is one of the closed set of five, with blocked, ready,
+  Then its state is one of the closed set of four, with blocked, ready,
   active, and terminal derived — never stored.
 
 - Given a relation insertion that would create a cycle
   When the operation is attempted
   Then it fails closed with typed invariant_violation and no record commits.
 
-- Given a valid supersession of predecessor by successor
-  When the supersede operation commits
-  Then the edge and the predecessor's superseded state commit atomically as
-  one domain operation.
-
-- Given superseded work
-  When it is reopened
-  Then the reopen removes or replaces the supersession edge and transitions
-  the state in one recorded operation, never a direct superseded-to-needed edit.
+- Given a completed or cancelled item whose Linear issue has no other live holder
+  When it is reopened with a reason
+  Then it returns to needed.
 
 - Given needed work held by a live blocker
   When Q3 lists that work
@@ -363,12 +317,7 @@ The criteria carry typed exemptions naming the tests that prove the guarantees.
   (`internal/store/lifecycle_relations_test.go`).
 - Criterion 2 is proved by `TestCycleCheckRejectsSimpleTwoNodeCycle`
   (`internal/store/lifecycle_relations_test.go`).
-- Criterion 3 is proved by
-  `TestSupersessionIsAtomicAndRejectsCyclesAndSecondSuccessors`
-  (`internal/store/lifecycle_relations_test.go`).
-- Criterion 4 is proved by
-  `TestSupersessionRejectsAlreadySupersededAndReopenRequiresCompositeEvent`
-  (`internal/store/lifecycle_relations_test.go`).
-- Criterion 5 is proved by `TestOverlapBlocksRemovesWorkFromReady`
+- Criterion 3 is proved by `TestLifecycleTransitionsAreClosedAndTyped` (`internal/store/lifecycle_relations_test.go`).
+- Criterion 4 is proved by `TestOverlapBlocksRemovesWorkFromReady`
   (`internal/store/planning_operation_retirement_test.go`). Section 10 records
   the falsifiers for each guarantee.

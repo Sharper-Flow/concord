@@ -53,7 +53,7 @@ func dispatchCapture(t *testing.T, s *store.Store, service *Service, grant Autho
 	return response
 }
 
-func scopeWorkReadback(t *testing.T, s *store.Store, service *Service, grant Authority, scopeVersion, workID string) (task, valueStatement string) {
+func scopeWorkReadback(t *testing.T, s *store.Store, service *Service, grant Authority, scopeVersion, workID string) string {
 	t.Helper()
 	env := mutationEnvelope(grant, scopeVersion)
 	env.RequestID = "capture-task-scope-read"
@@ -76,7 +76,7 @@ func scopeWorkReadback(t *testing.T, s *store.Store, service *Service, grant Aut
 	if len(readback.Items) != 1 {
 		t.Fatalf("list readback returned %d items", len(readback.Items))
 	}
-	return readback.Items[0].Task, ""
+	return readback.Items[0].Task
 }
 
 func TestCapturePersistsTaskInstructionInOneCall(t *testing.T) {
@@ -88,7 +88,7 @@ func TestCapturePersistsTaskInstructionInOneCall(t *testing.T) {
 		t.Fatalf("capture with task response=%+v", response)
 	}
 	workID := (*response.ChangedRefs)[0].ID
-	task, _ := scopeWorkReadback(t, s, service, grant, scopeVersion, workID)
+	task := scopeWorkReadback(t, s, service, grant, scopeVersion, workID)
 	if task != "Reproduce the refusal, extract the loop, and keep the budget green." {
 		t.Fatalf("scope readback task = %q, want the captured instruction", task)
 	}
@@ -103,7 +103,7 @@ func TestCaptureWithoutTaskInstructionStaysLegal(t *testing.T) {
 		t.Fatalf("capture without task response=%+v", response)
 	}
 	workID := (*response.ChangedRefs)[0].ID
-	task, _ := scopeWorkReadback(t, s, service, grant, scopeVersion, workID)
+	task := scopeWorkReadback(t, s, service, grant, scopeVersion, workID)
 	if task != "" {
 		t.Fatalf("scope readback task = %q, want no persisted task", task)
 	}

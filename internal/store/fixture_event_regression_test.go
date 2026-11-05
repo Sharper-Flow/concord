@@ -66,7 +66,7 @@ func TestFixtureDSNsKeepSubtestStoresSeparate(t *testing.T) {
 func TestObsoleteEpicEventsAreNotRegistered(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
-	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{EventID: "obsolete-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "obsolete-work", Actor: "test", OccurredAt: time.Unix(4, 3).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: mustJSONValue(map[string]any{"work_kind": "epic", "title": "obsolete",})}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "obsolete-work"): 0}})
+	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{EventID: "obsolete-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "obsolete-work", Actor: "test", OccurredAt: time.Unix(4, 3).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: mustJSONValue(map[string]any{"work_kind": "epic", "title": "obsolete"})}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "obsolete-work"): 0}})
 	if err == nil {
 		t.Fatal("obsolete Epic work kind was accepted by the store")
 	}

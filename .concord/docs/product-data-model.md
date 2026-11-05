@@ -129,8 +129,7 @@ Product {
 ```
 
 `stage` is decided (§8). Product↔Project membership follows accepted PM5.
-Domain replacement and work-item supersession keep their bounded owners in
-CD-0222 and PM4.
+Domain replacement is owned by CD-0222; work relations are owned by PM4.
 
 Business grouping lives in Linear under CD-0213. Product embeds no grouping record, and grouping is not a second Product,
 Domain, or architecture authority.
@@ -259,13 +258,9 @@ can act on; "this was accepted" is not.
 
 ## 10. Bounded replacement relations
 
-> **Status:** Bounded existing mechanisms. CD-0222 owns Domain replacement and
-> PM4 owns work-item supersession.
+> **Status:** CD-0222 owns Domain replacement.
 
-CD-0222 defines the Product-internal Domain `replaces` relation and its
-version-pinned overlap controls. PM4 defines work-item `supersedes`, including
-the atomic terminal transition. These relations have separate owners and
-semantics.
+CD-0222 defines the Product-internal Domain `replaces` relation.
 
 The Product model does not define a generic replacement state machine or a
 Product, Project, or workflow replacement home. Migration and correction are

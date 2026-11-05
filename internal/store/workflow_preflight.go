@@ -187,7 +187,7 @@ func workflowPlanActionAdmissionTx(ctx context.Context, tx *sql.Tx, workID strin
 	// replacement over its retained delivery record (§4.2): the write keeps
 	// the terminal lifecycle, state and plan, and carries the plan step that
 	// declares the action.
-	if state == "completed" || state == "cancelled" || state == "superseded" {
+	if state == "completed" || state == "cancelled" {
 		owner, err := workflowPlanTerminalAdmissionTx(ctx, tx, workID, actionID, state, step, plan)
 		return action, plan, owner, err
 	}

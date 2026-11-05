@@ -149,7 +149,6 @@ func eventSequenceTx(ctx context.Context, tx *sql.Tx, eventID string) (int64, er
 	return seq, nil
 }
 
-
 func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) error {
 	var payload workflowOverlapResolvedPayload
 	if err := decodeWorkflowPayload(event, &payload); err != nil {
@@ -161,7 +160,7 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 	if payload.ToWorkID == "" || payload.ToWorkID == event.SubjectID || payload.ExpectedVersion == nil || payload.ResultingVersion == nil || payload.FromContractVersion <= 0 || payload.ToContractVersion <= 0 || payload.ToExpectedVersion <= 0 || payload.ToResultingVersion != payload.ToExpectedVersion+1 || payload.ResolutionKind == "" || !validateWorkflowOverlapResolutionKind(payload.ResolutionKind) || !workflowString(payload.Reason, 4096) {
 		return overlapResolutionFailure("overlap resolution has invalid endpoint, version, kind, or reason")
 	}
-	fromExpected, fromResulting := *payload.ExpectedVersion, *payload.ResultingVersion
+	fromResulting := *payload.ResultingVersion
 	from, to, err := readWorkflowOverlapResolutionWorks(ctx, tx, event, payload)
 	if err != nil {
 		return err
@@ -181,7 +180,7 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 			return cycleFailure("workflow_domain_overlap", "overlap resolution would create a relation cycle", "choose a non-cyclic resolution direction", relationKind, resolutionFromWorkID, resolutionToWorkID)
 		}
 	}
-	return recordWorkflowOverlapResolutionTx(ctx, tx, event, payload, productID, from, to, fromExpected, fromResulting, resolutionFromWorkID, resolutionToWorkID, payload.FromContractVersion, payload.ToContractVersion)
+	return recordWorkflowOverlapResolutionTx(ctx, tx, event, payload, productID, from, to, fromResulting, resolutionFromWorkID, resolutionToWorkID, payload.FromContractVersion, payload.ToContractVersion)
 }
 
 // readWorkflowOverlapResolutionWorks reads both endpoint work items and
@@ -240,7 +239,7 @@ func readWorkflowOverlapEndpointProductTx(ctx context.Context, tx *sql.Tx, workI
 		JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version
 		JOIN work_items w ON w.id=c.work_id
 		WHERE c.work_id=? AND c.contract_version=? AND c.superseded_by IS NULL
-		  AND w.lifecycle NOT IN ('completed','cancelled','superseded')`, workID, contractVersion).Scan(&productID)
+		  AND w.lifecycle NOT IN ('completed','cancelled')`, workID, contractVersion).Scan(&productID)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -252,7 +251,7 @@ func readWorkflowOverlapEndpointProductTx(ctx context.Context, tx *sql.Tx, workI
 
 // recordWorkflowOverlapResolutionTx writes the resolution row, its derived
 // relation, and both endpoints' version bumps.
-func recordWorkflowOverlapResolutionTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowOverlapResolvedPayload, productID string, from, to workProjection, fromExpected, fromResulting int64, resolutionFromWorkID, resolutionToWorkID string, resolutionFromContractVersion, resolutionToContractVersion int64) error {
+func recordWorkflowOverlapResolutionTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowOverlapResolvedPayload, productID string, from, to workProjection, fromResulting int64, resolutionFromWorkID, resolutionToWorkID string, resolutionFromContractVersion, resolutionToContractVersion int64) error {
 	seq, err := eventSequenceTx(ctx, tx, event.EventID)
 	if err != nil {
 		return err

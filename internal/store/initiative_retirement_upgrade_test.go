@@ -29,7 +29,7 @@ DELETE FROM write_guard`)
 
 func TestInitiativeRetirementUpgrade(t *testing.T) {
 	db, path := initiativeRetirementFixture(t)
-	beforeLive := retirementUpgradeRows(t, db, `SELECT * FROM work_items WHERE kind<>'initiative' ORDER BY id`)
+	beforeLive := historicalCaptureWorkRows(t, db, `WHERE kind<>'initiative'`)
 	beforeReceipts := retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts ORDER BY effect_seq`)
 	beforeOperations := retirementUpgradeRows(t, db, `SELECT * FROM durable_operations ORDER BY op_id`)
 	beforeIdempotency := retirementUpgradeRows(t, db, `SELECT * FROM idempotency_records ORDER BY idempotency_key`)
@@ -56,7 +56,7 @@ func TestInitiativeRetirementUpgrade(t *testing.T) {
 	if got := retirementUpgradeRows(t, archived, `SELECT id FROM work_items WHERE kind='initiative'`); len(got) != 1 {
 		t.Fatalf("snapshot lacks initiative: %v", got)
 	}
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
 		t.Fatalf("upgrade: %v", err)
 	}
 	if got := retirementUpgradeRows(t, db, `SELECT id,kind FROM work_items WHERE id IN ('initiative-old','work-live') ORDER BY id`); len(got) != 1 || got[0][0] != "work-live" {

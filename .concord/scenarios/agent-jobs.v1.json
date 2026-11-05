@@ -558,6 +558,12 @@
               "source": "work-1",
               "target": "work-2"
             }
+          },
+          {
+            "target": "effects",
+            "path": "atomic_core_effect",
+            "op": "eq",
+            "value": "complete"
           }
         ],
         "invariants": [

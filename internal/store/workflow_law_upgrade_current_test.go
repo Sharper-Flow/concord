@@ -40,7 +40,6 @@ func currentLawUpgradeFixture(t *testing.T, contract, boundary int) (*Store, Wor
 	}
 	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
 	queries := map[string]string{
-		"work":        `SELECT * FROM work_items WHERE id='upgrade-law'`,
 		"actors":      `SELECT * FROM workflow_actors ORDER BY actor_ref`,
 		"contracts":   `SELECT work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,superseded_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json,supersession_seq,last_healthy_seq,decision_domains FROM workflow_contracts ORDER BY work_id,contract_version`,
 		"checkpoints": `SELECT work_id,work_version,checkpoint_sequence,checkpoint_id,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions,workflow_ref,actor_ref,request_id,recorded_at FROM workflow_context_checkpoints ORDER BY work_id,checkpoint_sequence`,
@@ -55,6 +54,7 @@ func currentLawUpgradeFixture(t *testing.T, contract, boundary int) (*Store, Wor
 	for name, query := range queries {
 		before[name] = retirementUpgradeRows(t, db, query)
 	}
+	work := historicalCaptureWorkRows(t, db, `WHERE id='upgrade-law'`)
 	if got := retirementUpgradeRows(t, db, `SELECT state FROM workflow_review_state WHERE work_id='upgrade-law'`); len(got) != 1 {
 		t.Fatalf("historical Review missing before upgrade: %v", got)
 	}
@@ -82,6 +82,9 @@ func currentLawUpgradeFixture(t *testing.T, contract, boundary int) (*Store, Wor
 		if got := retirementUpgradeRows(t, db, query); !reflect.DeepEqual(got, before[name]) {
 			t.Errorf("migration changed %s: before=%v after=%v", name, before[name], got)
 		}
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT * FROM work_items WHERE id='upgrade-law'`); !reflect.DeepEqual(got, work) {
+		t.Errorf("migration changed work: before=%v after=%v", work, got)
 	}
 	if got := retirementUpgradeRows(t, db, `SELECT instance_state,workflow_type,step_plan,execution_actor_ref,started_at,last_checkpoint_at FROM workflow_instances WHERE work_id='upgrade-law'`); !reflect.DeepEqual(got, [][]any{{"intake", nil, nil, nil, retirementUpgradeTime, retirementUpgradeTime}}) {
 		t.Fatalf("undelivered predecessor did not park at intake: %v", got)

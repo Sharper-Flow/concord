@@ -128,8 +128,8 @@ test("published tool arguments expose a host-safe request shape", async () => {
   const expandedDefine: any = expandedPublishedRequestSchema(published)
   const captureBranch = expandedDefine.oneOf.find((candidate: any) => candidate.properties.operation.const === "capture")
   const captureInput = captureBranch.properties.input
-  expect(captureInput.required).toEqual(["title", "value_statement", "kind", "project_ids", "idempotency_key"])
-  expect(captureInput.properties.urgency.enum).toEqual(["standard", "expedite"])
+  expect(captureInput.required).toEqual(["title", "kind", "project_ids", "human_key", "remote_issue_uuid", "url", "idempotency_key"])
+  expect(captureInput.properties.kind.enum).toContain("task")
   const transition = adapter.publishedRequestSchema("concord_work_transition") as any
   // Select the approve_contract variant by its action_id const.
   const actionBranch = actionInput(transition, "approve_contract")
@@ -161,7 +161,8 @@ test("work define publishes the record-only issue identity contract", () => {
   const published = adapter.publishedRequestSchema("concord_work_define") as any
   expect(published.properties.operation.enum).toContain("issue_link_record")
   expect(published.properties.operation.enum).not.toContain("issue_adopt")
-  const branch = published.oneOf.find((item: any) => item.properties.operation.const === "issue_link_record")
+  const expanded: any = expandedPublishedRequestSchema(published)
+  const branch = expanded.oneOf.find((item: any) => item.properties.operation.const === "issue_link_record")
   const input = branch.properties.input
   expect(input.required).toEqual(["work_id", "human_key", "remote_issue_uuid", "url", "idempotency_key"])
   expect(input.additionalProperties).toBe(false)

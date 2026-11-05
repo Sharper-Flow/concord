@@ -29,7 +29,7 @@ func assertRetiredPlanningRefusal(t *testing.T, err error) {
 func TestRetiredInitiativeWorkCreatedRefusedBeforeReceipt(t *testing.T) {
 	s := openTemp(t)
 	event := operationEvent("retired-create", "work.created", SubjectWorkItem, "retired-work", map[string]any{
-		"work_kind": "initiative", "title": "Retired", 
+		"work_kind": "initiative", "title": "Retired",
 	})
 	event.PayloadVersion = CurrentEventPayloadVersion("work.created")
 	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}})

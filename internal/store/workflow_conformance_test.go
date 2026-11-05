@@ -722,7 +722,7 @@ func createCorpusCurrentWorkflow(ctx context.Context, s *Store, workID string, a
 	created := Event{EventID: workID + ":capture", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actor.PrincipalRef, OccurredAt: corpusNow, PayloadVersion: registration.CurrentVersion, Payload: mustJSONValue(workCreatedPayload{WorkID: workID, WorkKind: "task", Title: title})}
 	if len(projectIDs) > 0 {
 		var err error
-		ctx, err = s.EstablishKnowledgeSourceSetProofForProject(ctx, projectIDs[0])
+		ctx, err = establishKnowledgeSourceSetProofForProject(ctx, s, projectIDs[0])
 		if err != nil {
 			return err
 		}

@@ -257,6 +257,30 @@ func workflowPlanCompleteConfirmationTx(ctx context.Context, q queryer, workID s
 	return workflowPlanDeclaringStep(plan, actionID), confirmed, nil
 }
 
+// workflowPlanCompleteContractTx reports the declaring step that carries the
+// initial contract approval on a completed plan, and whether an active
+// contract exists. Completion requires an active contract, only
+// approve_contract creates the first one (workflow_contract_authority.go),
+// and the declaring step may have passed before the contract was recorded,
+// so the step keeps the action — the same completed-plan admission the
+// premise confirmation carries. Admission uses the step while the contract
+// is missing; the action_completed fold uses it once the paired
+// contract_approved event has recorded the contract. Once a contract
+// exists, the frontier and retained-record rules own any change to it.
+func workflowPlanCompleteContractTx(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, actionID string) (string, bool, error) {
+	if plan == nil || actionID != "approve_contract" || !WorkflowStepPlanComplete(*plan) {
+		return "", false, nil
+	}
+	_, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
+	if err == sql.ErrNoRows {
+		return workflowPlanDeclaringStep(plan, actionID), false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return workflowPlanDeclaringStep(plan, actionID), true, nil
+}
+
 func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, actionID, step string, plan *WorkflowStepPlan, fields map[string]json.RawMessage) (string, error) {
 	switch actionID {
 	case "record_intake", "record_clarify", "pick_type", "insert_step":
@@ -276,6 +300,13 @@ func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 		}
 	default:
 		if !workflowPlanAllowsAction(plan, step, actionID) {
+			owner, contractExists, err := workflowPlanCompleteContractTx(ctx, tx, workID, plan, actionID)
+			if err != nil {
+				return step, err
+			}
+			if owner != "" && !contractExists {
+				return owner, nil
+			}
 			owner, confirmed, err := workflowPlanCompleteConfirmationTx(ctx, tx, workID, plan, actionID)
 			if err != nil {
 				return step, err

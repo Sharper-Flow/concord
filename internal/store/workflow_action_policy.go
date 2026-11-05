@@ -81,9 +81,9 @@ type WorkflowPayloadDefinition struct {
 // WorkflowActionCrossField is the engine action registry's typed declaration
 // of one action's version-invariant cross-field payload rules. It lives on
 // builtinActionPolicy, beside the payload fields it constrains — never on
-// the digest-covered WorkflowPayloadDefinition. Core payload validation, the
-// fold guards, replay, and the generated published variants all read this
-// one declaration, so the enforced and advertised contracts cannot disagree.
+// the digest-covered WorkflowPayloadDefinition. Core payload validation and
+// the generated published variants read this one declaration, so the
+// enforced and advertised contracts cannot disagree.
 // validateCrossFieldDeclaration holds its shape.
 type WorkflowActionCrossField struct {
 	// Combinations declares legal input combinations: under one
@@ -269,8 +269,8 @@ func validateCrossFieldKindMatches(byName map[string]*WorkflowPayloadField, matc
 
 // validateEngineCrossFieldDeclarations checks every engine-declared
 // cross-field rule against the action's own payload fields. The builtin
-// table is static, so the registry runs it
-// once at construction rather than on every definition validation.
+// table is static, so a store test runs it rather than every definition
+// validation.
 func validateEngineCrossFieldDeclarations() error {
 	for id, policy := range builtinActionPolicies {
 		if policy.CrossField == nil {
@@ -361,9 +361,9 @@ func actionPolicyWithCombinations(policy builtinActionPolicy, combinations ...Wo
 
 // workflowActionCrossField resolves one action's cross-field declaration
 // from the builtin engine policy table. An action without a policy entry
-// resolves an empty declaration. Core preflight, the fold guards, and the
+// resolves an empty declaration. Core payload validation and the
 // exported generator projection
-// all read this accessor, so no second copy of a rule can drift.
+// read this accessor, so no second copy of a rule can drift.
 func workflowActionCrossField(actionID string) WorkflowActionCrossField {
 	if policy, ok := builtinActionPolicies[actionID]; ok && policy.CrossField != nil {
 		return *policy.CrossField
@@ -504,7 +504,7 @@ const workflowPremiseFallback = "workflow premise"
 
 func actionPremiseField() WorkflowPayloadField {
 	// The enforcing floor is workflowString's workflowStringMinBytes bytes
-	// (UTF-8 bytes, not runes — see validateWorkflowPayloadValue, which now
+	// (UTF-8 bytes, not runes — see validateWorkflowPayloadValue, which
 	// counts bytes like every fold guard). The current action catalog raises
 	// approve_contract's declared minimum to that floor (premiseFloor), and
 	// the contract-payload workflowString guard refuses a shorter premise

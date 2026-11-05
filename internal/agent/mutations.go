@@ -156,8 +156,9 @@ func mutationReplayDurability(durable bool, authorizedScope map[string]any, sele
 		}
 		durable = durable || committedDurably
 	}
-	// On replay, re-verify the recorded Product set even though ordinary
-	// coordination consent is gone: cross-Product durability still binds.
+	// A replayed mutation that recorded a cross-Product binding stays
+	// durable: a Product in the stored scope other than the selected one
+	// marks the effect cross-Product.
 	if products, present := authorizedScope["product_ids"].([]any); present && selectedProduct != "" {
 		for _, rawProduct := range products {
 			product, valid := rawProduct.(string)
@@ -568,8 +569,8 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 		return r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds)), nil
 	}
 	// Per-action capability resolution is structural. The action declares
-	// the capability the dispatcher must hold; actions that predate declared
-	// capabilities default to work_transition and keep their authority
+	// the capability the dispatcher must hold; an undeclared capability
+	// defaults to work_transition and keeps the action's authority
 	// contract.
 	requiredCapability := agentcontract.Capability("work_transition")
 	if action.RequiredCapability != "" {

@@ -464,8 +464,7 @@ func validateWorkflowPayloadStructure(actionID string, definitionFields []Workfl
 // closed branches from, so a payload any published variant refuses, core
 // admission refuses too, and vice versa. The rules are
 // version-invariant engine law: they bind whatever action version the
-// pinned definition carries, exactly as the released engine guard table
-// always did.
+// pinned definition carries.
 func validateWorkflowPayloadCrossFieldRules(actionID string, fields map[string]json.RawMessage) error {
 	declaration := workflowActionCrossField(actionID)
 	if combination, field, requires, violated := workflowPayloadCombinationViolation(declaration, fields); violated {

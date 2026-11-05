@@ -398,7 +398,7 @@ func ResolveProjectHost(ctx context.Context, directory, worktree string, runner 
 	return ResolvedProjectHost{Host: HostRepository{CanonicalPath: canonical, GitRemote: remote, WorktreePath: worktreeRoot}, MainWorktree: mainWorktree, Canonical: canonical, Remote: remote}, nil
 }
 
-// MatchResolvedProjectHost matches a probed host against the Project
+// matchResolvedProjectHost matches a probed host against the Project
 // locators. It runs SQL only: every git fact arrived in the
 // probe.
 func matchResolvedProjectHost(ctx context.Context, q queryer, host ResolvedProjectHost) (ProjectResolution, error) {

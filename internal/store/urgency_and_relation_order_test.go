@@ -5,22 +5,23 @@ import (
 	"testing"
 )
 
-// workCreatedEventWithUrgency creates a work.created event with a declared
-// urgency and priority. Used by CD-0018 urgency tests.
-func workCreatedEventWithUrgency(id, eventID, urgency string, priority int64) Event {
+// workCreatedEventWithUrgency creates one plain work item. The urgency and
+// priority parameters are retired with their capture fields; the name stays
+// for its callers.
+func workCreatedEventWithUrgency(id, eventID, _ string, _ int64) Event {
 	return operationEvent(eventID, "work.created", SubjectWorkItem, id, map[string]any{
-		"work_kind": "task", "title": id, "priority": priority, "urgency": urgency,
+		"work_kind": "task", "title": id,
 	})
 }
 
-// seedWorkWithUrgency seeds a work item at creation time with a declared urgency
-// and priority, plus project membership, leaving it at version 2 in 'needed'.
-func seedWorkWithUrgency(t *testing.T, s *Store, id, urgency string, priority int64) {
+// seedWorkWithUrgency seeds one plain work item with project membership,
+// leaving it at version 2 in 'needed'.
+func seedWorkWithUrgency(t *testing.T, s *Store, id, _ string, _ int64) {
 	t.Helper()
 	seedProductAndProject(t, s)
 	if err := ApplyOperation(context.Background(), s, Operation{
 		Events: []Event{
-			workCreatedEventWithUrgency(id, "create-"+id, urgency, priority),
+			workCreatedEventWithUrgency(id, "create-"+id, "", 0),
 			operationEvent("membership-"+id, "work_project.added", SubjectWorkItem, id, map[string]any{
 				"work_id": id, "project_id": "project", "role": "secondary", "reason": "test",
 				"expected_version": 1, "resulting_version": 2,

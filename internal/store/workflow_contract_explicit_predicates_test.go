@@ -92,7 +92,7 @@ func reviseExplicitPredicateContract(t *testing.T, s *Store, workID string, owne
 	if err := s.db.QueryRowContext(t.Context(), `SELECT kind FROM work_items WHERE id=?`, workID).Scan(&kind); err != nil {
 		return err
 	}
-	payload, err := json.Marshal(map[string]any{"title": "Updated plan", "value_statement": "Retain valid proof", "kind": kind, "tags": []string{}, "reason": "revise the plan", "expected_version": expected, "resulting_version": expected + 1, "contract": contract})
+	payload, err := json.Marshal(map[string]any{"title": "Updated plan", "kind": kind, "reason": "revise the plan", "expected_version": expected, "resulting_version": expected + 1, "contract": contract})
 	if err != nil {
 		return err
 	}

@@ -100,7 +100,7 @@ func TestDispatchIssueLinkRecordRefusesSecondAndForeignIdentity(t *testing.T) {
 		name, input, want string
 	}{
 		{"second identity", `{"work_id":"link-held-work","human_key":"EX-3","remote_issue_uuid":"cccccccc-0000-0000-0000-000000000003","url":"https://linear.app/example/issue/EX-3","idempotency_key":"link-second-1"}`, "already records a different Linear issue identity"},
-		{"foreign issue", `{"work_id":"link-probe-work","human_key":"EX-1","remote_issue_uuid":"aaaaaaaa-0000-0000-0000-000000000001","url":"https://linear.app/example/issue/EX-1","idempotency_key":"link-foreign-1"}`, "another work item already records that Linear issue"},
+		{"foreign issue", `{"work_id":"link-probe-work","human_key":"EX-1","remote_issue_uuid":"aaaaaaaa-0000-0000-0000-000000000001","url":"https://linear.app/example/issue/EX-1","idempotency_key":"link-foreign-1"}`, "already holds that Linear issue UUID"},
 		{"malformed key", `{"work_id":"link-probe-work","human_key":"not a key","remote_issue_uuid":"eeeeeeee-0000-0000-0000-000000000005","url":"https://linear.app/example/issue/EX-5","idempotency_key":"link-malformed-1"}`, "pattern at $.human_key"},
 	}
 	for _, tc := range cases {

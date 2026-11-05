@@ -130,8 +130,6 @@ func TestQ7CreationMetadataDoesNotUseUnrelatedFrom(t *testing.T) {
 	if err := json.Unmarshal(event.Payload, &fields); err != nil {
 		t.Fatal(err)
 	}
-	fields["from"] = "unrelated-source"
-	event.Payload, _ = json.Marshal(fields)
 	parents := []Event{locatorProductEvent("product"), locatorProjectEvent("project"), locatorMembershipEvent("product", "project")}
 	if err := ApplyOperation(t.Context(), s, Operation{Events: parents}); err != nil {
 		t.Fatal(err)

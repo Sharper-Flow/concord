@@ -477,7 +477,7 @@ INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,ve
 INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('v14-project','V14 project',1,'created','updated');
 INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('v14-work','task','V14 work','needed',1,2,'created','updated'),('v14-work-2','task','V14 work 2','needed',1,1,'created','updated');
 INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('v14-work','v14-work-2','blocks','created');
-INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES('v14-event','work.created','work_item','v14-work','operator','2026-08-08T00:00:00Z',2,'{"work_kind":"task","title":"V14 work","priority":1}');
+INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES('v14-event','work.created','work_item','v14-work','operator','2026-08-08T00:00:00Z',2,'{"work_kind":"task","title":"V14 work",}');
 DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
@@ -495,7 +495,7 @@ DELETE FROM fold_guard`); err != nil {
 	if err := db.QueryRowContext(ctx, `SELECT kind FROM relations WHERE work_id_from='v14-work' AND work_id_to='v14-work-2'`).Scan(&relationKind); err != nil || relationKind != "blocks" {
 		t.Fatalf("preserved v14 relation = %q, error=%v", relationKind, err)
 	}
-	wantDigest := historicalFixturePayloadDigest(t, `{"work_kind":"task","title":"V14 work","priority":1}`)
+	wantDigest := historicalFixturePayloadDigest(t, `{"work_kind":"task","title":"V14 work"}`)
 	if err := db.QueryRowContext(ctx, `SELECT payload_digest FROM effect_receipts WHERE event_id='v14-event' AND effect_seq=1 AND kind='work.created' AND subject_type='work_item' AND subject_id='v14-work' AND actor='operator' AND payload_version=2`).Scan(&payloadDigest); err != nil || payloadDigest != wantDigest {
 		t.Fatalf("preserved v14 receipt digest = %q, error=%v, want %q", payloadDigest, err, wantDigest)
 	}

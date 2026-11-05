@@ -12,7 +12,7 @@ import (
 
 func workCreatedEvent(id, eventID string) Event {
 	return operationEvent(eventID, "work.created", SubjectWorkItem, id, map[string]any{
-		"work_kind": "task", "title": id, "priority": 10,
+		"work_kind": "task", "title": id,
 	})
 }
 
@@ -489,7 +489,7 @@ func TestIntentRevisionRefusesTerminalWork(t *testing.T) {
 			id := "revise-" + state
 			version := seedState(t, s, id, state)
 			event := operationEvent("revise-"+state, "work.intent_revised", SubjectWorkItem, id, map[string]any{
-				"title": "Revised", "value_statement": "Revised statement", "kind": "task", "priority": 2, "tags": []string{},
+				"title": "Revised", "kind": "task",
 				"reason": "late clarity", "expected_version": version, "resulting_version": version + 1,
 			})
 			err := applyWorkEvent(t, s, event, workVersion(id, version))
@@ -502,7 +502,7 @@ func TestWorkCreatedRejectsMismatchedWorkID(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	event := operationEvent("mismatched-create", "work.created", SubjectWorkItem, "work-subject", map[string]any{
-		"work_id": "work-payload", "work_kind": "task", "title": "Mismatch", "priority": 1,
+		"work_id": "work-payload", "work_kind": "task", "title": "Mismatch", 
 	})
 	err := applyWorkEvent(t, s, event, workVersion("work-subject", 0))
 	assertFailureKind(t, err, KindInvalidPayload)

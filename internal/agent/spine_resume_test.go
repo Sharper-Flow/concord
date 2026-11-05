@@ -173,15 +173,18 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 	}
 	f := &spineFixture{s: s, service: service, env: mutationEnvelope(grant, scope), base: base}
 	capture := map[string]any{
-		"title": "Resume a checked value change", "value_statement": "Fresh sessions must recover actionable checked work.",
+		"title": "Resume a checked value change",
 		"task": "The synthetic value needs a checked implementation and reviewed delivery.",
-		"kind": "task", "project_ids": []string{"project-1"}, "idempotency_key": "spine-capture",
+		"kind": "task", "project_ids": []string{"project-1"},
+		"human_key": "ZZ-7002", "remote_issue_uuid": "fixture-spine-capture",
+		"url": "https://linear.app/example/issue/ZZ-7002",
+		"idempotency_key": "spine-capture",
 	}
 	if family == "workflow.break_fix" {
 		capture["kind"] = "bug"
 	}
 	captured := spineOK(t, f.call(t, "concord_work_define", "capture", capture))
-	if captured.ChangedRefs == nil || len(*captured.ChangedRefs) != 1 {
+	if captured.ChangedRefs == nil || len(*captured.ChangedRefs) != 2 {
 		t.Fatal("capture omitted its work identity")
 	}
 	f.work = (*captured.ChangedRefs)[0].ID

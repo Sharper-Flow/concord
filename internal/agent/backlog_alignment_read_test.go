@@ -68,7 +68,7 @@ func TestDiagnosisStoresBacklogAlignment(t *testing.T) {
 					if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{{
 						EventID: "created-" + id, Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: id,
 						Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4,
-						Payload: json.RawMessage(`{"work_kind":"task","title":"Related work","priority":1}`),
+						Payload: json.RawMessage(`{"work_kind":"task","title":"Related work"}`),
 					}, {
 						EventID: "membership-" + id, Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: id,
 						Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1,

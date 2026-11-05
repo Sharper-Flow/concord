@@ -18,7 +18,7 @@ func TestPublicBugCaptureAndKindRevision(t *testing.T) {
 	for i := range 2 {
 		env.RequestID = fmt.Sprintf("bug-capture-%d", i)
 		response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: retryJSON(map[string]any{
-			"title": fmt.Sprintf("Checksum mismatch %d", i), "value_statement": "Uploads lose their checksum", "kind": "bug", "project_ids": []string{"project-1"}, "idempotency_key": env.RequestID,
+			"title": fmt.Sprintf("Checksum mismatch %d", i), "kind": "bug", "project_ids": []string{"project-1"}, "human_key": "ZZ-8100", "remote_issue_uuid": fmt.Sprintf("fixture-bug-capture-%d", i), "url": "https://linear.app/example/issue/ZZ-8100", "idempotency_key": env.RequestID,
 		})}, env)
 		if response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("bug capture %d: %+v", i, response.Error)
@@ -30,7 +30,7 @@ func TestPublicBugCaptureAndKindRevision(t *testing.T) {
 	for i, kind := range []string{"task", "bug", "research"} {
 		env.RequestID = fmt.Sprintf("bug-revise-%d", i)
 		response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: retryJSON(map[string]any{
-			"work_id": firstID, "expected_version": workVersion(t, s, firstID), "title": "Checksum mismatch", "value_statement": "Uploads lose their checksum", "kind": kind, "priority": 1, "tags": []string{}, "reason": "Correct the work intent", "idempotency_key": env.RequestID,
+			"work_id": firstID, "expected_version": workVersion(t, s, firstID), "title": "Checksum mismatch", "kind": kind, "reason": "Correct the work intent", "idempotency_key": env.RequestID,
 		})}, env)
 		if response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("revision to %s: %+v", kind, response.Error)
@@ -64,7 +64,7 @@ func TestPublicCaptureRejectsRetiredIntake(t *testing.T) {
 		env := mutationEnvelope(grant, scopeVersion)
 		env.RequestID = "retired-intake-" + kind
 		response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: retryJSON(map[string]any{
-			"title": "Checksum mismatch", "value_statement": "Uploads lose their checksum", "kind": kind, "project_ids": []string{"project-1"}, "idempotency_key": env.RequestID,
+			"title": "Checksum mismatch", "kind": kind, "project_ids": []string{"project-1"}, "human_key": "ZZ-8101", "remote_issue_uuid": "fixture-bug-public", "url": "https://linear.app/example/issue/ZZ-8101", "idempotency_key": env.RequestID,
 			"defect_intake": map[string]any{"failure_shape": "checksum-mismatch", "reproduction": "Compare checksums", "searched": "Fixture", "related_defect_ids": []string{}},
 		})}, env)
 		if err == nil && (response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.EffectState != "none") {

@@ -121,7 +121,7 @@ func TestCaptureRefusesTaskTheReviseFoldRefuses(t *testing.T) {
 	t.Parallel()
 	s, service, grant, scopeVersion := captureTaskFixture(t)
 	response := dispatchCapture(t, s, service, grant, scopeVersion, "capture-nul-task-request-1",
-		`{"title":"Need","value_statement":"Why the work matters","task":"line one\u0000line two","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-nul-task-idem-1"}`)
+		`{"title":"Need","task":"line one\u0000line two","kind":"task","project_ids":["project-1"],"human_key":"ZZ-7008","remote_issue_uuid":"fixture-capture-nul-task-idem-1","url":"https://linear.app/example/issue/ZZ-7008","idempotency_key":"capture-nul-task-idem-1"}`)
 	if response.Outcome != agentcontract.OutcomeError || response.Error == nil {
 		t.Fatalf("NUL-carrying task capture outcome=%s error=%+v, want typed refusal", response.Outcome, response.Error)
 	}

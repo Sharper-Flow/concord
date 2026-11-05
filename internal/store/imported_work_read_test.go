@@ -25,8 +25,7 @@ func seedImportedWork(t *testing.T, s *Store, changeID, actor string) {
 		t.Fatalf("seed test Project: %v", err)
 	}
 	created := operationEvent(workID, "work.created", SubjectWorkItem, workID, map[string]any{
-		"work_kind": "task", "title": "imported", "value_statement": "imported", "priority": 3,
-		"tags": []string{"predecessor-migrated"}, "external_ref": "advance:" + changeID,
+		"work_kind": "task", "title": "imported",  
 	})
 	created.Actor = actor
 	membership := operationEvent("import-advance-work-membership-"+workID, "work.memberships_replaced", SubjectWorkItem, workID, map[string]any{

@@ -28,7 +28,7 @@ func TestReviseInitializesProductWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	version := workVersion(t, s, "work-1")
-	input, err := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": version, "kind": "task", "title": "Verified revised start", "value_statement": "Initialize from accepted Product law", "reason": "Initialize the existing item", "idempotency_key": "revise-verified-start"})
+	input, err := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": version, "kind": "task", "title": "Verified revised start",  "reason": "Initialize the existing item", "idempotency_key": "revise-verified-start"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,9 +54,9 @@ func TestCaptureProductWorkflowReplaysWithoutKnowledge(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1"))
-	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Product workflow","value_statement":"Capture the bounded task","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-verified-start"}`)}
+	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Product workflow","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-verified-start","human_key":"ZZ-9111","remote_issue_uuid":"fixture-capture-verified-start","url":"https://linear.app/example/issue/ZZ-9111"}`)}
 	response, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || response.Outcome != agentcontract.OutcomeOK || response.ChangedRefs == nil || len(*response.ChangedRefs) != 1 {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK || response.ChangedRefs == nil || len(*response.ChangedRefs) != 2 {
 		t.Fatalf("capture: %+v error=%v", response, err)
 	}
 	id := (*response.ChangedRefs)[0].ID
@@ -67,7 +67,7 @@ func TestCaptureProductWorkflowReplaysWithoutKnowledge(t *testing.T) {
 	if err != nil || replayed.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("exact capture replay re-probed unavailable knowledge: %+v error=%v", replayed, err)
 	}
-	reviseInput, err := json.Marshal(map[string]any{"work_id": id, "expected_version": workVersion(t, s, id), "kind": "task", "title": "Retained intake", "value_statement": "Keep the existing workflow", "reason": "Update the task", "idempotency_key": "revise-retained-start"})
+	reviseInput, err := json.Marshal(map[string]any{"work_id": id, "expected_version": workVersion(t, s, id), "kind": "task", "title": "Retained intake", "reason": "Update the task", "idempotency_key": "revise-retained-start"})
 	if err != nil {
 		t.Fatal(err)
 	}

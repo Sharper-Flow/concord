@@ -29,7 +29,7 @@ func TestOverlapResolutionVersionConflictNamesTheStaleEndpoint(t *testing.T) {
 			s, actor := seedOverlapProjection(t, left, right, true)
 
 			// Advance the right endpoint alone so the two live versions differ.
-			revision := []byte(`{"title":"Revised","value_statement":"Raise this endpoint's version alone","kind":"task","priority":4,"tags":[],"reason":"separate the endpoint versions","expected_version":2,"resulting_version":3}`)
+			revision := []byte(`{"title":"Revised","kind":"task","reason":"separate the endpoint versions","expected_version":2,"resulting_version":3}`)
 			if err := ApplyOperation(ctx, s, Operation{
 				Events:           []Event{{EventID: "conflict-right-revised", Kind: "work.intent_revised", SubjectType: SubjectWorkItem, SubjectID: right, Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: revision}},
 				ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, right): 2},

@@ -52,7 +52,7 @@ func TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect(t *test
 		t.Fatalf("response scope=%+v warnings=%+v", response.ResolvedScope, response.Warnings)
 	}
 	before := domainEventCount(t, s)
-	mutation := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Stale","value_statement":"Stale scope capture","kind":"task","project_ids":["project-1"],"idempotency_key":"stale-scope-capture"}`)}
+	mutation := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Stale","kind":"task","project_ids":["project-1"],"idempotency_key":"stale-scope-capture","human_key":"ZZ-9111","remote_issue_uuid":"fixture-stale-scope-capture","url":"https://linear.app/example/issue/ZZ-9111"}`)}
 	response, err = Dispatch(ctx, s, service, mutation, staleScopeEnvelope(grant))
 	if err != nil {
 		t.Fatal(err)

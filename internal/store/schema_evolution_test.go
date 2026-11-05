@@ -89,12 +89,12 @@ func TestIntentRevisionPreservesExternalRefAndNormalizesShape(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	seedSchemaEvolutionBase(t, s)
-	create := Event{EventID: "intent-shape-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "intent-shape", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: []byte(`{"work_kind":"task","title":"Original","value_statement":"Original statement","priority":2,"tags":["alpha"],"external_ref":"tracker:issue-42"}`)}
+	create := Event{EventID: "intent-shape-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "intent-shape", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: []byte(`{"work_kind":"task","title":"Original"}`)}
 	membership := Event{EventID: "intent-shape-membership", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: "intent-shape", Actor: "operator", OccurredAt: time.Unix(1, 1).UTC(), PayloadVersion: 1, Payload: []byte(`{"work_id":"intent-shape","project_id":"schema-project","role":"primary","reason":"test","expected_version":1,"resulting_version":2}`)}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{create, membership}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "intent-shape"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	revise := Event{EventID: "intent-shape-revise", Kind: "work.intent_revised", SubjectType: SubjectWorkItem, SubjectID: "intent-shape", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"title":"Revised","value_statement":"Revised statement","kind":"task","priority":3,"tags":["beta"],"reason":"sharpened","expected_version":2,"resulting_version":3}`)}
+	revise := Event{EventID: "intent-shape-revise", Kind: "work.intent_revised", SubjectType: SubjectWorkItem, SubjectID: "intent-shape", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"title":"Revised","kind":"task","reason":"sharpened","expected_version":2,"resulting_version":3}`)}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{revise}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "intent-shape"): 2}}); err != nil {
 		t.Fatal(err)
 	}

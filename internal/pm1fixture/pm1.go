@@ -254,7 +254,8 @@ func seedWorkItems(ctx context.Context, s *store.Store, c Corpus, versions map[s
 		if created.To != nil {
 			to = *created.To
 		}
-		workEvents := []store.Event{fixtureEvent("create-"+w.ID, "work.created", 4, store.SubjectWorkItem, w.ID, actor, w.CreatedAt, map[string]any{"work_kind": "task", "title": w.ID, "priority": w.Priority, "from": created.From, "to": to})}
+		_ = to
+		workEvents := []store.Event{fixtureEvent("create-"+w.ID, "work.created", 4, store.SubjectWorkItem, w.ID, actor, w.CreatedAt, map[string]any{"work_kind": "task", "title": w.ID})}
 		// Membership is written the way the capture path writes it: one
 		// work.memberships_replaced carrying the whole set, not one
 		// work_project.added per Project. Both are legal, and they consume a

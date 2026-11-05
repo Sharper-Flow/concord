@@ -242,7 +242,7 @@ func TestOrdinaryMutationReplayDoesNotRequireDurability(t *testing.T) {
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define"})
 	env := replayFixtureEnvelope(t, s, grant)
 	release := holdReplayDurabilityReader(t, s)
-	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Replay","value_statement":"Replay value","kind":"task","project_ids":["project-1"],"idempotency_key":"ordinary-replay"}`)}
+	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Replay","kind":"task","project_ids":["project-1"],"idempotency_key":"ordinary-replay","human_key":"ZZ-9111","remote_issue_uuid":"fixture-ordinary-replay","url":"https://linear.app/example/issue/ZZ-9111"}`)}
 	first, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("ordinary mutation: outcome=%s error=%+v err=%v", first.Outcome, first.Error, err)

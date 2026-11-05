@@ -216,7 +216,7 @@ carries one focused outcome. Main may run independent assignments concurrently
 when their interfaces and host worktree placement are settled; dependent assignments
 run in sequence. Implement builds and verifies. Main integrates the results
 into one candidate and obtains independent Review through the host's native
-Task. Review inspects the accumulated solution, may commit corrective changes,
+Task. Review inspects the accumulated solution, may make corrective changes,
 verifies the corrected candidate, and reports.
 
 Main records a reviewed attempt through `record_review`, naming `step_id`,

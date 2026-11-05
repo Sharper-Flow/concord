@@ -30,7 +30,7 @@ type migration struct {
 	// effects must keep true. A column the fold advances, or a new table the
 	// write path maintains per effect, needs a writer an older binary does not
 	// run, so the state drifts behind its effects with no convergence
-	// (CD-0111 D3; migration 108's last_activity_at drifted this way).
+	// (migration 108's last_activity_at drifted this way).
 	// FoldMaintained names that shape beside the SQL, and
 	// scripts/check-migration-compatibility.py binds an advance declaration
 	// to this bit.
@@ -55,7 +55,7 @@ type migration struct {
 	//
 	// "origin": on a column added to a pre-existing table, the fold sets the
 	// column once and first derivation wins —
-	// the execution_started_at class (CD-0183 D2).
+	// the execution_started_at class.
 	//
 	// Empty: the step declares no fold-maintained state.
 	FoldMaintained string
@@ -4436,7 +4436,7 @@ DROP TABLE workflow_staleness_warnings;
 		// proof on home_domain_id, and could not satisfy a workflow law
 		// mandate. This migration widens the law-subject vocabulary the
 		// schema admits and invalidates every knowledge watermark so the
-		// demand-driven rebuild (CD-0082 D1) repopulates the projection with
+		// demand-driven rebuild repopulates the projection with
 		// constitutional law even though the Git content did not move. The
 		// watermark digest names Git content, not projection semantics, so
 		// without this invalidation a pre-fix index reads fresh forever.
@@ -4820,7 +4820,7 @@ CREATE UNIQUE INDEX worktree_claims_one_active_branch ON worktree_claims(reposit
     WHERE state IN ('pending','verified');
 `,
 	},
-	// CD-0156: the mandatory backlog-alignment step records its search
+	// The mandatory backlog-alignment step records its search
 	// here. The table holds one declaration row per work item and, when
 	// the search found related work, one row per named work id. It does
 	// not reuse workflow_candidate_sets: that table's composite foreign
@@ -4898,7 +4898,7 @@ CREATE UNIQUE INDEX worktree_verify_leases_one_held ON worktree_verify_leases(pa
 `,
 	},
 	{
-		// The amended CD-0020 D2 names ranked law-body discovery as a distinct
+		// Ranked law-body discovery is a distinct
 		// non-authoritative job: law whose title and summary omit the sought
 		// words must still be discoverable through text search. The body a
 		// law record's blob carries lives nowhere in the projection, so the
@@ -5221,7 +5221,7 @@ DELETE FROM fold_guard WHERE active = 1;
 `,
 	},
 	{
-		// CD-0178 D3: occupancy is one row per session in a fold-only table,
+		// Occupancy is one row per session in a fold-only table,
 		// not a column on the worktree row. The legacy column admitted one
 		// session only and held no process identity, so a second landing
 		// refused with worktree_ownership_conflict and reclaim could not
@@ -5329,7 +5329,7 @@ CREATE TRIGGER worktree_occupancy_guard_delete BEFORE DELETE ON worktree_occupan
 	},
 	{
 		// The law context resolves a spec's criteria bound to a work item's
-		// predicates at continuity read time (CD-0180), so the manifest's
+		// predicates at continuity read time, so the manifest's
 		// predicate bindings have to reach the Git-derived projection. The
 		// fold already holds every record's criterion bindings when it
 		// writes law_subjects; without a column they stopped there. Existing
@@ -5388,7 +5388,7 @@ DELETE FROM fold_guard;
 		// fraction may be trimmed, so the substr transform pads it to nine
 		// digits: equal-width stamps whose text order equals their time
 		// order. A fold generation from before this migration never advances
-		// the column, so under a rolling upgrade (CD-0111) it drifts behind
+		// the column, so under a rolling upgrade it drifts behind
 		// the log; migration 109 drops the column so no fold-maintained
 		// stamp can drift the ordering.
 		Version:  108,
@@ -6172,13 +6172,13 @@ END;
 `,
 	},
 	{
-		// CD-0213 retires the Concord planning mirror. The Initiative
+		// The planning mirror retirement: the Initiative
 		// projections, the Linear outbox, the Project links, and the Product
 		// planning mode leave the schema; the operator archives them with
 		// concord backup before upgrading. Unsent outbox rows are mirror
-		// writes CD-0213 retires, so they are dropped, not migrated.
-		// linear_issue_links keeps one recorded issue identity per work item
-		// (D3): the key, UUID, and URL the agent read from the Linear MCP
+		// writes this retirement retires, so they are dropped, not migrated.
+		// linear_issue_links keeps one recorded issue identity per work item:
+		// the key, UUID, and URL the agent read from the Linear MCP
 		// server. A row without a key or URL never held a usable identity and
 		// stays only in the backup. The retired Initiative's includes relations
 		// are deleted.
@@ -6561,8 +6561,8 @@ ALTER TABLE workflow_contracts ADD COLUMN law_change TEXT CHECK(law_change IS NU
 		Version:  136,
 		Name:     "work_size_retirement",
 		Breaking: true,
-		// CD-0242 D6 retires assignment caps and resize lineage, not the
-		// work-level size model and operator override (CD-0229 D4-D6).
+		// This retirement removes assignment caps and resize lineage, not the
+		// work-level size model and operator override.
 		SQL: `
 INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
 DROP TRIGGER work_resize_lineage_guard_insert;
@@ -7530,7 +7530,7 @@ DROP TABLE domain_events;
 `,
 	},
 	{
-		// CD-0242 D14: a workflow definition is identified by its ref and
+		// A workflow definition is identified by its ref and
 		// content digest. The integer definition counter leaves every
 		// projection, and a workflow step claim binds the definition digest.
 		Version:        152,
@@ -9251,7 +9251,7 @@ type migrationScope int
 
 const (
 	// migrateForOpen applies pending additive steps and stops before the
-	// first pending breaking step (CD-0111 D3). A database with no applied
+	// first pending breaking step. A database with no applied
 	// migration has no older release to protect and applies every step.
 	migrateForOpen migrationScope = iota
 	// migrateForUpgrade applies every pending step, breaking ones included.
@@ -9308,7 +9308,7 @@ func migrate(ctx context.Context, db *sql.DB, scope migrationScope, clock ...fun
 		}
 		if scope != migrateForOpen && !lawIndexAccounted {
 			// The law-folder accounting runs Git, so it precedes the
-			// migrating transaction and never runs inside it (CD-0195 D2).
+			// migrating transaction and never runs inside it.
 			if lawIndexProof, err = establishLawIndexRetirementProof(ctx, db); err != nil {
 				return err
 			}
@@ -9417,8 +9417,8 @@ func unstampedStoreFresh(ctx context.Context, db *sql.DB) (map[int]appliedMigrat
 	return applied, false, nil
 }
 
-// unstampedRefusal is what an unstamped build read before it refused to
-// migrate an existing store (CD-0139): the applied head and the pending tail
+// unstampedRefusal is what an unstamped build reports when it refuses to
+// migrate an existing store: the applied head and the pending tail
 // this build defines. No manifest row names the release that applied it.
 type unstampedRefusal struct {
 	SchemaVersion    int
@@ -9430,7 +9430,7 @@ type unstampedRefusal struct {
 }
 
 // UnstampedRecovery is the isolation route every unstamped migration refusal
-// names (CD-0139 D4). The readiness plan blocks on the same rule without a
+// names. The readiness plan blocks on the same rule without a
 // refusal, so the command layer names it from here.
 const UnstampedRecovery = "set CONCORD_DB_PATH to a fresh path outside any repository, then retry"
 
@@ -9749,8 +9749,6 @@ func preflightMembershipMigration(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-// appliedMigrations takes a queryer so the manifest can be read without
-// opening a write transaction.
 // appliedMigration is one manifest row: what was applied, and whether it left
 // an older binary able to operate the database.
 type appliedMigration struct {
@@ -9758,6 +9756,8 @@ type appliedMigration struct {
 	Breaking bool
 }
 
+// appliedMigrations reads the manifest through the caller's queryer, so the
+// read opens no write transaction.
 func appliedMigrations(ctx context.Context, tx queryer) (map[int]appliedMigration, error) {
 	return readManifest(ctx, tx, `SELECT version, checksum, breaking FROM schema_migrations ORDER BY version`)
 }
@@ -9847,9 +9847,6 @@ func shippedVariantAccepted(version int, checksum string) bool {
 // definition. Both directions matter: an edited historical step means the live
 // schema no longer matches the code, and an unknown newer step means the
 // database was written by a binary that knows more than this one.
-// checkManifest decides whether this binary may operate a database, given what
-// the database records as applied.
-//
 // The rule is the compatibility floor, not version equality. A migration this
 // binary does not define is admitted when the database recorded it as
 // additive, because an additive migration only adds schema objects and this

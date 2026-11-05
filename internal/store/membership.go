@@ -159,10 +159,7 @@ func (edge membershipEdge) foldRemoved(ctx context.Context, tx *sql.Tx, event Ev
 	return edge.bumpVersion(ctx, tx, event, payload)
 }
 
-// foldRoleChanged folds product_project.role_changed or
-// work_project.role_changed: read the old role, refuse a no-op, demote the
-// existing primary when the new role is primary, apply the change, and bump
-// the subject's version.
+// foldRoleChanged folds product_project.role_changed or work_project.role_changed.
 func (edge membershipEdge) foldRoleChanged(ctx context.Context, tx *sql.Tx, event Event) error {
 	payload, subjectID, err := edge.payload(event)
 	if err != nil {

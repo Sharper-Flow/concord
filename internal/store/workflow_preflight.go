@@ -51,7 +51,7 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, request Workflow
 // proposed contract that is not active yet; confirm_premise validates Domain
 // refs against the committed registry; completion reads no law and needs no
 // proof; every other action follows the work's own demand
-// (PrepareWorkLawProof). Git runs only here, outside the pool (CD-0195 D2).
+// (PrepareWorkLawProof). Git runs only here, outside the pool.
 // The agent boundary, the preflight, and the owning transaction share this one
 // rule, so none refuses for a missing proof another would hold. An
 // unreachable or invalid law home refuses: a law or registry boundary has no
@@ -134,7 +134,7 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, reques
 		return err
 	}
 	if action.Consequence != ActionInternalSQLite {
-		// Project-session handoff admission (CD-0182 amendment): a
+		// Project-session handoff admission: a
 		// session whose receiving Project holds an unconsumed or stale
 		// frontier executes no managed external effect until a session of
 		// that Project consumes the addressed handoff under the active
@@ -231,7 +231,7 @@ func workflowPlanTerminalAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 }
 
 // workflowPlanCompleteConfirmationTx reports the declaring step that carries
-// the plan-level premise confirmation (CON-1701) and whether the active
+// the plan-level premise confirmation and whether the active
 // contract's confirmation is already recorded. A completed plan has no
 // frontier, yet completion requires that confirmation, so the declaring step
 // keeps the action while the confirmation is missing. Admission uses the step
@@ -259,20 +259,13 @@ func workflowPlanCompleteConfirmationTx(ctx context.Context, q queryer, workID s
 // workflowPlanCompletePrerequisiteTx reports the declaring step that carries
 // a completion-prerequisite action on a completed plan, whether the
 // prerequisite is recorded, and whether the action's own fold records it
-// after admission (so its fold admits while it is still missing):
-//
-//   - approve_contract records the initial contract; its paired
-//     contract_approved event folds first, so the fold admits once the
-//     contract exists;
-//   - record_delivery records the delivery assertion inside its own fold, so
-//     the fold admits while the assertion is missing.
-//
-// Completion requires these facts where they apply; the natural step order may
-// pass the declaring step before the prerequisite is recorded, and no other action can
-// record the first one, so the declaring step keeps admitting the action
-// while the prerequisite is missing — the completed-plan admission the
-// premise confirmation carries. Once the prerequisite is recorded, the
-// frontier and retained-record rules own the action again.
+// after admission. On a completed plan the declaring step keeps admitting the
+// action until the prerequisite is recorded: approve_contract's paired
+// contract_approved event folds first, and record_delivery records the
+// delivery assertion inside its own fold, so both folds admit while the
+// prerequisite is still missing and no other action can record the first
+// one. Once the prerequisite is recorded, the frontier and retained-record
+// rules own the action again.
 func workflowPlanCompletePrerequisiteTx(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, actionID string) (string, bool, bool, error) {
 	if plan == nil || !WorkflowStepPlanComplete(*plan) {
 		return "", false, false, nil
@@ -469,7 +462,7 @@ func validateWorkflowPayloadStructure(actionID string, definitionFields []Workfl
 // declaration names — the same single declaration (resolved through
 // workflowActionCrossField) the generated published variants build their
 // closed branches from, so a payload any published variant refuses, core
-// admission refuses too, and vice versa (CON-412). The rules are
+// admission refuses too, and vice versa. The rules are
 // version-invariant engine law: they bind whatever action version the
 // pinned definition carries, exactly as the released engine guard table
 // always did.
@@ -496,7 +489,7 @@ func validateWorkflowPayloadCrossFieldRules(actionID string, fields map[string]j
 // rule: which combination, the requires/forbids field that broke it, and
 // whether the broken side is a required (absent) or forbidden (present)
 // field. Callers render their own typed refusal; this function and the
-// declaration are the rule's only owners (CON-412).
+// declaration are the rule's only owners.
 func workflowPayloadCombinationViolation(declaration WorkflowActionCrossField, fields map[string]json.RawMessage) (combination WorkflowPayloadCombination, field string, requires bool, violated bool) {
 	for _, candidate := range declaration.Combinations {
 		value, ok := workflowFieldString(fields, candidate.Field)
@@ -521,7 +514,7 @@ func workflowPayloadCombinationViolation(declaration WorkflowActionCrossField, f
 // discriminator equalities against the supplied fields and reports the first
 // broken match: which match, the scalar value, and the object's
 // discriminator value. The caller renders the field-named typed refusal;
-// this function and the declaration are the rule's only owners (CON-412).
+// this function and the declaration are the rule's only owners.
 func workflowPayloadKindMatchViolation(declaration WorkflowActionCrossField, fields map[string]json.RawMessage) (match WorkflowPayloadKindMatch, fieldKind, objectKind string, violated bool) {
 	for _, candidate := range declaration.KindMatches {
 		scalar, ok := workflowFieldString(fields, candidate.Field)
@@ -550,8 +543,6 @@ func workflowPayloadKindMatchViolation(declaration WorkflowActionCrossField, fie
 	return WorkflowPayloadKindMatch{}, "", "", false
 }
 
-// workflowPayloadKindMatchRefusal renders the field-named refusal for a
-// broken nested discriminator equality, naming both fields and both values.
 func workflowPayloadKindMatchRefusal(actionID string, match WorkflowPayloadKindMatch, fieldKind, objectKind string) error {
 	remedy := match.Remedy
 	if remedy == "" {
@@ -604,10 +595,9 @@ func validateWorkflowPayloadSchema(document map[string]any, field WorkflowPayloa
 		return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q declares schema %q, which is not generated", field.Name, field.SchemaRef), false, "regenerate the payload contracts or correct the declared schema reference")
 	}
 	// An array field frozen before item_ref could name a generated schema
-	// describing one element rather than the whole value. Those definitions
-	// cannot be edited, so the element reading is preserved for them: it is the
-	// only reading under which they ever accepted a payload. A definition
-	// written now says which it means by choosing item_ref or schema_ref.
+	// describing one element rather than the whole value; those definitions
+	// cannot be edited, so the element reading is preserved for them. A
+	// definition written now chooses which it means by item_ref or schema_ref.
 	if field.ValueType == PayloadArray && !payloadschema.DescribesArrayIn(document, field.SchemaRef) {
 		return validateWorkflowPayloadItems(document, WorkflowPayloadField{Name: field.Name, ValueType: PayloadArray, ItemRef: field.SchemaRef}, raw)
 	}
@@ -659,7 +649,7 @@ func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessag
 		_, ok := value.(bool)
 		return ok
 	case PayloadObject:
-		// CD-0067 D3: an object field must decode to exactly one strict JSON
+		// An object field must decode to exactly one strict JSON
 		// object. UseNumber above preserves numeric literals, so the
 		// decoded form is map[string]any (with json.Number values); any
 		// other JSON type — array, scalar, null — fails closed. Structural

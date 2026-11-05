@@ -73,8 +73,7 @@ type WorkflowPayloadDefinition struct {
 	// Closed makes the declared field list a fail-closed payload contract.
 	// The payload carries fields only: cross-field rules are version-
 	// invariant engine law, so they live on the builtin action policy
-	// beside this declaration, never on digest-covered definition content
-	// (CON-412).
+	// beside this declaration, never on digest-covered definition content.
 	Closed bool                   `json:"closed,omitempty"`
 	Fields []WorkflowPayloadField `json:"fields"`
 }
@@ -85,8 +84,8 @@ type WorkflowPayloadDefinition struct {
 // actions), beside the payload fields it constrains — never on the
 // digest-covered WorkflowPayloadDefinition. Core payload validation, the
 // fold guards, replay, and the generated published variants all read this
-// one declaration, so the enforced and advertised contracts cannot disagree
-// (CON-412). validateCrossFieldDeclaration holds its shape.
+// one declaration, so the enforced and advertised contracts cannot disagree.
+// validateCrossFieldDeclaration holds its shape.
 type WorkflowActionCrossField struct {
 	// Combinations declares legal input combinations: under one
 	// discriminator value, Requires names fields the payload must carry and
@@ -95,7 +94,7 @@ type WorkflowActionCrossField struct {
 	// KindMatches declares nested discriminator equalities: when a scalar
 	// enum field and an object field are both present, the object's
 	// discriminator must hold the scalar's value — outcome_kind and
-	// outcome_payload.kind are one value (CON-412). Core payload validation
+	// outcome_payload.kind are one value. Core payload validation
 	// enforces the equality from this declaration and the generated
 	// published variants turn each match into closed per-kind branches, so
 	// neither side can admit a pair the other refuses.
@@ -105,7 +104,7 @@ type WorkflowActionCrossField struct {
 // WorkflowPayloadKindMatch declares that a scalar enum field and an object
 // field's discriminator hold one value whenever both are present. Remedy
 // optionally states the refusal remedy for a payload that breaks the
-// equality (CON-412).
+// equality.
 type WorkflowPayloadKindMatch struct {
 	Field         string `json:"field"`
 	Object        string `json:"object"`
@@ -119,7 +118,7 @@ type WorkflowPayloadKindMatch struct {
 // The declaration lives on the action's registry payload beside the fields it
 // constrains; core validation enforces it and the generated core and
 // published variants turn each one into a closed per-value field branch, so
-// one declaration owns the rule everywhere it applies (CON-412). Remedy
+// one declaration owns the rule everywhere it applies. Remedy
 // optionally states the refusal remedy for a payload that breaks the rule.
 type WorkflowPayloadCombination struct {
 	Field    string   `json:"field"`
@@ -136,8 +135,8 @@ type WorkflowActionDefinition struct {
 	// RequiredCapability names the agent capability the dispatcher must
 	// present to invoke this action. It is structural: the runtime reads it
 	// from the registry entry instead of branching on actionID. A zero
-	// value (empty string) carries no enforcement, mirroring the pre-CD-0059
-	// surface for legacy actions and tests that do not assert a capability.
+	// value (empty string) carries no enforcement, mirroring the older
+	// surface for actions and tests that do not assert a capability.
 	RequiredCapability string                    `json:"required_capability,omitempty"`
 	Payload            WorkflowPayloadDefinition `json:"payload"`
 	// PublicPayload replaces Payload only at the agent boundary.
@@ -341,7 +340,7 @@ type builtinActionPolicy struct {
 	// CrossField declares the action's version-invariant cross-field rules.
 	// It rides the engine policy, not the digest-covered payload, and every
 	// enforcer and the published variants resolve it through
-	// workflowActionCrossField (CON-412).
+	// workflowActionCrossField.
 	CrossField *WorkflowActionCrossField
 }
 
@@ -355,7 +354,7 @@ func actionPolicy(consequence ActionConsequence, mode ActionExecutionMode, shape
 // actionPolicyWithCombinations attaches the action's cross-field legal input
 // combinations to its engine policy declaration: the one typed declaration
 // core validation enforces and the published variants generate their closed
-// per-value branches from (CON-412).
+// per-value branches from.
 func actionPolicyWithCombinations(policy builtinActionPolicy, combinations ...WorkflowPayloadCombination) builtinActionPolicy {
 	policy.CrossField = &WorkflowActionCrossField{Combinations: combinations}
 	return policy
@@ -365,7 +364,7 @@ func actionPolicyWithCombinations(policy builtinActionPolicy, combinations ...Wo
 // from its single owner: the builtin engine policy table, or the engine
 // recovery registry for correction actions admitted off a pinned step.
 // Core preflight, the fold guards, and the exported generator projection
-// all read this accessor, so no second copy of a rule can drift (CON-412).
+// all read this accessor, so no second copy of a rule can drift.
 func workflowActionCrossField(actionID string) WorkflowActionCrossField {
 	if policy, ok := builtinActionPolicies[actionID]; ok && policy.CrossField != nil {
 		return *policy.CrossField
@@ -454,7 +453,7 @@ func actionEnumListField(name string, required bool, upper int64, values ...stri
 
 // workflowDecisionFactField declares the copied decision-fact field a
 // consequence_v1 contract carries: a required closed string list whose
-// members answer to CD-0243's six-class workflowDecisionDomainSet. The empty
+// members answer to the six-class workflowDecisionDomainSet. The empty
 // list records engineering and absence has no declared shape. The enum storage
 // is copied, so the field never aliases the canonical set.
 func workflowDecisionFactField() WorkflowPayloadField {
@@ -465,8 +464,6 @@ func actionProseListField(name string, required bool, lower, upper int64, itemRe
 	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(lower), MaxItems: workflowInt(upper), ItemRef: itemRef}
 }
 
-// actionLawListField declares a law-id list: the mandate may be empty and
-// holds at most 32 ids.
 func actionLawListField(name string, required bool) WorkflowPayloadField {
 	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(0), MaxItems: workflowInt(32), ItemRef: "law_id"}
 }
@@ -574,9 +571,9 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"checkpoint_repair":   actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
 	"start_refine":        actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
 	"checkpoint_refine":   actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
-	// CD-0198 D2: the typed diagnosis record. The payload carries one
+	// The typed diagnosis record. The payload carries one
 	// required section per merged source action: the reproduction record,
-	// the CD-0156 alignment search whose searched/outcome/related_ids
+	// the alignment search whose searched/outcome/related_ids
 	// fields and legal input combinations the merged action carries
 	// unchanged, and the root-cause record. The projection fold writes the
 	// same workflow_backlog_alignment rows the alignment action wrote and
@@ -622,7 +619,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"checkpoint_action":   actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
 	"record_delivery": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric,
 		actionRefField("delivery_artifact", true), actionEnumField("delivery_state", true, "asserted")),
-	// CON-1574: the pre-plan prelude and plan writes. record_intake records
+	// The pre-plan prelude and plan writes. record_intake records
 	// the fourteen decided checks (which found something) and one of five
 	// outcomes; record_clarify resolves the open questions intake found;
 	// pick_type copies the picked type's template into the stored plan;

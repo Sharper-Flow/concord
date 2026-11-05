@@ -129,9 +129,9 @@ type TypedError struct {
 	InterveningActions []InterveningAction `json:"intervening_actions,omitempty"`
 	Candidates         []string            `json:"candidates,omitempty"`
 	Violations         []string            `json:"violations,omitempty"`
-	// SupportedBudgetSeconds is the CD-0038 D3 typed ceiling. It rides every
-	// budget_refused error — seconds refusal, result-size overrun, and the
-	// legacy millisecond bound alike — so the value a caller needs to recover
+	// SupportedBudgetSeconds is the typed budget ceiling. It rides every
+	// budget_refused error — seconds refusal and result-size overrun
+	// alike — so the value a caller needs to recover
 	// is a field, never a details entry an implementation may forget to mint.
 	SupportedBudgetSeconds int            `json:"supported_budget_seconds,omitempty"`
 	Details                map[string]any `json:"details,omitempty"`
@@ -183,7 +183,7 @@ func NewOKMutation(base Envelope, payload json.RawMessage, changed []ChangedRef,
 	// mutation ok response, including when empty. Pointer fields plus omitempty
 	// express "emit iff set": nil (reads, other outcomes) omits the key, while
 	// a non-nil pointer to an empty slice emits `[]`. Slice omitempty cannot
-	// express this — it elides empty slices too (#702).
+	// express this — it elides empty slices too.
 	if changed == nil {
 		changed = []ChangedRef{}
 	}
@@ -641,7 +641,7 @@ func validateErrorRecoveryCouplings(err TypedError) error {
 			return errors.New("invalid intervening workflow action")
 		}
 	}
-	// CD-0038 D3: the ceiling is a typed field, required wherever the kind
+	// The ceiling is a typed field, required wherever the kind
 	// appears. Byte and item overruns carry it too — the coupling is on the
 	// kind, not on which budget was exceeded.
 	if err.Kind == "budget_refused" && err.SupportedBudgetSeconds < 1 {

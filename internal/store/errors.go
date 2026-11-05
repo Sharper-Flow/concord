@@ -41,7 +41,7 @@ const (
 	// KindSchemaUnsupported marks a database written by a newer binary.
 	KindSchemaUnsupported FailureKind = "schema_unsupported"
 	// KindUpgradeRequired marks a database whose next pending migration is
-	// breaking. Open never applies it; concord upgrade does (CD-0111 D3).
+	// breaking. Open never applies it; concord upgrade does.
 	KindUpgradeRequired FailureKind = "upgrade_required"
 	// KindUpgradeBlocked marks an upgrade refused because a live host session
 	// holds a release that predates the pending breaking migration.
@@ -151,7 +151,7 @@ const (
 	KindUnauthorized                 FailureKind = "unauthorized"
 	// KindUnauthorizedDispatch marks a worker-dispatch evidence write that
 	// names a work item with no authorized, unconsumed dispatch window at
-	// the current step epoch. CD-0059 makes this refusal structural: one
+	// the current step epoch. The refusal is structural: one
 	// authorization admits exactly one attempt, and a worker spawned
 	// outside the registered action is visible as absent evidence.
 	KindUnauthorizedDispatch FailureKind = "unauthorized_dispatch"
@@ -256,12 +256,10 @@ func newFailure(kind FailureKind, op, detail string, retrySafe bool, recovery st
 const MaxFailureCandidates = 20
 
 // newAmbiguousScopeFailure builds the one ambiguous-scope refusal shape. The
-// agent envelope refuses an ambiguous_scope error without candidates, so a
-// refusal that did not name its candidates would die at the envelope boundary
-// as an undeliverable marshal error instead of reaching the agent typed. Every
-// site therefore names the enumerated identities the caller chooses among,
-// capped at the envelope's candidate bound. A resolution that enumerates no
-// candidates found nothing to choose among, so it is an unknown scope.
+// agent envelope refuses an ambiguous_scope error without candidates, so every
+// site names the enumerated identities the caller chooses among, capped at
+// the envelope's candidate bound. A resolution that enumerates no candidates
+// found nothing to choose among, so it is an unknown scope.
 func newAmbiguousScopeFailure(op, detail, recovery string, candidates []string) *Failure {
 	if len(candidates) == 0 {
 		return newFailure(KindUnknownScope, op, detail, false, recovery)

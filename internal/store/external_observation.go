@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// CD-0040: one closed provenance and verification component shared by every
+// One closed provenance and verification component shared by every
 // record of external state. The component supplies identity, examined-universe,
 // freshness, and divergence semantics; purpose-built domain events keep their
 // own status vocabularies. Nothing here may turn an attributed report into a
@@ -31,7 +31,7 @@ const (
 )
 
 // CoverageState is whether the examined universe was fully traversed. Only
-// `complete` may support a negative conclusion, and only after the D4 witness
+// `complete` may support a negative conclusion, and only after the witness
 // checks pass.
 type CoverageState string
 
@@ -72,7 +72,7 @@ const (
 	CaptureGitProbe            CaptureMethodKind = "git_probe"
 )
 
-// ObservedUniverse is the closed D4 structure separating shape, coverage, and
+// ObservedUniverse is the closed structure separating shape, coverage, and
 // anchor. Its fields are orthogonal: a finite list may be truncated, a total
 // may be an estimate, and a set digest proves the identity of the captured set
 // — never the scope of the world the producer chose to capture.
@@ -91,7 +91,7 @@ type ObservedUniverse struct {
 	Omissions            []string               `json:"omissions,omitempty"`
 }
 
-// ExternalObservationCapture is the D3 provenance component. Subject references
+// ExternalObservationCapture is the provenance component. Subject references
 // are opaque and non-secret; they remain evidence subject data until an owning
 // registry exists. ReportingAuthorityRef is derived by the writing boundary
 // from the authenticated trusted client or a core-owned Git probe — never
@@ -121,7 +121,7 @@ const (
 )
 
 // VerificationMethodKind names how the check ran. v1 allows only trusted
-// client reports and core Git probes (D6).
+// client reports and core Git probes.
 type VerificationMethodKind string
 
 const (
@@ -129,7 +129,7 @@ const (
 	VerifyGitProbe            VerificationMethodKind = "git_probe"
 )
 
-// ExternalObservationVerification is one append-only D6 verification event
+// ExternalObservationVerification is one append-only verification event
 // body. It binds a single observation to a method, a time, an attributed
 // verifier, and a result.
 type ExternalObservationVerification struct {
@@ -156,7 +156,7 @@ const (
 	VerificationUnverifiable       FoldedVerificationState = "unverifiable"
 )
 
-// DivergenceExpectationKind is the D8 prior declaration. A mismatch may count
+// DivergenceExpectationKind is the prior declaration. A mismatch may count
 // as expected only when this was declared before the check; the verifier can
 // never excuse its own mismatch after the fact.
 type DivergenceExpectationKind string
@@ -167,12 +167,12 @@ const (
 	DivergenceBoundedDriftWindow DivergenceExpectationKind = "bounded_drift_window"
 )
 
-// ExternalSubjectPolicy is the D7/D8 reviewed declaration for one
+// ExternalSubjectPolicy is the reviewed declaration for one
 // external-observation kind: how long a verification remains actionable, and
 // what divergence was pre-declared as expected. This compiled register is the
 // ordinary reviewed definition path in v1; a caller cannot choose how long its
 // own report remains actionable. The derived reference binds stable ID plus
-// content hash (CD-0036 identity), so a same-ID edit produces a new reference
+// content hash, so a same-ID edit produces a new reference
 // and cannot silently re-bound existing records.
 type ExternalSubjectPolicy struct {
 	SubjectKind            string                    `json:"subject_kind"`
@@ -190,7 +190,6 @@ var externalSubjectPolicies = []ExternalSubjectPolicy{
 	{SubjectKind: "environment", FreshnessMaxAgeSeconds: 3600, DivergenceExpectation: DivergenceBoundedDriftWindow, DriftWindowSeconds: 900},
 }
 
-// ExternalSubjectPolicyFor returns the reviewed policy for a subject kind.
 func ExternalSubjectPolicyFor(subjectKind string) (ExternalSubjectPolicy, bool) {
 	for _, policy := range externalSubjectPolicies {
 		if policy.SubjectKind == subjectKind {
@@ -241,7 +240,7 @@ func parseRFC3339(value string) bool {
 	return err == nil
 }
 
-// ValidateObservedUniverse enforces the D4 structure. The invalid combinations
+// ValidateObservedUniverse enforces the universe structure. The invalid combinations
 // are structural, not advisory: a complete claim without its witness fails
 // here, so a reader can rely on coverage=complete meaning what it says.
 func ValidateObservedUniverse(universe ObservedUniverse) error {
@@ -338,7 +337,7 @@ func validateCompleteObservedUniverse(universe ObservedUniverse) error {
 	return nil
 }
 
-// ValidateExternalObservationCapture enforces the D3 component. The reporting
+// ValidateExternalObservationCapture enforces the capture component. The reporting
 // authority is passed in by the writing boundary from authenticated context;
 // nothing derived from caller prose reaches this struct.
 func ValidateExternalObservationCapture(capture ExternalObservationCapture) error {
@@ -380,7 +379,7 @@ func ValidateExternalObservationCapture(capture ExternalObservationCapture) erro
 	return nil
 }
 
-// ValidateExternalObservationVerification enforces the D6 event body. The
+// ValidateExternalObservationVerification enforces the verification event body. The
 // verifying authority is derived by the writing boundary, never accepted from
 // the report itself.
 func ValidateExternalObservationVerification(verification ExternalObservationVerification) error {
@@ -412,7 +411,7 @@ func ValidateExternalObservationVerification(verification ExternalObservationVer
 	return nil
 }
 
-// FoldVerificationState derives the D6 read-time state from a prior state, the
+// FoldVerificationState derives the read-time state from a prior state, the
 // capture's pre-declared divergence expectation, and one new verification
 // result. unreachable leaves the prior state: it is a failed attempt, not
 // evidence. unavailable is named un-verifiability; it is never verified.

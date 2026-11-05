@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-// CD-0039: native-run outcomes are attributed reports, not Concord findings.
+// Native-run outcomes are attributed reports, not Concord findings.
 // A record means an authenticated trusted client reported a status about a
 // native run at a time with evidence; it never means Concord performed or
-// verified the status. CD-0040 D11 adds the shared capture component, pinned
+// verified the status. The shared capture component is pinned
 // here to the operator-approved native-run report policy until a reviewed
 // policy registry exists.
 const (
@@ -18,7 +18,7 @@ const (
 )
 
 // nativeRunPolicyRefs returns the derived freshness/divergence references for
-// the native-run kind. CD-0040 D7: a same-ID policy edit changes the hash and
+// the native-run kind. A same-ID policy edit changes the hash and
 // so produces a new reference instead of silently rebinding existing records.
 func nativeRunPolicyRefs() (string, string) {
 	policy, _ := ExternalSubjectPolicyFor("native_run")
@@ -38,7 +38,7 @@ type nativeRunPayload struct {
 	AssertedAt            string `json:"asserted_at"`
 	ReportingAuthorityRef string `json:"reporting_authority_ref"`
 	ActorRef              string `json:"actor_ref"`
-	// CD-0040 D11 capture component: the shared closed structure, not a free
+	// The capture component: the shared closed structure, not a free
 	// map. Core-derived; callers cannot author it.
 	CaptureMethod       CaptureMethodKind `json:"capture_method"`
 	ObservedUniverse    ObservedUniverse  `json:"observed_universe"`
@@ -145,7 +145,7 @@ func foldNativeRunRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err != nil {
 		return wrapFailure(KindInvalidPayload, "fold_event", "cannot encode native run observed universe", false, "repair the stored native run report", err)
 	}
-	// CD-0040 D11: the embedded component's shared provenance home. The run's
+	// The embedded component's shared provenance home. The run's
 	// first reported phase registers the observation; later phases of the
 	// same run share it, and verification events bind it here.
 	if _, err := tx.ExecContext(ctx, `INSERT INTO external_observations(observation_id,work_id,subject_kind,subject_ref,capture_method,captured_at,reporting_authority_ref,subject_digest,observed_universe,freshness_policy_ref,divergence_policy_ref,verification_state,created_event_seq) VALUES(?,?,?,?,?,?,?,?,?,?,?,'unverified',?) ON CONFLICT(observation_id) DO NOTHING`,
@@ -169,7 +169,7 @@ func foldNativeRunRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 
 // NativeRunReport is the attributed read projection of one native-run phase.
 // Reporter, subject, evidence, and both times always ride with the status;
-// dropping attribution from a display is a contract defect (CD-0039 D1/D4).
+// dropping attribution from a display is a contract defect.
 type NativeRunReport struct {
 	RunID                 string `json:"run_id"`
 	Phase                 string `json:"phase"`
@@ -192,7 +192,7 @@ type NativeRunReport struct {
 // work item, newest phase report per run, on the caller's transaction. The
 // store pools a single SQLite connection, so this read must share the
 // full work list transaction rather than open a second connection.
-// Every report carries its verification participation (CD-0040 D9/D11):
+// Every report carries its verification participation:
 // unverified and diverged reports remain readable, and a consequential
 // consumer fails closed at workflow.evidence_bound until the observation is
 // verified.

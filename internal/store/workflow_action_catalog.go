@@ -46,7 +46,7 @@ func withPayloadFieldRevision(name string, revise func(WorkflowPayloadField) Wor
 	}
 }
 
-// workflowActionCatalog owns each action contract once (CD-0242 D3, D14): an
+// workflowActionCatalog owns each action contract once: an
 // action's definition is its policy-table base with the catalog's revisions
 // for it applied in order. Workflow steps name action IDs whose definitions
 // come from this catalog.
@@ -91,12 +91,10 @@ func cloneWorkflowAction(action WorkflowActionDefinition) WorkflowActionDefiniti
 	return action
 }
 
-// catalogAction returns one action as the current catalog declares it.
 func catalogAction(actionID string) (WorkflowActionDefinition, error) {
 	return builtinWorkflowActionCatalog().action(actionID)
 }
 
-// builtinWorkflowActionCatalog is the current catalog for built-in workflows.
 func builtinWorkflowActionCatalog() workflowActionCatalog {
 	return workflowActionCatalog{
 		"approve_contract":     {premiseFloor},

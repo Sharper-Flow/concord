@@ -111,8 +111,8 @@ func resolveKnowledgeHead(ctx context.Context, home KnowledgeHome) (string, erro
 
 // resolveKnowledgeHeadCheap re-reads a repository's head commit with a few
 // small file reads and no subprocess, network call, or bulk filesystem
-// operation (CD-0195 D2 admits exactly this cheap in-transaction
-// re-validation). It resolves the head the way git does: a detached HEAD
+// operation — exactly the cheap in-transaction re-validation the
+// connection-pool rule admits. It resolves the head the way git does: a detached HEAD
 // names the commit directly, a symbolic HEAD names a ref that a loose ref
 // file resolves, and a ref absent from the loose tree resolves through the
 // packed-refs file. A linked worktree keeps its own HEAD and takes shared
@@ -229,7 +229,6 @@ func safeGitRefPath(ref string) bool {
 	return true
 }
 
-// packedGitRef reads one ref out of a git directory's packed-refs file.
 func packedGitRef(gitDir, ref string) (string, error) {
 	raw, err := os.ReadFile(path.Join(gitDir, "packed-refs")) //nolint:gosec // packed-refs is a fixed name under the operator-selected git authority.
 	if err != nil {
@@ -343,8 +342,8 @@ const cheapLawSourceOIDLimit = 64 * 1024
 // resolveLawSourceOIDsCheap re-reads a repository's committed law content
 // identity — the law-folder tree OID and the Domain registry blob OID at the
 // resolved head — with a few small object file reads and no subprocess,
-// network call, or bulk filesystem operation, the same CD-0195 D2 admission
-// resolveKnowledgeHeadCheap runs under. It exists so the transaction-scoped
+// network call, or bulk filesystem operation, under the same cheap-read
+// admission resolveKnowledgeHeadCheap runs under. It exists so the transaction-scoped
 // law boundary can distinguish a head that moved without touching committed
 // law content (admitted, PM1 §3.3) from one that moved the law itself
 // (refused). Everything it cannot resolve cheaply is an error, never a

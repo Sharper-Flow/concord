@@ -46,7 +46,7 @@ func retiredInitiativeWriteRefused(kind string) error {
 		"group the work in Linear through the Linear MCP server")
 }
 
-// refuseRetiredPlanningAppend owns the CD-0213 D4 control for the generic
+// refuseRetiredPlanningAppend owns the retired-planning control for the generic
 // work-event kinds whose retirement is a property of their payload.
 func refuseRetiredPlanningAppend(event Event) error {
 	if event.SubjectType != SubjectWorkItem || event.Kind != "work.created" {

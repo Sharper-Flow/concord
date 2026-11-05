@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// CD-0213 D3: a managed work unit carries at most one Linear issue identity,
+// A managed work unit carries at most one Linear issue identity,
 // the key, UUID, and URL the agent read from the Linear MCP server. Concord
 // stores the identity as reported and makes no Linear call. The table is
 // direct authority and holds no foreign key.
@@ -58,10 +58,10 @@ func validateLinearIssueLink(link LinearIssueLink) error {
 
 // RecordLinearIssueLinkTx records one work item's Linear issue identity inside
 // the caller's transaction. Recording the identity the work item already holds
-// is a no-op. A different identity for the same work item refuses (CD-0213 D3).
+// is a no-op. A different identity for the same work item refuses.
 // One live work item per Linear issue: a key or issue UUID another LIVE work
 // item's link holds refuses, while a terminal item's recorded identity never
-// blocks a fresh capture (CD-0146).
+// blocks a fresh capture.
 func RecordLinearIssueLinkTx(ctx context.Context, transaction *Transaction, link LinearIssueLink) (LinearIssueLink, error) {
 	const op = "linear_link_record"
 	if err := validateLinearIssueLink(link); err != nil {

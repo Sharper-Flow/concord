@@ -11,15 +11,15 @@ import (
 // External observations are non-authoritative: a record may only supply or
 // withhold a precondition checked by another operation. It never positively
 // satisfies evidence, approval, transition, verdict, or completion except
-// through the verified native_run evidence binding (CD-0040 D9/D11).
+// through the verified native_run evidence binding.
 
 const (
 	EventExternalObservationCaptured = "work.external_observation_captured"
 	EventExternalObservationVerified = "work.external_observation_verified"
 )
 
-// externalObservationCapturedPayload is the closed capture event body: the D3
-// component verbatim. recorded provenance is append-only; verification events
+// externalObservationCapturedPayload is the closed capture event body: the
+// capture component verbatim. recorded provenance is append-only; verification events
 // reference the observation id and never edit this record.
 type externalObservationCapturedPayload struct {
 	ExternalObservationCapture
@@ -93,7 +93,7 @@ func foldExternalObservationVerified(ctx context.Context, tx *sql.Tx, event Even
 	if !known || divergencePolicyRef != PolicyRef(policy) {
 		return newFailure(KindInvariantViolation, "fold_event", "captured observation no longer binds its reviewed policy", false, "recapture the observation under the current policy")
 	}
-	// D8: the expectation was declared before the check, as part of the
+	// The expectation was declared before the check, as part of the
 	// reviewed policy the capture bound. The verifier cannot excuse its own
 	// mismatch after the fact.
 	state := FoldVerificationState(FoldedVerificationState(priorState), policy.DivergenceExpectation, p.Result)
@@ -102,7 +102,7 @@ func foldExternalObservationVerified(ctx context.Context, tx *sql.Tx, event Even
 		string(state), string(p.VerificationMethod), p.VerifiedAt, p.VerifyingAuthorityRef, string(p.Result), string(omissions), event.Seq, p.ObservationID, event.SubjectID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot fold external observation verification", true, "retry once the database is writable", err)
 	}
-	// CD-0040 D11 verification participation: a native-run record embeds the
+	// Verification participation: a native-run record embeds the
 	// shared component, so verifying its observation also answers the question
 	// every native-run read carries — verified, unverified, diverged, or
 	// unverifiable. Rows whose observation this is not stay untouched.

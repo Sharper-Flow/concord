@@ -137,7 +137,7 @@ type WorkflowActor struct {
 	SessionRef   string     `json:"session_ref"`
 	ActorClass   ActorClass `json:"actor_class"`
 	// Model is the readback executing-model identity observed for the run in
-	// which this actor acted (CD-0017 D5). It is deliberately not part of the
+	// which this actor acted. It is deliberately not part of the
 	// actor identity tuple: workflow_actors is keyed by its four authenticated
 	// references, and one identity may act on different models across runs.
 	Model string `json:"model,omitempty"`

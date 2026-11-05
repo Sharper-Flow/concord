@@ -198,7 +198,7 @@ func (s *lawFolderSnapshot) Registry() (KnowledgeDomainRegistry, error) {
 
 // domainRegistryAbsent refuses a read that needs the Domain registry when
 // the commit carries none. The store cannot write the registry: it is
-// Product law (CD-0222 D2), and a Concord agent enacts it through an
+// Product law, and a Concord agent enacts it through an
 // ordinary reviewed pull request at the Product knowledge home.
 func domainRegistryAbsent() error {
 	return newFailure(KindDomainRegistryAbsent, lawSnapshotOp,

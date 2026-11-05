@@ -23,7 +23,7 @@ type WorkflowLawContext struct {
 	// RegistryPath is the knowledge home repository's absolute locator for
 	// the Domain registry shard the home checkout actually carries, set when
 	// the context binds at least one Domain. A dispatched lane holds no
-	// Concord tool access (CD-0017 D4), so the path is how it reads Domain
+	// Concord tool access, so the path is how it reads Domain
 	// structure: from the file, never from a tool call.
 	RegistryPath string `json:"registry_path,omitempty"`
 }
@@ -333,7 +333,7 @@ func lawContextLaws(roleSet, obligationSet map[string]map[string]bool, lawIDs []
 // write-side sum of the mandate (32), additions (32), and obligations (64)
 // bounds. Each record's committed path is qualified with the knowledge home
 // repository and verified to open there before it reaches the packet. A bound
-// law may carry the qualified project_id/law_id reference form (CD-0200); in
+// law may carry the qualified project_id/law_id reference form; in
 // this single-home path it resolves by its bare ID when the reference names
 // this home's own Project.
 func resolveLawContextSubjects(ctx context.Context, homeProjectID, homeLocatorID, homeRepo string, laws []WorkflowLawContextLaw) ([]WorkflowLawContextLaw, error) {

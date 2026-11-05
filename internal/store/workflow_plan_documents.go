@@ -112,7 +112,7 @@ func requireWorkflowPlanDocumentTx(ctx context.Context, tx *sql.Tx, workID strin
 		action = "record_removal_scope"
 		err = tx.QueryRowContext(ctx, `SELECT payload FROM workflow_removal_scopes WHERE work_id=?`, workID).Scan(&raw)
 	case stepID == "diagnose" && plan.Type == WorkflowStepPlanFix:
-		// CD-0198 D2: the diagnose step completes only with its recorded
+		// The diagnose step completes only with its recorded
 		// typed diagnosis; the record holds the search beside the analysis.
 		var exists int
 		if existsErr := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_completed_exits WHERE work_id=? AND action_id='record_diagnosis')`, workID).Scan(&exists); existsErr != nil {

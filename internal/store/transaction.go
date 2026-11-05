@@ -55,7 +55,7 @@ func (s *Store) Transact(ctx context.Context, fn func(*Transaction) error) error
 	return s.transact(ctx, false, fn)
 }
 
-// TransactDurable is Transact for a consequential operation (CD-0050 D3): its
+// TransactDurable is Transact for a consequential operation: its
 // commit syncs the write-ahead log before it returns, so a nil result means
 // the transaction and every earlier commit on the store are durable.
 func (s *Store) TransactDurable(ctx context.Context, fn func(*Transaction) error) error {

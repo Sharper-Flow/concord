@@ -9,9 +9,8 @@ const (
 	WorkerJobSplitDischarged = "worker.job_split_discharged"
 )
 
-// retireSizeEventAppendRefused names the decision that retired the size
-// kinds. The planning kinds keep their own message in
-// retiredEventAppendRefused.
+// retireSizeEventAppendRefused refuses the retired size kinds; planning
+// kinds route to retiredEventAppendRefused.
 func retireSizeEventAppendRefused(kind string) error {
 	return newFailure(KindInvalidOperation, "apply_operation",
 		"event kind "+kind+" is retired by CD-0242 D6: no production-line cap, size measurement, or mandatory split applies", false,

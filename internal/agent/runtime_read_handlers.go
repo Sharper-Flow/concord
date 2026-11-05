@@ -321,8 +321,8 @@ func (r runtime) readTraceRelations(ctx context.Context, base agentcontract.Enve
 	return r.q8(base, q)
 }
 
-// readTraceProjectRetirement answers concord_work_trace.project_retirement
-// (CD-0182.R1). The retirement identities come from the authenticated call
+// readTraceProjectRetirement answers concord_work_trace.project_retirement.
+// The retirement identities come from the authenticated call
 // context, never from the input: the ambient Project is the session's own,
 // the envelope session reference is the acting session, and the preservation
 // probe runs in the session's host-reported worktree. The derivation is

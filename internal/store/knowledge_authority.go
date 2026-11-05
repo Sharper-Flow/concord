@@ -1,6 +1,6 @@
 package store
 
-// CD-0159 D5 supplies standing to the closed default cohort. The Go store
+// The closed default cohort supplies its own standing. The Go store
 // embeds the committed cohort asset, enforces the frozen vehicle claim on
 // every committed law read, and resolves every other declared legislative
 // reference through its exact approved contract at the law-source
@@ -178,7 +178,7 @@ func validateKnowledgeAuthorityDefault(record KnowledgeRecord) error {
 }
 
 // isKnowledgeAuthorityDefault reports whether the record's declared reference
-// is the frozen vehicle claim D5 stands behind. It is the resolver's D5 basis
+// is the frozen vehicle claim. It is the resolver's basis
 // check: cohort members resolve without any contract lookup.
 func (d *knowledgeAuthorityDefaults) isKnowledgeAuthorityDefault(record KnowledgeRecord) bool {
 	if record.Authority.LegislatedBy != d.vehicleWorkID || record.Authority.ContractVersion != d.vehicleContractVersion {
@@ -188,9 +188,10 @@ func (d *knowledgeAuthorityDefaults) isKnowledgeAuthorityDefault(record Knowledg
 }
 
 // resolveKnowledgeLegislatedAuthorityTx resolves one manifest record's
-// declared legislative reference inside the caller's transaction. D5 resolves
-// first: a frozen default-cohort member at the vehicle version carries its
-// standing from D5 itself and performs no contract lookup. Every other
+// declared legislative reference inside the caller's transaction. The frozen
+// default-cohort vehicle resolves
+// first: a default-cohort member at the vehicle version carries its
+// standing from the vehicle claim itself and performs no contract lookup. Every other
 // declared reference must name a live work whose exact historical contract
 // row is approved, is Product-changing by its recorded approval fact, and
 // admits the record through one closed field.

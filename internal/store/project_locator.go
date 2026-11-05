@@ -87,7 +87,7 @@ type ProjectResolution struct {
 	Repository HostRepository
 	Locators   []ProjectLocator
 	// MainWorktree reports that the resolved working tree is the repository's
-	// main checkout rather than a linked worktree (CD-0008 D1). It is false
+	// main checkout rather than a linked worktree. It is false
 	// when no resolver ran, so the zero value never blocks a grant.
 	MainWorktree bool
 }
@@ -312,7 +312,7 @@ func (s *Store) ResolveProject(ctx context.Context, directory, worktree string) 
 }
 
 // ResolveProjectWithRunner probes the host git identity with no transaction
-// open, then matches the probed host against Project locators (CD-0195 D2).
+// open, then matches the probed host against Project locators.
 // The matcher is SQL only, so the pooled connection never spans the git work.
 func (s *Store) ResolveProjectWithRunner(ctx context.Context, directory, worktree string, runner GitRunner) (ProjectResolution, error) {
 	host, err := ResolveProjectHost(ctx, directory, worktree, runner)
@@ -331,7 +331,7 @@ func (s *Store) MatchResolvedProjectHost(ctx context.Context, host ResolvedProje
 
 // MatchResolvedProjectHostTx matches an already-probed host inside the
 // caller's transaction. It runs SQL only: every git fact arrived in the
-// probe, which the caller ran before the transaction opened (CD-0195 D2).
+// probe, which the caller ran before the transaction opened.
 func MatchResolvedProjectHostTx(ctx context.Context, transaction *Transaction, host ResolvedProjectHost) (ProjectResolution, error) {
 	tx, err := transactionSQL(transaction, "project_resolve")
 	if err != nil {
@@ -341,7 +341,7 @@ func MatchResolvedProjectHostTx(ctx context.Context, transaction *Transaction, h
 }
 
 // ResolvedProjectHost carries the git facts one directory resolution probed
-// with no transaction open (CD-0195 D2): the repository identity is a fact
+// with no transaction open: the repository identity is a fact
 // about the filesystem and git, never about the database, so the probe runs
 // outside any write transaction and the locator match runs inside one.
 type ResolvedProjectHost struct {
@@ -352,7 +352,7 @@ type ResolvedProjectHost struct {
 }
 
 // ResolveProjectHost probes the git identity of the calling directory and
-// worktree with no database access and no transaction open (CD-0195 D2).
+// worktree with no database access and no transaction open.
 func ResolveProjectHost(ctx context.Context, directory, worktree string, runner GitRunner) (ResolvedProjectHost, error) {
 	if runner == nil {
 		return ResolvedProjectHost{}, newFailure(KindInvalidOperation, "resolve_project", "git runner is nil", false, "provide a git runner")
@@ -399,7 +399,7 @@ func ResolveProjectHost(ctx context.Context, directory, worktree string, runner 
 }
 
 // MatchResolvedProjectHost matches a probed host against the Project
-// locators. It runs SQL only (CD-0195 D2): every git fact arrived in the
+// locators. It runs SQL only: every git fact arrived in the
 // probe.
 func matchResolvedProjectHost(ctx context.Context, q queryer, host ResolvedProjectHost) (ProjectResolution, error) {
 	locators := []ProjectLocator{}
@@ -460,7 +460,7 @@ func resolveRepositoryCommonRoot(ctx context.Context, runner GitRunner, worktree
 }
 
 // resolveMainWorktree reports whether the working tree at root is the
-// repository's main checkout rather than a linked worktree (CD-0008 D1).
+// repository's main checkout rather than a linked worktree.
 // git-dir and git-common-dir identify the same directory only in the main
 // working tree; a linked worktree keeps its own git-dir under the common one.
 // Both outputs may be relative to root, so they are resolved and symlink

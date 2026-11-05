@@ -141,7 +141,8 @@ artifact directory owns working evidence files for the life of that execution.
 The worktree owns code progress, both committed and uncommitted.
 
 Neither store mirrors another owner. The SQLite store copies no Linear backlog.
-A derived index of Git knowledge is rebuilt from Git.
+A derived index of Git knowledge would be rebuilt from Git, never a second
+authority; none exists — law resolves through the committed law folder.
 
 ### D2. The store keeps current state and finite snapshots, not history
 

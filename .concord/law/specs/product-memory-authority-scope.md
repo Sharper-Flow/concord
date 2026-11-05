@@ -205,15 +205,18 @@ factual claims. No unsourced internal SaaS storage claims are made.
 
 ## 5. Portability and recovery
 
-- **Backup:** one consistent SQLite backup/checkpoint plus git backups. PM10
-  must automate and test this before production readiness.
+- **Backup:** one consistent SQLite backup/checkpoint. PM10 automates and
+  tests the SQLite authority; git repository backup, restore, and
+  integrity-checking belong to host tools
+  ([PM10 §1](product-memory-recovery.md#1-decision)).
 - **Product export:** versioned logical bundle containing Product identity,
   Project membership, canonical work and relations allowed by policy,
   knowledge locators, and ordinary external references allowed by policy. The bundle is
   not live authority.
 - **Import:** deferred; it must validate schema/IDs and cannot silently merge.
-- **Corruption recovery:** use SQLite's documented backup/integrity/recovery tools;
-  derived indexes rebuild from their canonical stores.
+- **Corruption recovery:** use SQLite's documented backup/integrity/recovery
+  tools and restore the last verified snapshot
+  ([PM10 §3](product-memory-recovery.md#3-failure-handling-and-reclamation)).
 
 ## 6. Falsifiers and future paths
 

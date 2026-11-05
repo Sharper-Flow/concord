@@ -9062,6 +9062,104 @@ CREATE INDEX linear_issue_links_human_key ON linear_issue_links(human_key);
 DELETE FROM write_guard;
 `,
 	},
+	{
+		Version: 187, Name: "law_addition_reservation_identity", Breaking: false,
+		SQL: `
+-- Law-addition reservations and contract law additions keyed law identities
+-- by the raw addition spelling, so 'law:x' and 'project/law:x' (the
+-- Product's own knowledge-home project) each held their own row and one
+-- contract could add one identity twice. Rewrite both tables to the
+-- canonical identity the approval seam now enforces: an own-home qualified
+-- spelling folds to its bare law ID; bare IDs, foreign-home spellings,
+-- malformed references, spellings whose bare form would fall under the
+-- stored two-character bound, and products without a knowledge home keep
+-- their raw spelling. Duplicate identities fold to the earliest approved
+-- contract (approved_at, then owner work and version): the duplicate owner's
+-- reservation row and contract-addition rows are deleted with the fold, and
+-- the identity hold itself never disappears. A later contract of the work
+-- that holds the identity keeps its addition row, pointing at the held
+-- reservation, exactly as a fresh approval through the seam would.
+PRAGMA defer_foreign_keys = ON;
+
+CREATE TEMP TABLE workflow_law_addition_reservations_v187_backup AS SELECT * FROM workflow_law_addition_reservations;
+CREATE TEMP TABLE workflow_contract_law_additions_v187_backup AS SELECT * FROM workflow_contract_law_additions;
+
+INSERT OR IGNORE INTO write_guard(active) VALUES (1);
+DELETE FROM workflow_contract_law_additions;
+DELETE FROM workflow_law_addition_reservations;
+
+INSERT INTO workflow_law_addition_reservations(product_id,law_id,owner_work_id,owner_contract_version,home_domain_id)
+SELECT product_id, identity_law_id, owner_work_id, owner_contract_version, home_domain_id
+FROM (
+    SELECT r.product_id, r.owner_work_id, r.owner_contract_version, r.home_domain_id,
+        CASE
+            WHEN h.project_id IS NOT NULL
+                 AND instr(h.project_id, '/') = 0
+                 AND substr(r.law_id, 1, length(h.project_id) + 1) = h.project_id || '/'
+                 AND length(r.law_id) >= length(h.project_id) + 3
+                 AND instr(substr(r.law_id, length(h.project_id) + 2), '/') = 0
+                THEN substr(r.law_id, length(h.project_id) + 2)
+            ELSE r.law_id
+        END AS identity_law_id,
+        ROW_NUMBER() OVER (
+            PARTITION BY r.product_id,
+                CASE
+                    WHEN h.project_id IS NOT NULL
+                         AND instr(h.project_id, '/') = 0
+                         AND substr(r.law_id, 1, length(h.project_id) + 1) = h.project_id || '/'
+                         AND length(r.law_id) >= length(h.project_id) + 3
+                         AND instr(substr(r.law_id, length(h.project_id) + 2), '/') = 0
+                        THEN substr(r.law_id, length(h.project_id) + 2)
+                    ELSE r.law_id
+                END
+            ORDER BY julianday(c.approved_at), r.owner_work_id, r.owner_contract_version, r.home_domain_id, r.law_id
+        ) AS fold_pick
+    FROM workflow_law_addition_reservations_v187_backup r
+    LEFT JOIN product_knowledge_homes h ON h.product_id = r.product_id
+    LEFT JOIN workflow_contracts c ON c.work_id = r.owner_work_id AND c.contract_version = r.owner_contract_version
+) WHERE fold_pick = 1;
+
+INSERT INTO workflow_contract_law_additions(work_id,contract_version,product_id,law_id,home_domain_id,reservation_owner_work_id,reservation_owner_contract_version)
+SELECT folded.work_id, folded.contract_version, folded.product_id, folded.identity_law_id, kept.home_domain_id, kept.owner_work_id, kept.owner_contract_version
+FROM (
+    SELECT a.work_id, a.contract_version, a.product_id, a.home_domain_id,
+        CASE
+            WHEN h.project_id IS NOT NULL
+                 AND instr(h.project_id, '/') = 0
+                 AND substr(a.law_id, 1, length(h.project_id) + 1) = h.project_id || '/'
+                 AND length(a.law_id) >= length(h.project_id) + 3
+                 AND instr(substr(a.law_id, length(h.project_id) + 2), '/') = 0
+                THEN substr(a.law_id, length(h.project_id) + 2)
+            ELSE a.law_id
+        END AS identity_law_id,
+        ROW_NUMBER() OVER (
+            PARTITION BY a.work_id, a.contract_version,
+                CASE
+                    WHEN h.project_id IS NOT NULL
+                         AND instr(h.project_id, '/') = 0
+                         AND substr(a.law_id, 1, length(h.project_id) + 1) = h.project_id || '/'
+                         AND length(a.law_id) >= length(h.project_id) + 3
+                         AND instr(substr(a.law_id, length(h.project_id) + 2), '/') = 0
+                        THEN substr(a.law_id, length(h.project_id) + 2)
+                    ELSE a.law_id
+                END
+            ORDER BY a.home_domain_id, a.law_id
+        ) AS fold_pick
+    FROM workflow_contract_law_additions_v187_backup a
+    LEFT JOIN product_knowledge_homes h ON h.product_id = a.product_id
+) folded
+JOIN workflow_law_addition_reservations kept
+  ON kept.product_id = folded.product_id
+ AND kept.law_id = folded.identity_law_id
+ AND kept.owner_work_id = folded.work_id
+ AND kept.home_domain_id = folded.home_domain_id
+WHERE folded.fold_pick = 1;
+
+DELETE FROM write_guard WHERE active = 1;
+DROP TABLE workflow_law_addition_reservations_v187_backup;
+DROP TABLE workflow_contract_law_additions_v187_backup;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

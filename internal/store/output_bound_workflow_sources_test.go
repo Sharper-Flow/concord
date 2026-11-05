@@ -269,7 +269,7 @@ func init() {
 	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/path/maxLength",
 		unboundedOutput("the law locator joins the knowledge home's canonical-path locator, whose normalized value derives through normalizePath: NUL is refused (internal/store/project_locator.go:150-152) but filepath.EvalSymlinks expands symlinked ancestors to filesystem-target text with no length guard (internal/store/project_locator.go:154-161), so the joined locator is byte-ceiling only", readSizeRefusalPath, mutationResultPath))
 	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/roles/maxItems",
-		workflowRoleMarkItemsBound("internal/store/workflow_law_revision.go", "readWorkflowLawContext", "markRole"))
+		workflowRoleMarkItemsBound("internal/store/workflow_law_revision.go", "foldWorkflowLawContextRoles", "markRole"))
 	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/title/maxLength",
 		manifestRecordTitle) // the law context copies the committed law title verbatim
 

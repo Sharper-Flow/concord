@@ -2,10 +2,13 @@ package store
 
 import "context"
 
-// LawAdditionReservation is one folded reservation of a law id: the earliest
-// approved contract that added the id holds it for its Product until the
-// reservation is released. The reservation is what a CD-id allocator must
-// treat as taken before the record lands on the default branch.
+// LawAdditionReservation is one folded reservation of a law identity: the
+// earliest approved contract that added the identity holds it for its Product
+// until the reservation is released. The reservation is what a CD-id
+// allocator must treat as taken before the record lands on the default
+// branch. LawID carries the identity's canonical spelling: an own-home
+// qualified addition reserves its bare form, so two spellings of one
+// identity cannot hold two reservations.
 type LawAdditionReservation struct {
 	LawID                string `json:"law_id"`
 	OwnerWorkID          string `json:"owner_work_id"`

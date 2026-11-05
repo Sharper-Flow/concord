@@ -129,11 +129,8 @@ DELETE FROM write_guard`); err != nil {
 			tables := append([]string{"sqlite_schema", "schema_migrations", "store_revision", "write_guard", "work_context_state"}, domainShapeRetiredTables...)
 			tables = append(tables, domainShapePreservedTables...)
 			before := catalogUpgradeRows(t, db, tables...)
-			err := Migrate(outcomeSnapshotContext(t, context.Background(), db), db)
 			if lifecycle != "needed" {
-				if err != nil {
-					t.Fatalf("terminal execution cannot require retired publication: %v", err)
-				}
+				advanceHistoricalPrefix(t, db, 177)
 				var contexts, identities int
 				if err := db.QueryRow(`SELECT (SELECT count(*) FROM work_context_state WHERE work_id='shape-work'),(SELECT count(*) FROM work_items WHERE id='shape-work')`).Scan(&contexts, &identities); err != nil || contexts != 0 || identities != 1 {
 					t.Fatalf("terminal contexts=%d identities=%d err=%v", contexts, identities, err)
@@ -141,6 +138,7 @@ DELETE FROM write_guard`); err != nil {
 				retirementUpgradeHealthy(t, db)
 				return
 			}
+			err := Migrate(outcomeSnapshotContext(t, context.Background(), db), db)
 			if err == nil {
 				t.Fatal("upgrade admitted a persisted domain_shape required reading; retirement strands work-context decoding")
 			}

@@ -361,3 +361,28 @@ func TestRoutineCoordinationCrossProductRoutineKindRefusesWithoutCrossScope(t *t
 		t.Fatal("unauthorized request changed the pair")
 	}
 }
+
+func TestRoutineCoordinationUniqueProductWithEmptySelection(t *testing.T) {
+	t.Parallel()
+	s, service, env := routineCoordinationFixture(t)
+	env.SelectedProductID = ""
+	binding := routineOverlapExactBinding(t, s, store.ResolutionDependsOn)
+	response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: routineOverlapResolveInput(t, binding, "routine-empty-selection")}, env)
+	if response.Outcome != agentcontract.OutcomeOK || response.Error != nil {
+		t.Fatalf("empty Product selection: outcome=%s error=%+v", response.Outcome, response.Error)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 1 {
+		t.Fatalf("resolution count=%d, want one", got)
+	}
+	for _, side := range []struct {
+		id      string
+		version int64
+	}{{binding.fromWorkID, binding.fromVersion}, {binding.toWorkID, binding.toVersion}} {
+		if got := workLifecycle(t, s, side.id); got != "in_progress" {
+			t.Errorf("%s lifecycle=%s, want in_progress", side.id, got)
+		}
+		if got := workVersion(t, s, side.id); got != side.version+1 {
+			t.Errorf("%s version=%d, want %d", side.id, got, side.version+1)
+		}
+	}
+}

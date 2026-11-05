@@ -230,7 +230,7 @@ func workPinCompletedPlanIntentsTx(ctx context.Context, tx *sql.Tx, workID strin
 	}
 	actions := []string{"record_delivery"}
 	if len(versions) <= 1 {
-		actions = []string{"approve_contract", "confirm_premise", "record_delivery"}
+		actions = []string{"approve_contract", "confirm_premise", "record_delivery", "bind_evidence"}
 	}
 	var ids []string
 	for _, action := range actions {

@@ -85,17 +85,7 @@ func TestWorkflowActionMalformedBoundaryPrecedesPinAndAuthorityChecks(t *testing
 
 func invokeWorkflowIssue31Action(t *testing.T, s *store.Store, service *Service, env CallEnvelope, actionID string, version int64, key string) {
 	t.Helper()
-	fields := ""
-	if actionID == "record_alignment" {
-		fields = `,"fields":{"searched":"The bounded backlog search statement.","outcome":"none_found"}`
-	}
-	if actionID == "record_design" {
-		fields = `,"fields":{"approach":"The recorded approach is the implementation boundary.","decisions":[{"id":"decision:issue31","question":"What crosses into execution?","choice":"The typed design record.","rationale":"The worker must receive the approved decision.","rejected":[]}],"touched_refs":["path:issue31"]}`
-	}
-	if actionID == "record_proposal" {
-		fields = `,"fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`
-	}
-	input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"` + actionID + `"` + fields + `,"idempotency_key":"` + key + `"}`)
+	input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"` + actionID + `","idempotency_key":"` + key + `"}`)
 	response := invokeWorkflowIssue31(t, s, service, env, input)
 	if response.Outcome != agentcontract.OutcomeOK {
 		if response.Error != nil {

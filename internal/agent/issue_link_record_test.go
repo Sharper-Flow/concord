@@ -113,6 +113,9 @@ func TestDispatchIssueLinkRecordRefusesSecondAndForeignIdentity(t *testing.T) {
 		if err != nil || response.Error == nil || !strings.Contains(response.Error.Message, tc.want) {
 			t.Fatalf("%s: response error=%+v err=%v", tc.name, response.Error, err)
 		}
+		if tc.name == "foreign issue" && (response.Error.Kind != "invalid_relation" || response.Error.EffectState != "none" || !strings.Contains(response.Error.Message, "link-held-work")) {
+			t.Fatalf("foreign issue must name the readable holder: %+v", response.Error)
+		}
 	}
 	var key string
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT human_key FROM linear_issue_links WHERE work_id=?`, "link-held-work").Scan(&key); err != nil || key != "EX-1" {

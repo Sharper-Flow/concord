@@ -167,6 +167,10 @@ type Failure struct {
 	Op string `json:"-"`
 	// Detail explains the specific cause.
 	Detail string `json:"detail,omitempty"`
+	// HoldingWorkID is the live holder identified by a Linear-link collision.
+	// The agent boundary may disclose it against read authority; the store never
+	// publishes it in the refusal message.
+	HoldingWorkID string `json:"-"`
 	// RetrySafe reports whether repeating the same call is safe.
 	RetrySafe bool `json:"retry_safe"`
 	// RecoveryAction states what resolves the failure.

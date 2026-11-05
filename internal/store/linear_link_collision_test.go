@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -50,8 +51,12 @@ func TestLinearLinkOneLiveItemPerIssue(t *testing.T) {
 			if !errors.As(err, &failure) || failure.Kind != KindInvalidRelation {
 				t.Fatalf("collision error = %v, want typed %s", err, KindInvalidRelation)
 			}
-			if !strings.Contains(failure.Detail, "another live work item") || !strings.Contains(failure.Detail, "link-first") {
-				t.Fatalf("refusal must identify the same-product holder: %+v", failure)
+			if !strings.Contains(failure.Detail, "another live work item") || strings.Contains(failure.Detail, "link-first") || failure.HoldingWorkID != "link-first" {
+				t.Fatalf("refusal must carry the holder without publishing it: %+v", failure)
+			}
+			encoded, err := json.Marshal(failure)
+			if err != nil || strings.Contains(string(encoded), "link-first") {
+				t.Fatalf("serialized refusal exposes holder: %s, %v", encoded, err)
 			}
 		})
 	}
@@ -76,7 +81,7 @@ func TestLinearLinkOneLiveItemPerIssue(t *testing.T) {
 			return err
 		})
 		var failure *Failure
-		if !errors.As(err, &failure) || failure.Kind != KindInvalidRelation || !strings.Contains(failure.Detail, "another live work item") || strings.Contains(failure.Detail, "link-other") {
+		if !errors.As(err, &failure) || failure.Kind != KindInvalidRelation || !strings.Contains(failure.Detail, "another live work item") || strings.Contains(failure.Detail, "link-other") || failure.HoldingWorkID != "link-other" {
 			t.Fatalf("cross-product holder must stay anonymous: %v", err)
 		}
 	})

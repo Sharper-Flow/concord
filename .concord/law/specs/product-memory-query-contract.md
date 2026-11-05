@@ -209,9 +209,9 @@ The JSON corpus is executable through a candidate adapter implementing
 
 - **Intent:** inspect needed, in-progress, completed, or cancelled work.
 - **Input:** Product; lifecycle states; optional Project, work-kind,
-  terminal-window, detail, cursor, limit.
+  Linear-issue-key, terminal-window, detail, cursor, limit.
 - **Output:** bounded work summaries with title, lifecycle,
-  Projects, readiness, and version;
+  Projects, readiness, version, and the recorded Linear issue key when present;
   full detail carries the recorded work facts.
 - **Order:** relevant lifecycle timestamp descending, stable ID;
   terminal-only queries use terminal time descending first.

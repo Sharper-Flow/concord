@@ -1586,6 +1586,18 @@ func (r runtime) executeMutation(ctx context.Context, base agentcontract.Envelop
 		if resultRejected {
 			return response, nil
 		}
+		var failure *store.Failure
+		if errors.As(err, &failure) && failure.HoldingWorkID != "" {
+			// Disclosure follows the caller's authorized Product scope, the read
+			// boundary in validateWorkReferenceScope. The store carries the ID
+			// without publishing it.
+			products, readErr := r.Store.ProductsForWorkIDs(ctx, []string{failure.HoldingWorkID})
+			if readErr == nil && scopeIntersects(products[failure.HoldingWorkID], r.Reader.ProductScope) {
+				disclosed := *failure
+				disclosed.Detail += ": " + failure.HoldingWorkID
+				return failureEnvelope(base, &disclosed), nil
+			}
+		}
 		return failureEnvelope(base, err), nil
 	}
 	return response, nil

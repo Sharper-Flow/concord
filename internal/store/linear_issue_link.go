@@ -126,17 +126,10 @@ func requireAvailableLinearIssue(ctx context.Context, q queryer, link LinearIssu
 		var owner string
 		err := q.QueryRowContext(ctx, probe.sql, probe.value, link.WorkID).Scan(&owner)
 		if err == nil {
-			var shared bool
-			err = q.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM work_projects holder JOIN product_projects hp ON hp.project_id=holder.project_id JOIN product_projects lp ON lp.product_id=hp.product_id JOIN work_projects linked ON linked.project_id=lp.project_id WHERE holder.work_id=? AND linked.work_id=?)`, owner, link.WorkID).Scan(&shared)
-			if err != nil {
-				return wrapFailure(KindUnavailable, op, "cannot inspect work Product scope", true, "retry once the database is readable", err)
-			}
 			message := "another live work item already holds that Linear " + probe.what
-			// A holder outside the linked item's Products is outside the caller's readable scope, so its work ID stays undisclosed.
-			if shared {
-				message += ": " + owner
-			}
-			return newFailure(KindInvalidRelation, op, message, false, "one live work item per Linear issue; capture again once the holding item is terminal")
+			failure := newFailure(KindInvalidRelation, op, message, false, "one live work item per Linear issue; capture again once the holding item is terminal")
+			failure.HoldingWorkID = owner
+			return failure
 		}
 		if err != sql.ErrNoRows {
 			return wrapFailure(KindUnavailable, op, "cannot inspect recorded Linear issue identities", true, "retry once the database is readable", err)

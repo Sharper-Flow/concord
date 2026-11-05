@@ -40,11 +40,11 @@ go test -run '^TestChangedBehavior$' ./path/to/changed/package
 ```
 
 CI splits `internal/store`, `internal/agent`, and `cmd/concord` into shard
-jobs and owns each whole-suite pass; reproduce or investigate one failing
-shard locally through the `store-shard` tier, and see
-[TESTING.md](TESTING.md) for suite selection. Run the relevant repository
-checks before opening a pull request; the installed pre-push hook owns the
-pre-push gates.
+jobs and owns each whole-suite pass; reproduce one failing `internal/store`
+shard locally through the `store-shard` tier, another package's shard
+through `broad`, and see [TESTING.md](TESTING.md) for suite selection. Run
+the relevant repository checks before opening a pull request; the installed
+pre-push hook owns the pre-push gates.
 
 The CI workflow runs the repository validators, formatting, module tidiness,
 vetting, and race-detector test run. The individual commands remain available:

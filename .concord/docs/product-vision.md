@@ -1,9 +1,12 @@
-# Concord goals
+# Concord product vision
 
-The operator's goals for Concord. Quoted text is the operator's own words; the rest is text the operator approved.
+The operator's vision for Concord. Quoted text is the operator's own words; the rest is text the operator approved.
 
-This document is guidance, not law. The constraints, the conflict rules, and the route for Concord's own
-development are law in [`../law/constitution/priorities.md`](../law/constitution/priorities.md).
+This document is guidance, not law. [Product law](../law/constitution/law-folder-authority.md) lives under
+`.concord/law/`. Changing this vision is product direction and requires operator approval under
+[CD-0243 D2](../law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision)
+and [CD-0254](../law/decisions/CD-0254-product-vision-documents.md). The constraints, the conflict rules,
+and the route for Concord's own development are law in [`../law/constitution/priorities.md`](../law/constitution/priorities.md).
 
 [CD-0243](../law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md) defines the roles and the
 operator's approval boundary.

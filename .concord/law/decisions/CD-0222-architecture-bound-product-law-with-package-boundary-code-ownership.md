@@ -65,7 +65,7 @@ law; they do not outrank it.
 
 ### D1. Product law and architectural concordance serve the goals
 
-[`goals.md`](../../docs/goals.md) records Concord's purpose, its goals, and their
+[`product-vision.md`](../../docs/product-vision.md) records Concord's purpose, its goals, and their
 measures as guidance. [`priorities.md`](../constitution/priorities.md) holds the constraints
 and the conflict rules that decide between goals (Appendix A). The goals are
 unranked. Appendix A settles
@@ -82,7 +82,7 @@ of visibility and continuity.
 An accepted record's numbered priority reference identifies its subject, not
 precedence. Historical research and decision text is not rewritten. Living
 constitutional and contract documents use the goal names of
-[`goals.md`](../../docs/goals.md) and the constraint names of
+[`product-vision.md`](../../docs/product-vision.md) and the constraint names of
 [`priorities.md`](../constitution/priorities.md).
 
 Product-changing work has two valid law outcomes:

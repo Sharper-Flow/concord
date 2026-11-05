@@ -33,13 +33,13 @@ explicitly deferred; they do not weaken the accepted constraints.
 ## Decisions
 
 CD-0222 governs Domain-bound Product law, architecture-overlap resolution, and
-the priority order in D5/D10/R3. D1 and D2 follow goals.md and CD-0082 D1.
+the priority order in D5/D10/R3. D1 and D2 follow product-vision.md and CD-0082 D1.
 [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
 governs D5 and D10: law mandates and enactment require approval only under its six classes.
 
 ### D1. Product direction follows the goals
 
-[`goals.md`](../../docs/goals.md) owns Concord's purpose, goals, and measures. Concord
+[`product-vision.md`](../../docs/product-vision.md) owns Concord's purpose, goals, and measures. Concord
 has no successor-readiness requirement toward any other system.
 
 Usability and delivery are judged against those goals and applicable current law.

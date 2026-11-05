@@ -42,7 +42,7 @@ Open clarifications remain open; acceptance of these records does not close C9â€
 or other explicitly deferred questions. C8 is closed by
 [CD-0250](../law/decisions/CD-0250-outside-tools-stay-in-host-or-product-configuration.md).
 
-[`goals.md`](./goals.md) records the unranked goals as guidance;
+[`product-vision.md`](./product-vision.md) records the unranked goals as guidance;
 [`../law/constitution/priorities.md`](../law/constitution/priorities.md) owns the operating envelope, constraints, conflict rules, and standing law.
 
 ---

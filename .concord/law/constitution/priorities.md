@@ -15,13 +15,13 @@
 > **Status:** Public constitutional planning authority.\
 > **Codename:** Concord (concordance: bringing scattered work into one view).\
 > **Created:** 2026-07-25, from product-design work.\
-> **Authority:** The public [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord) repository is the authority for this document and its accepted companions. This file ranks first among Concord's law. It is the **sole canonical source** for the operating envelope, the constraints, the conflict rules (Appendix A), and the standing law that serves the operator's goals in [`../../docs/goals.md`](../../docs/goals.md). `goals.md` is guidance, not law. A decision record it cites stays the authority for what that record decides. Companion documents link here; they do not redefine them.
+> **Authority:** The public [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord) repository is the authority for this document and its accepted companions. This file ranks first among Concord's law. It is the **sole canonical source** for the operating envelope, the constraints, the conflict rules (Appendix A), and the standing law that serves the operator's goals in [`../../docs/product-vision.md`](../../docs/product-vision.md). `product-vision.md` is guidance, not law. A decision record it cites stays the authority for what that record decides. Companion documents link here; they do not redefine them.
 
 ---
 
 ## Purpose
 
-[`../../docs/goals.md`](../../docs/goals.md) records Concord's purpose, the operator's goals, and
+[`../../docs/product-vision.md`](../../docs/product-vision.md) records Concord's purpose, the operator's goals, and
 their measures as guidance; it is not law. This file holds the rules that serve
 those goals: the constraints, the conflict rules that decide between goals
 (Appendix A), and the standing law.
@@ -95,7 +95,7 @@ Concord.
   class or absolute stop outside the six classes (CD-0243 D2, D5).
 - Must not change, even where it slows agents down: "Not allowing slop or dead code to continue existing or go
   unnoticed". Bloat a change did not make still gets a follow-up item (rule R1), and those items must be closed
-  (goal E in `goals.md`).
+  (goal E in `product-vision.md`).
 
 ---
 

@@ -14,6 +14,17 @@ import (
 	"time"
 )
 
+// The bounded children re-execute this binary and rebuild the migrated test
+// template in their own process (copyTestDatabase's sync.Once is
+// per-process): 185 migration steps, measured at step 59 after 10s under the
+// race detector on a loaded development host. Both bounds must sit well above
+// a fast host's needs, and the child's own alarm fires first so a genuine
+// hang still names its stack before the parent kills the process.
+const (
+	boundedChildProcess = 2 * time.Minute
+	boundedChildAlarm   = 110 * time.Second
+)
+
 // Compile-time proof that the generalized read owner accepts both a pool and
 // one held connection without any caller change.
 var (
@@ -392,9 +403,9 @@ func TestBackupDatabaseReadOnlyWALBounded(t *testing.T) {
 		for _, mode := range []string{"0444", "0444-sidecars"} {
 			t.Run(mode, func(t *testing.T) {
 				// Raw driver calls need a process bound if they ignore the context.
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), boundedChildProcess)
 				defer cancel()
-				cmd := exec.CommandContext(ctx, binary, "-test.run=^TestBackupDatabaseReadOnlyWALBounded$", "-test.v", "-test.timeout=10s")
+				cmd := exec.CommandContext(ctx, binary, "-test.run=^TestBackupDatabaseReadOnlyWALBounded$", "-test.v", "-test.timeout="+boundedChildAlarm.String())
 				cmd.Env = append(os.Environ(), childModeEnv+"="+mode)
 				output, err := cmd.CombinedOutput()
 				if err != nil {
@@ -543,9 +554,9 @@ func TestRestoreBackupReadOnlyWALBounded(t *testing.T) {
 		for _, mode := range []string{"0600", "0444", "0444-sidecars"} {
 			t.Run(mode, func(t *testing.T) {
 				// Raw driver calls need a process bound if they ignore the context.
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), boundedChildProcess)
 				defer cancel()
-				cmd := exec.CommandContext(ctx, binary, "-test.run=^TestRestoreBackupReadOnlyWALBounded$", "-test.v", "-test.timeout=10s")
+				cmd := exec.CommandContext(ctx, binary, "-test.run=^TestRestoreBackupReadOnlyWALBounded$", "-test.v", "-test.timeout="+boundedChildAlarm.String())
 				cmd.Env = append(os.Environ(), childModeEnv+"="+mode)
 				output, err := cmd.CombinedOutput()
 				if err != nil {

@@ -7,6 +7,12 @@ prepare an unapproved preview. If any of these, including a required approval, i
 missing, return needs-decision to the caller without guessing. Stop and return
 needs-decision when the outcome needs files or decisions outside that assignment.
 
+A planning wireframe or mock is the other assigned outcome: the caller
+names its purpose, audience and output paths instead of Product files and
+checks; if any is missing, return needs-decision. Produce it as inspectable
+material under the same rules; it changes no Product behavior and is not UI/UX
+approval.
+
 Read the Product's existing UI and follow its design and repository instructions.
 Preserve unrelated work. For a Fix, add a regression test and establish that it
 fails for the reported behavior before the fix and passes after. If it does not

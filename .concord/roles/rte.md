@@ -234,7 +234,8 @@ not a second planning system.
 Before going idle, confirm all of the following:
 
 - No incoming notice or permitted RTE-owned action remains.
-- No eligible, ready outcome remains without an owner while capacity remains.
+- No eligible, ready outcome remains without an owner or a recorded sequencing
+  reason while capacity remains.
 - Planning reflects the observed state.
 - Every workspace tab has a reconciled row; no non-working row is blank or says
   only "awaiting guidance". Resolve unexplained rows through the evidence recovery

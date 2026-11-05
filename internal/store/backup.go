@@ -150,6 +150,14 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 	manifest.CreatedAt = createdAt
 	manifest.BackupTime = createdAt
 	manifest.GitCommitIDs = cloneStringMap(options.GitCommitIDs)
+	// The identity fields are complete. Refuse a manifest no VerifyBackup
+	// consumer could read — for example a store clock past year 9999, whose
+	// five-digit year formats fine but fails the RFC3339Nano round trip —
+	// before the promotion gate spends its disposable clone and before
+	// publication. The deferred cleanup removes the copied snapshot.
+	if err := validateBackupManifestIdentity("backup", "check the store clock and retry the backup", manifest); err != nil {
+		return BackupManifest{}, err
+	}
 	// The promotion gate clones the verified snapshot to a disposable staging
 	// database and checks the whole current state before applying migrations.
 	// The retained snapshot, manifest, and live store are never written.
@@ -179,11 +187,8 @@ func VerifyBackup(ctx context.Context, destination string, supportedMax ...int) 
 	if err != nil {
 		return BackupManifest{}, err
 	}
-	if manifest.SchemaVersion < 1 || manifest.SnapshotID == "" || manifest.CreatedAt == "" {
-		return BackupManifest{}, newFailure(KindInvalidPayload, "verify_backup", "backup manifest is missing PM10 identity fields", false, "create a fresh verified backup")
-	}
-	if _, err := time.Parse(time.RFC3339Nano, manifest.CreatedAt); err != nil {
-		return BackupManifest{}, newFailure(KindInvalidPayload, "verify_backup", "backup manifest creation time is invalid", false, "create a fresh verified backup")
+	if err := validateBackupManifestIdentity("verify_backup", "create a fresh verified backup", manifest); err != nil {
+		return BackupManifest{}, err
 	}
 	verified, err := verifyBackupFile(ctx, destination, maxSupported, nil)
 	if err != nil {
@@ -198,6 +203,22 @@ func VerifyBackup(ctx context.Context, destination string, supportedMax ...int) 
 	verified.GitCommitIDs = cloneStringMap(manifest.GitCommitIDs)
 	verified.BinaryVersion = manifest.BinaryVersion
 	return verified, nil
+}
+
+// validateBackupManifestIdentity applies the PM10 identity rules every
+// consumer applies: SchemaVersion, SnapshotID and CreatedAt are present, and
+// CreatedAt round-trips through the RFC3339Nano format VerifyBackup parses.
+// Backup checks it before publishing a manifest — a wrong store clock must
+// fail the backup, not publish a snapshot no consumer can read — and
+// VerifyBackup checks a manifest it just read.
+func validateBackupManifestIdentity(operation, recovery string, manifest BackupManifest) error {
+	if manifest.SchemaVersion < 1 || manifest.SnapshotID == "" || manifest.CreatedAt == "" {
+		return newFailure(KindInvalidPayload, operation, "backup manifest is missing PM10 identity fields", false, recovery)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, manifest.CreatedAt); err != nil {
+		return newFailure(KindInvalidPayload, operation, "backup manifest creation time is invalid", false, recovery)
+	}
+	return nil
 }
 
 // RestoredDatabaseInventory is the verified inventory of the promoted restore

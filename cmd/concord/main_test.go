@@ -915,15 +915,15 @@ func TestCLIEndToEndRegistersClientAndInvokesRead(t *testing.T) {
 	}
 }
 
-// The backup verb must not run a verification pass after store.Backup
-// publishes the snapshot and manifest. Backup's own cascade verifies the
-// destination (SQLite triple) and the PM10 disposable-clone promotion before
-// publication, and its failure path removes partial output, so a trailing
-// pass can only fail after publication and report failure while the
-// published snapshot and manifest remain on disk. The store clock fixture
-// (a five-digit year publishes but no consumer can parse) makes exactly that
-// trailing pass fail; PM10's verification rules apply on use instead.
-func TestBackupVerbPublishesWithoutReverifying(t *testing.T) {
+// The verb surfaces the store's refusal to publish a manifest no VerifyBackup
+// consumer can parse. CON-1687 removed the verb's trailing verification pass;
+// this wrong-clock fixture is the seam where that pass used to fail after
+// publication. CON-1706 made Backup validate its manifest identity fields
+// before publication, so the same five-digit-year clock now fails the verb
+// before anything is written, and neither snapshot nor manifest remains. A
+// healthy clock publishing without re-verification is covered by the CLI
+// backup-and-restore round trip below.
+func TestBackupVerbRefusesUnreadableManifestClock(t *testing.T) {
 	dbPath := freshMigratedCLIDatabase(t)
 	s, err := store.Open(context.Background(), dbPath)
 	if err != nil {
@@ -937,20 +937,20 @@ func TestBackupVerbPublishesWithoutReverifying(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	if code := runBackup("backup", raw, s, &out, &errOut); code != 0 {
-		t.Fatalf("backup exit=%d stderr=%q; the verb re-verified its published snapshot and failed after publication", code, errOut.String())
+	if code := runBackup("backup", raw, s, &out, &errOut); code != 1 {
+		t.Fatalf("backup exit=%d stderr=%q; want the typed refusal before publication", code, errOut.String())
 	}
-	if _, err := os.Stat(destination); err != nil {
-		t.Fatalf("published snapshot missing: %v", err)
+	if diagnostics := errOut.String(); !strings.Contains(diagnostics, "invalid_payload: backup manifest creation time is invalid") || !strings.Contains(diagnostics, "check the store clock and retry the backup") {
+		t.Fatalf("backup stderr = %q; want the typed creation-time refusal and its recovery", diagnostics)
 	}
-	if _, err := os.Stat(destination + ".manifest.json"); err != nil {
-		t.Fatalf("published manifest missing: %v", err)
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatalf("refused backup snapshot must be absent: %v", err)
 	}
-	var manifest struct {
-		SnapshotID string `json:"snapshot_id"`
+	if _, err := os.Stat(destination + ".manifest.json"); !os.IsNotExist(err) {
+		t.Fatalf("refused backup manifest must be absent: %v", err)
 	}
-	if err := json.Unmarshal(out.Bytes(), &manifest); err != nil || manifest.SnapshotID == "" {
-		t.Fatalf("backup response is not a manifest: %v; raw=%s", err, out.String())
+	if out.Len() != 0 {
+		t.Fatalf("refused backup printed a manifest payload: %q", out.String())
 	}
 }
 

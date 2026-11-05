@@ -142,3 +142,59 @@ func TestInvokeWorkRemovalRequestCorrection(t *testing.T) {
 		})
 	}
 }
+
+func TestInvokeDefaultCheckoutRemovalDigestCorrection(t *testing.T) {
+	s, service, env, input := defaultRemovalFixture(t)
+	grant, err := service.Authorize(t.Context(), Invocation{ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, RequiredCapability: "work_transition", RequiredOperation: "remove"})
+	if err != nil || !grant.MainWorktree {
+		t.Fatalf("expected default checkout authority: %+v %v", grant, err)
+	}
+	correct := input["linear"].(store.LinearHandoffConfirmation)
+	bad := correct
+	bad.HandoffDigest = "sha256:" + strings.Repeat("0", 64)
+	input["linear"] = bad
+	invoke := func() agentcontract.Envelope {
+		t.Helper()
+		raw, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := Invoke(t.Context(), s, service, mustMarshalInvoke(t, InvokeRequest{Tool: "concord_work_transition", Operation: "remove", Input: raw}, env))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	snapshot := func() [6]int64 {
+		t.Helper()
+		var result [6]int64
+		for i, q := range []string{`SELECT count(*) FROM work_items`, `SELECT count(*) FROM work_removal_operations`, `SELECT count(*) FROM idempotency_records`, `SELECT count(*) FROM effect_receipts`, `SELECT last FROM store_sequences WHERE name='effect'`, `SELECT version FROM work_items WHERE id='work-1'`} {
+			if err := s.DatabaseForTesting().QueryRow(q).Scan(&result[i]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return result
+	}
+	before := snapshot()
+	refused := invoke()
+	if after := snapshot(); before != after {
+		t.Fatalf("refusal changed durable state: %v -> %v", before, after)
+	}
+	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil {
+		t.Fatalf("expected refusal: %+v", refused)
+	}
+	if !strings.Contains(refused.Error.Message, "Linear confirmation does not match the handoff") {
+		t.Fatalf("wrong guard: %+v", refused.Error)
+	}
+	if refused.Error.EffectState != agentcontract.EffectNone || refused.Error.RetrySafe || refused.Error.Kind != "invalid_input" || refused.Error.RecoveryAction.Kind != "correct_request" || !strings.Contains(refused.Error.Message, "linear.handoff_digest") {
+		t.Errorf("wrong refusal classification: %+v", refused.Error)
+	}
+	input["linear"] = correct
+	corrected := invoke()
+	if corrected.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("corrected request refused: %+v", corrected.Error)
+	}
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations WHERE operation_id='shelving-removal' AND state='committed'`) != 1 {
+		t.Fatal("corrected removal did not commit exactly once")
+	}
+}

@@ -195,12 +195,11 @@ func TestInterruptedRestoreRemovesStagingAndLeavesDestinationAbsent(t *testing.T
 	}
 }
 
-// PM10's failure table deletes a candidate whose verification fails. The
-// foreign-key rejection test hands a corrupted copy to VerifyBackup and
-// RestoreBackup without running the verb over it, so the deletion claim for
-// the foreign-key path had no witness through Backup itself. A live store
-// holding a foreign-key-only violation fails backup verification, and the
-// verb removes the failed candidate, its sidecars and the manifest.
+// TestBackupDeletesForeignKeyCorruptCandidate runs Backup over a live store
+// whose only defect is a foreign-key violation. Candidate verification must
+// refuse it on foreign_key_check alone, and Backup must delete the failed
+// candidate, its sidecars, its manifest and any verification staging file
+// (PM10 section 3).
 func TestBackupDeletesForeignKeyCorruptCandidate(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -223,10 +222,10 @@ func TestBackupDeletesForeignKeyCorruptCandidate(t *testing.T) {
 	}
 	dir := t.TempDir()
 	destination := filepath.Join(dir, "snapshot.db")
-	if _, err := Backup(ctx, s, destination); err == nil {
-		t.Fatal("Backup() accepted a foreign-key-corrupt store")
-	} else {
-		assertFailureKind(t, err, KindInvariantViolation)
+	_, err = Backup(ctx, s, destination)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvariantViolation || !strings.Contains(failure.Detail, `integrity_check="ok" quick_check="ok" foreign_key_check=[relations:`) {
+		t.Fatalf("Backup() error = %v, want the typed foreign-key-only verification refusal", err)
 	}
 	for _, candidate := range []string{destination, destination + "-wal", destination + "-shm", manifestPath(destination)} {
 		if _, statErr := os.Stat(candidate); !errors.Is(statErr, os.ErrNotExist) {

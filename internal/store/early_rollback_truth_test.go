@@ -196,6 +196,38 @@ func TestEarlyRollbackTruth(t *testing.T) {
 				t.Errorf("manifest column witness=%d want=%d", n, want)
 			}
 		})
+		t.Run("unstamped_stop/"+name, func(t *testing.T) {
+			path := copyTestDatabase(t)
+			seed, err := Open(ctx, path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := seed.Close(); err != nil {
+				t.Fatal(err)
+			}
+			db, connector := earlyRollbackDB(t, path, "", 0, nil, fault)
+			connector.base.failRollback.Store(fault)
+			err = migrateOnce(ctx, db, migrateForUnstamped, nil)
+			if connector.base.failRollback.Load() {
+				t.Fatal("stop path did not reach rollback")
+			}
+			if !fault {
+				if err != nil {
+					t.Errorf("clean stop returned an error: %v", err)
+				}
+				return
+			}
+			var failure *Failure
+			if !errors.As(err, &failure) || failure.Op != "transaction_cleanup" || !failure.EffectPossible || failure.RetrySafe {
+				t.Fatalf("unproved stop cleanup envelope: %v", err)
+			}
+			if rollback := findFailureByDetail(err, "cannot prove the transaction rolled back"); rollback == nil || !strings.Contains(rollback.RecoveryAction, "reconcile") {
+				t.Errorf("unproved stop cleanup lost reconcile information: %v", err)
+			}
+			if migrationLockContended(err) {
+				t.Errorf("unproved stop cleanup would be retried: %v", err)
+			}
+		})
 	}
 	t.Run("manifest_repair/no_write", func(t *testing.T) {
 		path := copyTestDatabase(t)

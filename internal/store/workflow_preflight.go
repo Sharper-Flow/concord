@@ -268,8 +268,8 @@ func workflowPlanCompleteConfirmationTx(ctx context.Context, q queryer, workID s
 //   - record_delivery records the delivery assertion inside its own fold, so
 //     the fold admits while the assertion is missing.
 //
-// Completion requires each prerequisite, the natural step order may pass the
-// declaring step before the prerequisite is recorded, and no other action can
+// Completion requires these facts where they apply; the natural step order may
+// pass the declaring step before the prerequisite is recorded, and no other action can
 // record the first one, so the declaring step keeps admitting the action
 // while the prerequisite is missing — the completed-plan admission the
 // premise confirmation carries. Once the prerequisite is recorded, the
@@ -279,8 +279,8 @@ func workflowPlanCompletePrerequisiteTx(ctx context.Context, q queryer, workID s
 		return "", false, false, nil
 	}
 	var (
-		recorded     bool
-		afterAdmitte bool
+		recorded       bool
+		afterAdmission bool
 	)
 	switch actionID {
 	case "approve_contract":
@@ -293,11 +293,11 @@ func workflowPlanCompletePrerequisiteTx(ctx context.Context, q queryer, workID s
 		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_delivery_state WHERE work_id=?)`, workID).Scan(&recorded); err != nil {
 			return "", false, false, wrapFailure(KindUnavailable, "workflow_action", "cannot read the delivery assertion", true, "retry once the database is readable", err)
 		}
-		afterAdmitte = true
+		afterAdmission = true
 	default:
 		return "", false, false, nil
 	}
-	return workflowPlanDeclaringStep(plan, actionID), recorded, afterAdmitte, nil
+	return workflowPlanDeclaringStep(plan, actionID), recorded, afterAdmission, nil
 }
 
 func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, actionID, step string, plan *WorkflowStepPlan, fields map[string]json.RawMessage) (string, error) {

@@ -6,11 +6,7 @@ import (
 	"testing"
 )
 
-// removeFixtureWorkflowContract leaves the CON-1714 dead end: every plan step
-// complete, the delivery assertion recorded, and no workflow contract at all.
-// The contract's dependent rows go first: the premise confirmation, then the
-// architecture binding's detail rows, then the binding itself; every foreign
-// key on the chain restricts the deletion otherwise.
+// Remove dependent rows first to satisfy the restrictive foreign keys.
 func removeFixtureWorkflowContract(t testing.TB, s *Store, workID string) {
 	t.Helper()
 	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM workflow_premise_confirmations WHERE work_id=?; DELETE FROM workflow_contract_affected_domains WHERE work_id=?; DELETE FROM workflow_contract_domain_modifications WHERE work_id=?; DELETE FROM workflow_contract_domain_relation_modifications WHERE work_id=?; DELETE FROM workflow_contract_law_additions WHERE work_id=?; DELETE FROM workflow_contract_verification_obligations WHERE work_id=?; DELETE FROM workflow_contract_law_modifications WHERE work_id=?; DELETE FROM workflow_law_addition_reservations WHERE owner_work_id=?; DELETE FROM workflow_architecture_bindings WHERE work_id=?; DELETE FROM workflow_contracts WHERE work_id=?; DELETE FROM write_guard`, workID, workID, workID, workID, workID, workID, workID, workID, workID, workID); err != nil {
@@ -18,11 +14,6 @@ func removeFixtureWorkflowContract(t testing.TB, s *Store, workID string) {
 	}
 }
 
-// TestPlanCompleteContractlessItemHasApprovalRoute reproduces CON-1714 and
-// holds its end state: an item whose required steps are all complete but that
-// carries no workflow contract keeps the completion refusal, gains one
-// admitted route to approve the initial contract, then confirms the premise
-// and completes.
 func TestPlanCompleteContractlessItemHasApprovalRoute(t *testing.T) {
 	t.Parallel()
 	const id = "approve-after-complete"
@@ -50,8 +41,7 @@ func TestPlanCompleteContractlessItemHasApprovalRoute(t *testing.T) {
 		t.Fatalf("contractless completion refusal=%v, want the contract gate", completeErr)
 	}
 
-	// The route: the completed plan admits approve_contract on its declaring
-	// step. Before the fix this is the dead end: no frontier step declares it.
+	// The completed plan admits approval on its declaring step.
 	pin, err := ReadWorkPin(t.Context(), s, id)
 	if err != nil {
 		t.Fatalf("pin read failed: %v", err)
@@ -60,6 +50,7 @@ func TestPlanCompleteContractlessItemHasApprovalRoute(t *testing.T) {
 		t.Fatalf("completed-plan pin intents omit approve_contract: %v", pin.NextValidIntents)
 	}
 	approval := json.RawMessage(`{"premise":"The removed fixture family keeps a covering check.","decision_domains":[],"legislative_subjects":[],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
+	assertCompletedPlanOwner(t, s, id, "approve_contract", "list", pin.Version, route.owner, approval)
 	if approveErr := f.run(t.Context(), "approve_contract", "approve-after-complete", f.version(t.Context(), t), approval, nil); approveErr != nil {
 		t.Fatalf("plan-complete contract approval refused: %v", approveErr)
 	}
@@ -68,6 +59,11 @@ func TestPlanCompleteContractlessItemHasApprovalRoute(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, id).Scan(&version); err != nil || version != 1 {
 		t.Fatalf("approved contract version=%d err=%v, want 1", version, err)
 	}
+	pin, err = ReadWorkPin(t.Context(), s, id)
+	if err != nil || workPinContainsAction(pin.NextValidIntents, "approve_contract") || !workPinContainsAction(pin.NextValidIntents, "confirm_premise") {
+		t.Fatalf("pin after approval = %+v, err=%v", pin, err)
+	}
+	assertCompletedPlanOwner(t, s, id, "confirm_premise", "review", pin.Version, route.owner, nil)
 
 	// The route closes once the contract exists: a repeated approval is
 	// refused the way any off-frontier action is.
@@ -124,6 +120,7 @@ func TestPlanCompleteDeliverylessItemHasDeliveryRoute(t *testing.T) {
 	// The route: the completed plan admits the first delivery recording on
 	// the review step that closed with the final review.
 	delivery := json.RawMessage(`{"delivery_artifact":"https://example.test/delivery/approve-after-complete","delivery_state":"asserted"}`)
+	assertCompletedPlanOwner(t, s, id, "record_delivery", "review", pin.Version, route.owner, delivery)
 	if deliveryErr := f.run(t.Context(), "record_delivery", "deliver-after-complete", f.version(t.Context(), t), delivery, nil); deliveryErr != nil {
 		t.Fatalf("plan-complete delivery recording refused: %v", deliveryErr)
 	}
@@ -131,12 +128,32 @@ func TestPlanCompleteDeliverylessItemHasDeliveryRoute(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_delivery_state WHERE work_id=?`, id).Scan(&delivered); err != nil || delivered != 1 {
 		t.Fatalf("delivery assertion count=%d err=%v, want 1", delivered, err)
 	}
+	replacement := json.RawMessage(`{"delivery_artifact":"https://example.test/delivery/corrected","delivery_state":"asserted"}`)
+	if err := f.run(t.Context(), "record_delivery", "replace-delivery", f.version(t.Context(), t), replacement, nil); err != nil {
+		t.Fatalf("delivery replacement refused: %v", err)
+	}
+	var artifact string
+	if err := s.db.QueryRow(`SELECT json_extract(payload,'$.delivery_artifact') FROM workflow_delivery_state WHERE work_id=?`, id).Scan(&artifact); err != nil || artifact != "https://example.test/delivery/corrected" {
+		t.Fatalf("delivery replacement artifact=%q err=%v", artifact, err)
+	}
 	if err := f.run(t.Context(), "complete", "complete-delivered", f.version(t.Context(), t), mustJSONValue(map[string]any{"impact_verdict": "non-breaking"}), nil); err != nil {
 		t.Fatalf("completion after delivery refused: %v", err)
 	}
 	var lifecycle string
 	if err := s.db.QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, id).Scan(&lifecycle); err != nil || lifecycle != "completed" {
 		t.Fatalf("lifecycle=%q err=%v, want completed", lifecycle, err)
+	}
+}
+
+func assertCompletedPlanOwner(t *testing.T, s *Store, workID, action, step string, version int64, actor WorkflowActor, payload json.RawMessage) {
+	t.Helper()
+	req := WorkflowActionPreflightRequest{WorkID: workID, ActionID: action, StepID: step, ExpectedVersion: version, Actor: actor, Payload: payload}
+	if _, err := WorkflowActionDefinitionFor(t.Context(), s, req); err != nil {
+		t.Fatalf("%s owner %s refused: %v", action, step, err)
+	}
+	req.StepID = "not-the-owner"
+	if _, err := WorkflowActionDefinitionFor(t.Context(), s, req); err == nil {
+		t.Fatalf("%s accepted a different owner", action)
 	}
 }
 
@@ -153,5 +170,38 @@ func TestApproveContractStaysFrontierBoundBeforePlanComplete(t *testing.T) {
 	err := f.run(t.Context(), "approve_contract", "approve-midplan", f.version(t.Context(), t), json.RawMessage(`{"premise":"The removed fixture family keeps a covering check.","decision_domains":[],"legislative_subjects":[],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`), nil)
 	if !hasFailureKind(err, KindIllegalLifecycleTransition) || !strings.Contains(errDetail(err), "action is not declared on a frontier step") {
 		t.Fatalf("mid-plan approval refusal=%v, want the frontier bound", err)
+	}
+}
+
+func TestCompletedPlanPinRemainsReadableWithAmbiguousContracts(t *testing.T) {
+	const id = "completed-ambiguous-pin"
+	route := seedWorkflowReturnRouteFixture(t, id, WorkflowStepPlanRemoval, "review")
+	completeWorkflowPlanFixture(t, route.store, id)
+	duplicateActiveWorkflowContract(t.Context(), t, route.store, id)
+	pin, err := ReadWorkPin(t.Context(), route.store, id)
+	if err != nil {
+		t.Fatalf("read completed-plan pin with ambiguous contracts: %v", err)
+	}
+	for _, action := range []string{"approve_contract", "confirm_premise"} {
+		if workPinContainsAction(pin.NextValidIntents, action) {
+			t.Errorf("ambiguous pin advertises %s", action)
+		}
+	}
+}
+
+func TestFirstDeliveryStaysFrontierBoundBeforePlanComplete(t *testing.T) {
+	const id = "delivery-midplan"
+	route := seedWorkflowReturnRouteFixture(t, id, WorkflowStepPlanRemoval, "implement")
+	if _, err := route.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM workflow_delivery_state WHERE work_id=?; DELETE FROM write_guard`, id); err != nil {
+		t.Fatal(err)
+	}
+	pin, err := ReadWorkPin(t.Context(), route.store, id)
+	if err != nil || workPinContainsAction(pin.NextValidIntents, "record_delivery") {
+		t.Fatalf("mid-plan pin=%+v err=%v", pin, err)
+	}
+	f := acceptanceRecoveryFixture{store: route.store, workID: id, owner: route.owner}
+	err = f.run(t.Context(), "record_delivery", "delivery-midplan", pin.Version, json.RawMessage(`{"delivery_artifact":"https://example.test/delivery","delivery_state":"asserted"}`), nil)
+	if !hasFailureKind(err, KindIllegalLifecycleTransition) {
+		t.Fatalf("mid-plan first delivery refusal=%v", err)
 	}
 }

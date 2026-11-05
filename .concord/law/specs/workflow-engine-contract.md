@@ -290,8 +290,8 @@ assertion is missing: the natural order records the final review before the
 delivery, and the action's own fold records the assertion, so its declaring
 step keeps admitting the first delivery recording. Once recorded, this
 section's current-record replacement owns delivery corrections. Neither route
-bypasses the completion gate, which still refuses without the missing
-prerequisite.
+bypasses the completion gate, which still refuses a missing prerequisite
+where that prerequisite is required.
 A record-only replacement holds the current step, instance state and lifecycle;
 it does not repeat the original forward transition. In particular,
 `record_delivery` replaces a completed item's reported delivery links without

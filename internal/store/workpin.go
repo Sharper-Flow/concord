@@ -233,24 +233,33 @@ func workPinReadExistingPlanTx(ctx context.Context, tx *sql.Tx, workID string, p
 	ids := []string{"insert_step", "pick_type"}
 	if WorkflowStepPlanComplete(*plan) {
 		ids = append(ids, "complete")
-		// The pin advertises the same completed-plan routes admission
-		// serves: each completion prerequisite stays actionable on its
-		// declaring step while it is missing.
-		for _, action := range []string{"approve_contract", "record_delivery"} {
-			owner, recorded, _, err := workflowPlanCompletePrerequisiteTx(ctx, tx, workID, plan, action)
+		// A pin must remain readable when active contracts are ambiguous.
+		versions, err := activeWorkflowContractVersions(ctx, tx, workID)
+		if err != nil {
+			return "", err
+		}
+		if len(versions) <= 1 {
+			owner, recorded, _, err := workflowPlanCompletePrerequisiteTx(ctx, tx, workID, plan, "approve_contract")
 			if err != nil {
 				return "", err
 			}
 			if owner != "" && !recorded {
-				ids = append(ids, action)
+				ids = append(ids, "approve_contract")
+			}
+			confirmOwner, confirmed, err := workflowPlanCompleteConfirmationTx(ctx, tx, workID, plan, "confirm_premise")
+			if err != nil {
+				return "", err
+			}
+			if confirmOwner != "" && !confirmed {
+				ids = append(ids, "confirm_premise")
 			}
 		}
-		confirmOwner, confirmed, err := workflowPlanCompleteConfirmationTx(ctx, tx, workID, plan, "confirm_premise")
+		owner, recorded, _, err := workflowPlanCompletePrerequisiteTx(ctx, tx, workID, plan, "record_delivery")
 		if err != nil {
 			return "", err
 		}
-		if confirmOwner != "" && !confirmed {
-			ids = append(ids, "confirm_premise")
+		if owner != "" && !recorded {
+			ids = append(ids, "record_delivery")
 		}
 	}
 	for _, step := range frontier {

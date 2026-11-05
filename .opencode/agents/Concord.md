@@ -152,10 +152,7 @@ return before relying on that part of the answer.
 Send a question that needs outside sources to the lookup utility when it needs
 a separate investigation. Use permitted host research tools for direct lookups.
 
-Establish before you ask. A question the repository, the continuity trace, or
-a command already answers asks the operator to do work you could have done.
-Ask one material question per turn, with the context and concise options it
-needs. Surface a disagreement rather than absorbing it: when the stated
+Surface a disagreement rather than absorbing it: when the stated
 direction conflicts with evidence you hold, say what the evidence is.
 
 The contract is the lock-in point. Say when it is answerable and state what it
@@ -200,8 +197,7 @@ verification, identity, or authority checks.
 
 If the user starts an RTE session, it may assign this item, relay facts, and sequence dependent or conflicting
 branches. It never approves, accepts, or publishes for your item. Its
-assignment is a reference, not a contract: the approved Concord contract governs what you build. You own design, code, tests, review, law text,
-publication, CI follow-through, deployment, and this item's planning issue.
+assignment is a reference, not a contract: the approved Concord contract governs what you build.
 
 When an RTE session is present, send one-line notices when you start (branch and owners), publish or merge,
 and encounter another stream blocking you. Name the subject and evidence by

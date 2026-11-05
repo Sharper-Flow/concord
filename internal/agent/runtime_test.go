@@ -22,7 +22,7 @@ import (
 func TestContractRevisionPayloadIsRepresentableAtAgentBoundary(t *testing.T) {
 	t.Parallel()
 	payload, err := json.Marshal(map[string]any{
-		"work_id": "work-stale", "expected_version": 7, "idempotency_key": "revise-contract", "title": "Updated plan", "value_statement": "Current law", "kind": "task", "reason": "Update the plan",
+		"work_id": "work-stale", "expected_version": 7, "idempotency_key": "revise-contract", "title": "Updated plan", "kind": "task", "reason": "Update the plan",
 		"contract": map[string]any{
 			"contract_version": 2, "premise": "continue under the accepted successor law",
 			"legislative_subjects": []string{},
@@ -189,13 +189,13 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Need","value_statement":"Need value","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-idem-1"}`)}
+	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Need","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-idem-1","human_key":"ZZ-1911","remote_issue_uuid":"fixture-capture-idem-1","url":"https://linear.app/example/issue/ZZ-1911"}`)}
 	env := CallEnvelope{SchemaVersion: "1.0", RequestID: "capture-request-1", ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
 	response, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("capture response=%+v err=%v", response, err)
 	}
-	if len(*response.ChangedRefs) != 1 || (*response.ChangedRefs)[0].Version != "3" {
+	if len(*response.ChangedRefs) != 2 || (*response.ChangedRefs)[0].Version != "3" {
 		t.Fatalf("changed refs=%#v", response.ChangedRefs)
 	}
 	var count int
@@ -207,7 +207,7 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Fatalf("capture replay=%+v err=%v", replay, err)
 	}
-	revise := InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: json.RawMessage(`{"work_id":"work-` + (*replay.ChangedRefs)[0].ID[len("work-"):] + `","expected_version":3,"title":"Need revised","value_statement":"Revised value","kind":"task","priority":3,"tags":[],"reason":"clarified","evidence":[{"kind":"commit","authority":"git","locator_kind":"commit","locator":"commit:7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"}],"idempotency_key":"revise-idem-1"}`)}
+	revise := InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: json.RawMessage(`{"work_id":"work-` + (*replay.ChangedRefs)[0].ID[len("work-"):] + `","expected_version":3,"title":"Need revised","kind":"task","reason":"clarified","evidence":[{"kind":"commit","authority":"git","locator_kind":"commit","locator":"commit:7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"}],"idempotency_key":"revise-idem-1"}`)}
 	env.RequestID = "revise-request-1"
 	revised, err := Dispatch(ctx, s, service, revise, env)
 	if err != nil || revised.Outcome != agentcontract.OutcomeOK {
@@ -218,14 +218,14 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT payload_digest,actor FROM effect_receipts WHERE kind='work.intent_revised' AND subject_id=?`, (*replay.ChangedRefs)[0].ID).Scan(&revisionDigest, &revisionActor); err != nil {
 		t.Fatal(err)
 	}
-	expectedRevision, err := json.Marshal(map[string]any{"title": "Need revised", "value_statement": "Revised value", "kind": "task", "priority": 3, "urgency": "standard", "tags": []string{}, "reason": "clarified", "evidence_refs": []string{"commit:7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"}, "expected_version": 3, "resulting_version": 4})
+	expectedRevision, err := json.Marshal(map[string]any{"title": "Need revised", "kind": "task", "reason": "clarified", "evidence_refs": []string{"commit:7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"}, "expected_version": 3, "resulting_version": 4})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if revisionDigest != fmt.Sprintf("sha256:%x", sha256.Sum256(expectedRevision)) || revisionActor != grant.PrincipalRef {
 		t.Fatalf("revision receipt does not bind the exact requested evidence and actor: digest=%s actor=%s expected=%s", revisionDigest, revisionActor, expectedRevision)
 	}
-	request.Input = json.RawMessage(`{"title":"Changed","value_statement":"Need value","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-idem-1"}`)
+	request.Input = json.RawMessage(`{"title":"Changed","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-idem-1","human_key":"ZZ-1911","remote_issue_uuid":"fixture-capture-idem-1","url":"https://linear.app/example/issue/ZZ-1911"}`)
 	conflict, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || conflict.Error == nil || conflict.Error.Kind != "idempotency_conflict" {
 		t.Fatalf("capture digest conflict=%+v err=%v", conflict, err)

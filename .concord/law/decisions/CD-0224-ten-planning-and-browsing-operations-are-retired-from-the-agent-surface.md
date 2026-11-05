@@ -10,10 +10,6 @@
   "law_relations": [
     {
       "kind": "refines",
-      "target_id": "CD-0018"
-    },
-    {
-      "kind": "refines",
       "target_id": "CD-0026"
     },
     {
@@ -98,17 +94,11 @@ gone, and nothing replaces the five-group projection. The operator
 question the row answered — which fields a glance row carries — returns to
 [`priorities.md`](../constitution/priorities.md) if a future surface needs it.
 
-Three writers create work-to-work relations, each scoped to its own kinds.
+Work-to-work relation writers are scoped to their own kinds.
 
-1. `concord_work_relate.resolve_overlap` writes
-   `depends_on`, `blocks`, `merged_into`, and `supersedes`. A `supersedes`
-   or `merged_into` resolution commits the relation and the terminal
-   transition in one transaction. Every resolution pins both work versions
-   and both contract versions.
-2. Capture writes `raised_from` through its `raised_from_work_id` input.
-   The capture transaction inserts that relation row with the work item's
-   current rows and runs no cycle check, because capture knows
-   both endpoints.
+1. `concord_work_relate.resolve_overlap` writes `depends_on` and `blocks`.
+   Every resolution pins both work versions and both contract versions.
+2. `raised_from` records ordinary provenance under PM4.
 3. The workflow `link_successor` action writes `forward_link`.
 
 The `blocks` readiness gates are unchanged: a `blocks` row from
@@ -129,8 +119,8 @@ An unprocessed document stays not law: a file is law only when it sits under
 The Domain reads `list`, `detail`, and `overlaps` remain.
 Existing `domain_observations` rows stay readable on `detail` under the
 bounded open window, an observation satisfies nothing, and promotion out of
-an observation stays the CD-0018 `raised_from` capture path that CD-0068 D4
-left unchanged.
+an observation uses ordinary work capture and, when provenance is recorded,
+the `raised_from` relation defined by PM4.
 
 The store keeps current rows and finite snapshots ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 The relation vocabulary and every stored relation kind stay closed as they
@@ -175,12 +165,6 @@ are, and relation changes write current rows in one transaction.
   relation kinds stay closed. Until that change lands,
   the committed law-folder read is the executable anchor for
   this record's law registration.
-- `internal/store.TestOverlapTerminalResolutionRejectsCycle` proves
-  `resolve_overlap` refuses a `supersedes` or `merged_into` resolution that
-  would close a cycle.
-- `internal/store.TestOverlapTerminalResolutionRejectsSecondSuccessor`
-  proves `resolve_overlap` refuses a second successor for an already
-  superseded or merged predecessor.
 - `internal/store.TestOverlapBlocksRemovesWorkFromReady` proves a
   `resolve_overlap` `blocks` row holds the blocked item unready in the list.
 - `internal/store.TestRelationKindsEnforceTheirOwnGraphRules` proves the

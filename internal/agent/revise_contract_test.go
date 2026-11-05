@@ -20,13 +20,10 @@ func contractRevisionInput(t *testing.T, s *store.Store, workID string, version 
 		t.Fatal(err)
 	}
 	input := map[string]any{"work_id": workID, "expected_version": version, "contract": contract, "reason": "Update the recorded plan", "idempotency_key": key}
-	for _, field := range []string{"title", "value_statement", "kind", "priority", "urgency", "tags", "component_id", "task"} {
+	for _, field := range []string{"title", "kind", "task"} {
 		if value, ok := intent[field]; ok && value != nil && value != "" {
 			input[field] = value
 		}
-	}
-	if _, ok := input["value_statement"]; !ok {
-		input["value_statement"] = "Retain the approved outcome"
 	}
 	return retryJSON(input)
 }
@@ -76,7 +73,7 @@ func TestReviseIntentUpdatesContractAtomicallyAndReplays(t *testing.T) {
 	}
 	contract["route_conventions"], contract["rigor_class"] = json.RawMessage(routes), rigor
 	expected := workVersion(t, s, "work-1")
-	raw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": expected, "title": "Revised plan", "value_statement": "Retain proof", "kind": "task", "reason": "Clarify the plan", "contract": contract, "idempotency_key": "ordinary-contract-update"})
+	raw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": expected, "title": "Revised plan", "kind": "task", "reason": "Clarify the plan", "contract": contract, "idempotency_key": "ordinary-contract-update"})
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: raw}
 	for attempt := 0; attempt < 2; attempt++ {
 		response, err := Dispatch(t.Context(), s, service, request, env)

@@ -122,7 +122,7 @@ func TestCurrentLawProofBindsConcreteDefaultRef(t *testing.T) {
 			repo := workflowLawFixtureRepo(t, s)
 			defaultHead := strings.TrimSpace(runKnowledgeGit(t, repo, "rev-parse", "HEAD"))
 			runKnowledgeGit(t, repo, "update-ref", "--no-deref", "refs/remotes/origin/main", defaultHead)
-			ctx, err := s.EstablishKnowledgeSourceSetProofForProject(t.Context(), "project")
+			ctx, err := establishKnowledgeSourceSetProofForProject(t.Context(), s, "project")
 			if err != nil {
 				t.Fatal(err)
 			}

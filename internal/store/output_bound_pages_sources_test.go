@@ -921,9 +921,6 @@ func init() {
 	registerOutputBound("/$defs/work_relation_graph/properties/nodes/maxItems", pkEmptyLiteralItemsBound("internal/agent/runtime.go", "q8", "nodes"))
 
 	registerOutputBound("/$defs/work_summary/properties/project_ids/maxItems", unboundedOutput("internal/store/query.go:attachWorkMemberships appends one entry per work_projects row with no LIMIT; a page LIMIT does not bound per-item memberships", "internal/agent/runtime.go:readSizeRefusal"))
-	// Both intent folds copy Tags into the stored projection with no count
-	// guard, so the tag list is byte-ceiling only and the cap is redundant.
-	registerOutputBound("/$defs/work_summary/properties/tags/maxItems", unboundedOutput("internal/store/lifecycle.go:foldWorkCreated and foldWorkIntentRevised copy the payload Tags into the stored intent verbatim with no count guard, so any tag count projects into the summary", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_summary/properties/task/maxLength", maxBound(
 		pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkCreated", "len(payload.Task)"),
 		pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkIntentRevised", "len(*payload.Task)"),

@@ -104,7 +104,7 @@ func readWorkflowResumeTx(ctx context.Context, tx *sql.Tx, workID string) (Workf
 // workflowInstanceTerminal reports the instance states that end the item's
 // workflow; no step remains to take in them.
 func workflowInstanceTerminal(state string) bool {
-	return state == "completed" || state == "cancelled" || state == "superseded"
+	return state == "completed" || state == "cancelled"
 }
 
 // readResumePreludeTx reads the intake/clarification prelude for the resume

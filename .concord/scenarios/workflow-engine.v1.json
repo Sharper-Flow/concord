@@ -55,7 +55,7 @@
         "actor_ref": "actor:0bbb3c563caceaaffff6ea5979fdf44209be4a177b6b66fff4b9c6c0e72396ad",
         "workflow_type": null,
         "action_id": "capture",
-        "fields": {"payload": {"work": "new"}, "title": "WF01-capture-late-outcome title", "value_statement": "fixture value statement", "project_ids": ["project"]},
+        "fields": {"payload": {"work": "new"}, "title": "WF01-capture-late-outcome title", "project_ids": ["project"]},
         "idempotency": {"key": "wf01-capture-late-outcome-key", "request_id": "wf01-capture-late-outcome-request", "operation_id": "wf01-capture-late-outcome-operation", "accepted_inputs_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
         "grant": {"principal_ref": "principal:operator", "client_ref": "client:concord-1", "agent_ref": "agent-engineer", "session_ref": "session-executor", "capability": "workflow_action", "scope": "project"},
         "operation": {"op_id": "wf01-capture-late-outcome-operation"}

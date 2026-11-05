@@ -39,7 +39,7 @@ DELETE FROM write_guard`, retirementUpgradeTime, retirementUpgradeTime)
 	if err != nil || manifest.SchemaVersion != 182 {
 		t.Fatalf("predecessor backup=%+v err=%v", manifest, err)
 	}
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
 		t.Fatal(err)
 	}
 	got := retirementUpgradeRows(t, db, `SELECT i.work_id,w.lifecycle,i.instance_state,i.workflow_type,i.step_plan FROM workflow_instances i JOIN work_items w ON w.id=i.work_id ORDER BY i.work_id`)

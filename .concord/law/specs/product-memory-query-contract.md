@@ -86,7 +86,7 @@ of PM1 is the final check that no repeated Product-memory job is missing.
 | Q2 | Orient to a Product's work snapshot | priorities §3–§4; workflows §2.4 |
 | Q3 | List Product work by lifecycle/filter | PM1; PM4 |
 | Q7 | Explain why work changed state | workflows §2.2 |
-| Q8 | Inspect dependencies and supersession | PM4; product-data-model §10 |
+| Q8 | Inspect work relations | PM4; product-data-model §10 |
 
 Rejected/deferred reads are listed in §6. The corpus remains small on purpose: a
 new canonical query requires a real unmet operator/agent job and a success oracle,
@@ -193,7 +193,7 @@ The JSON corpus is executable through a candidate adapter implementing
   per-item `blocked` flag is returned.
   Blocked work remains counted in its lifecycle state; the two count families are
   intentionally not mutually exclusive.
-- **Order:** explicit priority, relevant lifecycle time, stable ID; terminal
+- **Order:** relevant lifecycle time, stable ID; terminal
   preview by terminal time descending.
 - **Oracle:** lifecycle counts match Q3, derived blocked count follows live blockers, preview
   items are unique, and cross-Project work is not double-counted.
@@ -207,13 +207,13 @@ The JSON corpus is executable through a candidate adapter implementing
 
 ### Q3. List Product work
 
-- **Intent:** inspect needed, in-progress, completed, cancelled, or superseded work.
-- **Input:** Product; lifecycle states; optional Project, work-kind, Domain,
-  tag, priority, terminal-window, detail, cursor, limit.
-- **Output:** bounded work summaries with value statement, lifecycle, priority,
-  Projects, readiness, stage, version, and durable-note reference when terminal;
+- **Intent:** inspect needed, in-progress, completed, or cancelled work.
+- **Input:** Product; lifecycle states; optional Project, work-kind,
+  terminal-window, detail, cursor, limit.
+- **Output:** bounded work summaries with title, lifecycle,
+  Projects, readiness, and version;
   full detail carries the recorded work facts.
-- **Order:** priority rank, relevant lifecycle timestamp descending, stable ID;
+- **Order:** relevant lifecycle timestamp descending, stable ID;
   terminal-only queries use terminal time descending first.
 - **Oracle:** filters compose without duplicates; a valid empty filter result is
   authoritative empty, not missing data.
@@ -227,8 +227,7 @@ The JSON corpus is executable through a candidate adapter implementing
 List `work_summary.ready` is true exactly when lifecycle is `needed` and no live
 blocker holds the item. A needed item with `ready` absent or false is blocked;
 the relations read supplies its bounded blocker graph. No public `blocked` flag
-is returned. Lifecycle stage is not a hidden
-business-priority input. Work remains canonical across Project memberships.
+is returned. Work remains canonical across Project memberships.
 
 ### Q7. Explain work history
 
@@ -236,17 +235,15 @@ The store answers this from current state: current lifecycle and relation rows
 plus the recorded stage exits and evidence receipts that justify them; no event log, fold, or replay exists to query
 ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
-### Q8. Dependencies and supersession
+### Q8. Work relations
 
-- **Intent:** inspect parent, blocks, depends-on, supersedes, and implements links.
+- **Intent:** inspect parent, blocks, depends-on, raised-from, and implements links.
 - **Input:** work reference; relation kinds; direction; depth default `1`, max `3`.
-- **Output:** bounded nodes/edges with canonical inverses and replacement state.
+- **Output:** bounded nodes/edges with canonical inverses.
 - **Order:** relation kind, source ID, target ID; cycles that violate the accepted
   relation contract are `invariant_violation`, not hidden.
-- **Oracle:** forward/reverse queries agree; superseded work resolves its canonical
-  successor without duplicate authority.
-- **PM4 semantics:** relation kinds, inverse reads, acyclicity, and supersession
-  uniqueness follow the accepted PM4 contract.
+- **Oracle:** forward/reverse queries agree without duplicate authority.
+- **PM4 semantics:** relation kinds, inverse reads, and acyclicity follow PM4.
 - **Retention semantics:** live relation rows remain foreign key (FK) clean.
 
 ## 5. Decision and implementation evaluation

@@ -74,7 +74,7 @@ Binding: [`../specs/agent-read-tool-contract.md`](../specs/agent-read-tool-contr
 ```text
 concord_work_define       capture | revise_intent
 concord_work_transition   lifecycle | workflow_action
-concord_work_relate       membership/link/supersession intents
+concord_work_relate       membership and overlap-relation intents
 ```
 
 One domain intent per call; no generic patch/mixed batch. SQLite effects are atomic.

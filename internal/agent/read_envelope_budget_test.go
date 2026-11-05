@@ -51,15 +51,10 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// These are the admitted intent maxima. Escaped text makes serialized bytes,
+	// This is the admitted note maximum. Escaped text makes serialized bytes,
 	// rather than string length or item count, determine the page boundary.
 	task := strings.Repeat("\"", 8192)
-	value := strings.Repeat("v", 256)
-	tags := []string{}
-	for i := range 32 {
-		tags = append(tags, fmt.Sprintf("tag-%02d-%s", i, strings.Repeat("t", 121)))
-	}
-	intentJSON, _ := json.Marshal(map[string]any{"task": task, "value_statement": value, "tags": tags, "workflow_type_ref": "workflow.break_fix"})
+	intentJSON, _ := json.Marshal(map[string]any{"task": task})
 	db := s.DatabaseForTesting()
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES (1)`); err != nil {
 		t.Fatal(err)
@@ -98,8 +93,8 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 				t.Fatalf("duplicate work ID %s", item.ID)
 			}
 			seen[item.ID] = true
-			if item.Task != task || item.ValueStatement != value || len(item.Tags) != 32 {
-				t.Fatalf("full detail lost intent for %s", item.ID)
+			if item.Task != task {
+				t.Fatalf("full detail lost the note for %s", item.ID)
 			}
 		}
 		pages++
@@ -158,30 +153,34 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 	}
 }
 
-func TestSingleFullWorkItemTooLargeReturnsLosslessProjectionPages(t *testing.T) {
+func TestSingleMaximumTaskFitsFullWorkEnvelope(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	s, _, _ := workflowEngineFixture(t, "single item")
-	intent, _ := json.Marshal(map[string]any{"task": strings.Repeat("<", 8192), "value_statement": strings.Repeat("v", 256), "tags": oversizedIntentTags(), "workflow_type_ref": "workflow.break_fix"})
-	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES (1); UPDATE work_items SET intent_json=? WHERE id='work-1'; DELETE FROM write_guard`, string(intent)); err != nil {
+	s, _, _ := workflowEngineFixture(t, "maximum task")
+	task := strings.Repeat("<", 8192)
+	intent, err := json.Marshal(map[string]any{"title": "maximum task", "kind": "task", "task": task})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET intent_json=? WHERE id='work-1'; DELETE FROM write_guard`, string(intent)); err != nil {
 		t.Fatal(err)
 	}
 	r := runtime{Store: s, Tool: "concord_work_browse", Operation: "list", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
-	for _, limit := range []int{0, 1, 100} {
-		input := map[string]any{"product_id": "product-1", "detail": "full"}
-		if limit != 0 {
-			input["limit"] = limit
-		}
-		items, fragments := readFullListDocuments(t, ctx, r, input)
-		if len(items) != 1 || items[0].ID != "work-1" || items[0].Task != strings.Repeat("<", 8192) || fragments < 2 {
-			t.Fatalf("single admitted item must arrive complete: limit=%d items=%d fragments=%d", limit, len(items), fragments)
-		}
+	response, err := r.read(t.Context(), agentcontract.NewBase("maximum-task", r.Tool, r.Operation), []byte(`{"product_id":"product-1","detail":"full","limit":1}`), "PM1.Q3")
+	if err != nil {
+		t.Fatal(err)
 	}
-	var stored string
-	if err := db.QueryRow(`SELECT intent_json FROM work_items WHERE id='work-1'`).Scan(&stored); err != nil || stored != string(intent) {
-		t.Fatalf("read changed intent: %v", err)
+	assertBoundedRead(t, response)
+	var page struct {
+		Items []workSummary `json:"items"`
 	}
+	if err := json.Unmarshal(response.Result, &page); err != nil || response.Error != nil || response.NextCursor != nil || len(page.Items) != 1 || page.Items[0].Task != task {
+		t.Fatalf("maximum task did not fit intact: %s %+v %v", response.Result, response.Error, err)
+	}
+	raw, err := response.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("maximum task envelope: %d bytes of %d", len(raw), agentcontract.MaxResultEnvelopeBytes)
 }
 
 func TestWorkSummaryBytePagesKeepContinuation(t *testing.T) {

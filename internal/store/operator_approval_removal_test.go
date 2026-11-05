@@ -64,7 +64,7 @@ INSERT INTO agent_nonce_replay VALUES('removal-client','nonce-already-used','202
 	for seq := 1; seq <= 6; seq++ {
 		execSixClassSQL(t, db, `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version) VALUES(?,?,'fixture','work_item','removal-from',?,1)`, fmt.Sprintf("removal-receipt-%d", seq), seq, actor)
 	}
-	for index, kind := range []string{ResolutionDependsOn, ResolutionBlocks, ResolutionMergedInto, ResolutionSupersedes} {
+	for index, kind := range []string{"depends_on", "blocks", "merged_into", "supersedes"} {
 		var invalidated any
 		if index%2 == 1 {
 			invalidated = 6
@@ -184,7 +184,7 @@ func TestOperatorApprovalRemovalRollsBackAtomically(t *testing.T) {
 		t.Fatal("failed migration changed data, schema, guards or manifest")
 	}
 	execSixClassSQL(t, db, `DROP TABLE outside_repair_reconciliations_v168`)
-	if err := Migrate(context.Background(), db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, context.Background(), db), db); err != nil {
 		t.Fatalf("retry after rollback: %v", err)
 	}
 	assertOperatorApprovalStorageAbsent(t, db)

@@ -37,7 +37,7 @@ func TestWorkflowPlanDeliveryAdmission(t *testing.T) {
 INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project:test','test',1,'now','now');
 INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product:test','test','prototype','operator_only',1,'now','now');
 INSERT INTO product_projects(product_id,project_id,role) VALUES('product:test','project:test','primary');
-INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('work:test','task','test','needed',0,1,'now','now');
+INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at) VALUES('work:test','task','test','needed',1,'now','now');
 INSERT INTO work_projects(work_id,project_id,role) VALUES('work:test','project:test','primary');
 INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?1,'principal:test','client:test','agent:test','session:test','operator','now');
 INSERT INTO workflow_instances(work_id,instance_state,workflow_type,step_plan) VALUES('work:test','running','change',?2);

@@ -98,7 +98,7 @@ func assertSessionWindowCorpus144(t *testing.T) {
 	}
 	assertCorpusSelectionRed(t, c, 144, "AND COALESCE(json_extract(e.payload,'$.claim_incarnation'),0)=o.claim_incarnation", "", queries, want)
 	before := histEventRows(t, old)
-	if err := Migrate(t.Context(), old.db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, t.Context(), old.db), old.db); err != nil {
 		t.Fatal(err)
 	}
 	assertWorktreeTablesAbsent(t, old.db)

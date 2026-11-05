@@ -451,48 +451,45 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := applyWorkflowActionRawTx(ctx, actionTx, newWriteScope(actionTx), WorkflowActionExecutionRequest{
-		WorkID: contextWork, ExpectedVersion: contextActionVersion, ActionID: "record_work_context",
+		WorkID: contextWork, ExpectedVersion: contextActionVersion, ActionID: "checkpoint_context",
 		Payload: mustJSONValue(map[string]any{
-			"required_reading": []map[string]any{},
-			"finding_refs":     []string{},
-			"context_findings": []map[string]any{},
+			"checkpoint_id": "checkpoint:evidence-context", "active_unit": "implementation",
+			"hypothesis": "the checked change holds", "diagnosis": "the evidence population holds the step",
+			"strategy":     "hold the step and advance the version",
+			"touched_refs": []string{"internal/store/backup_test.go"}, "evidence_refs": []string{"internal/store/backup_test.go"},
+			"pending_questions": []string{}, "pending_decisions": []string{},
 		}),
 		Actor:                contextOwner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64),
-		IdempotencyIdentity:  "record_work_context-evidence-context", OperationID: "record_work_context-evidence-context",
-		PrincipalRef: contextOwner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "record_work_context-evidence-context",
+		IdempotencyIdentity:  "checkpoint_context-evidence-context", OperationID: "checkpoint_context-evidence-context",
+		PrincipalRef: contextOwner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "checkpoint_context-evidence-context",
 		RequestID: "request:evidence-context", ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
 	}); err != nil {
 		_ = actionTx.Rollback()
-		t.Fatalf("admitted record_work_context refused: %v", err)
+		t.Fatalf("admitted checkpoint_context refused: %v", err)
 	}
 	if err := actionTx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	var declarationEventID string
-	var declarationPayload []byte
-	var declarationSeq int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT declaration_id,declaration_payload,declaration_seq FROM work_context_state WHERE work_id=?`, contextWork).Scan(&declarationEventID, &declarationPayload, &declarationSeq); err != nil {
+	var checkpointID, checkpointHypothesis string
+	var checkpointSequence int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT checkpoint_id,hypothesis,checkpoint_sequence FROM workflow_context_checkpoints WHERE work_id=?`, contextWork).Scan(&checkpointID, &checkpointHypothesis, &checkpointSequence); err != nil {
 		t.Fatal(err)
 	}
-	if declarationEventID == "" || declarationSeq == 0 || !strings.Contains(string(declarationPayload), `"context_findings"`) {
-		t.Fatalf("invalid context declaration: id=%s seq=%d payload=%s", declarationEventID, declarationSeq, declarationPayload)
+	if checkpointID == "" || checkpointSequence == 0 || checkpointHypothesis == "" {
+		t.Fatalf("invalid checkpoint row: id=%s seq=%d hypothesis=%s", checkpointID, checkpointSequence, checkpointHypothesis)
 	}
 
-	// The serialized view must survive backup and restore byte for byte.
-	readViewBytes := func(stage string, db *sql.DB) []byte {
+	// The stored checkpoint must survive backup and restore byte for byte.
+	readCheckpointBytes := func(stage string, db *sql.DB) string {
 		t.Helper()
-		view, err := readWorkContextView(ctx, db, contextWork)
-		if err != nil {
-			t.Fatalf("%s view read refused: %v", stage, err)
+		var hypothesis string
+		if err := db.QueryRow(`SELECT hypothesis FROM workflow_context_checkpoints WHERE work_id=?`, contextWork).Scan(&hypothesis); err != nil {
+			t.Fatalf("%s checkpoint read refused: %v", stage, err)
 		}
-		raw, err := json.Marshal(view)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return raw
+		return hypothesis
 	}
-	wantViewRaw := readViewBytes("pre-backup", s.DatabaseForTesting())
+	wantViewRaw := readCheckpointBytes("pre-backup", s.DatabaseForTesting())
 
 	// Fingerprint every living-evidence population on the source store.
 	fingerprints := []struct {
@@ -500,7 +497,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		query string
 	}{
 		{"effect_receipts", `SELECT effect_seq,event_id,kind,subject_type,subject_id,actor,payload_version,payload_digest,delivery_assertion,relation_seq FROM effect_receipts ORDER BY effect_seq`},
-		{"work_context_state", `SELECT work_id,source_frontier,declaration_seq,declaration_id,declaration_payload FROM work_context_state ORDER BY work_id`},
+		{"workflow_context_checkpoints", `SELECT work_id,work_version,checkpoint_sequence,checkpoint_id,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions FROM workflow_context_checkpoints ORDER BY work_id,checkpoint_sequence`},
 		{"workflow_instances", `SELECT work_id,workflow_type,step_plan,prelude_state,instance_state,completed_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY work_id`},
 		{"workflow_contracts", `SELECT work_id,contract_version,premise,spec_mandate,law_boundary_version FROM workflow_contracts ORDER BY work_id,contract_version`},
 		{"linear_issue_links", `SELECT work_id,remote_issue_uuid,human_key,url,created_at,updated_at FROM linear_issue_links ORDER BY work_id`},
@@ -519,8 +516,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	if len(want["knowledge_homes"]) != 1 {
 		t.Fatalf("knowledge home population = %d, want the one Product knowledge-home binding", len(want["knowledge_homes"]))
 	}
-	if !strings.Contains(strings.Join(want["work_context_state"], "\x1e"), `"context_findings"`) {
-		t.Fatalf("current context fingerprint lost the declaration bytes")
+	if !strings.Contains(strings.Join(want["workflow_context_checkpoints"], "\x1e"), "the checked change holds") {
+		t.Fatalf("current checkpoint fingerprint lost the declaration bytes")
 	}
 	if len(want["workflow_instances"]) != 2 || len(want["workflow_contracts"]) != 2 {
 		t.Fatalf("workflow population = %d instances, %d contracts, want the evidence and context-consumer instances with their contracts", len(want["workflow_instances"]), len(want["workflow_contracts"]))
@@ -585,7 +582,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 
 	// The restored store carries every population with full identity.
 	compareFingerprints("restored", restored.DatabaseForTesting())
-	if gotView := readViewBytes("restored", restored.DatabaseForTesting()); string(gotView) != string(wantViewRaw) {
+	if gotView := readCheckpointBytes("restored", restored.DatabaseForTesting()); gotView != wantViewRaw {
 		t.Fatalf("restored view =\n%s\nwant\n%s", gotView, wantViewRaw)
 	}
 
@@ -604,16 +601,9 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, contextWork): contextVersion}}); err != nil {
 		t.Fatal(err)
 	}
-	// The terminal transition disposes the work-context declaration.
-	disposedView, err := readWorkContextView(ctx, restored.DatabaseForTesting(), contextWork)
-	if err != nil {
-		t.Fatalf("terminal context view read refused: %v", err)
-	}
-	if disposedView != nil {
-		t.Fatalf("terminal context consumer retained work context: %+v", disposedView)
-	}
-	if rows := captureEvidenceRows(t, restored.DatabaseForTesting(), `SELECT work_id FROM work_context_state ORDER BY work_id`); strings.Contains(strings.Join(rows, "\x1e"), contextWork) {
-		t.Fatalf("terminal context consumer kept its work context declaration: %v", rows)
+	// The terminal transition disposes the held checkpoint.
+	if rows := captureEvidenceRows(t, restored.DatabaseForTesting(), `SELECT work_id FROM workflow_context_checkpoints ORDER BY work_id`); strings.Contains(strings.Join(rows, "\x1e"), contextWork) {
+		t.Fatalf("terminal context consumer kept its held checkpoint: %v", rows)
 	}
 }
 

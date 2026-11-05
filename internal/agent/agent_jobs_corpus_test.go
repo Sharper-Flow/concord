@@ -305,19 +305,14 @@ func invariantEvidenceAuthority(t *testing.T, obs jobObservation) {
 	t.Helper()
 	supplied, suppliedOK := obs.Effects["evidence_authority_supplied"].(bool)
 	required, requiredOK := obs.Effects["missing_evidence_refused"].(bool)
-	// A third shape: the consequence needed the operator's choice and the
-	// governing-law refusal withheld the effect. That is neither evidence
-	// supplied nor a missing-evidence refusal, and CD-0035's governing-law
-	// conflict is the first scenario to exercise it.
-	withheld, withheldOK := obs.Effects["operator_choice_withheld"].(bool)
-	// A fourth refusal shape: the request itself was inadmissible against the
+	// A third refusal shape: the request itself was inadmissible against the
 	// declared contract — a budget above the operation ceiling — and was
 	// refused before any effect rather than clamped (CD-0038 D3). The probe is
 	// the binding's: no durable state changed and the idempotency key stayed
 	// reusable, which together rule out the silent clamp.
 	refused, refusedOK := obs.Effects["refused_before_effect"].(bool)
-	if !suppliedOK && !requiredOK && !withheldOK && !refusedOK {
-		t.Error("evidence_authority: binding did not record supplied, refused, withheld, or budget-refused authority evidence")
+	if !suppliedOK && !requiredOK && !refusedOK {
+		t.Error("evidence_authority: binding did not record supplied, refused, or budget-refused authority evidence")
 		return
 	}
 	if refused {
@@ -325,25 +320,6 @@ func invariantEvidenceAuthority(t *testing.T, obs jobObservation) {
 		// typed refusal, never as a fabricated success carrying a clamp.
 		if kind, _ := obs.Communication["error"].(map[string]any)["kind"].(string); kind != "budget_refused" {
 			t.Error("evidence_authority: refused_before_effect recorded without a budget_refused error on the wire")
-		}
-	}
-	if withheld {
-		// Cross-check the wire: withholding the effect must return a typed
-		// refusal naming the omitted requirements and the operator route.
-		// Kind, recovery, and the violations list are required to be coherent.
-		commErr, ok := obs.Communication["error"].(map[string]any)
-		if !ok {
-			t.Error("evidence_authority: operator_choice_withheld but no error map in communication")
-			return
-		}
-		if kind, _ := commErr["kind"].(string); kind != "unauthorized" {
-			t.Errorf("evidence_authority: operator_choice_withheld but error.kind=%q, want unauthorized", kind)
-		}
-		if recovery, _ := commErr["recovery_action"].(string); recovery != "contact_operator" {
-			t.Errorf("evidence_authority: operator_choice_withheld but recovery_action=%q, want contact_operator", recovery)
-		}
-		if violations, _ := commErr["violations"].([]any); len(violations) == 0 {
-			t.Error("evidence_authority: operator_choice_withheld but no omitted requirements were named")
 		}
 	}
 	if supplied && !suppliedOK {
@@ -894,8 +870,8 @@ func TestAgentJobsCorpus(t *testing.T) {
 
 	// The corpus count is pinned so scenario removal cannot masquerade as a
 	// complete binding run.
-	if len(corpus.Scenarios) != 14 {
-		t.Fatalf("corpus declares %d scenarios, want 14", len(corpus.Scenarios))
+	if len(corpus.Scenarios) != 13 {
+		t.Fatalf("corpus declares %d scenarios, want 13", len(corpus.Scenarios))
 	}
 
 	for _, sc := range corpus.Scenarios {
@@ -1049,20 +1025,11 @@ func envelopeToObservation(resp agentcontract.Envelope) jobObservation {
 			"recovery_action": resp.Error.RecoveryAction.Kind,
 		}
 		// CD-0038 D3: the ceiling is a typed envelope affordance, so the corpus
-		// reads it from the envelope the same way it reads operator options.
+		// reads it from the envelope.
 		if resp.Error.SupportedBudgetSeconds > 0 {
 			errMap["supported_budget_seconds"] = float64(resp.Error.SupportedBudgetSeconds)
 		}
 		obs.Communication["error"] = errMap
-		// CD-0035 D1: the operator-choice list is a typed envelope affordance, so
-		// the corpus reads it from the envelope rather than from a binding's prose.
-		if len(resp.Error.Options) > 0 {
-			options := make([]any, len(resp.Error.Options))
-			for i, option := range resp.Error.Options {
-				options[i] = option
-			}
-			obs.Communication["options"] = options
-		}
 	}
 	if len(resp.Result) > 0 {
 		var result map[string]any
@@ -1221,7 +1188,6 @@ func init() {
 	jobBindings["AJ2-blocker-explanation"] = bindAJ2BlockerExplanation
 	// Mutation bindings live in agent_jobs_mutations_bindings_test.go.
 	jobBindings["AJ3-capture-work"] = bindAJ3CaptureWork
-	jobBindings["AJ3-spec-conflict"] = bindAJ3SpecConflict
 	jobBindings["AJ4-start-valid-work"] = bindAJ4StartValidWork
 	jobBindings["AJ4-complete-valid-work"] = bindAJ4CompleteValidWork
 	jobBindings["AJ4-completion-missing-evidence"] = bindAJ4CompletionMissingEvidence

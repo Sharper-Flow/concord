@@ -90,7 +90,7 @@ func TestCheckpointKindMigrationPreservesRowsAndConstraints(t *testing.T) {
 	if len(contexts) != 1 || len(boundaries) != 1 {
 		t.Fatalf("context witnesses missing: checkpoints=%v boundaries=%v", contexts, boundaries)
 	}
-	if err := Migrate(t.Context(), db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, t.Context(), db), db); err != nil {
 		t.Fatalf("full upgrade: %v", err)
 	}
 	if got := retirementUpgradeRows(t, db, `SELECT * FROM workflow_checkpoints ORDER BY checkpoint_id`); len(got) != 0 {
@@ -130,7 +130,7 @@ func TestCheckpointKindMigrationFailureAndSnapshotRecovery(t *testing.T) {
 		t.Fatalf("failed migration manifest = %d: %v", applied, err)
 	}
 	retirementUpgradeExec(t, db, `DROP TABLE workflow_checkpoints_v169`)
-	if err := Migrate(t.Context(), db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, t.Context(), db), db); err != nil {
 		t.Fatalf("retry: %v", err)
 	}
 	for query, want := range map[string][][]any{retainedContextCheckpoints: contexts, retainedContextBoundaries: boundaryRows} {

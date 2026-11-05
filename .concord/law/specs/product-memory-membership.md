@@ -67,7 +67,7 @@ Concord stores one canonical work item and typed membership edges:
   each Product;
 - `work_projects(work_id, project_id, role)` defines which Projects one work item
   touches;
-- work lifecycle, priority, value, and terminal state live only on `work_items`;
+- work lifecycle and terminal state live only on `work_items`;
 - Product scope is a derived set reached through those joins, never copied onto the
   work item or membership edge.
 
@@ -116,7 +116,7 @@ Within one work item:
 - absence of a primary is valid and must remain explicit.
 
 Membership carries no lifecycle, status, completion, blocker, required, merge-order,
-priority, or evidence fields. If a Project needs independently trackable completion,
+or evidence fields. If a Project needs independently trackable completion,
 create a PM4 child work item with its own lifecycle. If sequencing is required, use
 PM4 `blocks` relations or a purpose-built workflow—not membership metadata.
 
@@ -255,7 +255,7 @@ fixture has no work item attached to a Project shared by multiple Products.
 
 1. **One canonical work identity:** work state exists only on `work_items`.
 2. **No membership state copies:** membership edges contain role only; they never
-   carry lifecycle, completion, blocker, priority, or evidence state.
+   carry lifecycle, completion, blocker, or evidence state.
 3. **At-least-one membership:** every Product and work item has at least one Project,
    and every Project belongs to at least one Product.
 4. **Optional singular primary:** each Product/work has zero or one primary Project.

@@ -53,7 +53,7 @@ func dispatchCapture(t *testing.T, s *store.Store, service *Service, grant Autho
 	return response
 }
 
-func scopeWorkReadback(t *testing.T, s *store.Store, service *Service, grant Authority, scopeVersion, workID string) (task, valueStatement string) {
+func scopeWorkReadback(t *testing.T, s *store.Store, service *Service, grant Authority, scopeVersion, workID string) string {
 	t.Helper()
 	env := mutationEnvelope(grant, scopeVersion)
 	env.RequestID = "capture-task-scope-read"
@@ -66,8 +66,7 @@ func scopeWorkReadback(t *testing.T, s *store.Store, service *Service, grant Aut
 	}
 	var readback struct {
 		Items []struct {
-			Task           string `json:"task"`
-			ValueStatement string `json:"value_statement"`
+			Task string `json:"task"`
 		} `json:"items"`
 	}
 	raw, _ := json.Marshal(response.Result)
@@ -77,24 +76,21 @@ func scopeWorkReadback(t *testing.T, s *store.Store, service *Service, grant Aut
 	if len(readback.Items) != 1 {
 		t.Fatalf("list readback returned %d items", len(readback.Items))
 	}
-	return readback.Items[0].Task, readback.Items[0].ValueStatement
+	return readback.Items[0].Task
 }
 
 func TestCapturePersistsTaskInstructionInOneCall(t *testing.T) {
 	t.Parallel()
 	s, service, grant, scopeVersion := captureTaskFixture(t)
 	response := dispatchCapture(t, s, service, grant, scopeVersion, "capture-task-request-1",
-		`{"title":"Need","value_statement":"Why the work matters","task":"Reproduce the refusal, extract the loop, and keep the budget green.","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-task-idem-1"}`)
+		`{"title":"Need","task":"Reproduce the refusal, extract the loop, and keep the budget green.","kind":"task","project_ids":["project-1"],"human_key":"ZZ-7009","remote_issue_uuid":"fixture-capture-task-idem-1","url":"https://linear.app/example/issue/ZZ-7009","idempotency_key":"capture-task-idem-1"}`)
 	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("capture with task response=%+v", response)
 	}
 	workID := (*response.ChangedRefs)[0].ID
-	task, valueStatement := scopeWorkReadback(t, s, service, grant, scopeVersion, workID)
+	task := scopeWorkReadback(t, s, service, grant, scopeVersion, workID)
 	if task != "Reproduce the refusal, extract the loop, and keep the budget green." {
 		t.Fatalf("scope readback task = %q, want the captured instruction", task)
-	}
-	if valueStatement != "Why the work matters" {
-		t.Fatalf("scope readback value_statement = %q, want the captured value", valueStatement)
 	}
 }
 
@@ -102,12 +98,12 @@ func TestCaptureWithoutTaskInstructionStaysLegal(t *testing.T) {
 	t.Parallel()
 	s, service, grant, scopeVersion := captureTaskFixture(t)
 	response := dispatchCapture(t, s, service, grant, scopeVersion, "capture-taskless-request-1",
-		`{"title":"Need","value_statement":"Why the work matters","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-taskless-idem-1"}`)
+		`{"title":"Need","kind":"task","project_ids":["project-1"],"human_key":"ZZ-7010","remote_issue_uuid":"fixture-capture-taskless-idem-1","url":"https://linear.app/example/issue/ZZ-7010","idempotency_key":"capture-taskless-idem-1"}`)
 	if response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("capture without task response=%+v", response)
 	}
 	workID := (*response.ChangedRefs)[0].ID
-	task, _ := scopeWorkReadback(t, s, service, grant, scopeVersion, workID)
+	task := scopeWorkReadback(t, s, service, grant, scopeVersion, workID)
 	if task != "" {
 		t.Fatalf("scope readback task = %q, want no persisted task", task)
 	}
@@ -121,7 +117,7 @@ func TestCaptureRefusesTaskTheReviseFoldRefuses(t *testing.T) {
 	t.Parallel()
 	s, service, grant, scopeVersion := captureTaskFixture(t)
 	response := dispatchCapture(t, s, service, grant, scopeVersion, "capture-nul-task-request-1",
-		`{"title":"Need","value_statement":"Why the work matters","task":"line one\u0000line two","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-nul-task-idem-1"}`)
+		`{"title":"Need","task":"line one\u0000line two","kind":"task","project_ids":["project-1"],"human_key":"ZZ-7008","remote_issue_uuid":"fixture-capture-nul-task-idem-1","url":"https://linear.app/example/issue/ZZ-7008","idempotency_key":"capture-nul-task-idem-1"}`)
 	if response.Outcome != agentcontract.OutcomeError || response.Error == nil {
 		t.Fatalf("NUL-carrying task capture outcome=%s error=%+v, want typed refusal", response.Outcome, response.Error)
 	}

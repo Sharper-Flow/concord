@@ -1,11 +1,11 @@
 package store
 
 // CD-0159 D5 supplies standing to the closed default cohort. The Go store
-// embeds the same asset the Python manifest readers use, enforces the frozen
-// vehicle claim on every committed law read, and resolves every other
-// declared legislative reference through its exact approved contract at the
-// law-source verification boundary (the establishment that admits a
-// committed law folder into a consequential transaction).
+// embeds the committed cohort asset, enforces the frozen vehicle claim on
+// every committed law read, and resolves every other declared legislative
+// reference through its exact approved contract at the law-source
+// verification boundary (the establishment that admits a committed law
+// folder into a consequential transaction).
 
 import (
 	"bytes"
@@ -70,9 +70,8 @@ type knowledgeAuthorityDefaultDocument struct {
 }
 
 // knowledgeAuthorityDefaultsAsset parses the embedded asset bytes. Every
-// defect raises; nothing skips. The rules mirror
-// scripts/knowledge_authority_defaults.py exactly, so the two loaders refuse
-// the same closed shape.
+// defect raises; nothing skips. The closed shape lives here and in the
+// committed asset alone.
 func knowledgeAuthorityDefaultsAsset(raw []byte) (*knowledgeAuthorityDefaults, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()

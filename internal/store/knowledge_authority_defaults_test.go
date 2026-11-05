@@ -1,6 +1,6 @@
 package store
 
-// The embedded cohort and Python reader admit the same closed asset shape.
+// The embedded cohort asset admits one closed shape.
 
 import (
 	"strings"

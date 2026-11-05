@@ -16,8 +16,8 @@ import (
 	"github.com/sharper-flow/concord/internal/version"
 )
 
-// CD-0249 D1 retires per-law coverage through the existing breaking-migration
-// path, and its verified-snapshot preservation requirement applies before the
+// Per-law coverage is retired through the existing breaking-migration
+// path, and verified-snapshot preservation applies before the
 // table drop. These tests drive the real concord upgrade route over a v165
 // store carrying populated law_coverage_anchors rows: the route must write a
 // verified snapshot of the pre-upgrade store, the live store must lose the

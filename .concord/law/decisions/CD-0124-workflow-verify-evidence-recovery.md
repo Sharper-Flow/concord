@@ -65,5 +65,14 @@ deployment or stranded-work recovery.
 
 - The break-fix definition declares `bind_evidence` on `verify` with hold
   execution mode, while `confirm_premise` remains the only advancing action.
-- Refusal tests prove no effect for invalid, unauthorized, stale, and terminal requests.
+- Each refusal leg has an executable witness: invalid and stale requests —
+  `internal/store.TestLateBindingRefusesUndeclaredEvidenceKind` and
+  `internal/store.TestExternalCheckRecoveryPreservesEvidenceRefusals` refuse
+  dispatch with work version and effect receipts unchanged; unauthorized
+  actors — `internal/store.TestWorkflowPlanAdmissionRefusalParity` refuses
+  the missing actor tuple and a principal mismatch with work version,
+  evidence bindings and effect receipts unchanged; terminal work —
+  `internal/store.TestTerminalWorkflowRefusesEvidenceBindingWithoutEffects`
+  refuses with work version, plan, effect receipts and durable operations
+  unchanged.
 - Replay tests prove one durable binding for one successful request identity.

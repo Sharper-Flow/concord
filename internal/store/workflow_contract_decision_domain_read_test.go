@@ -43,25 +43,22 @@ func TestHistoricalReadCarriesContractDecisionDomains(t *testing.T) {
 			{name: "superseded predecessor", selector: 1, wantDomains: []string{"product"}, wantSuperseded: 2, wantSupersededB: true},
 			{name: "active successor", selector: 2, wantDomains: []string{"preference", "ui_ux"}},
 		} {
-			projection, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: "decision-historical-read", ContractVersion: testCase.selector})
+			contract, err := readWorkflowContractVersion(context.Background(), s.db, "decision-historical-read", testCase.selector)
 			if err != nil {
 				t.Fatalf("%s historical read: %v", testCase.name, err)
 			}
-			if projection.Contract == nil {
-				t.Fatalf("%s historical read carried no contract", testCase.name)
+			if contract.Version != testCase.selector {
+				t.Fatalf("%s historical read returned contract version %d, want %d", testCase.name, contract.Version, testCase.selector)
 			}
-			if projection.Contract.Version != testCase.selector {
-				t.Fatalf("%s historical read returned contract version %d, want %d", testCase.name, projection.Contract.Version, testCase.selector)
-			}
-			if !reflect.DeepEqual(projection.Contract.DecisionDomains, testCase.wantDomains) {
-				t.Fatalf("%s historical read projected %v, want %v", testCase.name, projection.Contract.DecisionDomains, testCase.wantDomains)
+			if !reflect.DeepEqual(contract.DecisionDomains, testCase.wantDomains) {
+				t.Fatalf("%s historical read projected %v, want %v", testCase.name, contract.DecisionDomains, testCase.wantDomains)
 			}
 			if testCase.wantSupersededB {
-				if projection.Contract.SupersededBy == nil || *projection.Contract.SupersededBy != testCase.wantSuperseded {
-					t.Fatalf("%s historical read superseded_by = %v, want %d", testCase.name, projection.Contract.SupersededBy, testCase.wantSuperseded)
+				if contract.SupersededBy == nil || *contract.SupersededBy != testCase.wantSuperseded {
+					t.Fatalf("%s historical read superseded_by = %v, want %d", testCase.name, contract.SupersededBy, testCase.wantSuperseded)
 				}
-			} else if projection.Contract.SupersededBy != nil {
-				t.Fatalf("%s historical read superseded_by = %v, want nil", testCase.name, projection.Contract.SupersededBy)
+			} else if contract.SupersededBy != nil {
+				t.Fatalf("%s historical read superseded_by = %v, want nil", testCase.name, contract.SupersededBy)
 			}
 		}
 		active := projectedDecisionDomains(t, s, "decision-historical-read")
@@ -78,28 +75,22 @@ func TestHistoricalReadCarriesContractDecisionDomains(t *testing.T) {
 		// The read decoder must preserve an existing NULL. Current approval
 		// refuses that shape, so seed the stored read facet directly.
 		seedStoredDecisionDomainAbsence(t, absent, "decision-historical-absent")
-		absentProjection, err := ReadWorkflowProjection(context.Background(), absent, WorkflowReadRequest{WorkID: "decision-historical-absent", ContractVersion: 1})
+		absentContract, err := readWorkflowContractVersion(context.Background(), absent.db, "decision-historical-absent", 1)
 		if err != nil {
 			t.Fatalf("absent historical read: %v", err)
 		}
-		if absentProjection.Contract == nil {
-			t.Fatal("absent historical read carried no contract")
-		}
-		if absentProjection.Contract.DecisionDomains != nil {
-			t.Fatalf("absent historical read projected %v, want nil historical absence", absentProjection.Contract.DecisionDomains)
+		if absentContract.DecisionDomains != nil {
+			t.Fatalf("absent historical read projected %v, want nil historical absence", absentContract.DecisionDomains)
 		}
 		engineering := openTemp(t)
 		defer engineering.Close()
 		seedDecisionDomainsItemFatal(t, engineering, "decision-historical-engineering", []string{})
-		engineeringProjection, err := ReadWorkflowProjection(context.Background(), engineering, WorkflowReadRequest{WorkID: "decision-historical-engineering", ContractVersion: 1})
+		engineeringContract, err := readWorkflowContractVersion(context.Background(), engineering.db, "decision-historical-engineering", 1)
 		if err != nil {
 			t.Fatalf("engineering historical read: %v", err)
 		}
-		if engineeringProjection.Contract == nil {
-			t.Fatal("engineering historical read carried no contract")
-		}
-		if engineeringProjection.Contract.DecisionDomains == nil || len(engineeringProjection.Contract.DecisionDomains) != 0 {
-			t.Fatalf("engineering historical read projected %v, want the explicit empty set", engineeringProjection.Contract.DecisionDomains)
+		if engineeringContract.DecisionDomains == nil || len(engineeringContract.DecisionDomains) != 0 {
+			t.Fatalf("engineering historical read projected %v, want the explicit empty set", engineeringContract.DecisionDomains)
 		}
 	})
 }

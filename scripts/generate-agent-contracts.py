@@ -837,10 +837,9 @@ def project_schema_guidance(document: dict, names: list[str], *, bounds_only: bo
     return projected
 
 
-def project_workflow_plan_read_schemas(defs: dict, actions: list[dict]) -> None:
+def project_workflow_plan_read_schemas(defs: dict) -> None:
     template = json.loads((ROOT / "contracts/workflow-step-templates.v1.json").read_text())
-    plan = copy.deepcopy(template["plan_schema"])
-    nested = plan.pop("$defs")
+    nested = copy.deepcopy(template["plan_schema"]["$defs"])
     names = {name: "workflow_plan_" + name for name in nested}
 
     def rewrite(node):
@@ -859,26 +858,8 @@ def project_workflow_plan_read_schemas(defs: dict, actions: list[dict]) -> None:
             return result
         return node
 
-    defs["workflow_step_plan"] = rewrite(plan)
-    defs["workflow_read"]["properties"]["prelude"]["properties"]["intake"]["properties"]["outcome"].setdefault("type", "string")
     for name, schema in nested.items():
         defs[names[name]] = rewrite(schema)
-    action_by_id = {action["id"]: action for action in actions}
-    for name, action_id in (("workflow_plan_read_document", "record_plan"),
-                            ("workflow_removal_read_document", "record_removal_scope")):
-        action = action_by_id.get(action_id)
-        if action is None:
-            fail(f"workflow plan read schema has no {action_id} action")
-        document = workflow_payload_object_schema(single_variant(action)["payload"], defs)
-        defs[name] = {
-            "type": "object", "additionalProperties": False,
-            "required": ["work_version", "document", "recorded_at", "actor", "event_ref"],
-            "properties": {
-                "work_version": {"type": "integer"}, "document": document,
-                "recorded_at": {"type": "string"}, "actor": {"type": "string"},
-                "event_ref": {"type": "string"},
-            },
-        }
 
 
 def project_continuity_action_bound(defs: dict, catalog_count: int) -> None:
@@ -996,7 +977,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], teaching
                        for payload in contract_updates]
     defs["workflow_contract_update"] = closed_field_union(update_branches, defs, "workflow_contract_update")
     defs["work_define_revise_input"]["properties"]["contract"] = {"$ref": "#/$defs/workflow_contract_update"}
-    project_workflow_plan_read_schemas(defs, actions)
+    project_workflow_plan_read_schemas(defs)
     install_retained_output_twins(defs)
     contracts = {"approve_contract"}
     guidance_names = [f"work_transition_action_variant_{action}" for action in sorted(contracts)]
@@ -1145,7 +1126,7 @@ def validate(manifest: dict) -> str:
     # The operation surface is closed: the manifest must enumerate the full
     # published set exactly, and the count changes only with an accepted
     # surface change.
-    expected_operations = 24
+    expected_operations = 21
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}

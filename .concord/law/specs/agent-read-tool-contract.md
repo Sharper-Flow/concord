@@ -28,7 +28,7 @@
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** TS3; binding input to CD-0005 §3 and TS5–TS9.
-> **Binding inputs:** accepted PM1 Q1–Q8 and query corpus, TS1 jobs/scenarios,
+> **Binding inputs:** accepted PM1 queries and query corpus, TS1 jobs/scenarios,
 > and TS2 budget/granularity rules.
 > **Does not decide:** mutation tools (TS4), ambient context or authorization
 > envelope (TS5), transport (TS6), shared success/error envelope (TS7), schema
@@ -44,7 +44,7 @@
 ## Context
 
 TS1's jobs need a bounded read surface. The binding inputs are the accepted
-PM1 Q1 through Q8 and query corpus, TS1 jobs and scenarios, and TS2 budget
+PM1 queries and query corpus, TS1 jobs and scenarios, and TS2 budget
 and granularity rules. This record fixes the three always-visible read tools
 and their closed discriminated operation unions. CD-0222 retires component
 identity and CD-0042 replaces component filters with Domain on the
@@ -73,7 +73,7 @@ expanded through arbitrary filter maps. TS7 wraps each operation-specific payloa
 in the shared authority/freshness/result/error envelope.
 
 This maps PM1's Product orientation, actionable-work, and provenance queries
-into three caller-recognizable domains. Q1–Q8 remain
+into three caller-recognizable domains. The PM1 query IDs remain
 contract identifiers and test cases, not tool identities.
 
 ## 2. Tool contracts
@@ -100,15 +100,11 @@ rather than historical explanation.
 | Operation | PM1 | Required/optional inputs | Typed payload |
 |---|---|---|---|
 | `list` | Q3 | Product scope; closed lifecycle/Project/kind/tag/priority/terminal-window filters; optional stable work IDs; `detail`; cursor/limit | `work_page`: ordered unique summaries or bounded full records |
-| `ready` | Q5 | Product scope; optional Project/kind; cursor/limit | `work_page` with readiness evidence |
-| `blocked` | Q4 | Product scope; optional Project/work/kind; relation depth 1–3; cursor/limit | `blocked_work_page`: work summaries plus unresolved blocker nodes/edges and recovery condition |
-| `scope` | Q6 | resolved Product plus exactly one work or Project reference; cursor/limit when Project-scoped | `work_scope`: one canonical work with memberships, or a unique bounded page of applicable work |
 
 `list` with one stable work ID and `detail=full` replaces a separate `show` tool.
-`ready` remains distinct from `list` inside the union because readiness is derived
-from lifecycle plus unresolved canonical blockers and carries readiness evidence;
-it is not a caller-authored boolean filter. `blocked` similarly owns bounded graph
-derivation rather than exposing a stored status flag.
+List readiness is derived from lifecycle and live canonical blockers, not a
+caller-authored filter. A needed item whose `ready` is absent or false is
+blocked. The `relations` read supplies the bounded blocker graph.
 
 ### 2.3 `concord_work_trace`
 
@@ -132,8 +128,8 @@ discriminated payloads; callers never infer a recorded mutation from an edge or 
   ambiguity or intentional cross-Product reads under TS5.
 - `detail` is a closed `summary | full` enum. `full` means the complete bounded
   domain record—not raw process exhaust, screenshot bytes, or whole git documents.
-- List and Project-scoped `scope` defaults/caps follow PM1: default 20, maximum
-  100, opaque cursor, stable ID as final ordering tie-breaker.
+- List defaults/caps follow PM1: default 20, maximum 100, opaque cursor,
+  stable ID as final ordering tie-breaker.
 - Every paginated read accepts one pagination input rule. `page` is optional, and
   a first call may omit it. `page.cursor` is optional, and absent and `null` both
   mean first page. `limit` is accepted at the top level of every input that
@@ -167,8 +163,8 @@ tools, but cannot collapse required mutation boundaries merely to fit.
 | Tool | PM1 scenarios | TS1 scenarios |
 |---|---|---|
 | `concord_product_view` | Q1–Q2 | AJ1 ambient/ambiguous orientation |
-| `concord_work_browse` | Q3–Q6 | AJ1 cross-Project/ready; AJ2 blocker explanation |
-| `concord_work_trace` | Q7–Q8 | AJ4 evidence/history; AJ5 relation outcomes |
+| `concord_work_browse` | Q3 | AJ1 cross-Project/ready |
+| `concord_work_trace` | Q7–Q8 | AJ2 blocker explanation; AJ4 evidence/history; AJ5 relation outcomes |
 
 TS3 passes only if one strict schema per tool expresses every operation above,
 every mapped PM1/TS1 scenario reaches the correct payload without arbitrary

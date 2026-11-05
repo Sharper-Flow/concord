@@ -40,22 +40,19 @@ func TestPublicBugCaptureAndKindRevision(t *testing.T) {
 			t.Fatalf("stored kind=%s, want %s: %v", stored, kind, err)
 		}
 	}
-	for _, operation := range []string{"list", "scope"} {
-		input := map[string]any{"product_id": "product-1"}
-		if operation == "list" {
-			input["detail"] = "full"
-		} else {
-			input["work_id"] = firstID
-		}
-		response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_browse", Operation: operation, Input: retryJSON(input)}, env)
+	for _, input := range []map[string]any{
+		{"product_id": "product-1", "detail": "full"},
+		{"product_id": "product-1", "detail": "full", "work_ids": []string{firstID}},
+	} {
+		response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_browse", Operation: "list", Input: retryJSON(input)}, env)
 		if err != nil || response.Outcome != agentcontract.OutcomeOK {
-			t.Fatalf("%s: %+v %v", operation, response.Error, err)
+			t.Fatalf("list: %+v %v", response.Error, err)
 		}
 		if strings.Contains(string(response.Result), "defect_intake") {
-			t.Fatalf("%s exposes retired classification: %s", operation, response.Result)
+			t.Fatalf("list exposes retired classification: %s", response.Result)
 		}
 		if !json.Valid(response.Result) {
-			t.Fatalf("invalid %s JSON", operation)
+			t.Fatal("invalid list JSON")
 		}
 	}
 }

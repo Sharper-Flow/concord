@@ -97,7 +97,6 @@ func init() {
 	stepActionCount := workPinIntentItemsBound()
 	commitOIDBound := goInlineBound("internal/store/work_context.go", "workContextCommitOID", "len(oid)", boundBytes)
 	drivingSessionCount := goInlineBound("internal/store/workpin.go", "scanWorkPinDrivingSessions", "len(sessions)", boundItems)
-	readPageLimit := goInlineBound("internal/store/workflow_read.go", "readWorkflowProjectionTx", "request.Limit", boundItems)
 
 	// Final full-string writer guards. The SQLite length(TEXT) CHECKs are
 	// NUL-prefix constraints and never bounded the complete stored text, so
@@ -133,7 +132,6 @@ func init() {
 
 	// The delivery assertion artifact writer uses record_delivery's admitted
 	// delivery_artifact input.
-	deliveryArtifactInputs := inputBound("/$defs/work_transition_action_variant_record_delivery/properties/fields/properties/delivery_artifact/maxLength")
 
 	// The committed law read admits each law title at maxManifestTitle code points.
 	manifestRecordTitle := goConstantBound("internal/store/knowledge_record.go", "maxManifestTitle", boundCharacters)
@@ -273,33 +271,6 @@ func init() {
 	registerOutputBound("/$defs/workflow_contract/properties/route_conventions/maxItems", contractRouteConventions)
 	registerOutputBound("/$defs/workflow_contract/properties/spec_mandate/maxItems", contractSpecMandate)
 
-	// Delivery assertion: the asserted artifact rides the action input's
-	// published delivery_artifact node.
-	registerOutputBound("/$defs/workflow_delivery_assertion/properties/artifact/maxLength", deliveryArtifactInputs)
-
-	// Plan documents are revalidated against their action input on read.
-	for _, document := range []struct {
-		output, action string
-		members        map[string][]string
-	}{
-		{"workflow_plan_read_document", "record_plan", map[string][]string{
-			"outcomes": {"maxLength", "x-maxBytes"}, "approach": {"maxLength", "x-maxBytes"},
-			"decisions": {"maxItems"}, "touches": {"maxItems"}, "merge_split": {"maxLength", "x-maxBytes"},
-			"risks": {"maxLength", "x-maxBytes"}, "reason": {"maxLength", "x-maxBytes"},
-		}},
-		{"workflow_removal_read_document", "record_removal_scope", map[string][]string{
-			"removed": {"maxItems"}, "retiring_clauses": {"maxItems"}, "note": {"maxLength", "x-maxBytes"},
-		}},
-	} {
-		for member, keywords := range document.members {
-			for _, keyword := range keywords {
-				registerOutputBound("/$defs/"+document.output+"/properties/document/properties/"+member+"/"+keyword,
-					inputBound("/$defs/work_transition_action_variant_"+document.action+"/properties/fields/properties/"+member+"/"+keyword))
-			}
-		}
-	}
-	registerOutputBound("/$defs/workflow_step_plan/properties/steps/maxItems",
-		goInlineBound("internal/store/workflow_step_plan.go", "validateStepPlanShape", "len(plan.Steps)", boundItems))
 	registerOutputBound("/$defs/workflow_plan_attempt/properties/note/maxLength",
 		goInlineBound("internal/store/workflow_step_plan.go", "validateStepPlanAttemptsShape", "len(attempt.Note)", boundBytes))
 
@@ -373,18 +344,6 @@ func init() {
 		proposalListItemBound("UserOutcomes"))
 	registerOutputBound("/$defs/workflow_proposal_record/properties/user_outcomes/maxItems", proposalUserOutcomesCount)
 
-	// Workflow read arrays derive from their folded list or read-limit guard.
-	registerOutputBound("/$defs/workflow_backlog_alignment/properties/searched/maxLength", maxBound(
-		pkGuardArgBound("internal/store/workflow.go", "foldWorkflowBacklogAlignmentRecorded", "workflowString", "p.Searched", 1, boundBytes),
-		pkGuardArgBound("internal/store/workflow.go", "foldWorkflowDiagnosisRecorded", "workflowString", "p.Searched", 1, boundBytes),
-	))
-	registerOutputBound("/$defs/workflow_backlog_alignment/properties/related_ids/maxItems", maxBound(
-		pkGuardArgBound("internal/store/workflow.go", "foldWorkflowBacklogAlignmentRecorded", "workflowList", "p.RelatedIDs", 1, boundItems),
-		pkGuardArgBound("internal/store/workflow.go", "foldWorkflowDiagnosisRecorded", "workflowList", "p.RelatedIDs", 1, boundItems),
-	))
-	registerOutputBound("/$defs/workflow_read/properties/candidate_ids/maxItems", readPageLimit)
-	registerOutputBound("/$defs/workflow_read/properties/completion_warnings/maxItems",
-		pkGuardArgBound("internal/store/workflow.go", "foldWorkflowCompleted", "workflowList", "p.Warnings", 1, boundItems))
 }
 
 // proposalListItemBound follows the grouped lists through the fold validator's

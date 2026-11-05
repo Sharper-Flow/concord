@@ -337,7 +337,6 @@
       "properties": {
         "items": {},
         "next_cursor": {},
-        "readiness_evidence": {},
         "encoding": {},
         "digest": {},
         "total_bytes": {},
@@ -1330,9 +1329,6 @@
         "ready": {
           "type": "boolean"
         },
-        "narrative": {
-          "type": "string"
-        },
         "terminal_at": {
           "type": [
             "string",
@@ -1343,9 +1339,6 @@
         "created_at": {
           "type": "string",
           "description": "Native work capture timestamp, preserved verbatim across later reads and work updates."
-        },
-        "work_pin": {
-          "$ref": "#/$defs/work_pin"
         },
         "pending_project_handoff": {
           "$ref": "#/$defs/continuity_pending_project_handoff"
@@ -1544,229 +1537,6 @@
         }
       }
     },
-    "workflow_delivery_assertion": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "event_id",
-        "seq",
-        "artifact",
-        "state",
-        "actor_ref",
-        "asserted_at"
-      ],
-      "properties": {
-        "event_id": {
-          "$ref": "#/$defs/id"
-        },
-        "seq": {
-          "$ref": "#/$defs/version"
-        },
-        "artifact": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 2048
-        },
-        "state": {
-          "type": "string",
-          "enum": [
-            "asserted"
-          ]
-        },
-        "actor_ref": {
-          "$ref": "#/$defs/id"
-        },
-        "asserted_at": {
-          "type": "string",
-          "format": "date-time"
-        }
-      }
-    },
-    "workflow_backlog_alignment": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "searched",
-        "outcome",
-        "related_ids",
-        "all_matches_removed"
-      ],
-      "properties": {
-        "searched": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 4096
-        },
-        "outcome": {
-          "type": "string",
-          "enum": [
-            "related_found",
-            "none_found"
-          ]
-        },
-        "related_ids": {
-          "type": "array",
-          "maxItems": 64,
-          "items": {
-            "$ref": "#/$defs/id"
-          }
-        },
-        "all_matches_removed": {
-          "type": "boolean"
-        }
-      }
-    },
-    "workflow_read": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "state",
-        "current_step",
-        "plan",
-        "completion_warnings"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/retained_work_id"
-        },
-        "state": {
-          "$ref": "#/$defs/short"
-        },
-        "current_step": {
-          "type": "string"
-        },
-        "plan": {
-          "oneOf": [
-            {
-              "type": "null"
-            },
-            {
-              "$ref": "#/$defs/workflow_step_plan"
-            }
-          ]
-        },
-        "prelude": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "intake"
-          ],
-          "properties": {
-            "intake": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "outcome",
-                "open_questions_found"
-              ],
-              "properties": {
-                "outcome": {
-                  "enum": [
-                    "proceed",
-                    "clarify",
-                    "already_handled",
-                    "decline",
-                    "split_or_merge"
-                  ],
-                  "type": "string"
-                },
-                "open_questions_found": {
-                  "type": "boolean"
-                },
-                "checks_found": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "note": {
-                  "type": "string"
-                }
-              }
-            },
-            "clarify": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "resolved_questions",
-                "note"
-              ],
-              "properties": {
-                "resolved_questions": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
-                "note": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        },
-        "plan_record": {
-          "$ref": "#/$defs/workflow_plan_read_document"
-        },
-        "removal_scope": {
-          "$ref": "#/$defs/workflow_removal_read_document"
-        },
-        "contract": {
-          "$ref": "#/$defs/workflow_contract"
-        },
-        "candidate_ids": {
-          "type": "array",
-          "maxItems": 100,
-          "items": {
-            "$ref": "#/$defs/id"
-          }
-        },
-        "completion_warnings": {
-          "type": "array",
-          "maxItems": 16,
-          "items": {
-            "$ref": "#/$defs/short"
-          }
-        },
-        "parked_delivery": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "work_id",
-            "step_id",
-            "resume_action",
-            "parked_seconds",
-            "unreconciled"
-          ],
-          "properties": {
-            "work_id": {
-              "$ref": "#/$defs/id"
-            },
-            "step_id": {
-              "$ref": "#/$defs/id"
-            },
-            "resume_action": {
-              "$ref": "#/$defs/id"
-            },
-            "parked_seconds": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "unreconciled": {
-              "type": "boolean"
-            }
-          }
-        },
-        "delivery_assertion": {
-          "$ref": "#/$defs/workflow_delivery_assertion"
-        },
-        "backlog_alignment": {
-          "$ref": "#/$defs/workflow_backlog_alignment",
-          "description": "The recorded backlog search. Absent when no search was recorded; none_found carries an empty related_ids list."
-        }
-      }
-    },
     "work_page": {
       "type": "object",
       "additionalProperties": false,
@@ -1783,13 +1553,6 @@
         },
         "next_cursor": {
           "$ref": "#/$defs/cursor_output"
-        },
-        "readiness_evidence": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/evidence"
-          }
         }
       }
     },
@@ -1973,133 +1736,6 @@
         }
       }
     },
-    "work_browse_ready_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "product_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "project_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "kind": {
-          "$ref": "#/$defs/work_kind"
-        },
-        "page": {
-          "$ref": "#/$defs/page"
-        },
-        "limit": {
-          "$ref": "#/$defs/limit",
-          "description": "Bounds: 1..100 value inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        }
-      }
-    },
-    "work_browse_blocked_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "product_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "project_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "kind": {
-          "$ref": "#/$defs/work_kind"
-        },
-        "depth": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 3,
-          "description": "Bounds: 1..3 value inclusive"
-        },
-        "page": {
-          "$ref": "#/$defs/page"
-        },
-        "limit": {
-          "$ref": "#/$defs/limit",
-          "description": "Bounds: 1..100 value inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        }
-      }
-    },
-    "work_browse_scope_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "product_id"
-      ],
-      "properties": {
-        "product_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "project_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "page": {
-          "$ref": "#/$defs/page"
-        },
-        "limit": {
-          "$ref": "#/$defs/limit",
-          "description": "Bounds: 1..100 value inclusive"
-        },
-        "one_of": {
-          "type": "string",
-          "enum": [
-            "project",
-            "work"
-          ]
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        }
-      },
-      "oneOf": [
-        {
-          "required": [
-            "work_id"
-          ],
-          "not": {
-            "required": [
-              "project_id"
-            ]
-          }
-        },
-        {
-          "required": [
-            "project_id"
-          ],
-          "not": {
-            "required": [
-              "work_id"
-            ]
-          }
-        }
-      ]
-    },
     "work_trace_history_input": {
       "type": "object",
       "additionalProperties": false,
@@ -2139,12 +1775,6 @@
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
-        },
-        "contract_version": {
-          "description": "Selects the recorded contract version the workflow summary describes instead of the active one. Bounds: 1..2147483647 value inclusive",
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647
         }
       }
     },
@@ -3451,121 +3081,6 @@
         }
       }
     },
-    "blocked_work_page": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "items",
-        "nodes",
-        "edges"
-      ],
-      "properties": {
-        "items": {
-          "type": "array",
-          "maxItems": 100,
-          "items": {
-            "$ref": "#/$defs/work_summary"
-          }
-        },
-        "nodes": {
-          "type": "array",
-          "maxItems": 100,
-          "items": {
-            "$ref": "#/$defs/work_summary"
-          }
-        },
-        "edges": {
-          "type": "array",
-          "maxItems": 200,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "from",
-              "to",
-              "kind"
-            ],
-            "properties": {
-              "from": {
-                "$ref": "#/$defs/id"
-              },
-              "to": {
-                "$ref": "#/$defs/id"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "blocks",
-                  "parent"
-                ]
-              }
-            }
-          }
-        },
-        "next_cursor": {
-          "$ref": "#/$defs/cursor_output"
-        }
-      }
-    },
-    "work_scope": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "items"
-      ],
-      "properties": {
-        "work": {
-          "$ref": "#/$defs/work_summary"
-        },
-        "memberships": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "project_id",
-              "role"
-            ],
-            "properties": {
-              "project_id": {
-                "$ref": "#/$defs/id"
-              },
-              "role": {
-                "type": "string",
-                "enum": [
-                  "primary",
-                  "secondary"
-                ]
-              }
-            }
-          }
-        },
-        "items": {
-          "type": "array",
-          "maxItems": 100,
-          "items": {
-            "$ref": "#/$defs/work_summary"
-          }
-        },
-        "next_cursor": {
-          "$ref": "#/$defs/cursor_output"
-        }
-      },
-      "anyOf": [
-        {
-          "required": [
-            "work",
-            "memberships"
-          ]
-        },
-        {
-          "required": [
-            "items"
-          ]
-        }
-      ]
-    },
     "work_event_page": {
       "type": "object",
       "additionalProperties": false,
@@ -4027,9 +3542,6 @@
         },
         "next_cursor": {
           "$ref": "#/$defs/cursor_output"
-        },
-        "workflow": {
-          "$ref": "#/$defs/workflow_read"
         }
       }
     },
@@ -8380,39 +7892,6 @@
         }
       }
     },
-    "workflow_step_plan": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "title": "workflow step plan v1",
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "schema_version",
-        "type",
-        "steps"
-      ],
-      "properties": {
-        "schema_version": {
-          "const": "1.0"
-        },
-        "type": {
-          "enum": [
-            "change",
-            "fix",
-            "research",
-            "removal"
-          ],
-          "type": "string"
-        },
-        "steps": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 64,
-          "items": {
-            "$ref": "#/$defs/workflow_plan_step"
-          }
-        }
-      }
-    },
     "workflow_plan_step": {
       "type": "object",
       "additionalProperties": false,
@@ -8501,171 +7980,6 @@
           "type": "string"
         },
         "link": {
-          "type": "string"
-        }
-      }
-    },
-    "workflow_plan_read_document": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_version",
-        "document",
-        "recorded_at",
-        "actor",
-        "event_ref"
-      ],
-      "properties": {
-        "work_version": {
-          "type": "integer"
-        },
-        "document": {
-          "type": "object",
-          "additionalProperties": false,
-          "maxProperties": 32,
-          "properties": {
-            "outcomes": {
-              "type": "string",
-              "maxLength": 4096,
-              "x-maxBytes": 4096,
-              "minLength": 1,
-              "x-minBytes": 2,
-              "pattern": "\\S",
-              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string."
-            },
-            "approach": {
-              "type": "string",
-              "maxLength": 4096,
-              "x-maxBytes": 4096,
-              "minLength": 1,
-              "x-minBytes": 2,
-              "pattern": "\\S",
-              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string."
-            },
-            "decisions": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/workflow_design_decision"
-              },
-              "minItems": 1,
-              "maxItems": 16
-            },
-            "touches": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/reference"
-              },
-              "minItems": 1,
-              "maxItems": 64
-            },
-            "merge_split": {
-              "type": "string",
-              "maxLength": 4096,
-              "x-maxBytes": 4096,
-              "minLength": 1,
-              "x-minBytes": 2,
-              "pattern": "\\S",
-              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string."
-            },
-            "risks": {
-              "type": "string",
-              "maxLength": 4096,
-              "x-maxBytes": 4096,
-              "minLength": 1,
-              "x-minBytes": 2,
-              "pattern": "\\S",
-              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string."
-            },
-            "reason": {
-              "type": "string",
-              "maxLength": 2048,
-              "x-maxBytes": 2048,
-              "minLength": 1,
-              "x-minBytes": 2,
-              "pattern": "\\S",
-              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string."
-            }
-          },
-          "required": [
-            "outcomes",
-            "approach",
-            "decisions",
-            "touches",
-            "merge_split",
-            "risks"
-          ]
-        },
-        "recorded_at": {
-          "type": "string"
-        },
-        "actor": {
-          "type": "string"
-        },
-        "event_ref": {
-          "type": "string"
-        }
-      }
-    },
-    "workflow_removal_read_document": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_version",
-        "document",
-        "recorded_at",
-        "actor",
-        "event_ref"
-      ],
-      "properties": {
-        "work_version": {
-          "type": "integer"
-        },
-        "document": {
-          "type": "object",
-          "additionalProperties": false,
-          "maxProperties": 32,
-          "properties": {
-            "removed": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/reference"
-              },
-              "minItems": 1,
-              "maxItems": 64
-            },
-            "retiring_clauses": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/law_id"
-              },
-              "minItems": 0,
-              "maxItems": 32
-            },
-            "note": {
-              "type": "string",
-              "maxLength": 4096,
-              "x-maxBytes": 4096,
-              "minLength": 1,
-              "x-minBytes": 2,
-              "pattern": "\\S",
-              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string."
-            }
-          },
-          "required": [
-            "removed",
-            "retiring_clauses"
-          ]
-        },
-        "recorded_at": {
-          "type": "string"
-        },
-        "actor": {
-          "type": "string"
-        },
-        "event_ref": {
           "type": "string"
         }
       }

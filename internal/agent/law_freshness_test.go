@@ -126,7 +126,7 @@ func TestLawFreshnessDisclosureThroughInvoke(t *testing.T) {
 			for _, operation := range []string{"continuity", "history"} {
 				requireLawFreshnessNotice(t, invoke("concord_work_trace", operation, map[string]any{"work_id": workID}))
 			}
-			requireLawFreshnessNotice(t, invoke("concord_work_browse", "scope", map[string]any{"product_id": "product-1", "work_id": workID}))
+			requireLawFreshnessNotice(t, invoke("concord_work_browse", "list", map[string]any{"product_id": "product-1", "work_ids": []string{workID}, "detail": "full"}))
 			requireLawFreshnessNotice(t, invoke("concord_work_browse", "list", map[string]any{"product_id": "product-1"}))
 			requireLawFreshnessNotice(t, invoke("concord_product_view", "snapshot", map[string]any{"product_id": "product-1"}))
 			for _, response := range []agentcontract.Envelope{

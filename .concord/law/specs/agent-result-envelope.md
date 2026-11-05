@@ -323,7 +323,7 @@ coverage uses only the existing `partial`, `omissions`, pagination, and
 
 ### 8.2 Lossless oversized-result transport
 
-Mutation results and full work reads carry complete WorkPins inline whenever the final serialized envelope fits the unchanged 51,200-byte limit. When it does not fit, the producer may return a closed projection reference instead of the oversized content. The reference identifies the affected work items and versions, the source operation, the exact document digest and byte length, and the declared read route that returns that document as lossless authenticated pages.
+Mutation results carry complete WorkPins inline whenever the final serialized envelope fits the unchanged 51,200-byte limit. When it does not fit, the producer may return a closed projection reference instead of the oversized content. The reference identifies the affected work items and versions, the source operation, the exact document digest and byte length, and the declared read route that returns that document as lossless authenticated pages.
 
 For a mutation, the complete document is computed inside the mutation transaction and retained atomically with the write. Replay and projection reads refer to that same immutable post-state document, not a later WorkPin. Changed references and truthful effect metadata remain in the mutation envelope. An unavailable or unretainable document refuses the mutation before effect.
 

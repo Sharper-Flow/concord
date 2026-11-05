@@ -148,11 +148,13 @@ func TestWorkflowCurrentDeliveryWithoutLog(t *testing.T) {
 	defer s.Close()
 	target, targetSeq, _ := deliveryAssertionEvent(t, s, work, 0)
 	checks := map[string]func() (any, error){"current": func() (any, error) {
-		current, err := workflowDeliveryAssertionRead(t.Context(), s.db, work)
-		if err != nil || current == nil || current.EventID != target || current.Seq != targetSeq || current.Artifact != deliveryCorrectionWrongPath+"/1" {
-			t.Errorf("current delivery=%+v err=%v", current, err)
+		var eventID, artifact string
+		var seq int64
+		err := s.db.QueryRowContext(t.Context(), `SELECT assertion_id,assertion_seq,json_extract(payload,'$.delivery_artifact') FROM workflow_delivery_state WHERE work_id=?`, work).Scan(&eventID, &seq, &artifact)
+		if err != nil || eventID != target || seq != targetSeq || artifact != deliveryCorrectionWrongPath+"/1" {
+			t.Errorf("current delivery=%q/%d/%q err=%v", eventID, seq, artifact, err)
 		}
-		return current, err
+		return []any{eventID, seq, artifact}, err
 	}}
 	assertWorkerFactsLogBlind(t, s, checks)
 }

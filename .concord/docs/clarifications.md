@@ -234,14 +234,14 @@ re-litigate them silently.
   excluded the raw blocker graph, and no accepted document specified what that
   detail renders.
 - **Lean:** two modes over already-accepted canonical queries — a structural relation
-  tree from Q8, and a ranked work table from Q5 joined with Q4 for blocked and blocker
+  tree from Q8, and a ranked work table from Q3 with Q8 for blocker
   columns. Ranking uses the stored explicit priority rank; blocked stays PM4-derived
   and two-valued; grouping comes from declared edges only; incomplete coverage renders
   `unavailable` rather than a shortened table. Single-Product only, since cross-Product
   prioritization remains deferred pending PM2 authority and portability.
 - **Decision (2026-08-11):** [`../law/specs/product-coordination-view.md`](../law/specs/product-coordination-view.md).
-  Accept two bounded Product-scoped modes: a structural Q8 relation tree and a Q5
-  ranked work table joined with Q4 blockage explanation. Adds no field to a Product glance row;
+  Accept two bounded Product-scoped modes: a structural Q8 relation tree and a Q3
+  ranked work table with Q8 blockage explanation. Adds no field to a Product glance row;
   terminal interaction and prototype detail remain implementation design per
   `rollout-plan.md` and CD-0006 D6.
 - **Unblocks:** the first Product coordination drill-down consumer. Storage and

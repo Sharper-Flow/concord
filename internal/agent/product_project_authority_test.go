@@ -100,7 +100,7 @@ func TestSharedProjectStaysAmbiguousUntilProductSelected(t *testing.T) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	env.SelectedProductID = ""
-	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_browse", Operation: "scope", Input: json.RawMessage(`{"product_id":"product-1","work_id":"work-1"}`)}, env)
+	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_browse", Operation: "list", Input: json.RawMessage(`{"product_id":"product-1","work_ids":["work-1"],"detail":"full"}`)}, env)
 	if err != nil || response.Error == nil || response.Error.Kind != "ambiguous_scope" {
 		t.Fatalf("unselected shared Project = %+v, err = %v", response, err)
 	}

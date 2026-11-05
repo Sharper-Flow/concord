@@ -45,16 +45,15 @@ type HistoryPosition struct {
 var q7RecordKinds = []string{"evidence_binding", "lifecycle", "phase_exit", "relation"}
 
 type currentQ7Cursor struct {
-	Version         int      `json:"version"`
-	QueryID         string   `json:"query_id"`
-	Work            string   `json:"work"`
-	Direction       string   `json:"direction"`
-	ContractVersion int64    `json:"contract_version"`
-	RecordKinds     []string `json:"record_kinds"`
-	Revision        int64    `json:"revision"`
-	EffectSeq       int64    `json:"effect_seq"`
-	EntryKind       string   `json:"entry_kind"`
-	EntryID         string   `json:"entry_id"`
+	Version     int      `json:"version"`
+	QueryID     string   `json:"query_id"`
+	Work        string   `json:"work"`
+	Direction   string   `json:"direction"`
+	RecordKinds []string `json:"record_kinds"`
+	Revision    int64    `json:"revision"`
+	EffectSeq   int64    `json:"effect_seq"`
+	EntryKind   string   `json:"entry_kind"`
+	EntryID     string   `json:"entry_id"`
 }
 
 func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
@@ -85,18 +84,18 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 		return out, err
 	}
 	defer tx.Rollback()
-	if _, err := readOneWork(ctx, tx, req.Work); err != nil {
+	if err := requireWork(ctx, tx, req.Work); err != nil {
 		return out, err
 	}
 	revision, err := storeRevision(ctx, tx)
 	if err != nil {
 		return out, err
 	}
-	cursor := currentQ7Cursor{Version: 2, QueryID: "PM1.Q7", Work: req.Work, Direction: direction, ContractVersion: req.ContractVersion, RecordKinds: kinds, Revision: revision}
+	cursor := currentQ7Cursor{Version: 3, QueryID: "PM1.Q7", Work: req.Work, Direction: direction, RecordKinds: kinds, Revision: revision}
 	var after currentQ7Cursor
 	if req.Cursor != "" {
 		b, decodeErr := base64.RawURLEncoding.DecodeString(req.Cursor)
-		if decodeErr != nil || json.Unmarshal(b, &after) != nil || after.Version != 2 || after.QueryID != cursor.QueryID || after.Work != req.Work || after.Direction != direction || after.ContractVersion != req.ContractVersion || !slices.Equal(after.RecordKinds, kinds) || after.Revision != revision || after.EffectSeq < 0 || !slices.Contains(q7RecordKinds, after.EntryKind) || after.EntryID == "" {
+		if decodeErr != nil || json.Unmarshal(b, &after) != nil || after.Version != 3 || after.QueryID != cursor.QueryID || after.Work != req.Work || after.Direction != direction || !slices.Equal(after.RecordKinds, kinds) || after.Revision != revision || after.EffectSeq < 0 || !slices.Contains(q7RecordKinds, after.EntryKind) || after.EntryID == "" {
 			return out, newFailure(KindInvalidCursor, "PM1.Q7", "cursor does not match the current record listing", false, "restart the query with the same selectors")
 		}
 	}
@@ -150,17 +149,6 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 		out.NextCursor = &next
 	}
 	out.Result = &Q7ResultPayload{Entries: out.Entries}
-	workflow, err := readWorkflowProjectionTx(ctx, tx, WorkflowReadRequest{WorkID: req.Work, ContractVersion: req.ContractVersion})
-	if err != nil {
-		return out, err
-	}
-	if workflow.WorkID == "" && req.ContractVersion != 0 {
-		return out, newFailure(KindUnknownScope, "PM1.Q7", "the work item has no workflow contract", false, "omit contract_version for work outside a workflow")
-	}
-	if workflow.WorkID != "" {
-		out.Workflow = &workflow
-		out.Result.Workflow = &workflow
-	}
 	next := out.NextCursor
 	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q7", ResolvedScope{WorkID: req.Work}, []string{"effect_seq", "entry_kind", "entry_id"})
 	out.NextCursor = next

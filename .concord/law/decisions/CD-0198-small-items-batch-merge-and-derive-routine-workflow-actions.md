@@ -41,9 +41,7 @@ includes `searched`, `outcome` and `related_ids`. It writes the same
 alignment declaration and creates no relation. An outcome of found-nothing
 is distinct from not searched. The record holds the diagnose step; the
 step completes only through `complete_step` with the typed diagnosis
-recorded, and the plan's alignment read replaces the retired
-implementation alignment step. Analysis cannot complete without the search
-beside it.
+recorded. Analysis cannot complete without the search beside it.
 
 ### D3. The fenced implement start derives the step-start fact
 

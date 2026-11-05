@@ -328,7 +328,7 @@ Each instance carries its own step plan ([section 2](#2-workflow-type-templates-
 | `workflow_instances` | `work_id TEXT`, `workflow_type TEXT NULL`, `step_plan TEXT NULL`, `instance_state TEXT`, `execution_actor_ref TEXT NULL`, `started_at TEXT NULL`, `completed_at TEXT NULL`, `last_checkpoint_at TEXT NULL` | PK `work_id`; FK work; FK actor nullable; checks type enum or null, plan JSON object or null, state enum |
 | `workflow_contracts` | `work_id TEXT`, `contract_version INTEGER`, `premise TEXT`, `legislative_subjects TEXT`, `consequence_class TEXT`, `route_conventions TEXT`, `approved_at TEXT`, `approved_by TEXT`, `superseded_by INTEGER NULL`, `spec_mandate TEXT` | PK `(work_id,contract_version)`; FK work and approved actor; self-FK superseded contract |
 | `workflow_candidate_sets` | `work_id TEXT`, `contract_version INTEGER`, `candidate_kind TEXT`, `candidate_ref TEXT`, `candidate_role TEXT`, `candidate_scope TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,contract_version,candidate_kind,candidate_ref)`; composite FK contract; FK actor; checks closed candidate kind/role |
-| `workflow_backlog_alignment` | `work_id TEXT`, `related_work_id TEXT NULL`, `searched TEXT`, `outcome TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,related_work_id)`; FK work for both ids; checks closed outcome, a `none_found` work records no match rows, and no self-match; the declaration row carries a null `related_work_id`. Work removal clears rows naming the removed item in either column, because both foreign keys are `RESTRICT`. Its read derives `all_matches_removed` under [§11.1](#111-retained-alignment-reads), preserving the original search outcome and surviving evidence. It does not reuse `workflow_candidate_sets`, whose composite FK binds to `workflow_contracts(work_id,contract_version)` and which therefore cannot hold a row before planning approves a contract |
+| `workflow_backlog_alignment` | `work_id TEXT`, `related_work_id TEXT NULL`, `searched TEXT`, `outcome TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,related_work_id)`; FK work for both ids; checks closed outcome, a `none_found` work records no match rows, and no self-match; the declaration row carries a null `related_work_id`. Work removal clears rows naming the removed item in either column, because both foreign keys are `RESTRICT`. It preserves the original search outcome and surviving evidence under [§11.1](#111-retained-alignment-records). It does not reuse `workflow_candidate_sets`, whose composite FK binds to `workflow_contracts(work_id,contract_version)` and which therefore cannot hold a row before planning approves a contract |
 | `workflow_actors` | `actor_ref TEXT`, `principal_ref TEXT`, `client_ref TEXT`, `agent_ref TEXT`, `session_ref TEXT`, `actor_class TEXT`, `first_seen_at TEXT` | PK `actor_ref`; UNIQUE tuple `(principal_ref,client_ref,agent_ref,session_ref)`; checks nonempty tuple and `actor_class IN ('agent','operator')` |
 | `workflow_checkpoints` | `work_id TEXT`, `checkpoint_id TEXT`, `step_id TEXT`, `step_kind TEXT`, `attempt_epoch INTEGER`, `accepted_inputs_digest TEXT`, `result_evidence_refs TEXT`, `resume_cursor TEXT`, `idempotency_identity TEXT`, `actor_ref TEXT`, `request_id TEXT`, `recorded_at TEXT` | PK `(work_id,checkpoint_id)`; UNIQUE `(work_id,step_id,attempt_epoch)` and `(work_id,idempotency_identity)`; FK work/actor; closed step-kind check |
 | `workflow_impact_edges` | `work_id TEXT`, `edge_id TEXT`, `edge_kind TEXT`, `edge_class TEXT`, `target_work_id TEXT`, `target_kind TEXT`, `severity TEXT`, `recorded_at TEXT` | PK `(work_id,edge_id)`; FK source/target work; closed edge/class/severity checks; hard `depends_on` and `forward_link` cycle check in transaction |
@@ -470,23 +470,19 @@ in-transaction recursive cycle check.
 
 ## 11. `workflow_action` dispatch
 
-### 11.1 Retained alignment reads
+### 11.1 Retained alignment records
 
 Ordinary work removal drops the removed item's match rows from surviving
 alignments ([CD-0142 D4](../decisions/CD-0142-operator-directed-execution-removal.md#d4-absence-survives-reads-recovery-and-renewal)).
 It preserves each surviving declaration's search, original outcome, author and
 time, other matches, and applicable effect and idempotency evidence.
-The read reports `all_matches_removed` as true exactly when the original outcome
-is `related_found` and no match remains. It reports false for `none_found` and
-for `related_found` with surviving matches. This field derives from current rows;
-it stores no removal history and exposes no removed ID. An absent declaration
-still means no recorded search, not a search whose matches were removed.
+An absent declaration means no recorded search, not a search whose matches were removed.
 
 Recording guards still refuse `related_found` without match IDs and
 `none_found` with match IDs. The initiative cutover still refuses
 sole-initiative matches under
 [CD-0213 D8](../decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d8-retired-planning-kinds-keep-no-history);
-the ordinary removal read state does not relax that upgrade gate.
+the ordinary removal state does not relax that upgrade gate.
 
 `concord_work_transition.workflow_action` is the only advancement surface. The
 dispatcher performs this order:

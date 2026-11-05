@@ -44,17 +44,11 @@ func TestWorkReadsKeepCaptureTimeAcrossRevisionAndResume(t *testing.T) {
 	assertReads := func(t *testing.T) {
 		t.Helper()
 		reads := map[string]func(*testing.T) []map[string]any{
-			"scope": func(t *testing.T) []map[string]any {
-				return []map[string]any{roundtripScopeWork(t, ctx, s, service, env, workID)}
-			},
 			"full list": func(t *testing.T) []map[string]any {
 				return []map[string]any{roundtripFullListItem(t, ctx, s, service, env, workID)}
 			},
 			"summary list": func(t *testing.T) []map[string]any {
 				return roundtripReadItems(t, ctx, s, service, env, "concord_work_browse", "list", map[string]any{"product_id": "product-1", "work_ids": []string{workID}}, "items")
-			},
-			"ready": func(t *testing.T) []map[string]any {
-				return roundtripReadItems(t, ctx, s, service, env, "concord_work_browse", "ready", map[string]any{"product_id": "product-1"}, "items")
 			},
 			"snapshot": func(t *testing.T) []map[string]any {
 				return roundtripReadItems(t, ctx, s, service, env, "concord_product_view", "snapshot", map[string]any{"product_id": "product-1"}, "previews")
@@ -79,7 +73,7 @@ func TestWorkReadsKeepCaptureTimeAcrossRevisionAndResume(t *testing.T) {
 		}
 	}
 	t.Run("later read", assertReads)
-	before := roundtripScopeWork(t, ctx, s, service, env, workID)
+	before := roundtripFullListItem(t, ctx, s, service, env, workID)
 	roundtripDispatchOK(t, ctx, s, service, env, "capture-time-revise", "concord_work_define", "revise_intent",
 		carriedTaskOnlyRevision(t, before, workID, "Revised instruction", "capture-time-revise"))
 	t.Run("after revision", assertReads)

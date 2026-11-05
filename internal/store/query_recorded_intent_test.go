@@ -5,15 +5,14 @@ import (
 	"testing"
 )
 
-// The single-work scope read and the full-detail list
-// read are the authoritative intent reads: they must project every revisable
+// The full-detail list read must project every revisable
 // value the stored intent holds (task, value statement, tags, and workflow
 // type reference, beside the urgency and priority columns) so a coordinator
 // can carry the complete intent into a task-only complete-replacement
 // revision. The recorded workflow_type_ref comes from the intent projection
 // only; the pinned workflow instance is not a substitute. Bounded summary
 // reads keep their column-only shape.
-func TestScopeAndFullListReadsCarryTheRecordedIntent(t *testing.T) {
+func TestFullListReadsCarryTheRecordedIntent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -33,15 +32,6 @@ func TestScopeAndFullListReadsCarryTheRecordedIntent(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
-
-	scope, err := s.QueryQ6(ctx, Q6Request{Product: "product", Work: "intent-read-work"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if scope.Work == nil {
-		t.Fatal("scope returned no work item")
-	}
-	assertRecordedIntent(t, *scope.Work, "scope read")
 
 	full, err := s.QueryQ3(ctx, Q3Request{Product: "product", WorkIDs: []string{"intent-read-work"}, Detail: "full"})
 	if err != nil {
@@ -83,7 +73,7 @@ func TestScopeAndFullListReadsCarryTheRecordedIntent(t *testing.T) {
 // capture pins a workflow instance: the intent projection is the only
 // source, so the read never substitutes the pinned family. An explicitly
 // empty tag array stays the empty array rather than collapsing to absent.
-func TestScopeReadPreservesAbsentAndEmptyIntentStates(t *testing.T) {
+func TestFullListPreservesAbsentAndEmptyIntentStates(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -99,21 +89,21 @@ func TestScopeReadPreservesAbsentAndEmptyIntentStates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	scope, err := s.QueryQ6(ctx, Q6Request{Product: "product", Work: "intent-empty-work"})
+	scope, err := s.QueryQ3(ctx, Q3Request{Product: "product", WorkIDs: []string{"intent-empty-work"}, Detail: "full"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if scope.Work == nil {
-		t.Fatal("scope returned no work item")
+	if len(scope.Items) != 1 {
+		t.Fatal("list did not return one work item")
 	}
-	if scope.Work.WorkflowTypeRef != "" {
-		t.Fatalf("scope workflow_type_ref = %q, want absent: the intent projection, not the pinned instance, is the read's source", scope.Work.WorkflowTypeRef)
+	if scope.Items[0].WorkflowTypeRef != "" {
+		t.Fatalf("list workflow_type_ref = %q, want absent: the intent projection, not the pinned instance, is the read's source", scope.Items[0].WorkflowTypeRef)
 	}
-	if scope.Work.Tags == nil || len(scope.Work.Tags) != 0 {
-		t.Fatalf("scope tags = %#v, want the recorded empty array", scope.Work.Tags)
+	if scope.Items[0].Tags == nil || len(scope.Items[0].Tags) != 0 {
+		t.Fatalf("list tags = %#v, want the recorded empty array", scope.Items[0].Tags)
 	}
-	if scope.Work.Urgency != "standard" {
-		t.Fatalf("scope urgency = %q, want the recorded default band", scope.Work.Urgency)
+	if scope.Items[0].Urgency != "standard" {
+		t.Fatalf("list urgency = %q, want the recorded default band", scope.Items[0].Urgency)
 	}
 }
 

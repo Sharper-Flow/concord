@@ -18,14 +18,10 @@
     },
     {
       "criterion": 3,
-      "scenario": "Q5-ready-ranking"
+      "exemption": "The corpus has no item-scoped readiness scenario. TestOverlapBlocksRemovesWorkFromReady (internal/store/planning_operation_retirement_test.go) checks the list readiness flag and the blocker relation while the blocker is live, and the released readiness flag after it becomes terminal."
     },
     {
       "criterion": 4,
-      "scenario": "Q4-blocked-reason"
-    },
-    {
-      "criterion": 5,
       "scenario": "Q2-stale-requires-review"
     }
   ]
@@ -35,7 +31,7 @@
 
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-05.
-> **Decision:** PM1; direct accepted authority for the Q1–Q8 Product-memory query contract, evaluated by TS1/TS3.
+> **Decision:** PM1; direct accepted authority for the Product-memory query contract, evaluated by TS1/TS3.
 > **Scenario corpus:** [`product-memory-query.v1.json`](../../scenarios/product-memory-query.v1.json).
 > **Purpose:** Define the smallest storage- and tool-neutral read contract that
 > makes Concord useful as Product memory and that judges PM2/PM3 and TS1/TS3.
@@ -47,14 +43,14 @@ Concord must answer repeated Product-memory questions for one operator across
 Products, Projects, and work. The binding inputs are the accepted Product data
 model, ranked priorities, the workflow visibility rules, and the durable
 knowledge design. This record decides which questions Concord must answer —
-the eight canonical jobs Q1 through Q8 — and what a correct, bounded, fresh
+the canonical jobs Q1, Q2, Q3, Q7, and Q8 — and what a correct, bounded, fresh
 answer means. Storage, schema, lifecycle, membership, and tool surfaces are
 decided by PM2 through PM5 and TS1 through TS7 and hold no authority here.
 ## Contract
 
 The binding contract is sections 1, 3, and 4: the decision boundary, the
 universal query contract every implementation follows, and the canonical
-queries Q1 through Q8 with their inputs, outputs, ordering, and oracles.
+queries Q1, Q2, Q3, Q7, and Q8 with their inputs, outputs, ordering, and oracles.
 Section 2 records the evidence basis of the job set; sections 5 through 7
 record candidate evaluation, deferred and rejected reads, and falsifiers, and
 carry no obligation.
@@ -74,7 +70,7 @@ from this contract. All candidates must pass the same corpus.
 
 ## 2. Evidence basis and corpus size
 
-The eight jobs below are grounded in the current Product model, ranked priorities,
+The jobs below are grounded in the current Product model, ranked priorities,
 workflow visibility rules, durable-knowledge design, and
 PM/TS backlogs. The corpus deliberately merges overlapping
 list/show/search reads into Product-memory jobs.
@@ -89,9 +85,6 @@ of PM1 is the final check that no repeated Product-memory job is missing.
 | Q1 | Resolve Product context and its Projects | `product-data-model.md` §4; PM1 |
 | Q2 | Orient to a Product's work snapshot | priorities §3–§4; workflows §2.4 |
 | Q3 | List Product work by lifecycle/filter | PM1; PM4 |
-| Q4 | Explain blocked work | PM4; workflows §2.4 |
-| Q5 | Select highest-priority ready work | TS1; priorities §4 |
-| Q6 | Inspect cross-Project work | PM5; product-data-model §4 |
 | Q7 | Explain why work changed state | workflows §2.2 |
 | Q8 | Inspect dependencies and supersession | PM4; product-data-model §10 |
 
@@ -101,7 +94,7 @@ not merely an existing tool or convenient table.
 
 ## 3. Universal query contract
 
-Every Q1–Q8 implementation, regardless of storage or tool surface, follows these
+Every canonical query implementation, regardless of storage or tool surface, follows these
 rules.
 
 ### 3.1 Scope and typed inputs
@@ -130,7 +123,7 @@ errors or explicitly degraded results.
 
 ### 3.3 Authority and degradation
 
-- Q1–Q8 are decision-driving live-memory reads: authoritative by default. If the
+- Canonical queries are decision-driving live-memory reads: authoritative by default. If the
   authority cannot answer, return `unreachable`; never substitute a stale snapshot.
 - Partial results are allowed only when the caller permits degradation and the
   response identifies omitted records and why. No natural-language guessing.
@@ -196,12 +189,13 @@ The JSON corpus is executable through a candidate adapter implementing
 - **Input:** Product, optional Project subset, preview limit per bucket.
 - **Output:** `lifecycle_counts` (PM4 states), separate `derived_counts` (including
   blocked), and a bounded union of preview items. Each work item appears once with
-  view flags (`active`, `blocked`, `ready`, `terminal`) even when it spans Projects.
+  view flags (`active`, `ready`, `terminal`) even when it spans Projects. No public
+  per-item `blocked` flag is returned.
   Blocked work remains counted in its lifecycle state; the two count families are
   intentionally not mutually exclusive.
 - **Order:** explicit priority, relevant lifecycle time, stable ID; terminal
   preview by terminal time descending.
-- **Oracle:** lifecycle counts match Q3, derived blocked count matches Q4, preview
+- **Oracle:** lifecycle counts match Q3, derived blocked count follows live blockers, preview
   items are unique, and cross-Project work is not double-counted.
 - **PM4/PM5 semantics:** lifecycle/derived views follow PM4; canonical membership,
   deduplication, and cross-Product scope follow accepted PM5.
@@ -215,7 +209,8 @@ The JSON corpus is executable through a candidate adapter implementing
 - **Input:** Product; lifecycle states; optional Project, work-kind, Domain,
   tag, priority, terminal-window, detail, cursor, limit.
 - **Output:** bounded work summaries with value statement, lifecycle, priority,
-  Projects, blocker summary, stage, version, and durable-note reference when terminal.
+  Projects, readiness, stage, version, and durable-note reference when terminal;
+  full detail carries the recorded work facts.
 - **Order:** priority rank, relevant lifecycle timestamp descending, stable ID;
   terminal-only queries use terminal time descending first.
 - **Oracle:** filters compose without duplicates; a valid empty filter result is
@@ -225,45 +220,11 @@ The JSON corpus is executable through a candidate adapter implementing
 - **Retention semantics:** terminal listings union live and git-derived historical rows;
   frozen historical scope is explicit and never silently rewritten by later moves.
 
-### Q4. Explain blocked work
-
-- **Intent:** "What is blocked, by what, and what must change?"
-- **Input:** Product with optional Project/work/kind filters; relation depth
-  default `1`, maximum `3`.
-- **Output:** actionable blocked work plus unresolved blocker nodes/edges, blocker
-  authority, age, and external-blocker marker. Blocked is derived, never a competing state.
-- **Order/bounds:** priority, oldest blocker age, stable ID; graph node/edge caps.
-- **Oracle:** work with resolved dependencies is absent; no stored `blocked` flag
-  can disagree with the relation graph.
-- **PM4 semantics:** blocked is derived from canonical `blocks` edges and blocker
-  terminality; no stored blocked flag exists.
-
-### Q5. Highest-priority ready work
-
-- **Intent:** "What should I do next?"
-- **Input:** Product; optional Project/work-kind; limit/cursor.
-- **Output:** actionable needed work with no unresolved blockers, including
-  priority, value, Projects, and readiness evidence.
-- **Order:** explicit priority rank, created time, stable ID. Lifecycle stage is
-  displayed for rigor but **does not silently rewrite business priority**.
-- **Oracle:** a higher-priority blocked item is excluded; the next unblocked item
-  wins deterministically.
-- **PM4 semantics:** ready means actionable `needed` work with no unresolved
-  canonical `blocks` edge. Stage is never a hidden business-priority input.
-
-### Q6. Cross-Project work
-
-- **Intent:** "Which work spans this Project, and which Projects does this work touch?"
-- **Input:** ambient or explicitly resolved Product context plus either Project or
-  work reference.
-- **Output:** one canonical work record with ordered Project memberships and roles;
-  never per-Project status copies.
-- **Order:** work by priority/update/ID; memberships primary before secondary,
-  then Project ID.
-- **Oracle:** multi-Project work appears once and both query directions agree.
-- **PM5 semantics:** one canonical work item, role-only Project memberships,
-  optional singular primary, and derived cross-Product scope are binding. PM1's
-  fixture `product` is an expected-scope assertion per PM5, not stored work state.
+List `work_summary.ready` is true exactly when lifecycle is `needed` and no live
+blocker holds the item. A needed item with `ready` absent or false is blocked;
+the relations read supplies its bounded blocker graph. No public `blocked` flag
+is returned. Lifecycle stage is not a hidden
+business-priority input. Work remains canonical across Project memberships.
 
 ### Q7. Explain work history
 
@@ -297,7 +258,7 @@ representative scale and records query plans, P50/P99, rows scanned, fan-out cal
 and output bytes. That evidence validates implementation quality; it does not
 retroactively choose the architecture.
 
-TS1/TS3 candidates consume Q1–Q8 as **jobs**, not as mandatory one-tool-per-query
+TS1/TS3 candidates consume the canonical reads as **jobs**, not as mandatory one-tool-per-query
 mapping. Tool candidates are scored on scenario success, selection accuracy,
 calls/job, schema tokens, retries, and output bounds.
 
@@ -315,7 +276,7 @@ calls/job, schema tokens, retries, and output bounds.
 ## 7. Dependencies unlocked and falsifiers
 
 PM1 unlocks PM2/PM3 research comparison, PM4/PM5 query oracles, and TS1/TS3
-scenario design. Later decisions may extend Q1–Q8 only with a real unmet job.
+scenario design. Later decisions may extend the canonical reads only with a real unmet job.
 
 PM1 is falsified or must be amended when:
 
@@ -338,15 +299,9 @@ PM2–PM5 and CD-0008 govern storage, membership, evidence binding, and unreadab
   When Q3 lists Product work
   Then the answer is authoritative empty with `items=[]`, not missing data.
 
-- Given one higher-priority blocked item and one lower-priority unblocked item
-  When Q5 selects highest-priority ready work
-  Then the blocked item is excluded and the unblocked item wins
-  deterministically.
-
-- Given work blocked by an unresolved dependency
-  When Q4 explains blocked work
-  Then the answer carries the unresolved blocker nodes and edges, derived from
-  the relation graph.
+- Given needed work held by a live blocker
+  When Q3 lists it
+  Then `ready` is absent or false and Q8 can report its blocker relation.
 
 - Given a stale snapshot that requires review
   When Q2 orients to a Product's work
@@ -355,9 +310,7 @@ PM2–PM5 and CD-0008 govern storage, membership, evidence binding, and unreadab
 
 ## Verification
 
-All five criteria are proved by scenarios of
-`.concord/scenarios/product-memory-query.v1.json`, executed by
-`TestAcceptedQ1ToQ8AndDomainCorpus`
+The scenario bindings are executed by `TestAcceptedQ1ToQ8AndDomainCorpus`
 (`internal/store/query_corpus_test.go`).
 
 - Criterion 1 is proved by the bound `Q1-ambiguous-project` scenario, which
@@ -365,10 +318,7 @@ All five criteria are proved by scenarios of
   of guessed context.
 - Criterion 2 is proved by the bound `Q3-authoritative-empty` scenario, which
   lists with a matching-but-empty filter and asserts authoritative empty.
-- Criterion 3 is proved by the bound `Q5-ready-ranking` scenario, which ranks
-  ready work with a blocked higher-priority item and asserts the deterministic
-  winner.
-- Criterion 4 is proved by the bound `Q4-blocked-reason` scenario, which
-  explains blocked work and asserts unresolved blocker nodes with reasons.
-- Criterion 5 is proved by the bound `Q2-stale-requires-review` scenario,
+- Criterion 3 is proved by `TestOverlapBlocksRemovesWorkFromReady`
+  (`internal/store/planning_operation_retirement_test.go`).
+- Criterion 4 is proved by the bound `Q2-stale-requires-review` scenario,
   which orients on a stale snapshot and asserts the typed error.

@@ -96,7 +96,7 @@
         "internal/store.Store.EstablishDomainRegistryProof",
         "internal/store.ReadWorkPin"
       ],
-      "reason": "DatabaseForTesting is the declared raw-handle seam for tests and pm1fixture; boundary_test.go enforces that production callers do not use it. DurableCommits is the test introspection read for the durable commit mechanism CD-0207 governs, exercised by durable_test.go. EstablishDomainRegistryProof establishes the Product-keyed committed-registry proof that store and agent tests hand to the retained Domain-observation fold; no production route records Domain observations. ReadWorkPin is the standalone snapshot read store and agent tests use to observe the pin that read and mutation results stamp through ReadWorkPinTx. None is an operator mutation surface, and deleting them would remove the surviving assertions rather than retire a runtime feature."
+      "reason": "DatabaseForTesting is the declared raw-handle seam for tests and pm1fixture; boundary_test.go enforces that production callers do not use it. DurableCommits is the test introspection read for the durable commit mechanism CD-0207 governs, exercised by durable_test.go. EstablishDomainRegistryProof establishes the Product-keyed committed-registry proof that store and agent tests hand to the retained Domain-observation fold; no production route records Domain observations. ReadWorkPin is the standalone snapshot read store and agent tests use to observe the pin that continuity and mutation results obtain through ReadWorkPinTx. None is an operator mutation surface, and deleting them would remove the surviving assertions rather than retire a runtime feature."
     },
     {
       "id": "plan-cutover-generator-projection-seams",

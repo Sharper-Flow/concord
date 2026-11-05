@@ -525,9 +525,9 @@
    }
   },
   {
-   "id": "AJ4-history-of-a-superseded-contract",
+   "id": "AJ4-current-lifecycle-after-contract-revision",
    "job_id": "AJ4",
-   "instruction": "Work-1's contract was corrected. Show what contract version 1 required, its current successor, and the current lifecycle record without reconstructing an event trace.",
+   "instruction": "Work-1's contract was corrected. Show the current lifecycle record without reconstructing an event trace.",
    "initial_state": {
     "fixture": "workflow"
    },
@@ -535,29 +535,11 @@
     "assertions": [
      {
       "target": "result",
-      "path": "selected_contract_version",
-      "op": "eq",
-      "value": 1
-     },
-     {
-      "target": "result",
-      "path": "selected_contract_superseded_by",
-      "op": "eq",
-      "value": 2
-     },
-     {
-      "target": "result",
       "path": "entry_kinds",
       "op": "set_eq",
       "value": [
        "lifecycle"
       ]
-     },
-     {
-      "target": "communication",
-      "path": "unknown_version_error_kind",
-      "op": "eq",
-      "value": "unknown_scope"
      },
      {
       "target": "effects",

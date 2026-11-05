@@ -39,9 +39,10 @@ func TestOrdinaryRecordsMigrationPreservesEffectiveDelivery(t *testing.T) {
 	if _, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
 		t.Fatal(err)
 	}
-	current, err := workflowDeliveryAssertionRead(t.Context(), db, "work-upgrade-from")
-	if err != nil || current == nil || current.Artifact != "https://example.com/change/current" || current.State != "asserted" || current.EventID != "delivery:replacement" || current.Seq != 200 {
-		t.Fatalf("current delivery=%+v err=%v", current, err)
+	var artifact, state, eventID string
+	var seq int64
+	if err := db.QueryRow(`SELECT json_extract(payload,'$.delivery_artifact'),json_extract(payload,'$.delivery_state'),assertion_id,assertion_seq FROM workflow_delivery_state WHERE work_id='work-upgrade-from'`).Scan(&artifact, &state, &eventID, &seq); err != nil || artifact != "https://example.com/change/current" || state != "asserted" || eventID != "delivery:replacement" || seq != 200 {
+		t.Fatalf("current delivery=%q/%q/%q/%d err=%v", artifact, state, eventID, seq, err)
 	}
 	var payloadVersion int
 	if err := db.QueryRow(`SELECT payload_version FROM workflow_delivery_state WHERE work_id='work-upgrade-from'`).Scan(&payloadVersion); err != nil || payloadVersion != 2 {

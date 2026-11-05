@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -28,25 +29,51 @@ func bindWorkflowFixtureKnowledgeSource(t *testing.T, home KnowledgeHome) {
 	writeFixtureLawSource(t, home, "spec:one")
 }
 
-func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadRequest) (WorkflowReadProjection, error) {
-	var out WorkflowReadProjection
-	if len(request.WorkID) < 2 || len(request.WorkID) > 128 {
-		return out, newFailure(KindInvalidOperation, "workflow_read", "work ID is out of bounds", false, "supply one bounded work ID")
-	}
-	// The production read prepares the work's law proof before its read
-	// snapshot opens (PrepareWorkLawProof); this helper does the same.
-	ctx, err := s.PrepareWorkLawProof(ctx, request.WorkID)
+type testWorkflowFacts struct {
+	State       string
+	CurrentStep string
+	Plan        *WorkflowStepPlan
+	Contract    *WorkflowReadContract
+}
+
+func readTestWorkflowFacts(ctx context.Context, s *Store, workID string) (testWorkflowFacts, error) {
+	var out testWorkflowFacts
+	ctx, err := s.PrepareWorkLawProof(ctx, workID)
 	if err != nil {
 		return out, err
 	}
-	err = s.readSnapshot(ctx, func(q queryer) error {
-		out, err = readWorkflowProjectionTx(ctx, q, request)
-		return err
-	})
-	if err == nil && out.WorkID == "" {
-		return out, newFailure(KindProjectionNotFound, "workflow_read", "workflow instance is not recorded", false, "reread_entities")
+	tx, err := beginReadTx(ctx, s.db)
+	if err != nil {
+		return out, err
 	}
-	return out, err
+	defer tx.Rollback()
+	resume, err := readWorkflowResumeTx(ctx, tx, workID)
+	if err != nil {
+		return out, err
+	}
+	out.State = resume.State
+	if len(resume.NextSteps) > 0 {
+		out.CurrentStep = resume.NextSteps[0]
+	} else if len(resume.OpeningSteps) > 0 {
+		out.CurrentStep = resume.OpeningSteps[0]
+	}
+	out.Plan, err = readWorkflowPlanTx(ctx, tx, workID)
+	if err != nil {
+		return out, err
+	}
+	version, err := activeWorkflowContractVersion(ctx, tx, workID, "workflow_read")
+	if err == sql.ErrNoRows {
+		return out, nil
+	}
+	if err != nil {
+		return out, err
+	}
+	contract, err := readWorkflowContractVersion(ctx, tx, workID, version)
+	if err != nil {
+		return out, err
+	}
+	out.Contract = &contract
+	return out, nil
 }
 
 // testApprovalPayload fills the approval defaults a test leaves out.

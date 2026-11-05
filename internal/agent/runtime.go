@@ -139,38 +139,12 @@ type workListInput struct {
 	Page          pageInput `json:"page"`
 	Limit         int       `json:"limit,omitempty"`
 }
-type workReadyInput struct {
-	ProductID string    `json:"product_id"`
-	ProjectID string    `json:"project_id"`
-	Kind      string    `json:"kind"`
-	Page      pageInput `json:"page"`
-	Limit     int       `json:"limit,omitempty"`
-}
-type workBlockedInput struct {
-	ProductID string    `json:"product_id"`
-	ProjectID string    `json:"project_id"`
-	WorkID    string    `json:"work_id"`
-	Kind      string    `json:"kind"`
-	Depth     int       `json:"depth"`
-	Page      pageInput `json:"page"`
-	Limit     int       `json:"limit,omitempty"`
-}
-type workScopeInput struct {
-	ProductID string    `json:"product_id"`
-	ProjectID string    `json:"project_id"`
-	WorkID    string    `json:"work_id"`
-	Page      pageInput `json:"page"`
-	Limit     int       `json:"limit,omitempty"`
-	OneOf     string    `json:"one_of"`
-}
-
 type historyInput struct {
-	WorkID          string    `json:"work_id"`
-	Direction       string    `json:"direction"`
-	RecordKinds     []string  `json:"record_kinds"`
-	ContractVersion int64     `json:"contract_version,omitempty"`
-	Page            pageInput `json:"page"`
-	Limit           int       `json:"limit,omitempty"`
+	WorkID      string    `json:"work_id"`
+	Direction   string    `json:"direction"`
+	RecordKinds []string  `json:"record_kinds"`
+	Page        pageInput `json:"page"`
+	Limit       int       `json:"limit,omitempty"`
 }
 type continuityInput struct {
 	WorkID string    `json:"work_id"`
@@ -258,7 +232,7 @@ func operationUsesCurrentLaw(op agentcontract.ContractOperation) bool {
 	case "concord_domain.list", "concord_domain.detail",
 		"concord_work_trace.continuity", "concord_work_trace.history", "concord_work_trace.mutation_result",
 		"concord_product_view.snapshot",
-		"concord_work_browse.list", "concord_work_browse.ready", "concord_work_browse.blocked", "concord_work_browse.scope":
+		"concord_work_browse.list":
 		return true
 	}
 	return slices.Contains(agentcontract.GeneratedPayloadRules[op.ResultSchema].Properties, "work_pins")
@@ -938,12 +912,6 @@ func (r runtime) readResult(ctx context.Context, base agentcontract.Envelope, in
 		return r.readProductSnapshot(ctx, base, input)
 	case "concord_work_browse.list":
 		return r.readWorkList(ctx, base, input)
-	case "concord_work_browse.ready":
-		return r.readWorkReady(ctx, base, input)
-	case "concord_work_browse.blocked":
-		return r.readWorkBlocked(ctx, base, input)
-	case "concord_work_browse.scope":
-		return r.readWorkScope(ctx, base, input)
 	case "concord_work_trace.history":
 		return r.readTraceHistory(ctx, base, input)
 	case "concord_work_trace.continuity":
@@ -1104,10 +1072,8 @@ type workSummary struct {
 	Priority              int64                     `json:"priority,omitempty"`
 	ProjectIDs            []string                  `json:"project_ids,omitempty"`
 	Ready                 bool                      `json:"ready,omitempty"`
-	Narrative             string                    `json:"narrative,omitempty"`
 	TerminalAt            *string                   `json:"terminal_at"`
 	CreatedAt             string                    `json:"created_at"`
-	WorkPin               *store.WorkPin            `json:"work_pin,omitempty"`
 	PendingProjectHandoff *store.ProjectHandoff     `json:"pending_project_handoff,omitempty"`
 	LawContext            *store.WorkflowLawContext `json:"law_context,omitempty"`
 	NativeRuns            []store.NativeRunReport   `json:"native_runs,omitempty"`
@@ -1126,7 +1092,7 @@ func summary(w store.WorkItem) workSummary {
 	if w.TerminalAt != "" {
 		terminal = &w.TerminalAt
 	}
-	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, CreatedAt: w.CreatedAt, WorkPin: w.WorkPin, PendingProjectHandoff: w.PendingProjectHandoff, LawContext: w.LawContext, NativeRuns: w.NativeRuns}
+	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, TerminalAt: terminal, CreatedAt: w.CreatedAt, PendingProjectHandoff: w.PendingProjectHandoff, LawContext: w.LawContext, NativeRuns: w.NativeRuns}
 }
 func (r runtime) q1(base agentcontract.Envelope, q store.Q1Result) (agentcontract.Envelope, error) {
 	projects := []map[string]any{}
@@ -1170,122 +1136,12 @@ func (r runtime) q3(base agentcontract.Envelope, q store.Q3Result) (agentcontrac
 	}
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"items": items})
 }
-func (r runtime) q5(base agentcontract.Envelope, q store.Q5Result) (agentcontract.Envelope, error) {
-	items := make([]workSummary, 0, len(q.Items))
-	for _, w := range q.Items {
-		items = append(items, summary(w))
-	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"items": items})
-}
-func (r runtime) q4(base agentcontract.Envelope, q store.Q4Result) (agentcontract.Envelope, error) {
-	items := make([]workSummary, 0, len(q.Items))
-	// nodes carries the unresolved blockers and items carries the blocked work.
-	// They must not share a backing array: `nodes := items` copies the slice
-	// header, so appending to one overwrites the elements of the other.
-	nodes := []workSummary{}
-	edges := []map[string]string{}
-	seen := map[string]bool{}
-	for _, w := range q.Items {
-		items = append(items, summary(w))
-		seen[w.ID] = true
-		for _, b := range w.Blockers {
-			if !seen[b.ID] {
-				nodes = append(nodes, summary(b))
-				seen[b.ID] = true
-			}
-			edges = append(edges, map[string]string{"from": w.ID, "to": b.ID, "kind": "blocks"})
-		}
-	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"items": items, "nodes": nodes, "edges": edges})
-}
-func (r runtime) q6(base agentcontract.Envelope, q store.Q6Result) (agentcontract.Envelope, error) {
-	if q.Work != nil {
-		payload := map[string]any{"work": summary(*q.Work), "memberships": func() []map[string]string {
-			out := []map[string]string{}
-			for _, p := range q.Work.Projects {
-				out = append(out, map[string]string{"project_id": p.ID, "role": p.Role})
-			}
-			return out
-		}(), "items": []workSummary{}}
-		return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
-	}
-	items := []workSummary{}
-	for _, w := range q.Items {
-		items = append(items, summary(w))
-	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"items": items})
-}
-
 func (r runtime) q7(base agentcontract.Envelope, q store.Q7Result) (agentcontract.Envelope, error) {
 	entries := q.Entries
 	if entries == nil {
 		entries = []store.HistoryEntry{}
 	}
-	payload := map[string]any{"entries": entries}
-	if q.Workflow != nil {
-		workflow, err := publishedWorkflowRead(q.Workflow)
-		if err != nil {
-			return base, err
-		}
-		payload["workflow"] = workflow
-	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), payload)
-}
-
-// workflowReadPublishedFields derives the published workflow_read field set
-// from the generated contract's $defs/workflow_read/properties. The contract
-// schema is the declared boundary, so the published read is exactly the set
-// it declares: a projection field the contract names is published, and one it
-// does not name is dropped, without a hand-maintained list that can drift.
-func workflowReadPublishedFields() map[string]any {
-	defs, _ := payloadschema.Document()["$defs"].(map[string]any)
-	read, _ := defs["workflow_read"].(map[string]any)
-	properties, _ := read["properties"].(map[string]any)
-	return properties
-}
-
-// publishedWorkflowRead shapes the store projection into the published
-// workflow_read subset. The history page carries it so a reader sees the
-// current effective delivery assertion beside the unchanged original, with
-// the target_payload_version a correction admission consumes.
-func publishedWorkflowRead(projection *store.WorkflowReadProjection) (map[string]any, error) {
-	raw, err := json.Marshal(projection)
-	if err != nil {
-		return nil, err
-	}
-	var shaped map[string]any
-	if err := json.Unmarshal(raw, &shaped); err != nil {
-		return nil, err
-	}
-	pruneWorkflowReadObject(shaped, workflowReadPublishedFields())
-	return shaped, nil
-}
-
-// pruneWorkflowReadObject follows inline object and array shapes. Referenced
-// definitions remain unchanged and are checked by payload validation.
-func pruneWorkflowReadObject(value, properties map[string]any) {
-	for field, child := range value {
-		schema, ok := properties[field].(map[string]any)
-		if !ok {
-			delete(value, field)
-			continue
-		}
-		switch child := child.(type) {
-		case map[string]any:
-			if nested, ok := schema["properties"].(map[string]any); ok {
-				pruneWorkflowReadObject(child, nested)
-			}
-		case []any:
-			items, _ := schema["items"].(map[string]any)
-			if nested, ok := items["properties"].(map[string]any); ok {
-				for _, item := range child {
-					if object, ok := item.(map[string]any); ok {
-						pruneWorkflowReadObject(object, nested)
-					}
-				}
-			}
-		}
-	}
+	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"entries": entries})
 }
 
 // ContinuityPayload is the single public rendering of CD-0016 continuity.

@@ -50,13 +50,6 @@ func TestReadWorkPinUsesOneTransactionAndDeclaredStepActions(t *testing.T) {
 	if !available || !reflect.DeepEqual(transactionPin, pin) {
 		t.Fatalf("transaction pin=%+v available=%t, read pin=%+v", transactionPin, available, pin)
 	}
-	listing, err := s.QueryQ3(context.Background(), Q3Request{Product: "product", WorkIDs: []string{"workpin-reader"}, Detail: "full", Limit: 20})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(listing.Items) != 1 || listing.Items[0].WorkPin == nil || listing.Items[0].WorkPin.Version != pin.Version {
-		t.Fatalf("full listing=%+v, want the same work pin", listing.Items)
-	}
 }
 
 func TestReadWorkPinIncludesRecordedLinearIssueKeyInTheSameTransaction(t *testing.T) {

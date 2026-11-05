@@ -34,7 +34,8 @@ preservation does not require retaining completed step records.
 atomic disposal of completed workflow steps and snapshot-gated upgrade disposal.
 There is no publication-gated terminal cleanup, prune command, pressure threshold,
 calendar sweep or new archive. Completed work need not acquire a canonical note.
-Terminal current-state identity and reported delivery links remain readable.
+Terminal current-state identity remains readable. Reported delivery links remain
+stored, but have no agent read.
 Operations and effect receipts retain their retry and reconciliation consumers;
 finite verified snapshots follow CD-0242 D2 and PM10.
 
@@ -82,7 +83,7 @@ linked to the old one without changing the historical note.
 
 | Data | Consumer and applicability | Removal condition |
 |---|---|---|
-| terminal current-state identity and reported delivery link | exact work and delivered-outcome readers | explicit work removal under its owning contract |
+| terminal current-state identity and reported delivery link | exact work readers and retained delivery state | explicit work removal under its owning contract |
 | operation results and effect receipts | retries and reconciliation of the original intent | CD-0242 D2's documented end of the retry/reconciliation consumer |
 | historical notes and locator projections | historical readers return the recorded locator and authorize it through frozen scope | Git owns notes; projections may be replaced from the same authority |
 | verified snapshots | PM10 restore and unfinished recovery | documented count/age bound, never the newest verified snapshot or one recovery needs |

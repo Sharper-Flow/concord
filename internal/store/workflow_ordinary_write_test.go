@@ -65,10 +65,6 @@ func TestOrdinaryAlignmentReplacement(t *testing.T) {
 				if !reflect.DeepEqual(got, want) {
 					t.Fatalf("rows=%v want=%v", got, want)
 				}
-				read, err := readWorkflowBacklogAlignment(context.Background(), s.db, work)
-				if err != nil || read == nil || read.Searched != search || read.Outcome != outcome || read.AllMatchesRemoved || !reflect.DeepEqual(read.RelatedIDs, append([]string{}, ids...)) {
-					t.Fatalf("alignment read=%+v err=%v", read, err)
-				}
 			}
 			if err := apply(work+"-first", version, payload("first search", "related_found", []string{"related-a", "related-b"})); err != nil {
 				t.Fatal(err)
@@ -181,12 +177,24 @@ func TestOrdinaryCandidateDeltaHoldsProgress(t *testing.T) {
 	if got := currentStep(t, s, work); got != step {
 		t.Fatalf("candidate delta moved progress: %s -> %s", step, got)
 	}
-	out, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: work})
+	rows, err := s.db.Query(`SELECT candidate_ref FROM workflow_candidate_sets WHERE work_id=? ORDER BY candidate_ref`, work)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"candidate:keep", "candidate:new"}; !reflect.DeepEqual(out.CandidateIDs, want) {
-		t.Fatalf("candidates=%v want=%v", out.CandidateIDs, want)
+	defer rows.Close()
+	var candidates []string
+	for rows.Next() {
+		var ref string
+		if err := rows.Scan(&ref); err != nil {
+			t.Fatal(err)
+		}
+		candidates = append(candidates, ref)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"candidate:keep", "candidate:new"}; !reflect.DeepEqual(candidates, want) {
+		t.Fatalf("candidates=%v want=%v", candidates, want)
 	}
 }
 
@@ -243,9 +251,9 @@ func TestOrdinaryDeliveryWritesHoldProgress(t *testing.T) {
 				if gotPlan != plan || gotState != state || gotLifecycle != lifecycle {
 					t.Fatalf("record write changed plan or lifecycle: %s/%s -> %s/%s", state, lifecycle, gotState, gotLifecycle)
 				}
-				current, err := workflowDeliveryAssertionRead(ctx, s.db, work)
-				if err != nil || current == nil || current.Artifact != artifact {
-					t.Fatalf("delivery=%+v error=%v", current, err)
+				var current string
+				if err := s.db.QueryRowContext(ctx, `SELECT json_extract(payload,'$.delivery_artifact') FROM workflow_delivery_state WHERE work_id=?`, work).Scan(&current); err != nil || current != artifact {
+					t.Fatalf("delivery=%q error=%v", current, err)
 				}
 			}
 			if variant == "migrated" {

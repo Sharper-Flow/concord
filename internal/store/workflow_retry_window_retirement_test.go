@@ -20,11 +20,7 @@ func TestRetryWindowAbsentFromCurrentReadSurfaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	projection, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for name, value := range map[string]any{"work_pin": pin, "workflow_read": projection} {
+	for name, value := range map[string]any{"work_pin": pin} {
 		raw, err := json.Marshal(value)
 		if err != nil {
 			t.Fatal(err)
@@ -60,7 +56,7 @@ func TestRetryWindowAbsentFromAuthoredReadContract(t *testing.T) {
 			t.Errorf("the published payload schema still declares %s", name)
 		}
 	}
-	for _, name := range []string{"work_pin", "workflow_read"} {
+	for _, name := range []string{"work_pin"} {
 		definition, exists := schema.Defs[name]
 		if !exists {
 			t.Fatalf("the payload schema is missing %s", name)

@@ -316,7 +316,7 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 	if owner != (WorkflowActor{}) && actor != owner {
 		return nil, fmt.Errorf("current fixture actor does not match its prepared production actor")
 	}
-	projection, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID})
+	projection, err := readTestWorkflowFacts(ctx, s, workID)
 	if err != nil {
 		return nil, err
 	}
@@ -327,7 +327,7 @@ func prepareWorkflowCorpusState(t *testing.T, setup workflowCorpusSetup, request
 }
 
 func workflowCorpusContractBytes(ctx context.Context, s *Store, workID string) ([]byte, error) {
-	projection, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID})
+	projection, err := readTestWorkflowFacts(ctx, s, workID)
 	if err != nil {
 		return nil, err
 	}
@@ -773,7 +773,7 @@ func observeWorkflowStore(ctx context.Context, s *Store, workID string, beforeSe
 	}
 	work := map[string]any{"lifecycle": lifecycle, "version": version}
 	observation.State["work"] = work
-	projection, err := ReadWorkflowProjection(ctx, s, WorkflowReadRequest{WorkID: workID})
+	projection, err := readTestWorkflowFacts(ctx, s, workID)
 	if err != nil {
 		return observation, err
 	}

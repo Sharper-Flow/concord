@@ -139,7 +139,7 @@ func decisionContractCount(t *testing.T, s *Store, workID string) int {
 // read projection.
 func projectedDecisionDomains(t *testing.T, s *Store, workID string) []string {
 	t.Helper()
-	projection, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
+	projection, err := readTestWorkflowFacts(context.Background(), s, workID)
 	if err != nil {
 		t.Fatalf("read workflow projection: %v", err)
 	}

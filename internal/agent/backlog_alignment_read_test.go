@@ -13,7 +13,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func TestTraceHistoryReadsBacklogAlignment(t *testing.T) {
+func TestDiagnosisStoresBacklogAlignment(t *testing.T) {
 	t.Parallel()
 	// workflow-engine-contract §§2.1, 5.1, 11 and 12 retire record_alignment;
 	// diagnosis remains the authoring path for these retained alignment facts.
@@ -31,22 +31,34 @@ func TestTraceHistoryReadsBacklogAlignment(t *testing.T) {
 					t.Fatal(err)
 				}
 				env := mutationEnvelope(grant, scopeVersion)
-				read := func() map[string]json.RawMessage {
+				checkRows := func(wantSearched, wantOutcome string, wantIDs []string) {
 					t.Helper()
-					response := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "history", Input: json.RawMessage(`{"work_id":"work-1","limit":1}`)}, env)
-					if response.Outcome != agentcontract.OutcomeOK {
-						t.Fatalf("history: %+v", response.Error)
-					}
-					var page struct {
-						Workflow map[string]json.RawMessage `json:"workflow"`
-					}
-					if err := json.Unmarshal(response.Result, &page); err != nil {
+					rows, err := s.DatabaseForTesting().Query(`SELECT COALESCE(related_work_id,''),searched,outcome FROM workflow_backlog_alignment WHERE work_id='work-1' ORDER BY related_work_id`)
+					if err != nil {
 						t.Fatal(err)
 					}
-					return page.Workflow
-				}
-				if _, present := read()["backlog_alignment"]; present {
-					t.Fatal("never-checked work carries backlog_alignment")
+					defer rows.Close()
+					ids := []string{}
+					count := 0
+					for rows.Next() {
+						var id, searched, outcome string
+						if err := rows.Scan(&id, &searched, &outcome); err != nil {
+							t.Fatal(err)
+						}
+						if searched != wantSearched || outcome != wantOutcome {
+							t.Fatalf("stored search=%q outcome=%q", searched, outcome)
+						}
+						if id != "" {
+							ids = append(ids, id)
+						}
+						count++
+					}
+					if err := rows.Err(); err != nil {
+						t.Fatal(err)
+					}
+					if count != len(wantIDs)+1 || !slices.Equal(ids, wantIDs) {
+						t.Fatalf("stored alignment rows=%d ids=%v want=%v", count, ids, wantIDs)
+					}
 				}
 				action := "record_diagnosis"
 				outcome := "none_found"
@@ -86,26 +98,8 @@ func TestTraceHistoryReadsBacklogAlignment(t *testing.T) {
 				if response.Outcome != agentcontract.OutcomeOK {
 					t.Fatalf("%s: %+v", action, response.Error)
 				}
-				var alignment struct {
-					Searched          string   `json:"searched"`
-					Outcome           string   `json:"outcome"`
-					RelatedIDs        []string `json:"related_ids"`
-					AllMatchesRemoved *bool    `json:"all_matches_removed"`
-				}
-				commits := s.DurableCommits()
 				slices.Sort(related)
-				for range 2 {
-					page := read()
-					if err := json.Unmarshal(page["backlog_alignment"], &alignment); err != nil {
-						t.Fatalf("recorded alignment absent or malformed: %s: %v", page["backlog_alignment"], err)
-					}
-					if alignment.Searched != searched || alignment.Outcome != outcome || alignment.RelatedIDs == nil || !slices.Equal(alignment.RelatedIDs, related) || alignment.AllMatchesRemoved == nil || *alignment.AllMatchesRemoved {
-						t.Fatalf("alignment facts differ: %+v", alignment)
-					}
-				}
-				if s.DurableCommits() != commits {
-					t.Fatal("reading alignment committed a write")
-				}
+				checkRows(searched, outcome, related)
 				if matches == 1 {
 					effectKind := store.WorkflowBacklogAlignmentRecorded
 					if action == "record_diagnosis" {
@@ -152,12 +146,7 @@ func TestTraceHistoryReadsBacklogAlignment(t *testing.T) {
 					if after := evidence(); after != before {
 						t.Fatalf("alignment evidence changed: before=%v after=%v", before, after)
 					}
-					if err := json.Unmarshal(read()["backlog_alignment"], &alignment); err != nil {
-						t.Fatal(err)
-					}
-					if alignment.Searched != searched || alignment.Outcome != "related_found" || alignment.RelatedIDs == nil || len(alignment.RelatedIDs) != 0 || alignment.AllMatchesRemoved == nil || !*alignment.AllMatchesRemoved {
-						t.Fatalf("removed alignment: %+v", alignment)
-					}
+					checkRows(searched, "related_found", nil)
 				}
 			})
 		}

@@ -14,7 +14,7 @@
     },
     {
       "criterion": 2,
-      "scenario": "Q4-blocked-reason"
+      "exemption": "Cycle refusal is proved by TestCycleCheckRejectsSimpleTwoNodeCycle (internal/store/lifecycle_relations_test.go)."
     },
     {
       "criterion": 3,
@@ -26,7 +26,7 @@
     },
     {
       "criterion": 5,
-      "scenario": "Q5-ready-ranking"
+      "exemption": "List readiness and blocker release are proved by TestOverlapBlocksRemovesWorkFromReady (internal/store/planning_operation_retirement_test.go)."
     }
   ]
 }
@@ -83,9 +83,9 @@ typed directional relations between work items. Read-time properties such as
 `blocked`, `ready`, `active`, and `terminal` are deterministic projections of that
 state and relation graph—never independently mutable fields.
 
-This creates one explainable lifecycle/relation answer to PM1 Q2–Q5 and Q7–Q8
+This creates one explainable lifecycle/relation answer to PM1 Q2, Q3, Q7 and Q8
 without importing a gate hierarchy into Product memory or allowing stored
-summary flags to drift from truth. Accepted PM5 now supplies Q6 membership identity.
+summary flags to drift from truth. Accepted PM5 supplies membership identity.
 
 ## 2. Lifecycle
 
@@ -151,6 +151,10 @@ For work item `W`:
 - `blocked(W)` iff `actionable(W)` and at least one actionable nonterminal work
   item has a stored `blocks` edge to `W`;
 - `ready(W)` iff `actionable(W)`, lifecycle is `needed`, and `blocked(W)` is false.
+
+The list `work_summary.ready` is true exactly when lifecycle is `needed` and no
+live blocker holds the item. A needed item with `ready` absent or false is blocked;
+the relations read supplies its blocker graph. No public `blocked` flag exists.
 
 CD-0213 retires the `initiative` kind from execution. Its historical lifecycle
 and record remain readable, but actionable views do not select it.
@@ -263,7 +267,7 @@ as a mutation kind.
 ### Stored `blocked` lifecycle or flag
 
 Rejected. It duplicates relation truth, can disagree with the graph, and directly
-violates PM1 Q4's oracle. Every surveyed mature work system models blocking as a
+violates the derived readiness rule. Every surveyed mature work system models blocking as a
 relation rather than a lifecycle status.
 
 ### Separate `blocks` and `depends_on` rows
@@ -300,7 +304,7 @@ PM4 does not decide:
 
 Reopen PM4 if:
 
-1. derived blocked/ready queries cannot meet PM1's bounded P99 target at 10× scale;
+1. derived readiness reads cannot meet PM1's bounded P99 target at 10× scale;
 2. repeated real work requires a soft/hard dependency distinction that cannot be a
    typed relation attribute;
 3. external blockers repeatedly fail the work-item model;
@@ -347,29 +351,24 @@ jobs/oracles, CD-0002 invariants, and the falsifiers above remain controlling.
   Then the reopen removes or replaces the supersession edge and transitions
   the state in one recorded operation, never a direct superseded-to-needed edit.
 
-- Given ready work ranked against a blocked higher-priority item
-  When Q5 selects work
-  Then readiness is the derived needed-and-unblocked projection and the
-  ranking stays deterministic.
+- Given needed work held by a live blocker
+  When Q3 lists that work
+  Then its ready flag is false and the relation read identifies the blocker.
 
 ## Verification
 
-Criteria 2 and 5 are proved by scenarios of
-`.concord/scenarios/product-memory-query.v1.json`, executed by
-`TestAcceptedQ1ToQ8AndDomainCorpus`
-(`internal/store/query_corpus_test.go`). The
-remainder carry typed exemptions in the record naming the lifecycle tests
-that prove the guarantees.
+The criteria carry typed exemptions naming the tests that prove the guarantees.
 
 - Criterion 1 is proved by `TestLifecycleTransitionsAreClosedAndTyped`
   (`internal/store/lifecycle_relations_test.go`).
-- Criterion 2 is proved by the bound `Q4-blocked-reason` scenario, whose
-  blocked answer is derived from the relation graph.
+- Criterion 2 is proved by `TestCycleCheckRejectsSimpleTwoNodeCycle`
+  (`internal/store/lifecycle_relations_test.go`).
 - Criterion 3 is proved by
   `TestSupersessionIsAtomicAndRejectsCyclesAndSecondSuccessors`
   (`internal/store/lifecycle_relations_test.go`).
 - Criterion 4 is proved by
   `TestSupersessionRejectsAlreadySupersededAndReopenRequiresCompositeEvent`
   (`internal/store/lifecycle_relations_test.go`).
-- Criterion 5 is proved by the bound `Q5-ready-ranking` scenario. Section 10
-  records the falsifiers for each guarantee.
+- Criterion 5 is proved by `TestOverlapBlocksRemovesWorkFromReady`
+  (`internal/store/planning_operation_retirement_test.go`). Section 10 records
+  the falsifiers for each guarantee.

@@ -71,7 +71,7 @@ surface candidates. A job starts with an agent-visible intent and ends with an
 observable Product-memory or external-authority outcome. It is not a table, CLI
 command, workflow phase, or proposed Concord tool.
 
-PM1's Q1–Q8 remain the canonical read contract. TS1 composes those reads with
+PM1's canonical reads remain the read contract. TS1 composes those reads with
 the mutation, completion, and operational outcomes already required
 by Concord. No Q-number implies a separate tool.
 
@@ -155,7 +155,7 @@ surface expansion or pruning. No universal numeric tool ceiling is assumed.
 
 ### Concord evidence
 
-- PM1 Q1–Q8 establish Product orientation, work views, blocked/ready selection,
+- PM1's canonical reads establish Product orientation, work views, blocked/ready selection,
   cross-Project identity, history, and relations (`product-memory-query-contract.md` §§4–5).
 - Concord's first-usable floor requires one Product view, required work capture,
   visible ready/blocked/next work, evidence-backed completion, and durable Product

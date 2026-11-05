@@ -1226,7 +1226,7 @@ func init() {
 	jobBindings["AJ4-complete-valid-work"] = bindAJ4CompleteValidWork
 	jobBindings["AJ4-completion-missing-evidence"] = bindAJ4CompletionMissingEvidence
 	jobBindings["AJ4-stale-version"] = bindAJ4StaleVersion
-	jobBindings["AJ4-history-of-a-superseded-contract"] = bindAJ4HistoryOfASupersededContract
+	jobBindings["AJ4-current-lifecycle-after-contract-revision"] = bindAJ4CurrentLifecycleAfterContractRevision
 	jobBindings["AJ5-resolve-domain-overlap"] = bindAJ5ResolveDomainOverlap
 	jobBindings["AJ8-budget-refused"] = bindAJ8BudgetRefused
 	jobBindings["AJ8-health-failure-rollback"] = bindAJ8HealthFailureRollback
@@ -1256,12 +1256,12 @@ func bindAJ1AmbientReadyWork(t *testing.T, sc jobScenario) jobObservation {
 		obs.Result["resolved_product_id"] = pid
 	}
 
-	// 2. List ready work via concord_work_browse.ready.
+	// 2. List work and derive ready work from its readiness field.
 	productID, _ := obs.Result["resolved_product_id"].(string)
 	readyEnv := agentJobsEnvelope(grant, ambient, productID)
 	readyResp := dispatchRead(t, s, service, InvokeRequest{
 		Tool:      "concord_work_browse",
-		Operation: "ready",
+		Operation: "list",
 		Input:     json.RawMessage(`{"product_id":"` + productID + `","page":{"cursor":null,"limit":20}}`),
 	}, readyEnv)
 
@@ -1273,15 +1273,18 @@ func bindAJ1AmbientReadyWork(t *testing.T, sc jobScenario) jobObservation {
 		t.Fatalf("unmarshal ready result: %v", err)
 	}
 
-	// The first ready item is the selected work.
-	if items, ok := readyResult["items"].([]any); ok && len(items) > 0 {
-		if first, ok := items[0].(map[string]any); ok {
-			obs.Result["selected_work_id"] = first["id"]
+	readyItems := []any{}
+	if items, ok := readyResult["items"].([]any); ok {
+		for _, item := range items {
+			if work, ok := item.(map[string]any); ok && work["ready"] == true {
+				readyItems = append(readyItems, work)
+			}
 		}
 	}
-
-	// ready_work_evidence: the items list itself is the evidence.
-	obs.Communication["ready_work_evidence"] = readyResult["items"]
+	if len(readyItems) > 0 {
+		obs.Result["selected_work_id"] = readyItems[0].(map[string]any)["id"]
+	}
+	obs.Communication["ready_work_evidence"] = readyItems
 
 	// Authority probe: prove no stored ready column was consulted.
 	storedUsed := probeNoStoredReadyFlag(t, s)

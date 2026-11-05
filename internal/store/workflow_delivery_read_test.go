@@ -32,42 +32,6 @@ func transitionDeliverWork(t *testing.T, s *Store, to, reason string) error {
 	return err
 }
 
-func TestWorkflowReadParksDeliveryAtGate(t *testing.T) {
-	t.Parallel()
-	s := deliveryGateFixture(t)
-	out, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: "work-deliv"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.ParkedDelivery == nil {
-		t.Fatal("delivery-gate step did not project a parked delivery")
-	}
-	if out.ParkedDelivery.StepID != "review" || out.ParkedDelivery.ResumeAction != "record_delivery" {
-		t.Fatalf("parked delivery carries %+v", out.ParkedDelivery)
-	}
-	if out.ParkedDelivery.Unreconciled {
-		t.Fatal("a running instance must not read as unreconciled")
-	}
-	if out.ParkedDelivery.ParkedSeconds < 0 {
-		t.Fatalf("parked duration %d is negative", out.ParkedDelivery.ParkedSeconds)
-	}
-}
-
-func TestWorkflowReadMarksUnreconciledAfterCancellation(t *testing.T) {
-	t.Parallel()
-	s := deliveryGateFixture(t)
-	if err := transitionDeliverWork(t, s, "cancelled", "superseded by operator judgement"); err != nil {
-		t.Fatal(err)
-	}
-	out, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: "work-deliv"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.ParkedDelivery == nil || !out.ParkedDelivery.Unreconciled {
-		t.Fatalf("cancelled-at-gate item must read as unreconciled, got %+v", out.ParkedDelivery)
-	}
-}
-
 func TestWorkflowCompletionRefusedAtDeliveryGate(t *testing.T) {
 	t.Parallel()
 	s := deliveryGateFixture(t)

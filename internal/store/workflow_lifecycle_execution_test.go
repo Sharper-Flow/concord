@@ -29,13 +29,13 @@ func TestFirstWorkflowActionStartsLifecycle(t *testing.T) {
 	}
 
 	// The item reads ready before the first action.
-	ready, err := s.QueryQ5(ctx, Q5Request{Product: "product", Limit: 50})
+	ready, err := s.QueryQ3(ctx, Q3Request{Product: "product", WorkIDs: []string{workID}, Detail: "full"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	readsReady := false
 	for _, item := range ready.Items {
-		if item.ID == workID {
+		if item.ID == workID && item.Ready {
 			readsReady = true
 		}
 	}
@@ -74,12 +74,12 @@ func TestFirstWorkflowActionStartsLifecycle(t *testing.T) {
 	if lifecycle != "in_progress" {
 		t.Fatalf("first action left lifecycle=%q, want in_progress", lifecycle)
 	}
-	ready, err = s.QueryQ5(ctx, Q5Request{Product: "product", Limit: 50})
+	ready, err = s.QueryQ3(ctx, Q3Request{Product: "product", WorkIDs: []string{workID}, Detail: "full"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, item := range ready.Items {
-		if item.ID == workID {
+		if item.ID == workID && item.Ready {
 			t.Fatal("the started item still reads ready")
 		}
 	}

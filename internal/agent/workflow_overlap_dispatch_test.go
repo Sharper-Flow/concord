@@ -139,11 +139,11 @@ func TestResolveOverlapBlocksRemovesWorkFromReady(t *testing.T) {
 			t.Fatalf("readiness must be derived, found stored column %q", column)
 		}
 	}
-	before, err := s.QueryQ5(ctx, store.Q5Request{Product: "product-1"})
+	before, err := s.QueryQ3(ctx, store.Q3Request{Product: "product-1", WorkIDs: []string{"work-2"}, Detail: "full"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(before.Items) != 1 || before.Items[0].ID != "work-2" || deriveWorkBlocked(t, s, "work-2") {
+	if len(before.Items) != 1 || before.Items[0].ID != "work-2" || !before.Items[0].Ready || deriveWorkBlocked(t, s, "work-2") {
 		t.Fatalf("peer was not ready before resolution: %+v", before.Items)
 	}
 	input = []byte(strings.Replace(string(input), `"resolution_kind":"depends_on"`, `"resolution_kind":"blocks"`, 1))
@@ -155,11 +155,11 @@ func TestResolveOverlapBlocksRemovesWorkFromReady(t *testing.T) {
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='blocks' AND work_id_from='work-1' AND work_id_to='work-2' AND resolution_id IS NOT NULL`); got != 1 {
 		t.Fatalf("resolution blocks rows=%d, want 1", got)
 	}
-	after, err := s.QueryQ5(ctx, store.Q5Request{Product: "product-1"})
+	after, err := s.QueryQ3(ctx, store.Q3Request{Product: "product-1", WorkIDs: []string{"work-2"}, Detail: "full"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(after.Items) != 0 || !deriveWorkBlocked(t, s, "work-2") {
+	if len(after.Items) != 1 || after.Items[0].Ready || !deriveWorkBlocked(t, s, "work-2") {
 		t.Fatalf("resolution did not remove the blocked peer from ready: %+v", after.Items)
 	}
 	beforeEvents := agentCurrentEffects(t, s)

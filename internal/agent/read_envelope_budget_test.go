@@ -98,8 +98,8 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 				t.Fatalf("duplicate work ID %s", item.ID)
 			}
 			seen[item.ID] = true
-			if item.Task != task || item.ValueStatement != value || len(item.Tags) != 32 || item.WorkPin == nil || len(item.WorkPin.NextValidIntents) == 0 {
-				t.Fatalf("full detail lost intent or pin for %s", item.ID)
+			if item.Task != task || item.ValueStatement != value || len(item.Tags) != 32 {
+				t.Fatalf("full detail lost intent for %s", item.ID)
 			}
 		}
 		pages++
@@ -135,7 +135,7 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 		t.Fatal("summary population changed")
 	}
 	for _, item := range summaries.Items {
-		if item.Task != "" || item.WorkPin != nil {
+		if item.Task != "" {
 			t.Fatal("summary leaked full detail")
 		}
 	}
@@ -162,7 +162,7 @@ func TestSingleFullWorkItemTooLargeReturnsLosslessProjectionPages(t *testing.T) 
 	t.Parallel()
 	ctx := context.Background()
 	s, _, _ := workflowEngineFixture(t, "single item")
-	intent, _ := json.Marshal(map[string]any{"task": strings.Repeat("<", 8192), "value_statement": strings.Repeat("v", 256), "workflow_type_ref": "workflow.break_fix"})
+	intent, _ := json.Marshal(map[string]any{"task": strings.Repeat("<", 8192), "value_statement": strings.Repeat("v", 256), "tags": oversizedIntentTags(), "workflow_type_ref": "workflow.break_fix"})
 	db := s.DatabaseForTesting()
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES (1); UPDATE work_items SET intent_json=? WHERE id='work-1'; DELETE FROM write_guard`, string(intent)); err != nil {
 		t.Fatal(err)
@@ -174,7 +174,7 @@ func TestSingleFullWorkItemTooLargeReturnsLosslessProjectionPages(t *testing.T) 
 			input["limit"] = limit
 		}
 		items, fragments := readFullListDocuments(t, ctx, r, input)
-		if len(items) != 1 || items[0].ID != "work-1" || items[0].Task != strings.Repeat("<", 8192) || items[0].WorkPin == nil || len(items[0].WorkPin.NextValidIntents) == 0 || fragments < 2 {
+		if len(items) != 1 || items[0].ID != "work-1" || items[0].Task != strings.Repeat("<", 8192) || fragments < 2 {
 			t.Fatalf("single admitted item must arrive complete: limit=%d items=%d fragments=%d", limit, len(items), fragments)
 		}
 	}
@@ -194,21 +194,14 @@ func TestWorkSummaryBytePagesKeepContinuation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, operation := range []string{"ready", "scope", "blocked"} {
+	for _, operation := range []string{"list"} {
 		t.Run(operation, func(t *testing.T) {
-			if operation == "blocked" {
-				if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1);
-					INSERT INTO relations(work_id_from,work_id_to,kind,created_at) SELECT 'work-1',id,'blocks','2026-08-08T12:00:00Z' FROM work_items WHERE id<>'work-1';
-					DELETE FROM write_guard`); err != nil {
-					t.Fatal(err)
-				}
-			}
 			r := runtime{Store: s, Tool: "concord_work_browse", Operation: operation, Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
 			var cursor *string
 			seen := map[string]bool{}
 			pages := 0
 			for {
-				input, _ := json.Marshal(map[string]any{"product_id": "product-1", "project_id": "project-1", "limit": 100, "page": map[string]any{"cursor": cursor}})
+				input, _ := json.Marshal(map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "limit": 100, "page": map[string]any{"cursor": cursor}})
 				response, err := r.read(ctx, agentcontract.NewBase("summary-byte-pages", r.Tool, r.Operation), input, agentcontract.NewBase("", r.Tool, r.Operation).QueryID)
 				if err != nil {
 					t.Fatal(err)
@@ -241,10 +234,7 @@ func TestWorkSummaryBytePagesKeepContinuation(t *testing.T) {
 					t.Fatal("cursor did not advance")
 				}
 			}
-			want := 99
-			if operation == "scope" {
-				want = 100
-			}
+			want := 100
 			if len(seen) != want || pages < 2 {
 				t.Fatalf("enumerated %d items in %d pages, want %d", len(seen), pages, want)
 			}
@@ -352,7 +342,6 @@ func TestReadBudgetIncludesEnvelopeMetadata(t *testing.T) {
 	s, _, _ := workflowEngineFixture(t, "metadata budget")
 	for _, test := range []struct{ tool, operation, input string }{
 		{"concord_work_browse", "list", `{"product_id":"product-1","limit":1}`},
-		{"concord_work_browse", "scope", `{"product_id":"product-1","work_id":"work-1"}`},
 		{"concord_work_trace", "continuity", `{"work_id":"work-1","limit":1}`},
 		{"concord_work_trace", "history", `{"work_id":"work-1","limit":1}`},
 	} {

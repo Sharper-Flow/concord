@@ -78,12 +78,12 @@ PM4/PM5 semantics (now settled separately).
 | Object | PM3 commitment | PM1 purpose | Still open |
 |---|---|---|---|
 | `products` | first-class typed projection | Q1/Q2 Product root | none; the Product-row glance retired with its read (CD-0224) |
-| `projects` | first-class typed projection; repositories are one Project kind/locator | Q1/Q3/Q6 scope | repo/deploy packaging, Project kind details |
+| `projects` | first-class typed projection; repositories are one Project kind/locator | Q1/Q3 scope | repo/deploy packaging, Project kind details |
 | `domains` | Git-derived first-class Product-owned architecture identity with optional acyclic parent, law ownership, and endpoint-specific architecture relations; SQLite projects that law | Q3 Domain filter; Product → Domain primary navigation | #193 implements Domain/law homes; #197 directly removes component authority from the current read path |
 | `work_items` | one canonical typed managed-work projection; extensible `kind`; rare metadata JSON; independent `research` is ordinary work; CD-0213 permits historical `initiative` reads but no new grouping writes | Q2–Q8 | PM4 supplies states/relations; PM5 supplies membership/scope; business grouping belongs to Linear MCP |
 | Product↔Project membership | typed relational edge | Q1 ownership/ambiguity | PM5: many-to-many, role-only, optional singular primary |
-| Work↔Project membership | typed relational edge; no copied status | Q6 both directions | PM5: role-only, optional singular primary, derived Product scope |
-| `relations` | typed edge structure with real foreign key (FK) endpoints | Q4/Q8 | PM4 supplies kinds, inverses, cycle rules, and supersession semantics |
+| Work↔Project membership | typed relational edge; no copied status | Q3 membership | PM5: role-only, optional singular primary, derived Product scope |
+| `relations` | typed edge structure with real foreign key (FK) endpoints | Q8 | PM4 supplies kinds, inverses, cycle rules, and supersession semantics |
 | `labels` / tagging | typed many-to-many categorical extension | Q3 tags | exact label governance |
 | `external_refs` | opaque typed locator for PR/commit/upstream/URL | Q8 links | provider-specific validation |
 | store state | current rows and finite verified snapshots; no event log, fold, upcaster, or replay exists (CD-0242 D2) | Q2–Q8 current-state reads | none |
@@ -142,7 +142,7 @@ and polymorphic domain relations that cannot enforce integrity.
 
 The generic `entities(type, current_state JSON)` design keeps the storage layer uniform but
 pushes PM1's stable Product/Project/work fields into JSON or a growing set of facets.
-Once every hot field is promoted for Q1–Q8, the system has recreated explicit
+Once every hot field is promoted for the canonical reads, the system has recreated explicit
 tables indirectly—with weaker discoverability and integrity.
 
 ### Per-kind tables and typed logs — rejected

@@ -114,8 +114,10 @@ func TestWorkflowPlanAdmissionRefusalParity(t *testing.T) {
 	valid := json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"artifact:refusal","producer_id":"principal/refusal","producer_run_ref":"refusal-producer","producer_watermark":"request/refusal"}`)
 	// bindRefusalEffectSnapshot captures the no-effect state a refused
 	// bind_evidence must preserve: work version, evidence bindings and
-	// effect receipts (CD-0124 D3).
-	bindRefusalEffectSnapshot := func() string {
+	// effect receipts (CD-0124 D3). It takes the caller's t so a failing
+	// query fails the subtest that observed it.
+	bindRefusalEffectSnapshot := func(t *testing.T) string {
+		t.Helper()
 		var version, bindings, receipts int64
 		if err := f.store.db.QueryRow(`SELECT (SELECT version FROM work_items WHERE id=?1),(SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=?1),(SELECT count(*) FROM effect_receipts WHERE subject_id=?1)`, workID).Scan(&version, &bindings, &receipts); err != nil {
 			t.Fatal(err)
@@ -134,10 +136,10 @@ func TestWorkflowPlanAdmissionRefusalParity(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			request := planAdmissionRequest(workID, "bind_evidence", version, f.owner, valid)
 			tc.edit(&request)
-			before := bindRefusalEffectSnapshot()
+			before := bindRefusalEffectSnapshot(t)
 			first := planAdmissionFailure(t, planAdmissionPreflight(t, f.store, request), tc.kind)
 			second := planAdmissionFailure(t, planAdmissionDispatch(t, f.store, request), tc.kind)
-			if first.Detail != second.Detail || bindRefusalEffectSnapshot() != before {
+			if first.Detail != second.Detail || bindRefusalEffectSnapshot(t) != before {
 				t.Fatalf("refusal parity or rollback: preflight=%v dispatch=%v", first, second)
 			}
 		})
@@ -147,10 +149,10 @@ func TestWorkflowPlanAdmissionRefusalParity(t *testing.T) {
 	if err := planAdmissionPreflight(t, f.store, request); err != nil {
 		t.Fatalf("actor preflight: %v", err)
 	}
-	before := bindRefusalEffectSnapshot()
+	before := bindRefusalEffectSnapshot(t)
 	dispatchErr := planAdmissionDispatch(t, f.store, request)
 	_ = planAdmissionFailure(t, dispatchErr, KindUnauthorized)
-	if after := bindRefusalEffectSnapshot(); after != before {
+	if after := bindRefusalEffectSnapshot(t); after != before {
 		t.Fatalf("principal mismatch changed the work: %s -> %s", before, after)
 	}
 }

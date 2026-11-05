@@ -18,7 +18,7 @@ func TestPublicBugCaptureAndKindRevision(t *testing.T) {
 	for i := range 2 {
 		env.RequestID = fmt.Sprintf("bug-capture-%d", i)
 		response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: retryJSON(map[string]any{
-			"title": fmt.Sprintf("Checksum mismatch %d", i), "kind": "bug", "project_ids": []string{"project-1"}, "human_key": "ZZ-8100", "remote_issue_uuid": fmt.Sprintf("fixture-bug-capture-%d", i), "url": "https://linear.app/example/issue/ZZ-8100", "idempotency_key": env.RequestID,
+			"title": fmt.Sprintf("Checksum mismatch %d", i), "kind": "bug", "project_ids": []string{"project-1"}, "human_key": fmt.Sprintf("ZZ-82%02d", i), "remote_issue_uuid": fmt.Sprintf("fixture-bug-capture-%d", i), "url": fmt.Sprintf("https://linear.app/example/issue/ZZ-82%02d", i), "idempotency_key": env.RequestID,
 		})}, env)
 		if response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("bug capture %d: %+v", i, response.Error)

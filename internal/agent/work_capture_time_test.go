@@ -28,8 +28,10 @@ func TestWorkSummaryPreservesNativeCaptureTimestamp(t *testing.T) {
 func TestWorkReadsKeepCaptureTimeAcrossRevisionAndResume(t *testing.T) {
 	t.Parallel()
 	s, ctx, service, env, workID := seedIntentRoundtripWork(t, map[string]any{
-		"title": "Read native capture time", "value_statement": "Measure from capture, not the latest read",
-		"kind": "task", "task": "Original instruction", "idempotency_key": "capture-time",
+		"title": "Read native capture time",
+		"kind": "task", "task": "Original instruction",
+		"human_key": "ZZ-7011", "remote_issue_uuid": "fixture-capture-time",
+		"url": "https://linear.app/example/issue/ZZ-7011", "idempotency_key": "capture-time",
 	})
 	var capturedAt string
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT created_at FROM work_items WHERE id=?`, workID).Scan(&capturedAt); err != nil {

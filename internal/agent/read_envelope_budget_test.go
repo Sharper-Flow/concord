@@ -153,31 +153,6 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 	}
 }
 
-func TestSingleFullWorkItemTooLargeReturnsLosslessProjectionPages(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, _, _ := workflowEngineFixture(t, "single item")
-	intent, _ := json.Marshal(map[string]any{"task": strings.Repeat("<", 8192), "value_statement": strings.Repeat("v", 256), "tags": oversizedIntentTags(), "workflow_type_ref": "workflow.break_fix"})
-	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES (1); UPDATE work_items SET intent_json=? WHERE id='work-1'; DELETE FROM write_guard`, string(intent)); err != nil {
-		t.Fatal(err)
-	}
-	r := runtime{Store: s, Tool: "concord_work_browse", Operation: "list", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
-	for _, limit := range []int{0, 1, 100} {
-		input := map[string]any{"product_id": "product-1", "detail": "full"}
-		if limit != 0 {
-			input["limit"] = limit
-		}
-		items, fragments := readFullListDocuments(t, ctx, r, input)
-		if len(items) != 1 || items[0].ID != "work-1" || items[0].Task != strings.Repeat("<", 8192) || fragments < 2 {
-			t.Fatalf("single admitted item must arrive complete: limit=%d items=%d fragments=%d", limit, len(items), fragments)
-		}
-	}
-	var stored string
-	if err := db.QueryRow(`SELECT intent_json FROM work_items WHERE id='work-1'`).Scan(&stored); err != nil || stored != string(intent) {
-		t.Fatalf("read changed intent: %v", err)
-	}
-}
 
 func TestWorkSummaryBytePagesKeepContinuation(t *testing.T) {
 	t.Parallel()

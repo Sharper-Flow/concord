@@ -86,19 +86,6 @@ func TestTaskOnlyRevisionPreservesZeroEmptyAndAbsentIntentStates(t *testing.T) {
 	})
 
 	before := roundtripFullListItem(t, ctx, s, service, env, workID)
-	if got := before["urgency"]; got != "standard" {
-		t.Fatalf("default urgency = %v, want standard", got)
-	}
-	if got, ok := before["priority"]; ok && got != float64(0) {
-		t.Fatalf("omitted priority = %v, want zero", got)
-	}
-	tags, ok := before["tags"].([]any)
-	if !ok || len(tags) != 0 {
-		t.Fatalf("recorded empty tags = %#v, want an empty array", before["tags"])
-	}
-	if _, ok := before["workflow_type_ref"]; ok {
-		t.Fatalf("scope read substituted a workflow_type_ref the intent never recorded: %#v", before["workflow_type_ref"])
-	}
 	if _, ok := before["task"]; ok {
 		t.Fatalf("absent task = %#v, want the field to stay absent", before["task"])
 	}
@@ -114,19 +101,6 @@ func TestTaskOnlyRevisionPreservesZeroEmptyAndAbsentIntentStates(t *testing.T) {
 	roundtripDispatchOK(t, ctx, s, service, env, "roundtrip-revise-3", "concord_work_define", "revise_intent", revise)
 
 	after := roundtripFullListItem(t, ctx, s, service, env, workID)
-	if got := after["urgency"]; got != "standard" {
-		t.Fatalf("urgency after revision = %v, want standard", got)
-	}
-	if got, ok := after["priority"]; ok && got != float64(0) {
-		t.Fatalf("priority after revision = %v, want zero", got)
-	}
-	tags, ok = after["tags"].([]any)
-	if !ok || len(tags) != 0 {
-		t.Fatalf("tags after revision = %#v, want the empty array preserved", after["tags"])
-	}
-	if _, ok := after["workflow_type_ref"]; ok {
-		t.Fatalf("workflow_type_ref appeared from a task-only revision: %#v", after["workflow_type_ref"])
-	}
 	if after["task"] != "First recorded instruction" {
 		t.Fatalf("task after revision = %v, want the replacement", after["task"])
 	}

@@ -56,7 +56,7 @@ func TestWorkListDispatchItemFullNativeRun(t *testing.T) {
 			t.Fatalf("native runs: %+v", page.Items[0].NativeRuns)
 		}
 	}
-	intent, err := json.Marshal(map[string]any{"task": strings.Repeat("<", 8192), "value_statement": "value", "tags": oversizedIntentTags()})
+	intent, err := json.Marshal(map[string]any{"task": strings.Repeat("<", 8192)})
 	if err != nil {
 		t.Fatal(err)
 	}

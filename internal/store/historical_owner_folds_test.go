@@ -50,11 +50,3 @@ func legacyNativeRunWriterPayload(t *testing.T, runID string, mutate func(map[st
 func legacyNativeRunEvent(eventID string, payload []byte) Event {
 	return Event{EventID: eventID, Kind: WorkflowNativeRunRecorded, SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "agent:legacy", OccurredAt: time.Unix(51, 0).UTC(), PayloadVersion: 1, Payload: payload}
 }
-
-func jsonMember(value any) string {
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		panic(err)
-	}
-	return string(encoded)
-}

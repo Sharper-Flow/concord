@@ -256,6 +256,24 @@ func workflowPlanCompleteConfirmationTx(ctx context.Context, q queryer, workID s
 	return workflowPlanDeclaringStep(plan, actionID), confirmed, nil
 }
 
+// workflowPlanCompleteEvidenceBindingTx reports the declaring step when a
+// completed plan has exactly one active contract. This route never closes:
+// the action's own fold records each binding, and prior bindings do not prevent
+// fresh independent evidence.
+func workflowPlanCompleteEvidenceBindingTx(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, actionID string) (string, bool, error) {
+	if plan == nil || actionID != "bind_evidence" || !WorkflowStepPlanComplete(*plan) {
+		return "", false, nil
+	}
+	versions, err := activeWorkflowContractVersions(ctx, q, workID)
+	if err != nil {
+		return "", false, err
+	}
+	if len(versions) != 1 {
+		return "", false, nil
+	}
+	return workflowPlanDeclaringStep(plan, actionID), false, nil
+}
+
 // workflowPlanCompletePrerequisiteTx reports the declaring step that carries
 // a completion-prerequisite action on a completed plan, whether the
 // prerequisite is recorded, and whether the action's own fold records it
@@ -297,7 +315,8 @@ func workflowPlanCompletePrerequisiteTx(ctx context.Context, q queryer, workID s
 
 // workflowPlanCompleteActionTx shares the completed-plan admission state
 // between preflight, projection and folding. Paired events record the contract
-// and confirmation before action completion; delivery is recorded afterwards.
+// and confirmation before action completion; delivery and evidence bindings
+// are recorded afterwards. Evidence binding remains available for fresh evidence.
 func workflowPlanCompleteActionTx(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, actionID string, folding bool) (string, error) {
 	owner, recorded, afterAdmission, err := workflowPlanCompletePrerequisiteTx(ctx, q, workID, plan, actionID)
 	if err != nil {
@@ -308,6 +327,13 @@ func workflowPlanCompleteActionTx(ctx context.Context, q queryer, workID string,
 		if err != nil {
 			return "", err
 		}
+	}
+	if actionID == "bind_evidence" {
+		owner, recorded, err = workflowPlanCompleteEvidenceBindingTx(ctx, q, workID, plan, actionID)
+		if err != nil {
+			return "", err
+		}
+		afterAdmission = true
 	}
 	if owner != "" && recorded == (folding && !afterAdmission) {
 		return owner, nil

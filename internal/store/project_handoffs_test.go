@@ -1303,7 +1303,7 @@ func TestProjectHandoffSelectionsOrderByRecordedEventOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	if pending == nil || pending.HandoffID != secondRec.HandoffID {
-		t.Fatalf("continuity handoff=%+v, want the later-recorded %s", pending, secondRec.HandoffID)
+		t.Fatalf("pending handoff=%+v, want the later-recorded %s", pending, secondRec.HandoffID)
 	}
 	// The addressed consume resolution binds the later-recorded handoff,
 	// and the gate then admits the consuming receiver.

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	goruntime "runtime"
+	"slices"
 	"testing"
 	"time"
 
@@ -247,6 +249,10 @@ func TestSpineFreshSessionResumesCurrentState(t *testing.T) {
 	if before.Pinned.Contract == nil {
 		t.Fatal("active contract missing")
 	}
+	resumeBefore := f.resume(t)
+	if !slices.Contains(resumeBefore.NextSteps, before.Pinned.Step) {
+		t.Fatalf("resume next steps %v omit the current step %q", resumeBefore.NextSteps, before.Pinned.Step)
+	}
 	database := f.s.Path()
 	if err := f.s.Close(); err != nil {
 		t.Fatal(err)
@@ -271,6 +277,31 @@ func TestSpineFreshSessionResumesCurrentState(t *testing.T) {
 		!reflect.DeepEqual(before.Pinned.Pin.NextValidIntents, after.Pinned.Pin.NextValidIntents) {
 		t.Fatalf("fresh session did not recover current state: before=%+v after=%+v", before.Pinned, after.Pinned)
 	}
+	if resumeAfter := f.resume(t); !bytes.Equal(resumeBefore.raw, resumeAfter.raw) {
+		t.Fatalf("fresh session resume read changed: before=%s after=%s", resumeBefore.raw, resumeAfter.raw)
+	}
+}
+
+type spineResumeRead struct {
+	WorkID    string   `json:"work_id"`
+	NextSteps []string `json:"next_steps"`
+	raw       []byte
+}
+
+// resume reads the stored step plan through the agent surface as the
+// fixture's current session.
+func (f *spineFixture) resume(t *testing.T) spineResumeRead {
+	t.Helper()
+	response := spineOK(t, f.call(t, "concord_work_trace", "resume", map[string]any{"work_id": f.work}))
+	var read spineResumeRead
+	if err := json.Unmarshal(response.Result, &read); err != nil {
+		t.Fatal(err)
+	}
+	if read.WorkID != f.work {
+		t.Fatalf("resume read work_id=%q, want %q", read.WorkID, f.work)
+	}
+	read.raw = response.Result
+	return read
 }
 
 // Reaching review leaves premise confirmation before completion.

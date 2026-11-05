@@ -557,7 +557,7 @@ step in its plan is completed.
 ### 12.1 Action-to-event mapping
 
 The current action catalog and plan admission govern availability. Except for
-plan writes, starts and execution checkpoints, semantic events are
+plan writes, `record_work_context`, starts and execution checkpoints, semantic events are
 followed by `workflow.action_completed`; this records the action, not completion
 of a plan step. `record_review` and `complete_step` use the same step-attempt writer.
 

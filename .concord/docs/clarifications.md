@@ -264,7 +264,8 @@ re-litigate them silently.
   unrelated to that tier and must be named **context continuity** to avoid collision.
 - **Direction:** Explicit current-state reads, not summaries, supply authority.
   `concord_work_trace.resume` supplies the step plan; item-scoped
-  `concord_work_browse.list` with full detail supplies current work context.
+  `concord_work_browse.list` with full detail supplies law context, pending
+  handoff and native runs; mutation-result WorkPins carry the work-context view.
   Summaries remain advisory and may follow only a completed durable unit.
 
 ---

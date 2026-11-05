@@ -102,7 +102,7 @@ rather than historical explanation.
 | `list` | Q3 | Product scope; closed lifecycle/Project/kind/tag/priority/terminal-window filters; optional stable work IDs; `detail`; cursor/limit | `work_page`: ordered unique summaries or bounded full records |
 
 `list` with one stable work ID and `detail=full` replaces a separate `show` tool.
-It supplies current law context, pending handoff, native runs and work context.
+It supplies current law context, pending handoff and native runs.
 List readiness is derived from lifecycle and live canonical blockers, not a
 caller-authored filter. A needed item whose `ready` is absent or false is
 blocked. The `relations` read supplies the bounded blocker graph.

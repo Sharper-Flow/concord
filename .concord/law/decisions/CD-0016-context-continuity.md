@@ -41,9 +41,10 @@ snapshot and authenticated projection-page transport, `checkpoint_context`,
 replacement or compatibility path remains for these retired surfaces.
 `concord_work_trace.resume` supplies the step plan and resume fragments;
 item-scoped `concord_work_browse.list` with `detail=full` supplies law context,
-pending handoff, native runs and work context. Mutation results retain the
-WorkPin and derived `next_valid_intents` under CD-0113 D1–D3; refresh intents
-that require current work facts use item-scoped list.
+pending handoff and native runs. Mutation results retain the WorkPin, which
+carries the work-context view below, and derived `next_valid_intents` under
+CD-0113 D1–D3; refresh intents that require current work facts use item-scoped
+list.
 
 ## Work context
 

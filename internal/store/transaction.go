@@ -87,9 +87,31 @@ func (s *Store) transact(ctx context.Context, durable bool, fn func(*Transaction
 			// state; re-wrapping it here would shadow both.
 			return err
 		}
-		return wrapFailure(KindUnavailable, "transaction", "cannot commit transaction", true, "retry once the database is writable", err)
+		if commitRefusedBeforeDriver(err, ctx) {
+			return wrapFailure(KindUnavailable, "transaction", "cannot commit transaction", true, "retry once the database is writable", err)
+		}
+		// A returned commit error is not a refusal proof: the driver commit
+		// ran and may have landed before the error surfaced, so the envelope
+		// reports a possible effect instead of a clean retry.
+		f := wrapFailure(KindUnavailable, "transaction", "cannot prove the transaction committed", false, "reconcile database state before retrying", err)
+		f.EffectPossible = true
+		return f
 	}
 	return nil
+}
+
+// commitRefusedBeforeDriver reports whether a commit error proves no driver
+// commit ran. Tx.Commit checks its context before the done flag and before
+// any driver commit, and returns that context error unchanged on refusal
+// (go1.26 database/sql, sql.go Tx.Commit). Every other cause — a driver
+// error, which surfaces only after the commit call ran and may follow a
+// successful commit step, or ErrTxDone from a settlement this scope did not
+// observe — leaves the commit's effect unproved.
+func commitRefusedBeforeDriver(err error, ctx context.Context) bool {
+	if ctx.Err() == nil {
+		return false
+	}
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // readSnapshot owns a deferred read scope for projection readers.

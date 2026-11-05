@@ -61,18 +61,25 @@ const (
 // readWorkflowLawContext resolves the approved contract's bound law and
 // Domain references against the verified committed law folder and Domain
 // registry inside the caller's transaction. It returns nil when the contract
-// binds no law and no Domain. Missing own-home laws retain their contract
-// identity and roles with status absent, except reserved additions, which
-// carry identity and roles only, including foreign-qualified additions. Other
-// foreign-home references and missing Domains refuse. Every advertised file
-// locator must open inside the knowledge home.
+// binds no law and no Domain. Every own-home reference folds to its resolved
+// law identity, so one law appears once under its canonical spelling with
+// every role it carries; missing own-home laws retain their identity and
+// roles with status absent, except reserved additions, which carry identity
+// and roles only, including foreign-qualified additions. Other foreign-home
+// references and missing Domains refuse. Every advertised file locator must
+// open inside the knowledge home.
 func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, contract *WorkflowReadContract) (*WorkflowLawContext, error) {
 	if contract == nil {
 		return nil, nil
 	}
+	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, tx, workID)
+	if err != nil {
+		return nil, err
+	}
 	roleSet := map[string]map[string]bool{}
 	obligationSet := map[string]map[string]bool{}
 	markRole := func(lawID, role string) {
+		lawID = ownHomeLawAdditionIdentityID(homeProjectID, lawID)
 		if roleSet[lawID] == nil {
 			roleSet[lawID] = map[string]bool{}
 		}
@@ -84,10 +91,11 @@ func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, cont
 	if binding := contract.ArchitectureBinding; binding != nil {
 		for _, obligation := range binding.VerificationObligations {
 			markRole(obligation.LawID, lawContextRoleObligation)
-			if obligationSet[obligation.LawID] == nil {
-				obligationSet[obligation.LawID] = map[string]bool{}
+			obligationID := ownHomeLawAdditionIdentityID(homeProjectID, obligation.LawID)
+			if obligationSet[obligationID] == nil {
+				obligationSet[obligationID] = map[string]bool{}
 			}
-			obligationSet[obligation.LawID][obligation.ObligationID] = true
+			obligationSet[obligationID][obligation.ObligationID] = true
 		}
 		for _, addition := range binding.LawAdditions {
 			markRole(addition.LawID, lawContextRoleAdded)
@@ -110,7 +118,7 @@ func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, cont
 	}
 	sort.Strings(lawIDs)
 	if len(lawIDs) > 0 {
-		laws, err := resolveWorkflowLawContextLaws(ctx, tx, workID, roleSet, obligationSet, lawIDs)
+		laws, err := resolveWorkflowLawContextLaws(ctx, tx, homeProjectID, homeLocatorID, roleSet, obligationSet, lawIDs)
 		if err != nil {
 			return nil, err
 		}
@@ -138,11 +146,7 @@ func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, cont
 	return context, nil
 }
 
-func resolveWorkflowLawContextLaws(ctx context.Context, tx *sql.Tx, workID string, roleSet, obligationSet map[string]map[string]bool, lawIDs []string) ([]WorkflowLawContextLaw, error) {
-	homeProjectID, homeLocatorID, err := workflowLawHome(ctx, tx, workID)
-	if err != nil {
-		return nil, err
-	}
+func resolveWorkflowLawContextLaws(ctx context.Context, tx *sql.Tx, homeProjectID, homeLocatorID string, roleSet, obligationSet map[string]map[string]bool, lawIDs []string) ([]WorkflowLawContextLaw, error) {
 	homeRepo, err := workflowLawHomeRepo(ctx, tx, homeProjectID, homeLocatorID)
 	if err != nil {
 		return nil, err

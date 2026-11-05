@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -101,7 +102,7 @@ func approveQualifiedAdditionAtSeam(t *testing.T, s *Store, workID string, manda
 // snapshot cannot verify so the Product-law reuse refusal does not apply to
 // it, and an admitted addition reserves under its canonical law identity —
 // the bare form for an own-home qualified spelling, the raw spelling for a
-// foreign home (CON-1703).
+// foreign home.
 func TestQualifiedOwnHomeLawAdditionReuseRefusedAtApprovalSeam(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "qualified-addition-home-bootstrap")
@@ -223,12 +224,64 @@ func TestLawAdditionReservationSpellingsConflictAtApprovalSeam(t *testing.T) {
 	}
 
 	// A foreign-home spelling keeps its own boundary: it reserves its own
-	// identity even while the bare spelling of the same law ID is reserved.
+	// identity even while the bare spelling of the same law ID is reserved
+	// by another work.
+	if err := approveQualifiedAdditionAtSeam(t, s, "reservation-spelling-bare-separate", []string{"law:separate"}, []WorkflowLawAddition{{LawID: "law:separate", HomeDomainID: "root"}}); err != nil {
+		t.Fatalf("bare foreign-contrast reservation refused: %v", err)
+	}
 	if err := approveQualifiedAdditionAtSeam(t, s, "reservation-spelling-foreign", []string{"other/law:separate"}, []WorkflowLawAddition{{LawID: "other/law:separate", HomeDomainID: "root"}}); err != nil {
 		t.Fatalf("foreign-home reservation refused: %v", err)
 	}
 	if reservationCount("other/law:separate") != 1 {
 		t.Fatal("foreign-home spelling lost its own reservation row")
+	}
+
+	// The mandate speaks in identities too: an addition in its qualified
+	// spelling is authorized by a mandate entry in either spelling.
+	if err := approveQualifiedAdditionAtSeam(t, s, "reservation-spelling-mandate-bare", []string{"law:authorized"}, []WorkflowLawAddition{{LawID: "project/law:authorized", HomeDomainID: "root"}}); err != nil {
+		t.Fatalf("addition authorized by the bare mandate spelling refused: %v", err)
+	}
+	if reservationCount("law:authorized") != 1 || reservationCount("project/law:authorized") != 0 {
+		t.Fatalf("bare-mandated addition rows: canonical=%d qualified=%d, want 1 and 0", reservationCount("law:authorized"), reservationCount("project/law:authorized"))
+	}
+
+	// The law context folds one identity's mandate entry and reserved
+	// addition into one canonical law carrying both roles, so a mandated law
+	// never reads as absent because its addition was stored canonically.
+	const lawContextWork = "reservation-spelling-law-context"
+	if err := approveQualifiedAdditionAtSeam(t, s, lawContextWork, []string{"project/law:folded"}, []WorkflowLawAddition{{LawID: "project/law:folded", HomeDomainID: "root"}}); err != nil {
+		t.Fatalf("qualified addition for the law context refused: %v", err)
+	}
+	readCtx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), lawContextWork)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readTx, err := s.DatabaseForTesting().BeginTx(readCtx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := readWorkflowContractVersion(readCtx, readTx, lawContextWork, 1)
+	if err != nil {
+		readTx.Rollback()
+		t.Fatal(err)
+	}
+	lawContext, err := readWorkflowLawContext(readCtx, readTx, lawContextWork, &contract)
+	if err != nil {
+		readTx.Rollback()
+		t.Fatal(err)
+	}
+	readTx.Rollback()
+	want := []WorkflowLawContextLaw{{LawID: "law:folded", Roles: []string{"added", "mandated"}}}
+	if !reflect.DeepEqual(lawContext.Laws, want) {
+		t.Fatalf("law context laws=%+v, want one folded identity %+v", lawContext.Laws, want)
+	}
+
+	// The read-back contract revises cleanly: its canonical addition and the
+	// authored mandate spelling still agree as one identity.
+	owner := WorkflowActor{PrincipalRef: "principal:qualified-addition", ClientRef: "client:qualified-addition", AgentRef: "agent:qualified-addition", SessionRef: "session:" + lawContextWork, ActorClass: ActorAgent}
+	successor := pContractSuccessor(t, s, lawContextWork, "revise the folded identity")
+	if err := reviseContractRecord(t, s, lawContextWork, owner, successor, readWorkVersion(t, s, lawContextWork)); err != nil {
+		t.Fatalf("read-back contract revise refused: %v", err)
 	}
 }
 

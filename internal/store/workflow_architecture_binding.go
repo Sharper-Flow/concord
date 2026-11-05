@@ -169,20 +169,26 @@ const workflowLawAdditionMandateTeaching = "Every law addition must be authorize
 // modifications must use current canonical relations.
 const workflowArchitectureDomainTeaching = "Architecture bindings must name Domains that exist in the current domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
 
-func architectureBindingCurrentMandate(specMandate []string, additions []WorkflowLawAddition) ([]string, error) {
+// architectureBindingCurrentMandate returns the mandated references the
+// contract still owes as committed current law: every mandate entry whose
+// resolved identity an addition reserves is consumed by that addition, under
+// either spelling of one identity. The returned entries keep their submitted
+// spelling; only membership is identity-resolved.
+func architectureBindingCurrentMandate(specMandate []string, homeProjectID string, additions []WorkflowLawAddition) ([]string, error) {
 	if err := validateLawModificationSubset(specMandate, []string{}); err != nil {
 		return nil, err
 	}
-	added := map[string]struct{}{}
+	addedIdentities := map[string]struct{}{}
 	for _, addition := range additions {
-		if _, exists := added[addition.LawID]; exists {
+		identity := ownHomeLawAdditionIdentityID(homeProjectID, addition.LawID)
+		if _, exists := addedIdentities[identity]; exists {
 			return nil, newFailure(KindInvalidPayload, "workflow_architecture_binding", "law addition is duplicated", false, "supply unique law additions")
 		}
-		added[addition.LawID] = struct{}{}
+		addedIdentities[identity] = struct{}{}
 	}
 	result := make([]string, 0, len(specMandate))
 	for _, lawID := range specMandate {
-		if _, isAddition := added[lawID]; !isAddition {
+		if _, isAddition := addedIdentities[ownHomeLawAdditionIdentityID(homeProjectID, lawID)]; !isAddition {
 			result = append(result, lawID)
 		}
 	}
@@ -308,7 +314,7 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 	if err := validateArchitectureBindingLawAdditionsTx(snapshot, homeProjectID, affected, binding.LawAdditions, specMandate, lawModifies); err != nil {
 		return err
 	}
-	remaining, err := architectureBindingCurrentMandate(specMandate, binding.LawAdditions)
+	remaining, err := architectureBindingCurrentMandate(specMandate, homeProjectID, binding.LawAdditions)
 	if err != nil {
 		return err
 	}
@@ -430,24 +436,31 @@ func validateArchitectureBindingLawModifiesTx(snapshot *lawFolderSnapshot, affec
 // Domain the binding does not affect, that reuse an existing Product law
 // ID, or that reserve one law identity under two spellings. A qualified
 // reference naming the Product's own home is the same verified law identity
-// as its bare form, so every probe reads the resolved identity; a qualified
-// reference naming another home stays a foreign identity this snapshot
-// cannot verify.
+// as its bare form, so every probe — mandate membership, modification
+// overlap, reuse, and reservation — reads the resolved identity; a
+// qualified reference naming another home stays a foreign identity this
+// snapshot cannot verify.
 func validateArchitectureBindingLawAdditionsTx(snapshot *lawFolderSnapshot, homeProjectID string, affected map[string]struct{}, additions []WorkflowLawAddition, specMandate, lawModifies []string) error {
+	mandatedIdentities := make(map[string]struct{}, len(specMandate))
+	for _, mandated := range specMandate {
+		mandatedIdentities[ownHomeLawAdditionIdentityID(homeProjectID, mandated)] = struct{}{}
+	}
 	seenIdentities := map[string]struct{}{}
 	for _, addition := range additions {
-		if _, inMandate := stringSet(specMandate)[addition.LawID]; !inMandate {
-			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "law addition is outside spec_mandate", false, "authorize every law addition in spec_mandate")
-		}
-		if slices.Contains(lawModifies, addition.LawID) {
-			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "law addition overlaps law_modifies", false, "choose addition or modification for a law ID")
-		}
 		if _, ok := affected[addition.HomeDomainID]; !ok {
 			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "law addition home Domain is outside affected_domain_ids", false, "include each added law home Domain")
 		}
 		identity := ownHomeLawAdditionIdentityID(homeProjectID, addition.LawID)
 		if !validLawBindingID(identity) {
 			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "law addition identity is invalid", false, "supply a law ID of at least two characters")
+		}
+		if _, inMandate := mandatedIdentities[identity]; !inMandate {
+			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "law addition is outside spec_mandate", false, "authorize every law addition in spec_mandate")
+		}
+		for _, modified := range lawModifies {
+			if ownHomeLawAdditionIdentityID(homeProjectID, modified) == identity {
+				return newFailure(KindInvalidPayload, "workflow_architecture_binding", "law addition overlaps law_modifies", false, "choose addition or modification for a law ID")
+			}
 		}
 		if _, exists := seenIdentities[identity]; exists {
 			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "law additions reserve one identity under two spellings", false, "reserve each law identity once under one spelling")
@@ -536,10 +549,14 @@ func persistWorkflowArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workI
 	}
 	// Reservations key on the resolved law identity, the same resolver the
 	// admission probes read, so the bare and the own-home qualified spelling
-	// of one identity hold one reservation (CON-1703).
-	homeProjectID, _, err := productKnowledgeHomeTx(ctx, tx, productID)
-	if err != nil {
-		return err
+	// of one identity hold one reservation. A binding with no law additions
+	// reserves nothing, so it does not need the knowledge home.
+	var homeProjectID string
+	if len(binding.LawAdditions) > 0 {
+		homeProjectID, _, err = productKnowledgeHomeTx(ctx, tx, productID)
+		if err != nil {
+			return err
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES(?,?,?,?,?)`, workID, contractVersion, productID, binding.HomeDomainID, architectureBindingProjectionHash(binding)); err != nil {
 		return workflowProjectionError(err, "cannot record workflow architecture binding")

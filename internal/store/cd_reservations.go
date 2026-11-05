@@ -8,7 +8,7 @@ import "context"
 // allocator must treat as taken before the record lands on the default
 // branch. LawID carries the identity's canonical spelling: an own-home
 // qualified addition reserves its bare form, so two spellings of one
-// identity cannot hold two reservations (CON-1703).
+// identity cannot hold two reservations.
 type LawAdditionReservation struct {
 	LawID                string `json:"law_id"`
 	OwnerWorkID          string `json:"owner_work_id"`

@@ -778,7 +778,7 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "invariant_violation"
 	case store.KindIllegalLifecycleTransition:
 		return "invalid_transition"
-	case store.KindInvalidRelation, store.KindCycleDetected, store.KindRelationConflict, store.KindRelationNotFound, store.KindRelationContractViolation, store.KindSupersessionTargetAlreadySuperseded, store.KindSupersessionSecondSuccessor:
+	case store.KindInvalidRelation, store.KindCycleDetected, store.KindRelationConflict, store.KindRelationNotFound, store.KindRelationContractViolation:
 		return "invalid_relation"
 	case store.KindMembershipInvariant, store.KindMembershipConflict:
 		return "invariant_violation"
@@ -1445,12 +1445,9 @@ func (r runtime) q8(base agentcontract.Envelope, q store.Q8Result) (agentcontrac
 	}
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"nodes": []any{}, "edges": edges, "replacement_state": relationReplacementState(q.Edges)})
 }
-func relationReplacementState(edges []store.RelationEdge) string {
-	for _, edge := range edges {
-		if edge.Kind == "supersedes" || edge.Kind == "superseded_by" {
-			return "active"
-		}
-	}
+func relationReplacementState(_ []store.RelationEdge) string {
+	// Supersession edges are retired (CON-1571 end state 2), so no stored
+	// edge can report an active replacement.
 	return "none"
 }
 

@@ -192,7 +192,7 @@ func sameChangedRefs(t *testing.T, original, replayed *[]agentcontract.ChangedRe
 
 func TestRoutineCoordinationCachedReplayPreservesOriginalResultWithoutNewEffects(t *testing.T) {
 	t.Parallel()
-	for _, kind := range []string{store.ResolutionDependsOn, store.ResolutionBlocks, store.ResolutionMergedInto, store.ResolutionSupersedes} {
+	for _, kind := range []string{store.ResolutionDependsOn, store.ResolutionBlocks} {
 		t.Run(kind, func(t *testing.T) {
 			t.Parallel()
 			s, service, env := routineCoordinationFixture(t)
@@ -212,14 +212,7 @@ func TestRoutineCoordinationCachedReplayPreservesOriginalResultWithoutNewEffects
 			if workVersion(t, s, "work-1") != binding.fromVersion+1 || workVersion(t, s, "work-2") != binding.toVersion+1 {
 				t.Fatal("resolution did not advance each endpoint exactly once")
 			}
-			fromState, toState := "in_progress", "in_progress"
-			if kind == store.ResolutionMergedInto {
-				fromState = "superseded"
-			}
-			if kind == store.ResolutionSupersedes {
-				toState = "superseded"
-			}
-			if workLifecycle(t, s, "work-1") != fromState || workLifecycle(t, s, "work-2") != toState {
+			if workLifecycle(t, s, "work-1") != "in_progress" || workLifecycle(t, s, "work-2") != "in_progress" {
 				t.Fatal("resolution changed the wrong lifecycle")
 			}
 			baseline := agentCurrentEffects(t, s)
@@ -313,7 +306,7 @@ func crossProductRoutineCoordinationFixture(t *testing.T, capabilities []agentco
 func TestRoutineCoordinationCrossProductScopeAndReplay(t *testing.T) {
 	t.Parallel()
 	for _, selected := range []string{"product-1", "product-2"} {
-		for _, kind := range []string{store.ResolutionDependsOn, store.ResolutionMergedInto, store.ResolutionSupersedes} {
+		for _, kind := range []string{store.ResolutionDependsOn} {
 			t.Run(selected+"/"+kind, func(t *testing.T) {
 				t.Parallel()
 				s, service, grant, env := crossProductRoutineCoordinationFixture(t, []agentcontract.Capability{"work_relate", "cross_scope"})
@@ -337,14 +330,7 @@ func TestRoutineCoordinationCrossProductScopeAndReplay(t *testing.T) {
 				if !strings.Contains(snapshot, `"durable_commit":true`) || !strings.Contains(snapshot, `"product_ids":["product-1","product-2"]`) {
 					t.Fatalf("lost durable Product scope: %s", snapshot)
 				}
-				fromState, toState := "in_progress", "in_progress"
-				if kind == store.ResolutionMergedInto {
-					fromState = "superseded"
-				}
-				if kind == store.ResolutionSupersedes {
-					toState = "superseded"
-				}
-				if workLifecycle(t, s, "work-1") != fromState || workLifecycle(t, s, "work-2") != toState {
+				if workLifecycle(t, s, "work-1") != "in_progress" || workLifecycle(t, s, "work-2") != "in_progress" {
 					t.Fatal("resolution changed the wrong lifecycle")
 				}
 				before := agentCurrentEffects(t, s)
@@ -376,16 +362,3 @@ func TestRoutineCoordinationCrossProductRoutineKindRefusesWithoutCrossScope(t *t
 	}
 }
 
-func TestRoutineCoordinationDestructiveKindWithEmptySelectedProduct(t *testing.T) {
-	t.Parallel()
-	s, service, env := routineCoordinationFixture(t)
-	env.SelectedProductID = ""
-	binding := routineOverlapExactBinding(t, s, store.ResolutionMergedInto)
-	response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: routineOverlapResolveInput(t, binding, "routine-empty-selection")}, env)
-	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("empty Product selection: %+v", response.Error)
-	}
-	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`) != 1 || workLifecycle(t, s, "work-1") != "superseded" || workLifecycle(t, s, "work-2") != "in_progress" || workVersion(t, s, "work-1") != binding.fromVersion+1 || workVersion(t, s, "work-2") != binding.toVersion+1 {
-		t.Fatal("empty-selection resolution lost its atomic terminal effect")
-	}
-}

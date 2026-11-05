@@ -209,8 +209,6 @@ func TestMutationDurabilityConditionalPlans(t *testing.T) {
 	}{
 		{"depends_on", "depends_on", false},
 		{"blocks", "blocks", true},
-		{"merged_into", "merged_into", true},
-		{"supersedes", "supersedes", true},
 	} {
 		raw, err := json.Marshal(map[string]any{
 			"from_work_id": "work-1", "to_work_id": "work-2",

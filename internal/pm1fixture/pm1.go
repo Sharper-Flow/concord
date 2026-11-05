@@ -342,7 +342,7 @@ func seedWorkRelations(ctx context.Context, s *store.Store, c Corpus, versions m
 	for _, r := range c.Fixtures.Relations {
 		switch r.Kind {
 		case "depends_on":
-			event := fixtureEvent("relation-depends", "relation.added", 1, store.SubjectWorkItem, r.Target, "operator", "2026-08-06T00:00:00Z", map[string]any{"from": r.Target, "to": r.Source, "kind": "blocks", "reason": "fixture dependency", "expected_version": versions[r.Target], "resulting_version": versions[r.Target] + 1})
+			event := fixtureEvent("relation-depends-"+r.Source+"-"+r.Target, "relation.added", 1, store.SubjectWorkItem, r.Target, "operator", "2026-08-06T00:00:00Z", map[string]any{"from": r.Target, "to": r.Source, "kind": "blocks", "reason": "fixture dependency", "expected_version": versions[r.Target], "resulting_version": versions[r.Target] + 1})
 			if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{event}}); err != nil {
 				return fmt.Errorf("pm1fixture: seed depends_on relation %s->%s: %w", r.Source, r.Target, err)
 			}

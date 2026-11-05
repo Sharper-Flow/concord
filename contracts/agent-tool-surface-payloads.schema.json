@@ -3628,9 +3628,7 @@
           "type": "string",
           "enum": [
             "depends_on",
-            "blocks",
-            "merged_into",
-            "supersedes"
+            "blocks"
           ]
         },
         "reason": {

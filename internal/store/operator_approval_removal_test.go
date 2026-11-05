@@ -64,7 +64,7 @@ INSERT INTO agent_nonce_replay VALUES('removal-client','nonce-already-used','202
 	for seq := 1; seq <= 6; seq++ {
 		execSixClassSQL(t, db, `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version) VALUES(?,?,'fixture','work_item','removal-from',?,1)`, fmt.Sprintf("removal-receipt-%d", seq), seq, actor)
 	}
-	for index, kind := range []string{ResolutionDependsOn, ResolutionBlocks, ResolutionMergedInto, ResolutionSupersedes} {
+	for index, kind := range []string{"depends_on", "blocks", "merged_into", "supersedes"} {
 		var invalidated any
 		if index%2 == 1 {
 			invalidated = 6

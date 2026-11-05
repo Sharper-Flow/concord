@@ -26,13 +26,6 @@ func TestTerminalLifecycleClosesTheWorkflowInstance(t *testing.T) {
 				t.Fatal(err)
 			}
 		}},
-		{name: "superseded", instanceState: "superseded", terminal: func(t *testing.T, s *Store, workID string) {
-			seedWork(t, s, workID+"-successor")
-			event := workSupersededEvent(workID+"-supersede", workID+"-successor", workID, 3, 4)
-			if err := applyWorkEvent(t, s, event, map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 3}); err != nil {
-				t.Fatal(err)
-			}
-		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

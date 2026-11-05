@@ -71,12 +71,6 @@ const (
 	// KindCycleDetected marks an edge that would make a governing relation graph
 	// cyclic. The graph check is performed before the edge is inserted.
 	KindCycleDetected FailureKind = "cycle_detected"
-	// KindSupersessionTargetAlreadySuperseded marks a supersession whose target
-	// has already reached the terminal superseded state.
-	KindSupersessionTargetAlreadySuperseded FailureKind = "supersession_target_already_superseded"
-	// KindSupersessionSecondSuccessor marks a second direct successor for one
-	// predecessor, which would make canonical replacement ambiguous.
-	KindSupersessionSecondSuccessor FailureKind = "supersession_second_successor"
 	// KindRelationContractViolation marks a relation event that bypasses the
 	// composite operation responsible for preserving lifecycle invariants.
 	KindRelationContractViolation FailureKind = "relation_contract_violation"

@@ -28,7 +28,6 @@ type workCreatedPayload struct {
 	ExternalRef           string    `json:"external_ref,omitempty"`
 	RaisedFromWorkID      string    `json:"raised_from_work_id,omitempty"`
 
-
 }
 
 type workTransitionPayload struct {
@@ -76,7 +75,6 @@ type workIntentProjection struct {
 	ExternalRef     string   `json:"external_ref"`
 	// nil is unknown historical scope; a non-nil empty set is a known capture.
 
-
 }
 
 type workMembershipsPayload struct {
@@ -97,27 +95,6 @@ type workReopenedPayload struct {
 	ResultingVersion int64  `json:"resulting_version"`
 }
 
-type workSupersededPayload struct {
-	Successor             string `json:"successor"`
-	Superseded            string `json:"superseded"`
-	Reason                string `json:"reason"`
-	ExpectedVersion       int64  `json:"expected_version"`
-	ResultingVersion      int64  `json:"resulting_version"`
-	SuccessorVersion      int64  `json:"successor_expected_version"`
-	SuccessorResultingVer int64  `json:"successor_resulting_version"`
-}
-
-type workReopenedFromSupersededPayload struct {
-	Superseded           string `json:"superseded"`
-	Replacement          string `json:"replacement_successor"`
-	Reason               string `json:"reason"`
-	ExpectedVersion      int64  `json:"expected_version"`
-	ResultingVersion     int64  `json:"resulting_version"`
-	SuccessorExpected    int64  `json:"successor_expected_version"`
-	SuccessorResulting   int64  `json:"successor_resulting_version"`
-	ReplacementExpected  int64  `json:"replacement_successor_expected_version"`
-	ReplacementResulting int64  `json:"replacement_successor_resulting_version"`
-}
 
 type relationPayload struct {
 	From               string `json:"from"`
@@ -131,12 +108,12 @@ type relationPayload struct {
 }
 
 var lifecycleStates = map[string]bool{
-	"needed": true, "in_progress": true, "completed": true, "cancelled": true, "superseded": true,
+	"needed": true, "in_progress": true, "completed": true, "cancelled": true,
 }
 
-// terminalLifecycles keeps completion, cancellation and supersession consistent
-// across lifecycle consumers.
-var terminalLifecycles = []string{"completed", "cancelled", "superseded"}
+// terminalLifecycles keeps completion and cancellation consistent across
+// lifecycle consumers.
+var terminalLifecycles = []string{"completed", "cancelled"}
 
 func isTerminalLifecycle(v string) bool {
 	for _, terminal := range terminalLifecycles {
@@ -465,177 +442,6 @@ func foldWorkReopened(ctx context.Context, tx *sql.Tx, event Event) error {
 	return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion)
 }
 
-func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
-	if err := checkSubject(event, SubjectWorkItem); err != nil {
-		return err
-	}
-	var payload workSupersededPayload
-	if err := decodePayload(event, &payload); err != nil {
-		return err
-	}
-	if payload.Reason == "" || payload.Superseded != event.SubjectID || payload.Successor == "" || payload.Successor == payload.Superseded {
-		return newFailure(KindInvalidPayload, "fold_event", "work.superseded payload does not identify two distinct work items", false,
-			"supply successor and superseded work IDs plus a non-empty reason")
-	}
-	predecessor, err := readWork(ctx, tx, payload.Superseded)
-	if err != nil {
-		return err
-	}
-	if predecessor.lifecycle == "superseded" {
-		return newFailure(KindSupersessionTargetAlreadySuperseded, "fold_event", "supersession target is already superseded", false,
-			"reopen the target through its active supersession edge before superseding it again")
-	}
-	if predecessor.lifecycle != "needed" && predecessor.lifecycle != "in_progress" && predecessor.lifecycle != "completed" && predecessor.lifecycle != "cancelled" {
-		return newFailure(KindIllegalLifecycleTransition, "fold_event", "work item cannot be superseded from its current state", false,
-			"supersede only needed, in_progress, completed, or cancelled work")
-	}
-	if err := validateWorkVersion(event.SubjectID, predecessor.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
-		return err
-	}
-	successor, err := readWork(ctx, tx, payload.Successor)
-	if err != nil {
-		return err
-	}
-	if payload.SuccessorVersion != 0 && payload.SuccessorResultingVer != 0 {
-		if err := validateWorkVersion(payload.Successor, successor.version, payload.SuccessorVersion, payload.SuccessorResultingVer); err != nil {
-			return err
-		}
-	}
-	if exists, err := workExists(ctx, tx, payload.Successor); err != nil {
-		return err
-	} else if !exists {
-		return newFailure(KindProjectionNotFound, "fold_event", "supersession successor does not exist", false,
-			"create the successor work item before superseding another item")
-	}
-	var existingSuccessor string
-	err = tx.QueryRowContext(ctx, `SELECT work_id_from FROM relations WHERE work_id_to = ? AND kind = 'supersedes'`, payload.Superseded).Scan(&existingSuccessor)
-	if err == nil {
-		return newFailure(KindSupersessionSecondSuccessor, "fold_event", "supersession target already has a direct successor", false,
-			"reopen the target and replace its existing successor explicitly")
-	}
-	if err != sql.ErrNoRows {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot inspect supersession successors", true,
-			"retry once the database is readable", err)
-	}
-	if cycle, err := relationWouldCycle(ctx, tx, payload.Successor, payload.Superseded, "supersedes"); err != nil {
-		return err
-	} else if cycle {
-		return cycleFailure("fold_event", "supersession would create a cycle",
-			"choose a successor that is not reachable from the superseded work", "supersedes", payload.Successor, payload.Superseded)
-	}
-	if err := insertRelation(ctx, tx, event, relationPayload{From: payload.Successor, To: payload.Superseded, Kind: "supersedes"}); err != nil {
-		return err
-	}
-	if err := updateWorkLifecycle(ctx, tx, event, "superseded", predecessor.version, payload.ResultingVersion); err != nil {
-		return err
-	}
-	if payload.SuccessorVersion != 0 && payload.SuccessorResultingVer != 0 {
-		if err := updateWorkVersionByID(ctx, tx, payload.Successor, successor.version, payload.SuccessorResultingVer, event.OccurredAt); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
-	if err := checkSubject(event, SubjectWorkItem); err != nil {
-		return err
-	}
-	var payload workReopenedFromSupersededPayload
-	if err := decodePayload(event, &payload); err != nil {
-		return err
-	}
-	if payload.Reason == "" || payload.Superseded != event.SubjectID {
-		return newFailure(KindInvalidPayload, "fold_event", "reopen payload identifies a different work item", false,
-			"name the superseded subject as the reopened work item and supply a non-empty reason")
-	}
-	current, err := readWork(ctx, tx, event.SubjectID)
-	if err != nil {
-		return err
-	}
-	if current.lifecycle != "superseded" {
-		return illegalTransition(current.lifecycle, "needed")
-	}
-	if err := validateWorkVersion(event.SubjectID, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
-		return err
-	}
-	var successor, successorKind string
-	err = tx.QueryRowContext(ctx, `SELECT successor,kind FROM (
-		SELECT work_id_from AS successor,kind,0 AS precedence FROM relations WHERE work_id_to=? AND kind='supersedes'
-		UNION ALL
-		SELECT work_id_to AS successor,kind,1 AS precedence FROM relations WHERE work_id_from=? AND kind='merged_into'
-	) ORDER BY precedence LIMIT 1`, event.SubjectID, event.SubjectID).Scan(&successor, &successorKind)
-	if err == sql.ErrNoRows {
-		return newFailure(KindRelationNotFound, "fold_event", "superseded work has no active supersession edge", false,
-			"restore the current rows from a verified snapshot before reopening")
-	}
-	if err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot inspect the active supersession edge", true,
-			"retry once the database is readable", err)
-	}
-	if payload.SuccessorExpected != 0 {
-		successorWork, err := readWork(ctx, tx, successor)
-		if err != nil {
-			return err
-		}
-		if err := validateWorkVersion(successor, successorWork.version, payload.SuccessorExpected, payload.SuccessorResulting); err != nil {
-			return err
-		}
-	}
-	fromID, toID := successor, event.SubjectID
-	if successorKind == "merged_into" {
-		fromID, toID = event.SubjectID, successor
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM relations WHERE work_id_from = ? AND work_id_to = ? AND kind = ?`, fromID, toID, successorKind); err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot remove the active supersession edge", true,
-			"retry once the database is writable", err)
-	}
-	if payload.SuccessorExpected != 0 {
-		if err := updateWorkVersionByID(ctx, tx, successor, payload.SuccessorExpected, payload.SuccessorResulting, event.OccurredAt); err != nil {
-			return err
-		}
-	}
-	if payload.Replacement != "" {
-		if payload.ReplacementExpected == 0 && payload.ReplacementResulting == 0 {
-			// Historical composite reopen events carried a replacement label as
-			// caller metadata only. New mutation events include both endpoint
-			// versions and create the replacement edge below.
-			return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion)
-		}
-		if err := replaceSupersessionTx(ctx, tx, event, payload); err != nil {
-			return err
-		}
-	}
-	if err := invalidateWorkflowOverlapResolutionsForWorkTx(ctx, tx, event.EventID, event.SubjectID, successor, payload.Replacement); err != nil {
-		return err
-	}
-	return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion)
-}
-
-func replaceSupersessionTx(ctx context.Context, tx *sql.Tx, event Event, payload workReopenedFromSupersededPayload) error {
-	replacement, err := readWork(ctx, tx, payload.Replacement)
-	if err != nil {
-		return err
-	}
-	if payload.ReplacementExpected == 0 || payload.ReplacementResulting == 0 {
-		return newFailure(KindInvalidPayload, "fold_event", "replacement successor version is required", false, "supply the replacement endpoint version")
-	}
-	if err := validateWorkVersion(payload.Replacement, replacement.version, payload.ReplacementExpected, payload.ReplacementResulting); err != nil {
-		return err
-	}
-	if cycle, err := relationWouldCycle(ctx, tx, payload.Replacement, event.SubjectID, "supersedes"); err != nil {
-		return err
-	} else if cycle {
-		return cycleFailure("fold_event", "replacement supersession would create a cycle", "choose a non-cyclic replacement successor", "supersedes", payload.Replacement, event.SubjectID)
-	}
-	if err := insertRelation(ctx, tx, event, relationPayload{From: payload.Replacement, To: event.SubjectID, Kind: "supersedes"}); err != nil {
-		return err
-	}
-	if err := updateWorkVersionByID(ctx, tx, payload.Replacement, payload.ReplacementExpected, payload.ReplacementResulting, event.OccurredAt); err != nil {
-		return err
-	}
-	return nil
-}
 
 func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
@@ -715,19 +521,10 @@ func foldRelationRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "relation.removed payload has invalid fields", false,
 			"supply the exact stored relation identity and a non-empty reason")
 	}
-	switch payload.Kind {
-	case "supersedes":
-		return newFailure(KindRelationContractViolation, "fold_event",
-			"supersedes relations are removed by reopening the superseded work item", false,
-			"reopen the superseded work item through its active supersession edge")
-	case "compatible_with":
+	if payload.Kind == "compatible_with" {
 		return newFailure(KindRelationContractViolation, "fold_event",
 			"compatible_with edges are historical overlap-resolution records", false,
 			"leave the edge in place; work that shares a Domain proceeds without a resolution")
-	case "merged_into":
-		return newFailure(KindRelationContractViolation, "fold_event",
-			"overlap-resolution relations are owned by resolve_overlap", false,
-			"use resolve_overlap so operator approval, version pins, and lifecycle changes remain atomic")
 	}
 	if payload.Kind == "parent" {
 		fromKind, err := readWorkKind(ctx, tx, payload.From)
@@ -916,7 +713,7 @@ func refuseLiveWorkflowLifecycleCompletionTx(ctx context.Context, tx *sql.Tx, wo
 	if err != nil {
 		return workflowProjectionError(err, "cannot read the workflow instance for lifecycle completion")
 	}
-	if state == "completed" || state == "cancelled" || state == "superseded" {
+	if state == "completed" || state == "cancelled" {
 		return nil
 	}
 	return newFailure(KindNotTerminal, "fold_event",
@@ -925,17 +722,15 @@ func refuseLiveWorkflowLifecycleCompletionTx(ctx context.Context, tx *sql.Tx, wo
 }
 
 // closeWorkflowInstanceForTerminalLifecycle closes a live workflow instance in
-// the same fold that ends its work item. Cancelled and superseded mirror the
-// lifecycle. An item completed by lifecycle never ran its completion gate, so
-// the instance records the abandoned workflow as cancelled while the item's
-// lifecycle carries the outcome and its evidence. An instance that already
-// reached a terminal state keeps that record: workflow.completed is the only
-// fold that may mark an instance completed.
+// the same fold that ends its work item, mirroring cancellation. An item
+// completed by lifecycle never ran its completion gate, so the instance
+// records the abandoned workflow as cancelled while the item's lifecycle
+// carries the outcome and its evidence. An instance that already reached a
+// terminal state keeps that record: workflow.completed is the only fold that
+// may mark an instance completed. Historical 'superseded' instance rows from
+// the retired supersession kinds stay readable untouched.
 func closeWorkflowInstanceForTerminalLifecycle(ctx context.Context, tx *sql.Tx, workID, lifecycle, at string) error {
 	state := "cancelled"
-	if lifecycle == "superseded" {
-		state = "superseded"
-	}
 	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?, completed_at=? WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded')`, state, at, workID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot close the workflow instance of a terminal work item", true,
 			"retry once the database is writable", err)

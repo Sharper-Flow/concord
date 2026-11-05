@@ -186,7 +186,7 @@
             "role": "primary"
           }
         ],
-        "lifecycle": "superseded",
+        "lifecycle": "cancelled",
         "priority": 2,
         "terminal_at": "2026-08-01T12:00:00Z"
       },
@@ -212,10 +212,10 @@
         "resolved": false
       },
       {
-        "kind": "supersedes",
+        "kind": "depends_on",
         "source": "work-new",
         "target": "work-old",
-        "resolved": true
+        "resolved": false
       }
     ],
     "events": [
@@ -551,9 +551,9 @@
       "input": {
         "work": "work-old",
         "relation_kinds": [
-          "supersedes"
+          "blocks"
         ],
-        "direction": "incoming"
+        "direction": "outgoing"
       },
       "expected": {
         "authority": "authoritative",
@@ -561,12 +561,12 @@
           {
             "path": "$.edges[0].source",
             "op": "eq",
-            "value": "work-new"
+            "value": "work-old"
           },
           {
             "path": "$.edges[0].target",
             "op": "eq",
-            "value": "work-old"
+            "value": "work-new"
           }
         ]
       }

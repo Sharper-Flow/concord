@@ -117,7 +117,7 @@ func TestTerminalOnlyQ3RecognizesEveryTerminalFilter(t *testing.T) {
 		want   bool
 	}{
 		{states: []string{"completed"}, want: true},
-		{states: []string{"cancelled", "superseded"}, want: true},
+		{states: []string{"cancelled"}, want: true},
 		{states: []string{"needed", "completed"}, want: false},
 		{states: nil, want: false},
 	} {

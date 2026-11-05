@@ -306,52 +306,19 @@ func TestResolveOverlapRecordsRoutineRelations(t *testing.T) {
 }
 
 // merged_into and supersedes terminalize one endpoint atomically;
-// reopening it retires the resolution and its relation.
-func TestResolveOverlapMergeAndSupersessionAreAtomic(t *testing.T) {
-	t.Parallel()
-	for _, testCase := range []struct {
-		name, kind, terminalID string
-	}{
-		{name: "merged into", kind: ResolutionMergedInto, terminalID: "terminal-source"},
-		{name: "supersedes", kind: ResolutionSupersedes, terminalID: "terminal-target"},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			s, actor := seedOverlapProjection(t, "terminal-source", "terminal-target", false)
-			if err := resolveApprovedOverlap(t, s, "terminal-"+testCase.kind, "terminal-source", "terminal-target", 2, 2, testCase.kind, "operator terminal resolution", actor); err != nil {
-				t.Fatalf("terminal resolution: %v", err)
-			}
-			var lifecycle string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, testCase.terminalID).Scan(&lifecycle); err != nil {
-				t.Fatal(err)
-			}
-			if lifecycle != "superseded" {
-				t.Fatalf("terminal composite lifecycle=%q", lifecycle)
-			}
-			if err := applyWorkEvent(t, s, workReopenedFromSupersededEvent("terminal-reopen-"+testCase.kind, testCase.terminalID, "", 3, 4), nil); err != nil {
-				t.Fatalf("reopen terminal resolution: %v", err)
-			}
-			var current, relations int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_overlap_resolutions WHERE invalidated_seq IS NULL`).Scan(&current); err != nil {
-				t.Fatal(err)
-			}
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE kind=?`, testCase.kind).Scan(&relations); err != nil {
-				t.Fatal(err)
-			}
-			if current != 0 || relations != 0 {
-				t.Fatalf("reopened work kept resolution=%d relation=%d, want 0/0", current, relations)
-			}
-		})
-	}
-}
+
 
 // Ordinary relation writes cannot create resolution-owned relations.
 func TestOrdinaryRelationsCannotWriteResolutionRelations(t *testing.T) {
 	t.Parallel()
 	s, _ := seedOverlapProjection(t, "ordinary-left", "ordinary-right", false)
-	for _, kind := range []string{"compatible_with", "merged_into"} {
-		err := applyWorkEvent(t, s, relationAddedEvent("ordinary-"+kind, kind, "ordinary-left", "ordinary-right", 2, 3), workVersion("ordinary-right", 2))
-		assertFailureKind(t, err, KindRelationContractViolation)
-	}
+	// compatible_with stays a stored, link-refused historical kind; the
+	// supersession kinds are gone from the vocabulary entirely, so a
+	// relation write naming them is an unknown-kind payload refusal.
+	err := applyWorkEvent(t, s, relationAddedEvent("ordinary-compatible_with", "compatible_with", "ordinary-left", "ordinary-right", 2, 3), workVersion("ordinary-right", 2))
+	assertFailureKind(t, err, KindRelationContractViolation)
+	err = applyWorkEvent(t, s, relationAddedEvent("ordinary-merged_into", "merged_into", "ordinary-left", "ordinary-right", 3, 4), workVersion("ordinary-right", 3))
+	assertFailureKind(t, err, KindInvalidPayload)
 }
 
 func overlapFixtureExec(t *testing.T, s *Store, query string, args ...any) {

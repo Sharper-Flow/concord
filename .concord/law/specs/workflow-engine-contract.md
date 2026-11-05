@@ -236,8 +236,10 @@ addressable by the versions and subjects they originally named. The update
 preserves the current workflow step, instance state, checkpoints, and attempts.
 Evidence for a different candidate does not prove the current candidate.
 Version-bound premise confirmations stay bound to their recorded version.
-`confirm_premise` is admitted only at its declared step; a contract update
-does not add a confirmation action at the terminal step. Unchanged valid proof
+`confirm_premise` is admitted only at its declared step: while that step is on
+the frontier or, once the plan completes, while the active contract's
+confirmation is missing (§4.2). A contract update adds the action to no other
+step. Unchanged valid proof
 needs no replacement merely because a contract version was appended.
 
 Tests of ordinary contract validation, atomic refusals, provenance retention,
@@ -268,6 +270,13 @@ Ordinary `bind_evidence` also remains available after the workflow reaches or
 passes a step declaring it, under one active contract and the same evidence,
 membership, actor, lifecycle, version and idempotency checks. Prior bindings do
 not prevent binding fresh independent evidence.
+`confirm_premise` also remains available once the plan completes while the
+active contract's confirmation is missing: a completed plan has no frontier
+step to declare it, yet completion requires that confirmation, so its
+declaring step keeps admitting the action for the active contract under the
+same coordinator-actor, contract-version, version and idempotency checks.
+This route supplies the confirmation; it never bypasses the completion gate,
+which still refuses without the recorded confirmation.
 A record-only replacement holds the current step, instance state and lifecycle;
 it does not repeat the original forward transition. In particular,
 `record_delivery` replaces a completed item's reported delivery links without

@@ -1513,8 +1513,19 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 		if err != nil {
 			return err
 		}
+		// A completed plan admits only the plan-level premise confirmation
+		// off its frontier (CON-1701), on the declaring step the dispatch
+		// used, and only while the active contract's confirmation is
+		// recorded; the paired premise_confirmed event folds first and
+		// records it.
 		if !retained {
-			return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on a frontier step", false, "reread_entities")
+			owner, confirmed, err := workflowPlanCompleteConfirmationTx(ctx, tx, event.SubjectID, plan, p.ActionID)
+			if err != nil {
+				return err
+			}
+			if !confirmed || owner != p.StepID {
+				return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on a frontier step", false, "reread_entities")
+			}
 		}
 	}
 	return persistWorkflowActionCompletionTx(ctx, tx, event, p, plan.Type)

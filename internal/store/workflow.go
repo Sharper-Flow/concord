@@ -802,8 +802,8 @@ func overlap(a, b []string) bool {
 // foreign key binds to workflow_contracts(work_id, contract_version) and
 // which therefore cannot hold a row before planning approves a contract. The
 // fold enforces the related_found bound — one to sixty-four unique related
-// ids. The none_found-carries-no-ids rule is enforced at action validation on
-// record_diagnosis; this replay fold does not re-check it.
+// ids. The fold evaluates the record_diagnosis declaration's outcome and
+// related_ids combinations because replay applies events without the action boundary.
 func foldWorkflowBacklogAlignmentRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowBacklogAlignmentRecordedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -825,7 +825,7 @@ func foldWorkflowBacklogAlignmentRecorded(ctx context.Context, tx *sql.Tx, event
 		}
 		alignmentFields["related_ids"] = encoded
 	}
-	if rule, _, requires, violated := workflowPayloadCombinationViolation(workflowActionCrossField("record_alignment"), alignmentFields); violated {
+	if rule, _, requires, violated := workflowPayloadCombinationViolation(workflowActionCrossField("record_diagnosis"), alignmentFields); violated {
 		if requires {
 			return newFailure(KindInvalidPayload, "fold_event", "backlog_alignment_recorded outcome "+rule.Value+" requires one to sixty-four unique related ids", false, "name the related work items the search found")
 		}
@@ -865,7 +865,8 @@ func writeWorkflowBacklogAlignmentRowsTx(ctx context.Context, tx *sql.Tx, workID
 // related_found bound the alignment fold enforces, and the projection
 // rows are the alignment fold's own; the reproduction and
 // root-cause sections ride the event the action recorded. No relation is
-// created.
+// created. The fold evaluates the record_diagnosis declaration's outcome and
+// related_ids combinations because replay applies events without the action boundary.
 func foldWorkflowDiagnosisRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowDiagnosisRecordedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -884,7 +885,7 @@ func foldWorkflowDiagnosisRecorded(ctx context.Context, tx *sql.Tx, event Event)
 	if len(p.RelatedIDs) != 0 {
 		alignmentFields["related_ids"] = mustJSONRawMessageOrEmpty(p.RelatedIDs)
 	}
-	if rule, _, requires, violated := workflowPayloadCombinationViolation(workflowActionCrossField("record_alignment"), alignmentFields); violated {
+	if rule, _, requires, violated := workflowPayloadCombinationViolation(workflowActionCrossField("record_diagnosis"), alignmentFields); violated {
 		if requires {
 			return newFailure(KindInvalidPayload, "fold_event", "diagnosis_recorded outcome "+rule.Value+" requires one to sixty-four unique related ids", false, "name the related work items the search found")
 		}

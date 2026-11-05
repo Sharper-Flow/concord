@@ -528,7 +528,7 @@ func nativeRunActionFields(statuses ...string) []WorkflowPayloadField {
 // through
 // validateWorkflowPayloadCrossFieldRules; the teaching projection publishes
 // the same text from this declaration site.
-const workflowAlignmentCombinationTeaching = "record_alignment couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination."
+const workflowAlignmentCombinationTeaching = "record_diagnosis couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination."
 
 var builtinActionPolicies = map[string]builtinActionPolicy{
 	"record_discovery": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric),

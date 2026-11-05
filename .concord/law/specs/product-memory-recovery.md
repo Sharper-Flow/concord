@@ -18,7 +18,7 @@
     },
     {
       "criterion": 3,
-      "exemption": "FK-only corruption detection is a verification property. Rejection is proved by TestBackupRejectsForeignKeyOnlyCorruption; deletion of the failed candidate and its manifest is proved by TestInterruptedBackupVerificationDiscardsSnapshotAndStaging (internal/store/backup_test.go)."
+      "exemption": "FK-only corruption detection is a verification property. Rejection is proved by TestBackupRejectsForeignKeyOnlyCorruption; removal of a candidate and its manifest after verification fails is proved by TestInterruptedBackupVerificationDiscardsSnapshotAndStaging, which fails verification by cancellation (internal/store/backup_test.go)."
     },
     {
       "criterion": 4,
@@ -222,10 +222,11 @@ typed exemption naming the backup test that proves the guarantee.
 - Criterion 2 is proved by
   `TestInterruptedBackupRemovesPartialSnapshotAndManifest`
   (`internal/store/backup_test.go`).
-- Criterion 3 is proved by `TestBackupRejectsForeignKeyOnlyCorruption`;
-  deletion of the failed candidate and its manifest is proved by
-  `TestInterruptedBackupVerificationDiscardsSnapshotAndStaging`
-  (`internal/store/backup_test.go`).
+- Criterion 3: rejection is proved by
+  `TestBackupRejectsForeignKeyOnlyCorruption`; removal of a candidate and its
+  manifest after verification fails is proved by
+  `TestInterruptedBackupVerificationDiscardsSnapshotAndStaging`, which fails
+  verification by cancellation (`internal/store/backup_test.go`).
 - Criterion 4 is proved by
   `TestRestoreStageRejectsCurrentStateTampering`
   (`internal/store/backup_current_state_test.go`),

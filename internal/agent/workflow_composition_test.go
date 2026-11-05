@@ -41,7 +41,7 @@ func TestAgentWorkflowCompositionUsesSelectedSuccessorFamily(t *testing.T) {
 			action string
 			fields map[string]any
 		}{
-			{"record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false}},
+			{"record_intake", map[string]any{"outcome": "proceed"}},
 			{"pick_type", map[string]any{"type": planType, "reason": "Composition fixture"}},
 		} {
 			raw, err := json.Marshal(map[string]any{"work_id": workID, "expected_version": agentCompositionWorkVersion(t, s, workID), "action_id": step.action, "fields": step.fields, "idempotency_key": "composition-" + workID + "-" + step.action})
@@ -55,6 +55,8 @@ func TestAgentWorkflowCompositionUsesSelectedSuccessorFamily(t *testing.T) {
 		}
 	}
 	compositionPrelude(sourceID, "change")
+	compositionAction(t, ctx, s, service, env, sourceID, "record_clarify", map[string]any{"resolved_questions": []string{}, "note": "No operator questions remain."})
+	compositionAction(t, ctx, s, service, env, sourceID, "complete_step", map[string]any{"step_id": "clarify", "note": "Clarification complete."})
 	compositionRecordPlan(t, ctx, s, service, env, sourceID)
 	compositionCompletePlanStep(t, ctx, s, service, env, sourceID)
 	compositionPrelude(successorID, "research")

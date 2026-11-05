@@ -69,6 +69,7 @@ INSERT INTO workflow_actors VALUES('actor:example','agent','session');`)
 		t.Fatal(err)
 	}
 	plan.Steps[0].Attempts = []WorkflowPlanAttempt{{Note: "done", CompletedAt: "2026-01-01T00:00:00Z"}}
+	plan.Steps[1].Attempts = []WorkflowPlanAttempt{{Note: "done", CompletedAt: "2026-01-01T00:00:00Z"}}
 	encoded, err := json.Marshal(plan)
 	if err != nil {
 		t.Fatal(err)

@@ -113,7 +113,7 @@ func TestVersionConflictOnExistingWorkMarshals(t *testing.T) {
 		Tool:      "concord_work_transition",
 		Operation: "workflow_action",
 		Input: json.RawMessage(`{"work_id":"` + workID + `","expected_version":` +
-			jsonInt(stale) + `,"action_id":"record_intake","fields":{"outcome":"proceed","open_questions_found":false},"idempotency_key":"stale-pin-marshals"}`),
+			jsonInt(stale) + `,"action_id":"record_intake","fields":{"outcome":"proceed"},"idempotency_key":"stale-pin-marshals"}`),
 	}
 	resp, err := Dispatch(context.Background(), s, service, action, env)
 	if err != nil {
@@ -156,7 +156,7 @@ func TestVersionConflictOnMissingWorkIsUnknownScope(t *testing.T) {
 	action := InvokeRequest{
 		Tool:      "concord_work_transition",
 		Operation: "workflow_action",
-		Input:     json.RawMessage(`{"work_id":"work-does-not-exist","expected_version":3,"action_id":"record_intake","fields":{"outcome":"proceed","open_questions_found":false},"idempotency_key":"missing-subject-pin"}`),
+		Input:     json.RawMessage(`{"work_id":"work-does-not-exist","expected_version":3,"action_id":"record_intake","fields":{"outcome":"proceed"},"idempotency_key":"missing-subject-pin"}`),
 	}
 	resp, err := Dispatch(context.Background(), s, service, action, env)
 	if err != nil {

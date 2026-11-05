@@ -108,7 +108,7 @@ func TestLawFreshnessDisclosureThroughInvoke(t *testing.T) {
 			workID := (*capture.ChangedRefs)[0].ID
 			actionInput := map[string]any{
 				"work_id": workID, "expected_version": agentCompositionWorkVersion(t, s, workID), "action_id": "record_intake", "idempotency_key": "freshness-action",
-				"fields": map[string]any{"outcome": "proceed", "open_questions_found": false},
+				"fields": map[string]any{"outcome": "proceed"},
 			}
 			for attempt := range 2 {
 				action := invoke("concord_work_transition", "workflow_action", actionInput)

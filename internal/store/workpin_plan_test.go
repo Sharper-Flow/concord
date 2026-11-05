@@ -64,10 +64,7 @@ func TestWorkPinPlanProjection(t *testing.T) {
 	}
 	set(nil, nil)
 	read("intake", "", []string{"record_intake"}, []string{"pick_type", "complete"})
-	clarify := workflowPreludeState{Intake: workflowIntakeRecord{Outcome: WorkflowIntakeClarify, OpenQuestionsFound: true}}
-	set(clarify, nil)
-	read("clarify", "", []string{"record_clarify"}, []string{"record_intake", "pick_type"})
-	clarify.Clarify = &workflowClarifyRecord{ResolvedQuestions: []string{"resolved"}, Note: "resolved"}
+	clarify := workflowPreludeState{Intake: workflowIntakeRecord{Outcome: WorkflowIntakeProceed}}
 	set(clarify, nil)
 	read("intake", "", []string{"pick_type"}, []string{"record_clarify"})
 	plan, err := WorkflowStepPlanTemplate(WorkflowStepPlanChange)

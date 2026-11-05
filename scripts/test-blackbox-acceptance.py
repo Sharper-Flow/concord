@@ -520,8 +520,10 @@ def step_e_mutation(binary: Path, env: dict, repo: Path, context: dict, manifest
 def step_f_workflow_evidence(binary: Path, env: dict, repo: Path, context: dict, manifest_digest: str, work_id: str, work_version: int) -> None:
     """#187 workflow execution evidence through the current action surface."""
     actions = [
-        ('record_intake', {'outcome': 'proceed', 'open_questions_found': False}),
+        ('record_intake', {'outcome': 'proceed'}),
         ('pick_type', {'type': 'change', 'reason': 'Packaged acceptance journey'}),
+        ('record_clarify', {'resolved_questions': [], 'note': 'No operator questions remain.'}),
+        ('complete_step', {'step_id': 'clarify', 'note': 'Clarification complete.'}),
         ('record_plan', {
             'outcomes': 'Prove the packaged workflow evidence path.',
             'approach': 'Execute the current workflow actions.',

@@ -9167,6 +9167,32 @@ DROP TABLE workflow_context_boundaries;
 DROP TABLE workflow_context_checkpoints;
 `,
 	},
+	{
+		Version: 189, Name: "workflow_clarify_records", Breaking: true, FoldMaintained: "advance",
+		SQL: `
+CREATE TABLE workflow_clarify_records (
+    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    work_version INTEGER NOT NULL CHECK(work_version > 0),
+    payload TEXT NOT NULL CHECK(json_valid(payload) AND json_type(payload)='object'),
+    recorded_at TEXT,
+    actor TEXT REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    event_ref TEXT
+);
+INSERT INTO write_guard(active) VALUES(1);
+INSERT INTO workflow_clarify_records(work_id,work_version,payload)
+SELECT i.work_id,w.version,json_extract(i.prelude_state,'$.clarify')
+FROM workflow_instances i JOIN work_items w ON w.id=i.work_id
+WHERE json_type(i.prelude_state,'$.clarify')='object';
+UPDATE workflow_instances SET prelude_state=json_set(prelude_state,'$.intake.outcome','proceed')
+WHERE json_extract(prelude_state,'$.intake.outcome')='clarify';
+UPDATE workflow_instances SET prelude_state=json_remove(prelude_state,'$.clarify')
+WHERE json_type(prelude_state,'$.clarify')='object';
+DELETE FROM write_guard;
+CREATE TRIGGER workflow_clarify_records_guard_insert BEFORE INSERT ON workflow_clarify_records BEGIN SELECT RAISE(ABORT, 'workflow_clarify_records is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_clarify_records_guard_update BEFORE UPDATE ON workflow_clarify_records BEGIN SELECT RAISE(ABORT, 'workflow_clarify_records is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_clarify_records_guard_delete BEFORE DELETE ON workflow_clarify_records BEGIN SELECT RAISE(ABORT, 'workflow_clarify_records is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

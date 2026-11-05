@@ -234,33 +234,34 @@ func TestWorkflowStepPlanShapeRefusals(t *testing.T) {
 
 func TestWorkflowStepPlanReviewedAttemptRequiresReviewReceipt(t *testing.T) {
 	plan := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
+	plan.Steps[0].Attempts = []WorkflowPlanAttempt{{Note: "clarified", CompletedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	withPlanDone := stepPlanCopy(plan)
-	withPlanDone.Steps[0].Attempts = []WorkflowPlanAttempt{{Note: "six-part plan", CompletedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
+	withPlanDone.Steps[1].Attempts = []WorkflowPlanAttempt{{Note: "six-part plan", CompletedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	if err := ValidateStepPlanWrite(&plan, withPlanDone); err != nil {
 		t.Fatalf("completing the plan step refused: %v", err)
 	}
 	withAttempt := stepPlanCopy(withPlanDone)
-	withAttempt.Steps[1].Attempts = []WorkflowPlanAttempt{{Note: "implemented", CompletedAt: time.Now().UTC().Format(time.RFC3339Nano), Reviewer: "concord-review", Result: "pass"}}
+	withAttempt.Steps[2].Attempts = []WorkflowPlanAttempt{{Note: "implemented", CompletedAt: time.Now().UTC().Format(time.RFC3339Nano), Reviewer: "concord-review", Result: "pass"}}
 	if err := ValidateStepPlanWrite(&withPlanDone, withAttempt); err == nil || !strings.Contains(err.Error(), "reviewer") {
 		t.Fatalf("reviewed attempt without commit and link accepted: %v", err)
 	}
-	withAttempt.Steps[1].Attempts = []WorkflowPlanAttempt{reviewedAttempt("implemented")}
+	withAttempt.Steps[2].Attempts = []WorkflowPlanAttempt{reviewedAttempt("implemented")}
 	if err := ValidateStepPlanWrite(&withPlanDone, withAttempt); err != nil {
 		t.Fatalf("reviewed attempt with its full receipt refused: %v", err)
 	}
 	unreviewed := stepPlanCopy(plan)
-	unreviewed.Steps[0].Attempts = []WorkflowPlanAttempt{{Note: "planned", CompletedAt: time.Now().UTC().Format(time.RFC3339Nano), Reviewer: "concord-review"}}
+	unreviewed.Steps[1].Attempts = []WorkflowPlanAttempt{{Note: "planned", CompletedAt: time.Now().UTC().Format(time.RFC3339Nano), Reviewer: "concord-review"}}
 	if err := ValidateStepPlanWrite(&plan, unreviewed); err == nil {
 		t.Fatal("unreviewed attempt carrying review fields accepted")
 	}
 }
 
 func TestWorkflowStepPlanCompletionOrderingAndImmutability(t *testing.T) {
-	plan := stepPlanTemplateOrFatal(t, WorkflowStepPlanFix) // diagnose -> plan -> implement -> review
+	plan := stepPlanTemplateOrFatal(t, WorkflowStepPlanFix)
 
 	// Completing a later step before its predecessor refuses.
 	skipped := stepPlanCopy(plan)
-	skipped.Steps[2].Attempts = []WorkflowPlanAttempt{reviewedAttempt("out of order")}
+	skipped.Steps[3].Attempts = []WorkflowPlanAttempt{reviewedAttempt("out of order")}
 	if err := ValidateStepPlanWrite(&plan, skipped); err == nil || !strings.Contains(err.Error(), "after every step it comes after") {
 		t.Fatalf("out-of-order completion accepted: %v", err)
 	}
@@ -271,7 +272,7 @@ func TestWorkflowStepPlanCompletionOrderingAndImmutability(t *testing.T) {
 	if err := ValidateStepPlanWrite(&plan, first); err != nil {
 		t.Fatalf("in-order completion refused: %v", err)
 	}
-	if frontier := WorkflowStepPlanFrontier(first); len(frontier) != 1 || frontier[0].ID != "plan" {
+	if frontier := WorkflowStepPlanFrontier(first); len(frontier) != 1 || frontier[0].ID != "clarify" {
 		t.Fatalf("frontier did not advance past the completed step: %+v", frontier)
 	}
 
@@ -319,7 +320,7 @@ func TestWorkflowStepPlanInsertAndSendBack(t *testing.T) {
 	// Rewiring an existing step's after edges to point at the inserted step
 	// is the forbidden shape: after edges never change.
 	rewired := stepPlanCopy(inserted)
-	rewired.Steps[2].After = []string{"send-back", "implement"}
+	rewired.Steps[3].After = []string{"send-back", "implement"}
 	if err := ValidateStepPlanWrite(&inserted, rewired); err == nil || !strings.Contains(err.Error(), "after edges never change") {
 		t.Fatalf("after-edge rewiring accepted: %v", err)
 	}
@@ -334,13 +335,14 @@ func TestWorkflowStepPlanInsertAndSendBack(t *testing.T) {
 	// A send-back after the current step completes once its anchor completed.
 	withPlanDone := stepPlanCopy(plan)
 	withPlanDone.Steps[0].Attempts = []WorkflowPlanAttempt{{Note: "six-part plan", CompletedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
+	withPlanDone.Steps[1].Attempts = []WorkflowPlanAttempt{{Note: "six-part plan", CompletedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 	sendBack := stepPlanCopy(withPlanDone)
 	sendBack.Steps = append(sendBack.Steps, WorkflowPlanStep{ID: "send-back", Required: false, After: []string{"plan"}, Reviewed: true})
 	if err := ValidateStepPlanWrite(&withPlanDone, sendBack); err != nil {
 		t.Fatalf("inserting a send-back after the completed plan step refused: %v", err)
 	}
 	completed := stepPlanCopy(sendBack)
-	completed.Steps[3].Attempts = []WorkflowPlanAttempt{reviewedAttempt("fixed")}
+	completed.Steps[len(completed.Steps)-1].Attempts = []WorkflowPlanAttempt{reviewedAttempt("fixed")}
 	if err := ValidateStepPlanWrite(&sendBack, completed); err != nil {
 		t.Fatalf("completing the send-back with its review receipt refused: %v", err)
 	}
@@ -353,12 +355,9 @@ func TestWorkflowStepPlanTypeSwitchAddsOnly(t *testing.T) {
 	withPlanDone.Steps[0].Attempts = []WorkflowPlanAttempt{{Note: "six-part plan", CompletedAt: time.Now().UTC().Format(time.RFC3339Nano)}}
 
 	diagnose := stepPlanTemplateOrFatal(t, WorkflowStepPlanFix).Steps[0]
-	switched := WorkflowStepPlan{SchemaVersion: workflowStepPlanSchemaVersion, Type: WorkflowStepPlanFix, Steps: []WorkflowPlanStep{
-		diagnose,
-		{ID: "plan", Required: true, After: []string{}, Skill: withPlanDone.Steps[0].Skill, Attempts: withPlanDone.Steps[0].Attempts},
-		{ID: "implement", Required: true, After: []string{"plan"}, Skill: withPlanDone.Steps[1].Skill, Helper: withPlanDone.Steps[1].Helper, Reviewed: true},
-		{ID: "review", Required: true, After: []string{"implement"}, Skill: withPlanDone.Steps[2].Skill, Helper: withPlanDone.Steps[2].Helper, Reviewed: true},
-	}}
+	switched := stepPlanCopy(withPlanDone)
+	switched.Type = WorkflowStepPlanFix
+	switched.Steps = append(switched.Steps, diagnose)
 	if err := ValidateStepPlanWrite(&withPlanDone, switched); err != nil {
 		t.Fatalf("type switch adding the missing diagnose refused: %v", err)
 	}

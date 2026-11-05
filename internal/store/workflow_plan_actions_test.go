@@ -111,7 +111,7 @@ func TestWorkflowPlanActionFolds(t *testing.T) {
 	if err := json.Unmarshal([]byte(rawPlan), &planDocument); err != nil || planDocument.Steps[len(planDocument.Steps)-1].Reason != "review needed" {
 		t.Fatalf("inserted reason not retained: %s: %v", rawPlan, err)
 	}
-	request := WorkflowActionExecutionRequest{WorkID: "work", ExpectedVersion: version, ActionID: "record_plan", Payload: json.RawMessage(testWorkflowPlanDocument), Actor: stepFixtureActor(), OperationID: "fold-plan-op", IdempotencyIdentity: "fold-plan-key", PrincipalRef: "principal-1", RequestID: "fold-plan-request", AcceptedInputsDigest: testDigest("inputs"), ContractDigest: testManifestDigest, Now: time.Unix(100, 0).UTC()}
+	request := WorkflowActionExecutionRequest{WorkID: "work", ExpectedVersion: version, ActionID: "record_clarify", Payload: json.RawMessage(`{"resolved_questions":[],"note":"No operator questions remain."}`), Actor: stepFixtureActor(), OperationID: "fold-clarify-op", IdempotencyIdentity: "fold-clarify-key", PrincipalRef: "principal-1", RequestID: "fold-clarify-request", AcceptedInputsDigest: testDigest("inputs"), ContractDigest: testManifestDigest, Now: time.Unix(100, 0).UTC()}
 	var result WorkflowActionExecutionResult
 	if err := s.Transact(ctx, func(tx *Transaction) error {
 		var err error
@@ -122,6 +122,16 @@ func TestWorkflowPlanActionFolds(t *testing.T) {
 	}
 	version = result.ResultingVersion
 	apply(foldWorkflowStepCompleted, workflowStepCompletedPayload{WorkflowVersionFields: fields(), StepID: plan.Steps[0].ID, Note: "done"}, false)
+	request.ExpectedVersion, request.ActionID, request.Payload = version, "record_plan", json.RawMessage(testWorkflowPlanDocument)
+	request.OperationID, request.IdempotencyIdentity, request.RequestID = "fold-plan-op", "fold-plan-key", "fold-plan-request"
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		var err error
+		result, err = ApplyWorkflowActionTx(ctx, tx, request)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	version = result.ResultingVersion
 	apply(foldWorkflowStepCompleted, workflowStepCompletedPayload{WorkflowVersionFields: fields(), StepID: "extra", Note: "reviewed"}, true)
 	apply(foldWorkflowStepCompleted, workflowStepCompletedPayload{WorkflowVersionFields: fields(), StepID: "extra", Note: "reviewed", Reviewer: "concord-review", Result: "pass", Commit: "commit", Link: "link"}, false)
 	apply(foldWorkflowTypePicked, workflowTypePickedPayload{WorkflowVersionFields: fields(), Type: WorkflowStepPlanFix, Reason: "switch type"}, false)
@@ -195,8 +205,9 @@ func TestWorkflowPlanReviewRecordedBinding(t *testing.T) {
 			}
 			plan := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
 			plan.Steps[0].Attempts = []WorkflowPlanAttempt{{Note: "done", CompletedAt: retirementUpgradeTime}}
+			plan.Steps[1].Attempts = []WorkflowPlanAttempt{{Note: "done", CompletedAt: retirementUpgradeTime}}
 			if tc.step == "review" {
-				plan.Steps[1].Attempts = []WorkflowPlanAttempt{reviewedAttempt("done")}
+				plan.Steps[2].Attempts = []WorkflowPlanAttempt{reviewedAttempt("done")}
 			}
 			rawPlan, err := json.Marshal(plan)
 			if err != nil {
@@ -245,100 +256,75 @@ func TestWorkflowPlanReviewRecordedBinding(t *testing.T) {
 }
 
 func TestWorkflowPreludeFoldsMigration183(t *testing.T) {
-	for _, clarify := range []bool{false, true} {
-		t.Run(map[bool]string{false: "proceed", true: "clarify"}[clarify], func(t *testing.T) {
-			useStampedBuild(t)
-			db, _ := terminalStepsMigrationFixture(t)
-			advanceHistoricalPrefix(t, db, 183)
-			ctx := t.Context()
-			var version int64
-			if err := db.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id='work-upgrade-to'`).Scan(&version); err != nil {
-				t.Fatal(err)
-			}
-			fields := func() WorkflowVersionFields {
-				current, next := version, version+1
-				return WorkflowVersionFields{WorkID: "work-upgrade-to", ExpectedVersion: &current, ResultingVersion: &next}
-			}
-			apply := func(fold projectionMutation, payload any, refuse bool) {
-				t.Helper()
-				raw, err := json.Marshal(payload)
-				if err != nil {
-					t.Fatal(err)
-				}
-				tx, err := db.BeginTx(ctx, nil)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if _, err = tx.ExecContext(ctx, `INSERT INTO write_guard VALUES(1)`); err != nil {
-					tx.Rollback()
-					t.Fatal(err)
-				}
-				event := Event{SubjectType: SubjectWorkItem, SubjectID: "work-upgrade-to", Payload: raw, OccurredAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
-				err = fold(ctx, tx, event)
-				if refuse {
-					if err == nil {
-						tx.Rollback()
-						t.Fatal("expected refusal")
-					}
-					if err = tx.Rollback(); err != nil {
-						t.Fatal(err)
-					}
-				} else {
-					if err != nil {
-						tx.Rollback()
-						t.Fatal(err)
-					}
-					if _, err = tx.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
-						tx.Rollback()
-						t.Fatal(err)
-					}
-					if err = tx.Commit(); err != nil {
-						t.Fatal(err)
-					}
-					version++
-				}
-				var got int64
-				if err = db.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id='work-upgrade-to'`).Scan(&got); err != nil || got != version {
-					t.Fatalf("version %d want %d: %v", got, version, err)
-				}
-			}
-			pick := func() workflowTypePickedPayload {
-				return workflowTypePickedPayload{WorkflowVersionFields: fields(), Type: WorkflowStepPlanChange, Reason: "initial type"}
-			}
-			clarification := func() workflowClarifyRecordedPayload {
-				return workflowClarifyRecordedPayload{WorkflowVersionFields: fields(), workflowClarifyRecord: workflowClarifyRecord{ResolvedQuestions: []string{"question resolved"}, Note: "resolved"}}
-			}
-			intake := func(outcome WorkflowIntakeOutcome, open bool) workflowIntakeRecordedPayload {
-				return workflowIntakeRecordedPayload{WorkflowVersionFields: fields(), workflowIntakeRecord: workflowIntakeRecord{ChecksFound: []string{"freshness"}, Outcome: outcome, OpenQuestionsFound: open}}
-			}
-			apply(foldWorkflowTypePicked, pick(), true)
-			apply(foldWorkflowClarifyRecorded, clarification(), true)
-			apply(foldWorkflowIntakeRecorded, intake(WorkflowIntakeProceed, true), true)
-			apply(foldWorkflowIntakeRecorded, intake(WorkflowIntakeClarify, false), true)
-			if clarify {
-				apply(foldWorkflowIntakeRecorded, intake(WorkflowIntakeClarify, true), false)
-				apply(foldWorkflowTypePicked, pick(), true)
-				apply(foldWorkflowClarifyRecorded, clarification(), false)
-				apply(foldWorkflowClarifyRecorded, clarification(), true)
-			} else {
-				apply(foldWorkflowIntakeRecorded, intake(WorkflowIntakeProceed, false), false)
-				apply(foldWorkflowClarifyRecorded, clarification(), true)
-			}
-			apply(foldWorkflowIntakeRecorded, intake(WorkflowIntakeProceed, false), true)
-			apply(foldWorkflowTypePicked, pick(), false)
-			var prelude string
-			if err := db.QueryRowContext(ctx, `SELECT prelude_state FROM workflow_instances WHERE work_id='work-upgrade-to'`).Scan(&prelude); err != nil {
-				t.Fatal(err)
-			}
-			var state workflowPreludeState
-			if err := json.Unmarshal([]byte(prelude), &state); err != nil || (state.Clarify != nil) != clarify {
-				t.Fatalf("prelude %s: %v", prelude, err)
-			}
-			retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1); UPDATE work_items SET lifecycle='cancelled' WHERE id='work-upgrade-to'; DELETE FROM write_guard`)
-			apply(foldWorkflowTypePicked, pick(), true)
-			apply(foldWorkflowStepInserted, workflowStepInsertedPayload{WorkflowVersionFields: fields(), ID: "extra", After: []string{"shape"}, Reason: "add step"}, true)
-		})
+	useStampedBuild(t)
+	db, _ := terminalStepsMigrationFixture(t)
+	advanceHistoricalPrefix(t, db, 183)
+	ctx := t.Context()
+	var version int64
+	if err := db.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id='work-upgrade-to'`).Scan(&version); err != nil {
+		t.Fatal(err)
 	}
+	fields := func() WorkflowVersionFields {
+		current, next := version, version+1
+		return WorkflowVersionFields{WorkID: "work-upgrade-to", ExpectedVersion: &current, ResultingVersion: &next}
+	}
+	apply := func(fold projectionMutation, payload any, refuse bool) {
+		t.Helper()
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO write_guard VALUES(1)`); err != nil {
+			tx.Rollback()
+			t.Fatal(err)
+		}
+		event := Event{SubjectType: SubjectWorkItem, SubjectID: "work-upgrade-to", Payload: raw, OccurredAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+		err = fold(ctx, tx, event)
+		if refuse {
+			if err == nil {
+				tx.Rollback()
+				t.Fatal("expected refusal")
+			}
+			if err = tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if err != nil {
+				tx.Rollback()
+				t.Fatal(err)
+			}
+			if _, err = tx.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
+				tx.Rollback()
+				t.Fatal(err)
+			}
+			if err = tx.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			version++
+		}
+		var got int64
+		if err = db.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id='work-upgrade-to'`).Scan(&got); err != nil || got != version {
+			t.Fatalf("version %d want %d: %v", got, version, err)
+		}
+	}
+	pick := func() workflowTypePickedPayload {
+		return workflowTypePickedPayload{WorkflowVersionFields: fields(), Type: WorkflowStepPlanChange, Reason: "initial type"}
+	}
+	intake := func(outcome WorkflowIntakeOutcome) workflowIntakeRecordedPayload {
+		return workflowIntakeRecordedPayload{WorkflowVersionFields: fields(), workflowIntakeRecord: workflowIntakeRecord{ChecksFound: []string{"freshness"}, Outcome: outcome}}
+	}
+	apply(foldWorkflowTypePicked, pick(), true)
+	apply(foldWorkflowIntakeRecorded, intake(WorkflowIntakeOutcome("clarify")), true)
+	apply(foldWorkflowIntakeRecorded, intake(WorkflowIntakeProceed), false)
+	apply(foldWorkflowIntakeRecorded, intake(WorkflowIntakeProceed), true)
+	apply(foldWorkflowTypePicked, pick(), false)
+	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1); UPDATE work_items SET lifecycle='cancelled' WHERE id='work-upgrade-to'; DELETE FROM write_guard`)
+	apply(foldWorkflowTypePicked, pick(), true)
+	apply(foldWorkflowStepInserted, workflowStepInsertedPayload{WorkflowVersionFields: fields(), ID: "extra", After: []string{"shape"}, Reason: "add step"}, true)
 }
 
 func TestWorkflowPreludeNonProceedOutcomes(t *testing.T) {

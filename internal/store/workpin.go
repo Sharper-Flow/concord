@@ -258,11 +258,7 @@ func workPinReadPreludeTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 	switch {
 	case prelude == nil:
 		ids = []string{"record_intake"}
-	case prelude.Intake.Outcome == WorkflowIntakeClarify && prelude.Intake.OpenQuestionsFound && prelude.Clarify == nil:
-		pin.Step = "clarify"
-		ids = []string{"record_clarify"}
-	case prelude.Intake.Outcome == WorkflowIntakeProceed && !prelude.Intake.OpenQuestionsFound,
-		prelude.Intake.Outcome == WorkflowIntakeClarify && prelude.Intake.OpenQuestionsFound && prelude.Clarify != nil:
+	case workflowPreludeAdmitsTypePick(prelude):
 		ids = []string{"pick_type"}
 	}
 	return state, workPinAddCatalogIntents(pin, ids)

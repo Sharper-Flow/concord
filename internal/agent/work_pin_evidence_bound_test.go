@@ -33,7 +33,7 @@ func TestBindEvidenceRefusesLocatorPastReferenceBound(t *testing.T) {
 		t.Fatalf("fixture locator is %d bytes, outside the 257..2048 reproduction span", len(long))
 	}
 	workID := captureCompositionWork(t, ctx, s, service, env, "Work pin locator bound", "bug", "workflow.break_fix", "wpeb-capture")
-	compositionAction(t, ctx, s, service, env, workID, "record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false})
+	compositionAction(t, ctx, s, service, env, workID, "record_intake", map[string]any{"outcome": "proceed"})
 	compositionAction(t, ctx, s, service, env, workID, "pick_type", map[string]any{"type": "fix", "reason": "Repair the locator defect."})
 	version := agentCompositionWorkVersion(t, s, workID)
 
@@ -49,6 +49,8 @@ func TestBindEvidenceRefusesLocatorPastReferenceBound(t *testing.T) {
 		t.Fatalf("record_diagnosis: %+v", response.Error)
 	}
 	compositionAction(t, ctx, s, service, env, workID, "complete_step", map[string]any{"step_id": "diagnose", "note": "Diagnosis recorded."})
+	compositionAction(t, ctx, s, service, env, workID, "record_clarify", map[string]any{"resolved_questions": []string{}, "note": "No operator questions remain."})
+	compositionAction(t, ctx, s, service, env, workID, "complete_step", map[string]any{"step_id": "clarify", "note": "Clarification complete."})
 	compositionRecordPlan(t, ctx, s, service, env, workID)
 	after := agentCompositionWorkVersion(t, s, workID)
 	response, _ = ekbDispatch(t, s, service, env, workID, after, "approve_contract", workflowContractFieldsForSeededRegistry(t, s), nil, "wpeb-approve")

@@ -17,21 +17,14 @@ const (
 )
 
 type workflowIntakeRecord struct {
-	ChecksFound        []string              `json:"checks_found,omitempty"`
-	Outcome            WorkflowIntakeOutcome `json:"outcome"`
-	OpenQuestionsFound bool                  `json:"open_questions_found"`
-	Note               string                `json:"note,omitempty"`
-}
-
-type workflowClarifyRecord struct {
-	ResolvedQuestions []string `json:"resolved_questions"`
-	Note              string   `json:"note"`
+	ChecksFound []string              `json:"checks_found,omitempty"`
+	Outcome     WorkflowIntakeOutcome `json:"outcome"`
+	Note        string                `json:"note,omitempty"`
 }
 
 type workflowPreludeState struct {
-	Intake         workflowIntakeRecord   `json:"intake"`
-	Clarify        *workflowClarifyRecord `json:"clarify,omitempty"`
-	TypePickReason string                 `json:"type_pick_reason,omitempty"`
+	Intake         workflowIntakeRecord `json:"intake"`
+	TypePickReason string               `json:"type_pick_reason,omitempty"`
 }
 
 type workflowIntakeRecordedPayload struct {
@@ -41,7 +34,7 @@ type workflowIntakeRecordedPayload struct {
 
 type workflowClarifyRecordedPayload struct {
 	WorkflowVersionFields
-	workflowClarifyRecord
+	Document json.RawMessage `json:"document"`
 }
 
 func readWorkflowPreludeTx(ctx context.Context, tx *sql.Tx, workID string) (*workflowPreludeState, error) {
@@ -76,21 +69,10 @@ func unmarshalWorkflowPrelude(raw string, prelude *workflowPreludeState) error {
 	return nil
 }
 
-// workflowPreludeAdmitsClarify reports whether the recorded prelude admits
-// record_clarify: intake found open questions and no clarification exists.
-func workflowPreludeAdmitsClarify(prelude *workflowPreludeState) bool {
-	return prelude != nil && prelude.Intake.Outcome == WorkflowIntakeClarify && prelude.Intake.OpenQuestionsFound && prelude.Clarify == nil
-}
-
 // workflowPreludeAdmitsTypePick reports whether the recorded prelude admits
-// pick_type: intake proceeded without open questions, or clarification
-// resolved the questions intake found.
+// pick_type after intake proceeds.
 func workflowPreludeAdmitsTypePick(prelude *workflowPreludeState) bool {
-	if prelude == nil {
-		return false
-	}
-	return (prelude.Intake.Outcome == WorkflowIntakeProceed && !prelude.Intake.OpenQuestionsFound) ||
-		(prelude.Intake.Outcome == WorkflowIntakeClarify && prelude.Intake.OpenQuestionsFound && prelude.Clarify != nil)
+	return prelude != nil && prelude.Intake.Outcome == WorkflowIntakeProceed
 }
 
 func writeWorkflowPreludeTx(ctx context.Context, tx *sql.Tx, workID string, prelude workflowPreludeState) error {
@@ -110,7 +92,7 @@ func foldWorkflowIntakeRecorded(ctx context.Context, tx *sql.Tx, event Event) er
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
 	}
-	if !slices.Contains([]WorkflowIntakeOutcome{WorkflowIntakeProceed, WorkflowIntakeClarify, WorkflowIntakeAlreadyHandled, WorkflowIntakeDecline, WorkflowIntakeSplitOrMerge}, p.Outcome) || len(p.ChecksFound) > 14 || (p.Note != "" && !workflowString(p.Note, 4096)) || (p.Outcome == WorkflowIntakeProceed && p.OpenQuestionsFound) || (p.Outcome == WorkflowIntakeClarify && !p.OpenQuestionsFound) {
+	if !slices.Contains([]WorkflowIntakeOutcome{WorkflowIntakeProceed, WorkflowIntakeAlreadyHandled, WorkflowIntakeDecline, WorkflowIntakeSplitOrMerge}, p.Outcome) || len(p.ChecksFound) > 14 || (p.Note != "" && !workflowString(p.Note, 4096)) {
 		return newFailure(KindInvalidPayload, "fold_event", "intake outcome or fields are invalid", false, "supply a consistent intake outcome")
 	}
 	seen := map[string]bool{}
@@ -148,31 +130,14 @@ func foldWorkflowClarifyRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
 	}
-	if !workflowList(p.ResolvedQuestions, 16, 1) || !workflowString(p.Note, 4096) {
-		return newFailure(KindInvalidPayload, "fold_event", "clarification requires question resolutions and a note", false, "supply question resolutions and a note")
-	}
-	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
+	if _, err := validateWorkflowPlanActionPayload("record_clarify", p.Document); err != nil {
 		return err
 	}
-	if err := beginWorkflowLifecycleTx(ctx, tx, event); err != nil {
+	if err := admitWorkflowPlanDocumentTx(ctx, tx, event, p.WorkflowVersionFields, "clarify", "record_clarify"); err != nil {
 		return err
 	}
-	prelude, err := readWorkflowPreludeTx(ctx, tx, event.SubjectID)
-	if err != nil {
-		return err
-	}
-	if !workflowPreludeAdmitsClarify(prelude) {
-		return newFailure(KindInvalidOperation, "fold_event", "clarification is not available", false, "reread the workflow prelude")
-	}
-	plan, err := readWorkflowPlanTx(ctx, tx, event.SubjectID)
-	if err != nil {
-		return err
-	}
-	if plan != nil {
-		return newFailure(KindInvalidOperation, "fold_event", "workflow already has a plan", false, "reread the workflow")
-	}
-	prelude.Clarify = &p.workflowClarifyRecord
-	return writeWorkflowPreludeTx(ctx, tx, event.SubjectID, *prelude)
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_clarify_records(work_id,work_version,payload,recorded_at,actor,event_ref) VALUES(?,?,?,?,?,?) ON CONFLICT(work_id) DO UPDATE SET work_version=excluded.work_version,payload=excluded.payload,recorded_at=excluded.recorded_at,actor=excluded.actor,event_ref=excluded.event_ref`, event.SubjectID, *p.ResultingVersion, string(p.Document), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, event.EventID)
+	return workflowProjectionError(err, "cannot write workflow clarification record")
 }
 
 type workflowTypePickedPayload struct {
@@ -237,6 +202,11 @@ func foldWorkflowTypePicked(ctx context.Context, tx *sql.Tx, event Event) error 
 		}
 		old.Type = p.Type
 		for _, step := range template.Steps {
+			// Plans have no template version marker. Grandfather only Clarify
+			// when the copied plan predates that step.
+			if step.ID == "clarify" && !stepIDExists(old.Steps, "clarify") {
+				continue
+			}
 			if !stepIDExists(old.Steps, step.ID) {
 				old.Steps = append(old.Steps, step)
 			}

@@ -49,7 +49,7 @@ func TestFirstWorkflowActionRecordsTheActingActor(t *testing.T) {
 		actionID string
 		payload  map[string]any
 	}{
-		{step: "intake", actionID: "record_intake", payload: map[string]any{"outcome": "proceed", "open_questions_found": false}},
+		{step: "intake", actionID: "record_intake", payload: map[string]any{"outcome": "proceed"}},
 		{step: "plan", planType: WorkflowStepPlanChange, actionID: "record_plan", payload: map[string]any{"outcomes": "working outcome", "approach": "bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "which?", "choice": "one", "rationale": "fits", "rejected": []string{}}}, "touches": []string{"file:one"}, "merge_split": "one item", "risks": "bounded risk"}},
 		{step: "diagnose", planType: WorkflowStepPlanFix, actionID: "record_diagnosis", payload: map[string]any{"reproduction": "The bounded reproduction steps.", "searched": "The bounded searched area.", "outcome": "none_found", "root_cause": "The bounded root cause."}},
 	} {

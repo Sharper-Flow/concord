@@ -64,7 +64,7 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 		t.Fatalf("initialize the instance: %v", err)
 	}
 	version := workVersion(t, s, "work-1")
-	intake, version := dispatchWorkflowActionResult(t, s, service, env, version, "record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false}, "aj8-intake")
+	intake, version := dispatchWorkflowActionResult(t, s, service, env, version, "record_intake", map[string]any{"outcome": "proceed"}, "aj8-intake")
 	if intake.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record intake: %+v", intake.Error)
 	}

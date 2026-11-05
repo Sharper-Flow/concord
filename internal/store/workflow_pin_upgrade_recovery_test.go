@@ -190,8 +190,10 @@ func TestLawPinUpgradeRetainsReviewAndRecovers(t *testing.T) {
 				id      string
 				payload any
 			}{
-				{"record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false}},
+				{"record_intake", map[string]any{"outcome": "proceed"}},
 				{"pick_type", map[string]any{"type": "change", "reason": "Resume the unchanged candidate"}},
+				{"record_clarify", map[string]any{"resolved_questions": []string{}, "note": "No operator questions remain."}},
+				{"complete_step", map[string]any{"step_id": "clarify", "note": "Clarification complete."}},
 				{"record_plan", map[string]any{"outcomes": "working outcome", "approach": "bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "which?", "choice": "one", "rationale": "fits", "rejected": []string{}}}, "touches": []string{"file:one"}, "merge_split": "one item", "risks": "bounded risk"}},
 				{"complete_step", map[string]any{"step_id": "plan", "note": "Resume the retained contract"}},
 			} {

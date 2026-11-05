@@ -13,6 +13,13 @@ const GeneratedWorkflowStepTemplatesDocument = `{
       "id": "change",
       "steps": [
         {
+          "id": "clarify",
+          "skill": "concord-work-shaping",
+          "helper": null,
+          "reviewed": false,
+          "actions": ["record_clarify", "complete_step"]
+        },
+        {
           "id": "plan",
           "skill": "concord-work-shaping",
           "helper": null,
@@ -67,6 +74,13 @@ const GeneratedWorkflowStepTemplatesDocument = `{
           ]
         },
         {
+          "id": "clarify",
+          "skill": "concord-work-shaping",
+          "helper": null,
+          "reviewed": false,
+          "actions": ["record_clarify", "complete_step"]
+        },
+        {
           "id": "plan",
           "skill": "concord-work-shaping",
           "helper": null,
@@ -110,6 +124,13 @@ const GeneratedWorkflowStepTemplatesDocument = `{
     {
       "id": "research",
       "steps": [
+        {
+          "id": "clarify",
+          "skill": "concord-work-shaping",
+          "helper": null,
+          "reviewed": false,
+          "actions": ["record_clarify", "complete_step"]
+        },
         {
           "id": "frame",
           "skill": "concord-work-shaping",
@@ -155,6 +176,13 @@ const GeneratedWorkflowStepTemplatesDocument = `{
     {
       "id": "removal",
       "steps": [
+        {
+          "id": "clarify",
+          "skill": "concord-work-shaping",
+          "helper": null,
+          "reviewed": false,
+          "actions": ["record_clarify", "complete_step"]
+        },
         {
           "id": "list",
           "skill": "concord-law-writing",
@@ -217,15 +245,10 @@ const GeneratedWorkflowStepTemplatesDocument = `{
     ],
     "outcomes": [
       "proceed",
-      "clarify",
       "already_handled",
       "decline",
       "split_or_merge"
-    ],
-    "clarify": {
-      "skill": "concord-work-shaping",
-      "runs_only_when_intake_found_open_questions": true
-    }
+    ]
   },
   "plan_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",

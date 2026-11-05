@@ -26,7 +26,7 @@ func TestReadWorkPinReportsEveryCoordinatorSessionDrivingTheItem(t *testing.T) {
 		t.Fatal(err)
 	}
 	version := readWorkVersion(t, s, workID)
-	version, err := applyTestAction(t, s, workID, version, "record_intake", "codriver-intake", map[string]any{"outcome": "proceed", "open_questions_found": false}, first)
+	version, err := applyTestAction(t, s, workID, version, "record_intake", "codriver-intake", map[string]any{"outcome": "proceed"}, first)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,6 +39,14 @@ func TestReadWorkPinReportsEveryCoordinatorSessionDrivingTheItem(t *testing.T) {
 		ActorClass:   ActorAgent,
 	}
 	version, err = applyTestAction(t, s, workID, version, "pick_type", "codriver-pick", map[string]any{"type": "change", "reason": "bounded change"}, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err = applyTestAction(t, s, workID, version, "record_clarify", "codriver-clarify", map[string]any{"resolved_questions": []string{}, "note": "No operator questions remain."}, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err = applyTestAction(t, s, workID, version, "complete_step", "codriver-complete-clarify", map[string]any{"step_id": "clarify", "note": "Clarification complete."}, first)
 	if err != nil {
 		t.Fatal(err)
 	}

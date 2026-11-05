@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// writeResumePreludeFixture records one intake (and optional clarify) prelude
+// writeResumePreludeFixture records one intake prelude
 // through the same write-seam-guarded prelude write the actions use.
 func writeResumePreludeFixture(t *testing.T, s *Store, workID string, prelude workflowPreludeState) {
 	t.Helper()
@@ -48,27 +48,6 @@ func TestReadWorkflowResumeAnswersOpeningStepsBeforeIntake(t *testing.T) {
 	}
 	if resume.Version != version {
 		t.Fatalf("version=%d, want the work version %d", resume.Version, version)
-	}
-}
-
-func TestReadWorkflowResumeDerivesClarifyAndPickType(t *testing.T) {
-	t.Parallel()
-	s, _ := seedBootstrapCapturedWork(t, "resume-opening-clarify")
-	writeResumePreludeFixture(t, s, "resume-opening-clarify", workflowPreludeState{Intake: workflowIntakeRecord{Outcome: WorkflowIntakeClarify, OpenQuestionsFound: true}})
-	resume, err := ReadWorkflowResume(context.Background(), s, "resume-opening-clarify")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.Join(resume.OpeningSteps, ","); got != "clarify,pick_type" {
-		t.Fatalf("opening steps=%q, want clarify,pick_type", got)
-	}
-	writeResumePreludeFixture(t, s, "resume-opening-clarify", workflowPreludeState{Intake: workflowIntakeRecord{Outcome: WorkflowIntakeClarify, OpenQuestionsFound: true}, Clarify: &workflowClarifyRecord{ResolvedQuestions: []string{"q"}, Note: "resolved"}})
-	resume, err = ReadWorkflowResume(context.Background(), s, "resume-opening-clarify")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.Join(resume.OpeningSteps, ","); got != "pick_type" {
-		t.Fatalf("opening steps after clarify=%q, want pick_type", got)
 	}
 }
 

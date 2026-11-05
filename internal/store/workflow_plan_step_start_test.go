@@ -34,6 +34,7 @@ func TestWorkflowPlanStepStart(t *testing.T) {
 				t.Fatal(err)
 			}
 			plan.Steps[0].Attempts = []WorkflowPlanAttempt{{Note: "done", CompletedAt: "2026-01-01T00:00:00Z"}}
+			plan.Steps[1].Attempts = []WorkflowPlanAttempt{{Note: "done", CompletedAt: "2026-01-01T00:00:00Z"}}
 			if tc.inserted {
 				plan.Steps = append(plan.Steps, WorkflowPlanStep{ID: "extra", After: []string{}, Reviewed: tc.reviewed})
 			}

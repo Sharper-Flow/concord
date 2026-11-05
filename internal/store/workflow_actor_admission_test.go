@@ -63,7 +63,7 @@ func TestPreflightAdmitsAnActorTheCapturingSessionNeverRecorded(t *testing.T) {
 		ExpectedVersion: version,
 		StepID:          step,
 		ActionID:        "record_intake",
-		Payload:         json.RawMessage(`{"outcome":"proceed","open_questions_found":false}`),
+		Payload:         json.RawMessage(`{"outcome":"proceed"}`),
 		Actor:           secondSessionActor(),
 	}
 	if _, err := workflowActionPreflightTx(ctx, tx, request); err != nil {

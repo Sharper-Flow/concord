@@ -49,10 +49,16 @@ func TestWorkflowPlanDocumentsMigrationFlow(t *testing.T) {
 				}
 				return err
 			}
-			if err := apply("record_intake", `{"outcome":"proceed","open_questions_found":false}`); err != nil {
+			if err := apply("record_intake", `{"outcome":"proceed"}`); err != nil {
 				t.Fatal(err)
 			}
 			if err := apply("pick_type", fmt.Sprintf(`{"type":%q,"reason":"initial choice"}`, tc.typ)); err != nil {
+				t.Fatal(err)
+			}
+			if err := apply("record_clarify", `{"resolved_questions":[],"note":"No operator questions remain."}`); err != nil {
+				t.Fatal(err)
+			}
+			if err := apply("complete_step", `{"step_id":"clarify","note":"Clarification complete."}`); err != nil {
 				t.Fatal(err)
 			}
 			var before string

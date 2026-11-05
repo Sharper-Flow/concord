@@ -120,8 +120,11 @@ cancelled   → needed       (explicit reopen)
   SQLite transaction (CD-0002 I4;
   [CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 - Reopen is an explicit recorded transition with actor, reason, expected version, and prior
-  terminal state. It never edits or deletes the terminal record it reopens. It refuses
-  if another live item holds the same Linear issue key or UUID.
+  terminal state. It keeps the work identity and refuses if another live item holds
+  the same Linear issue key or UUID.
+- In the same transaction, reopen returns an existing workflow instance to `running`,
+  keeps its plan, and clears its terminal completion metadata. The agent can then
+  insert the next step without recapturing the item.
 - `in_progress → needed` means intentionally paused/returned to the queue; it is
   not a hidden blocked state.
 - Terminal reason/evidence fields required by the accepted operation commit in the

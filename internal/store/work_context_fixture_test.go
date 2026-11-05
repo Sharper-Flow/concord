@@ -51,9 +51,7 @@ func seedWorkContextDomainRegistry(t *testing.T, s *Store) {
 }
 
 // workContextFixture is one seeded workflow at a plan frontier with an
-// approved Product-changing contract. The work-context declaration surface it
-// formerly carried is retired (CON-1571 end state 2); the registry fixture
-// and the contract-bearing workflow remain the vehicles other tests use.
+// approved Product-changing contract and a committed Domain registry.
 type workContextFixture struct {
 	store    *Store
 	workID   string

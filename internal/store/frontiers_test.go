@@ -408,10 +408,8 @@ DELETE FROM write_guard`, frontierActor); err != nil {
 	if err := enterWrite(t.Context(), tx); err != nil {
 		t.Fatal(err)
 	}
-	// The live identity kind set retires the supersession event kinds
-	// (CON-1571 end state 2), so only relation.added, overlap resolutions,
-	// successor links, and raised captures assign relation positions here;
-	// the historical backfill above keeps its recorded kind list.
+	// The historical backfill has a frozen kind set; live allocation uses
+	// the current relation identity kinds.
 	liveIdentity := map[int]int64{0: 1, 3: 2, 4: 3, 5: 4}
 	for i, row := range corpus {
 		e := Event{EventID: row.EventID, Kind: row.Kind, SubjectType: SubjectType(row.SubjectType), SubjectID: row.SubjectID, Actor: row.Actor, PayloadVersion: row.Version, Payload: []byte(row.Payload)}

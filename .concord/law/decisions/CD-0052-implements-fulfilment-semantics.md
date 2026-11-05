@@ -26,22 +26,13 @@
 
 ## Context
 
-`implements` is one of the four original relation kinds (issue #11, PM4
-lifecycle) — `parent`, `blocks`, `supersedes`, `implements` — and has been
-cycle-exempt since introduction. Unlike every kind added later, it never
-received a semantic definition: no decision record defines it, no research
-report defines it, no scenario exercises it, no contract documents it, and no
-code consumes it beyond display edge listings. Issue #273 investigated the
-history and found intent but no law.
-
-The investigation supports one coherent reading. `work_items.kind` includes
-`decision`: decision records are work items. A directional edge
+`implements` needs a meaning distinct from hierarchy and dependency.
+`work_items.kind` includes `decision`: decision records are work items. A directional edge
 `task implements decision` is a many-to-one fulfilment link — this work
 delivers that accepted law or goal. That shape explains the original
 cycle exemption (rejection is pointless for a non-hierarchical, non-blocking
-linkage where many items may point at one target) and completes the original
-four-kind set: hierarchy (`parent`), dependency (`blocks`), replacement
-(`supersedes`), fulfilment (`implements`).
+linkage where many items may point at one target). Hierarchy (`parent`),
+dependency (`blocks`) and fulfilment (`implements`) have separate effects.
 
 CD-0222's `workflow_architecture_bindings` own the work-to-Domain dimension.
 The work-to-decision-record dimension this kind addresses remains otherwise

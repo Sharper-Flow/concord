@@ -107,7 +107,7 @@ func decisionFactUpdateEvent(t *testing.T, s *Store, id string, actor WorkflowAc
 		t.Fatal(err)
 	}
 	payload, err := json.Marshal(map[string]any{
-		"title": "Updated plan", "value_statement": "Retain valid proof", "kind": kind, "tags": []string{},
+		"title": "Updated plan", "kind": kind,
 		"reason": "revise the plan", "expected_version": version, "resulting_version": version + 1, "contract": contract,
 	})
 	if err != nil {

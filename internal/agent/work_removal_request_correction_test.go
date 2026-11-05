@@ -21,7 +21,7 @@ func TestInvokeWorkRemovalRequestCorrection(t *testing.T) {
 		{"digest", "linear.handoff_digest", "Linear confirmation does not match the handoff"},
 		{"linked_confirmation", "linear", "records a Linear issue but the removal carries no Linear handoff confirmation"},
 		{"unlinked_confirmation", "linear", "no recorded Linear issue identity"},
-		{"terminal_state", "", "completed and superseded work cannot be removed"},
+		{"terminal_state", "", "completed work cannot be removed"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()

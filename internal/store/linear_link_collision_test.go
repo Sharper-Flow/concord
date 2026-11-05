@@ -48,10 +48,10 @@ func TestLinearLinkOneLiveItemPerIssue(t *testing.T) {
 			})
 			var failure *Failure
 			if !errors.As(err, &failure) || failure.Kind != KindInvalidRelation {
-				t.Fatalf("collision error = %v, want typed %s naming the live holder", err, KindInvalidRelation)
+				t.Fatalf("collision error = %v, want typed %s", err, KindInvalidRelation)
 			}
-			if !strings.Contains(failure.Detail, "link-first") {
-				t.Fatalf("refusal must name the live holder: %+v", failure)
+			if !strings.Contains(failure.Detail, "another live work item") || strings.Contains(failure.Detail, "link-first") {
+				t.Fatalf("refusal must report the collision without an unscoped holder identity: %+v", failure)
 			}
 		})
 	}

@@ -458,19 +458,18 @@ func (s *Store) QueryQ2(ctx context.Context, req Q2Request) (Q2Result, error) {
 	filter, projectArgs := productWorkScopeSQL(req.ProjectIDs)
 	// Product scope is a distinct CTE, so every count and preview uses one canonical work identity.
 	scope := `WITH scoped AS (SELECT DISTINCT wp.work_id FROM work_projects wp JOIN product_projects pp ON pp.project_id = wp.project_id WHERE pp.product_id = ?` + filter + `)`
-	var counts [9]int
+	var counts [8]int
 	countQuery := scope + ` SELECT
 		COALESCE(SUM(CASE WHEN w.lifecycle='needed' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN w.lifecycle='in_progress' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN w.lifecycle='completed' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN w.lifecycle='cancelled' THEN 1 ELSE 0 END),0),
-		0,
 		COALESCE(SUM(CASE WHEN EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress')) THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN w.lifecycle='needed' AND NOT EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress')) THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN w.lifecycle='in_progress' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN w.lifecycle IN ('completed','cancelled') THEN 1 ELSE 0 END),0)
 		FROM work_items w JOIN scoped s ON s.work_id=w.id`
-	if err := tx.QueryRowContext(ctx, countQuery, scopeArgs(req.Product, projectArgsToIDs(projectArgs))...).Scan(&counts[0], &counts[1], &counts[2], &counts[3], &counts[4], &counts[5], &counts[6], &counts[7], &counts[8]); err != nil {
+	if err := tx.QueryRowContext(ctx, countQuery, scopeArgs(req.Product, projectArgsToIDs(projectArgs))...).Scan(&counts[0], &counts[1], &counts[2], &counts[3], &counts[4], &counts[5], &counts[6], &counts[7]); err != nil {
 		return out, wrapFailure(KindUnavailable, "PM1.Q2", "cannot read Product snapshot", true, "retry once the database is readable", err)
 	}
 	previewQuery := scope + ` SELECT w.id,w.kind,w.title,w.lifecycle,w.version,w.created_at,w.updated_at,coalesce(w.terminal_time,'') FROM work_items w JOIN scoped s ON s.work_id=w.id ORDER BY CASE WHEN w.lifecycle IN ('completed','cancelled') THEN w.terminal_time ELSE w.created_at END DESC, w.id LIMIT ?`
@@ -485,7 +484,7 @@ func (s *Store) QueryQ2(ctx context.Context, req Q2Request) (Q2Result, error) {
 		return out, err
 	}
 	out.LifecycleCounts = map[string]int{"needed": counts[0], "in_progress": counts[1], "completed": counts[2], "cancelled": counts[3]}
-	out.DerivedCounts = DerivedCounts{Blocked: counts[5], Ready: counts[6], Active: counts[7], Terminal: counts[8]}
+	out.DerivedCounts = DerivedCounts{Blocked: counts[4], Ready: counts[5], Active: counts[6], Terminal: counts[7]}
 	out.Items = items
 	if out.Items == nil {
 		out.Items = []WorkItem{}

@@ -36,15 +36,8 @@ func TestQ7CurrentTransitionAndTieCursor(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	seedWork(t, s, "q7-origin")
-	// One capture that acknowledges its origin writes two current rows on a
-	// single effect: the created lifecycle row and the raised_from relation
-	// row. The supersession event that formerly produced this pair is
-	// retired (CON-1571 end state 2).
-	// Seed one relation-identity effect and its two current rows directly, as
-	// the historical migration found them: a capture that acknowledged its
-	// origin wrote both the lifecycle row and the raised_from relation on a
-	// single effect. The supersession event that formerly produced this pair
-	// live is retired (CON-1571 end state 2).
+	// The imported lifecycle and relation share one effect. Pagination must
+	// distinguish their positions without dropping either current row.
 	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
 INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,relation_seq) VALUES('q7-capture',(SELECT COALESCE(MAX(effect_seq),0)+5 FROM effect_receipts),'relation.added','work_item','q7-captured','operator',1,1);
 INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at,transition_from,transition_reason,transition_actor,transition_evidence_refs,transition_seq,transition_version) VALUES('q7-captured','task','Tie cursor witness','needed',1,'2026-08-07T12:00:00Z','2026-08-07T12:00:00Z',NULL,'capture acknowledges the colliding external reference','operator','[]',(SELECT COALESCE(MAX(effect_seq),0) FROM effect_receipts),1);

@@ -874,9 +874,7 @@ func (r runtime) planLifecycle(_ context.Context, base agentcontract.Envelope, r
 		}
 		kind := "work.transitioned"
 		if in.Target == "reopen" {
-			// Reopen is the composite return from a terminal state: the
-			// work.reopened fold owns it, and it invalidates every overlap
-			// resolution the item still holds (CON-1571 end state 1).
+			// The reopened fold invalidates the item's overlap resolutions.
 			kind = "work.reopened"
 		}
 		payloadFields := map[string]any{"from": from, "reason": in.Reason, "evidence_refs": evidenceLocators(in.Evidence), "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1}

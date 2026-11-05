@@ -129,7 +129,7 @@ DELETE FROM write_guard`); err != nil {
 			tables := append([]string{"sqlite_schema", "schema_migrations", "store_revision", "write_guard", "work_context_state"}, domainShapeRetiredTables...)
 			tables = append(tables, domainShapePreservedTables...)
 			before := catalogUpgradeRows(t, db, tables...)
-			err := Migrate(context.Background(), db)
+			err := Migrate(outcomeSnapshotContext(t, context.Background(), db), db)
 			if lifecycle != "needed" {
 				if err != nil {
 					t.Fatalf("terminal execution cannot require retired publication: %v", err)
@@ -171,9 +171,7 @@ DELETE FROM write_guard`); err != nil {
 				t.Fatalf("upgrade rewrote the remediated authored declaration: %v", after)
 			}
 			assertRetirementUpgrade(t, db, domainShapeRetiredObjects(), domainShapePreservedTables, retained, migrations[171].Version)
-			// The remediated declaration stays byte-for-byte readable as a
-			// stored row; the declaration read surface itself is retired
-			// (CON-1571 end state 2), so the witness reads the row.
+			// Inspect the historical projection before later migrations transform it.
 			var remediatedPayload string
 			if err := db.QueryRow(`SELECT declaration_payload FROM work_context_state WHERE work_id='shape-work'`).Scan(&remediatedPayload); err != nil {
 				t.Fatal(err)

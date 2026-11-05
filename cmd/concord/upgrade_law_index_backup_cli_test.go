@@ -303,7 +303,11 @@ func TestUpgradeRetiringLawIndexSnapshotsTheLawInventoryBeforeTheDrop(t *testing
 		if cliLawIndexRetiredTable(table) {
 			continue
 		}
-		if after := cliLawIndexRows(t, liveDB, table); !reflect.DeepEqual(after, before[table]) {
+		want := before[table]
+		if table == "work_items" {
+			want = expectedMinimalWorkRows(t, want)
+		}
+		if after := cliLawIndexRows(t, liveDB, table); !reflect.DeepEqual(after, want) {
 			t.Fatalf("the upgrade changed preserved %s rows:\nbefore: %v\nafter: %v", table, before[table], after)
 		}
 	}

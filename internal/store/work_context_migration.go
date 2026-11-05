@@ -5,14 +5,8 @@ import (
 	"encoding/json"
 )
 
-// This file is frozen migration replay code. The work-context declaration
-// surface (record_work_context action, workflow.work_context_recorded event,
-// work_context_state and work_context_findings projections) was retired by
-// CON-1571 end state 2 under CD-0243 D3; migration 186 drops the tables.
-// Migration 148 (context_finding_review_facts) still replays on stores below
-// that schema, and its backfill writes these tables before 186 drops them
-// (review_migration.go keeps the same frozen-replay pattern for its retired
-// surface). No live read or write path may call into this file.
+// Migration 148 backfills work-context tables that migration 186 drops.
+// No live read or write path may call this frozen migration replay code.
 
 // WorkContextFinding is the declared-claim shape historical
 // workflow.work_context_recorded and workflow.action_completed payloads

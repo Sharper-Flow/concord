@@ -72,6 +72,48 @@ func seedV165LawCoverageRows(t *testing.T, path string) {
 
 func repeatCLI64() string { return "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
 
+// expectedMinimalWorkRows applies the declared schema 186 transformation to
+// predecessor rows while preserving every other column in the comparison.
+func expectedMinimalWorkRows(t *testing.T, rows []string) []string {
+	t.Helper()
+	var result []string
+	for _, row := range rows {
+		var old []json.RawMessage
+		if err := json.Unmarshal([]byte(row), &old); err != nil || len(old) != 21 {
+			t.Fatalf("unexpected predecessor work row %s: %v", row, err)
+		}
+		var intent map[string]json.RawMessage
+		var encodedIntent string
+		if err := json.Unmarshal(old[9], &encodedIntent); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal([]byte(encodedIntent), &intent); err != nil {
+			t.Fatal(err)
+		}
+		minimal := struct {
+			Title json.RawMessage `json:"title"`
+			Kind  json.RawMessage `json:"kind"`
+			Task  json.RawMessage `json:"task,omitempty"`
+		}{old[2], old[1], intent["task"]}
+		encoded, err := json.Marshal(minimal)
+		if err != nil {
+			t.Fatal(err)
+		}
+		old[9], err = json.Marshal(string(encoded))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, i := range []int{3, 15} {
+			if string(old[i]) == `"superseded"` {
+				old[i] = json.RawMessage(`"cancelled"`)
+			}
+		}
+		next := append(append(append([]json.RawMessage{}, old[:4]...), old[5:11]...), old[12:]...)
+		result = append(result, mustJSON(t, next))
+	}
+	return result
+}
+
 // lawCoverageFixtureRows renders every row of one table, so the live store
 // and the verified snapshot compare by content.
 func lawCoverageFixtureRows(t *testing.T, db *sql.DB, table string) []string {
@@ -224,7 +266,11 @@ func TestUpgradeRetiringLawCoverageSnapshotsTheCoverageTableBeforeTheDrop(t *tes
 	}
 	after := lawCoverageFixtureState(t, liveDB, false)
 	for _, table := range lawCoverageFixtureTables {
-		if !reflect.DeepEqual(after[table], before[table]) {
+		want := before[table]
+		if table == "work_items" {
+			want = expectedMinimalWorkRows(t, want)
+		}
+		if !reflect.DeepEqual(after[table], want) {
 			t.Fatalf("the upgrade changed %s:\nbefore: %v\nafter: %v", table, before[table], after[table])
 		}
 	}

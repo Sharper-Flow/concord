@@ -1769,10 +1769,6 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
         self.assertEqual(repeated, self.projected)
         generator.check_schema_keywords(self.projected)
         generator.check_payload_closed(self.projected)
-        # The work-context view is retired (CON-1571 end state 2); the
-        # retained-twin machinery it exercised stays covered by the law
-        # context twins below.
-        self.assertNotIn("work_context_view", self.projected["$defs"])
 
 def workflow_job_steps(job_name: str) -> list[dict]:
     """One job's steps as name/run/env records.

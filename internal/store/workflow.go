@@ -34,9 +34,7 @@ const (
 	WorkflowSuccessorLinked        = "workflow.successor_linked"
 	WorkflowContextCheckpointed    = "workflow.context_checkpointed"
 	WorkflowContextBoundaryCrossed = "workflow.context_boundary_crossed"
-	// WorkflowWorkContextRecorded is the retired work-context declaration
-	// kind. No registration accepts it; only frozen migration replay reads
-	// the string (work_context_migration.go, CON-1571 end state 2).
+	// WorkflowWorkContextRecorded is read only by frozen migration replay.
 	WorkflowWorkContextRecorded      = "workflow.work_context_recorded"
 	WorkflowProposalRecorded         = "workflow.proposal_recorded"
 	WorkflowDesignRecorded           = "workflow.design_recorded"
@@ -161,7 +159,6 @@ type workflowOverlapResolvedPayload struct {
 	ToContractVersion   int64  `json:"to_contract_version"`
 	ResolutionKind      string `json:"resolution_kind"`
 	Reason              string `json:"reason"`
-	CrossScope          bool   `json:"cross_scope"`
 }
 
 func (p workflowOverlapResolvedPayload) workflowVersionFields() WorkflowVersionFields {

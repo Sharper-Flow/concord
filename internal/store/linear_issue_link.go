@@ -126,7 +126,7 @@ func requireAvailableLinearIssue(ctx context.Context, q queryer, link LinearIssu
 		var owner string
 		err := q.QueryRowContext(ctx, probe.sql, probe.value, link.WorkID).Scan(&owner)
 		if err == nil {
-			return newFailure(KindInvalidRelation, op, "live work item "+owner+" already holds that Linear "+probe.what, false, "one live work item per Linear issue; capture again once the holding item is terminal")
+			return newFailure(KindInvalidRelation, op, "another live work item already holds that Linear "+probe.what, false, "one live work item per Linear issue; capture again once the holding item is terminal")
 		}
 		if err != sql.ErrNoRows {
 			return wrapFailure(KindUnavailable, op, "cannot inspect recorded Linear issue identities", true, "retry once the database is readable", err)

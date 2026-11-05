@@ -184,7 +184,7 @@ func TestOperatorApprovalRemovalRollsBackAtomically(t *testing.T) {
 		t.Fatal("failed migration changed data, schema, guards or manifest")
 	}
 	execSixClassSQL(t, db, `DROP TABLE outside_repair_reconciliations_v168`)
-	if err := Migrate(context.Background(), db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, context.Background(), db), db); err != nil {
 		t.Fatalf("retry after rollback: %v", err)
 	}
 	assertOperatorApprovalStorageAbsent(t, db)

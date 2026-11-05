@@ -67,6 +67,11 @@ definition builder, with strict payload fields and no approval. The explicit
 continuity read does not automatically inject pinned context into current
 OpenCode calls; typed-agent injection on restart belongs to issue #120.
 
+An explicit work reopen returns an existing terminal workflow instance to
+`running`, preserves its step plan, and clears completion metadata in the same
+transaction. The resumed instance admits `insert_step`; it does not require a
+new capture. PM4 and CD-0146 govern the lifecycle and Linear collision checks.
+
 [CD-0243 D7](../decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
 acceptance criteria. Other admission, safety, and evidence requirements remain

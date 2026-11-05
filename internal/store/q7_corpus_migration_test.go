@@ -42,9 +42,6 @@ func q7ExplicitCorpus(t *testing.T) historicalFactCorpus {
 	add(WorkflowActionCompleted, map[string]any{"step_id": "findings", "attempt_epoch": 2, "action_id": "checkpoint_context", "actor_ref": actor})
 	add(WorkflowActionCheckpointed, map[string]any{"step_id": "findings", "attempt_epoch": 3})
 	add("workflow.outside_repair_reconciled", map[string]any{"from": "in_progress", "mode": "completed"})
-	// Both routine overlap destinations use the correct subject and resulting
-	// version; the terminal supersession kinds are retired (CON-1571 end
-	// state 2), so the corpus carries one depends_on resolution.
 	add(WorkflowOverlapResolved, map[string]any{"resolution_kind": "depends_on", "to_work_id": "q7-corpus-related", "to_resulting_version": 2})
 	add("relation.added", map[string]any{"relation_kind": "depends_on", "from_work_id": work, "to_work_id": "q7-corpus-related"})
 	add("workflow.successor_linked", map[string]any{"successor_work_id": "q7-corpus-next"})

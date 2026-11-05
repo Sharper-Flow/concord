@@ -610,7 +610,7 @@ func TestMigrateV22ToV23AddsBoundedInitiativeNarrative(t *testing.T) {
 	}
 	assertNarrativeBound("fold_guard", "pre-existing")
 	// The bound survives every later table rebuild to the current schema.
-	if err := Migrate(ctx, db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, ctx, db), db); err != nil {
 		t.Fatal(err)
 	}
 	assertNarrativeBound("write_guard", "pre-existing-task")
@@ -2174,16 +2174,9 @@ func TestMigrateV47ToV48RenamesResearchScopeComponentToDomain(t *testing.T) {
 		t.Fatal("post-migration home guard admitted an explicit scope ID")
 	}
 	// Replay the populated historical table through the schema before its retirement.
-	for _, m := range migrations[48:] {
-		if err := applyMigration(ctx, db, m); err != nil {
-			t.Fatalf("migration %d (%s): %v", m.Version, m.Name, err)
-		}
-		if _, err := db.ExecContext(ctx,
-			`INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`,
-			m.Version, m.Name, m.checksum(), appliedAt,
-		); err != nil {
-			t.Fatalf("manifest record for migration %d: %v", m.Version, err)
-		}
+	advanceHistoricalPrefix(t, db, 185)
+	if err := Migrate(outcomeSnapshotContext(t, ctx, db), db); err != nil {
+		t.Fatal(err)
 	}
 	var latest int
 	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&latest); err != nil {

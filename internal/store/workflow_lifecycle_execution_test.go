@@ -129,6 +129,7 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 	db := openMigratedTo(t, path, 106)
 	copyFixtureDataToPrefix(t, s, db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances"}, map[string]map[string]string{
 		"products":           {"planning_mode": "'local_only'"},
+		"work_items":         {"priority": "0"},
 		"workflow_instances": {"outside_repair_state": "NULL", "definition_ref": "'workflow.change'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "1", "current_step": "'execution'"},
 	}, "fold_guard")
 	start := func(id, action, identity string, expected, epoch int64) Event {
@@ -171,7 +172,7 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 	if got := histEventRows(t, &Store{db: db}); !reflect.DeepEqual(got, before) {
 		t.Fatal("execution-start migration changed source bytes, actors, sequence or occurrence times")
 	}
-	if err := Migrate(ctx, db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, ctx, db), db); err != nil {
 		t.Fatal(err)
 	}
 	if backfilled := executionStart(db, "upgraded migration107"); backfilled != folded {

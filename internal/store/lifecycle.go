@@ -62,10 +62,11 @@ type workMembershipPayload struct {
 }
 
 type workReopenedPayload struct {
-	From             string `json:"from"`
-	Reason           string `json:"reason"`
-	ExpectedVersion  int64  `json:"expected_version"`
-	ResultingVersion int64  `json:"resulting_version"`
+	From             string   `json:"from"`
+	Reason           string   `json:"reason"`
+	EvidenceRefs     []string `json:"evidence_refs,omitempty"`
+	ExpectedVersion  int64    `json:"expected_version"`
+	ResultingVersion int64    `json:"resulting_version"`
 }
 
 type relationPayload struct {
@@ -356,6 +357,9 @@ func foldWorkReopened(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	if err := invalidateWorkflowOverlapResolutionsForWorkTx(ctx, tx, event.EventID, event.SubjectID); err != nil {
 		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',completed_at=NULL,completion_payload=NULL,completion_occurred_at=NULL WHERE work_id=?`, event.SubjectID); err != nil {
+		return workflowProjectionError(err, "cannot reopen workflow instance")
 	}
 	return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion)
 }

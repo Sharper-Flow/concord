@@ -12,9 +12,6 @@ import (
 
 // The closed work-relation kinds resolve_overlap records between two items
 // that each hold an approved Product-changing contract (CD-0222, CD-0013 D11).
-// The terminal supersession kinds merged_into and supersedes are retired
-// (CON-1571 end state 2): lifecycle keeps needed, in_progress, completed,
-// cancelled and reopen only.
 const (
 	ResolutionDependsOn = "depends_on"
 	ResolutionBlocks    = "blocks"

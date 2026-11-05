@@ -282,7 +282,7 @@ respectively. The remaining model-internal open question is:
 
 | Doc | Link |
 |---|---|
-| [CD-0222](../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) | Domain `replaces` and PM4 work-item `supersedes` remain bounded relation mechanisms. |
+| [CD-0222](../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) | Domain `replaces` remains a bounded architecture relation; PM4 governs work-item relations. |
 | [`priorities.md` — Quality (goal E)](../law/constitution/priorities.md#quality-goal-e) | Proportional rigor is the quality attribute that §8 supplies an input for. |
 | `design-constraints.md` §4 | The ownership record is Concord-owned state → lock-free, current rows with finite snapshots, no history to repair (CD-0242 D2). Stage transitions write current rows (§8.5). |
 | `self-documentation.md` §1 | The browse surface uses Product → Domain navigation. |

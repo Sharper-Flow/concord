@@ -1430,12 +1430,7 @@ func (r runtime) q8(base agentcontract.Envelope, q store.Q8Result) (agentcontrac
 	for _, e := range q.Edges {
 		edges = append(edges, map[string]any{"from": e.Source, "to": e.Target, "kind": e.Kind, "depth": e.Depth, "relation_id": e.RelationID})
 	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"nodes": []any{}, "edges": edges, "replacement_state": relationReplacementState(q.Edges)})
-}
-func relationReplacementState(_ []store.RelationEdge) string {
-	// Supersession edges are retired (CON-1571 end state 2), so no stored
-	// edge can report an active replacement.
-	return "none"
+	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"nodes": []any{}, "edges": edges})
 }
 
 // SignedCursor remains an agent-facing alias while the authority owns its

@@ -9,10 +9,14 @@ import (
 )
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 const ManifestDigest = "sha256:aae7f5479d895a1abca94384a956be16f2592952519fce867d9771069d92b3b5"
 =======
 const ManifestDigest = "sha256:5efe42b21bb323a37391068a9c29b1bedb19bd394ea4d6e54b55c026bb61edc1"
 >>>>>>> 7d719c31f (chore(contracts): regenerate agent tool surface after CON-1738 rebase)
+=======
+const ManifestDigest = "sha256:7999bcd47359fd1050fe99f37e0407e3b664945b9ac9c60411f60e29460f80aa"
+>>>>>>> 7c5f10f33 (fix(store): complete clarify fixtures, one-code-point answers and contract prose)
 
 type OperationKind string
 

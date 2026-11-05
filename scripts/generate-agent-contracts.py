@@ -885,7 +885,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], teaching
     defs["workflow_completion_payload"] = {"type": "object", "additionalProperties": False, "properties": {"evidence_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "current_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "staleness": {"type": "object", "additionalProperties": False, "required": ["drifted"], "properties": {"drifted": {"type": "boolean"}, "severity": {"type": "string", "enum": ["block", "warning"]}}}}}
     defs["proposal_affected_text"] = {"type": "string", "minLength": 1, "maxLength": 256}
     defs["proposal_text"] = {"type": "string", "minLength": 1, "maxLength": 512}
-    defs["clarification_answer_text"] = {"type": "string", "minLength": 2, "maxLength": 2048, "pattern": r"\S"}
+    defs["clarification_answer_text"] = {"type": "string", "minLength": 1, "maxLength": 2048, "pattern": r"\S"}
 
     outer_properties = copy.deepcopy(common)
     outer_properties["fields"] = {}

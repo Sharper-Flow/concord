@@ -162,6 +162,12 @@ func seedProjectHandoffContract(t *testing.T, s *Store, workID string) {
 		t.Fatal(err)
 	}
 	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanResearch, currentWorkflowPlanFixture(t, WorkflowStepPlanResearch).Steps[0].ID)
+	if err := runVerdictActionAs(t, s, workID, "record_clarify", json.RawMessage(`{"resolved_questions":[],"note":"No operator questions remain."}`), 0, owner); err != nil {
+		t.Fatal(err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "complete_step", json.RawMessage(`{"step_id":"clarify","note":"Clarification complete."}`), 0, owner); err != nil {
+		t.Fatal(err)
+	}
 	workVersion := readWorkVersion(t, s, workID)
 	setup := []Event{
 		workflowEventWithActor("ph-contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion, "resulting_version": workVersion + 1, "contract_version": 1, "premise": "cross-project handoff fixture", "decision_domains": []string{}, "legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),

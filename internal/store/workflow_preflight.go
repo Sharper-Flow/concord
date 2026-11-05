@@ -772,7 +772,7 @@ func validWorkflowPayloadListItem(itemRef, value string) bool {
 	case "proposal_text":
 		return validWorkflowProseItem(value, 512)
 	case "clarification_answer_text":
-		return len([]rune(value)) >= 2 && validWorkflowProseItem(value, 2048)
+		return validWorkflowProseItem(value, 2048)
 	case "", "reference":
 		return ValidReference(value)
 	default:

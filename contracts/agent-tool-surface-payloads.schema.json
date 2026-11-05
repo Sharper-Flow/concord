@@ -1826,7 +1826,7 @@
       ]
     },
     "resume_read_document": {
-      "description": "The item's stored step plan exactly as written, derived next step ids and work version. Before intake, opening_steps contains intake and pick_type; clarify is conditional on the intake outcome. After clarify-required intake it contains clarify and pick_type, and after proceed or clarification it contains pick_type. Terminal items carry neither next_steps nor opening_steps.",
+      "description": "The item's stored step plan exactly as written, derived next step ids and work version. Before intake, opening_steps contains intake and pick_type; after intake proceeds it contains pick_type. Clarify is a required step in newly picked plans, after type selection and diagnosis when applicable. Terminal items carry neither next_steps nor opening_steps.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -6124,7 +6124,7 @@
               "uniqueItems": true,
               "items": {
                 "$ref": "#/$defs/clarification_answer_text",
-                "description": "Bounds: 2..2048 code points inclusive"
+                "description": "Bounds: 1..2048 code points inclusive"
               },
               "minItems": 0,
               "maxItems": 16,
@@ -6529,10 +6529,10 @@
     },
     "clarification_answer_text": {
       "type": "string",
-      "minLength": 2,
+      "minLength": 1,
       "maxLength": 2048,
       "pattern": "\\S",
-      "description": "Bounds: 2..2048 code points inclusive"
+      "description": "Bounds: 1..2048 code points inclusive"
     },
     "retained_workflow_law_context": {
       "description": "The approved contract's binding law and Domains, resolved at read time from the committed law folder and Domain registry. Absent when the contract binds no law and no Domain.",

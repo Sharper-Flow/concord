@@ -15,7 +15,7 @@ func TestWorkflowClarifyMigrationRetainsAndReplacesLegacyAnswers(t *testing.T) {
 	ctx := t.Context()
 	const work = "work-clarify-upgrade"
 	actorRef := "actor:" + strings.Repeat("a", 64)
-	legacy := `{"intake":{"outcome":"clarify","open_questions_found":true},"clarify":{"resolved_questions":["Question? Operator: the answer."],"note":"Resolved."}}`
+	legacy := `{"intake":{"outcome":"clarify","open_questions_found":true},"clarify":{"resolved_questions":["é"],"note":"Resolved."}}`
 	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
 	retirementUpgradeExec(t, db, `INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at) VALUES(?,'task','Clarify upgrade','in_progress',1,'now','now')`, work)
 	retirementUpgradeExec(t, db, `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'principal','client','agent','session','agent','now')`, actorRef)
@@ -36,7 +36,7 @@ func TestWorkflowClarifyMigrationRetainsAndReplacesLegacyAnswers(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT i.prelude_state,c.payload,c.recorded_at,c.actor,c.event_ref FROM workflow_instances i JOIN workflow_clarify_records c ON c.work_id=i.work_id WHERE i.work_id=?`, work).Scan(&prelude, &payload, &recorded, &actor, &eventRef); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(prelude, `"outcome":"proceed"`) || strings.Contains(prelude, `"clarify"`) || !strings.Contains(payload, `Question? Operator: the answer.`) || recorded.Valid || actor.Valid || eventRef.Valid {
+	if !strings.Contains(prelude, `"outcome":"proceed"`) || strings.Contains(prelude, `"clarify"`) || !strings.Contains(payload, `é`) || recorded.Valid || actor.Valid || eventRef.Valid {
 		t.Fatalf("migration lost legacy record: prelude=%s payload=%s provenance=%v/%v/%v", prelude, payload, recorded, actor, eventRef)
 	}
 	var version int64

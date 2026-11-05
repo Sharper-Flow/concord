@@ -18,7 +18,7 @@ func TestWorkflowClarifyPayloadBounds(t *testing.T) {
 		{"multibyte", fmt.Sprintf(`{"resolved_questions":[%q],"note":"Resolved."}`, strings.Repeat("界", 2048)), true},
 		{"too long", fmt.Sprintf(`{"resolved_questions":[%q],"note":"Resolved."}`, strings.Repeat("x", 2049)), false},
 		{"blank", `{"resolved_questions":["  "],"note":"Resolved."}`, false},
-		{"short", `{"resolved_questions":["x"],"note":"Resolved."}`, false},
+		{"one code point", `{"resolved_questions":["x"],"note":"Resolved."}`, true},
 		{"missing", `{"note":"Resolved."}`, false},
 		{"duplicate", `{"resolved_questions":["same","same"],"note":"Resolved."}`, false},
 		{"unknown", `{"resolved_questions":[],"note":"Resolved.","other":true}`, false},
@@ -115,9 +115,8 @@ func TestWorkflowClarifyRequiredBeforePlanning(t *testing.T) {
 
 func TestWorkflowLegacyTypeSwitchDoesNotAddClarify(t *testing.T) {
 	ctx := t.Context()
-	s := openTemp(t)
-	defer s.Close()
-	seedStepWork(t, s, "work-legacy-switch")
+	f := qCurrentAcceptanceWithDelivery(t, "work-legacy-switch", "artifact:legacy-switch")
+	s := f.store
 	plan, err := WorkflowStepPlanTemplate(WorkflowStepPlanChange)
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +132,7 @@ func TestWorkflowLegacyTypeSwitchDoesNotAddClarify(t *testing.T) {
 		if err := scope.enter(ctx); err != nil {
 			return err
 		}
-		_, err := tx.tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,instance_state,workflow_type,step_plan,prelude_state) VALUES('work-legacy-switch','running','change',?,'{"intake":{"outcome":"proceed"}}')`, string(raw))
+		_, err := tx.tx.ExecContext(ctx, `UPDATE workflow_instances SET workflow_type='change',step_plan=? WHERE work_id='work-legacy-switch'`, string(raw))
 		if err != nil {
 			return err
 		}
@@ -173,15 +172,17 @@ func TestWorkflowLegacyTypeSwitchDoesNotAddClarify(t *testing.T) {
 	if err := ValidateStepPlanWrite(&plan, *updated); err != nil {
 		t.Fatal(err)
 	}
-	for i := range updated.Steps {
-		attempt := WorkflowPlanAttempt{Note: "done", CompletedAt: "2026-01-01T00:00:00Z"}
-		if updated.Steps[i].Reviewed {
-			attempt.Reviewer, attempt.Result, attempt.Commit, attempt.Link = "concord-review", "pass", "commit", "link"
-		}
-		updated.Steps[i].Attempts = []WorkflowPlanAttempt{attempt}
+	payload := json.RawMessage(`{"impact_verdict":"non-breaking"}`)
+	if err := f.run(ctx, "complete", "legacy-incomplete", f.version(ctx, t), payload, nil); err == nil {
+		t.Fatal("completion admitted before the switched plan was complete")
 	}
-	if !WorkflowStepPlanComplete(*updated) {
-		t.Fatalf("grandfathered plan cannot complete: %+v", updated)
+	completeWorkflowPlanFixture(t, s, "work-legacy-switch")
+	if err := f.run(ctx, "complete", "legacy-complete", f.version(ctx, t), payload, nil); err != nil {
+		t.Fatalf("complete grandfathered plan: %v", err)
+	}
+	var lifecycle string
+	if err := s.db.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id='work-legacy-switch'`).Scan(&lifecycle); err != nil || lifecycle != "completed" {
+		t.Fatalf("stored lifecycle = %q, err=%v", lifecycle, err)
 	}
 }
 

@@ -95,11 +95,13 @@ func approveQualifiedAdditionAtSeam(t *testing.T, s *Store, workID string, manda
 // refusal at the approval seam. The bare ID and the own-home qualified
 // reference name the same verified law identity — spec:one committed at the
 // Product's home Project "project" — so both forms must receive the existing
-// reuse refusal. Two boundaries stay as they are: an own-home qualified
-// reference to an unpublished ID is a legitimate addition, and a qualified
+// reuse refusal. Three boundaries stay as they are: an own-home qualified
+// reference to an unpublished ID is a legitimate addition, a qualified
 // reference naming another home stays a foreign identity the own-home
-// snapshot cannot verify, so the Product-law reuse refusal does not apply to
-// it.
+// snapshot cannot verify so the Product-law reuse refusal does not apply to
+// it, and an admitted addition reserves under its canonical law identity —
+// the bare form for an own-home qualified spelling, the raw spelling for a
+// foreign home (CON-1703).
 func TestQualifiedOwnHomeLawAdditionReuseRefusedAtApprovalSeam(t *testing.T) {
 	s := openTemp(t)
 	seedWork(t, s, "qualified-addition-home-bootstrap")
@@ -109,12 +111,13 @@ func TestQualifiedOwnHomeLawAdditionReuseRefusedAtApprovalSeam(t *testing.T) {
 		name       string
 		mandate    []string
 		additionID string
+		reservedAs string
 		refused    bool
 	}{
-		{name: "bare existing ID", mandate: []string{"spec:one"}, additionID: "spec:one", refused: true},
-		{name: "own-home qualified existing ID", mandate: []string{"project/spec:one"}, additionID: "project/spec:one", refused: true},
-		{name: "own-home qualified unpublished ID", mandate: []string{"project/law:new"}, additionID: "project/law:new", refused: false},
-		{name: "foreign-home qualified ID", mandate: []string{"other/law:new"}, additionID: "other/law:new", refused: false},
+		{name: "bare existing ID", mandate: []string{"spec:one"}, additionID: "spec:one", reservedAs: "spec:one", refused: true},
+		{name: "own-home qualified existing ID", mandate: []string{"project/spec:one"}, additionID: "project/spec:one", reservedAs: "spec:one", refused: true},
+		{name: "own-home qualified unpublished ID", mandate: []string{"project/law:new"}, additionID: "project/law:new", reservedAs: "law:new", refused: false},
+		{name: "foreign-home qualified ID", mandate: []string{"other/law:new"}, additionID: "other/law:new", reservedAs: "other/law:new", refused: false},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -133,8 +136,8 @@ func TestQualifiedOwnHomeLawAdditionReuseRefusedAtApprovalSeam(t *testing.T) {
 					t.Fatalf("refused approval left contracts=%d err=%v", contracts, err)
 				}
 				var reserved int
-				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_law_addition_reservations WHERE law_id=?`, testCase.additionID).Scan(&reserved); err != nil || reserved != 0 {
-					t.Fatalf("refused approval reserved %q: rows=%d err=%v", testCase.additionID, reserved, err)
+				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_law_addition_reservations WHERE law_id=?`, testCase.reservedAs).Scan(&reserved); err != nil || reserved != 0 {
+					t.Fatalf("refused approval reserved %q: rows=%d err=%v", testCase.reservedAs, reserved, err)
 				}
 				return
 			}
@@ -142,10 +145,90 @@ func TestQualifiedOwnHomeLawAdditionReuseRefusedAtApprovalSeam(t *testing.T) {
 				t.Fatalf("legitimate addition refused: %v", err)
 			}
 			var reserved int
-			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_law_addition_reservations WHERE law_id=?`, testCase.additionID).Scan(&reserved); err != nil || reserved != 1 {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_law_addition_reservations WHERE law_id=?`, testCase.reservedAs).Scan(&reserved); err != nil || reserved != 1 {
 				t.Fatalf("admitted addition reservation rows=%d err=%v", reserved, err)
 			}
 		})
+	}
+}
+
+// TestLawAdditionReservationSpellingsConflictAtApprovalSeam pins the
+// reservation identity the CD-ID allocator depends on: the bare and the
+// own-home qualified spelling of one law identity are one reservation, so a
+// second work approving either spelling receives the reserved-by-another-work
+// refusal, and one contract cannot carry both spellings of one identity. A
+// foreign-home spelling stays a separate identity with its own reservation,
+// matching the reuse boundary above.
+func TestLawAdditionReservationSpellingsConflictAtApprovalSeam(t *testing.T) {
+	s := openTemp(t)
+	seedWork(t, s, "reservation-spelling-bootstrap")
+	seedWorkflowLaw(t, s)
+	commitWorkflowFixtureRegistry(t, KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}, workflowArchitectureFixtureRegistry)
+
+	reservationCount := func(lawID string) int {
+		var count int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_law_addition_reservations WHERE law_id=?`, lawID).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+
+	// A later work reserving the own-home qualified spelling of an identity
+	// another work already reserved bare must receive the reservation refusal.
+	if err := approveQualifiedAdditionAtSeam(t, s, "reservation-spelling-owner", []string{"law:dual"}, []WorkflowLawAddition{{LawID: "law:dual", HomeDomainID: "root"}}); err != nil {
+		t.Fatalf("bare first reservation refused: %v", err)
+	}
+	err := approveQualifiedAdditionAtSeam(t, s, "reservation-spelling-second", []string{"project/law:dual"}, []WorkflowLawAddition{{LawID: "project/law:dual", HomeDomainID: "root"}})
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindProjectionConflict || failure.Op != "workflow_architecture_binding" {
+		t.Fatalf("qualified second reservation=%+v err=%v, want typed projection conflict", failure, err)
+	}
+	if !strings.Contains(err.Error(), "law addition is reserved by another work") {
+		t.Fatalf("wrong reservation refusal: %v", err)
+	}
+	if reservationCount("project/law:dual") != 0 {
+		t.Fatal("refused qualified spelling left a reservation row")
+	}
+
+	// The reserved identity lives under one canonical row, not two spellings.
+	if reservationCount("law:dual") != 1 {
+		t.Fatalf("canonical reservation rows=%d, want 1", reservationCount("law:dual"))
+	}
+
+	// The reverse order holds too: the qualified spelling reserves the
+	// identity, and a later bare spelling of another work is refused.
+	if err := approveQualifiedAdditionAtSeam(t, s, "reservation-spelling-flip-owner", []string{"project/law:flip"}, []WorkflowLawAddition{{LawID: "project/law:flip", HomeDomainID: "root"}}); err != nil {
+		t.Fatalf("qualified first reservation refused: %v", err)
+	}
+	if reservationCount("law:flip") != 1 || reservationCount("project/law:flip") != 0 {
+		t.Fatalf("flip reservation rows: canonical=%d qualified=%d, want 1 and 0", reservationCount("law:flip"), reservationCount("project/law:flip"))
+	}
+	err = approveQualifiedAdditionAtSeam(t, s, "reservation-spelling-flip-second", []string{"law:flip"}, []WorkflowLawAddition{{LawID: "law:flip", HomeDomainID: "root"}})
+	if !failureAs(err, &failure) || failure.Kind != KindProjectionConflict || !strings.Contains(err.Error(), "law addition is reserved by another work") {
+		t.Fatalf("bare second reservation=%+v err=%v, want reservation refusal", failure, err)
+	}
+
+	// One contract carrying both spellings of one identity reserves the
+	// identity twice; the approval must refuse it as a duplicate addition.
+	err = approveQualifiedAdditionAtSeam(t, s, "reservation-spelling-both", []string{"law:two", "project/law:two"}, []WorkflowLawAddition{{LawID: "law:two", HomeDomainID: "root"}, {LawID: "project/law:two", HomeDomainID: "root"}})
+	if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload || failure.Op != "workflow_architecture_binding" {
+		t.Fatalf("same-contract dual spelling=%+v err=%v, want typed invalid payload", failure, err)
+	}
+	if !strings.Contains(err.Error(), "law additions reserve one identity under two spellings") {
+		t.Fatalf("wrong duplicate-identity refusal: %v", err)
+	}
+	var bothContracts int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, "reservation-spelling-both").Scan(&bothContracts); err != nil || bothContracts != 0 {
+		t.Fatalf("refused dual-spelling approval left contracts=%d err=%v", bothContracts, err)
+	}
+
+	// A foreign-home spelling keeps its own boundary: it reserves its own
+	// identity even while the bare spelling of the same law ID is reserved.
+	if err := approveQualifiedAdditionAtSeam(t, s, "reservation-spelling-foreign", []string{"other/law:separate"}, []WorkflowLawAddition{{LawID: "other/law:separate", HomeDomainID: "root"}}); err != nil {
+		t.Fatalf("foreign-home reservation refused: %v", err)
+	}
+	if reservationCount("other/law:separate") != 1 {
+		t.Fatal("foreign-home spelling lost its own reservation row")
 	}
 }
 

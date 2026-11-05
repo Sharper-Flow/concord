@@ -1,7 +1,9 @@
 package store
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 )
@@ -141,7 +143,7 @@ func TestTerminalLifecycleDiscardsStepExecution(t *testing.T) {
 	}
 }
 
-func TestLifecycleRepairPreservesCompletedWorkflow(t *testing.T) {
+func TestReopenedWorkflowRequiresWorkflowCompletion(t *testing.T) {
 	const workID = "completed-lifecycle-repair"
 	s, completion := seedCompletionGateCase(t, workID, completionGateCase{
 		emptyMandate: true, includePremise: true, omitClosure: true,
@@ -152,23 +154,39 @@ func TestLifecycleRepairPreservesCompletedWorkflow(t *testing.T) {
 	if err := CompleteWorkflow(t.Context(), s, completion); err != nil {
 		t.Fatal(err)
 	}
-	var completedAt string
-	if err := s.db.QueryRow(`SELECT completed_at FROM workflow_instances WHERE work_id=?`, workID).Scan(&completedAt); err != nil {
-		t.Fatal(err)
+	completedPlan, err := readWorkflowPlanTx(t.Context(), s.db, workID)
+	if err != nil || completedPlan == nil {
+		t.Fatalf("completed plan = %+v, err=%v", completedPlan, err)
 	}
 	version := readWorkVersion(t, s, workID)
 	if err := applyWorkEvent(t, s, workReopenedEvent("reopen-completed-workflow", workID, "completed", version, version+1), workVersion(workID, version)); err != nil {
 		t.Fatal(err)
 	}
 	version++
-	if err := applyWorkEvent(t, s, workTransitionEvent("repair-lifecycle", workID, "needed", "completed", version, version+1), workVersion(workID, version)); err != nil {
+	var lifecycle, state string
+	var completedAt, completionPayload, completionOccurredAt sql.NullString
+	if err := s.db.QueryRow(`SELECT w.lifecycle,i.instance_state,i.completed_at,i.completion_payload,i.completion_occurred_at FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&lifecycle, &state, &completedAt, &completionPayload, &completionOccurredAt); err != nil {
 		t.Fatal(err)
 	}
-	var lifecycle, state, afterCompletedAt string
-	if err := s.db.QueryRow(`SELECT w.lifecycle,i.instance_state,i.completed_at FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&lifecycle, &state, &afterCompletedAt); err != nil {
-		t.Fatal(err)
+	plan, err := readWorkflowPlanTx(t.Context(), s.db, workID)
+	if lifecycle != "needed" || state != "running" || completedAt.Valid || completionPayload.Valid || completionOccurredAt.Valid || err != nil || !reflect.DeepEqual(plan, completedPlan) {
+		t.Fatalf("reopened lifecycle=%q state=%q completion metadata=%+v/%+v/%+v plan=%+v err=%v", lifecycle, state, completedAt, completionPayload, completionOccurredAt, plan, err)
 	}
-	if lifecycle != "completed" || state != "completed" || afterCompletedAt != completedAt || readWorkVersion(t, s, workID) != version+1 {
-		t.Fatalf("lifecycle repair lifecycle=%q state=%q stamp=%q, original stamp=%q", lifecycle, state, afterCompletedAt, completedAt)
+	workBefore := retirementUpgradeRows(t, s.db, `SELECT * FROM work_items`)
+	instanceBefore := retirementUpgradeRows(t, s.db, `SELECT * FROM workflow_instances`)
+	receiptsBefore := retirementUpgradeRows(t, s.db, `SELECT * FROM effect_receipts ORDER BY effect_seq`)
+	err = applyWorkEvent(t, s, workTransitionEvent("repair-lifecycle", workID, "needed", "completed", version, version+1), workVersion(workID, version))
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindNotTerminal {
+		t.Fatalf("direct completion error = %v, want not_terminal", err)
+	}
+	if readWorkVersion(t, s, workID) != version || !reflect.DeepEqual(workBefore, retirementUpgradeRows(t, s.db, `SELECT * FROM work_items`)) || !reflect.DeepEqual(instanceBefore, retirementUpgradeRows(t, s.db, `SELECT * FROM workflow_instances`)) || !reflect.DeepEqual(receiptsBefore, retirementUpgradeRows(t, s.db, `SELECT * FROM effect_receipts ORDER BY effect_seq`)) {
+		t.Fatal("refused direct completion changed work, workflow, version, or receipts")
+	}
+	if err := runVerdictAction(t, s, workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`)); err != nil {
+		t.Fatalf("workflow completion: %v", err)
+	}
+	if err := s.db.QueryRow(`SELECT w.lifecycle,i.instance_state,i.completed_at FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&lifecycle, &state, &completedAt); err != nil || lifecycle != "completed" || state != "completed" || !completedAt.Valid {
+		t.Fatalf("workflow completion lifecycle=%q state=%q completed_at=%+v err=%v", lifecycle, state, completedAt, err)
 	}
 }

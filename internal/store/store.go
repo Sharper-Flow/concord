@@ -9,6 +9,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -330,8 +331,18 @@ func repairManifestBreakingColumn(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
-		return wrapFailure(KindUnavailable, "upgrade", "cannot commit the manifest repair", true,
-			"retry once the database is writable", err)
+		var failure *Failure
+		if errors.As(err, &failure) {
+			return err
+		}
+		if commitRefusedBeforeDriver(err, ctx) {
+			return wrapFailure(KindUnavailable, "upgrade", "cannot commit the manifest repair", true,
+				"retry once the database is writable", err)
+		}
+		failure = wrapFailure(KindUnavailable, "upgrade", "cannot commit the manifest repair", false,
+			"reconcile database state before retrying", err)
+		failure.EffectPossible = true
+		return failure
 	}
 	return nil
 }

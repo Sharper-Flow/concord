@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -123,7 +124,16 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, reques
 				return err
 			}
 			if err := tx.Commit(); err != nil {
-				return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot commit owning action replay", true, "retry once the database is writable", err)
+				var failure *Failure
+				if errors.As(err, &failure) {
+					return err
+				}
+				if commitRefusedBeforeDriver(err, ctx) {
+					return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot commit owning action replay", true, "retry once the database is writable", err)
+				}
+				failure = wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot commit owning action replay", false, "reconcile database state before retrying", err)
+				failure.EffectPossible = true
+				return failure
 			}
 			return nil
 		}
@@ -156,7 +166,16 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, reques
 		return err
 	}
 	if err := tx.Commit(); err != nil {
-		return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot commit owning action", true, "retry once the database is writable", err)
+		var failure *Failure
+		if errors.As(err, &failure) {
+			return err
+		}
+		if commitRefusedBeforeDriver(err, ctx) {
+			return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot commit owning action", true, "retry once the database is writable", err)
+		}
+		failure = wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot commit owning action", false, "reconcile database state before retrying", err)
+		failure.EffectPossible = true
+		return failure
 	}
 	return nil
 }

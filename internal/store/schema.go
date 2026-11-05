@@ -9345,8 +9345,18 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, lawIndex
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return rollback(wrapFailure(KindUnavailable, "migrate", "cannot commit schema migration", true,
-			"retry once the database is writable", err))
+		var failure *Failure
+		if errors.As(err, &failure) {
+			return rollback(err)
+		}
+		if commitRefusedBeforeDriver(err, ctx) {
+			return rollback(wrapFailure(KindUnavailable, "migrate", "cannot commit schema migration", true,
+				"retry once the database is writable", err))
+		}
+		failure = wrapFailure(KindUnavailable, "migrate", "cannot commit schema migration", false,
+			"reconcile database state before retrying", err)
+		failure.EffectPossible = true
+		return rollback(failure)
 	}
 	if stopped != nil {
 		return upgradeRequired(*stopped)

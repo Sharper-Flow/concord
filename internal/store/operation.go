@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -505,8 +506,18 @@ func applyOperationWithResult(ctx context.Context, s *Store, operation Operation
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return output, wrapFailure(KindUnavailable, "apply_operation", "cannot commit domain operation", true,
-			"retry once the database is writable", err)
+		var failure *Failure
+		if errors.As(err, &failure) {
+			return output, err
+		}
+		if commitRefusedBeforeDriver(err, ctx) {
+			return output, wrapFailure(KindUnavailable, "apply_operation", "cannot commit domain operation", true,
+				"retry once the database is writable", err)
+		}
+		failure = wrapFailure(KindUnavailable, "apply_operation", "cannot commit domain operation", false,
+			"reconcile database state before retrying", err)
+		failure.EffectPossible = true
+		return output, failure
 	}
 	return output, nil
 }

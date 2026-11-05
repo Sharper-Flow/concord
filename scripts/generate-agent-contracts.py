@@ -295,7 +295,7 @@ def validate_persisted_manifest(manifest, ir):
     schema_validate(manifest, ir, ir, "manifest")
 
 
-def load_workflow_action_contracts() -> tuple[list[dict], dict, dict, list[dict], int]:
+def load_workflow_action_contracts() -> tuple[list[dict], dict, dict, list[dict]]:
     result = subprocess.run(
         ["go", "run", "./scripts/workflow-action-contracts"],
         cwd=ROOT,
@@ -305,7 +305,7 @@ def load_workflow_action_contracts() -> tuple[list[dict], dict, dict, list[dict]
         check=True,
     )
     projection = json.loads(result.stdout)
-    if set(projection) != {"schema_version", "actions", "teaching", "schema_refs", "contract_updates", "catalog_action_count"} or projection["schema_version"] != "2.0":
+    if set(projection) != {"schema_version", "actions", "teaching", "schema_refs", "contract_updates"} or projection["schema_version"] != "2.0":
         fail("workflow action contract projection is invalid")
     schema_refs = projection["schema_refs"]
     if set(schema_refs) != {"current"}:
@@ -323,9 +323,6 @@ def load_workflow_action_contracts() -> tuple[list[dict], dict, dict, list[dict]
     actions = projection["actions"]
     if not actions or len({action.get("id") for action in actions}) != len(actions):
         fail("workflow action contract projection has no unique actions")
-    catalog_count = projection["catalog_action_count"]
-    if type(catalog_count) is not int or catalog_count < len(actions):
-        fail("workflow action catalog count cannot bound projected actions")
     for action in actions:
         if set(action) != {"id", "variants", "cross_field"}:
             fail("workflow action contract projection contains an open record")
@@ -340,7 +337,7 @@ def load_workflow_action_contracts() -> tuple[list[dict], dict, dict, list[dict]
                 if variant[payload_key].get("closed") is not True:
                     fail(f"current workflow action {payload_key} is not closed: {action.get('id')}")
                 validate_workflow_cross_field(action, variant[payload_key])
-    return actions, teaching, schema_refs, projection["contract_updates"], catalog_count
+    return actions, teaching, schema_refs, projection["contract_updates"]
 
 
 def validate_workflow_cross_field(action: dict, payload: dict) -> None:
@@ -413,11 +410,12 @@ def single_variant(action: dict) -> dict:
     return action["variants"][0]
 
 
-# A workflow action field whose value an author writes against a shared
-# contract takes that contract's guidance from the owning $def, so the
-# published field and the def cannot drift apart. The approval premise is the
-# objective every worker packet carries, and its def states the count units.
-FIELD_GUIDANCE_DEFS = {"premise": "workflow_premise"}
+# Authoring guidance for a workflow action field whose bound units an author
+# cannot infer from the schema. The approval premise is the objective every
+# worker packet carries; its guidance states the count units.
+FIELD_GUIDANCE = {
+    "premise": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+}
 
 
 def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict | None = None) -> dict:
@@ -503,12 +501,9 @@ def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict 
         schema["pattern"] = r"\S"
     if field.get("forbidden_values"):
         schema["not"] = {"type": "string", "enum": field["forbidden_values"]}
-    guidance = FIELD_GUIDANCE_DEFS.get(field["name"])
+    guidance = FIELD_GUIDANCE.get(field["name"])
     if guidance is not None and "$ref" not in schema:
-        description = defs.get(guidance, {}).get("description")
-        if not isinstance(description, str) or not description:
-            fail(f"workflow action field {field['name']} names guidance def {guidance}, which carries no description")
-        schema["description"] = description
+        schema["description"] = guidance
     # Guard-owned relational teaching: the description comes from the store
     # projection (WorkflowContractTeaching), authored beside the enforcing
     # guard, so the published field cannot teach a rule the store dropped.
@@ -546,7 +541,6 @@ RETAINED_OUTPUT_RETYPES = {}
 # The read parents that replay stored values, each with the twinned
 # definitions it references directly.
 RETAINED_OUTPUT_PARENTS = {
-    "continuity_snapshot": ("workflow_law_context", "work_context_view"),
     "work_summary": ("workflow_law_context",),
     "work_pin": ("work_context_view",),
 }
@@ -837,7 +831,7 @@ def project_schema_guidance(document: dict, names: list[str], *, bounds_only: bo
     return projected
 
 
-def project_workflow_plan_read_schemas(defs: dict) -> None:
+def project_workflow_plan_template_defs(defs: dict) -> None:
     template = json.loads((ROOT / "contracts/workflow-step-templates.v1.json").read_text())
     nested = copy.deepcopy(template["plan_schema"]["$defs"])
     names = {name: "workflow_plan_" + name for name in nested}
@@ -862,10 +856,6 @@ def project_workflow_plan_read_schemas(defs: dict) -> None:
         defs[names[name]] = rewrite(schema)
 
 
-def project_continuity_action_bound(defs: dict, catalog_count: int) -> None:
-    defs["continuity_snapshot"]["properties"]["pinned"]["properties"]["step_actions"]["maxItems"] = catalog_count
-
-
 def project_workflow_action_schema(document: dict, actions: list[dict], teaching: dict, contract_updates: list[dict]) -> tuple[dict, list[dict]]:
     projected = copy.deepcopy(document)
     remove_generated_guidance(projected)
@@ -875,13 +865,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], teaching
     # definition explicitly; a stale copy would keep satisfying checks that
     # read it while no validation path consumes it.
     defs.pop("work_transition_action_shared_input", None)
-    contract = defs["workflow_contract"]
-    contract["properties"]["legislative_subjects"] = {
-        "type": "array", "maxItems": 800, "uniqueItems": True,
-        "items": {"$ref": "#/$defs/reference"},
-    }
-    if "legislative_subjects" not in contract["required"]:
-        contract["required"].append("legislative_subjects")
     finding_view = defs["work_context_finding_view"]["properties"]
     finding_view["kind"] = copy.deepcopy(defs["work_context_finding"]["properties"]["kind"])
     finding_view["evidence_refs"]["description"] = "Evidence references reported with the finding."
@@ -977,7 +960,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], teaching
                        for payload in contract_updates]
     defs["workflow_contract_update"] = closed_field_union(update_branches, defs, "workflow_contract_update")
     defs["work_define_revise_input"]["properties"]["contract"] = {"$ref": "#/$defs/workflow_contract_update"}
-    project_workflow_plan_read_schemas(defs)
+    project_workflow_plan_template_defs(defs)
     install_retained_output_twins(defs)
     contracts = {"approve_contract"}
     guidance_names = [f"work_transition_action_variant_{action}" for action in sorted(contracts)]
@@ -1126,7 +1109,7 @@ def validate(manifest: dict) -> str:
     # The operation surface is closed: the manifest must enumerate the full
     # published set exactly, and the count changes only with an accepted
     # surface change.
-    expected_operations = 21
+    expected_operations = 20
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
@@ -1551,10 +1534,9 @@ def main() -> int:
         if bun is None and (not check or os.environ.get("CONCORD_REQUIRE_BUN") == "1"):
             fail("Bun is not installed: the publication measurement requires Bun, so write mode and strict check refuse rather than skip it")
         prepare_workflow_templates(check)
-        actions, teaching, schema_refs, contract_updates, catalog_count = load_workflow_action_contracts()
+        actions, teaching, schema_refs, contract_updates = load_workflow_action_contracts()
         validate_current_schema_refs(schema_refs, payload.get("$defs", {}))
         projected_payload, public_variants = project_workflow_action_schema(payload, actions, teaching, contract_updates)
-        project_continuity_action_bound(projected_payload["$defs"], catalog_count)
         prune_payload_definitions(projected_payload, manifest, public_variants, schema_refs["current"])
         input_names = [operation["input_schema"].rsplit("/", 1)[-1] for operation in manifest["operations"]
                        if operation["id"] != "concord_work_transition.workflow_action"]

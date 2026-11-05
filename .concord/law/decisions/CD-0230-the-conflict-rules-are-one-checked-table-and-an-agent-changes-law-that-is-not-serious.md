@@ -240,7 +240,7 @@ a Git push or merge.
 
 S, P10, A2 row 9 and P8 use D2's recorded-review method.
 `internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims` follows a
-live Review completion into the work-pin and continuity reads. It checks exact
+live Review completion into the work-pin. It checks exact
 claim text and evidence references, retained producer and source ordering,
 and that claims grant neither approval nor acceptance.
 `internal/store.TestDispatchRefusesStaleWorkContextPacket` and

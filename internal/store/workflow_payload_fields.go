@@ -24,7 +24,7 @@ var (
 
 func confirmPremiseActionFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
-		actionIntegerField("contract_version", false),
+		actionContractVersionField(false),
 	}
 }
 

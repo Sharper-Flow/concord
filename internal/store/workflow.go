@@ -32,8 +32,6 @@ const (
 	WorkflowEvidenceBound            = "workflow.evidence_bound"
 	WorkflowPremiseConfirmed         = "workflow.premise_confirmed"
 	WorkflowSuccessorLinked          = "workflow.successor_linked"
-	WorkflowContextCheckpointed      = "workflow.context_checkpointed"
-	WorkflowContextBoundaryCrossed   = "workflow.context_boundary_crossed"
 	WorkflowWorkContextRecorded      = "workflow.work_context_recorded"
 	WorkflowProposalRecorded         = "workflow.proposal_recorded"
 	WorkflowDesignRecorded           = "workflow.design_recorded"
@@ -258,39 +256,6 @@ type workflowActionFailedPayload struct {
 	FailureKind  string `json:"failure_kind"`
 	Recoverable  bool   `json:"recoverable"`
 	ActorRef     string `json:"actor_ref"`
-}
-
-type workflowContextCheckpointedPayload struct {
-	WorkflowVersionFields
-	CheckpointID       string   `json:"checkpoint_id"`
-	CheckpointSequence int64    `json:"checkpoint_sequence"`
-	StepID             string   `json:"step_id"`
-	AttemptEpoch       int64    `json:"attempt_epoch"`
-	ActiveUnit         string   `json:"active_unit"`
-	Hypothesis         string   `json:"hypothesis"`
-	Diagnosis          string   `json:"diagnosis"`
-	Strategy           string   `json:"strategy"`
-	TouchedRefs        []string `json:"touched_refs"`
-	EvidenceRefs       []string `json:"evidence_refs"`
-	PendingQuestions   []string `json:"pending_questions"`
-	PendingDecisions   []string `json:"pending_decisions"`
-	WorkflowRef        string   `json:"workflow_ref"`
-	ActorRef           string   `json:"actor_ref"`
-	RequestID          string   `json:"request_id"`
-}
-
-type workflowContextBoundaryCrossedPayload struct {
-	WorkflowVersionFields
-	BoundaryID         string `json:"boundary_id"`
-	BoundarySequence   int64  `json:"boundary_sequence"`
-	BoundaryKind       string `json:"boundary_kind"`
-	CheckpointID       string `json:"checkpoint_id"`
-	CheckpointSequence int64  `json:"checkpoint_sequence"`
-	Summary            string `json:"summary"`
-	WorkflowRef        string `json:"workflow_ref"`
-	AttemptEpoch       int64  `json:"attempt_epoch"`
-	ActorRef           string `json:"actor_ref"`
-	RequestID          string `json:"request_id"`
 }
 
 type workflowDesignDecisionPayload struct {
@@ -996,8 +961,7 @@ func workflowPlanCurrentStep(plan *WorkflowStepPlan) string {
 	}
 	frontier := WorkflowStepPlanFrontier(*plan)
 	if len(frontier) == 0 {
-		// A completed plan reports its terminal step; continuity's workflow
-		// step is a non-empty closed value.
+		// A completed plan reports its terminal step in the work pin.
 		if WorkflowStepPlanComplete(*plan) && len(plan.Steps) > 0 {
 			return plan.Steps[len(plan.Steps)-1].ID
 		}
@@ -1292,55 +1256,6 @@ func foldWorkflowDecisionRecord(ctx context.Context, tx *sql.Tx, event Event, ra
 	return workflowProjectionError(err, "cannot record workflow decision")
 }
 
-func foldWorkflowContextCheckpointed(ctx context.Context, tx *sql.Tx, event Event) error {
-	var p workflowContextCheckpointedPayload
-	if err := decodeWorkflowPayload(event, &p); err != nil {
-		return err
-	}
-	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	if err := beginWorkflowLifecycleTx(ctx, tx, event); err != nil {
-		return err
-	}
-	if !workflowString(p.CheckpointID, 128) || !workflowString(p.StepID, 128) || p.AttemptEpoch <= 0 ||
-		!workflowString(p.ActiveUnit, 256) || !workflowString(p.Hypothesis, 4096) || !workflowString(p.Diagnosis, 4096) ||
-		!workflowString(p.Strategy, 4096) || !workflowList(p.TouchedRefs, 64, 1) || !workflowList(p.EvidenceRefs, 64, 1) ||
-		!workflowList(p.PendingQuestions, 16, 0) || !workflowList(p.PendingDecisions, 16, 0) || !workflowString(p.WorkflowRef, 128) ||
-		!workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
-		return newFailure(KindInvalidPayload, "fold_event", "context checkpoint is incomplete or outside its bounds", false, "supply all durable working-state fields within the context continuity bounds")
-	}
-	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
-		return err
-	}
-	plan, err := readWorkflowPlanTx(ctx, tx, event.SubjectID)
-	if err != nil {
-		return err
-	}
-	if plan == nil || workflowPlanCurrentStep(plan) != p.StepID || string(plan.Type) != p.WorkflowRef {
-		return newFailure(KindStaleAttempt, "fold_event", "context checkpoint does not bind the current workflow step and type", false, "reread the current workflow context")
-	}
-	var activeAttempt int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch),1) FROM durable_operations WHERE work_id=?`, event.SubjectID).Scan(&activeAttempt); err != nil {
-		return workflowProjectionError(err, "cannot read workflow attempt epoch")
-	}
-	if activeAttempt != p.AttemptEpoch {
-		return newFailure(KindStaleAttempt, "fold_event", "context checkpoint does not bind the current attempt epoch", false, "reread the current workflow attempt")
-	}
-	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	var sequence int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(checkpoint_sequence),0)+1 FROM workflow_context_checkpoints WHERE work_id=?`, event.SubjectID).Scan(&sequence); err != nil {
-		return workflowProjectionError(err, "cannot assign context checkpoint sequence")
-	}
-	if p.CheckpointSequence != 0 && p.CheckpointSequence != sequence {
-		return newFailure(KindInvalidPayload, "fold_event", "context checkpoint sequence is not the next monotonic sequence", false, "use the next checkpoint sequence")
-	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_context_checkpoints(work_id,work_version,checkpoint_sequence,checkpoint_id,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions,workflow_ref,actor_ref,request_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, sequence, p.CheckpointID, p.StepID, p.AttemptEpoch, p.ActiveUnit, p.Hypothesis, p.Diagnosis, p.Strategy, workflowJSON(p.TouchedRefs), workflowJSON(p.EvidenceRefs), workflowJSON(p.PendingQuestions), workflowJSON(p.PendingDecisions), p.WorkflowRef, p.ActorRef, p.RequestID, event.OccurredAt.UTC().Format(time.RFC3339Nano))
-	return workflowProjectionError(err, "cannot record context checkpoint")
-}
-
 func foldWorkflowDesignRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowDesignRecordedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -1380,81 +1295,6 @@ func foldWorkflowProposalRecorded(ctx context.Context, tx *sql.Tx, event Event) 
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_proposal_records(work_id,work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,out_of_scope,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, p.Problem, workflowJSON(p.Affected), p.Stakes, workflowJSON(p.UserOutcomes), workflowJSON(p.Constraints), workflowJSON(p.OpenQuestions), workflowJSON(p.OutOfScope), event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	return workflowProjectionError(err, "cannot record workflow proposal")
-}
-
-func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event Event) error {
-	var p workflowContextBoundaryCrossedPayload
-	if err := decodeWorkflowPayload(event, &p); err != nil {
-		return err
-	}
-	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	if err := beginWorkflowLifecycleTx(ctx, tx, event); err != nil {
-		return err
-	}
-	if p.BoundaryKind != "summary" || !workflowString(p.BoundaryID, 128) || !workflowString(p.CheckpointID, 128) || !workflowString(p.Summary, 16*1024) || !workflowString(p.WorkflowRef, 128) || p.AttemptEpoch <= 0 || !workflowString(p.ActorRef, 70) || !workflowString(p.RequestID, 128) {
-		return newFailure(KindInvalidPayload, "fold_event", "context boundary is not a bounded summary boundary", false, "cross only a summary boundary after a durable checkpoint")
-	}
-	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
-		return err
-	}
-	plan, err := readWorkflowPlanTx(ctx, tx, event.SubjectID)
-	if err != nil {
-		return err
-	}
-	if plan == nil || string(plan.Type) != p.WorkflowRef {
-		return newFailure(KindStaleAttempt, "fold_event", "context boundary does not bind the current workflow type", false, "reread the current workflow context")
-	}
-	var checkpointVersion, checkpointSequence, attemptEpoch int64
-	var checkpointStep string
-	var pendingDecisions string
-	if err := tx.QueryRowContext(ctx, `SELECT work_version,checkpoint_sequence,step_id,attempt_epoch,pending_decisions FROM workflow_context_checkpoints WHERE work_id=? AND checkpoint_id=?`, event.SubjectID, p.CheckpointID).Scan(&checkpointVersion, &checkpointSequence, &checkpointStep, &attemptEpoch, &pendingDecisions); err != nil {
-		if err == sql.ErrNoRows {
-			return newFailure(KindInvalidOperation, "fold_event", "context boundary requires a durable checkpoint", false, "checkpoint_context before crossing a boundary")
-		}
-		return workflowProjectionError(err, "cannot read context checkpoint")
-	}
-	var currentWorkVersion int64
-	if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, event.SubjectID).Scan(&currentWorkVersion); err != nil {
-		return workflowProjectionError(err, "cannot read current work version for context boundary")
-	}
-	currentStep := workflowPlanCurrentStep(plan)
-	if checkpointVersion != currentWorkVersion || checkpointStep != currentStep || attemptEpoch != p.AttemptEpoch {
-		return newFailure(KindStaleAttempt, "fold_event", "context boundary references a stale checkpoint or attempt", false, "reread the latest context checkpoint")
-	}
-	if p.CheckpointSequence != 0 && p.CheckpointSequence != checkpointSequence {
-		return newFailure(KindStaleAttempt, "fold_event", "context boundary references a stale checkpoint sequence", false, "reread the latest context checkpoint")
-	}
-	if p.CheckpointSequence == 0 {
-		p.CheckpointSequence = checkpointSequence
-	}
-	var latestCheckpointSequence int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(checkpoint_sequence),0) FROM workflow_context_checkpoints WHERE work_id=?`, event.SubjectID).Scan(&latestCheckpointSequence); err != nil {
-		return workflowProjectionError(err, "cannot read latest context checkpoint sequence")
-	}
-	if checkpointSequence != latestCheckpointSequence {
-		return newFailure(KindStaleAttempt, "fold_event", "context boundary must reference the latest context checkpoint", false, "reread the latest context checkpoint")
-	}
-	var pending []string
-	if json.Unmarshal([]byte(pendingDecisions), &pending) != nil {
-		return newFailure(KindInvariantViolation, "fold_event", "checkpoint pending decisions are malformed", false, "restore a verified backup into a new path with concord restore, then swap")
-	}
-	if len(pending) != 0 {
-		return newFailure(KindInvalidOperation, "fold_event", "summary boundary is forbidden while operator decisions remain pending", false, "resolve pending decisions before crossing a summary boundary")
-	}
-	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	var sequence int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(boundary_sequence),0)+1 FROM workflow_context_boundaries WHERE work_id=?`, event.SubjectID).Scan(&sequence); err != nil {
-		return workflowProjectionError(err, "cannot assign context boundary sequence")
-	}
-	if p.BoundarySequence != 0 && p.BoundarySequence != sequence {
-		return newFailure(KindInvalidPayload, "fold_event", "context boundary sequence is not monotonic", false, "use the next boundary sequence")
-	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,actor_ref,request_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, *p.ResultingVersion, sequence, sequence, p.BoundaryID, p.BoundaryKind, p.CheckpointID, p.CheckpointSequence, p.AttemptEpoch, p.Summary, p.WorkflowRef, p.ActorRef, p.RequestID, event.OccurredAt.UTC().Format(time.RFC3339Nano))
-	return workflowProjectionError(err, "cannot record context boundary")
 }
 
 // validateWorkflowActionCompletedShape bounds the payload before any read.

@@ -209,76 +209,6 @@ func (r runtime) readTraceHistory(ctx context.Context, base agentcontract.Envelo
 	return r.wrapCursor(ctx, response, string(binding), "summary")
 }
 
-func (r runtime) readTraceContinuity(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
-	var in continuityInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	bindingInput := in
-	bindingInput.Page.Cursor = nil
-	binding, _ := json.Marshal(bindingInput)
-	inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), string(binding), "continuity")
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	limit := effectiveLimit(in.Limit, in.Page)
-	// A versioned inner projection cursor continues an oversized projection's
-	// page sequence; the version-1 boundary cursor stays the store's window
-	// continuation. Only the original boundary cursor reaches the store read.
-	if projection, ok := decodeContinuityProjectionCursor(inner); ok {
-		if projection.Work != in.WorkID {
-			return coreError(base, "invalid_cursor", "continuity projection cursor does not match the requested work", "restart_query", false), nil
-		}
-		response, err := r.continuityProjectionPage(ctx, base, string(binding), limit, projection, nil)
-		if err != nil {
-			return failureEnvelope(base, err), nil
-		}
-		return response, nil
-	}
-	continuityReq := store.ContinuityRequest{Work: in.WorkID, Limit: limit, Cursor: inner, ProjectID: r.Envelope.AmbientProjectID}
-	snapshot, err := store.ReadWorkflowContinuity(ctx, r.Store, continuityReq)
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	// One captured snapshot is fitted to the envelope bound: every candidate
-	// is a complete prefix of the same read, measured as the final wire
-	// object with its authenticated cursor and notices. Complete-prefix
-	// reductions name their omissions explicitly; the boundary cursor recovers
-	// everything they drop.
-	requested := len(snapshot.Boundaries)
-	response, size, err := FitContinuity(snapshot, continuityReq, agentcontract.MaxResultEnvelopeBytes, func(fitted store.ContinuitySnapshot) (agentcontract.Envelope, int, error) {
-		response, err := r.continuity(base, fitted)
-		if err != nil {
-			return response, 0, err
-		}
-		if response, err = r.wrapCursor(ctx, response, string(binding), "continuity"); err != nil {
-			return response, 0, err
-		}
-		if len(fitted.Boundaries) < requested {
-			if len(response.Omissions) >= agentcontract.MaxNotices {
-				return coreError(base, "limit_exceeded", "byte-bounded continuity page needs a continuation notice but the omission limit is exhausted", "reduce_limit", false), 0, nil
-			}
-			response.Omissions = append(response.Omissions, agentcontract.Notice{Kind: "byte_bounded_page", Details: map[string]any{"requested_limit": requested, "effective_limit": len(fitted.Boundaries), "maximum_bytes": agentcontract.MaxResultEnvelopeBytes}})
-		}
-		size, err := readEnvelopeSize(response)
-		return response, size, err
-	})
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	// The inline answer stays whenever the measured final envelope fits the
-	// unchanged cap. Otherwise the original requested projection — the
-	// captured boundary window and observation window, never reduced data —
-	// travels as lossless authenticated pages of its exact canonical
-	// document, and the first page renders the very snapshot this read
-	// captured. A frame-only breach is not caused by the projection and is
-	// refused honestly by the measured-size refusal.
-	if size > agentcontract.MaxResultEnvelopeBytes {
-		return r.continuityProjectionPage(ctx, base, string(binding), limit, continuityProjectionCursor{Version: 2, Work: in.WorkID, BoundaryCursor: inner}, &snapshot)
-	}
-	return response, nil
-}
-
 type resumeInput struct {
 	WorkID string    `json:"work_id"`
 	Page   pageInput `json:"page"`
@@ -365,7 +295,7 @@ func (r runtime) readTraceResume(ctx context.Context, base agentcontract.Envelop
 		size, err := readEnvelopeSize(response)
 		return response, size, err
 	}
-	length, err := continuityFragmentLength(doc, offset, func(n int) (bool, error) {
+	length, err := fragmentLength(doc, offset, func(n int) (bool, error) {
 		_, size, err := render(n)
 		return size <= agentcontract.MaxResultEnvelopeBytes, err
 	})
@@ -377,114 +307,6 @@ func (r runtime) readTraceResume(ctx context.Context, base agentcontract.Envelop
 	}
 	response, _, err := render(length)
 	return response, err
-}
-
-// continuityProjectionPage renders one page of the canonical continuity
-// document. A non-nil captured snapshot is the exact capture the initial
-// read already made, so its first page renders that capture without a second
-// store read; every continuation passes nil and re-derives the snapshot
-// under the original boundary cursor. The document is re-rendered and its
-// digest is refused before any fragment is emitted when it changed, so a
-// completed page sequence is exactly one projection. Each fragment is the
-// largest whole-code-point prefix that keeps the measured final envelope
-// inside the unchanged cap.
-func (r runtime) continuityProjectionPage(ctx context.Context, base agentcontract.Envelope, binding string, limit int, cursor continuityProjectionCursor, captured *store.ContinuitySnapshot) (agentcontract.Envelope, error) {
-	if cursor.Work == "" || (cursor.Digest != "" && !agentcontract.ValidSHA256Proof(cursor.Digest)) || cursor.NextByteOffset < 0 {
-		return coreError(base, "invalid_cursor", "continuity projection cursor is malformed", "restart_query", false), nil
-	}
-	snapshot, err := r.continuityProjectionSnapshot(ctx, limit, cursor, captured)
-	if err != nil {
-		return base, err
-	}
-	doc, digest, err := ContinuityCanonicalDocument(snapshot)
-	if err != nil {
-		return base, err
-	}
-	// The digest is the snapshot binding: it is checked before any fragment
-	// is emitted, so a continuation whose projection changed — including a
-	// changed session-specific lease view the event watermark cannot see —
-	// refuses with no effects.
-	if cursor.Digest != "" && digest != cursor.Digest {
-		return coreError(base, "invalid_cursor", "continuity projection changed since its first page; restart the read", "restart_query", false), nil
-	}
-	offset := int(cursor.NextByteOffset)
-	switch {
-	case offset < 0 || offset > len(doc) || (offset > 0 && offset == len(doc)):
-		return coreError(base, "invalid_cursor", "continuity projection cursor offset is out of range", "restart_query", false), nil
-	case offset > 0 && !utf8.RuneStart(doc[offset]):
-		return coreError(base, "invalid_cursor", "continuity projection cursor offset splits a code point", "restart_query", false), nil
-	}
-	header := continuityProjectionHeaderOf(snapshot)
-	// One freshness instant for the whole page render, so the searched
-	// candidate and the emitted page measure the same bytes.
-	observedAt := time.Now().UTC().Format(time.RFC3339Nano)
-	at := func(n int) (agentcontract.Envelope, int, error) {
-		fragment := string(doc[offset : offset+n])
-		end := offset + n
-		var next any
-		nextCursor := snapshot.NextCursor
-		if end < len(doc) {
-			next = "projection"
-			innerToken, err := json.Marshal(continuityProjectionCursor{Version: 2, Work: cursor.Work, BoundaryCursor: cursor.BoundaryCursor, Digest: digest, NextByteOffset: int64(end)})
-			if err != nil {
-				return base, 0, err
-			}
-			token := string(innerToken)
-			nextCursor = &token
-		} else if nextCursor != nil {
-			// The document ends first; the original boundary-page
-			// continuation resumes exactly where the requested read left it.
-			next = "boundaries"
-		}
-		meta := continuityResultMetaObservedAt(snapshot, nextCursor, observedAt)
-		response, err := r.continuityProjectionEnvelope(base, meta, header, digest, int64(len(doc)), int64(offset), fragment, end == len(doc), next)
-		if err != nil {
-			return response, 0, err
-		}
-		if response, err = r.wrapCursor(ctx, response, binding, "continuity"); err != nil {
-			return response, 0, err
-		}
-		size, err := readEnvelopeSize(response)
-		return response, size, err
-	}
-	// Any whole-code-point candidate renders a schema-admissible page, so a
-	// render error there is a real failure — signing, store, or marshal —
-	// and propagates unchanged instead of counting as doesn't-fit.
-	length, err := continuityFragmentLength(doc, offset, func(n int) (bool, error) {
-		_, size, renderErr := at(n)
-		if renderErr != nil {
-			return false, renderErr
-		}
-		return size <= agentcontract.MaxResultEnvelopeBytes, nil
-	})
-	if err != nil {
-		return base, err
-	}
-	if length == 0 {
-		// No admissible code point fits: the frame alone breaches the cap,
-		// which the projection cannot repair. The honest measured refusal
-		// names the smallest legal page — the offset's first whole code
-		// point, never an empty or mid-rune cut — and a failure from that
-		// render propagates instead of posing as an overflow.
-		first := 1
-		for offset+first < len(doc) && !utf8.RuneStart(doc[offset+first]) {
-			first++
-		}
-		_, size, renderErr := at(first)
-		if renderErr != nil {
-			return base, renderErr
-		}
-		return readSizeRefusal(base, size), nil
-	}
-	response, _, err := at(length)
-	return response, err
-}
-
-func (r runtime) continuityProjectionSnapshot(ctx context.Context, limit int, cursor continuityProjectionCursor, captured *store.ContinuitySnapshot) (store.ContinuitySnapshot, error) {
-	if captured != nil {
-		return *captured, nil
-	}
-	return store.ReadWorkflowContinuity(ctx, r.Store, store.ContinuityRequest{Work: cursor.Work, Limit: limit, Cursor: cursor.BoundaryCursor, ProjectID: r.Envelope.AmbientProjectID})
 }
 
 func (r runtime) readTraceRelations(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {

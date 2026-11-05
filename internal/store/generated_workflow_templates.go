@@ -21,8 +21,6 @@ const GeneratedWorkflowStepTemplatesDocument = `{
             "record_plan",
             "complete_step",
             "approve_contract",
-            "checkpoint_context",
-            "cross_context_boundary",
             "record_work_context"
           ]
         },
@@ -38,8 +36,6 @@ const GeneratedWorkflowStepTemplatesDocument = `{
             "checkpoint_execution",
             "bind_evidence",
             "link_successor",
-            "checkpoint_context",
-            "cross_context_boundary",
             "record_work_context"
           ]
         },
@@ -55,8 +51,6 @@ const GeneratedWorkflowStepTemplatesDocument = `{
             "complete_step",
             "complete",
             "bind_evidence",
-            "checkpoint_context",
-            "cross_context_boundary",
             "record_work_context"
           ]
         }
@@ -73,8 +67,6 @@ const GeneratedWorkflowStepTemplatesDocument = `{
           "actions": [
             "record_diagnosis",
             "complete_step",
-            "checkpoint_context",
-            "cross_context_boundary",
             "record_work_context"
           ]
         },
@@ -87,8 +79,6 @@ const GeneratedWorkflowStepTemplatesDocument = `{
             "record_plan",
             "complete_step",
             "approve_contract",
-            "checkpoint_context",
-            "cross_context_boundary",
             "record_work_context"
           ]
         },
@@ -104,8 +94,6 @@ const GeneratedWorkflowStepTemplatesDocument = `{
             "checkpoint_execution",
             "bind_evidence",
             "link_successor",
-            "checkpoint_context",
-            "cross_context_boundary",
             "record_work_context"
           ]
         },
@@ -121,8 +109,6 @@ const GeneratedWorkflowStepTemplatesDocument = `{
             "complete_step",
             "complete",
             "bind_evidence",
-            "checkpoint_context",
-            "cross_context_boundary",
             "record_work_context"
           ]
         }
@@ -140,8 +126,6 @@ const GeneratedWorkflowStepTemplatesDocument = `{
             "frame_research",
             "complete_step",
             "approve_contract",
-            "checkpoint_context",
-            "cross_context_boundary",
             "record_work_context"
           ]
         },
@@ -155,8 +139,6 @@ const GeneratedWorkflowStepTemplatesDocument = `{
             "complete_step",
             "revise_candidates",
             "bind_evidence",
-            "checkpoint_context",
-            "cross_context_boundary",
             "record_work_context"
           ]
         },
@@ -175,8 +157,6 @@ const GeneratedWorkflowStepTemplatesDocument = `{
             "complete_step",
             "complete",
             "bind_evidence",
-            "checkpoint_context",
-            "cross_context_boundary",
             "record_work_context"
           ]
         }
@@ -194,8 +174,6 @@ const GeneratedWorkflowStepTemplatesDocument = `{
             "record_removal_scope",
             "complete_step",
             "approve_contract",
-            "checkpoint_context",
-            "cross_context_boundary",
             "record_work_context"
           ]
         },
@@ -211,8 +189,6 @@ const GeneratedWorkflowStepTemplatesDocument = `{
             "checkpoint_execution",
             "bind_evidence",
             "link_successor",
-            "checkpoint_context",
-            "cross_context_boundary",
             "record_work_context"
           ]
         },
@@ -228,8 +204,6 @@ const GeneratedWorkflowStepTemplatesDocument = `{
             "complete_step",
             "complete",
             "bind_evidence",
-            "checkpoint_context",
-            "cross_context_boundary",
             "record_work_context"
           ]
         }

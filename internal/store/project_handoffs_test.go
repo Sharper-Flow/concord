@@ -320,9 +320,9 @@ func TestProjectHandoffRecordsAndConsumesAcrossTwoProjectWorktrees(t *testing.T)
 	if failureKind(err) != KindProjectionConflict || !strings.Contains(fmt.Sprint(err), "already consumed") {
 		t.Fatalf("err=%v, want the consumed-replay refusal", err)
 	}
-	// The continuity snapshot carries the pending handoff only while it
+	// The resume read carries the pending handoff only while it
 	// stands unconsumed.
-	snapshot, err := ReadWorkflowContinuity(context.Background(), f.store, ContinuityRequest{Work: f.workID})
+	snapshot, err := ReadSessionResume(context.Background(), f.store, f.workID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,11 +331,11 @@ func TestProjectHandoffRecordsAndConsumesAcrossTwoProjectWorktrees(t *testing.T)
 	}
 }
 
-func TestProjectHandoffPendingHandoffRidesTheContinuitySnapshot(t *testing.T) {
+func TestProjectHandoffPendingHandoffAppearsInSessionResume(t *testing.T) {
 	t.Parallel()
 	f := setupProjectHandoffFixture(t)
 	recorded := recordHandoff(t, f, f.sourceTree)
-	snapshot, err := ReadWorkflowContinuity(context.Background(), f.store, ContinuityRequest{Work: f.workID})
+	snapshot, err := ReadSessionResume(context.Background(), f.store, f.workID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,11 +348,11 @@ func TestProjectHandoffPendingHandoffRidesTheContinuitySnapshot(t *testing.T) {
 }
 
 // CD-0182 D5: every session of the receiving Project reads the frontier's
-// bounded job, before and after the consume. The continuity read selects the
+// bounded job, before and after the consume. The resume read selects the
 // frontier by the reading session's Project; a session of another Project
 // reads only the work's newest unconsumed handoff, and a contract
 // replacement drops the stale frontier.
-func TestContinuityRendersTheAddressedFrontierToTheReceivingProject(t *testing.T) {
+func TestSessionResumeRendersTheAddressedFrontierToTheReceivingProject(t *testing.T) {
 	t.Parallel()
 	f := setupProjectHandoffFixture(t)
 	ctx := context.Background()
@@ -360,7 +360,7 @@ func TestContinuityRendersTheAddressedFrontierToTheReceivingProject(t *testing.T
 	consumeHandoff(t, f, recorded.HandoffID)
 	read := func(projectID string) *ProjectHandoff {
 		t.Helper()
-		snapshot, err := ReadWorkflowContinuity(ctx, f.store, ContinuityRequest{Work: f.workID, ProjectID: projectID})
+		snapshot, err := ReadSessionResume(ctx, f.store, f.workID, projectID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1247,7 +1247,7 @@ func TestManagedExecutionGateKeepsTheWrongProjectBindRefusedAndSourceExecutionAd
 }
 
 // Every handoff selection read — the admission gate, the addressed consume
-// resolution, the continuity read, and the retirement
+// resolution, the pending-handoff read, and the retirement
 // facts — orders on the recorded event's durable sequence. The pathological
 // pair below pins it: the older handoff's whole-second RFC3339Nano stamp
 // sorts after the later handoff's fractional stamp as text, so any
@@ -1290,10 +1290,10 @@ func TestProjectHandoffSelectionsOrderByRecordedEventOrder(t *testing.T) {
 	if !facts.recorded || len(facts.artifactRefs) != 1 || facts.artifactRefs[0] != second.ArtifactRefs[0] {
 		t.Fatalf("retirement facts=%+v, want the later-recorded handoff's artifact refs", facts)
 	}
-	// The continuity read names the later-recorded handoff.
+	// The pending-handoff read names the later-recorded handoff.
 	var pending *ProjectHandoff
 	if err := f.store.Transact(ctx, func(transaction *Transaction) error {
-		tx, txErr := transactionSQL(transaction, "continuity_test")
+		tx, txErr := transactionSQL(transaction, "pending_handoff_test")
 		if txErr != nil {
 			return txErr
 		}

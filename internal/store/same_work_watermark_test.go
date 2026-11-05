@@ -10,7 +10,7 @@ import (
 )
 
 func TestSameWorkWatermarksWithoutLog(t *testing.T) {
-	for _, reader := range []string{"work_pin", "continuity"} {
+	for _, reader := range []string{"work_pin"} {
 		t.Run(reader, func(t *testing.T) {
 			s := openTemp(t)
 			seedWork(t, s, "watermark-work")
@@ -27,18 +27,11 @@ func TestSameWorkWatermarksWithoutLog(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer tx.Rollback()
-				if reader == "work_pin" {
-					var pin WorkPin
-					if err := workPinReadIdentityTx(ctx, tx, "watermark-work", &pin); err != nil {
-						t.Fatal(err)
-					}
-					return pin.Watermark
-				}
-				var snapshot ContinuitySnapshot
-				if err := continuityReadTrailingTx(ctx, tx, "watermark-work", &snapshot); err != nil {
+				var pin WorkPin
+				if err := workPinReadIdentityTx(ctx, tx, "watermark-work", &pin); err != nil {
 					t.Fatal(err)
 				}
-				return snapshot.Watermark
+				return pin.Watermark
 			}
 			if got := read(); got != fmt.Sprintf("seq:%d", want) || want == 0 {
 				t.Fatalf("watermark=%s, want seq:%d", got, want)

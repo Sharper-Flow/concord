@@ -100,20 +100,6 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 		t.Fatalf("fixture step=%q, want implement", step)
 	}
 
-	// A hand-off records a boundary and holds the step.
-	if err := try("checkpoint_context", map[string]any{
-		"active_unit": "unit:repair", "hypothesis": "hypothesis:one", "diagnosis": "diagnosis:one", "strategy": "strategy:one",
-		"touched_refs": []string{"internal/store/workflow_registry.go"}, "evidence_refs": []string{"evidence:one"}, "pending_questions": []string{}, "pending_decisions": []string{},
-	}); err != nil {
-		t.Fatalf("checkpoint_context refused: %v", err)
-	}
-	if err := try("cross_context_boundary", map[string]any{"boundary_kind": "summary", "mode": "summary", "checkpoint_id": "delivery-op-delivery-checkpoint_context-1:context-checkpoint", "summary": "handed off"}); err != nil {
-		t.Fatalf("cross_context_boundary refused: %v", err)
-	}
-	if step := currentStep(); step != "implement" {
-		t.Fatalf("cross_context_boundary moved the step to %q", step)
-	}
-
 	delivery := map[string]any{"delivery_artifact": "artifact:repair", "delivery_state": "asserted"}
 	// complete_step keeps its reviewed-attempt interface beside record_review;
 	// both write the same step attempt.

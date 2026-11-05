@@ -1053,7 +1053,7 @@ func (r runtime) planProjectHandoffConsume(_ context.Context, base agentcontract
 	}
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.scope["project_ids"] = []string{project}
-	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_trace", Operation: "continuity", QueryID: "C19.Continuity", ReasonCode: "read_consumed_handoff_context", RequiredFields: []string{"work_id"}}}
+	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "read_consumed_handoff_context", RequiredFields: []string{"work_ids", "detail"}}}
 	req := store.ConsumeProjectHandoffRequest{
 		WorkID: in.WorkID, HandoffID: in.HandoffID, ConsumerProjectID: project, ConsumerSessionRef: grant.SessionRef,
 	}
@@ -1193,7 +1193,7 @@ func (r runtime) planResolveOverlap(ctx context.Context, base agentcontract.Enve
 	plan.scope["from_work_id"] = in.FromWorkID
 	plan.scope["to_work_id"] = in.ToWorkID
 	plan.scope["product_id"] = r.Envelope.SelectedProductID
-	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_trace", Operation: "continuity", QueryID: "C19.Continuity", ReasonCode: "inspect_overlap_resolution", RequiredFields: []string{"work_id"}}}
+	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect_overlap_resolution", RequiredFields: []string{"work_ids", "detail"}}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 		request := store.WorkflowDomainOverlapResolutionRequest{EventID: digest + ":overlap", FromWorkID: in.FromWorkID, ToWorkID: in.ToWorkID, FromExpectedVersion: in.FromExpectedVersion, ToExpectedVersion: in.ToExpectedVersion, FromContractVersion: in.FromContractVersion, ToContractVersion: in.ToContractVersion, ResolutionKind: in.ResolutionKind, Reason: in.Reason, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now()}
 		request.CrossScope = containsCapability(grant.Capabilities, agentcontract.Capability("cross_scope"))

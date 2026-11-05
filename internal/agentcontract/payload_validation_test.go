@@ -65,7 +65,7 @@ func TestValidateOperationPayloadSelectsInputOrResultSchema(t *testing.T) {
 		{name: "result", payload: `{"nodes":[],"edges":[]}`, result: true},
 		{name: "input as result", payload: `{"nodes":[]}`, result: true, want: "missing payload field edges"},
 		{name: "result as input", payload: `{"work_id":"work-1","edges":[]}`, want: "unknown payload field edges"},
-		{name: "result sibling field", payload: `{"nodes":[],"edges":[],"work_id":"work-1"}`, result: true, want: "unknown payload field work_id for operation concord_work_trace.relations; field is declared by operation(s) concord_work_trace.continuity, concord_work_trace.project_retirement, concord_work_trace.resume"},
+		{name: "result sibling field", payload: `{"nodes":[],"edges":[],"work_id":"work-1"}`, result: true, want: "unknown payload field work_id for operation concord_work_trace.relations; field is declared by operation(s) concord_work_trace.project_retirement, concord_work_trace.resume"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := agentcontract.ValidateOperationPayload("concord_work_trace", "relations", []byte(test.payload), test.result)

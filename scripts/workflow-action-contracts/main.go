@@ -37,12 +37,11 @@ type contractTeaching struct {
 }
 
 type contractProjection struct {
-	SchemaVersion      string                            `json:"schema_version"`
-	Actions            []actionContract                  `json:"actions"`
-	CatalogActionCount int                               `json:"catalog_action_count"`
-	Teaching           contractTeaching                  `json:"teaching"`
-	SchemaRefs         schemaRefProjection               `json:"schema_refs"`
-	ContractUpdates    []store.WorkflowPayloadDefinition `json:"contract_updates"`
+	SchemaVersion   string                            `json:"schema_version"`
+	Actions         []actionContract                  `json:"actions"`
+	Teaching        contractTeaching                  `json:"teaching"`
+	SchemaRefs      schemaRefProjection               `json:"schema_refs"`
+	ContractUpdates []store.WorkflowPayloadDefinition `json:"contract_updates"`
 }
 
 // canonicalPayload normalizes nil and empty field lists to the same contract.
@@ -167,7 +166,7 @@ func main() {
 		refs[ref] = true
 	}
 	teaching := store.WorkflowContractTeachingRules()
-	projection := contractProjection{SchemaVersion: "2.0", Actions: make([]actionContract, 0, len(ids)), CatalogActionCount: store.WorkflowActionCatalogSize(), Teaching: contractTeaching{teaching.LawAdditionMandateRule, teaching.ObligationMembershipRule, teaching.ArchitectureDomainRule, teaching.AlignmentCombinationRule}, SchemaRefs: schemaRefProjection{Current: sortedRefNames(refs)}, ContractUpdates: []store.WorkflowPayloadDefinition{update}}
+	projection := contractProjection{SchemaVersion: "2.0", Actions: make([]actionContract, 0, len(ids)), Teaching: contractTeaching{teaching.LawAdditionMandateRule, teaching.ObligationMembershipRule, teaching.ArchitectureDomainRule, teaching.AlignmentCombinationRule}, SchemaRefs: schemaRefProjection{Current: sortedRefNames(refs)}, ContractUpdates: []store.WorkflowPayloadDefinition{update}}
 	for _, id := range ids {
 		projection.Actions = append(projection.Actions, contracts[id])
 	}

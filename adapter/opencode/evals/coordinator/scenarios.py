@@ -16,14 +16,14 @@ PROJECT = "synthetic-project"
 REVIEW_FIELDS = {"step_id": "review", "note": "Independent review passed.",
                  "reviewer": "reviewer:synthetic", "result": "pass",
                  "commit": "a" * 40, "link": "review:synthetic"}
-def continuity_ok():
-    """A continuity read: the coordinator definitions require one before a consequential action."""
+def resume_ok():
+    """A synthetic authoritative stored step plan."""
     return {
-        "schema_version": "1.0", "origin": "core", "tool": TRACE, "operation": "continuity",
+        "schema_version": "1.0", "origin": "core", "tool": TRACE, "operation": "resume",
         "outcome": "ok", "authority": "authoritative",
-        "result": {"work_id": WORK, "boundaries": {"count": 0, "items": [], "next_cursor": None},
-                   "work_pin": {"work_id": WORK, "version": 1, "lifecycle": "in_progress",
-                                }},
+        "result": {"work_id": WORK, "version": 1, "state": "running", "type": "change",
+                   "steps": [{"id": "review", "required": True, "after": [], "reviewed": False}],
+                   "next_steps": ["review"]},
     }
 
 
@@ -79,26 +79,26 @@ operator action target if intervention is needed. Do not treat a worker proposal
     },
     "uncertain-effect": {
         "prompt": """A checkpoint write for synthetic-work timed out. The effect is
-uncertain, not known absent. Inspect the authoritative continuity before deciding
+uncertain, not known absent. Inspect the authoritative resume read before deciding
 whether another write is necessary. The task ends when you establish whether
 that checkpoint committed; do not perform implementation or new scope.""",
         "required": [TRACE],
-        "responses": {TRACE: {"outcome": "ok", "authority": "authoritative", "result": {
-            "work_id": WORK, "checkpoint": {"operation_id": "synthetic-checkpoint", "state": "committed"},
-            "effect_state": "committed", "task_complete": True,
+        "responses": {TRACE: {**resume_ok(), "result": {
+            "work_id": WORK, "version": 2, "state": "running", "type": "change",
+            "steps": [{"id": "checkpoint", "required": True, "after": [], "reviewed": False,
+                       "attempts": [{"note": "synthetic-checkpoint committed", "completed_at": "2026-01-01T00:00:00Z"}]}],
         }}},
         "expected": report("completed", work_id=WORK, effect="committed"),
     },
     "terminal-work-refusal": {
         "prompt": """The work item synthetic-work was cancelled.
-Inspect the latest authoritative continuity. Decide the disposition, not a repair.
+Inspect the latest authoritative resume read. Decide the disposition, not a repair.
+The workflow_action boundary refuses terminal work with reason_code=terminal_work_refusal,
+effect_state=none, no restart or operator remedy; a maintainer owns recovery.
 No new scope or operator override exists; do not create a replacement item to retry it.""",
         "required": [TRACE],
-        "responses": {TRACE: {"outcome": "ok", "authority": "authoritative", "result": {
-            "work_id": WORK, "work_pin": {"work_id": WORK, "lifecycle": "cancelled"},
-            "boundary": "workflow_action", "reason_code": "terminal_work_refusal",
-            "effect_state": "none", "restart": "unavailable", "operator_remedy": None,
-            "recovery_owner": "maintainer",
+        "responses": {TRACE: {**resume_ok(), "result": {
+            "work_id": WORK, "version": 1, "state": "cancelled",
         }}},
         "expected": report("refused", work_id=WORK, boundary="workflow_action",
                             cause="terminal_work_refusal", owner="maintainer", why="no_admitted_route"),
@@ -106,16 +106,13 @@ No new scope or operator override exists; do not create a replacement item to re
     "native-route-discovery": {
         "prompt": f"""The independent native Task Review of synthetic-work is finished.
 The coordinator must record its reviewed step, without registering or authorizing a subagent.
-A partial MCP catalog search omitted native Concord tools. Inspect continuity and
+A partial MCP catalog search omitted native Concord tools. Inspect the resume read and
 the available native tool definitions rather than conclude recording is unavailable.
 Record exactly this Review fields object: {REVIEW_FIELDS!r}.
 This fixture ends when record_review succeeds. Do not spawn a subagent in this fixture.""",
         "required": [TRACE, TRANSITION],
         "responses": {
-            TRACE: {"outcome": "ok", "authority": "authoritative", "result": {
-                "work_id": WORK, "version": 1, "workflow_step": "review",
-                "admitted_action": "record_review",
-            }},
+            TRACE: resume_ok(),
             TRANSITION: {"outcome": "ok", "effect_state": "committed", "result": {
                 "review_recorded": True, "synthetic": True, "fixture_complete": True,
             }},

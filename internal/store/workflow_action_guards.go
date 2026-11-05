@@ -74,28 +74,6 @@ func (p workflowActorRecordPrefix) event(eventID, workID string, now time.Time, 
 	return workflowTypedEvent(eventID, WorkflowActorRecorded, workID, p.actorRef, now, expectedVersion, map[string]any{"actor_ref": p.actorRef, "principal_ref": p.actor.PrincipalRef, "client_ref": p.actor.ClientRef, "agent_ref": p.actor.AgentRef, "session_ref": p.actor.SessionRef, "actor_class": string(p.actor.ActorClass)})
 }
 
-// guardNoRestartDispatch keeps restart dispatch closed: CD-0027 excludes it,
-// and the payload may not request it.
-func guardNoRestartDispatch(g *workflowActionGuardContext) error {
-	fields, fieldErr := workflowActionObject(g.defaultedPayload())
-	if fieldErr != nil {
-		return fieldErr
-	}
-	if workflowFieldStringDefault(fields, "mode", "summary") == "restart" || workflowFieldStringDefault(fields, "boundary_kind", "summary") == "restart" || fields["restart"] != nil {
-		return newFailure(KindUnavailable, "workflow_action", "restart dispatch is not implemented and fails closed pending Concord issue #120", false, "contact_operator")
-	}
-	return nil
-}
-
-// defaultedPayload returns the action payload with an empty payload
-// normalized to an empty JSON object, the form the later stages process.
-func (g *workflowActionGuardContext) defaultedPayload() json.RawMessage {
-	if len(g.request.Payload) == 0 {
-		return json.RawMessage(`{}`)
-	}
-	return g.request.Payload
-}
-
 // normalizeWorkflowActionRequest applies the shared request defaults and
 // bounds. The mutation is deliberate: the normalized values feed the durable
 // claim and the assembled events.
@@ -183,7 +161,7 @@ func assemblePlanWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, request
 	if err != nil {
 		return nil, err
 	}
-	if request.ActionID == "checkpoint_context" || request.ActionID == "cross_context_boundary" || request.ActionID == "record_work_context" {
+	if request.ActionID == "record_work_context" {
 		return events, nil
 	}
 	values := map[string]any{"step_id": stepID, "action_id": request.ActionID, "attempt_epoch": epoch, "result_evidence_refs": evidenceRefs, "changed_refs": []string{request.WorkID}, "actor_ref": actor}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -27,7 +28,7 @@ type spineFixture struct {
 	request                 int
 }
 
-type spineContinuity struct {
+type spineResume struct {
 	WorkID string `json:"work_id"`
 	Pinned struct {
 		Step     string                      `json:"workflow_step"`
@@ -55,38 +56,39 @@ func spineOK(t *testing.T, response agentcontract.Envelope) agentcontract.Envelo
 	return response
 }
 
-func (f *spineFixture) read(t *testing.T) spineContinuity {
+func (f *spineFixture) read(t *testing.T) spineResume {
 	t.Helper()
-	input := map[string]any{"work_id": f.work, "page": map[string]any{"limit": 20}}
-	var document []byte
-	for pages := 0; pages < 64; pages++ {
-		response := spineOK(t, f.call(t, "concord_work_trace", "continuity", input))
-		var page continuityProjectionPageWire
-		if err := json.Unmarshal(response.Result, &page); err != nil {
-			t.Fatal(err)
-		}
-		if page.ProjectionPage.Encoding == "" {
-			document = response.Result
-			break
-		}
-		if page.ProjectionPage.Offset != int64(len(document)) {
-			t.Fatal("noncontiguous continuity projection")
-		}
-		document = append(document, page.ProjectionPage.Data...)
-		if page.ProjectionPage.DocumentComplete {
-			break
-		}
-		if response.NextCursor == nil {
-			t.Fatal("incomplete continuity without cursor")
-		}
-		input["page"] = map[string]any{"limit": 20, "cursor": *response.NextCursor}
-	}
-	var result spineContinuity
-	if err := json.Unmarshal(document, &result); err != nil {
+	pin, err := store.ReadWorkPin(context.Background(), f.s, f.work)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if result.WorkID != f.work || result.Pinned.Pin == nil {
-		t.Fatalf("missing current work pin: %s", document)
+	result := spineResume{WorkID: f.work}
+	result.Pinned.Pin = &pin
+	result.Pinned.Step = pin.Step
+	var contract store.WorkflowReadContract
+	var subjects, routes, mandates, modifies string
+	var domains sql.NullString
+	err = f.s.DatabaseForTesting().QueryRow(`SELECT contract_version,premise,legislative_subjects,route_conventions,spec_mandate,law_modifies,rigor_class,decision_domains FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, f.work).Scan(&contract.Version, &contract.Premise, &subjects, &routes, &mandates, &modifies, &contract.RigorClass, &domains)
+	if err == nil {
+		for _, item := range []struct {
+			raw string
+			dst *[]string
+		}{
+			{subjects, &contract.LegislativeSubjects}, {routes, &contract.RouteConventions},
+			{mandates, &contract.SpecMandate}, {modifies, &contract.LawModifies},
+		} {
+			if err := json.Unmarshal([]byte(item.raw), item.dst); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if domains.Valid {
+			if err := json.Unmarshal([]byte(domains.String), &contract.DecisionDomains); err != nil {
+				t.Fatal(err)
+			}
+		}
+		result.Pinned.Contract = &contract
+	} else if err != sql.ErrNoRows {
+		t.Fatal(err)
 	}
 	return result
 }

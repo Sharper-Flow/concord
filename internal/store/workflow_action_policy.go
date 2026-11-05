@@ -157,14 +157,12 @@ func validActionExecutionMode(value ActionExecutionMode) bool {
 }
 
 // WorkflowPremiseMaxLength is the single bound for a workflow contract
-// premise. The generated continuity read schema carries the same number in
-// $defs/workflow_premise; internal/agent's round-trip test fails when the two
-// drift apart.
+// premise. The published approve_contract premise field carries the same
+// number; internal/agent's round-trip test fails when the two drift apart.
 const WorkflowPremiseMaxLength = 4096
 
 // ValidReference reports whether a new workflow reference is admissible.
-// The generated continuity read schema carries the same rule in
-// $defs/reference; internal/agent's round-trip test fails when the two drift
+// The generated payload schema carries the same rule in $defs/reference; internal/agent's round-trip test fails when the two drift
 // apart.
 func ValidReference(value string) bool {
 	if len(value) < 2 || len(value) > 128 {
@@ -473,8 +471,8 @@ func actionLawListField(name string, required bool) WorkflowPayloadField {
 	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(0), MaxItems: workflowInt(32), ItemRef: "law_id"}
 }
 
-func actionIntegerField(name string, required bool) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadInteger, Required: required, Minimum: workflowInt(1), Maximum: workflowInt(2147483647)}
+func actionContractVersionField(required bool) WorkflowPayloadField {
+	return WorkflowPayloadField{Name: "contract_version", ValueType: PayloadInteger, Required: required, Minimum: workflowInt(1), Maximum: workflowInt(2147483647)}
 }
 
 func actionEnumField(name string, required bool, values ...string) WorkflowPayloadField {
@@ -543,7 +541,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionListField("route_conventions", false, 0, 16),
 		actionListField("proposed_route_conventions", false, 0, 16),
 		actionListField("required_route_conventions", false, 0, 16),
-		actionIntegerField("contract_version", false),
+		actionContractVersionField(false),
 		actionPremiseField(),
 		actionLawListField("spec_mandate", false),
 		actionLawListField("law_modifies", false),
@@ -563,7 +561,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionEnumField("relation", false, "forward_link"), actionObjectField("relation_data", "workflow_forward_relation"), actionRefField("successor_work_id", true),
 	),
 	"confirm_premise": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
-		actionIntegerField("contract_version", false),
+		actionContractVersionField(false),
 	),
 	"complete": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventCompletion,
 		actionStringField("evidence_commit", false, 128), actionStringField("current_commit", false, 128),
@@ -599,7 +597,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"frame_research": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric),
 	"record_finding": actionPolicy(ActionCrossAuthority, ActionAdvance, ActionEventGeneric),
 	"revise_candidates": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
-		actionIntegerField("contract_version", false),
+		actionContractVersionField(false),
 		actionEnumField("candidate_kind", false, "work_item", "product", "project"), actionRefField("candidate_ref", false),
 		actionListField("added", false, 1, 64), actionListField("candidate_ids", false, 1, 64), actionListField("removed", false, 1, 64),
 	),
@@ -622,16 +620,6 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"checkpoint_analysis": actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
 	"start_action":        actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
 	"checkpoint_action":   actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
-	"checkpoint_context": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
-		actionRefField("checkpoint_id", false), actionIntegerField("checkpoint_sequence", false),
-		actionStringField("active_unit", true, 256), actionStringField("hypothesis", true, 4096), actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096),
-		actionListField("touched_refs", true, 1, 64), actionListField("evidence_refs", true, 1, 64), actionListField("pending_questions", true, 0, 16), actionListField("pending_decisions", true, 0, 16),
-	),
-	"cross_context_boundary": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
-		actionEnumField("boundary_kind", true, "summary", "restart"), actionEnumField("mode", true, "summary", "restart"), actionRefField("checkpoint_id", true),
-		actionIntegerField("boundary_sequence", false), actionIntegerField("checkpoint_sequence", false), actionStringField("summary", true, 16384),
-		WorkflowPayloadField{Name: "restart", ValueType: PayloadBoolean},
-	),
 	// CON-887: record_work_context declares the durable working context on
 	// the workflow-action route. The action holds the step and advances the
 	// work version; its typed event is the durable action boundary, so it

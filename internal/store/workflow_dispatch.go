@@ -164,11 +164,6 @@ func applyWorkflowPlanActionTx(ctx context.Context, tx *sql.Tx, scope *writeScop
 			return result, err
 		}
 	}
-	if request.ActionID == "cross_context_boundary" {
-		if err := guardNoRestartDispatch(&workflowActionGuardContext{request: request}); err != nil {
-			return result, err
-		}
-	}
 	request.EvidenceRefs, err = workflowActionEvidenceRefs(request, request.Payload)
 	if err != nil {
 		return result, err
@@ -324,10 +319,6 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, planType Work
 		return workflowPlanDocumentEvents(request, actor, raw, eventID, expected, WorkflowPlanRecorded), nil
 	case "record_removal_scope":
 		return workflowPlanDocumentEvents(request, actor, raw, eventID, expected, WorkflowRemovalScopeRecorded), nil
-	case "checkpoint_context":
-		return workflowContextCheckpointEvents(ctx, tx, request, stepID, actor, fields, eventID, expected)
-	case "cross_context_boundary":
-		return workflowContextBoundaryEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "record_work_context":
 		return workflowRecordWorkContextEvents(ctx, tx, request, stepID, actor, fields, eventID, expected)
 	case "approve_contract":
@@ -431,9 +422,9 @@ func workflowFieldStringDefault(fields map[string]json.RawMessage, name, fallbac
 	}
 	return fallback
 }
-func workflowFieldInt(fields map[string]json.RawMessage, name string, fallback int64) int64 {
+func workflowContractVersionField(fields map[string]json.RawMessage, fallback int64) int64 {
 	var value int64
-	if fields[name] != nil && json.Unmarshal(fields[name], &value) == nil && value > 0 {
+	if fields["contract_version"] != nil && json.Unmarshal(fields["contract_version"], &value) == nil && value > 0 {
 		return value
 	}
 	return fallback

@@ -95,9 +95,12 @@ const coreInputDetail = (operation, data) => {
   return null;
 };
 export const work_trace = recordingTool("concord_work_trace", {
-  description:"Read authoritative synthetic continuity. Requires an existing work identity. page.limit must be an integer from 1 to 20.",
-  args:{request:tool.schema.strictObject({operation:tool.schema.literal("continuity"), input:tool.schema.strictObject({
-    work_id:tool.schema.string().min(1), page:tool.schema.strictObject({cursor:tool.schema.string().nullable(),limit:tool.schema.number().int().min(1).max(20)}),
+  description:"Read the authoritative synthetic stored step plan for an existing work identity.",
+  args:{request:tool.schema.strictObject({operation:tool.schema.literal("resume"), input:tool.schema.strictObject({
+    work_id:tool.schema.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+    limit:tool.schema.number().int().min(1).max(100).optional(),
+    page:tool.schema.strictObject({cursor:tool.schema.string().max(4096).nullable().optional(),limit:tool.schema.number().int().min(1).max(100).optional()}).optional(),
+    requested_budget_seconds:tool.schema.number().int().min(1).optional(),
   })})},
   async execute(args) {
     return result("concord_work_trace", args, args.request.input.work_id === "synthetic-work"

@@ -24,7 +24,6 @@ var paginationBaseInputs = map[string]map[string]any{
 	"concord_product_view.snapshot":      {},
 	"concord_work_browse.list":           {},
 	"concord_work_trace.history":         {"work_id": "work-done"},
-	"concord_work_trace.continuity":      {"work_id": "work-done"},
 	"concord_work_trace.resume":          {"work_id": "work-done"},
 	"concord_work_trace.mutation_result": {"source_tool": "concord_work_transition", "source_operation": "workflow_action", "idempotency_key": "pagination-workflow", "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
 	"concord_domain.list":                {"product_id": "prod-alpha"},

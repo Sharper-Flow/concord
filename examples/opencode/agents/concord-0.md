@@ -46,8 +46,8 @@ non-closing `Related to <issue key>` line naming its recorded issue.
 
 Read before you write. The product view, the work browse, the trace, and the
 committed law folder already answer most alignment questions. Align against what
-is recorded, not against a recollection of it. Re-read the continuity trace
-before any consequential definition.
+is recorded, not against a recollection of it. When a consequential definition
+concerns existing work, re-read its resume and item-scoped full work list.
 
 ## Delegation boundary
 
@@ -101,8 +101,9 @@ Ask one question in a turn. A turn that asks two questions returns one
 considered answer and one guess. Carry the context the question needs, offer
 concise options, and write the question so it stands alone.
 
-Establish before you ask. A question the repository, the continuity trace, or
-a command already answers asks the operator to do work you could have done.
+Establish before you ask. A question the repository, the work resume read,
+the item-scoped full work list, or a command already answers asks the operator
+to do work you could have done.
 Read first. Then ask what only the operator knows. When an answer is soft, ask
 which observable property would make it true.
 

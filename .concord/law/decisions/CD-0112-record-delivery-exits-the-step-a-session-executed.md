@@ -13,8 +13,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-05
-- **Scope:** Producing-step delivery and context-continuity actions
-- **Related:** CD-0013, CD-0016, CD-0027, CD-0242
+- **Scope:** Producing-step delivery
+- **Related:** CD-0013, CD-0016, CD-0242
 
 ## Context
 
@@ -22,11 +22,6 @@ A context handoff must preserve findings without claiming that production
 finished. Delivery needs its own explicit result.
 
 ## Decision
-
-### D1. A hand-off is not progress
-
-`checkpoint_context` and `cross_context_boundary` are hold actions. They record
-continuity and never advance a stage.
 
 ### D2. record_delivery records at its declared step without moving it
 
@@ -62,7 +57,6 @@ host's subagent execution.
 
 ## Verification
 
-- `go test ./internal/store ./internal/agent` checks hold-mode continuity
-  and delivery admission.
+- `go test ./internal/store ./internal/agent` checks delivery admission.
 - Committed law-folder snapshot validation checks the record's identity and
   content digest.

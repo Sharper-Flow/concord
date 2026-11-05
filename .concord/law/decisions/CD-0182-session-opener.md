@@ -132,11 +132,8 @@ changed artifacts verify preserved, its nonterminal actions stopped, and its
 retained departure checks pass. Host tools own the physical move; no Concord
 vacate or occupancy-release writer is required. Retirement never completes or
 cancels the shared work, removes a worktree, or terminates a process. The
-continuity snapshot carries the newest handoff addressed to the reading
-session's Project under the active contract, consumed or not. A read from
-any other Project carries the work's newest unconsumed handoff.
-The receiving Project's continuity read names the bounded job without
-operator copying.
+item-scoped full work list carries the pending handoff. Session preparation
+also carries the addressed handoff without operator copying (CD-0252).
 
 ## Alternatives considered
 
@@ -184,10 +181,7 @@ Host tools own within-repository placement too.
   handoff-bearing work. `go test ./internal/store/ -run
   TestProjectHandoffConsumeResolvesTheSharedBindForEverySessionOfTheProject`
   proves the consume resolves the shared bind for a second session and
-  refuses a replay from a session that resolves no Project, and
-  `go test ./internal/store/ -run
-  TestContinuityRendersTheAddressedFrontierToTheReceivingProject`
-  proves the widened frontier read. `go test ./internal/store/ -run
+  refuses a replay from a session that resolves no Project. `go test ./internal/store/ -run
   TestManagedExecutionGateKeepsTheWrongProjectBindRefusedAndSourceExecutionAdmitted`
   proves the widened bind never crosses Projects: a session of the source
   Project acquires no bind while that Project's own execution stays

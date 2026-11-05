@@ -43,28 +43,8 @@ const basePin = (): Record<string, unknown> => ({
   next_valid_intents: [],
 })
 
-const continuityWith = (view: unknown, marker: unknown): Record<string, unknown> => ({
-  work_id: "work-test",
-  pinned: withMembers(
-    {
-      product_identity: ["product"],
-      workflow_step: "planning",
-      step_actions: [],
-      contract: null,
-      spec_mandate: [],
-      latest_checkpoint: null,
-      design_record: null,
-    },
-    view,
-    marker,
-  ),
-  boundaries: { count: 0, items: [], next_cursor: null, watermark: "seq:1" },
-  typed_availability: { restart: "unavailable", reason: "unavailable" },
-})
-
 describe("work context unavailable schema", () => {
   const locations: [string, (view: unknown, marker: unknown) => Record<string, unknown>][] = [
-    ["continuity_snapshot", continuityWith],
     ["work_pin", (view, marker) => withMembers(basePin(), view, marker)],
   ]
   for (const [schema, build] of locations) {

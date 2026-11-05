@@ -49,7 +49,7 @@ pane, window, or session, exactly as CD-0078 D1 states. The host starts and
 resumes operator sessions and places their surfaces. Host tools own worktree
 placement too (CD-0088 D1).
 
-### D2. Workflow position comes from explicit continuity
+### D2. Workflow position comes from current state
 
 Resumption of workflow position comes from the canonical resume plan and
 addressed handoff delivered by session preparation (CD-0252) and explicit

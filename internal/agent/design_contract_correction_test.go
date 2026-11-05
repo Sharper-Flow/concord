@@ -10,6 +10,47 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
+func contractRows(t *testing.T, s *store.Store, work string) []string {
+	t.Helper()
+	var result []string
+	for _, table := range []string{"workflow_contracts", "workflow_architecture_bindings", "workflow_contract_affected_domains", "workflow_contract_domain_modifications", "workflow_contract_domain_relation_modifications", "workflow_contract_law_additions", "workflow_contract_verification_obligations", "workflow_contract_law_modifications"} {
+		rows, err := s.DatabaseForTesting().Query(`SELECT * FROM `+table+` WHERE work_id=? ORDER BY rowid`, work)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cols, err := rows.Columns()
+		if err != nil {
+			rows.Close()
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			values := make([]any, len(cols))
+			dest := make([]any, len(cols))
+			for i := range values {
+				dest[i] = &values[i]
+			}
+			if err := rows.Scan(dest...); err != nil {
+				rows.Close()
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(values)
+			if err != nil {
+				rows.Close()
+				t.Fatal(err)
+			}
+			result = append(result, table+":"+string(encoded))
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			t.Fatal(err)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return result
+}
+
 func TestContractReassessmentPreservesDesignAndRefusesInlineReplacement(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
@@ -47,13 +88,42 @@ func TestContractReassessmentPreservesDesignAndRefusesInlineReplacement(t *testi
 	if corrected.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("revise contract: %+v", corrected.Error)
 	}
-	after, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: "work-1"})
-	if err != nil {
-		t.Fatal(err)
+	readContract := func() []any {
+		t.Helper()
+		rows, err := s.DatabaseForTesting().Query(`SELECT * FROM workflow_contracts WHERE work_id='work-1' AND superseded_by IS NULL`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		cols, err := rows.Columns()
+		if err != nil {
+			t.Fatal(err)
+		}
+		values := make([]any, len(cols))
+		dest := make([]any, len(cols))
+		for i := range values {
+			dest[i] = &values[i]
+		}
+		if !rows.Next() {
+			t.Fatal("current contract missing")
+		}
+		if err := rows.Scan(dest...); err != nil {
+			t.Fatal(err)
+		}
+		if rows.Next() {
+			t.Fatal("multiple current contracts")
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return values
 	}
-	if after.Contract == nil || after.Contract.Version != 2 {
-		t.Fatalf("corrected contract not current: %+v", after.Contract)
+	var contractVersion int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id='work-1' AND superseded_by IS NULL`).Scan(&contractVersion); err != nil || contractVersion != 2 {
+		t.Fatalf("corrected contract version = %d: %v", contractVersion, err)
 	}
+	after := readContract()
+	afterRows := contractRows(t, s, "work-1")
 	var afterPlan string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT payload FROM workflow_plan_records WHERE work_id='work-1'`).Scan(&afterPlan); err != nil || afterPlan != beforePlan {
 		t.Fatalf("contract-only reassessment changed the plan: before=%s after=%s err=%v", beforePlan, afterPlan, err)
@@ -73,11 +143,8 @@ func TestContractReassessmentPreservesDesignAndRefusesInlineReplacement(t *testi
 	if workOneVersion(t, s) != version {
 		t.Fatal("invalid replacement changed work version")
 	}
-	unchanged, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: "work-1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(unchanged.Contract, after.Contract) {
+	unchanged := readContract()
+	if !reflect.DeepEqual(unchanged, after) || !reflect.DeepEqual(afterRows, contractRows(t, s, "work-1")) {
 		t.Fatal("invalid replacement changed the current contract or design")
 	}
 	var unchangedPlan string

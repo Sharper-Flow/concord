@@ -191,7 +191,7 @@ type NativeRunReport struct {
 // readWorkflowNativeRunsTx returns the attributed native-run reports for one
 // work item, newest phase report per run, on the caller's transaction. The
 // store pools a single SQLite connection, so this read must share the
-// continuity snapshot's transaction rather than open a second connection.
+// full work list transaction rather than open a second connection.
 // Every report carries its verification participation (CD-0040 D9/D11):
 // unverified and diverged reports remain readable, and a consequential
 // consumer fails closed at workflow.evidence_bound until the observation is

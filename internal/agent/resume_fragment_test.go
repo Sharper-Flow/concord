@@ -108,7 +108,7 @@ func TestResumeOversizedDocumentDispatch(t *testing.T) {
 	tampered := firstCursor[:len(firstCursor)-1] + "!"
 	assertRefused("tampering", read(fx.workID, &tampered, "resume"))
 	assertRefused("work rebinding", read(readPopulationPeer, &firstCursor, "resume"))
-	assertRefused("operation rebinding", read(fx.workID, &firstCursor, "continuity"))
+	assertRefused("operation rebinding", read(fx.workID, &firstCursor, "history"))
 	otherService, _, otherGrant := newAuthorizedService(t, fx.store, "client-other-resume", "human-other-resume", []agentcontract.Capability{"product_read"}, []string{readPopulationProduct}, []string{readPopulationProject}, store.ProjectResolution{ProjectID: readPopulationProject})
 	otherGrant.SessionRef = "session-other-resume"
 	otherGrant.AgentRef = "agent-1"

@@ -40,16 +40,14 @@ func currentLawUpgradeFixture(t *testing.T, contract, boundary int) (*Store, Wor
 	}
 	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
 	queries := map[string]string{
-		"work":        `SELECT * FROM work_items WHERE id='upgrade-law'`,
-		"actors":      `SELECT * FROM workflow_actors ORDER BY actor_ref`,
-		"contracts":   `SELECT work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,superseded_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json,supersession_seq,last_healthy_seq,decision_domains FROM workflow_contracts ORDER BY work_id,contract_version`,
-		"checkpoints": `SELECT work_id,work_version,checkpoint_sequence,checkpoint_id,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions,workflow_ref,actor_ref,request_id,recorded_at FROM workflow_context_checkpoints ORDER BY work_id,checkpoint_sequence`,
-		"boundaries":  `SELECT work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,actor_ref,request_id,recorded_at FROM workflow_context_boundaries ORDER BY work_id,boundary_sequence`,
-		"membership":  `SELECT * FROM work_projects ORDER BY work_id`,
-		"identity":    `SELECT * FROM linear_issue_links ORDER BY work_id`,
-		"delivery":    `SELECT * FROM workflow_delivery_state ORDER BY work_id`,
-		"receipts":    `SELECT * FROM effect_receipts ORDER BY effect_seq`,
-		"bindings":    `SELECT * FROM workflow_evidence_bindings ORDER BY work_id,binding_seq`,
+		"work":       `SELECT * FROM work_items WHERE id='upgrade-law'`,
+		"actors":     `SELECT * FROM workflow_actors ORDER BY actor_ref`,
+		"contracts":  `SELECT work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,superseded_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json,supersession_seq,last_healthy_seq,decision_domains FROM workflow_contracts ORDER BY work_id,contract_version`,
+		"membership": `SELECT * FROM work_projects ORDER BY work_id`,
+		"identity":   `SELECT * FROM linear_issue_links ORDER BY work_id`,
+		"delivery":   `SELECT * FROM workflow_delivery_state ORDER BY work_id`,
+		"receipts":   `SELECT * FROM effect_receipts ORDER BY effect_seq`,
+		"bindings":   `SELECT * FROM workflow_evidence_bindings ORDER BY work_id,binding_seq`,
 	}
 	before := make(map[string][][]any, len(queries))
 	for name, query := range queries {
@@ -78,6 +76,7 @@ func currentLawUpgradeFixture(t *testing.T, contract, boundary int) (*Store, Wor
 	if !reflect.DeepEqual(report.Applied, wantApplied) {
 		t.Fatalf("applied migrations=%v, want %v", report.Applied, wantApplied)
 	}
+	assertContextRetired(t, db)
 	for name, query := range queries {
 		if got := retirementUpgradeRows(t, db, query); !reflect.DeepEqual(got, before[name]) {
 			t.Errorf("migration changed %s: before=%v after=%v", name, before[name], got)

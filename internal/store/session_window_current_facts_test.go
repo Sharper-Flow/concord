@@ -6,7 +6,7 @@ func TestWorkLivenessReadsCurrentProgress(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	const work = "liveness-current-progress"
-	continuityTestWorkflow(t, s, work)
+	seedTestWorkflow(t, s, work)
 	want, err := deriveWorkLivenessQ(t.Context(), s.db, work)
 	if err != nil || want.LastProgress == "" {
 		t.Fatalf("liveness=%+v err=%v, want recorded progress", want, err)

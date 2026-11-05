@@ -41,7 +41,7 @@ func TestReportedCompletionDiscardsStepsAndPreservesDelivery(t *testing.T) {
 	if err != nil || plan == nil || len(WorkflowStepPlanFrontier(*plan)) != 0 || !reflect.DeepEqual(plan, completedPlan) {
 		t.Fatalf("completed plan = %+v, %v", plan, err)
 	}
-	for _, table := range []string{"workflow_step_epochs", "workflow_phase_exits", "workflow_completed_exits", "workflow_checkpoints", "workflow_context_checkpoints", "workflow_context_boundaries", "workflow_coordinator_actions"} {
+	for _, table := range []string{"workflow_step_epochs", "workflow_phase_exits", "workflow_completed_exits", "workflow_checkpoints", "workflow_coordinator_actions"} {
 		var count int
 		if err := s.db.QueryRow("SELECT count(*) FROM "+table+" WHERE work_id=?", workID).Scan(&count); err != nil || count != 0 {
 			t.Errorf("retained %s rows=%d err=%v", table, count, err)

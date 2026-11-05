@@ -148,7 +148,7 @@ grows the same derivation and the same pure function
 ## Verification
 
 ```gherkin
-Scenario: A well-formed nonterminal state keeps a non-continuity exit
+Scenario: A well-formed nonterminal state keeps an exit
   Given the registered definitions
   When the check enumerates each well-formed nonterminal abstract state
   Then each state admits at least one action that moves the work out of it

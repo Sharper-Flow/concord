@@ -110,7 +110,7 @@ func durableNeighborOperations() []neighborOperation {
 	rows = append(rows,
 		neighborOperation{"AuthorizeWorkflowActionAtBoundary", func(t *testing.T) (*Store, func() error, func()) {
 			s := openTemp(t)
-			actor, version := continuityTestWorkflow(t, s, "neighbor-work")
+			actor, version := seedTestWorkflow(t, s, "neighbor-work")
 			version = issue31WorkflowActionWithPayload(t, s, "neighbor-work", version, "record_plan", "neighbor-plan", actor, []byte(testWorkflowPlanDocument))
 			payload := []byte(`{"step_id":"plan","note":"The committed plan step survives."}`)
 			run := func() error {

@@ -96,40 +96,33 @@ func catalogAction(actionID string) (WorkflowActionDefinition, error) {
 	return builtinWorkflowActionCatalog().action(actionID)
 }
 
-// WorkflowActionCatalogSize bounds distinct actions emitted by the catalog.
-func WorkflowActionCatalogSize() int {
-	return len(builtinWorkflowActionCatalog())
-}
-
 // builtinWorkflowActionCatalog is the current catalog for built-in workflows.
 func builtinWorkflowActionCatalog() workflowActionCatalog {
 	return workflowActionCatalog{
-		"approve_contract":       {premiseFloor},
-		"bind_evidence":          nil,
-		"checkpoint_context":     nil,
-		"checkpoint_execution":   nil,
-		"checkpoint_refine":      nil,
-		"checkpoint_repair":      nil,
-		"complete":               nil,
-		"complete_step":          nil,
-		"confirm_premise":        {confirmPremisePayload},
-		"cross_context_boundary": nil,
-		"frame_research":         nil,
-		"insert_step":            nil,
-		"link_successor":         nil,
-		"pick_type":              nil,
-		"record_clarify":         nil,
-		"record_conclusion":      nil,
-		"record_delivery":        nil,
-		"record_diagnosis":       nil,
-		"record_finding":         nil,
-		"record_intake":          nil,
-		"record_plan":            nil,
-		"record_removal_scope":   nil,
-		"record_report":          nil,
-		"record_review":          {workTransitionAction},
-		"record_work_context":    nil,
-		"revise_candidates":      nil,
-		"start_execution":        nil,
+		"approve_contract":     {premiseFloor},
+		"bind_evidence":        nil,
+		"checkpoint_execution": nil,
+		"checkpoint_refine":    nil,
+		"checkpoint_repair":    nil,
+		"complete":             nil,
+		"complete_step":        nil,
+		"confirm_premise":      {confirmPremisePayload},
+		"frame_research":       nil,
+		"insert_step":          nil,
+		"link_successor":       nil,
+		"pick_type":            nil,
+		"record_clarify":       nil,
+		"record_conclusion":    nil,
+		"record_delivery":      nil,
+		"record_diagnosis":     nil,
+		"record_finding":       nil,
+		"record_intake":        nil,
+		"record_plan":          nil,
+		"record_removal_scope": nil,
+		"record_report":        nil,
+		"record_review":        {workTransitionAction},
+		"record_work_context":  nil,
+		"revise_candidates":    nil,
+		"start_execution":      nil,
 	}
 }

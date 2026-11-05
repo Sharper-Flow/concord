@@ -262,12 +262,10 @@ re-litigate them silently.
   [`../law/specs/compaction-retention-policy.md`](../law/specs/compaction-retention-policy.md) and
   [`../law/specs/canonical-git-note-placement.md`](../law/specs/canonical-git-note-placement.md). This question is
   unrelated to that tier and must be named **context continuity** to avoid collision.
-- **Direction:** Durable checkpoints and
-  boundary records own the working state; pinned continuity is re-derived from
-  SQLite on every call; summaries are advisory and summary-only boundaries are
-  allowed only after a completed durable unit. Clean typed-agent restart is the
-  preferred future path but remains unavailable until issue #120. The canonical
-  read is `concord_work_trace.continuity`.
+- **Direction:** Explicit current-state reads, not summaries, supply authority.
+  `concord_work_trace.resume` supplies the step plan; item-scoped
+  `concord_work_browse.list` with full detail supplies current work context.
+  Summaries remain advisory and may follow only a completed durable unit.
 
 ---
 

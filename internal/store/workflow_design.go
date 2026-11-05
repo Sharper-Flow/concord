@@ -1,11 +1,5 @@
 package store
 
-import (
-	"context"
-	"database/sql"
-	"encoding/json"
-)
-
 type workflowDesignContent struct {
 	Approach    string                          `json:"approach"`
 	Decisions   []workflowDesignDecisionPayload `json:"decisions"`
@@ -27,22 +21,4 @@ func validateWorkflowDesignContent(p workflowDesignContent) error {
 		}
 	}
 	return nil
-}
-
-// The latest recorded design owns architecture content. Contract counters do
-// not invalidate unchanged architecture; Review compares its content digest.
-func readCurrentWorkflowDesign(ctx context.Context, q queryer, workID string) (*WorkflowDesignRecord, error) {
-	var design WorkflowDesignRecord
-	var decisions, touched string
-	err := q.QueryRowContext(ctx, `SELECT work_version,approach,decisions,touched_refs,recorded_at FROM workflow_design_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, workID).Scan(&design.WorkVersion, &design.Approach, &decisions, &touched, &design.RecordedAt)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, workflowProjectionError(err, "cannot read workflow design")
-	}
-	if json.Unmarshal([]byte(decisions), &design.Decisions) != nil || json.Unmarshal([]byte(touched), &design.TouchedRefs) != nil {
-		return nil, newFailure(KindInvariantViolation, "workflow_design", "design projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
-	}
-	return &design, nil
 }

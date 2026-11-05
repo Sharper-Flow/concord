@@ -242,107 +242,11 @@ func TestWorkSummaryBytePagesKeepContinuation(t *testing.T) {
 	}
 }
 
-func TestContinuityLargeHistoryAndPinsStayBounded(t *testing.T) {
-	t.Parallel()
-	for _, text := range []string{"x", "\\"} {
-		t.Run(text, func(t *testing.T) {
-			ctx := context.Background()
-			s, _, engine := workflowEngineFixture(t, strings.Repeat("p", store.WorkflowPremiseMaxLength))
-			refs := []string{}
-			for i := range 64 {
-				refs = append(refs, fmt.Sprintf("ref-%02d-%s", i, strings.Repeat("r", 121)))
-			}
-			for i := 1; i <= 40; i++ {
-				checkpoint := fmt.Sprintf("checkpoint-%d", i)
-				engine("checkpoint_context", map[string]any{
-					"checkpoint_id": checkpoint, "checkpoint_sequence": i, "active_unit": "unit:repair",
-					"hypothesis": strings.Repeat(text, 4096), "diagnosis": strings.Repeat(text, 4096), "strategy": strings.Repeat(text, 4096),
-					"touched_refs": refs, "evidence_refs": refs[:32], "pending_questions": []string{}, "pending_decisions": []string{},
-				})
-				summarySize := 4096
-				if text == "\\" {
-					summarySize = 16384
-				}
-				engine("cross_context_boundary", map[string]any{"boundary_kind": "summary", "mode": "summary", "checkpoint_id": checkpoint, "summary": strings.Repeat("s", summarySize)})
-			}
-			r := runtime{Store: s, Tool: "concord_work_trace", Operation: "continuity", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
-			before, err := s.Revision(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
-			input := map[string]any{"work_id": "work-1", "limit": 1}
-			doc, _, pages, response := readContinuityDocument(t, ctx, r, "large-continuity", input)
-			assertBoundedRead(t, response)
-			if text == "\\" {
-				// The escaped projection cannot fit any complete prefix, so
-				// the read answers with the lossless page transport instead
-				// of refusing: the reconstructed document carries the same
-				// fixed projection the inline answer would have carried.
-				if doc == nil || pages < 2 {
-					t.Fatalf("oversized fixed projection must answer losslessly through projection pages; pages=%d doc=%d", pages, len(doc))
-				}
-				var document struct {
-					Pinned struct {
-						LatestCheckpoint *store.ContextCheckpoint `json:"latest_checkpoint"`
-						WorkPin          *store.WorkPin           `json:"work_pin"`
-					} `json:"pinned"`
-				}
-				if err := json.Unmarshal(doc, &document); err != nil {
-					t.Fatal(err)
-				}
-				if document.Pinned.LatestCheckpoint == nil || len(document.Pinned.LatestCheckpoint.Hypothesis) != 4096 || document.Pinned.WorkPin == nil || len(document.Pinned.WorkPin.NextValidIntents) == 0 {
-					t.Fatalf("large pin or durable checkpoint lost in the reconstructed document: checkpoint=%v workpin=%v", document.Pinned.LatestCheckpoint != nil, document.Pinned.WorkPin != nil)
-				}
-			} else {
-				if doc != nil {
-					t.Fatal("a fitting projection must stay inline")
-				}
-				var payload map[string]json.RawMessage
-				if err := json.Unmarshal(response.Result, &payload); err != nil {
-					t.Fatal(err)
-				}
-				if _, duplicate := payload["latest_checkpoint"]; duplicate {
-					t.Fatal("checkpoint duplicated outside pinned")
-				}
-				if _, paged := payload["projection_page"]; paged {
-					t.Fatal("a fitting projection must stay inline, not page")
-				}
-				var pinned struct {
-					LatestCheckpoint *store.ContextCheckpoint `json:"latest_checkpoint"`
-					WorkPin          *store.WorkPin           `json:"work_pin"`
-				}
-				if err := json.Unmarshal(payload["pinned"], &pinned); err != nil {
-					t.Fatal(err)
-				}
-				if pinned.LatestCheckpoint == nil || len(pinned.LatestCheckpoint.Hypothesis) != 4096 || pinned.WorkPin == nil || len(pinned.WorkPin.NextValidIntents) == 0 {
-					t.Fatal("large pin or durable checkpoint lost")
-				}
-				var boundaries struct {
-					Count      int64                   `json:"count"`
-					Items      []store.ContextBoundary `json:"items"`
-					NextCursor *string                 `json:"next_cursor"`
-				}
-				if err := json.Unmarshal(payload["boundaries"], &boundaries); err != nil {
-					t.Fatal(err)
-				}
-				if boundaries.Count != 40 || len(boundaries.Items) != 1 || boundaries.NextCursor == nil || response.NextCursor == nil {
-					t.Fatalf("history is not bounded and resumable: %+v", boundaries)
-				}
-			}
-			after, err := s.Revision(ctx)
-			if err != nil || before != after {
-				t.Fatalf("read changed durable evidence: %d -> %d, %v", before, after, err)
-			}
-		})
-	}
-}
-
 func TestReadBudgetIncludesEnvelopeMetadata(t *testing.T) {
 	t.Parallel()
 	s, _, _ := workflowEngineFixture(t, "metadata budget")
 	for _, test := range []struct{ tool, operation, input string }{
 		{"concord_work_browse", "list", `{"product_id":"product-1","limit":1}`},
-		{"concord_work_trace", "continuity", `{"work_id":"work-1","limit":1}`},
 		{"concord_work_trace", "history", `{"work_id":"work-1","limit":1}`},
 	} {
 		t.Run(test.operation, func(t *testing.T) {
@@ -360,73 +264,6 @@ func TestReadBudgetIncludesEnvelopeMetadata(t *testing.T) {
 				t.Fatalf("byte refusal=%+v", response.Error)
 			}
 		})
-	}
-}
-
-// TestContinuityBoundaryPageFitsAndResumes holds the boundary page to the
-// paged-read rule: a requested page that would overflow the envelope returns
-// the largest complete prefix that fits, names the byte bound, and its cursor
-// resumes so every boundary arrives exactly once.
-func TestContinuityBoundaryPageFitsAndResumes(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, _, engine := workflowEngineFixture(t, strings.Repeat("p", 2900))
-	for i := 1; i <= 40; i++ {
-		checkpoint := fmt.Sprintf("checkpoint-%d", i)
-		engine("checkpoint_context", map[string]any{
-			"checkpoint_id": checkpoint, "checkpoint_sequence": i, "active_unit": "unit:repair",
-			"hypothesis": "hypothesis", "diagnosis": "diagnosis", "strategy": "strategy",
-			"touched_refs": []string{"ref-a"}, "evidence_refs": []string{"ref-b"}, "pending_questions": []string{}, "pending_decisions": []string{},
-		})
-		engine("cross_context_boundary", map[string]any{"boundary_kind": "summary", "mode": "summary", "checkpoint_id": checkpoint, "summary": fmt.Sprintf("%02d%s", i, strings.Repeat("s", 4094))})
-	}
-	r := runtime{Store: s, Tool: "concord_work_trace", Operation: "continuity", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
-	input := map[string]any{"work_id": "work-1", "limit": 20}
-	seen := map[int64]bool{}
-	for pages := 0; ; pages++ {
-		raw, _ := json.Marshal(input)
-		response, err := r.read(ctx, agentcontract.NewBase("boundary-fit", r.Tool, r.Operation), raw, "C19.Continuity")
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertBoundedRead(t, response)
-		if response.Outcome != agentcontract.OutcomeOK {
-			t.Fatalf("boundary page refused: %+v", response.Error)
-		}
-		var payload struct {
-			Boundaries struct {
-				Count int64                   `json:"count"`
-				Items []store.ContextBoundary `json:"items"`
-			} `json:"boundaries"`
-		}
-		if err := json.Unmarshal(response.Result, &payload); err != nil {
-			t.Fatal(err)
-		}
-		items := payload.Boundaries.Items
-		if payload.Boundaries.Count != 40 || len(items) == 0 {
-			t.Fatalf("page lost its count or failed to advance: %+v", payload.Boundaries)
-		}
-		if pages == 0 {
-			if len(items) >= 20 || !hasNotice(response.Omissions, "byte_bounded_page") {
-				t.Fatalf("first page kept %d boundaries without a byte-bound notice", len(items))
-			}
-		}
-		for _, item := range items {
-			if seen[item.Sequence] || len(item.Summary) != 4096 {
-				t.Fatalf("boundary %d repeated or changed", item.Sequence)
-			}
-			seen[item.Sequence] = true
-		}
-		if response.NextCursor == nil {
-			break
-		}
-		input["page"] = map[string]any{"cursor": *response.NextCursor}
-		if pages > 40 {
-			t.Fatal("boundary cursor did not advance")
-		}
-	}
-	if len(seen) != 40 {
-		t.Fatalf("enumerated %d boundaries, want 40", len(seen))
 	}
 }
 

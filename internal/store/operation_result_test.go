@@ -14,11 +14,8 @@ import (
 
 func TestOperationResultTxReadsAtomicDispatchWithoutMutation(t *testing.T) {
 	s := openTemp(t)
-	actor, version := continuityTestWorkflow(t, s, "atomic-result-work")
-	if _, err := continuityAction(t, s, "atomic-result-work", version, "checkpoint_context", "atomic-result", map[string]any{
-		"active_unit": "unit:atomic", "hypothesis": "The atomic result remains readable", "diagnosis": "No separate claim is needed", "strategy": "Read the committed result",
-		"touched_refs": []string{"ref:atomic"}, "evidence_refs": []string{"evidence:atomic"}, "pending_questions": []string{}, "pending_decisions": []string{},
-	}, actor); err != nil {
+	actor, version := seedTestWorkflow(t, s, "atomic-result-work")
+	if _, err := applyTestAction(t, s, "atomic-result-work", version, "record_work_context", "atomic-result", map[string]any{}, actor); err != nil {
 		t.Fatal(err)
 	}
 	before := retirementUpgradeSnapshot(t, s.db)

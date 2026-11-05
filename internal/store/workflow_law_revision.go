@@ -13,7 +13,7 @@ import (
 // WorkflowLawContext is the bounded, typed resolution of the approved
 // contract's binding law and Domain references. The core turns every
 // contract-bound law ID and home or affected Domain ID into its projection
-// state at continuity read time, so a dispatched packet carries the title of
+// state in the full work list, so a dispatched packet carries the title of
 // each binding law and a file locator that opens inside the Product's
 // designated knowledge home, not inside whatever repository the lane was
 // dispatched into.

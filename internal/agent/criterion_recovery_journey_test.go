@@ -54,7 +54,7 @@ func TestContractRevisionPreservesExecutionAndLegislativeSubjects(t *testing.T) 
 		"route_conventions":    contract.RouteConventions,
 		"spec_mandate":         contract.SpecMandate,
 		"law_modifies":         contract.LawModifies,
-		"architecture_binding": contract.ArchitectureBinding,
+		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, f.s),
 		"rigor_class":          contract.RigorClass,
 		"decision_domains":     contract.DecisionDomains,
 	}

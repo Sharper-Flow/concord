@@ -16,12 +16,9 @@ import (
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
-// The compound reads — the work pin, the continuity snapshot, and its
-// embedded pin — carry the work context exclusively: the exact current strict
-// view, the typed absence, or the work_context_unavailable marker with the
-// reason limit_exceeded when the work-wide view is past its bound. Marker
-// assertions read the JSON envelope, so they bind the published member shape
-// without a Go type.
+// The work pin carries the exact current strict view, typed absence, or the
+// work_context_unavailable marker with reason limit_exceeded when the
+// work-wide view exceeds its bound. Marker assertions read the JSON envelope.
 
 // workContextExpectation names the one work-context state a compound read
 // must show.
@@ -37,8 +34,8 @@ const (
 // per surface. It is comparable, so replay and reopen checks compare it
 // directly.
 type workContextUnavailableState struct {
-	pinMarker, continuityMarker, embeddedMarker string
-	pinView, continuityView, embeddedView       bool
+	pinMarker string
+	pinView   bool
 }
 
 // workContextUnavailableMarker extracts the work_context_unavailable member
@@ -64,24 +61,13 @@ func workContextUnavailableMarker(t *testing.T, raw []byte) string {
 	return string(member)
 }
 
-// assertWorkContextCompoundReads reads the work pin and the continuity
-// snapshot with its embedded pin, and asserts one exclusive work-context
-// state on all three surfaces. The available case compares every surface's
-// view bytes to the current strict view exactly and validates both pin
-// payloads against the closed work_pin schema. The unavailable case requires
-// the marker with the limit_exceeded reason on every surface beside no view.
+// assertWorkContextCompoundReads checks the work pin against the strict view,
+// validates the pin schema, and checks the limit_exceeded marker when needed.
 func assertWorkContextCompoundReads(t *testing.T, f workContextFixture, want workContextExpectation) workContextUnavailableState {
 	t.Helper()
 	pin, err := ReadWorkPin(context.Background(), f.store, f.workID)
 	if err != nil {
 		t.Fatalf("work pin read refused: %v", err)
-	}
-	snapshot, err := ReadWorkflowContinuity(context.Background(), f.store, ContinuityRequest{Work: f.workID})
-	if err != nil {
-		t.Fatalf("continuity read refused: %v", err)
-	}
-	if snapshot.WorkPin == nil {
-		t.Fatal("continuity snapshot omits its embedded work pin on the fixture")
 	}
 	view, viewErr := readWorkContextView(context.Background(), f.store.DatabaseForTesting(), f.workID)
 	switch want {
@@ -98,26 +84,20 @@ func assertWorkContextCompoundReads(t *testing.T, f workContextFixture, want wor
 			t.Fatalf("strict view read = (%+v, %v), want nil with %s", view, viewErr, KindLimitExceeded)
 		}
 	}
-	pinRaw, continuityRaw, embeddedRaw := mustJSONValue(pin), mustJSONValue(snapshot), mustJSONValue(*snapshot.WorkPin)
-	for _, raw := range [][]byte{pinRaw, embeddedRaw} {
-		if validErr := payloadschema.Validate("work_pin", raw); validErr != nil {
-			t.Fatalf("work pin payload fails the closed schema: %v", validErr)
-		}
+	pinRaw := mustJSONValue(pin)
+	if validErr := payloadschema.Validate("work_pin", pinRaw); validErr != nil {
+		t.Fatalf("work pin payload fails the closed schema: %v", validErr)
 	}
 	state := workContextUnavailableState{
-		pinMarker:        workContextUnavailableMarker(t, pinRaw),
-		continuityMarker: workContextUnavailableMarker(t, continuityRaw),
-		embeddedMarker:   workContextUnavailableMarker(t, embeddedRaw),
-		pinView:          pin.WorkContext != nil,
-		continuityView:   snapshot.WorkContext != nil,
-		embeddedView:     snapshot.WorkPin.WorkContext != nil,
+		pinMarker: workContextUnavailableMarker(t, pinRaw),
+		pinView:   pin.WorkContext != nil,
 	}
 	if want == expectWorkContextAvailable {
 		exact := mustJSONValue(view)
 		for _, surface := range []struct {
 			name string
 			view *WorkContextView
-		}{{"work pin", pin.WorkContext}, {"continuity snapshot", snapshot.WorkContext}, {"embedded work pin", snapshot.WorkPin.WorkContext}} {
+		}{{"work pin", pin.WorkContext}} {
 			if surface.view == nil || !bytes.Equal(mustJSONValue(surface.view), exact) {
 				t.Fatalf("%s omits the exact current strict view bytes", surface.name)
 			}
@@ -128,7 +108,7 @@ func assertWorkContextCompoundReads(t *testing.T, f workContextFixture, want wor
 		name   string
 		marker string
 		view   bool
-	}{{"work pin", state.pinMarker, state.pinView}, {"continuity snapshot", state.continuityMarker, state.continuityView}, {"embedded work pin", state.embeddedMarker, state.embeddedView}} {
+	}{{"work pin", state.pinMarker, state.pinView}} {
 		if (surface.marker != "") != marked {
 			t.Fatalf("%s carries a work_context_unavailable marker = %t, want %t", surface.name, surface.marker != "", marked)
 		}
@@ -268,12 +248,16 @@ func TestWorkContextUnavailableNativeCustody(t *testing.T) {
 			if got := countRows(t, s, "work_context_findings"); got != tc.blockers {
 				t.Fatalf("retained context findings = %d, want %d", got, tc.blockers)
 			}
-			continuity, continuityErr := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: fixture.workID})
-			if continuityErr != nil {
-				t.Fatal(continuityErr)
+			scope, err := s.ProductsForWorkIDs(context.Background(), []string{fixture.workID})
+			if err != nil || len(scope[fixture.workID]) != 1 {
+				t.Fatalf("work product scope=%v err=%v", scope, err)
 			}
-			if len(continuity.NativeRuns) == 0 {
-				t.Fatal("the continuity snapshot carries no attributed native runs for the seeded report")
+			result, err := s.QueryQ3(context.Background(), Q3Request{Product: scope[fixture.workID][0], WorkIDs: []string{fixture.workID}, Detail: "full"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Items) != 1 || len(result.Items[0].NativeRuns) == 0 {
+				t.Fatal("the work item carries no attributed native runs for the seeded report")
 			}
 			events := currentEffectRows(t, s)
 			assertWorkContextCompoundReads(t, fixture, expectWorkContextUnavailable)

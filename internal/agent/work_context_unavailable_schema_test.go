@@ -2,11 +2,9 @@ package agent
 
 import (
 	"encoding/json"
-	"fmt"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
-	"github.com/sharper-flow/concord/internal/store"
 )
 
 type unavailableCase struct {
@@ -48,25 +46,6 @@ func setUnavailableMember(target map[string]any, key string, value any) {
 	}
 }
 
-func unavailableContinuity(view, marker any) (map[string]any, error) {
-	payload := ContinuityPayload(store.ContinuitySnapshot{
-		WorkID:                   "work-test",
-		ProductIdentity:          []string{"product"},
-		WorkflowStep:             "planning",
-		SpecMandate:              []string{},
-		Boundaries:               []store.ContextBoundary{},
-		Watermark:                "seq:1",
-		RestartUnavailableReason: "unavailable",
-	})
-	pinned, ok := payload["pinned"].(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("pinned payload type = %T", payload["pinned"])
-	}
-	setUnavailableMember(pinned, "work_context", view)
-	setUnavailableMember(pinned, "work_context_unavailable", marker)
-	return payload, nil
-}
-
 func unavailableWorkPin(view, marker any) (map[string]any, error) {
 	pin := map[string]any{
 		"work_id": "work-test", "title": "fixture", "linear_issue_key": "CON-0000",
@@ -88,7 +67,6 @@ func TestWorkContextUnavailableSchema(t *testing.T) {
 		schema string
 		build  func(view, marker any) (map[string]any, error)
 	}{
-		{"continuity_snapshot", "continuity_snapshot", unavailableContinuity},
 		{"work_pin", "work_pin", unavailableWorkPin},
 	} {
 		t.Run(location.name, func(t *testing.T) {

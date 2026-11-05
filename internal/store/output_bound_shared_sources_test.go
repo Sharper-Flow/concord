@@ -58,23 +58,6 @@ import (
 func init() {
 	registerOutputBound("/$defs/knowledge_id/maxLength",
 		goConstantBound("internal/store/knowledge_record.go", "maxManifestID", boundCharacters))
-	// digest: every output value is a boundary-admitted digest (<=128 code
-	// points, hex pattern — the admission is a full-string bound), a
-	// Go-minted sha256 form (64 bare hex, 71 with the sha256: prefix;
-	// internal/store/workflow.go:workflowDigest echo guard), or a persisted
-	// echo of one of those values. The echo columns' TEXT length() CHECKs
-	// (agent_grants manifest_digest, workflow_instances
-	// definition_digest) measure only the NUL-terminated prefix under the
-	// NUL model, so they prove no full-string capacity and are not cited.
-	// Raw writer named for the parent, not claimed: the host assertion
-	// digest enters through the trusted-client call envelope
-	// (internal/agent/runtime.go:CallEnvelope, internal/agent/mutations.go
-	// stores it verbatim when non-empty) with no store-side full-string
-	// guard; it feeds no digest-typed output member today, and any consumer
-	// that starts echoing it is a parent repair.
-	registerOutputBound("/$defs/digest/maxLength",
-		inputBound("/$defs/digest/maxLength"))
-
 	// id: the family maximum is the boundary admission itself (<= 128 code
 	// points with the ASCII pattern), cited live — a full-string bound,
 	// unlike the store's TEXT length() CHECKs, which under the NUL model
@@ -124,7 +107,7 @@ func init() {
 
 	// obligation_id: values are copied verbatim from the approved contract's
 	// admitted architecture_binding.verification_obligations into worker
-	// packet law context and the continuity pin
+	// packet law context and the item-scoped list law context
 	// (internal/store/workflow_law_revision.go law-context projection; no
 	// aggregation lengthens them), or admitted on the knowledge side at 256
 	// code points. The store re-check validWorkflowObligationID

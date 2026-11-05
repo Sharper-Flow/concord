@@ -156,24 +156,6 @@
               "const": "concord_work_trace"
             },
             "operation": {
-              "const": "continuity"
-            },
-            "query_id": {
-              "const": "C19.Continuity"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_work_trace"
-            },
-            "operation": {
               "const": "resume"
             },
             "query_id": {
@@ -357,7 +339,6 @@
           "enum": [
             "",
             "capture",
-            "continuity",
             "detail",
             "history",
             "issue_link_record",
@@ -381,7 +362,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-36]|[1-3789])|CD-0020\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult|Resume)|C22\\.Domain(List|Detail))$"
+          "pattern": "^(PM1\\.Q(1[0-36]|[1-3789])|CD-0020\\.R1|CD-0182\\.R1|C19\\.(MutationResult|Resume)|C22\\.Domain(List|Detail))$"
         },
         "outcome": {
           "enum": [
@@ -796,7 +777,6 @@
         "operation": {
           "enum": [
             "capture",
-            "continuity",
             "detail",
             "history",
             "issue_link_record",
@@ -820,7 +800,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-36]|[1-3789])|CD-0020\\.R1|CD-0182\\.R1|C19\\.(Continuity|MutationResult|Resume)|C22\\.Domain(List|Detail))$"
+          "pattern": "^(PM1\\.Q(1[0-36]|[1-3789])|CD-0020\\.R1|CD-0182\\.R1|C19\\.(MutationResult|Resume)|C22\\.Domain(List|Detail))$"
         },
         "reason_code": {
           "type": "string",

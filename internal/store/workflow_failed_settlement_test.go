@@ -12,7 +12,7 @@ func TestWorkflowFailedActionSettlementFrontier(t *testing.T) {
 		t.Run(fmt.Sprintf("recoverable=%t", recoverable), func(t *testing.T) {
 			s := openTemp(t)
 			const work = "failed-settlement"
-			actor, version := continuityTestWorkflow(t, s, work)
+			actor, version := seedTestWorkflow(t, s, work)
 			ref, err := WorkflowActorRef(actor)
 			if err != nil {
 				t.Fatal(err)
@@ -88,7 +88,7 @@ func TestWorkflowFailedActionSettlementFrontier(t *testing.T) {
 func TestWorkflowFailedActionCannotSettleLaterAttempt(t *testing.T) {
 	s := openTemp(t)
 	const work = "failed-settlement-retry"
-	actor, _ := continuityTestWorkflow(t, s, work)
+	actor, _ := seedTestWorkflow(t, s, work)
 	outsideRepairSettleAction(t, s, work, actor, WorkflowActionFailed)
 	ref, err := WorkflowActorRef(actor)
 	if err != nil {
@@ -123,7 +123,7 @@ func TestWorkflowFailedActionCannotSettleLaterAttempt(t *testing.T) {
 func TestWorkflowFailedActionLeavesUnrelatedStartOutstanding(t *testing.T) {
 	s := openTemp(t)
 	const work = "failed-settlement-unrelated"
-	actor, _ := continuityTestWorkflow(t, s, work)
+	actor, _ := seedTestWorkflow(t, s, work)
 	// A prior step can still have an unmatched start in current state. Failure
 	// of the current step must not settle it, even when its sequence is older.
 	outsideRepairSettleAction(t, s, work, actor, WorkflowActionFailed)

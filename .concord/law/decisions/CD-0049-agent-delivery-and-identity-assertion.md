@@ -102,7 +102,7 @@ unsolved and is not settled here.
 ## Consequences
 
 Session preparation verifies the selected agent before managed action. It
-writes no identity assertion or workflow continuity boundary (CD-0061 D2, D4).
+writes no identity assertion (CD-0061 D4).
 
 D5 gives every client registered before it an empty agent scope, which
 authorizes nothing. Each such client must be re-registered with the agents it

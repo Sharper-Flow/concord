@@ -47,53 +47,6 @@ func workflowContractProductGuard(ctx context.Context, tx *sql.Tx, workID string
 	return binding, nil
 }
 
-func workflowContextCheckpointEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, stepID, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	var workflowRef string
-	var attemptEpoch int64
-	if err := tx.QueryRowContext(ctx, `SELECT workflow_type FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&workflowRef); err != nil {
-		return nil, workflowProjectionError(err, "cannot read workflow identity for context checkpoint")
-	}
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch),1) FROM durable_operations WHERE work_id=?`, request.WorkID).Scan(&attemptEpoch); err != nil {
-		return nil, workflowProjectionError(err, "cannot read workflow attempt epoch")
-	}
-	if attemptEpoch <= 0 {
-		attemptEpoch = 1
-	}
-	checkpointID := workflowFieldStringDefault(fields, "checkpoint_id", request.OperationID+":context-checkpoint")
-	return []Event{workflowTypedEvent(eventID, WorkflowContextCheckpointed, request.WorkID, actor, request.Now, expected, map[string]any{
-		"checkpoint_id": checkpointID, "checkpoint_sequence": workflowFieldInt(fields, "checkpoint_sequence", 0), "step_id": stepID, "attempt_epoch": attemptEpoch,
-		"active_unit": workflowFieldStringDefault(fields, "active_unit", ""), "hypothesis": workflowFieldStringDefault(fields, "hypothesis", ""), "diagnosis": workflowFieldStringDefault(fields, "diagnosis", ""), "strategy": workflowFieldStringDefault(fields, "strategy", ""),
-		"touched_refs": workflowFieldStrings(fields, "touched_refs"), "evidence_refs": workflowFieldStrings(fields, "evidence_refs"), "pending_questions": workflowFieldStrings(fields, "pending_questions"), "pending_decisions": workflowFieldStrings(fields, "pending_decisions"),
-		"workflow_ref": workflowRef, "actor_ref": actor, "request_id": request.RequestID,
-	})}, nil
-}
-
-func workflowContextBoundaryEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	boundaryKind := workflowFieldStringDefault(fields, "boundary_kind", "summary")
-	mode := workflowFieldStringDefault(fields, "mode", "summary")
-	if boundaryKind == "restart" || mode == "restart" || fields["restart"] != nil {
-		return nil, newFailure(KindUnavailable, "workflow_action", "restart dispatch is not implemented and fails closed pending Concord issue #120", false, "contact_operator")
-	}
-	if boundaryKind != "summary" || mode != "summary" || workflowFieldStringDefault(fields, "summary", "") == "" {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "context boundary currently accepts boundary_kind=summary only", false, "use boundary_kind=summary with a completed durable checkpoint")
-	}
-	var workflowRef string
-	var attemptEpoch int64
-	if err := tx.QueryRowContext(ctx, `SELECT workflow_type FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&workflowRef); err != nil {
-		return nil, workflowProjectionError(err, "cannot read workflow identity for context boundary")
-	}
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt_epoch),1) FROM durable_operations WHERE work_id=?`, request.WorkID).Scan(&attemptEpoch); err != nil {
-		return nil, workflowProjectionError(err, "cannot read workflow attempt epoch")
-	}
-	checkpointID := workflowFieldStringDefault(fields, "checkpoint_id", "")
-	if checkpointID == "" {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "summary boundary requires checkpoint_id", false, "reference the latest durable context checkpoint")
-	}
-	return []Event{workflowTypedEvent(eventID, WorkflowContextBoundaryCrossed, request.WorkID, actor, request.Now, expected, map[string]any{
-		"boundary_id": request.OperationID + ":context-boundary", "boundary_sequence": workflowFieldInt(fields, "boundary_sequence", 0), "boundary_kind": "summary", "checkpoint_id": checkpointID, "checkpoint_sequence": workflowFieldInt(fields, "checkpoint_sequence", 0), "summary": workflowFieldStringDefault(fields, "summary", ""), "workflow_ref": workflowRef, "attempt_epoch": attemptEpoch, "actor_ref": actor, "request_id": request.RequestID,
-	})}, nil
-}
-
 func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
 	if err := ensureInitialWorkflowContractApproval(ctx, tx, request.WorkID, fields); err != nil {
 		return nil, err
@@ -123,7 +76,7 @@ func workflowContractContent(ctx context.Context, tx *sql.Tx, planType WorkflowS
 			return nil, newFailure(KindInvariantViolation, "workflow_action", "required route convention is not declared by the contract", false, "declare every required route convention")
 		}
 	}
-	contractVersion := workflowFieldInt(fields, "contract_version", 1)
+	contractVersion := workflowContractVersionField(fields, 1)
 	premise, _ := workflowFieldString(fields, "premise")
 	routes := workflowFieldStrings(fields, "route_conventions")
 	if routes == nil {
@@ -188,7 +141,7 @@ func workflowReviseCandidatesEvents(request WorkflowActionExecutionRequest, acto
 	if len(added) == 0 && len(removed) == 0 {
 		return nil, newFailure(KindInvalidPayload, "workflow_action", "candidate revision requires an addition or removal", false, "supply disjoint candidate IDs")
 	}
-	return []Event{workflowTypedEvent(eventID, WorkflowCandidateSetRevised, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": workflowFieldInt(fields, "contract_version", 1), "candidate_kind": workflowFieldStringDefault(fields, "candidate_kind", "work_item"), "candidate_ref": workflowFieldStringDefault(fields, "candidate_ref", request.WorkID), "added": added, "removed": removed})}, nil
+	return []Event{workflowTypedEvent(eventID, WorkflowCandidateSetRevised, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": workflowContractVersionField(fields, 1), "candidate_kind": workflowFieldStringDefault(fields, "candidate_kind", "work_item"), "candidate_ref": workflowFieldStringDefault(fields, "candidate_ref", request.WorkID), "added": added, "removed": removed})}, nil
 }
 
 // workflowRecordAlignmentEvents builds the typed CD-0156 alignment event. The
@@ -326,7 +279,7 @@ func workflowConfirmPremiseEvents(ctx context.Context, tx *sql.Tx, planType Work
 }
 
 func workflowConfirmationAdmissionTx(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, workID, actor string, fields map[string]json.RawMessage) (int64, error) {
-	contractVersion := workflowFieldInt(fields, "contract_version", 0)
+	contractVersion := workflowContractVersionField(fields, 0)
 	activeVersion, err := activeWorkflowContractVersion(ctx, tx, workID, "workflow_action")
 	if err != nil {
 		if err == sql.ErrNoRows {

@@ -49,8 +49,8 @@ func assertPublishedExecutionAbsenceReaders(t *testing.T, s *Store, home Knowled
 	for name, read := range map[string]func() error{
 		"actionable claim": func() error { return s.RequireActionableWork(ctx, "work-published", "worktree_claim") },
 		"pin":              func() error { _, err := ReadWorkPin(ctx, s, "work-published"); return err },
-		"continuity": func() error {
-			_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: "work-published"})
+		"session resume": func() error {
+			_, err := ReadSessionResume(ctx, s, "work-published", "")
 			return err
 		},
 		"retirement": func() error {

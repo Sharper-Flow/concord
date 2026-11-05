@@ -96,11 +96,7 @@ func TestCheckpointKindMigrationPreservesRowsAndConstraints(t *testing.T) {
 	if got := retirementUpgradeRows(t, db, `SELECT * FROM workflow_checkpoints ORDER BY checkpoint_id`); len(got) != 0 {
 		t.Fatalf("full upgrade retained step checkpoints: %#v", got)
 	}
-	for query, want := range map[string][][]any{retainedContextCheckpoints: contexts, retainedContextBoundaries: boundaries} {
-		if got := retirementUpgradeRows(t, db, query); !reflect.DeepEqual(got, want) {
-			t.Fatalf("full upgrade changed retained context: got %#v want %#v", got, want)
-		}
-	}
+	assertContextRetired(t, db)
 }
 
 func TestCheckpointKindMigrationFailureAndSnapshotRecovery(t *testing.T) {
@@ -133,11 +129,7 @@ func TestCheckpointKindMigrationFailureAndSnapshotRecovery(t *testing.T) {
 	if err := Migrate(t.Context(), db); err != nil {
 		t.Fatalf("retry: %v", err)
 	}
-	for query, want := range map[string][][]any{retainedContextCheckpoints: contexts, retainedContextBoundaries: boundaryRows} {
-		if got := retirementUpgradeRows(t, db, query); !reflect.DeepEqual(got, want) {
-			t.Fatalf("upgrade changed retained context: got %#v want %#v", got, want)
-		}
-	}
+	assertContextRetired(t, db)
 	if _, err := VerifyBackup(t.Context(), snapshot); err != nil {
 		t.Fatalf("verify retained snapshot: %v", err)
 	}
@@ -168,17 +160,9 @@ func TestCheckpointKindMigrationFailureAndSnapshotRecovery(t *testing.T) {
 	if got := retirementUpgradeRows(t, recovered, `SELECT * FROM workflow_checkpoints ORDER BY checkpoint_id`); len(got) != 0 {
 		t.Fatalf("restored upgrade retained retired step checkpoints: %#v", got)
 	}
-	for query, want := range map[string][][]any{retainedContextCheckpoints: contexts, retainedContextBoundaries: boundaryRows} {
-		if got := retirementUpgradeRows(t, recovered, query); !reflect.DeepEqual(got, want) {
-			t.Fatalf("restored upgrade changed retained context: got %#v want %#v", got, want)
-		}
-	}
+	assertContextRetired(t, recovered)
 	if err := Migrate(t.Context(), recovered); err != nil {
 		t.Fatalf("upgrade restored store: %v", err)
 	}
-	for query, want := range map[string][][]any{retainedContextCheckpoints: contexts, retainedContextBoundaries: boundaryRows} {
-		if got := retirementUpgradeRows(t, recovered, query); !reflect.DeepEqual(got, want) {
-			t.Fatalf("recovered upgrade changed retained context: got %#v want %#v", got, want)
-		}
-	}
+	assertContextRetired(t, recovered)
 }

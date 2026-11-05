@@ -14,6 +14,7 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 	f := newSpineExecutionFixture(t)
 	f.implement(t)
 	before := f.read(t)
+	contractBefore := contractRows(t, f.s, f.work)
 	delivery := map[string]any{"delivery_artifact": "artifact:spine-corrected-value", "delivery_state": "asserted"}
 	effects := premiseConsentSnapshot(t, f.s)
 	actor := store.WorkflowActor{PrincipalRef: f.env.PrincipalRef, ClientRef: f.env.ClientRef, AgentRef: f.env.AgentRef, SessionRef: f.env.SessionRef, ActorClass: store.ActorAgent}
@@ -27,7 +28,7 @@ func TestSpineCurrentReviewCorrectionAdmission(t *testing.T) {
 	refused := f.action(t, "record_delivery", delivery)
 	after := f.read(t)
 	if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != mapFailureKind(failure.Kind) || refused.Error.Message != failure.Detail || refused.Error.EffectState != agentcontract.EffectNone ||
-		!reflect.DeepEqual(effects, premiseConsentSnapshot(t, f.s)) || !reflect.DeepEqual(before.Pinned.Contract, after.Pinned.Contract) || before.Pinned.Pin.Version != after.Pinned.Pin.Version {
+		!reflect.DeepEqual(effects, premiseConsentSnapshot(t, f.s)) || !reflect.DeepEqual(before.Pinned.Contract, after.Pinned.Contract) || !reflect.DeepEqual(contractBefore, contractRows(t, f.s, f.work)) || before.Pinned.Pin.Version != after.Pinned.Pin.Version {
 		t.Fatalf("delivery refusal changed authority or disagreed with preflight: preflight=%v mutation=%+v", err, refused.Error)
 	}
 	f.review(t, "fixed")

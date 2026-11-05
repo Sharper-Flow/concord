@@ -57,15 +57,8 @@ registry delta. Contract payloads carry no separate law-change reason or removal
 list. Independent review and the committed law folder prove publication and
 the declared law delta under CD-0222 D1, not a completion enactment gate.
 
-CD-0016 governs V22 context-continuity projections and the two closed workflow
-events `workflow.context_checkpointed` and `workflow.context_boundary_crossed`.
-`checkpoint_context` and `cross_context_boundary` remain actions on the
-existing workflow-action route. The canonical `C19.Continuity` read has a pinned projection derived from
-durable workflow state and never from advisory summary text.
-The two actions belong to every built-in definition and step through one owning
-definition builder, with strict payload fields and no approval. The explicit
-continuity read does not automatically inject pinned context into current
-OpenCode calls; typed-agent injection on restart belongs to issue #120.
+CD-0016 requires explicit current-state reads and forbids automatic per-turn
+context injection or authority-bearing summaries.
 
 [CD-0243 D7](../decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
@@ -564,7 +557,7 @@ step in its plan is completed.
 ### 12.1 Action-to-event mapping
 
 The current action catalog and plan admission govern availability. Except for
-plan writes, continuity actions, starts and checkpoints, semantic events are
+plan writes, starts and execution checkpoints, semantic events are
 followed by `workflow.action_completed`; this records the action, not completion
 of a plan step. `record_review` and `complete_step` use the same step-attempt writer.
 
@@ -572,7 +565,7 @@ of a plan step. `record_review` and `complete_step` use the same step-attempt wr
 |---|---|
 | `record_intake`, `record_clarify`, `pick_type`, `insert_step`, `complete_step` | `workflow.intake_recorded`, `workflow.clarify_recorded`, `workflow.type_picked`, `workflow.step_inserted`, `workflow.step_completed`, respectively |
 | `record_plan`, `record_removal_scope` | `workflow.plan_recorded`, `workflow.removal_scope_recorded`, respectively, plus `workflow.action_completed` |
-| `checkpoint_context`, `cross_context_boundary`, `record_work_context` | `workflow.context_checkpointed`, `workflow.context_boundary_crossed`, `workflow.work_context_recorded`, respectively |
+| `record_work_context` | `workflow.work_context_recorded` |
 | `approve_contract`, `revise_candidates`, `record_diagnosis` | `workflow.contract_approved`, `workflow.candidate_set_revised`, `workflow.diagnosis_recorded`, respectively, plus `workflow.action_completed` |
 | `record_review` | `workflow.step_completed` with the reviewed attempt |
 | `bind_evidence`, `record_report` | `workflow.evidence_bound` plus `workflow.action_completed` |

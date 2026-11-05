@@ -1,7 +1,7 @@
 package store
 
 // Workflow-family rows for the structural output bound ledger: the
-// workflow_, continuity_, and work_context_ definitions plus work_pin,
+// workflow_, pending_project_handoff, and work_context_ definitions plus work_pin,
 // work_pin_evidence and work_liveness. Every finite row cites a real full-string producer
 // bound traced to its writer: a store guard constant, a workflowString or
 // workflowList call argument resolved through its fold, an inline
@@ -18,7 +18,6 @@ package store
 // as its own source.
 
 import (
-	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/token"
@@ -26,11 +25,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 	"unicode/utf8"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
-	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 func init() {
@@ -45,19 +42,11 @@ func init() {
 	// helper verifies each cited writer carries exactly one Format layout
 	// and derives the maximum render width from its tokens and the stdlib
 	// time representation, without assuming a four-digit year or bounded zone.
-	contractApprovedAt := pkTimeLayoutWidthBound("internal/store/workflow.go", "persistWorkflowContractApprovalTx", "time.RFC3339Nano")
-	boundaryRecordedAt := pkTimeLayoutWidthBound("internal/store/workflow.go", "foldWorkflowContextBoundaryCrossed", "time.RFC3339Nano")
 	handoffRecordedAt := pkTimeLayoutWidthBound("internal/store/project_handoffs.go", "recordProjectHandoffCore", "time.RFC3339Nano")
 	// advanceWorkEffectSeqTx retains the lexical maximum in
 	// work_items.last_progress_at. deriveWorkLivenessQ reads that column;
 	// workLivenessFromCounts copies it to LastProgress without reformatting.
 	lastProgressAt := pkTimeLayoutWidthBound("internal/store/work_effect_seq.go", "advanceWorkEffectSeqTx", "time.RFC3339Nano")
-
-	// Step identities are admitted through an anchored
-	// regexp.MustCompile variable at definition registration; the pattern
-	// helper compiles the live pattern and derives its largest accepted
-	// character count.
-	stepIDPattern := goPatternBound("internal/store/workflow_action_policy.go", "workflowIDPattern")
 
 	// Raw event ids: Event.validate admits any caller-supplied non-empty id
 	// (internal/store/events.go:164-180), so the digest-suffixed ids the
@@ -92,9 +81,6 @@ func init() {
 	// (len(value) >= 1 && len(value) <= 2048); every other site uses the
 	// refusal form (expression > N beside a lower guard the helper never
 	// selects).
-	continuityPageLimit := goInlineBound("internal/store/workflow_continuity.go", "ReadWorkflowContinuity", "req.Limit", boundItems)
-	productIdentityBound := goInlineBound("internal/store/workflow_continuity.go", "continuityReadIdentityTx", "len(out.ProductIdentity)", boundItems)
-	stepActionCount := workPinIntentItemsBound()
 	commitOIDBound := goInlineBound("internal/store/work_context.go", "workContextCommitOID", "len(oid)", boundBytes)
 	drivingSessionCount := goInlineBound("internal/store/workpin.go", "scanWorkPinDrivingSessions", "len(sessions)", boundItems)
 
@@ -105,27 +91,8 @@ func init() {
 	// resolved through the fold's own body, the inline comparison the
 	// validation helper carries, or the deterministic digest identity the
 	// writer derives.
-	contractLegislativeSubjects := goCallBound("internal/store/workflow.go", "validLegislativeSubjects", "workflowList", "", 1, boundItems)
-	contractRouteConventions := pkGuardArgBound("internal/store/workflow.go", "normalizeWorkflowContractApproval", "workflowList", "p.RouteConventions", 1, boundItems)
 	contractSpecMandate := pkGuardArgBound("internal/store/workflow.go", "normalizeWorkflowContractApproval", "workflowList", "p.SpecMandate", 1, boundItems)
-	contractLawModifies := pkGuardArgBound("internal/store/workflow.go", "normalizeWorkflowContractApproval", "workflowList", "p.LawModifies", 1, boundItems)
-	actorRefDerived := workflowDigestRefCharactersBound("internal/store/workflow.go", "DeriveWorkflowActorRef")
 	sessionRefGuard := pkGuardArgBound("internal/store/workflow.go", "persistWorkflowActorTuple", "workflowString", "p.SessionRef", 1, boundBytes)
-	checkpointActiveUnit := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextCheckpointed", "workflowString", "p.ActiveUnit", 1, boundBytes)
-	checkpointHypothesis := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextCheckpointed", "workflowString", "p.Hypothesis", 1, boundBytes)
-	checkpointDiagnosis := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextCheckpointed", "workflowString", "p.Diagnosis", 1, boundBytes)
-	checkpointStrategy := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextCheckpointed", "workflowString", "p.Strategy", 1, boundBytes)
-	checkpointTouchedRefs := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextCheckpointed", "workflowList", "p.TouchedRefs", 1, boundItems)
-	checkpointEvidenceRefs := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextCheckpointed", "workflowList", "p.EvidenceRefs", 1, boundItems)
-	checkpointPendingQuestions := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextCheckpointed", "workflowList", "p.PendingQuestions", 1, boundItems)
-	checkpointPendingDecisions := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextCheckpointed", "workflowList", "p.PendingDecisions", 1, boundItems)
-	boundarySummary := pkGuardArgBound("internal/store/workflow.go", "foldWorkflowContextBoundaryCrossed", "workflowString", "p.Summary", 1, boundBytes)
-	designApproachGuard := goInlineBound("internal/store/workflow_design.go", "validateWorkflowDesignContent", "len(p.Approach)", boundBytes)
-	designDecisionsCount := goInlineBound("internal/store/workflow_design.go", "validateWorkflowDesignContent", "len(p.Decisions)", boundItems)
-	designTouchedRefsGuard := goCallBound("internal/store/workflow_design.go", "validateWorkflowDesignContent", "workflowList", "", 1, boundItems)
-	proposalProblemGuard := pkGuardArgBound("internal/store/workflow.go", "validateWorkflowProposalContent", "validWorkflowProseItem", "content.Problem", 1, boundCharacters)
-	proposalConstraintsCount := goInlineBound("internal/store/workflow.go", "validateWorkflowProposalContent", "len(content.Constraints)", boundItems)
-	proposalUserOutcomesCount := goInlineBound("internal/store/workflow.go", "validateWorkflowProposalContent", "len(content.UserOutcomes)", boundItems)
 	linearIssueKeyGuard := goInlineBound("internal/store/linear_issue_link.go", "validateLinearIssueLink", "len(link.HumanKey)", boundBytes)
 
 	declaredPayloadFields := requiredIntentFieldsBound()
@@ -136,13 +103,6 @@ func init() {
 	// The committed law read admits each law title at maxManifestTitle code points.
 	manifestRecordTitle := goConstantBound("internal/store/knowledge_record.go", "maxManifestTitle", boundCharacters)
 
-	// Contract premise: the fold's single premise guard is
-	// workflowString(p.Premise, WorkflowPremiseMaxLength) at
-	// workflow.go:984; the constant lives in workflow_registry.go beside the
-	// round-trip rule, outside the fold's const scope, so the row cites the
-	// live constant and names the guard site.
-	workflowPremiseMax := goConstantBound("internal/store/workflow_action_policy.go", "WorkflowPremiseMaxLength", boundBytes)
-
 	// Law context Domain identity: the committed law read validates each
 	// registry Domain record through the retained chain
 	// (validateKnowledgeDomainRegistry -> validateKnowledgeDomainRecord in
@@ -151,53 +111,25 @@ func init() {
 	domainNameGuard := goInlineBound("internal/store/knowledge_record.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Name)", boundCharacters)
 	domainPurposeGuard := goInlineBound("internal/store/knowledge_record.go", "validateKnowledgeDomainRecord", "utf8.RuneCountInString(domain.Purpose)", boundCharacters)
 
-	// Continuity boundary: the summary column carries the fold's own CHECK,
-	// and recorded_at rides the timestamp format.
-	registerOutputBound("/$defs/continuity_boundary/properties/recorded_at/maxLength", boundaryRecordedAt)
-	registerOutputBound("/$defs/continuity_boundary/properties/summary/maxLength", boundarySummary)
-
-	// Context checkpoint: the read scans the latest projection row, whose
-	// columns carry the fold admission bounds as CHECKs.
-	registerOutputBound("/$defs/continuity_checkpoint/properties/active_unit/maxLength", checkpointActiveUnit)
-	registerOutputBound("/$defs/continuity_checkpoint/properties/diagnosis/maxLength", checkpointDiagnosis)
-	registerOutputBound("/$defs/continuity_checkpoint/properties/evidence_refs/maxItems", checkpointEvidenceRefs)
-	registerOutputBound("/$defs/continuity_checkpoint/properties/hypothesis/maxLength", checkpointHypothesis)
-	registerOutputBound("/$defs/continuity_checkpoint/properties/pending_decisions/maxItems", checkpointPendingDecisions)
-	registerOutputBound("/$defs/continuity_checkpoint/properties/pending_questions/maxItems", checkpointPendingQuestions)
-	registerOutputBound("/$defs/continuity_checkpoint/properties/strategy/maxLength", checkpointStrategy)
-	registerOutputBound("/$defs/continuity_checkpoint/properties/touched_refs/maxItems", checkpointTouchedRefs)
-
 	// Pending project handoff: the snapshot rides the fold-admitted record
 	// whose validator holds the named constants.
-	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/artifact_refs/items/maxLength", handoffEntryMax)
-	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/artifact_refs/maxItems", handoffListMax)
-	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/blockers/items/maxLength", handoffEntryMax)
-	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/blockers/maxItems", handoffListMax)
-	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/bounded_job/maxLength", handoffJobMax)
-	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/changes/items/maxLength", handoffEntryMax)
-	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/changes/maxItems", handoffListMax)
-	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/consumed_at/maxLength", handoffRecordedAt)
-	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/consumed_by_session_ref/maxLength",
+	registerOutputBound("/$defs/pending_project_handoff/properties/artifact_refs/items/maxLength", handoffEntryMax)
+	registerOutputBound("/$defs/pending_project_handoff/properties/artifact_refs/maxItems", handoffListMax)
+	registerOutputBound("/$defs/pending_project_handoff/properties/blockers/items/maxLength", handoffEntryMax)
+	registerOutputBound("/$defs/pending_project_handoff/properties/blockers/maxItems", handoffListMax)
+	registerOutputBound("/$defs/pending_project_handoff/properties/bounded_job/maxLength", handoffJobMax)
+	registerOutputBound("/$defs/pending_project_handoff/properties/changes/items/maxLength", handoffEntryMax)
+	registerOutputBound("/$defs/pending_project_handoff/properties/changes/maxItems", handoffListMax)
+	registerOutputBound("/$defs/pending_project_handoff/properties/consumed_at/maxLength", handoffRecordedAt)
+	registerOutputBound("/$defs/pending_project_handoff/properties/consumed_by_session_ref/maxLength",
 		sessionRefGuard) // the value is grant.SessionRef of the consuming session
-	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/handoff_id/maxLength", handoffIDMax)
-	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/next_action/maxLength", handoffActionMax)
-	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/recorded_at/maxLength", handoffRecordedAt)
-	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/source_session_ref/maxLength",
+	registerOutputBound("/$defs/pending_project_handoff/properties/handoff_id/maxLength", handoffIDMax)
+	registerOutputBound("/$defs/pending_project_handoff/properties/next_action/maxLength", handoffActionMax)
+	registerOutputBound("/$defs/pending_project_handoff/properties/recorded_at/maxLength", handoffRecordedAt)
+	registerOutputBound("/$defs/pending_project_handoff/properties/source_session_ref/maxLength",
 		sessionRefGuard) // the value is grant.SessionRef from the workflow_actors row
-	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/verification/items/maxLength", handoffEntryMax)
-	registerOutputBound("/$defs/continuity_pending_project_handoff/properties/verification/maxItems", handoffListMax)
-
-	// Continuity projection page and pinned step identity: pattern-admitted
-	// step ids.
-	registerOutputBound("/$defs/continuity_projection_page/properties/workflow_step/maxLength", stepIDPattern)
-
-	// Continuity snapshot windows and pinned fields.
-	registerOutputBound("/$defs/continuity_snapshot/properties/boundaries/properties/items/maxItems", continuityPageLimit)
-	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/product_identity/maxItems", productIdentityBound)
-	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/spec_mandate/maxItems",
-		contractSpecMandate)
-	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/step_actions/maxItems", stepActionCount)
-	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/workflow_step/maxLength", stepIDPattern)
+	registerOutputBound("/$defs/pending_project_handoff/properties/verification/items/maxLength", handoffEntryMax)
+	registerOutputBound("/$defs/pending_project_handoff/properties/verification/maxItems", handoffListMax)
 
 	// Work context domain groups: one group per distinct Domain across the
 	// readings and the finding slots; the partition members ride the view
@@ -255,22 +187,6 @@ func init() {
 	registerOutputBound("/$defs/work_pin/properties/next_valid_intents/maxItems",
 		workPinIntentItemsBound())
 
-	// Workflow contract: the projection columns carry the admission CHECKs.
-	registerOutputBound("/$defs/workflow_contract/properties/approved_at/maxLength", contractApprovedAt)
-	registerOutputBound("/$defs/workflow_contract/properties/approved_by/maxLength",
-		actorRefDerived) // event.Actor is the workflow_actors row the fold requires
-	// The decision fact enters through approval and ordinary contract updates,
-	// which a consequence_v1 pin requires and a legacy pin refuses;
-	// the fold re-admits the same canonical set
-	// (validateWorkflowDecisionDomains) for replayed events.
-	registerOutputBound("/$defs/workflow_contract/properties/decision_domains/maxItems", maxBound(
-		inputBound("/$defs/work_transition_action_variant_approve_contract/properties/fields/properties/decision_domains/maxItems"),
-		inputBound("/$defs/workflow_contract_update/properties/decision_domains/maxItems")))
-	registerOutputBound("/$defs/workflow_contract/properties/law_modifies/maxItems", contractLawModifies)
-	registerOutputBound("/$defs/workflow_contract/properties/legislative_subjects/maxItems", contractLegislativeSubjects)
-	registerOutputBound("/$defs/workflow_contract/properties/route_conventions/maxItems", contractRouteConventions)
-	registerOutputBound("/$defs/workflow_contract/properties/spec_mandate/maxItems", contractSpecMandate)
-
 	registerOutputBound("/$defs/workflow_plan_attempt/properties/note/maxLength",
 		goInlineBound("internal/store/workflow_step_plan.go", "validateStepPlanAttemptsShape", "len(attempt.Note)", boundBytes))
 
@@ -284,24 +200,6 @@ func init() {
 		goInlineBound("internal/store/workflow_step_plan.go", "validateStepPlanShape", "len(plan.Steps)", boundItems)) // one id per stored step at most
 	registerOutputBound("/$defs/resume_read_document/properties/opening_steps/maxItems",
 		workflowReturnLiteralsMaxItemsBound("internal/store/workflow_resume_read.go", "workflowOpeningSteps"))
-
-	// Design decision: the admitted record_design shape, re-admitted by the
-	// fold with the same numbers (internal/store/workflow_design.go:23-28).
-	registerOutputBound("/$defs/workflow_design_decision/properties/choice/maxLength",
-		inputBound("/$defs/workflow_design_decision/properties/choice/maxLength"))
-	registerOutputBound("/$defs/workflow_design_decision/properties/question/maxLength",
-		inputBound("/$defs/workflow_design_decision/properties/question/maxLength"))
-	registerOutputBound("/$defs/workflow_design_decision/properties/rationale/maxLength",
-		inputBound("/$defs/workflow_design_decision/properties/rationale/maxLength"))
-	registerOutputBound("/$defs/workflow_design_decision/properties/rejected/items/maxLength",
-		inputBound("/$defs/workflow_design_decision/properties/rejected/items/maxLength"))
-	registerOutputBound("/$defs/workflow_design_decision/properties/rejected/maxItems",
-		inputBound("/$defs/workflow_design_decision/properties/rejected/maxItems"))
-
-	// Design record: the projection columns carry the admission CHECKs.
-	registerOutputBound("/$defs/workflow_design_record/properties/approach/maxLength", designApproachGuard)
-	registerOutputBound("/$defs/workflow_design_record/properties/decisions/maxItems", designDecisionsCount)
-	registerOutputBound("/$defs/workflow_design_record/properties/touched_refs/maxItems", designTouchedRefsGuard)
 
 	// Law context.
 	registerRetainedTwinBound("/$defs/workflow_law_context/properties/domains/maxItems",
@@ -329,20 +227,6 @@ func init() {
 		workflowRoleMarkItemsBound("internal/store/workflow_law_revision.go", "readWorkflowLawContext", "markRole"))
 	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/title/maxLength",
 		manifestRecordTitle) // the law context copies the committed law title verbatim
-
-	// Contract premise: the fold's admission guard is
-	// workflowString(p.Premise, WorkflowPremiseMaxLength); the cited
-	// constant is that guard's capacity, live-read from its declaration.
-	registerOutputBound("/$defs/workflow_premise/maxLength", workflowPremiseMax)
-
-	// Retained proposal rows are checked by the proposal fold's prose guard.
-	registerOutputBound("/$defs/workflow_proposal_record/properties/constraints/items/maxLength",
-		proposalListItemBound("Constraints"))
-	registerOutputBound("/$defs/workflow_proposal_record/properties/constraints/maxItems", proposalConstraintsCount)
-	registerOutputBound("/$defs/workflow_proposal_record/properties/problem/maxLength", proposalProblemGuard)
-	registerOutputBound("/$defs/workflow_proposal_record/properties/user_outcomes/items/maxLength",
-		proposalListItemBound("UserOutcomes"))
-	registerOutputBound("/$defs/workflow_proposal_record/properties/user_outcomes/maxItems", proposalUserOutcomesCount)
 
 }
 
@@ -517,102 +401,6 @@ func TestOutputBoundWorkPinIntentSource(t *testing.T) {
 	t.Fatal("work pin intent source is not registered")
 }
 
-// TestOutputBoundContinuityReachableFrontier drives a live workflow through
-// an inserted-step type switch and proves the reachable continuity snapshot's
-// step_actions stays within its schema maxItems.
-func TestOutputBoundContinuityReachableFrontier(t *testing.T) {
-	ctx := t.Context()
-	s := openTemp(t)
-	defer s.Close()
-	seedStepWork(t, s, "work")
-	if err := s.Transact(ctx, func(tx *Transaction) error {
-		scope := newWriteScope(tx.tx)
-		if err := scope.enter(ctx); err != nil {
-			return err
-		}
-		if _, err := tx.tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,instance_state) VALUES('work','intake')`); err != nil {
-			return err
-		}
-		return scope.close(ctx)
-	}); err != nil {
-		t.Fatal(err)
-	}
-	var version int64
-	if err := s.db.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id='work'`).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	seq := 0
-	apply := func(action string, payload any) {
-		t.Helper()
-		raw, err := json.Marshal(payload)
-		if err != nil {
-			t.Fatal(err)
-		}
-		seq++
-		request := WorkflowActionExecutionRequest{WorkID: "work", ExpectedVersion: version, ActionID: action, Payload: raw, Actor: stepFixtureActor(), OperationID: fmt.Sprintf("frontier-op-%d", seq), IdempotencyIdentity: fmt.Sprintf("frontier-key-%d", seq), PrincipalRef: "principal-1", RequestID: fmt.Sprintf("frontier-request-%d", seq), AcceptedInputsDigest: testDigest("inputs"), ContractDigest: testManifestDigest, Now: time.Unix(100, 0).UTC()}
-		var result WorkflowActionExecutionResult
-		err = s.Transact(ctx, func(tx *Transaction) error {
-			var err error
-			result, err = ApplyWorkflowActionTx(ctx, tx, request)
-			return err
-		})
-		if err != nil {
-			t.Fatalf("%s: %v", action, err)
-		}
-		version = result.ResultingVersion
-	}
-	apply("record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false})
-	apply("pick_type", map[string]any{"type": "change", "reason": "initial pick"})
-	change := stepPlanTemplateOrFatal(t, WorkflowStepPlanChange)
-	research := stepPlanTemplateOrFatal(t, WorkflowStepPlanResearch)
-	for _, step := range research.Steps {
-		apply("insert_step", map[string]any{"id": step.ID, "after": []string{change.Steps[0].ID}, "reason": "additional work"})
-	}
-	apply("record_plan", json.RawMessage(testWorkflowPlanDocument))
-	apply("complete_step", map[string]any{"step_id": change.Steps[0].ID, "note": "done"})
-	apply("pick_type", map[string]any{"type": "research", "reason": "switch type"})
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	var snapshot ContinuitySnapshot
-	if err := readContinuityInstanceTx(ctx, tx, "work", &snapshot); err != nil {
-		t.Fatal(err)
-	}
-	doc, err := newLedgerRuntime(ledgerRepoRoot(t)).loadDoc(payloadSchemaFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	value, ok := resolveSchemaPointer(doc, "/$defs/continuity_snapshot/properties/pinned/properties/step_actions/maxItems")
-	if !ok {
-		t.Fatal("continuity step_actions bound is missing")
-	}
-	limit, err := value.(json.Number).Int64()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if int64(len(snapshot.StepActions)) > limit {
-		node, ok := resolveSchemaPointer(doc, "/$defs/continuity_snapshot/properties/pinned/properties/step_actions")
-		if !ok {
-			t.Fatal("continuity step_actions schema is missing")
-		}
-		raw, err := json.Marshal(snapshot.StepActions)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var actions any
-		if err := json.Unmarshal(raw, &actions); err != nil {
-			t.Fatal(err)
-		}
-		validation := payloadschema.ValidateValue(actions, node.(map[string]any), doc, "$.pinned.step_actions")
-		t.Fatalf("reachable continuity step_actions contains %d actions, exceeding schema maxItems %d; payload validation: %v; actions: %v", len(snapshot.StepActions), limit, validation, snapshot.StepActions)
-	}
-}
-
-// TestOutputBoundIntentCountDirectWriters proves workPinIntentItemsBound
-// counts the direct intent writer in internal/agent/mutations.go at its
-// literal width and refuses a non-literal producer.
 func TestOutputBoundIntentCountDirectWriters(t *testing.T) {
 	root := ledgerRepoRoot(t)
 	const file = "internal/agent/mutations.go"

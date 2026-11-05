@@ -129,23 +129,22 @@ func TestWorkContextCloseGit(t *testing.T) {
 	if lifecycle != "completed" || state != "completed" || workflowType != "change" {
 		t.Fatalf("close state lifecycle=%s instance=%s type=%s", lifecycle, state, workflowType)
 	}
-	continuity, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	view, err := readWorkContextView(ctx, s.DatabaseForTesting(), workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	view := continuity.WorkContext
 	if view != nil && (len(view.RequiredReading) != 0 || len(view.Findings) != 0) {
 		t.Fatalf("terminal execution context was retained: %+v", view)
 	}
 	var promoted int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT
- (SELECT count(*) FROM workflow_context_checkpoints WHERE work_id=? AND (instr(active_unit,?)>0 OR instr(hypothesis,?)>0 OR instr(diagnosis,?)>0 OR instr(strategy,?)>0))+
- (SELECT count(*) FROM workflow_context_boundaries WHERE work_id=? AND instr(summary,?)>0)+
- (SELECT count(*) FROM workflow_contracts WHERE work_id=? AND instr(premise,?)>0)`, workID, marker, marker, marker, marker, workID, marker, workID, marker).Scan(&promoted); err != nil {
+  (SELECT count(*) FROM workflow_contracts WHERE work_id=? AND instr(premise,?)>0)+
+  (SELECT count(*) FROM workflow_delivery_state WHERE work_id=? AND instr(payload,?)>0)+
+  (SELECT count(*) FROM durable_operations WHERE work_id=? AND instr(result_payload,?)>0)`, workID, marker, workID, marker, workID, marker).Scan(&promoted); err != nil {
 		t.Fatal(err)
 	}
 	if promoted != 0 {
-		t.Errorf("close promoted context into %d checkpoint, boundary, or contract rows", promoted)
+		t.Errorf("close promoted context into %d contract, delivery, or operation rows", promoted)
 	}
 	// The retired law_subjects SQL index is gone (schema 174): folder
 	// membership supplies acceptance, and no database row carries law. The

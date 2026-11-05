@@ -11,7 +11,7 @@ import (
 func TestWorkflowStepCompletionFrontier(t *testing.T) {
 	s := openTemp(t)
 	const work = "step-completions"
-	actor, version := continuityTestWorkflow(t, s, work)
+	actor, version := seedTestWorkflow(t, s, work)
 	version = issue31WorkflowActionWithPayload(t, s, work, version, "record_plan", "frontier-plan", actor, json.RawMessage(testWorkflowPlanDocument))
 	if got := workflowPlanFixtureFrontier(t, s, work); got != "plan" {
 		t.Fatalf("record_plan advanced frontier to %s", got)
@@ -54,7 +54,7 @@ func TestWorkflowStepCompletionFrontier(t *testing.T) {
 func TestWorkflowCompletionBackfillPreservesUnknownKeys(t *testing.T) {
 	base := openTemp(t)
 	const work = "completion-unknown-keys"
-	continuityTestWorkflow(t, base, work)
+	seedTestWorkflow(t, base, work)
 	c := historicalFactCorpus{parents: func(t *testing.T, target *Store, guard string) {
 		copyFixtureDataToPrefix(t, base, target.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts"}, map[string]map[string]string{"workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "definition_ref": "'workflow.implementation'", "definition_digest": "'sha256:" + strings.Repeat("0", 64) + "'", "current_step": "'plan'", "result_disposition": "''", "latest_non_dispatch_start_seq": "0", "unhealthy_verdict_seq": "0"}, "workflow_contracts": {"required_evidence": "'[]'", "definition_version": "26", "definition_ref": "'workflow.implementation'", "definition_digest": "'sha256:" + strings.Repeat("0", 64) + "'", "law_change": "NULL"}}, guard)
 	}}

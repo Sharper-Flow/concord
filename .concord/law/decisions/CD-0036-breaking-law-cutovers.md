@@ -18,7 +18,7 @@
 - **Scope:** Product-law evolution and workflow contracts
 - **Approval:** Operator approval for CD-0036
 - **Related:** CD-0006 D5/D10/R3, CD-0012, CD-0013, CD-0015,
-  CD-0016, CD-0027
+  CD-0016
 
 ## Context
 
@@ -72,10 +72,11 @@ merged change to its owner nor checks publication of declared additions or
 removals. Independent review and the committed law folder prove the delivered
 law delta under CD-0222 D1.
 
-### D6. Typed refusal and continuity
+### D6. Typed refusal and current law context
 
-Continuity resolves current readable law and Domain context by ID. It exposes
-neither stale-law pin refusals nor pinned/current compatible-amendment hashes.
+Item-scoped full work list resolves current readable law and Domain context by
+ID. It exposes neither stale-law pin refusals nor pinned/current
+compatible-amendment hashes.
 An own-home bound law missing from the verified committed snapshot carries
 status `absent`, its law ID, contract roles and obligation IDs, without a title,
 kind, file path or criteria. Reserved additions, including foreign-qualified

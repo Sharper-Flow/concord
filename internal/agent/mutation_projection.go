@@ -238,7 +238,7 @@ func (r runtime) readMutationResult(ctx context.Context, base agentcontract.Enve
 		size, err := readEnvelopeSize(response)
 		return response, size, err
 	}
-	length, err := continuityFragmentLength(doc, offset, func(n int) (bool, error) {
+	length, err := fragmentLength(doc, offset, func(n int) (bool, error) {
 		_, size, err := render(n)
 		return size <= agentcontract.MaxResultEnvelopeBytes, err
 	})

@@ -4,9 +4,9 @@ import json
 import unittest
 from pathlib import Path
 
-from evaluation import (review_in_scope, continuity_in_scope, evaluate,
+from evaluation import (review_in_scope, resume_in_scope, evaluate,
                         served_correction_step, served_input_correction, typed_boundary)
-from scenarios import SCENARIOS, TRANSITION, WORK, TRACE, RUNTIME, REVIEW_FIELDS, continuity_ok, runtime_response
+from scenarios import SCENARIOS, TRANSITION, WORK, TRACE, RUNTIME, REVIEW_FIELDS, resume_ok, runtime_response
 
 
 def review_args():
@@ -22,7 +22,7 @@ def observation(case):
         if tool == TRANSITION:
             args, result = review_args(), case["responses"][tool]
         elif tool == TRACE:
-            args, result = {"request": {"operation": "continuity", "input": {
+            args, result = {"request": {"operation": "resume", "input": {
                 "work_id": WORK, "page": {"cursor": None, "limit": 1},
             }}}, case["responses"][tool]
         else:
@@ -145,22 +145,38 @@ class EvaluationTests(unittest.TestCase):
     def test_backend_success_cannot_admit_invalid_page(self):
         case = SCENARIOS["uncertain-effect"]
         calls, events = observation(case)
-        calls[0]["args"]["request"]["input"]["page"]["limit"] = 50
+        calls[0]["args"]["request"]["input"]["page"]["limit"] = 101
         self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
-    def test_continuity_page_bounds(self):
+    def test_resume_page_bounds(self):
         calls, _ = observation(SCENARIOS["uncertain-effect"])
         args = calls[0]["args"]
-        for limit, valid in ((1, True), (20, True), (0, False), (21, False), (True, False), (1.0, False)):
+        for limit, valid in ((1, True), (100, True), (0, False), (101, False), (True, False), (1.0, False)):
             with self.subTest(limit=limit):
                 args["request"]["input"]["page"]["limit"] = limit
-                self.assertEqual(continuity_in_scope(args), valid)
+                self.assertEqual(resume_in_scope(args), valid)
+        data = args["request"]["input"]
+        for page, valid in (({}, True), ({"cursor": None}, True), ({"cursor": "x" * 4096}, True),
+                            ({"cursor": "x" * 4097}, False), ({"cursor": 1}, False),
+                            ({"extra": 1}, False), (None, False)):
+            with self.subTest(page=repr(page)[:40]):
+                data["page"] = page
+                self.assertEqual(resume_in_scope(args), valid)
+        del data["page"]
+        self.assertTrue(resume_in_scope(args))
+        for limit, valid in ((1, True), (100, True), (0, False), (101, False), (True, False)):
+            data["limit"] = limit
+            self.assertEqual(resume_in_scope(args), valid)
+        del data["limit"]
+        for budget, valid in ((1, True), (0, False), (True, False)):
+            data["requested_budget_seconds"] = budget
+            self.assertEqual(resume_in_scope(args), valid)
 
-    def test_optional_continuity_read_is_admitted_once(self):
+    def test_optional_resume_read_is_admitted_once(self):
         case = copy.deepcopy(SCENARIOS["authority-denial"])
-        case["responses"] = {TRACE: continuity_ok()}
+        case["responses"] = {TRACE: resume_ok()}
         calls, events = observation(case)
-        args = {"request": {"operation": "continuity", "input": {
+        args = {"request": {"operation": "resume", "input": {
             "work_id": WORK, "page": {"cursor": None, "limit": 20}}}}
         value = case["responses"][TRACE]
         read = {"type": "tool_use", "part": {"tool": TRACE, "state": {
@@ -175,7 +191,7 @@ class EvaluationTests(unittest.TestCase):
     def test_narrated_terminal_answer_passes_with_strict_advisory_false(self):
         case = SCENARIOS["native-route-discovery"]
         calls, events = observation(case)
-        events.insert(1, {"type": "text", "part": {"text": "Reading continuity."}})
+        events.insert(1, {"type": "text", "part": {"text": "Reading resume."}})
         events.insert(2, {"type": "text", "part": {"text": "The tool reported the workflow state."}})
         result = evaluate(case, calls, events, 0, {"source": "nonce"})
         self.assertTrue(result["checks"]["final_response"])

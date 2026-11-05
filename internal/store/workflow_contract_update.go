@@ -12,7 +12,7 @@ import (
 // revise_intent accepts. Version identity is separate from the work version.
 func BuiltinWorkflowContractUpdateFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
-		actionIntegerField("contract_version", true),
+		actionContractVersionField(true),
 		actionPremiseField(),
 		actionListField("route_conventions", true, 0, 16),
 		actionLawListField("spec_mandate", true),
@@ -59,7 +59,7 @@ func reviseWorkflowContractTx(ctx context.Context, tx *sql.Tx, event Event, _ *w
 			return err
 		}
 	}
-	if workflowFieldInt(fields, "contract_version", 0) != previous+1 {
+	if workflowContractVersionField(fields, 0) != previous+1 {
 		return newFailure(KindInvalidPayload, "revise_intent", "contract update must name the next retained version", false, "reread the current contract and supply its next version")
 	}
 	fields["consequence_class"] = json.RawMessage(`"internal_sqlite"`)

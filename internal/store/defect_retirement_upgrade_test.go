@@ -121,7 +121,7 @@ func TestDefectRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 			continue
 		}
 		switch table {
-		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions", "workflow_step_completions", "workflow_contract_predicates", "workflow_predicate_verdicts", "workflow_review_state":
+		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions", "workflow_step_completions", "workflow_contract_predicates", "workflow_predicate_verdicts", "workflow_review_state", "workflow_context_checkpoints", "workflow_context_boundaries":
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' AND name=?`, table); len(rows) != 0 {
 				t.Errorf("retired table %s survives: %v", table, rows)
 			}
@@ -386,7 +386,7 @@ func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 			continue
 		}
 		switch table {
-		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions", "workflow_step_completions", "workflow_contract_predicates", "workflow_predicate_verdicts", "workflow_review_state":
+		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions", "workflow_step_completions", "workflow_contract_predicates", "workflow_predicate_verdicts", "workflow_review_state", "workflow_context_checkpoints", "workflow_context_boundaries":
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' AND name=?`, table); len(rows) != 0 {
 				t.Errorf("retired table %s survives: %v", table, rows)
 			}

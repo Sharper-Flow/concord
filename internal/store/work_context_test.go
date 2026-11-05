@@ -675,8 +675,8 @@ func TestReadWorkContextViewAssemblesAnchorRefsAndReports(t *testing.T) {
 	if view.SourceEventFrontier != frontier {
 		t.Fatalf("frontier = %d, want the context-source frontier %d", view.SourceEventFrontier, frontier)
 	}
-	// A session checkpoint is not a context-finding source.
-	recordFixtureCheckpoint(t, fixture, "keep the declared context")
+	// Starting execution is not a context-finding source.
+	startFixtureExecution(t, fixture)
 	reread, err := readWorkContextView(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID)
 	if err != nil {
 		t.Fatal(err)
@@ -717,8 +717,7 @@ func mapValues(values map[string]string) []string {
 }
 
 // A work item with no declaration and no findings reads as the typed absent
-// view; continuity leaves the field off and the pinned payload keeps its
-// legacy bytes.
+// view; the work pin leaves the field off.
 func TestReadWorkContextAbsentForLegacyWork(t *testing.T) {
 	t.Parallel()
 	fixture := seedWorkContextFixture(t, "ctx-legacy-absent")
@@ -730,12 +729,12 @@ func TestReadWorkContextAbsentForLegacyWork(t *testing.T) {
 	if view != nil {
 		t.Fatalf("view = %+v, want the typed absent view", view)
 	}
-	snapshot, err := ReadWorkflowContinuity(context.Background(), fixture.store, ContinuityRequest{Work: fixture.workID})
+	snapshot, err := ReadWorkPin(context.Background(), fixture.store, fixture.workID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if snapshot.WorkContext != nil {
-		t.Fatalf("continuity work_context = %+v, want absent", snapshot.WorkContext)
+		t.Fatalf("work pin work_context = %+v, want absent", snapshot.WorkContext)
 	}
 }
 
@@ -847,42 +846,38 @@ func (f workContextFixture) rawWorkContextEvent(t *testing.T, content map[string
 	return Event{EventID: fmt.Sprintf("raw-work-context-%d", version), Kind: WorkflowWorkContextRecorded, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: ownerRef, OccurredAt: time.Unix(9, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(content)}
 }
 
-// Continuity pins the current view when records exist, and the pinned
-// projection carries it under work_context.
-func TestContinuityPinsWorkContextWhenRecordsExist(t *testing.T) {
+// The work pin carries the current view when records exist.
+func TestWorkPinCarriesWorkContextWhenRecordsExist(t *testing.T) {
 	t.Parallel()
-	fixture := seedWorkContextFixture(t, "ctx-continuity")
+	fixture := seedWorkContextFixture(t, "ctx-work-pin")
 	defer fixture.store.Close()
-	snapshot, err := ReadWorkflowContinuity(context.Background(), fixture.store, ContinuityRequest{Work: fixture.workID})
+	snapshot, err := ReadWorkPin(context.Background(), fixture.store, fixture.workID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if snapshot.WorkContext != nil {
-		t.Fatal("continuity pinned work_context before any record existed")
+		t.Fatal("work pin included work_context before any record existed")
 	}
 	if err := fixture.recordWorkContext(t, map[string]any{
 		"required_reading": []map[string]any{workContextRepoReading(workContextTestChild, "")},
-		"context_findings": []map[string]any{workContextFinding(workContextTestChild, "open_question", "the continuity question", "")},
+		"context_findings": []map[string]any{workContextFinding(workContextTestChild, "open_question", "the work context question", "")},
 	}); err != nil {
 		t.Fatalf("declaration refused: %v", err)
 	}
-	snapshot, err = ReadWorkflowContinuity(context.Background(), fixture.store, ContinuityRequest{Work: fixture.workID})
+	snapshot, err = ReadWorkPin(context.Background(), fixture.store, fixture.workID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if snapshot.WorkContext == nil {
-		t.Fatal("continuity left work_context absent after a declaration")
+		t.Fatal("work pin left work_context absent after a declaration")
 	}
-	if len(snapshot.WorkContext.Findings) != 1 || snapshot.WorkContext.Findings[0].Statement != "the continuity question" {
+	if len(snapshot.WorkContext.Findings) != 1 || snapshot.WorkContext.Findings[0].Statement != "the work context question" {
 		t.Fatalf("pinned work_context findings = %+v", snapshot.WorkContext.Findings)
 	}
 }
 
-// Working memory never auto-promotes: after typed context records and a
-// valid terminal report, ordinary completion and the context-boundary
-// summary write no context content anywhere outside the declaration and
-// worker-report events, and no knowledge-side row appears.
-func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
+// Completion does not promote working context into other records or Git.
+func TestCompletionWritesNoContextContent(t *testing.T) {
 	t.Parallel()
 	fixture := seedWorkContextFixture(t, "ctx-no-promotion")
 	defer fixture.store.Close()
@@ -913,20 +908,6 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	}
 	retained := []WorkContextFinding{{Kind: "observation", Statement: workerMarker, SubjectRef: "internal/store/work_context.go", EvidenceRefs: []string{}, DomainID: workContextTestChild}}
 	seedContextFactTerminal(t, fixture, "worker.completed", map[string]any{"context_findings": retained})
-	// The compaction-draft-adjacent boundary: a durable checkpoint and a
-	// summary boundary carry only their own content, before the terminal
-	// completion freezes the instance.
-	if err := runVerdictActionAs(t, fixture.store, fixture.workID, "checkpoint_context", mustJSONValue(map[string]any{
-		"checkpoint_id": "ctx-session-checkpoint", "active_unit": "the bounded unit", "hypothesis": "the bounded hypothesis", "diagnosis": "the bounded diagnosis", "strategy": "the bounded strategy",
-		"touched_refs": []string{"internal/store/work_context.go"}, "evidence_refs": []string{"evidence:ctx"}, "pending_questions": []string{}, "pending_decisions": []string{},
-	}), 0, fixture.owner); err != nil {
-		t.Fatalf("checkpoint after context records refused: %v", err)
-	}
-	if err := runVerdictActionAs(t, fixture.store, fixture.workID, "cross_context_boundary", mustJSONValue(map[string]any{
-		"boundary_kind": "summary", "mode": "summary", "checkpoint_id": "ctx-session-checkpoint", "summary": "the bounded session summary names no finding",
-	}), 0, fixture.owner); err != nil {
-		t.Fatalf("context boundary refused: %v", err)
-	}
 	delivery := map[string]any{"delivery_artifact": "artifact:context", "delivery_state": "asserted"}
 	moveWorkflowPlanFixtureFrontier(t, fixture.store, fixture.workID, "review")
 	if err := runVerdictActionAs(t, fixture.store, fixture.workID, "record_delivery", mustJSONValue(delivery), 0, fixture.owner); err != nil {
@@ -976,9 +957,9 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 		t.Fatalf("completion retained %d work context rows", retainedRows)
 	}
 	for _, probe := range []string{
-		`SELECT count(*) FROM workflow_context_checkpoints WHERE work_id=? AND (active_unit LIKE '%CON887-%' OR hypothesis LIKE '%CON887-%' OR diagnosis LIKE '%CON887-%' OR strategy LIKE '%CON887-%')`,
-		`SELECT count(*) FROM workflow_context_boundaries WHERE work_id=? AND summary LIKE '%CON887-%'`,
 		`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND premise LIKE '%CON887-%'`,
+		`SELECT count(*) FROM workflow_delivery_state WHERE work_id=? AND payload LIKE '%CON887-%'`,
+		`SELECT count(*) FROM durable_operations WHERE work_id=? AND result_payload LIKE '%CON887-%'`,
 	} {
 		var count int
 		if err := fixture.store.DatabaseForTesting().QueryRow(probe, fixture.workID).Scan(&count); err != nil {

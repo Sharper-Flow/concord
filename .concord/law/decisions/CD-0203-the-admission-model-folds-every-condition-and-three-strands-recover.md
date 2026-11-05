@@ -21,8 +21,7 @@
 - **Date:** 2026-10-04
 - **Scope:** The workflow liveness, well-formed-exit, and conformance checks;
   the contract-step admission those checks proved stranded
-- **Preserves:** CD-0201 D2, the liveness law; CD-0112 D1, continuity actions never move
-  the step; every other route refusal keeps its scope
+- **Preserves:** CD-0201 D2, the liveness law; every route refusal keeps its scope
 - **Related:** CD-0016, CD-0173
 - **Approval:** The operator directed in session chat on 2026-10-02 that the
   checks stay strict, with no named exception, and that the engine routes
@@ -61,8 +60,8 @@ it hosts.
 
 The active contract's coordinator confirmation records directly. Ordinary record replacements follow
 [workflow-engine contract §4.2](../specs/workflow-engine-contract.md#42-ordinary-retry-and-record-correction).
-They supply no independent Review by themselves. Work-pin, continuity, and
-action admission use the same folded prerequisites.
+They supply no independent Review by themselves. Work-pin and action admission
+use the same folded prerequisites.
 
 ### D3. The checks derive every admission condition
 

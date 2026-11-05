@@ -236,9 +236,6 @@ func TestNativeExecutionStartFenceAndAtomicRefusals(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:not-yet","delivery_state":"asserted"}`), 0, first); err == nil {
 		t.Fatal("delivery admitted at implement")
 	}
-	if err := runVerdictActionAs(t, s, workID, "checkpoint_context", json.RawMessage(`{}`), 0, first); err == nil {
-		t.Fatal("invalid context checkpoint admitted")
-	}
 	if err := runVerdictActionAs(t, s, workID, "start_execution", json.RawMessage(`{"unknown_field":true}`), 0, first); err == nil {
 		t.Fatal("start_execution admitted an unknown field")
 	}

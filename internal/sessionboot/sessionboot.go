@@ -127,7 +127,7 @@ func inlinePacket(productID, projectID string, snapshot store.SessionResumeRead)
 		if err != nil {
 			return packet, err
 		}
-		if err := payloadschema.Validate("continuity_pending_project_handoff", raw); err != nil {
+		if err := payloadschema.Validate("pending_project_handoff", raw); err != nil {
 			return packet, err
 		}
 		packet.PendingProjectHandoff = raw

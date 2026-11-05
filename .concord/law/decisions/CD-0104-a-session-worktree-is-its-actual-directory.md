@@ -33,7 +33,7 @@ verification and boot-packet derivation and records nothing.
 
 Each authenticated call resolves its Project from that host-reported directory.
 An explicit work ID selects work context; directory resolution never supplies
-one from worktree ownership. CD-0016 governs explicit continuity reads.
+one from worktree ownership. CD-0016 governs explicit current-state reads.
 
 ### D2. Concord stores what Concord owns
 
@@ -41,9 +41,9 @@ Work items remain Concord facts. Concord retains no worktree entry or claim
 metadata and provides no worktree inspection operation. CD-0088 D1 assigns
 worktree creation, placement, recovery, and removal to host tools; its D2
 requires verified snapshots before table removal. Session preparation,
-continuity, and Review do not acquire a replacement worktree locator service.
+current-state reads, and Review do not acquire a replacement worktree locator service.
 The host-reported directory still resolves ordinary Project authority.
-Concord holds no repository-check execution lease and continuity carries none.
+Concord holds no repository-check execution lease and current reads carry none.
 
 ### D4. Transient exclusion is `resource_busy`
 
@@ -61,7 +61,7 @@ lease or editor exclusion.
 
 - `internal/agent.TestEveryLiteralRefusalPairsAContractualRecovery` checks
   literal refusal sites against the public recovery coupling.
-- Session preparation records no placement; continuity carries no verification
+- Session preparation records no placement; current reads carry no verification
   lease or effective target.
 - `python3 scripts/check-json.py` and `python3 scripts/check-doc-links.py`
   pass on this record.

@@ -33,8 +33,8 @@ func testWorkListRetainedText(t *testing.T, detail string) {
 	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	workID := strings.Repeat("w", 129)
 	if detail == "full" {
-		// Full detail also reads continuity, whose independent request guard
-		// refuses work IDs above 128 bytes before it constructs a work pin.
+		// Full detail also reads the work pin, whose request guard refuses
+		// work IDs above 128 bytes before it constructs the pin.
 		workID = "retained-work"
 	}
 	title := strings.Repeat("t", 257)

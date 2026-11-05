@@ -14,11 +14,6 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// The store's write validation and the generated continuity read schema must
-// agree, or a legal write wedges the item's continuity trace (issue #817).
-// These tests hold the two surfaces to one bound each and prove the legal
-// maximum round-trips through the real envelope validation.
-
 func schemaDef(t *testing.T, name string) map[string]any {
 	t.Helper()
 	var document map[string]any
@@ -38,15 +33,11 @@ func schemaDef(t *testing.T, name string) map[string]any {
 
 func TestGeneratedPremiseBoundMatchesStore(t *testing.T) {
 	t.Parallel()
-	premise := schemaDef(t, "workflow_premise")
+	variant := schemaDef(t, "work_transition_action_variant_approve_contract")
+	fields, _ := variant["properties"].(map[string]any)["fields"].(map[string]any)
+	premise, _ := fields["properties"].(map[string]any)["premise"].(map[string]any)
 	if got := premise["maxLength"]; got != float64(store.WorkflowPremiseMaxLength) {
-		t.Fatalf("$defs/workflow_premise maxLength = %v, want %d: the write and read bounds drifted apart", got, store.WorkflowPremiseMaxLength)
-	}
-	contract := schemaDef(t, "workflow_contract")
-	properties, _ := contract["properties"].(map[string]any)
-	premiseRef, _ := properties["premise"].(map[string]any)
-	if premiseRef["$ref"] != "#/$defs/workflow_premise" {
-		t.Fatalf("workflow_contract.premise = %v, want a $defs/workflow_premise reference", premiseRef)
+		t.Fatalf("approve_contract premise maxLength = %v, want %d: the published and store bounds drifted apart", got, store.WorkflowPremiseMaxLength)
 	}
 }
 
@@ -231,59 +222,20 @@ func TestBoundEvidenceReceiptsRoundTripThroughHistory(t *testing.T) {
 	}
 }
 
-func TestContinuityRoundTripLegalMaximum(t *testing.T) {
+func TestWorkflowRoundTripLegalMaximum(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, engine := workflowEngineFixture(t, strings.Repeat("p", store.WorkflowPremiseMaxLength))
-	engine("checkpoint_context", map[string]any{
-		"checkpoint_id": "checkpoint-roundtrip", "checkpoint_sequence": 1,
-		"active_unit": "internal/store and internal/agent", "hypothesis": "bounds agree on both sides", "diagnosis": "one shared bound source", "strategy": "round-trip the legal maximum",
-		"touched_refs":      []string{"internal/store/workflow.go", "internal/agent/generated_payload_schemas.go"},
-		"evidence_refs":     []string{"commit:aa11bb22ccdd3344"},
-		"pending_questions": []string{}, "pending_decisions": []string{},
-	})
+	s, _, engine := workflowEngineFixture(t, strings.Repeat("p", store.WorkflowPremiseMaxLength))
 	for _, kind := range []string{"verification", "review", "approval", "commit", "durable_note", "artifact"} {
 		ref, run, watermark := "roundtrip:"+kind, "producer:roundtrip-"+kind, "request:roundtrip-"+kind
 		seedAgentEvidenceProducer(t, s, "work-1", "human-1", ref, run, watermark)
 		engine("bind_evidence", map[string]any{"evidence_kind": kind, "evidence_ref": ref, "producer_id": "human-1", "producer_run_ref": run, "producer_watermark": watermark})
 	}
-	grant, err := service.Authorize(ctx, Invocation{ClientRef: "client-session-exec-aaaa", PrincipalRef: "human-1", SessionRef: "session-exec-aaaa", AgentRef: "agent-exec", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"})
-	if err != nil {
+	var premise string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT premise FROM workflow_contracts WHERE work_id='work-1' AND superseded_by IS NULL`).Scan(&premise); err != nil {
 		t.Fatal(err)
 	}
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "continuity", Input: json.RawMessage(`{"work_id":"work-1","page":{"cursor":null,"limit":10}}`)}, mutationEnvelope(grant, scopeVersion))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("continuity read with legal-maximum writes failed: %+v", response.Error)
-	}
-	var payload struct {
-		Pinned struct {
-			Contract *struct {
-				Premise string `json:"premise"`
-			} `json:"contract"`
-			LatestCheckpoint *struct {
-				TouchedRefs []string `json:"touched_refs"`
-			} `json:"latest_checkpoint"`
-		} `json:"pinned"`
-	}
-	if err := json.Unmarshal(response.Result, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.Pinned.Contract == nil || len(payload.Pinned.Contract.Premise) != store.WorkflowPremiseMaxLength {
-		t.Fatalf("pinned contract premise did not round-trip at the legal maximum")
-	}
-	if payload.Pinned.LatestCheckpoint == nil {
-		t.Fatal("pinned checkpoint missing")
-	}
-	for _, ref := range payload.Pinned.LatestCheckpoint.TouchedRefs {
-		if !strings.Contains(ref, "/") {
-			t.Fatalf("checkpoint touched_refs lost repository paths: %v", payload.Pinned.LatestCheckpoint.TouchedRefs)
-		}
+	if len(premise) != store.WorkflowPremiseMaxLength {
+		t.Fatal("contract premise did not round-trip at the legal maximum")
 	}
 }

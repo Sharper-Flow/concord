@@ -57,11 +57,11 @@ test("every declared read refuses mutation metadata even when empty", () => {
   }
 })
 
-test("continuity and its controls validate", () => {
+test("resume and its controls validate", () => {
   // The controls were never broken. They fail here only if the validator has
   // become permissive rather than correct, which is the way a green run of the
   // repaired operations above could otherwise lie.
-  const repaired = ["concord_work_trace.continuity"]
+  const repaired = ["concord_work_trace.resume"]
   const controls = ["concord_work_trace.history", "concord_work_browse.list"]
   for (const name of [...repaired, ...controls]) {
     const pair = declaredPairs.find((item) => `${item.tool}.${item.operation}` === name)
@@ -71,9 +71,9 @@ test("continuity and its controls validate", () => {
 })
 
 test("a declared pair carrying another pair's query_id is still refused", () => {
-  const continuity = declaredPairs.find((item) => item.operation === "continuity")!
-  expect(validateGeneratedEnvelope(coreEnvelope({ ...continuity, queryId: "PM1.Q7" }))).toBe(false)
-  expect(validateGeneratedEnvelope(coreEnvelope({ ...continuity, queryId: undefined }))).toBe(false)
+  const resume = declaredPairs.find((item) => item.operation === "resume")!
+  expect(validateGeneratedEnvelope(coreEnvelope({ ...resume, queryId: "PM1.Q7" }))).toBe(false)
+  expect(validateGeneratedEnvelope(coreEnvelope({ ...resume, queryId: undefined }))).toBe(false)
 })
 
 test("an undeclared operation is refused even though the tool is declared", () => {

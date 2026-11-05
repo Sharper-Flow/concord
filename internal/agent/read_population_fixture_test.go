@@ -84,13 +84,6 @@ func seedReadPopulationFixture(t *testing.T) readPopulationFixture {
 	// would occupy the identity the fold assigns.
 	fx.seedHostCheckout(t)
 	fx.seedPopulationRows(t)
-	response := dispatchMutation(t, s, fx.service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
-		"work_id": fx.workID, "expected_version": workVersion(t, s, fx.workID), "action_id": "checkpoint_context", "idempotency_key": "population-checkpoint",
-		"fields": map[string]any{"checkpoint_id": "population-checkpoint", "checkpoint_sequence": 1, "active_unit": "unit:population", "hypothesis": "Every read retains its rows", "diagnosis": "Read population coverage", "strategy": "Populate current surfaces", "touched_refs": []string{fx.workID}, "evidence_refs": []string{"artifact:population"}, "pending_questions": []string{}, "pending_decisions": []string{}},
-	})}, fx.envelope(t))
-	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("population checkpoint receipt: %+v", response.Error)
-	}
 	seedReadPopulationProducts(t, s)
 	return fx
 }
@@ -265,7 +258,7 @@ func execPopulationStatement(t *testing.T, s *store.Store, statement string, arg
 }
 
 // seedFocusWorkflow pins the builtin implementation workflow to the focus work
-// item, so the continuity read has a workflow instance to snapshot, and binds
+// item, so the work reads have a workflow instance to project, and binds
 // the work's contract to the child Domain, so the Domain active-work reads
 // carry rows.
 func (fx readPopulationFixture) seedFocusWorkflow(t *testing.T) {
@@ -330,7 +323,6 @@ func (fx readPopulationFixture) seedPopulationRows(t *testing.T) {
 	t.Helper()
 	fx.seedPopulationPeerWork(t)
 	fx.seedPopulationDomainRows(t)
-	fx.seedPopulationFocusRows(t)
 }
 
 // seedPopulationPeerWork creates a second work item bound to the child Domain
@@ -388,14 +380,4 @@ func (fx readPopulationFixture) seedPopulationDomainRows(t *testing.T) {
 	}}}); err != nil {
 		t.Fatalf("fold population Domain observation: %v", err)
 	}
-}
-
-// seedPopulationFocusRows seeds a summary context boundary for the
-// continuity read, mirroring the store's own fixture for that table.
-func (fx readPopulationFixture) seedPopulationFocusRows(t *testing.T) {
-	t.Helper()
-	actorRef := store.DeriveWorkflowActorRef("human-1", "client-1", "agent-1", "session-population")
-	_, focusVersion := readWorkFromStore(t, fx.store, fx.workID)
-	execPopulationStatement(t, fx.store, `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,actor_ref,request_id,recorded_at) VALUES(?,?,1,1,'population-boundary','summary','population-checkpoint:context-checkpoint',1,1,'population summary boundary',?,?,'request:population','2026-09-01T00:00:00Z')`,
-		fx.workID, focusVersion, "change", actorRef)
 }

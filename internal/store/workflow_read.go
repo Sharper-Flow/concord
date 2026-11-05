@@ -70,36 +70,3 @@ func readWorkflowContractVersion(ctx context.Context, q queryer, workID string, 
 	}
 	return contract, nil
 }
-
-// readLatestWorkflowProposal reads the latest recorded proposal, or nil when
-// none is recorded. A record with malformed arrays is an invariant
-// violation; op names the reader in every failure.
-func readLatestWorkflowProposal(ctx context.Context, q queryer, workID, op string) (*WorkflowProposalRecord, error) {
-	var proposal WorkflowProposalRecord
-	var affected, outcomes, constraints, questions string
-	err := q.QueryRowContext(ctx, `SELECT work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at FROM workflow_proposal_records WHERE work_id=? ORDER BY work_version DESC LIMIT 1`, workID).Scan(&proposal.WorkVersion, &proposal.Problem, &affected, &proposal.Stakes, &outcomes, &constraints, &questions, &proposal.RecordedAt)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, op, "cannot read latest workflow proposal record", true, "retry once the database is readable", err)
-	}
-	if json.Unmarshal([]byte(affected), &proposal.Affected) != nil || json.Unmarshal([]byte(outcomes), &proposal.UserOutcomes) != nil || json.Unmarshal([]byte(constraints), &proposal.Constraints) != nil || json.Unmarshal([]byte(questions), &proposal.OpenQuestions) != nil {
-		return nil, newFailure(KindInvariantViolation, op, "proposal record projection contains malformed arrays", false, "restore a verified backup into a new path with concord restore, then swap")
-	}
-	return &proposal, nil
-}
-
-func workflowCurrentProductTruth(contract *WorkflowReadContract, plan *WorkflowStepPlan) bool {
-	if contract != nil && contract.ChangesProductTruth != nil {
-		return *contract.ChangesProductTruth
-	}
-	if plan == nil {
-		return false
-	}
-	truth := plan.Type != WorkflowStepPlanResearch
-	if contract != nil {
-		contract.ChangesProductTruth = &truth
-	}
-	return truth
-}

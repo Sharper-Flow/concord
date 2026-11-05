@@ -44,13 +44,13 @@ func TestProjectHandoffNewestSelectionsReadCurrentRows(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		t.Run("continuity", func(t *testing.T) {
+		t.Run("pending", func(t *testing.T) {
 			pending, err := PendingProjectHandoffTx(ctx, tx, f.workID)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if pending == nil || pending.HandoffID != newer {
-				t.Fatalf("continuity handoff=%+v, want the later-recorded %s", pending, newer)
+				t.Fatalf("pending handoff=%+v, want the later-recorded %s", pending, newer)
 			}
 		})
 		return nil

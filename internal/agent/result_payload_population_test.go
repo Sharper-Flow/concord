@@ -34,64 +34,6 @@ import (
 // this join: the literal is written against the schema, and the schema's
 // required list already refuses an omission.
 
-func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
-	cursor := "cursor:1"
-	return store.ContinuitySnapshot{
-		WorkID:          "work-1",
-		ProductIdentity: []string{"product-1"},
-		WorkflowStep:    "implement",
-		Contract: &store.WorkflowReadContract{
-			Version:             2,
-			Premise:             "the premise",
-			LegislativeSubjects: []string{"spec-1"},
-			RouteConventions:    []string{"route-1"},
-			SpecMandate:         []string{"spec-1"},
-			LawModifies:         []string{"spec-1"},
-			RigorClass:          "prototype_internal",
-			ChangesProductTruth: new(true),
-			ArchitectureBinding: &store.WorkflowArchitectureBinding{
-				HomeDomainID:            "child",
-				AffectedDomainIDs:       []string{"root", "child"},
-				DomainModifies:          []string{"child"},
-				DomainRelationModifies:  []store.WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}},
-				LawAdditions:            []store.WorkflowLawAddition{{LawID: "spec-2", HomeDomainID: "child"}},
-				VerificationObligations: []store.WorkflowVerificationObligation{{LawID: "spec-1", ObligationID: "verification"}},
-			},
-		},
-		SpecMandate: []string{"spec-1"},
-		LatestCheckpoint: &store.ContextCheckpoint{
-			CheckpointID:     "checkpoint-1",
-			WorkVersion:      2,
-			Sequence:         1,
-			StepID:           "implement",
-			AttemptEpoch:     1,
-			ActiveUnit:       "unit-1",
-			Hypothesis:       "the hypothesis",
-			Diagnosis:        "the diagnosis",
-			Strategy:         "the strategy",
-			TouchedRefs:      []string{"ref-1"},
-			EvidenceRefs:     []string{"ref-2"},
-			PendingQuestions: []string{"question-1"},
-			PendingDecisions: []string{"decision-1"},
-		},
-		Boundaries: []store.ContextBoundary{{
-			BoundaryID:         "boundary-1",
-			Sequence:           1,
-			Kind:               "summary",
-			CheckpointID:       "checkpoint-1",
-			CheckpointSequence: 1,
-			Summary:            "the summary",
-			RecordedAt:         "2026-01-01T00:00:00Z",
-		}},
-		BoundaryCount:            1,
-		NextCursor:               &cursor,
-		Watermark:                "seq:1",
-		RestartAvailable:         false,
-		RestartUnavailableReason: "restart is unavailable",
-		ChangesProductTruth:      true,
-	}
-}
-
 // domainReadPayloads holds one wire payload per Domain read, each projected
 // from what the store actually returned.
 type domainReadPayloads struct {
@@ -199,7 +141,6 @@ func TestFullyPopulatedResultPayloadsValidate(t *testing.T) {
 		operation string
 		payload   any
 	}{
-		{name: "work_trace continuity", tool: "concord_work_trace", operation: "continuity", payload: ContinuityPayload(fullyPopulatedContinuitySnapshot())},
 		{name: "domain list", tool: "concord_domain", operation: "list", payload: domain.list},
 		{name: "domain detail", tool: "concord_domain", operation: "detail", payload: domain.detail},
 	} {
@@ -210,49 +151,6 @@ func TestFullyPopulatedResultPayloadsValidate(t *testing.T) {
 			}
 			if err := agentcontract.ValidateOperationPayload(testCase.tool, testCase.operation, raw, true); err != nil {
 				t.Fatalf("fully populated %s.%s result rejected: %v", testCase.tool, testCase.operation, err)
-			}
-		})
-	}
-}
-
-// TestPublishedReadsQualifiedContractLaw proves the published read refs filled
-// from contract law IDs admit the source-qualified <home project>/<law> form
-// that approve_contract accepts and a designated home produces. Each case
-// qualifies one published field, so each output ref fails on its own.
-func TestPublishedReadsQualifiedContractLaw(t *testing.T) {
-	t.Parallel()
-	const qualified = "project-1/spec-1"
-	result := func(t *testing.T, tool, operation string, payload any) error {
-		raw, err := json.Marshal(payload)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return agentcontract.ValidateOperationPayload(tool, operation, raw, true)
-	}
-	for _, testCase := range []struct {
-		field    string
-		validate func(*testing.T) error
-	}{
-		{field: "continuity contract.spec_mandate", validate: func(t *testing.T) error {
-			snapshot := fullyPopulatedContinuitySnapshot()
-			snapshot.Contract.SpecMandate = []string{qualified}
-			return result(t, "concord_work_trace", "continuity", ContinuityPayload(snapshot))
-		}},
-		{field: "continuity contract.law_modifies", validate: func(t *testing.T) error {
-			snapshot := fullyPopulatedContinuitySnapshot()
-			snapshot.Contract.LawModifies = []string{qualified}
-			return result(t, "concord_work_trace", "continuity", ContinuityPayload(snapshot))
-		}},
-		{field: "continuity pinned.spec_mandate", validate: func(t *testing.T) error {
-			snapshot := fullyPopulatedContinuitySnapshot()
-			snapshot.SpecMandate = []string{qualified}
-			return result(t, "concord_work_trace", "continuity", ContinuityPayload(snapshot))
-		}},
-	} {
-		t.Run(testCase.field, func(t *testing.T) {
-			t.Parallel()
-			if err := testCase.validate(t); err != nil {
-				t.Fatalf("qualified %s violates its published contract: %v", testCase.field, err)
 			}
 		})
 	}
@@ -807,7 +705,14 @@ func TestSchemaFixtureUnionArmsRespectSiblingConstraints(t *testing.T) {
 // an operation without an entry here is a failure, not a silent gap.
 func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]string {
 	t.Helper()
-	record, found, err := fx.store.LookupMutationIdempotency(t.Context(), store.MutationIdempotencyKey{PrincipalRef: fx.grant.PrincipalRef, Tool: "concord_work_transition", OperationKind: "workflow_action", IdempotencyKey: "population-checkpoint"})
+	_, version := readWorkFromStore(t, fx.store, fx.workID)
+	response := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
+		"work_id": fx.workID, "expected_version": version, "action_id": "record_plan", "fields": agentPlanFields(), "idempotency_key": "population-plan",
+	})}, fx.envelope(t))
+	if response.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("population workflow action refused: %+v", response.Error)
+	}
+	record, found, err := fx.store.LookupMutationIdempotency(t.Context(), store.MutationIdempotencyKey{PrincipalRef: fx.grant.PrincipalRef, Tool: "concord_work_transition", OperationKind: "workflow_action", IdempotencyKey: "population-plan"})
 	if err != nil || !found {
 		t.Fatalf("population workflow receipt missing: found=%t err=%v", found, err)
 	}
@@ -817,9 +722,8 @@ func readPopulationInputs(t *testing.T, fx readPopulationFixture) map[string]str
 		"concord_work_browse.list":              `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_work_trace.history":            `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
 		"concord_work_trace.relations":          `{"work_id":"` + fx.workID + `"}`,
-		"concord_work_trace.continuity":         `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
 		"concord_work_trace.resume":             `{"work_id":"` + fx.workID + `"}`,
-		"concord_work_trace.mutation_result":    `{"source_tool":"concord_work_transition","source_operation":"workflow_action","idempotency_key":"population-checkpoint","digest":"` + mutationDocumentDigest([]byte(record.ResultPayload)) + `"}`,
+		"concord_work_trace.mutation_result":    `{"source_tool":"concord_work_transition","source_operation":"workflow_action","idempotency_key":"population-plan","digest":"` + mutationDocumentDigest([]byte(record.ResultPayload)) + `"}`,
 		"concord_work_trace.project_retirement": `{"work_id":"` + fx.workID + `"}`,
 		"concord_domain.list":                   `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_domain.detail":                 `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
@@ -889,7 +793,6 @@ var readPopulationRows = map[string][]string{
 	"concord_work_browse.list":              {"items"},
 	"concord_work_trace.history":            {"entries"},
 	"concord_work_trace.relations":          {"edges"},
-	"concord_work_trace.continuity":         {"boundaries.items"},
 	"concord_work_trace.resume":             {"steps"},
 	"concord_work_trace.project_retirement": {"blockers"},
 	"concord_domain.list":                   {"domains"},

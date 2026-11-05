@@ -19,14 +19,14 @@ func TestReadWorkPinReportsEveryCoordinatorSessionDrivingTheItem(t *testing.T) {
 	s := openTemp(t)
 	const workID = "workpin-codriver"
 	seedWork(t, s, workID)
-	first := WorkflowActor{PrincipalRef: "principal:continuity", ClientRef: "client:continuity", AgentRef: "agent:continuity", SessionRef: "session:continuity", ActorClass: ActorAgent}
+	first := WorkflowActor{PrincipalRef: "principal:fixture", ClientRef: "client:fixture", AgentRef: "agent:fixture", SessionRef: "session:fixture", ActorClass: ActorAgent}
 	if err := s.Transact(t.Context(), func(tx *Transaction) error {
 		return initializeWorkflowRawTx(t.Context(), tx.tx, WorkflowInitializationRequest{WorkID: workID, Actor: first, Now: time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)})
 	}); err != nil {
 		t.Fatal(err)
 	}
 	version := readWorkVersion(t, s, workID)
-	version, err := continuityAction(t, s, workID, version, "record_intake", "codriver-intake", map[string]any{"outcome": "proceed", "open_questions_found": false}, first)
+	version, err := applyTestAction(t, s, workID, version, "record_intake", "codriver-intake", map[string]any{"outcome": "proceed", "open_questions_found": false}, first)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,17 +38,17 @@ func TestReadWorkPinReportsEveryCoordinatorSessionDrivingTheItem(t *testing.T) {
 		SessionRef:   "session:second-coordinator",
 		ActorClass:   ActorAgent,
 	}
-	version, err = continuityAction(t, s, workID, version, "pick_type", "codriver-pick", map[string]any{"type": "change", "reason": "bounded change"}, first)
+	version, err = applyTestAction(t, s, workID, version, "pick_type", "codriver-pick", map[string]any{"type": "change", "reason": "bounded change"}, first)
 	if err != nil {
 		t.Fatal(err)
 	}
 	plan := map[string]any{"outcomes": "working outcome", "approach": "bounded change", "decisions": []map[string]any{{"id": "decision:one", "question": "which?", "choice": "one", "rationale": "fits", "rejected": []string{}}}, "touches": []string{"file:one"}, "merge_split": "one item", "risks": "bounded risk"}
-	version, err = continuityAction(t, s, workID, version, "record_plan", "codriver-first-plan", plan, first)
+	version, err = applyTestAction(t, s, workID, version, "record_plan", "codriver-first-plan", plan, first)
 	if err != nil {
 		t.Fatal(err)
 	}
 	plan["reason"] = "second coordinator revision"
-	version, err = continuityAction(t, s, workID, version, "record_plan", "codriver-plan", plan, second)
+	version, err = applyTestAction(t, s, workID, version, "record_plan", "codriver-plan", plan, second)
 	if err != nil {
 		t.Fatalf("second coordinator was refused: %v, want admission per CD-0061 D4", err)
 	}

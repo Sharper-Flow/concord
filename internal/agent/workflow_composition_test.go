@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"testing"
 
@@ -26,7 +27,7 @@ func TestAgentWorkflowCompositionUsesSelectedSuccessorFamily(t *testing.T) {
 	// instance-less work arises: raw events, as previously imported work carries.
 	missingInstanceID := "work-composition-missing-instance"
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{
-		{EventID: "composition-missing:create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: missingInstanceID, Actor: "operator", OccurredAt: s.Clock().UTC(), PayloadVersion: 4, Payload: []byte(`{"work_kind":"research","title":"Composition missing instance","priority":0}`)},
+		{EventID: "composition-missing:create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: missingInstanceID, Actor: "operator", OccurredAt: s.Clock().UTC(), PayloadVersion: 4, Payload: []byte(`{"work_kind":"research","title":"Composition missing instance"}`)},
 		{EventID: "composition-missing:memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: missingInstanceID, Actor: "operator", OccurredAt: s.Clock().UTC(), PayloadVersion: 1, Payload: []byte(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, missingInstanceID): 0}}); err != nil {
 		t.Fatal(err)
@@ -87,15 +88,19 @@ func TestAgentWorkflowCompositionUsesSelectedSuccessorFamily(t *testing.T) {
 func captureCompositionWork(t *testing.T, ctx context.Context, s *store.Store, service *Service, env CallEnvelope, title, kind, _ string, idempotencyKey string) string {
 	t.Helper()
 	input := map[string]any{
-		"title": title, "value_statement": "Prove workflow composition", "kind": kind,
-		"project_ids": []string{"project-1"}, "idempotency_key": idempotencyKey,
+		"title": title, "kind": kind,
+		"project_ids":       []string{"project-1"},
+		"human_key":         fmt.Sprintf("ZZ-%d", len(idempotencyKey)+7000),
+		"remote_issue_uuid": "fixture-" + idempotencyKey,
+		"url":               "https://linear.app/example/issue/ZZ",
+		"idempotency_key":   idempotencyKey,
 	}
 	raw, err := json.Marshal(input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: raw}, env)
-	if err != nil || response.Outcome != agentcontract.OutcomeOK || len(*response.ChangedRefs) != 1 {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK || len(*response.ChangedRefs) != 2 {
 		t.Fatalf("capture %q response=%+v err=%v", title, response, err)
 	}
 	return (*response.ChangedRefs)[0].ID

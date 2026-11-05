@@ -47,10 +47,3 @@ func applyTestAction(t *testing.T, s *Store, workID string, version int64, actio
 	}
 	return result.ResultingVersion, nil
 }
-
-func startFixtureExecution(t *testing.T, f workContextFixture) {
-	t.Helper()
-	if err := runVerdictActionAs(t, f.store, f.workID, "start_execution", mustJSONValue(map[string]any{}), 0, f.owner); err != nil {
-		t.Fatalf("start_execution refused: %v", err)
-	}
-}

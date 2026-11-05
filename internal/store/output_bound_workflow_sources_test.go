@@ -1,7 +1,7 @@
 package store
 
 // Workflow-family rows for the structural output bound ledger: the
-// workflow_, pending_project_handoff, and work_context_ definitions plus work_pin,
+// workflow_ and pending_project_handoff definitions plus work_pin,
 // work_pin_evidence and work_liveness. Every finite row cites a real full-string producer
 // bound traced to its writer: a store guard constant, a workflowString or
 // workflowList call argument resolved through its fold, an inline
@@ -48,30 +48,12 @@ func init() {
 	// workLivenessFromCounts copies it to LastProgress without reformatting.
 	lastProgressAt := pkTimeLayoutWidthBound("internal/store/work_effect_seq.go", "advanceWorkEffectSeqTx", "time.RFC3339Nano")
 
-	// Raw event ids: Event.validate admits any caller-supplied non-empty id
-	// (internal/store/events.go:164-180), so the digest-suffixed ids the
-	// agent boundary mints are one finite alternative beside an unbounded
-	// raw identity that projects into the resolved views verbatim.
-	eventIDRaw := unboundedOutput("Event.validate admits any caller-supplied non-empty event id with no length bound (internal/store/events.go:164-180 checks presence only); the agent boundary mints digest-suffixed ids (internal/agent/mutations.go:1552-1553), but the raw identity is a valid durable event id and the resolved views project it verbatim", readSizeRefusalPath, mutationResultPath)
-
 	// Guard constants cited by more than one row.
 	handoffIDMax := goConstantBound("internal/store/project_handoffs.go", "projectHandoffIDMax", boundBytes)
 	handoffJobMax := goConstantBound("internal/store/project_handoffs.go", "projectHandoffJobMax", boundBytes)
 	handoffActionMax := goConstantBound("internal/store/project_handoffs.go", "projectHandoffActionMax", boundBytes)
 	handoffListMax := goConstantBound("internal/store/project_handoffs.go", "projectHandoffListMax", boundItems)
 	handoffEntryMax := goConstantBound("internal/store/project_handoffs.go", "projectHandoffEntryMax", boundBytes)
-	requiredReadingMax := goConstantBound("internal/store/work_context.go", "WorkContextRequiredReadingMax", boundItems)
-	viewFindingsMax := goConstantBound("internal/store/work_context.go", "WorkContextViewFindingsMax", boundItems)
-	domainIDMaxBytes := goConstantBound("internal/store/work_context.go", "workContextDomainIDMaxBytes", boundBytes)
-	projectRefMaxBytes := goConstantBound("internal/store/work_context.go", "workContextProjectIDMaxBytes", boundBytes)
-	readingReasonMaxBytes := goConstantBound("internal/store/work_context.go", "workContextReadingMaxBytes", boundBytes)
-	rationaleMaxBytes := goConstantBound("internal/store/work_context.go", "workContextRationaleMaxBytes", boundBytes)
-	repoPathMaxBytes := goConstantBound("internal/store/work_context.go", "workContextPathMaxBytes", boundBytes)
-	lawRefMaxBytes := goConstantBound("internal/store/work_context.go", "workContextLawIDMaxBytes", boundBytes)
-	findingStatementMax := goInlineBound("internal/store/work_context_finding.go", "validateWorkContextFindingEntry", "len(finding.Statement)", boundBytes)
-	findingSubjectMax := goInlineBound("internal/store/work_context_finding.go", "validateWorkContextFindingEntry", "len(finding.SubjectRef)", boundBytes)
-	findingEvidenceRefCount := goInlineBound("internal/store/work_context_finding.go", "validateWorkContextFindingEntry", "len(finding.EvidenceRefs)", boundItems)
-	findingEvidenceRefMax := goInlineBound("internal/store/work_context_finding.go", "validateWorkContextFindingEntry", "len(ref)", boundBytes)
 	bindingMaxLawAdditions := goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxLawAdditions", boundItems)
 	bindingMaxObligations := goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxObligations", boundItems)
 
@@ -81,7 +63,6 @@ func init() {
 	// (len(value) >= 1 && len(value) <= 2048); every other site uses the
 	// refusal form (expression > N beside a lower guard the helper never
 	// selects).
-	commitOIDBound := goInlineBound("internal/store/work_context.go", "workContextCommitOID", "len(oid)", boundBytes)
 	drivingSessionCount := goInlineBound("internal/store/workpin.go", "scanWorkPinDrivingSessions", "len(sessions)", boundItems)
 
 	// Final full-string writer guards. The SQLite length(TEXT) CHECKs are
@@ -131,44 +112,6 @@ func init() {
 	registerOutputBound("/$defs/pending_project_handoff/properties/verification/items/maxLength", handoffEntryMax)
 	registerOutputBound("/$defs/pending_project_handoff/properties/verification/maxItems", handoffListMax)
 
-	// Work context domain groups: one group per distinct Domain across the
-	// readings and the finding slots; the partition members ride the view
-	// bounds they partition.
-	domainGroupDefs := []string{"work_context_domain_group"}
-	for _, def := range domainGroupDefs {
-		registerOutputBound("/$defs/"+def+"/properties/domain_id/maxLength", domainIDMaxBytes)
-		registerOutputBound("/$defs/"+def+"/properties/finding_ids/maxItems", viewFindingsMax)
-		registerOutputBound("/$defs/"+def+"/properties/required_reading_ordinals/maxItems", requiredReadingMax)
-	}
-
-	// Work context finding views carry declared findings.
-	registerRetainedTwinBound("/$defs/work_context_finding_view/properties/domain_id/maxLength", domainIDMaxBytes)
-	registerRetainedTwinBound("/$defs/work_context_finding_view/properties/evidence_refs/items/maxLength", findingEvidenceRefMax)
-	registerRetainedTwinBound("/$defs/work_context_finding_view/properties/evidence_refs/maxItems", findingEvidenceRefCount)
-	registerRetainedTwinBound("/$defs/work_context_finding_view/properties/product_wide_rationale/maxLength", rationaleMaxBytes)
-	registerRetainedTwinBound("/$defs/work_context_finding_view/properties/source_event_id/maxLength", eventIDRaw)
-	registerRetainedTwinBound("/$defs/work_context_finding_view/properties/statement/maxLength", findingStatementMax)
-	registerRetainedTwinBound("/$defs/work_context_finding_view/properties/subject_ref/maxLength", findingSubjectMax)
-
-	// Required readings and their closed source union.
-	registerOutputBound("/$defs/work_context_reading/properties/domain_id/maxLength", domainIDMaxBytes)
-	registerOutputBound("/$defs/work_context_reading/properties/product_wide_rationale/maxLength", rationaleMaxBytes)
-	registerOutputBound("/$defs/work_context_reading/properties/reason/maxLength", readingReasonMaxBytes)
-	registerOutputBound("/$defs/work_context_reading_source_knowledge/properties/law_id/maxLength", lawRefMaxBytes)
-	registerOutputBound("/$defs/work_context_reading_source_knowledge/properties/source_id/maxLength", projectRefMaxBytes)
-	registerOutputBound("/$defs/work_context_reading_source_repository_file/properties/path/maxLength", repoPathMaxBytes)
-	registerOutputBound("/$defs/work_context_reading_source_repository_file/properties/project_id/maxLength", projectRefMaxBytes)
-
-	// The retained context read uses the shared assembly. The subject commit
-	// rides the inline 40..64 lowercase-hex guard.
-	viewDefs := []string{"retained_work_context_view"}
-	for _, def := range viewDefs {
-		registerOutputBound("/$defs/"+def+"/properties/domain_groups/maxItems",
-			sumBound(requiredReadingMax, viewFindingsMax)) // one group per distinct Domain across <=32 readings + <=32 finding slots
-		registerOutputBound("/$defs/"+def+"/properties/findings/maxItems", viewFindingsMax)
-		registerOutputBound("/$defs/"+def+"/properties/required_reading/maxItems", requiredReadingMax)
-		registerOutputBound("/$defs/"+def+"/properties/subject_commit/maxLength", commitOIDBound)
-	}
 	// Work liveness: read-time evidence assembled from one state-switch
 	// assignment plus at most two conditional single-element appends; each
 	// element is a fixed prose format with one int64 count. last_progress
@@ -224,7 +167,7 @@ func init() {
 	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/path/maxLength",
 		unboundedOutput("the law locator joins the knowledge home's canonical-path locator, whose normalized value derives through normalizePath: NUL is refused (internal/store/project_locator.go:150-152) but filepath.EvalSymlinks expands symlinked ancestors to filesystem-target text with no length guard (internal/store/project_locator.go:154-161), so the joined locator is byte-ceiling only", readSizeRefusalPath, mutationResultPath))
 	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/roles/maxItems",
-		workflowRoleMarkItemsBound("internal/store/workflow_law_revision.go", "readWorkflowLawContext", "markRole"))
+		workflowRoleMarkItemsBound("internal/store/workflow_law_revision.go", "foldWorkflowLawContextRoles", "markRole"))
 	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/title/maxLength",
 		manifestRecordTitle) // the law context copies the committed law title verbatim
 

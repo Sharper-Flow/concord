@@ -19,9 +19,9 @@ func TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	capture := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Workflow work","value_statement":"Ship the workflow","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-workflow-31"}`)}
+	capture := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Workflow work","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-workflow-31","human_key":"ZZ-3191","remote_issue_uuid":"fixture-capture-workflow-31","url":"https://linear.app/example/issue/ZZ-3191"}`)}
 	captured, err := Dispatch(context.Background(), s, service, capture, env)
-	if err != nil || captured.Outcome != agentcontract.OutcomeOK || captured.ChangedRefs == nil || len(*captured.ChangedRefs) != 1 {
+	if err != nil || captured.Outcome != agentcontract.OutcomeOK || captured.ChangedRefs == nil || len(*captured.ChangedRefs) != 2 {
 		t.Fatalf("capture response=%+v err=%v", captured, err)
 	}
 	workID := (*captured.ChangedRefs)[0].ID

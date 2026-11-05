@@ -23,7 +23,7 @@ func TestWorkflowAdmissionCutoverPreservesWorkAndLinearIdentity(t *testing.T) {
 	retirementUpgradeExec(t, db, `INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch) VALUES('work-upgrade-from','release',1)`)
 	retirementUpgradeExec(t, db, `INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,created_at,updated_at) VALUES('work-upgrade-from','uuid-confirmed','CON-1','https://linear.app/x/issue/CON-1',?,?)`, retirementUpgradeTime, retirementUpgradeTime)
 	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
-	work := retirementUpgradeRows(t, db, `SELECT * FROM work_items WHERE id='work-upgrade-from'`)
+	work := historicalCaptureWorkRows(t, db, `WHERE id='work-upgrade-from'`)
 	links := retirementUpgradeRows(t, db, `SELECT * FROM linear_issue_links ORDER BY work_id`)
 	receipts := retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts ORDER BY effect_seq`)
 	actors := retirementUpgradeRows(t, db, `SELECT * FROM workflow_actors ORDER BY actor_ref`)
@@ -90,7 +90,7 @@ func TestWorkflowAdmissionCutoverRollback(t *testing.T) {
 		t.Fatal("failed cutover changed predecessor schema or rows")
 	}
 	retirementUpgradeExec(t, db, `DROP TRIGGER cutover_rollback_witness`)
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, outcomeSnapshotOption(t, t.Context(), path)); err != nil {
 		t.Fatal(err)
 	}
 	retirementUpgradeHealthy(t, db)

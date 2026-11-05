@@ -47,7 +47,8 @@ A mandatory verified-snapshot upgrade removes the retired tables and rows only
 after their consumers are retired. It preserves active work, knowledge,
 research, Project membership and handoff records, and artifacts. Ordinary
 directory-resolved Project authority, session identity, no-write preparation,
-explicit reads of verified work context, and Review retain their non-worktree
+explicit reads through `concord_work_trace.resume` and item-scoped
+`concord_work_browse.list` with `detail=full`, and Review retain their non-worktree
 requirements. Repository-check execution and evidence follow CD-0242 D8.
 
 ### D3. Host placement grants no Concord authority
@@ -89,6 +90,6 @@ establish workflow readiness or remove current verification and review duties.
   retain their non-ownership refusals without those tables.
 - The verified-snapshot upgrade removes worktree metadata without dropping
   active work, knowledge, research, Project handoffs, or artifacts.
-- Session preparation, work-context reads, and Review keep their non-worktree checks.
+- Session preparation, those explicit reads, and Review keep their non-worktree checks.
 - Knowledge, law coverage, documentation links, and generated projections agree
   with this boundary.

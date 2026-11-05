@@ -480,41 +480,6 @@ func TestEnvelopeRejectsNestedErrorDetails(t *testing.T) {
 	}
 }
 
-// TestGoverningConflictOptionsAreClosedAndCoupled pins CD-0035 D1: options is a
-// typed operator-choice list, permitted only on a governing-law conflict, and
-// permitted rather than required so existing invariant_violation emitters are
-// untouched.
-func TestGoverningConflictOptionsAreClosedAndCoupled(t *testing.T) {
-	t.Parallel()
-	base := func() Envelope { return NewBase("req", "concord_work_define", "capture") }
-	governing := []string{"clarify", "amend_contract", "accept_scope_cut"}
-
-	valid := NewCoreError(base(), TypedError{Kind: "invariant_violation", RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone, Options: governing})
-	if _, err := valid.Encode(); err != nil {
-		t.Fatalf("governing-conflict options rejected: %v", err)
-	}
-
-	// Permitted, never required: an invariant_violation without options must
-	// still validate, or every pre-existing emitter breaks.
-	bare := NewCoreError(base(), TypedError{Kind: "invariant_violation", RecoveryAction: RecoveryAction{Kind: "reread_entities"}, EffectState: EffectNone})
-	if _, err := bare.Encode(); err != nil {
-		t.Fatalf("invariant_violation without options rejected: %v", err)
-	}
-
-	for name, bad := range map[string]TypedError{
-		"wrong kind":      {Kind: "invalid_input", RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone, Options: governing},
-		"wrong recovery":  {Kind: "invariant_violation", RecoveryAction: RecoveryAction{Kind: "reread_entities"}, EffectState: EffectNone, Options: governing},
-		"unknown option":  {Kind: "invariant_violation", RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone, Options: []string{"clarify", "make_it_smaller"}},
-		"duplicate":       {Kind: "invariant_violation", RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone, Options: []string{"clarify", "clarify"}},
-		"empty string":    {Kind: "invariant_violation", RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone, Options: []string{""}},
-		"over vocabulary": {Kind: "invariant_violation", RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone, Options: []string{"clarify", "amend_contract", "accept_scope_cut", "clarify_again"}},
-	} {
-		if _, err := NewCoreError(base(), bad).Encode(); err == nil {
-			t.Errorf("%s: invalid options accepted", name)
-		}
-	}
-}
-
 func TestEnvelopeRejectsRetiredPublicationVariants(t *testing.T) {
 	base := NewOKMutation(NewBase("retired-variant", "concord_work_transition", "workflow_action"), json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), nil, nil)
 	raw, err := base.Encode()

@@ -457,7 +457,17 @@ func currentStep(t *testing.T, s *Store, workID string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return workflowPlanCurrentStep(plan)
+	if plan == nil {
+		return "intake"
+	}
+	frontier := WorkflowStepPlanFrontier(*plan)
+	if len(frontier) == 0 {
+		if WorkflowStepPlanComplete(*plan) && len(plan.Steps) > 0 {
+			return plan.Steps[len(plan.Steps)-1].ID
+		}
+		return ""
+	}
+	return frontier[0].ID
 }
 
 func instanceState(t *testing.T, s *Store, workID string) string {

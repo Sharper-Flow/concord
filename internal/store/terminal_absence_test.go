@@ -162,7 +162,7 @@ func TestPublishedAbsenceHelperUsesCallerTransaction(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO work_items(id,kind,title,lifecycle,version,priority,created_at,updated_at) VALUES('work-published','task','Live','needed',1,0,'now','now'); DELETE FROM write_guard`); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at) VALUES('work-published','task','Live','needed',1,'now','now'); DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := publishedWorkAbsenceQ(ctx, s.db, "work-published", "absence_test"); err != nil {

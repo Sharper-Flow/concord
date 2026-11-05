@@ -50,8 +50,7 @@ identity, a living narrative, ordered entries, lifecycle rules, validators, and
 an agent surface. Initiative context is structurally stronger than Product
 architecture.
 
-The work and law graphs are also separate. CD-0018 D4 leaves parallel safety
-to operator judgement. Two agents can plan distinct work
+The work and law graphs are also separate. Two agents can plan distinct work
 against one architectural area without a shared work edge, produce clean Git
 merges, and still enact contradictory Product behavior.
 
@@ -62,7 +61,7 @@ law; they do not outrank it.
 
 ## Decision
 
-`resolve_overlap` records work relations under CD-0013 D11: `depends_on` and `blocks` are routine version-pinned coordination answers; `merged_into` and `supersedes` abandon or replace work identity and require operator approval only when a CD-0243 D2 class applies. Both endpoint versions, the dedicated atomic writer, and cycle rules remain required. Routine supersession grants no legislative authority.
+`resolve_overlap` records `depends_on` and `blocks` as routine version-pinned coordination answers under CD-0013 D11. Both endpoint versions, the dedicated atomic writer, and cycle rules remain required.
 
 ### D1. Product law and architectural concordance serve the goals
 
@@ -216,7 +215,7 @@ family has its own owner, endpoint constraints, metadata, and graph rules.
 | Work | `home_in` | Domain | Exactly one for Product-changing work |
 | Work | `impacts`, `modifies` | Domain | Closed contract fields; all modified Domains are impacted |
 | Work | `governed_by`, `modifies`, `adds`, `verifies` | Law | Law-ID contract fields; modified/added law follows the approved mandate |
-| Work | `blocks`, `depends_on`, `raised_from`, `merged_into`, `supersedes` | Work | Closed work-pair grammar; `resolve_overlap` pins both contract versions |
+| Work | `blocks`, `depends_on`, `raised_from` | Work | Closed work-pair grammar; `resolve_overlap` pins both contract versions |
 
 The Work→Work row above lists the work relations this record governs. PM4 owns the full
 stored work-relation vocabulary and its migration, including retained

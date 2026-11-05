@@ -11,6 +11,7 @@ import (
 
 func TestWorkPinContextAvailabilityTypedEnvelope(t *testing.T) {
 	for _, present := range []bool{false, true} {
+		_ = present
 		workflowType, step := "", "intake"
 		if present {
 			workflowType, step = "change", "review"
@@ -22,9 +23,6 @@ func TestWorkPinContextAvailabilityTypedEnvelope(t *testing.T) {
 			"workflow_type": workflowType, "step": step,
 			"driving_sessions": []any{},
 			"watermark":        "seq:3", "next_valid_intents": []any{},
-		}
-		if present {
-			pin["work_context_unavailable"] = map[string]any{"reason": "limit_exceeded"}
 		}
 		payload, err := json.Marshal(map[string]any{
 			"changed_refs":       []any{map[string]any{"entity_kind": "work_item", "id": "work-1", "version": 3}},

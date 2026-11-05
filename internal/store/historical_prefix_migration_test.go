@@ -145,13 +145,24 @@ func (c historicalFactCorpus) current(t *testing.T) *Store {
 	return s
 }
 
+func historicalCaptureWorkRows(t *testing.T, db *sql.DB, where string) [][]any {
+	t.Helper()
+	return retirementUpgradeRows(t, db, `SELECT id,kind,title,CASE lifecycle WHEN 'superseded' THEN 'cancelled' ELSE lifecycle END,version,created_at,updated_at,terminal_time,
+CASE WHEN json_type(intent_json,'$.task')='text' THEN json_set(json_object('title',title,'kind',kind),'$.task',json_extract(intent_json,'$.task')) ELSE json_object('title',title,'kind',kind) END,
+narrative,effect_seq,last_progress_at,version_actions_floor,CASE transition_from WHEN 'superseded' THEN 'cancelled' ELSE transition_from END,transition_reason,transition_actor,transition_evidence_refs,transition_seq,transition_version FROM work_items `+where+` ORDER BY id`)
+}
+
 func corpusWorkParents(t *testing.T, s *Store, guard string, works ...string) {
 	t.Helper()
 	if _, err := s.db.Exec(`INSERT INTO ` + guard + ` VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
 	for _, work := range works {
-		if _, err := s.db.Exec(`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?,'task',?,'needed',0,1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`, work, work); err != nil {
+		query := `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?,'task',?,'needed',0,1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`
+		if !tableColumns(t, s.db, "work_items")["priority"] {
+			query = `INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at) VALUES(?,'task',?,'needed',1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')`
+		}
+		if _, err := s.db.Exec(query, work, work); err != nil {
 			t.Fatal(err)
 		}
 	}

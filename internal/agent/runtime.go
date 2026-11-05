@@ -129,9 +129,6 @@ type workListInput struct {
 	WorkIDs       []string  `json:"work_ids"`
 	Lifecycle     string    `json:"lifecycle"`
 	Kind          string    `json:"kind"`
-	TagIDs        []string  `json:"tag_ids"`
-	PriorityMin   *int64    `json:"priority_min"`
-	PriorityMax   *int64    `json:"priority_max"`
 	Detail        string    `json:"detail"`
 	TerminalSince *string   `json:"terminal_since"`
 	Page          pageInput `json:"page"`
@@ -658,14 +655,7 @@ func storeFailureEnvelope(base agentcontract.Envelope, sf *store.Failure) agentc
 		out.Error.EffectState = agentcontract.EffectPossible
 		out.ChangedRefs = committedChangedRefs(sf.CommittedRefs)
 	}
-	projectStoreFailureDetails(&out, sf)
 	return out
-}
-
-func projectStoreFailureDetails(out *agentcontract.Envelope, sf *store.Failure) {
-	if sf.ExternalRefConflict != nil {
-		out.Error.ExternalRefConflict = &agentcontract.ExternalRefConflict{ExistingWorkID: sf.ExternalRefConflict.ExistingWorkID, ExternalRef: sf.ExternalRefConflict.ExternalRef}
-	}
 }
 
 func committedChangedRefs(refs []store.SubjectCurrentVersion) *[]agentcontract.ChangedRef {
@@ -771,7 +761,7 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "invariant_violation"
 	case store.KindIllegalLifecycleTransition:
 		return "invalid_transition"
-	case store.KindInvalidRelation, store.KindCycleDetected, store.KindRelationConflict, store.KindRelationNotFound, store.KindRelationContractViolation, store.KindSupersessionTargetAlreadySuperseded, store.KindSupersessionSecondSuccessor:
+	case store.KindInvalidRelation, store.KindCycleDetected, store.KindRelationConflict, store.KindRelationNotFound, store.KindRelationContractViolation:
 		return "invalid_relation"
 	case store.KindMembershipInvariant, store.KindMembershipConflict:
 		return "invariant_violation"
@@ -1045,22 +1035,12 @@ type workSummary struct {
 	ID    string `json:"id"`
 	Kind  string `json:"kind"`
 	Title string `json:"title"`
-	// Task, ValueStatement, Tags, and WorkflowTypeRef carry the recorded
-	// mutable-intent fields the store populates on the authoritative intent
-	// reads — the single-record scope read and the full-detail list read —
-	// because the schema declares them and a coordinator must be able to
-	// carry the complete revisable intent into a complete-replacement
-	// revision. Bounded summary and preview reads leave them empty, and
-	// empty values stay omitted. Urgency is not intent detail: CD-0018
-	// declares it on work_summary, so every summary carries the band.
+	// Task, the captured short note, rides the authoritative intent reads —
+	// the single-record scope read and the full-detail list read. Bounded
+	// summary and preview reads leave it empty.
 	Task                  string                    `json:"task,omitempty"`
-	ValueStatement        string                    `json:"value_statement,omitempty"`
-	Tags                  []string                  `json:"tags,omitzero"`
-	WorkflowTypeRef       string                    `json:"workflow_type_ref,omitempty"`
-	Urgency               string                    `json:"urgency"`
 	Lifecycle             string                    `json:"lifecycle"`
 	Version               int64                     `json:"version"`
-	Priority              int64                     `json:"priority,omitempty"`
 	ProjectIDs            []string                  `json:"project_ids,omitempty"`
 	Ready                 bool                      `json:"ready,omitempty"`
 	TerminalAt            *string                   `json:"terminal_at"`
@@ -1083,7 +1063,7 @@ func summary(w store.WorkItem) workSummary {
 	if w.TerminalAt != "" {
 		terminal = &w.TerminalAt
 	}
-	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, TerminalAt: terminal, CreatedAt: w.CreatedAt, PendingProjectHandoff: w.PendingProjectHandoff, LawContext: w.LawContext, NativeRuns: w.NativeRuns}
+	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, Lifecycle: w.Lifecycle, Version: w.Version, ProjectIDs: ids, Ready: w.Ready, TerminalAt: terminal, CreatedAt: w.CreatedAt, PendingProjectHandoff: w.PendingProjectHandoff, LawContext: w.LawContext, NativeRuns: w.NativeRuns}
 }
 func (r runtime) q1(base agentcontract.Envelope, q store.Q1Result) (agentcontract.Envelope, error) {
 	projects := []map[string]any{}
@@ -1211,15 +1191,7 @@ func (r runtime) q8(base agentcontract.Envelope, q store.Q8Result) (agentcontrac
 	for _, e := range q.Edges {
 		edges = append(edges, map[string]any{"from": e.Source, "to": e.Target, "kind": e.Kind, "depth": e.Depth, "relation_id": e.RelationID})
 	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"nodes": []any{}, "edges": edges, "replacement_state": relationReplacementState(q.Edges)})
-}
-func relationReplacementState(edges []store.RelationEdge) string {
-	for _, edge := range edges {
-		if edge.Kind == "supersedes" || edge.Kind == "superseded_by" {
-			return "active"
-		}
-	}
-	return "none"
+	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"nodes": []any{}, "edges": edges})
 }
 
 // SignedCursor remains an agent-facing alias while the authority owns its

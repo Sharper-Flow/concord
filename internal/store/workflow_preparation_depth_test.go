@@ -30,7 +30,7 @@ func TestSmallFixPreparationDepthNeedsNoArchitectureDocument(t *testing.T) {
 				}
 			}
 			if investigate {
-				act("record_work_context", map[string]any{})
+				act("record_diagnosis", map[string]any{"reproduction": "Initial reproduction.", "searched": "Initial backlog search.", "outcome": "none_found", "root_cause": "Initial hypothesis."})
 			}
 			act("record_diagnosis", map[string]any{
 				"reproduction": "The comment says eight; the function and check return seven.", "searched": "No related correction exists in the isolated backlog.",
@@ -65,11 +65,15 @@ func TestSmallFixPreparationDepthNeedsNoArchitectureDocument(t *testing.T) {
 				t.Fatalf("small fix acquired %d redundant architecture documents: %v", designs, err)
 			}
 			var declarations int
-			if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowWorkContextRecorded).Scan(&declarations); err != nil {
+			if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowDiagnosisRecorded).Scan(&declarations); err != nil {
 				t.Fatal(err)
 			}
-			if (declarations == 1) != investigate {
-				t.Fatalf("optional context declaration count=%d, additional investigation=%v", declarations, investigate)
+			want := 1
+			if investigate {
+				want++
+			}
+			if declarations != want {
+				t.Fatalf("diagnosis count=%d, want %d", declarations, want)
 			}
 		})
 	}

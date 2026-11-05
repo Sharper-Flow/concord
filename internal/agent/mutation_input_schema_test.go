@@ -128,7 +128,7 @@ func structTagsMap(names []string) map[string]bool {
 // schema declares, strict-decoded through the same path the runtime uses.
 func TestReviseIntentEvidenceFixtureDecodes(t *testing.T) {
 	t.Parallel()
-	raw := json.RawMessage(`{"work_id":"work-1","expected_version":4,"title":"Need revised","value_statement":"Revised value","kind":"task","priority":3,"tags":[],"reason":"clarified","evidence":[{"kind":"commit","authority":"git","locator_kind":"commit","locator":"commit:7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"}],"idempotency_key":"revise-fixture-1"}`)
+	raw := json.RawMessage(`{"work_id":"work-1","expected_version":4,"title":"Need revised","kind":"task","reason":"clarified","evidence":[{"kind":"commit","authority":"git","locator_kind":"commit","locator":"commit:7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"}],"idempotency_key":"revise-fixture-1"}`)
 	var in reviseMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		t.Fatalf("revise_intent evidence fixture failed strict decoding: %v", err)

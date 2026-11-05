@@ -18,7 +18,7 @@ func seedPreQ7WorkCreated(t *testing.T, tx *sql.Tx, event Event) {
 		t.Fatal(err)
 	}
 	stamp := event.OccurredAt.UTC().Format(time.RFC3339Nano)
-	if _, err := tx.ExecContext(t.Context(), `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?,?,?,'needed',?,1,?,?)`, event.SubjectID, payload.WorkKind, payload.Title, *payload.Priority, stamp, stamp); err != nil {
+	if _, err := tx.ExecContext(t.Context(), `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?,?,?,'needed',0,1,?,?)`, event.SubjectID, payload.WorkKind, payload.Title, stamp, stamp); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -91,18 +91,17 @@ func TestQ7WorkflowLifecycleStartAndSupersessionMetadata(t *testing.T) {
 	if got := read(); !reflect.DeepEqual(got, started) {
 		t.Fatalf("start backfill: got %+v, want %+v", got, started)
 	}
-	seedWork(t, s, "q7-workflow-successor")
 	v := readWorkVersion(t, s, work)
-	if err := applyWorkEvent(t, s, workSupersededEvent("q7-active-supersession", "q7-workflow-successor", work, v, v+1), workVersion(work, v)); err != nil {
+	if err := applyWorkEvent(t, s, workTransitionEvent("q7-active-terminal", work, "in_progress", "cancelled", v, v+1), workVersion(work, v)); err != nil {
 		t.Fatal(err)
 	}
 	want := read()
 	if want.From == nil || *want.From != "in_progress" {
-		t.Fatalf("supersession lost prior lifecycle: %+v", want)
+		t.Fatalf("terminal transition lost prior lifecycle: %+v", want)
 	}
 	assertQ7Corpus150(t)
 	if got := read(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("supersession backfill: got %+v, want %+v", got, want)
+		t.Fatalf("terminal backfill: got %+v, want %+v", got, want)
 	}
 }
 
@@ -131,8 +130,6 @@ func TestQ7CreationMetadataDoesNotUseUnrelatedFrom(t *testing.T) {
 	if err := json.Unmarshal(event.Payload, &fields); err != nil {
 		t.Fatal(err)
 	}
-	fields["from"] = "unrelated-source"
-	event.Payload, _ = json.Marshal(fields)
 	parents := []Event{locatorProductEvent("product"), locatorProjectEvent("project"), locatorMembershipEvent("product", "project")}
 	if err := ApplyOperation(t.Context(), s, Operation{Events: parents}); err != nil {
 		t.Fatal(err)
@@ -154,7 +151,7 @@ func TestQ7CreationMetadataDoesNotUseUnrelatedFrom(t *testing.T) {
 	// data into a real pre-receipt prefix; 145 and 150 backfill normally.
 	path := filepath.Join(t.TempDir(), "q7-creation-144.db")
 	db := openMigratedTo(t, path, 144)
-	copyFixtureDataToPrefix(t, s, db, []string{"products", "projects", "product_projects", "work_items", "work_projects"}, nil, "fold_guard")
+	copyFixtureDataToPrefix(t, s, db, []string{"products", "projects", "product_projects", "work_items", "work_projects"}, map[string]map[string]string{"work_items": {"priority": "0", "urgency": "'standard'"}}, "fold_guard")
 	for _, source := range append(parents, events...) {
 		var seq int64
 		if err := s.db.QueryRow(`SELECT effect_seq FROM effect_receipts WHERE event_id=?`, source.EventID).Scan(&seq); err != nil {

@@ -101,11 +101,6 @@ type RecoveryAction struct {
 	RequiredRefs []string `json:"required_refs,omitempty"`
 }
 
-type ExternalRefConflict struct {
-	ExistingWorkID string `json:"existing_work_id"`
-	ExternalRef    string `json:"external_ref"`
-}
-
 type InterveningAction struct {
 	ActionID   string `json:"action_id"`
 	SessionRef string `json:"session_ref"`
@@ -124,50 +119,22 @@ const MaxNotices = 16
 const MaxChangedRefs = 32
 
 type TypedError struct {
-	Kind                string               `json:"kind"`
-	RetrySafe           bool                 `json:"retry_safe"`
-	RecoveryAction      RecoveryAction       `json:"recovery_action"`
-	EffectState         EffectState          `json:"effect_state"`
-	AdapterReason       string               `json:"adapter_reason,omitempty"`
-	Message             string               `json:"message,omitempty"`
-	CurrentVersions     []ChangedRef         `json:"current_versions,omitempty"`
-	InterveningActions  []InterveningAction  `json:"intervening_actions,omitempty"`
-	Candidates          []string             `json:"candidates,omitempty"`
-	Violations          []string             `json:"violations,omitempty"`
-	Options             []string             `json:"options,omitempty"`
-	ExternalRefConflict *ExternalRefConflict `json:"external_ref_conflict,omitempty"`
+	Kind               string              `json:"kind"`
+	RetrySafe          bool                `json:"retry_safe"`
+	RecoveryAction     RecoveryAction      `json:"recovery_action"`
+	EffectState        EffectState         `json:"effect_state"`
+	AdapterReason      string              `json:"adapter_reason,omitempty"`
+	Message            string              `json:"message,omitempty"`
+	CurrentVersions    []ChangedRef        `json:"current_versions,omitempty"`
+	InterveningActions []InterveningAction `json:"intervening_actions,omitempty"`
+	Candidates         []string            `json:"candidates,omitempty"`
+	Violations         []string            `json:"violations,omitempty"`
 	// SupportedBudgetSeconds is the CD-0038 D3 typed ceiling. It rides every
 	// budget_refused error — seconds refusal, result-size overrun, and the
 	// legacy millisecond bound alike — so the value a caller needs to recover
 	// is a field, never a details entry an implementation may forget to mint.
 	SupportedBudgetSeconds int            `json:"supported_budget_seconds,omitempty"`
 	Details                map[string]any `json:"details,omitempty"`
-}
-
-// GoverningConflictOptions is the closed operator-choice vocabulary of CD-0035
-// D1/D5. It is the wire form of the three resolutions specs-as-laws.md section 4
-// and CD-0012 D6 name in prose.
-var GoverningConflictOptions = []string{"clarify", "amend_contract", "accept_scope_cut"}
-
-func validateOptions(err TypedError) error {
-	if len(err.Options) == 0 {
-		return nil
-	}
-	allowed := map[string]bool{"clarify": true, "amend_contract": true, "accept_scope_cut": true}
-	if len(err.Options) > len(allowed) || !UniqueNonEmpty(err.Options) {
-		return errors.New("invalid operator options")
-	}
-	for _, option := range err.Options {
-		if !allowed[option] {
-			return fmt.Errorf("unknown operator option %q", option)
-		}
-	}
-	// CD-0035 D1: options are permitted only on a governing-law conflict, and
-	// only alongside the recovery action that returns the choice to the operator.
-	if err.Kind != "invariant_violation" || err.RecoveryAction.Kind != "contact_operator" {
-		return errors.New("operator options coupling violated")
-	}
-	return nil
 }
 
 // Envelope is the closed TS7 wire envelope. Domain payloads remain raw JSON so
@@ -650,19 +617,7 @@ func validateError(err TypedError) error {
 			return errors.New("invalid current version reference")
 		}
 	}
-	if x := validateErrorReferenceCouplings(err); x != nil {
-		return x
-	}
 	return validateErrorRecoveryCouplings(err)
-}
-
-func validateErrorReferenceCouplings(err TypedError) error {
-	if err.ExternalRefConflict != nil {
-		if err.Kind != "operation_conflict" || !BoundedBytes(err.ExternalRefConflict.ExistingWorkID, 1, 128) || !BoundedBytes(err.ExternalRefConflict.ExternalRef, 1, 256) {
-			return errors.New("external reference conflict coupling violated")
-		}
-	}
-	return nil
 }
 
 func validateErrorRecoveryCouplings(err TypedError) error {
@@ -694,9 +649,6 @@ func validateErrorRecoveryCouplings(err TypedError) error {
 	}
 	if (err.Kind == "cancelled" || err.Kind == "timeout") && err.EffectState != EffectNone {
 		return errors.New("cancel/timeout must carry effect state none")
-	}
-	if x := validateOptions(err); x != nil {
-		return x
 	}
 	return nil
 }

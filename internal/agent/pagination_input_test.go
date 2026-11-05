@@ -130,7 +130,7 @@ func TestTopLevelLimitAnswersFirstCall(t *testing.T) {
 		capture := dispatchMutation(t, s, service, InvokeRequest{
 			Tool:      "concord_work_define",
 			Operation: "capture",
-			Input:     []byte(fmt.Sprintf(`{"title":"Pagination seed %d","value_statement":"pagination input contract fixture","kind":"task","project_ids":["proj-web"],"idempotency_key":"pagination-seed-%d"}`, i, i)),
+			Input:     []byte(fmt.Sprintf(`{"title":"Pagination seed %[1]d","task":"pagination input contract fixture","kind":"task","project_ids":["proj-web"],"idempotency_key":"pagination-seed-%[1]d","human_key":"PG-%[1]d","remote_issue_uuid":"pagination-%[1]d","url":"https://linear.app/example/issue/PG-%[1]d"}`, i)),
 		}, env)
 		if capture.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("capture seed %d outcome=%s error=%+v", i, capture.Outcome, capture.Error)
@@ -167,7 +167,7 @@ func TestEffectiveLimitPrecedence(t *testing.T) {
 		capture := dispatchMutation(t, s, service, InvokeRequest{
 			Tool:      "concord_work_define",
 			Operation: "capture",
-			Input:     []byte(fmt.Sprintf(`{"title":"Precedence seed %d","value_statement":"pagination precedence fixture","kind":"task","project_ids":["proj-web"],"idempotency_key":"precedence-seed-%d"}`, i, i)),
+			Input:     []byte(fmt.Sprintf(`{"title":"Precedence seed %[1]d","task":"pagination precedence fixture","kind":"task","project_ids":["proj-web"],"idempotency_key":"precedence-seed-%[1]d","human_key":"PR-%[1]d","remote_issue_uuid":"precedence-%[1]d","url":"https://linear.app/example/issue/PR-%[1]d"}`, i)),
 		}, env)
 		if capture.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("capture seed %d outcome=%s error=%+v", i, capture.Outcome, capture.Error)

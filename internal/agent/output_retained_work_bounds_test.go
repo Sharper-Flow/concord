@@ -38,12 +38,8 @@ func testWorkListRetainedText(t *testing.T, detail string) {
 		workID = "retained-work"
 	}
 	title := strings.Repeat("t", 257)
-	value := strings.Repeat("v", 257)
-	tag := strings.Repeat("g", 129)
-	workflow := strings.Repeat("f", 129)
 	payload, err := json.Marshal(map[string]any{
-		"work_kind": "task", "title": title, "value_statement": value,
-		"priority": 1, "tags": []string{tag}, "workflow_type_ref": workflow,
+		"work_kind": "task", "title": title,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +82,7 @@ func testWorkListRetainedText(t *testing.T, detail string) {
 			if item.Title != title {
 				t.Fatalf("the read changed retained work text: %+v", item)
 			}
-			if detail == "full" && (item.ValueStatement != value || item.WorkflowTypeRef != workflow || len(item.Tags) != 1 || item.Tags[0] != tag) {
+			if detail == "full" && item.Task != "" {
 				t.Fatalf("the full read changed retained intent: %+v", item)
 			}
 			return

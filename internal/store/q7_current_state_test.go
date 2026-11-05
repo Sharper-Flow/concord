@@ -35,26 +35,30 @@ func TestQ7CurrentStateWithoutLog(t *testing.T) {
 func TestQ7CurrentTransitionAndTieCursor(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
-	seedWork(t, s, "q7-prior")
-	seedWork(t, s, "q7-next")
-	version := readWorkVersion(t, s, "q7-prior")
-	event := workSupersededEvent("q7-superseded", "q7-next", "q7-prior", version, version+1)
-	if err := applyWorkEvent(t, s, event, workVersion("q7-prior", version)); err != nil {
+	seedWork(t, s, "q7-origin")
+	// The imported lifecycle and relation share one effect. Pagination must
+	// distinguish their positions without dropping either current row.
+	if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
+INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,relation_seq) VALUES('q7-capture',(SELECT COALESCE(MAX(effect_seq),0)+5 FROM effect_receipts),'relation.added','work_item','q7-captured','operator',1,1);
+INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at,transition_from,transition_reason,transition_actor,transition_evidence_refs,transition_seq,transition_version) VALUES('q7-captured','task','Tie cursor witness','needed',1,'2026-08-07T12:00:00Z','2026-08-07T12:00:00Z',NULL,'capture acknowledges the colliding external reference','operator','[]',(SELECT COALESCE(MAX(effect_seq),0) FROM effect_receipts),1);
+INSERT INTO relations(id,work_id_from,work_id_to,kind,created_at,reason,record_version) VALUES(1,'q7-captured','q7-origin','raised_from','2026-08-07T12:00:00Z','capture acknowledges the colliding external reference',1);
+DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
-	peer, err := s.QueryQ7(t.Context(), Q7Request{Work: "q7-next", RecordKinds: []string{"relation"}})
+	event := Event{EventID: "q7-capture", Kind: "relation.added", SubjectType: SubjectWorkItem, SubjectID: "q7-captured", Actor: "operator"}
+	peer, err := s.QueryQ7(t.Context(), Q7Request{Work: "q7-origin", RecordKinds: []string{"relation"}})
 	if err != nil || len(peer.Entries) != 1 {
-		t.Fatalf("successor relation: %+v, %v", peer.Entries, err)
+		t.Fatalf("raised_from relation: %+v, %v", peer.Entries, err)
 	}
-	if entry := peer.Entries[0]; entry.Version != version+1 || entry.VersionWorkID != "q7-prior" || entry.WorkIDFrom != "q7-next" {
+	if entry := peer.Entries[0]; entry.VersionWorkID != "q7-captured" || entry.WorkIDFrom != "q7-captured" || entry.WorkIDTo != "q7-origin" {
 		t.Fatalf("relation version must name its writing work, not its source endpoint: %+v", entry)
 	}
 	for _, direction := range []string{"oldest_first", "newest_first"} {
-		first, err := s.QueryQ7(t.Context(), Q7Request{Work: "q7-prior", Direction: direction, Limit: 1})
+		first, err := s.QueryQ7(t.Context(), Q7Request{Work: "q7-captured", Direction: direction, Limit: 1})
 		if err != nil || first.NextCursor == nil {
 			t.Fatalf("first tie page: %+v %v", first, err)
 		}
-		second, err := s.QueryQ7(t.Context(), Q7Request{Work: "q7-prior", Direction: direction, Limit: 1, Cursor: *first.NextCursor})
+		second, err := s.QueryQ7(t.Context(), Q7Request{Work: "q7-captured", Direction: direction, Limit: 1, Cursor: *first.NextCursor})
 		if err != nil || second.NextCursor != nil || len(second.Entries) != 1 {
 			t.Fatalf("second tie page: %+v %v", second, err)
 		}
@@ -62,22 +66,22 @@ func TestQ7CurrentTransitionAndTieCursor(t *testing.T) {
 			t.Fatalf("fixture must exercise the same effect's two current rows")
 		}
 		for _, entry := range append(first.Entries, second.Entries...) {
-			if entry.Version != version+1 || entry.VersionWorkID != "q7-prior" || entry.Reason != "test" || entry.Actor != event.Actor {
+			if entry.Version != 1 || entry.VersionWorkID != "q7-captured" || entry.Actor != event.Actor {
 				t.Fatalf("lost writing metadata: %+v", entry)
 			}
-			if entry.EntryKind == "lifecycle" && (entry.Lifecycle != "superseded" || entry.From == nil || *entry.From != "needed") {
-				t.Fatalf("lost lifecycle transition: %+v", entry)
+			if entry.EntryKind == "lifecycle" && entry.Lifecycle != "needed" {
+				t.Fatalf("lost lifecycle row: %+v", entry)
 			}
 		}
 		for _, changed := range []Q7Request{
-			{Work: "q7-next", Direction: direction, Cursor: *first.NextCursor},
-			{Work: "q7-prior", Direction: direction, RecordKinds: []string{"lifecycle"}, Cursor: *first.NextCursor},
+			{Work: "q7-origin", Direction: direction, Cursor: *first.NextCursor},
+			{Work: "q7-captured", Direction: direction, RecordKinds: []string{"lifecycle"}, Cursor: *first.NextCursor},
 		} {
 			_, err := s.QueryQ7(t.Context(), changed)
 			assertFailureKind(t, err, KindInvalidCursor)
 		}
 		old := base64.RawURLEncoding.EncodeToString([]byte(`{"version":1,"seq":1}`))
-		_, err = s.QueryQ7(t.Context(), Q7Request{Work: "q7-prior", Cursor: old})
+		_, err = s.QueryQ7(t.Context(), Q7Request{Work: "q7-captured", Cursor: old})
 		assertFailureKind(t, err, KindInvalidCursor)
 		raw, err := base64.RawURLEncoding.DecodeString(*first.NextCursor)
 		if err != nil {
@@ -93,12 +97,12 @@ func TestQ7CurrentTransitionAndTieCursor(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = s.QueryQ7(t.Context(), Q7Request{Work: "q7-prior", Direction: direction, Cursor: base64.RawURLEncoding.EncodeToString(raw)})
+		_, err = s.QueryQ7(t.Context(), Q7Request{Work: "q7-captured", Direction: direction, Cursor: base64.RawURLEncoding.EncodeToString(raw)})
 		assertFailureKind(t, err, KindInvalidCursor)
 		if err := s.Transact(t.Context(), func(tx *Transaction) error { return advanceStoreRevision(t.Context(), tx.tx) }); err != nil {
 			t.Fatal(err)
 		}
-		_, err = s.QueryQ7(t.Context(), Q7Request{Work: "q7-prior", Direction: direction, Cursor: *first.NextCursor})
+		_, err = s.QueryQ7(t.Context(), Q7Request{Work: "q7-origin", Direction: direction, Cursor: *first.NextCursor})
 		assertFailureKind(t, err, KindInvalidCursor)
 	}
 }

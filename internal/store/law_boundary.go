@@ -376,24 +376,6 @@ func contractQualifiedLawProjects(ctx context.Context, q queryer, workID, homePr
 	return projects, nil
 }
 
-// EstablishKnowledgeSourceSetProofForProject verifies the same law home before
-// a capture has written its primary membership. Initialization revalidates the
-// proof against that membership inside the capture's transaction.
-func (s *Store) EstablishKnowledgeSourceSetProofForProject(ctx context.Context, projectID string) (context.Context, error) {
-	if s == nil || s.db == nil {
-		return ctx, newFailure(KindUnavailable, "check_mandated_laws", "store is not open", false, "open a store before verifying mandated laws")
-	}
-	project, locator, err := workflowLawHomeForProject(ctx, s.db, projectID)
-	if err != nil {
-		return ctx, nil // Initialization owns absence and ambiguity admission.
-	}
-	return s.establishKnowledgeSourceSetProofAtHome(ctx, project, locator)
-}
-
-func (s *Store) establishKnowledgeSourceSetProofAtHome(ctx context.Context, homeProjectID, homeLocatorID string) (context.Context, error) {
-	return s.establishKnowledgeSourceSetProofAtHomes(ctx, homeProjectID, homeLocatorID, nil)
-}
-
 func (s *Store) establishKnowledgeSourceSetProofAtHomes(ctx context.Context, homeProjectID, homeLocatorID string, qualifiedProjects []string) (context.Context, error) {
 	productID, err := resolveKnowledgeSourceRole(ctx, s.db, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
 	if err != nil {

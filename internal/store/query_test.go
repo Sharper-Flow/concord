@@ -102,29 +102,12 @@ func TestQueryRejectsInvalidFilterAndCursorBinding(t *testing.T) {
 	}
 	_, err = s.QueryQ3(context.Background(), Q3Request{Product: "prod", LifecycleStates: []string{"in_progress"}, Limit: 1, Cursor: *page.NextCursor})
 	assertFailureKind(t, err, KindInvalidCursor)
-	malformed, err := json.Marshal(q3Cursor{Version: 1, QueryID: "PM1.Q3", Product: "prod", States: []string{"needed"}, Order: "priority:asc,relevant_time:desc,id:asc", Priority: 1, Timestamp: "not-a-timestamp", ID: "blocked"})
+	malformed, err := json.Marshal(q3Cursor{Version: 1, QueryID: "PM1.Q3", Product: "prod", States: []string{"needed"}, Order: "relevant_time:desc,id:asc", Timestamp: "not-a-timestamp", ID: "blocked"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = s.QueryQ3(context.Background(), Q3Request{Product: "prod", LifecycleStates: []string{"needed"}, Limit: 1, Cursor: base64.RawURLEncoding.EncodeToString(malformed)})
 	assertFailureKind(t, err, KindInvalidCursor)
-}
-
-func TestTerminalOnlyQ3RecognizesEveryTerminalFilter(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		states []string
-		want   bool
-	}{
-		{states: []string{"completed"}, want: true},
-		{states: []string{"cancelled", "superseded"}, want: true},
-		{states: []string{"needed", "completed"}, want: false},
-		{states: nil, want: false},
-	} {
-		if got := terminalOnlyQ3(tc.states); got != tc.want {
-			t.Fatalf("terminalOnlyQ3(%v) = %t, want %t", tc.states, got, tc.want)
-		}
-	}
 }
 
 func TestQueryDeduplicatesMultipleProjectMemberships(t *testing.T) {

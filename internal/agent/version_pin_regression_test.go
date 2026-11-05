@@ -78,7 +78,7 @@ func transitionFixture(t *testing.T) (*store.Store, *Service, CallEnvelope, stri
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	capture := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Version pin work","value_statement":"Pin the live version","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-version-pin"}`)}
+	capture := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Version pin work","kind":"task","project_ids":["project-1"],"idempotency_key":"capture-version-pin","human_key":"ZZ-9111","remote_issue_uuid":"fixture-capture-version-pin","url":"https://linear.app/example/issue/ZZ-9111"}`)}
 	captured, err := Dispatch(context.Background(), s, service, capture, env)
 	if err != nil || captured.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("capture response=%+v err=%v", captured, err)

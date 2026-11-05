@@ -217,7 +217,7 @@ func TestMigration88BackfillsWorkflowContractDefinitionAuthorityPins(t *testing.
 	}
 	const retained = `SELECT work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate FROM workflow_contracts WHERE work_id='migration-88-contract-pins'`
 	want := retirementUpgradeRows(t, db, retained)
-	if err := Migrate(ctx, db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, ctx, db), db); err != nil {
 		t.Fatal(err)
 	}
 	if got := retirementUpgradeRows(t, db, retained); !reflect.DeepEqual(got, want) {
@@ -610,7 +610,7 @@ func TestMigrateV22ToV23AddsBoundedInitiativeNarrative(t *testing.T) {
 	}
 	assertNarrativeBound("fold_guard", "pre-existing")
 	// The bound survives every later table rebuild to the current schema.
-	if err := Migrate(ctx, db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, ctx, db), db); err != nil {
 		t.Fatal(err)
 	}
 	assertNarrativeBound("write_guard", "pre-existing-task")
@@ -888,7 +888,7 @@ func TestMigrateV7ToV8PreservesValidMultiParentRelations(t *testing.T) {
 	}
 	// Breaking steps sit between v7 and the current schema, so the explicit
 	// upgrade applies them; open alone would stop before the first one.
-	if _, err := Upgrade(ctx, path, nil); err != nil {
+	if _, err := Upgrade(ctx, path, nil, outcomeSnapshotOption(t, ctx, path)); err != nil {
 		t.Fatal(err)
 	}
 	s, err := Open(ctx, path)
@@ -1254,7 +1254,7 @@ func TestMigration49SeedsVocabularyRegistriesAndGuardsNativePairs(t *testing.T) 
 			t.Errorf("remove write guard: %v", err)
 		}
 	}()
-	if _, err := db.ExecContext(ctx, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES('native-registry-work','task','Native registry','needed',1,1,'now','now',NULL)`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at,terminal_time) VALUES('native-registry-work','task','Native registry','needed',1,'now','now',NULL)`); err != nil {
 		t.Fatal(err)
 	}
 	insert := `INSERT INTO workflow_native_runs(work_id,run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at,capture_method,observed_universe,freshness_policy_ref,divergence_policy_ref) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
@@ -1364,7 +1364,7 @@ func TestMigration49UpgradesValidPreMigrationRows(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(ctx, db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, ctx, db), db); err != nil {
 		t.Fatalf("valid pre-migration rows failed upgrade: %v", err)
 	}
 	if version, err := readSchemaManifestVersion(ctx, db); err != nil || version != CurrentSchemaVersion() {
@@ -1378,7 +1378,7 @@ func TestMigration53UpgradesValidNativeRunVerificationState(t *testing.T) {
 	db := openV49(t, "native-run-v52-valid.db")
 	seedV49NativeRun(t, db, string(VerificationVerified))
 
-	if err := Migrate(ctx, db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, ctx, db), db); err != nil {
 		t.Fatalf("valid pre-migration row failed upgrade: %v", err)
 	}
 	if version, err := readSchemaManifestVersion(ctx, db); err != nil || version != CurrentSchemaVersion() {
@@ -1678,7 +1678,11 @@ func seedRigorClassPrerequisites(t *testing.T, db *sql.DB) string {
 	if _, err := db.ExecContext(ctx, `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'principal:rigor','client:rigor','agent:rigor','session:rigor','operator','now')`, actorRef); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES('rigor-class-work','task','Rigor class','needed',1,1,'now','now',NULL)`); err != nil {
+	workSQL := `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES('rigor-class-work','task','Rigor class','needed',1,1,'now','now',NULL)`
+	if !tableColumns(t, db, "work_items")["priority"] {
+		workSQL = `INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at,terminal_time) VALUES('rigor-class-work','task','Rigor class','needed',1,'now','now',NULL)`
+	}
+	if _, err := db.ExecContext(ctx, workSQL); err != nil {
 		t.Fatal(err)
 	}
 	return actorRef
@@ -2038,16 +2042,9 @@ func TestMigrateV47ToV48RenamesResearchScopeComponentToDomain(t *testing.T) {
 		t.Fatal("post-migration home guard admitted an explicit scope ID")
 	}
 	// Replay the populated historical table through the schema before its retirement.
-	for _, m := range migrations[48:] {
-		if err := applyMigration(ctx, db, m); err != nil {
-			t.Fatalf("migration %d (%s): %v", m.Version, m.Name, err)
-		}
-		if _, err := db.ExecContext(ctx,
-			`INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`,
-			m.Version, m.Name, m.checksum(), appliedAt,
-		); err != nil {
-			t.Fatalf("manifest record for migration %d: %v", m.Version, err)
-		}
+	advanceHistoricalPrefix(t, db, 185)
+	if err := Migrate(outcomeSnapshotContext(t, ctx, db), db); err != nil {
+		t.Fatal(err)
 	}
 	var latest int
 	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&latest); err != nil {

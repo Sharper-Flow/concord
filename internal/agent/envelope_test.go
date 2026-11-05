@@ -67,7 +67,7 @@ func TestOperationPayloadValidationNamesSiblingOperationForUnknownField(t *testi
 func TestOperationPayloadValidationNamesEveryMissingAndUnknownField(t *testing.T) {
 	t.Parallel()
 	payload := []byte(`{"work_id":"w-1","expected_version":1,"kind":"task","reason":"revise","idempotency_key":"idem-1","unknown_extra":true}`)
-	want := "missing payload field title; missing payload field value_statement; unknown payload field unknown_extra"
+	want := "missing payload field title; unknown payload field unknown_extra"
 	for range 50 {
 		err := agentcontract.ValidateOperationPayload("concord_work_define", "revise_intent", payload, false)
 		if err == nil {

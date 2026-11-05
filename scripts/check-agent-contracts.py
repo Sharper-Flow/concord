@@ -317,7 +317,7 @@ def _structured_scenario_check(corpus: dict) -> list[str]:
     if workflow_types != template_types:
         findings.append("scenario workflow types differ from the template contract")
     required = {
-        "capture": {"payload", "title", "value_statement", "project_ids"},
+        "capture": {"payload", "title", "project_ids"},
         "approve_contract": {"premise", "decision_domains"},
         "confirm_premise": set(),
         "complete": {"impact_verdict"},

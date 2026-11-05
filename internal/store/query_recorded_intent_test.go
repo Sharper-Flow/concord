@@ -5,13 +5,9 @@ import (
 	"testing"
 )
 
-// The full-detail list read must project every revisable
-// value the stored intent holds (task, value statement, tags, and workflow
-// type reference, beside the urgency and priority columns) so a coordinator
-// can carry the complete intent into a task-only complete-replacement
-// revision. The recorded workflow_type_ref comes from the intent projection
-// only; the pinned workflow instance is not a substitute. Bounded summary
-// reads keep their column-only shape.
+// The full-detail list read is the authoritative intent read: it projects the
+// captured note the stored intent holds so a coordinator can carry it into a
+// revision. Bounded summary reads keep their column-only shape.
 func TestFullListReadsCarryTheRecordedIntent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -21,107 +17,50 @@ func TestFullListReadsCarryTheRecordedIntent(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`UPDATE work_items SET priority=-7, urgency='expedite', intent_json=json_set(intent_json,
-		'$.task', 'Recorded instruction for the carrying coordinator',
-		'$.value_statement', 'A task-only revision must not reset intent',
-		'$.tags', json_array('agent-plane', 'storage'),
-		'$.workflow_type_ref', 'workflow.break_fix',
-		'$.external_ref', 'linear:CON-835-9') WHERE id=?`, "intent-read-work"); err != nil {
+	if _, err := db.Exec(`UPDATE work_items SET intent_json=json_set(intent_json,
+		'$.task', 'Recorded instruction for the carrying coordinator') WHERE id=?`, "intent-read-work"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
-
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{operationEvent("intent-read-work-membership", "work.memberships_replaced", SubjectWorkItem, "intent-read-work", map[string]any{
+		"memberships":      []map[string]any{{"project_id": "project", "role": "primary"}},
+		"expected_version": 2, "resulting_version": 3,
+	})}}); err != nil {
+		t.Fatal(err)
+	}
 	full, err := s.QueryQ3(ctx, Q3Request{Product: "product", WorkIDs: []string{"intent-read-work"}, Detail: "full"})
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || len(full.Items) != 1 {
+		t.Fatalf("full read = %+v, %v", full.Items, err)
 	}
-	if len(full.Items) != 1 {
-		t.Fatalf("full-detail listing returned %d items, want one", len(full.Items))
+	if full.Items[0].Task != "Recorded instruction for the carrying coordinator" {
+		t.Fatalf("full read lost the note: %+v", full.Items[0])
 	}
-	assertRecordedIntent(t, full.Items[0], "full-detail list read")
-
-	summary, err := s.QueryQ3(ctx, Q3Request{Product: "product", WorkIDs: []string{"intent-read-work"}})
-	if err != nil {
-		t.Fatal(err)
+	preview, err := s.QueryQ3(ctx, Q3Request{Product: "product", WorkIDs: []string{"intent-read-work"}})
+	if err != nil || len(preview.Items) != 1 {
+		t.Fatalf("summary read = %+v, %v", preview.Items, err)
 	}
-	if len(summary.Items) != 1 {
-		t.Fatalf("summary listing returned %d items, want one", len(summary.Items))
-	}
-	item := summary.Items[0]
-	if item.Task != "" || item.ValueStatement != "" || item.Tags != nil || item.WorkflowTypeRef != "" {
-		t.Fatalf("summary listing carried intent detail: task=%q value_statement=%q tags=%#v workflow_type_ref=%q", item.Task, item.ValueStatement, item.Tags, item.WorkflowTypeRef)
-	}
-	if item.Urgency != "expedite" || item.Priority != -7 {
-		t.Fatalf("summary listing urgency=%q priority=%d, want the declared columns carried", item.Urgency, item.Priority)
-	}
-
-	preview, err := s.QueryQ2(ctx, Q2Request{Product: "product", PreviewLimit: 5})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(preview.Items) == 0 {
-		t.Fatal("snapshot preview returned no items")
-	}
-	if preview.Items[0].Task != "" || preview.Items[0].ValueStatement != "" || preview.Items[0].Tags != nil || preview.Items[0].WorkflowTypeRef != "" {
-		t.Fatalf("snapshot preview carried intent detail: %+v", preview.Items[0])
+	if preview.Items[0].Task != "" {
+		t.Fatalf("summary read carried intent detail: %+v", preview.Items[0])
 	}
 }
 
-// An absent recorded workflow_type_ref stays absent even though every
-// capture pins a workflow instance: the intent projection is the only
-// source, so the read never substitutes the pinned family. An explicitly
-// empty tag array stays the empty array rather than collapsing to absent.
-func TestFullListPreservesAbsentAndEmptyIntentStates(t *testing.T) {
+func TestFullListPreservesAbsentNoteState(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
 	s := openTemp(t)
-	seedWork(t, s, "intent-empty-work")
-	db := s.DatabaseForTesting()
-	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
+	seedWork(t, s, "absent-note-work")
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{operationEvent("absent-note-work-membership", "work.memberships_replaced", SubjectWorkItem, "absent-note-work", map[string]any{
+		"memberships":      []map[string]any{{"project_id": "project", "role": "primary"}},
+		"expected_version": 2, "resulting_version": 3,
+	})}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`UPDATE work_items SET intent_json=json_set(intent_json, '$.tags', json_array()) WHERE id=?`, "intent-empty-work"); err != nil {
-		t.Fatal(err)
+	empty, err := s.QueryQ3(context.Background(), Q3Request{Product: "product", WorkIDs: []string{"absent-note-work"}, Detail: "full"})
+	if err != nil || len(empty.Items) != 1 {
+		t.Fatalf("full read = %+v, %v", empty.Items, err)
 	}
-	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-
-	scope, err := s.QueryQ3(ctx, Q3Request{Product: "product", WorkIDs: []string{"intent-empty-work"}, Detail: "full"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(scope.Items) != 1 {
-		t.Fatal("list did not return one work item")
-	}
-	if scope.Items[0].WorkflowTypeRef != "" {
-		t.Fatalf("list workflow_type_ref = %q, want absent: the intent projection, not the pinned instance, is the read's source", scope.Items[0].WorkflowTypeRef)
-	}
-	if scope.Items[0].Tags == nil || len(scope.Items[0].Tags) != 0 {
-		t.Fatalf("list tags = %#v, want the recorded empty array", scope.Items[0].Tags)
-	}
-	if scope.Items[0].Urgency != "standard" {
-		t.Fatalf("list urgency = %q, want the recorded default band", scope.Items[0].Urgency)
-	}
-}
-
-func assertRecordedIntent(t *testing.T, item WorkItem, surface string) {
-	t.Helper()
-	if item.Task != "Recorded instruction for the carrying coordinator" {
-		t.Fatalf("%s task = %q, want the recorded task", surface, item.Task)
-	}
-	if item.ValueStatement != "A task-only revision must not reset intent" {
-		t.Fatalf("%s value_statement = %q, want the recorded value statement", surface, item.ValueStatement)
-	}
-	if item.Urgency != "expedite" || item.Priority != -7 {
-		t.Fatalf("%s urgency=%q priority=%d, want the recorded columns", surface, item.Urgency, item.Priority)
-	}
-	if len(item.Tags) != 2 || item.Tags[0] != "agent-plane" || item.Tags[1] != "storage" {
-		t.Fatalf("%s tags = %#v, want the recorded tags", surface, item.Tags)
-	}
-	if item.WorkflowTypeRef != "workflow.break_fix" {
-		t.Fatalf("%s workflow_type_ref = %q, want the recorded intent reference", surface, item.WorkflowTypeRef)
+	if empty.Items[0].Task != "" {
+		t.Fatalf("absent note must read empty: %+v", empty.Items[0])
 	}
 }

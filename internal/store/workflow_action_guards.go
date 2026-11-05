@@ -161,9 +161,6 @@ func assemblePlanWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, request
 	if err != nil {
 		return nil, err
 	}
-	if request.ActionID == "record_work_context" {
-		return events, nil
-	}
 	values := map[string]any{"step_id": stepID, "action_id": request.ActionID, "attempt_epoch": epoch, "result_evidence_refs": evidenceRefs, "changed_refs": []string{request.WorkID}, "actor_ref": actor}
 	fields, err := workflowActionObject(request.Payload)
 	if err != nil {

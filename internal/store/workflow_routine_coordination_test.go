@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -66,7 +65,6 @@ func overlapContentFixture(t *testing.T) (*Store, WorkflowArchitectureBinding, s
 	s, _, binding, _ := architectureValidationFixture(t, "content-left")
 	commitWorkflowFixtureRegistry(t, KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}, overlapFixtureRegistry(t))
 	seedWork(t, s, "content-right")
-	overlapFixtureExec(t, s, `UPDATE work_items SET intent_json=json_set(intent_json,'$.governing_requirements',json('[]')) WHERE id IN ('content-left','content-right')`)
 	actor := seedProductChangingContract(t, s, "content-left", binding)
 	seedProductChangingContract(t, s, "content-right", binding)
 	ref, err := WorkflowActorRef(actor)
@@ -121,18 +119,6 @@ func TestRoutineCoordination(t *testing.T) {
 					t.Fatalf("payload version=%d", version)
 				}
 			})
-		}
-	})
-	t.Run("a v2 governing scope cut without cross scope refuses", func(t *testing.T) {
-		t.Parallel()
-		s, _, actor := overlapContentFixture(t)
-		overlapFixtureExec(t, s, `UPDATE work_items SET intent_json=json_set(intent_json,'$.governing_requirements',json('["audit_required"]')) WHERE id='content-left'`)
-		from, to := routinePairVersions(t, s)
-		event := routineOverlapBoundaryEvent("routine-v2-scope-cut", actor, from, to, ResolutionMergedInto, 2)
-		err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion("content-left", from)})
-		failure := routineFailure(t, err)
-		if failure.Kind != KindUnauthorized || len(failure.Violations) != 1 || failure.Violations[0] != "audit_required" {
-			t.Fatalf("scope cut=%v", err)
 		}
 	})
 }

@@ -47,22 +47,8 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 		}
 		variants = append(variants, name)
 	}
-	if store.WorkContextActionFindingsMax != 16 {
-		t.Fatalf("WorkContextActionFindingsMax = %d, want 16; the finding-reference derivation rests on it", store.WorkContextActionFindingsMax)
-	}
 	// Writer-owned bounds apply to every current variant's schema walk.
-	findingRefMax := 2 + len("finding:") + 19 + 1 + 2
-	digestWire := 2 + len("sha256:") + 64
-	commitOIDWire := 2 + 64
-	const recordContext = "work_transition_action_variant_record_work_context"
-	opt := schemawire.Options{
-		Defs: defs,
-		PathBounds: map[string]int{
-			recordContext + "/fields/required_reading/items/work_context_reading/source/oneOf/work_context_reading_source_repository_file/commit_oid": commitOIDWire,
-			recordContext + "/fields/required_reading/items/work_context_reading/source/oneOf/work_context_reading_source_knowledge/content_hash":     digestWire,
-		},
-		FindingRefMax: findingRefMax,
-	}
+	opt := schemawire.Options{Defs: defs}
 	widest, widestName := 0, ""
 	for _, name := range variants {
 		size, err := schemawire.Max(defs[name], name, opt)

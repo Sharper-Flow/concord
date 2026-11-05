@@ -288,8 +288,8 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 	} else if err != nil {
 		return wrapFailure(KindUnavailable, "work_removal", "cannot read work item", true, "retry once the database is readable", err)
 	}
-	if lifecycle == "completed" || lifecycle == "superseded" {
-		return newFailure(KindInvalidOperation, "work_removal", "completed and superseded work cannot be removed by this operation", false, "retain terminal work or use a separately accepted retention operation")
+	if lifecycle == "completed" {
+		return newFailure(KindInvalidOperation, "work_removal", "completed work cannot be removed by this operation", false, "retain terminal work or use a separately accepted retention operation")
 	}
 	var got int64
 	if err := q.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, req.WorkID).Scan(&got); err != nil {

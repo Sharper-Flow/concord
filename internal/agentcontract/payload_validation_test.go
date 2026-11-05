@@ -96,7 +96,7 @@ func TestValidateOperationPayloadEnforcesDetailedSchema(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct{ payload, want string }{
 		{`[]`, "payload is not an object"},
-		{`{"title":"T","value_statement":"V","kind":"bogus","project_ids":["project-1"],"idempotency_key":"probe"}`, "enum mismatch at $.kind"},
+		{`{"title":"T","kind":"bogus","project_ids":["project-1"],"idempotency_key":"probe","human_key":"ZZ-1","remote_issue_uuid":"fixture-1","url":"https://linear.app/example/issue/ZZ-1"}`, "enum mismatch at $.kind"},
 	} {
 		err := agentcontract.ValidateOperationPayload("concord_work_define", "capture", []byte(test.payload), false)
 		if err == nil || !strings.Contains(err.Error(), test.want) {

@@ -140,67 +140,62 @@ func decodeRegisteredPayload(event Event, target any) error {
 
 // eventKindRegistry binds each current payload schema to its fold and authority.
 var eventKindRegistry = map[string]EventKindRegistration{
-	"product.created":                         registerEventKind[productCreatedPayload](1, EventAppendAuthorityGeneric, foldProductCreated, nil),
-	"product.renamed":                         registerEventKind[productRenamedPayload](1, EventAppendAuthorityGeneric, foldProductRenamed, nil),
-	"product.stage_changed":                   registerEventKind[productStageChangedPayload](1, EventAppendAuthorityGeneric, foldProductStageChanged, nil),
-	"project.created":                         registerEventKind[projectCreatedPayload](2, EventAppendAuthorityGeneric, foldProjectCreated, nil),
-	"project.renamed":                         registerEventKind[projectRenamedPayload](1, EventAppendAuthorityGeneric, foldProjectRenamed, nil),
-	"project.stage_changed":                   registerEventKind[projectStageChangedPayload](1, EventAppendAuthorityGeneric, foldProjectStageChanged, nil),
-	"project.locator_added":                   registerEventKind[projectLocatorPayload](2, EventAppendAuthorityGeneric, foldProjectLocatorAdded, nil),
-	"project.locator_updated":                 registerEventKind[projectLocatorPayload](2, EventAppendAuthorityGeneric, foldProjectLocatorUpdated, nil),
-	"project.locator_removed":                 registerEventKind[projectLocatorPayload](1, EventAppendAuthorityGeneric, foldProjectLocatorRemoved, nil),
-	"project.governing_requirement_declared":  registerEventKind[GoverningRequirement](1, EventAppendAuthorityGeneric, foldProjectGoverningRequirementDeclared, nil),
-	"project.governing_requirement_withdrawn": registerEventKind[GoverningRequirement](1, EventAppendAuthorityGeneric, foldProjectGoverningRequirementWithdrawn, nil),
-	"work.created":                            registerEventKind[workCreatedPayload](4, EventAppendAuthorityGeneric, foldWorkCreated, validateWorkCreatedPayload),
-	"work.intent_revised":                     registerScopedEventKind[workIntentPayload](1, EventAppendAuthorityGeneric, foldWorkIntentRevised, nil),
-	WorkRemoved:                               registerEventKind[workRemovedPayload](1, EventAppendAuthorityGeneric, foldWorkRemoved, nil),
-	"work.memberships_replaced":               registerEventKind[workMembershipsPayload](1, EventAppendAuthorityGeneric, foldWorkMembershipsReplaced, nil),
-	EventExternalObservationCaptured:          registerEventKind[externalObservationCapturedPayload](1, EventAppendAuthorityGeneric, foldExternalObservationCaptured, nil),
-	EventExternalObservationVerified:          registerEventKind[externalObservationVerifiedPayload](1, EventAppendAuthorityGeneric, foldExternalObservationVerified, nil),
-	"work.project_handoff_recorded":           registerEventKind[projectHandoffRecordedPayload](1, EventAppendAuthorityGeneric, foldProjectHandoffRecorded, validateProjectHandoffRecordedPayload),
-	"work.project_handoff_consumed":           registerEventKind[projectHandoffConsumedPayload](1, EventAppendAuthorityGeneric, foldProjectHandoffConsumed, nil),
-	"work.transitioned":                       registerScopedEventKind[workTransitionPayload](1, EventAppendAuthorityGeneric, foldWorkTransitioned, nil),
-	"work.superseded":                         registerEventKind[workSupersededPayload](1, EventAppendAuthorityGeneric, foldWorkSuperseded, nil),
-	"work.reopened":                           registerEventKind[workReopenedPayload](1, EventAppendAuthorityGeneric, foldWorkReopened, nil),
-	"work.reopened_from_superseded":           registerEventKind[workReopenedFromSupersededPayload](1, EventAppendAuthorityGeneric, foldWorkReopenedFromSuperseded, nil),
-	"relation.added":                          registerEventKind[relationPayload](1, EventAppendAuthorityGeneric, foldRelationAdded, nil),
-	"relation.removed":                        registerEventKind[relationPayload](1, EventAppendAuthorityGeneric, foldRelationRemoved, nil),
-	"product_project.added":                   registerEventKind[membershipPayload](1, EventAppendAuthorityGeneric, productMembershipEdge.foldAdded, nil),
-	"product_project.removed":                 registerEventKind[membershipPayload](1, EventAppendAuthorityGeneric, productMembershipEdge.foldRemoved, nil),
-	"product_project.role_changed":            registerEventKind[membershipPayload](1, EventAppendAuthorityGeneric, productMembershipEdge.foldRoleChanged, nil),
-	"product.knowledge_home_designated":       registerEventKind[knowledgeHomePayload](1, EventAppendAuthorityGeneric, foldProductKnowledgeHomeDesignated, nil),
-	"product.knowledge_home_cleared":          registerEventKind[knowledgeHomePayload](1, EventAppendAuthorityGeneric, foldProductKnowledgeHomeCleared, nil),
-	"work_project.added":                      registerEventKind[membershipPayload](1, EventAppendAuthorityGeneric, workMembershipEdge.foldAdded, nil),
-	"work_project.removed":                    registerEventKind[membershipPayload](1, EventAppendAuthorityGeneric, workMembershipEdge.foldRemoved, nil),
-	"work_project.role_changed":               registerEventKind[membershipPayload](1, EventAppendAuthorityGeneric, workMembershipEdge.foldRoleChanged, nil),
-	"domain.observation_recorded":             registerEventKind[domainObservationRecordedPayload](1, EventAppendAuthorityGeneric, foldDomainObservationRecorded, nil),
-	"domain.observation_dismissed":            registerEventKind[domainObservationDismissedPayload](1, EventAppendAuthorityGeneric, foldDomainObservationDismissed, nil),
-	WorkflowDefinitionSelected:                workflowScopedRegistration[workflowDefinitionSelectedPayload](1, foldWorkflowDefinitionSelected),
-	WorkflowIntakeRecorded:                    workflowRegistration[workflowIntakeRecordedPayload](1, foldWorkflowIntakeRecorded),
-	WorkflowClarifyRecorded:                   workflowRegistration[workflowClarifyRecordedPayload](1, foldWorkflowClarifyRecorded),
-	WorkflowTypePicked:                        workflowRegistration[workflowTypePickedPayload](1, foldWorkflowTypePicked),
-	WorkflowStepInserted:                      workflowRegistration[workflowStepInsertedPayload](1, foldWorkflowStepInserted),
-	WorkflowStepCompleted:                     workflowRegistration[workflowStepCompletedPayload](1, foldWorkflowStepCompleted),
-	WorkflowPlanRecorded:                      workflowRegistration[workflowPlanRecordedPayload](1, foldWorkflowPlanRecorded),
-	WorkflowRemovalScopeRecorded:              workflowRegistration[workflowRemovalScopeRecordedPayload](1, foldWorkflowRemovalScopeRecorded),
-	WorkflowContractApproved:                  workflowScopedRegistration[workflowContractApprovedPayload](workflowContractPayloadVersion, foldWorkflowContractApproved),
-	WorkflowOverlapResolved:                   workflowRegistration[workflowOverlapResolvedPayload](2, foldWorkflowOverlapResolved),
-	WorkflowNativeRunRecorded:                 registerEventKind[nativeRunPayload](2, EventAppendAuthorityGeneric, foldNativeRunRecorded, validateNativeRunPayload),
-	WorkflowCandidateSetRevised:               workflowRegistration[workflowCandidateSetRevisedPayload](1, foldWorkflowCandidateSetRevised),
-	WorkflowActorRecorded:                     workflowRegistration[workflowActorRecordedPayload](1, foldWorkflowActorRecorded),
-	WorkflowActionStarted:                     workflowScopedRegistration[workflowActionStartedPayload](1, foldWorkflowActionStarted),
-	WorkflowActionCheckpointed:                workflowScopedRegistration[workflowActionCheckpointedPayload](1, foldWorkflowActionCheckpointed),
-	WorkflowActionCompleted:                   workflowScopedRegistration[workflowActionCompletedPayload](8, foldWorkflowActionCompleted),
-	WorkflowActionFailed:                      workflowScopedRegistration[workflowActionFailedPayload](1, foldWorkflowActionFailed),
-	WorkflowEvidenceBound:                     workflowRegistration[workflowEvidenceBoundPayload](1, foldWorkflowEvidenceBound),
-	WorkflowPremiseConfirmed:                  workflowScopedRegistration[workflowPremiseConfirmedPayload](2, foldWorkflowPremiseConfirmed),
-	WorkflowSuccessorLinked:                   workflowRegistration[workflowSuccessorLinkedPayload](3, foldWorkflowSuccessorLinked),
-	WorkflowWorkContextRecorded:               workflowRegistration[workflowWorkContextRecordedPayload](1, foldWorkflowWorkContextRecorded),
-	WorkflowProposalRecorded:                  workflowRegistration[workflowProposalRecordedPayload](1, foldWorkflowProposalRecorded),
-	WorkflowDesignRecorded:                    workflowRegistration[workflowDesignRecordedPayload](1, foldWorkflowDesignRecorded),
-	WorkflowBacklogAlignmentRecorded:          workflowRegistration[workflowBacklogAlignmentRecordedPayload](1, foldWorkflowBacklogAlignmentRecorded),
-	WorkflowDiagnosisRecorded:                 workflowRegistration[workflowDiagnosisRecordedPayload](1, foldWorkflowDiagnosisRecorded),
-	WorkflowCompleted:                         workflowScopedRegistration[workflowCompletedPayload](2, foldWorkflowCompleted),
+	"product.created":                   registerEventKind[productCreatedPayload](1, EventAppendAuthorityGeneric, foldProductCreated, nil),
+	"product.renamed":                   registerEventKind[productRenamedPayload](1, EventAppendAuthorityGeneric, foldProductRenamed, nil),
+	"product.stage_changed":             registerEventKind[productStageChangedPayload](1, EventAppendAuthorityGeneric, foldProductStageChanged, nil),
+	"project.created":                   registerEventKind[projectCreatedPayload](2, EventAppendAuthorityGeneric, foldProjectCreated, nil),
+	"project.renamed":                   registerEventKind[projectRenamedPayload](1, EventAppendAuthorityGeneric, foldProjectRenamed, nil),
+	"project.stage_changed":             registerEventKind[projectStageChangedPayload](1, EventAppendAuthorityGeneric, foldProjectStageChanged, nil),
+	"project.locator_added":             registerEventKind[projectLocatorPayload](2, EventAppendAuthorityGeneric, foldProjectLocatorAdded, nil),
+	"project.locator_updated":           registerEventKind[projectLocatorPayload](2, EventAppendAuthorityGeneric, foldProjectLocatorUpdated, nil),
+	"project.locator_removed":           registerEventKind[projectLocatorPayload](1, EventAppendAuthorityGeneric, foldProjectLocatorRemoved, nil),
+	"work.created":                      registerEventKind[workCreatedPayload](4, EventAppendAuthorityGeneric, foldWorkCreated, nil),
+	"work.intent_revised":               registerScopedEventKind[workIntentPayload](1, EventAppendAuthorityGeneric, foldWorkIntentRevised, nil),
+	WorkRemoved:                         registerEventKind[workRemovedPayload](1, EventAppendAuthorityGeneric, foldWorkRemoved, nil),
+	"work.memberships_replaced":         registerEventKind[workMembershipsPayload](1, EventAppendAuthorityGeneric, foldWorkMembershipsReplaced, nil),
+	EventExternalObservationCaptured:    registerEventKind[externalObservationCapturedPayload](1, EventAppendAuthorityGeneric, foldExternalObservationCaptured, nil),
+	EventExternalObservationVerified:    registerEventKind[externalObservationVerifiedPayload](1, EventAppendAuthorityGeneric, foldExternalObservationVerified, nil),
+	"work.project_handoff_recorded":     registerEventKind[projectHandoffRecordedPayload](1, EventAppendAuthorityGeneric, foldProjectHandoffRecorded, validateProjectHandoffRecordedPayload),
+	"work.project_handoff_consumed":     registerEventKind[projectHandoffConsumedPayload](1, EventAppendAuthorityGeneric, foldProjectHandoffConsumed, nil),
+	"work.transitioned":                 registerScopedEventKind[workTransitionPayload](1, EventAppendAuthorityGeneric, foldWorkTransitioned, nil),
+	"work.reopened":                     registerEventKind[workReopenedPayload](1, EventAppendAuthorityGeneric, foldWorkReopened, nil),
+	"relation.added":                    registerEventKind[relationPayload](1, EventAppendAuthorityGeneric, foldRelationAdded, nil),
+	"relation.removed":                  registerEventKind[relationPayload](1, EventAppendAuthorityGeneric, foldRelationRemoved, nil),
+	"product_project.added":             registerEventKind[membershipPayload](1, EventAppendAuthorityGeneric, productMembershipEdge.foldAdded, nil),
+	"product_project.removed":           registerEventKind[membershipPayload](1, EventAppendAuthorityGeneric, productMembershipEdge.foldRemoved, nil),
+	"product_project.role_changed":      registerEventKind[membershipPayload](1, EventAppendAuthorityGeneric, productMembershipEdge.foldRoleChanged, nil),
+	"product.knowledge_home_designated": registerEventKind[knowledgeHomePayload](1, EventAppendAuthorityGeneric, foldProductKnowledgeHomeDesignated, nil),
+	"product.knowledge_home_cleared":    registerEventKind[knowledgeHomePayload](1, EventAppendAuthorityGeneric, foldProductKnowledgeHomeCleared, nil),
+	"work_project.added":                registerEventKind[membershipPayload](1, EventAppendAuthorityGeneric, workMembershipEdge.foldAdded, nil),
+	"work_project.removed":              registerEventKind[membershipPayload](1, EventAppendAuthorityGeneric, workMembershipEdge.foldRemoved, nil),
+	"work_project.role_changed":         registerEventKind[membershipPayload](1, EventAppendAuthorityGeneric, workMembershipEdge.foldRoleChanged, nil),
+	"domain.observation_recorded":       registerEventKind[domainObservationRecordedPayload](1, EventAppendAuthorityGeneric, foldDomainObservationRecorded, nil),
+	"domain.observation_dismissed":      registerEventKind[domainObservationDismissedPayload](1, EventAppendAuthorityGeneric, foldDomainObservationDismissed, nil),
+	WorkflowDefinitionSelected:          workflowScopedRegistration[workflowDefinitionSelectedPayload](1, foldWorkflowDefinitionSelected),
+	WorkflowIntakeRecorded:              workflowRegistration[workflowIntakeRecordedPayload](1, foldWorkflowIntakeRecorded),
+	WorkflowClarifyRecorded:             workflowRegistration[workflowClarifyRecordedPayload](1, foldWorkflowClarifyRecorded),
+	WorkflowTypePicked:                  workflowRegistration[workflowTypePickedPayload](1, foldWorkflowTypePicked),
+	WorkflowStepInserted:                workflowRegistration[workflowStepInsertedPayload](1, foldWorkflowStepInserted),
+	WorkflowStepCompleted:               workflowRegistration[workflowStepCompletedPayload](1, foldWorkflowStepCompleted),
+	WorkflowPlanRecorded:                workflowRegistration[workflowPlanRecordedPayload](1, foldWorkflowPlanRecorded),
+	WorkflowRemovalScopeRecorded:        workflowRegistration[workflowRemovalScopeRecordedPayload](1, foldWorkflowRemovalScopeRecorded),
+	WorkflowContractApproved:            workflowScopedRegistration[workflowContractApprovedPayload](workflowContractPayloadVersion, foldWorkflowContractApproved),
+	WorkflowOverlapResolved:             workflowRegistration[workflowOverlapResolvedPayload](2, foldWorkflowOverlapResolved),
+	WorkflowNativeRunRecorded:           registerEventKind[nativeRunPayload](2, EventAppendAuthorityGeneric, foldNativeRunRecorded, validateNativeRunPayload),
+	WorkflowCandidateSetRevised:         workflowRegistration[workflowCandidateSetRevisedPayload](1, foldWorkflowCandidateSetRevised),
+	WorkflowActorRecorded:               workflowRegistration[workflowActorRecordedPayload](1, foldWorkflowActorRecorded),
+	WorkflowActionStarted:               workflowScopedRegistration[workflowActionStartedPayload](1, foldWorkflowActionStarted),
+	WorkflowActionCheckpointed:          workflowScopedRegistration[workflowActionCheckpointedPayload](1, foldWorkflowActionCheckpointed),
+	WorkflowActionCompleted:             workflowScopedRegistration[workflowActionCompletedPayload](8, foldWorkflowActionCompleted),
+	WorkflowActionFailed:                workflowScopedRegistration[workflowActionFailedPayload](1, foldWorkflowActionFailed),
+	WorkflowEvidenceBound:               workflowRegistration[workflowEvidenceBoundPayload](1, foldWorkflowEvidenceBound),
+	WorkflowPremiseConfirmed:            workflowScopedRegistration[workflowPremiseConfirmedPayload](2, foldWorkflowPremiseConfirmed),
+	WorkflowSuccessorLinked:             workflowRegistration[workflowSuccessorLinkedPayload](3, foldWorkflowSuccessorLinked),
+	WorkflowProposalRecorded:            workflowRegistration[workflowProposalRecordedPayload](1, foldWorkflowProposalRecorded),
+	WorkflowDesignRecorded:              workflowRegistration[workflowDesignRecordedPayload](1, foldWorkflowDesignRecorded),
+	WorkflowBacklogAlignmentRecorded:    workflowRegistration[workflowBacklogAlignmentRecordedPayload](1, foldWorkflowBacklogAlignmentRecorded),
+	WorkflowDiagnosisRecorded:           workflowRegistration[workflowDiagnosisRecordedPayload](1, foldWorkflowDiagnosisRecorded),
+	WorkflowCompleted:                   workflowScopedRegistration[workflowCompletedPayload](2, foldWorkflowCompleted),
 }
 
 // validateEventKindRegistry checks one registration map. It takes the map as a
@@ -466,7 +461,7 @@ func applyOperationWithResult(ctx context.Context, s *Store, operation Operation
 			"retry once the database is writable", err)
 	}
 	rollback := func(cause error) error {
-		_ = tx.Rollback()
+		tx.finish(&cause)
 		return cause
 	}
 	scope, err := beginWrite(ctx, tx.Tx)
@@ -503,10 +498,22 @@ func applyOperationWithResult(ctx context.Context, s *Store, operation Operation
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return output, wrapFailure(KindUnavailable, "apply_operation", "cannot commit domain operation", true,
-			"retry once the database is writable", err)
+		return output, ordinaryCommitFailure(ctx, tx, "apply_operation", "cannot commit domain operation", err)
 	}
 	return output, nil
+}
+
+func ordinaryCommitFailure(ctx context.Context, tx *writeTx, op, detail string, err error) error {
+	if commitRefusedBeforeDriver(err, ctx) {
+		// A pre-driver refusal proves no commit, but database/sql's watchdog
+		// may own the rollback. Report absence only after proving cleanup.
+		var refused error = wrapFailure(KindUnavailable, op, detail, true, "retry once the database is writable", err)
+		tx.finish(&refused)
+		return refused
+	}
+	failure := wrapFailure(KindUnavailable, op, detail, false, "reconcile database state before retrying", err)
+	failure.EffectPossible = true
+	return failure
 }
 
 func enterWrite(ctx context.Context, tx *sql.Tx) error {

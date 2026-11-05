@@ -100,7 +100,8 @@ func TestLawFreshnessDisclosureThroughInvoke(t *testing.T) {
 			}
 			env.ScopeVersion = scopeVersion
 			capture := invoke("concord_work_define", "capture", map[string]any{
-				"title": "Freshness disclosure", "value_statement": "Disclose unchecked remote law freshness", "kind": "bug",
+				"title": "Freshness disclosure", "task": "Disclose unchecked remote law freshness", "kind": "bug",
+				"human_key": "ZZ-123", "remote_issue_uuid": "freshness-issue", "url": "https://linear.app/example/issue/ZZ-123",
 				"project_ids": []string{"project-1"}, "idempotency_key": "freshness-capture",
 			})
 			requireLawFreshnessNotice(t, capture)

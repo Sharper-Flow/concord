@@ -331,21 +331,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			return nil
 		}},
 
-		// Work-context reads.
-		{name: "GoverningRequirementsForProjectIDs", run: func() error {
-			refs, err := s.GoverningRequirementsForProjectIDs(ctx, []string{"proj"})
-			if err != nil {
-				return err
-			}
-			if len(refs) != 0 {
-				return fmt.Errorf("refs=%v, want none", refs)
-			}
-			return nil
-		}},
-		{name: "ValidateCaptureGoverningRequirements", run: func() error {
-			return s.ValidateCaptureGoverningRequirements(ctx, []string{"prod"}, nil, nil)
-		}},
-
 		// Snapshot and launcher reads.
 		{name: "readAppliedFromDB", run: func() error { _, _, err := readAppliedFromDB(ctx, s.db, s.Path()); return err }},
 		{name: "Backup", scratch: true, run: func() error {

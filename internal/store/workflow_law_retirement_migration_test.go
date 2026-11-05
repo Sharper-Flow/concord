@@ -33,6 +33,7 @@ func TestLawAttributionVerifiedSnapshotUpgrade(t *testing.T) {
 	retained := retirementUpgradeSnapshot(t, db)
 	ordinaryRecordsUpgradeExpectations(t, db, retained)
 	contracts := cutoverContractRows(t, db)
+	work := historicalCaptureWorkRows(t, db, "")
 	if s, err := Open(t.Context(), path); err == nil {
 		s.Close()
 		t.Fatal("ordinary open crossed the breaking law-attribution retirement")
@@ -68,7 +69,17 @@ func TestLawAttributionVerifiedSnapshotUpgrade(t *testing.T) {
 			continue
 		}
 		switch table {
-		case "schema", "schema_migrations", "store_revision", "workflow_law_baselines", "work_messages", "work_observations", "workflow_correction_state", "workflow_artifact_actions", "workflow_contract_predicates", "workflow_predicate_verdicts", "workflow_review_state", "workflow_context_checkpoints", "workflow_context_boundaries":
+		case "work_items":
+			if got := retirementUpgradeRows(t, db, `SELECT * FROM work_items ORDER BY id`); !reflect.DeepEqual(got, work) {
+				t.Errorf("retained work changed: got %v want %v", got, work)
+			}
+			continue
+		case "work_context_state", "work_context_findings", "project_governing_requirements", "workflow_context_checkpoints", "workflow_context_boundaries":
+			if got := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name=? OR tbl_name=?`, table, table); len(got) != 0 {
+				t.Errorf("retired schema survives: %v", got)
+			}
+			continue
+		case "schema", "schema_migrations", "store_revision", "workflow_law_baselines", "work_messages", "work_observations", "workflow_correction_state", "workflow_artifact_actions", "workflow_contract_predicates", "workflow_predicate_verdicts", "workflow_review_state":
 			continue
 		case "workflow_step_completions":
 			if got := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name=? OR tbl_name=?`, table, table); len(got) != 0 {

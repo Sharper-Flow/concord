@@ -28,11 +28,6 @@ type WorkPin struct {
 	// workflow, with each session's most recent action and action time. It is
 	// derived from workflow actors and actions, not session identity evidence.
 	DrivingSessions []WorkPinDrivingSession `json:"driving_sessions"`
-	// WorkContext carries the strict reader's exact view for dispatch.
-	// WorkContextUnavailable distinguishes an over-bound view from absence.
-	// The partial recovery pin does not evaluate either field.
-	WorkContext            *WorkContextView        `json:"work_context,omitempty"`
-	WorkContextUnavailable *WorkContextUnavailable `json:"work_context_unavailable,omitempty"`
 }
 
 type WorkPinDrivingSession struct {
@@ -135,32 +130,7 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	if err != nil {
 		return pin, err
 	}
-	// The pin reads; it does not adjudicate. A work item whose projection
-	// carries duplicate active contracts must stay readable, because the
-	// operator reaches the recovery that retires them through this pin. A
-	// strict selection here would make the ambiguity permanent.
-	//
-	// Every enrichment below this point resolves the one approved contract,
-	// and an ambiguous projection has none. The pin therefore reports where
-	// the work item stands and the one route that repairs it, and stops.
-	activeContractVersions, contractErr := activeWorkflowContractVersions(ctx, tx, workID)
-	if contractErr != nil {
-		return pin, contractErr
-	}
-	if len(activeContractVersions) > 1 {
-		return pin, nil
-	}
-	if err := workPinReadWorkContextTx(ctx, tx, workID, &pin); err != nil {
-		return pin, err
-	}
 	return pin, nil
-}
-
-// workPinReadWorkContextTx uses the caller's transaction, never the pooled connection.
-func workPinReadWorkContextTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin) error {
-	view, unavailable, err := readWorkContextProjection(ctx, tx, workID)
-	pin.WorkContext, pin.WorkContextUnavailable = view, unavailable
-	return err
 }
 
 // workPinReadIdentityTx fills the pin's item identity: version, lifecycle,
@@ -210,12 +180,12 @@ func workPinReadPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *Work
 	}
 	pin.NextValidIntents = []WorkPinIntent{}
 	if plan != nil {
-		return workPinReadExistingPlanTx(pin, state, plan)
+		return workPinReadExistingPlanTx(ctx, tx, workID, pin, state, plan)
 	}
 	return workPinReadPreludeTx(ctx, tx, workID, pin, state)
 }
 
-func workPinReadExistingPlanTx(pin *WorkPin, state string, plan *WorkflowStepPlan) (string, error) {
+func workPinReadExistingPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, state string, plan *WorkflowStepPlan) (string, error) {
 	pin.WorkflowType = string(plan.Type)
 	frontier := WorkflowStepPlanFrontier(*plan)
 	if len(frontier) > 0 {
@@ -232,6 +202,11 @@ func workPinReadExistingPlanTx(pin *WorkPin, state string, plan *WorkflowStepPla
 	ids := []string{"insert_step", "pick_type"}
 	if WorkflowStepPlanComplete(*plan) {
 		ids = append(ids, "complete")
+		completed, err := workPinCompletedPlanIntentsTx(ctx, tx, workID, plan)
+		if err != nil {
+			return "", err
+		}
+		ids = append(ids, completed...)
 	}
 	for _, step := range frontier {
 		actions := WorkflowStepPlanTemplateActions(plan.Type, step.ID)
@@ -245,6 +220,29 @@ func workPinReadExistingPlanTx(pin *WorkPin, state string, plan *WorkflowStepPla
 		}
 	}
 	return state, workPinAddCatalogIntents(pin, ids)
+}
+
+func workPinCompletedPlanIntentsTx(ctx context.Context, tx *sql.Tx, workID string, plan *WorkflowStepPlan) ([]string, error) {
+	// Ambiguous contracts must not make the pin unreadable.
+	versions, err := activeWorkflowContractVersions(ctx, tx, workID)
+	if err != nil {
+		return nil, err
+	}
+	actions := []string{"record_delivery"}
+	if len(versions) <= 1 {
+		actions = []string{"approve_contract", "confirm_premise", "record_delivery"}
+	}
+	var ids []string
+	for _, action := range actions {
+		owner, err := workflowPlanCompleteActionTx(ctx, tx, workID, plan, action, false)
+		if err != nil {
+			return nil, err
+		}
+		if owner != "" {
+			ids = append(ids, action)
+		}
+	}
+	return ids, nil
 }
 
 func workPinReadPreludeTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, state string) (string, error) {

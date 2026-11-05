@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -15,7 +16,11 @@ import (
 func TestOperationResultTxReadsAtomicDispatchWithoutMutation(t *testing.T) {
 	s := openTemp(t)
 	actor, version := seedTestWorkflow(t, s, "atomic-result-work")
-	if _, err := applyTestAction(t, s, "atomic-result-work", version, "record_work_context", "atomic-result", map[string]any{}, actor); err != nil {
+	var plan map[string]any
+	if err := json.Unmarshal([]byte(testWorkflowPlanDocument), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := applyTestAction(t, s, "atomic-result-work", version, "record_plan", "atomic-result", plan, actor); err != nil {
 		t.Fatal(err)
 	}
 	before := retirementUpgradeSnapshot(t, s.db)
@@ -59,7 +64,7 @@ func TestAtomicOperationMigrationRetiresClaimsAndIntermediateResults(t *testing.
 	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
 	before := retirementUpgradeSnapshot(t, db)
 	ordinaryRecordsUpgradeExpectations(t, db, before)
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, outcomeSnapshotOption(t, t.Context(), path)); err != nil {
 		t.Fatal(err)
 	}
 	if got := retirementUpgradeRows(t, db, `SELECT op_id,result_kind,attempt_epoch,step_kind FROM durable_operations ORDER BY op_id`); !reflect.DeepEqual(got, [][]any{{"ordinary-history", "completed", int64(1), "internal_sqlite"}, {"successful-operation", "completed", int64(1), "internal_sqlite"}}) {
@@ -114,7 +119,7 @@ func TestAtomicOperationMigrationRollsBackDiscardedClaims(t *testing.T) {
 		t.Fatal("failed atomic retirement changed application state or schema")
 	}
 	retirementUpgradeExec(t, db, `DROP TRIGGER reject_claim_retirement`)
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, outcomeSnapshotOption(t, t.Context(), path)); err != nil {
 		t.Fatal(err)
 	}
 	retirementUpgradeHealthy(t, db)
@@ -183,7 +188,7 @@ func TestAtomicOperationMigrationSurvivorSet(t *testing.T) {
 	})
 	before := retirementUpgradeSnapshot(t, db)
 	ordinaryRecordsUpgradeExpectations(t, db, before)
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, outcomeSnapshotOption(t, t.Context(), path)); err != nil {
 		t.Fatal(err)
 	}
 	if got := retirementUpgradeRows(t, db, `SELECT `+columns+` FROM durable_operations ORDER BY op_id`); !reflect.DeepEqual(got, want) {

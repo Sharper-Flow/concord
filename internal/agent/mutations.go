@@ -19,22 +19,14 @@ type mutationMembership struct {
 	Role      string `json:"role"`
 }
 type captureMutationInput struct {
-	Title            string   `json:"title"`
-	ValueStatement   string   `json:"value_statement"`
-	Task             *string  `json:"task"`
-	Kind             string   `json:"kind"`
-	ProjectIDs       []string `json:"project_ids"`
-	Priority         int64    `json:"priority"`
-	Urgency          string   `json:"urgency"`
-	Tags             []string `json:"tags"`
-	ExternalRef      string   `json:"external_ref"`
-	RaisedFromWorkID string   `json:"raised_from_work_id"`
-	IdempotencyKey   string   `json:"idempotency_key"`
-	// GoverningRequirements enumerates the scope-level obligations this capture
-	// carries (CD-0035 D3/D4). It confers no authority: the core refuses when it
-	// fails to cover the requirements the target scope declares, and the caller
-	// cannot assert satisfaction or mark a requirement inapplicable.
-	GoverningRequirements []string `json:"governing_requirements"`
+	Title           string   `json:"title"`
+	Task            *string  `json:"task"`
+	Kind            string   `json:"kind"`
+	ProjectIDs      []string `json:"project_ids"`
+	HumanKey        string   `json:"human_key"`
+	RemoteIssueUUID string   `json:"remote_issue_uuid"`
+	URL             string   `json:"url"`
+	IdempotencyKey  string   `json:"idempotency_key"`
 }
 type reviseMutationInput struct {
 	Contract        json.RawMessage             `json:"contract"`
@@ -42,11 +34,7 @@ type reviseMutationInput struct {
 	ExpectedVersion int64                       `json:"expected_version"`
 	Title           string                      `json:"title"`
 	Task            *string                     `json:"task"`
-	ValueStatement  string                      `json:"value_statement"`
 	Kind            string                      `json:"kind"`
-	Priority        int64                       `json:"priority"`
-	Urgency         string                      `json:"urgency"`
-	Tags            []string                    `json:"tags"`
 	Reason          string                      `json:"reason"`
 	IdempotencyKey  string                      `json:"idempotency_key"`
 	Evidence        []agentcontract.EvidenceRef `json:"evidence"`
@@ -717,7 +705,7 @@ func (plan *mutationPlan) declareInitialDurability(durable bool) {
 }
 
 // planCapture plans concord_work_define.capture.
-func (r runtime) planCapture(ctx context.Context, base agentcontract.Envelope, raw []byte, digest string, grant Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
+func (r runtime) planCapture(ctx context.Context, base agentcontract.Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
 	var in captureMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -733,30 +721,7 @@ func (r runtime) planCapture(ctx context.Context, base agentcontract.Envelope, r
 	if scopeErr != nil {
 		return failureEnvelope(base, scopeErr), nil, true
 	}
-	// A governing-law conflict is the set difference between applicable and
-	// declared requirements, not an interpretation of instruction text.
-	applicable, requirementErr := r.Store.GoverningRequirementsForProjectIDs(ctx, in.ProjectIDs)
-	if requirementErr != nil {
-		return failureEnvelope(base, requirementErr), nil, true
-	}
-	governingScope := store.NewGoverningRequirementScope(applicable, in.GoverningRequirements)
-	plan.scope["governing_requirements"] = governingScope.Digest()
-	if missing := store.MissingGoverningRequirements(applicable, in.GoverningRequirements); len(missing) > 0 {
-		if !containsCapability(grant.Capabilities, agentcontract.Capability("cross_scope")) {
-			return failureEnvelope(base, &store.Failure{Kind: store.KindUnauthorized, Op: "capture", Detail: "a governing-requirement scope cut requires cross_scope capability", RecoveryAction: "contact_operator", Violations: missing}), nil, true
-		}
-		plan.declareInitialDurability(true)
-	}
-	// Declared refs that name law resolve through the verified committed law
-	// folder, so the proof precedes both governing-requirement checks.
-	verifiedCtx, proofErr := r.Store.EstablishKnowledgeSourceSetProofForProject(ctx, in.ProjectIDs[0])
-	if proofErr != nil {
-		return failureEnvelope(base, proofErr), nil, true
-	}
 	productIDs := captureProductIDs(productsByProject)
-	if err := r.Store.ValidateCaptureGoverningRequirements(verifiedCtx, productIDs, applicable, in.GoverningRequirements); err != nil {
-		return failureEnvelope(base, err), nil, true
-	}
 	for _, product := range productIDs {
 		if r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID {
 			plan.declareInitialDurability(true)
@@ -764,13 +729,7 @@ func (r runtime) planCapture(ctx context.Context, base agentcontract.Envelope, r
 	}
 	plan.scope["project_ids"] = in.ProjectIDs
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		if len(governingScope.Missing()) > 0 && !containsCapability(grant.Capabilities, agentcontract.Capability("cross_scope")) {
-			return nil, nil, nil, &store.Failure{Kind: store.KindUnauthorized, Op: "capture", Detail: "a governing-requirement scope cut requires cross_scope capability", RecoveryAction: "contact_operator", Violations: governingScope.Missing()}
-		}
-		if err := store.ValidateCaptureGoverningRequirementsTx(verifiedCtx, tx, in.ProjectIDs, governingScope); err != nil {
-			return nil, nil, nil, err
-		}
-		return r.applyCaptureTx(verifiedCtx, tx, grant, in, digest, workID)
+		return r.applyCaptureTx(ctx, tx, grant, in, digest, workID)
 	}
 	return agentcontract.Envelope{}, nil, false
 }
@@ -791,16 +750,10 @@ func captureProductIDs(productsByProject map[string][]string) []string {
 }
 
 func (r runtime) applyCaptureTx(ctx context.Context, tx *store.Transaction, grant Authority, in captureMutationInput, digest, workID string) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-	priority := in.Priority
-	urgency := in.Urgency
-	if urgency == "" {
-		urgency = "standard"
-	}
-	// A captured task rides the work.created payload into the same
+	// The captured note rides the work.created payload into the same
 	// intent_json.task projection a revise writes, so one call persists
 	// the operator's instruction identically to a later revise.
-	payloadFields := map[string]any{"work_kind": in.Kind, "title": in.Title, "value_statement": in.ValueStatement, "priority": priority, "urgency": urgency, "tags": in.Tags, "external_ref": in.ExternalRef, "raised_from_work_id": in.RaisedFromWorkID}
-	payloadFields["governing_requirements"] = append([]string{}, in.GoverningRequirements...)
+	payloadFields := map[string]any{"work_kind": in.Kind, "title": in.Title}
 	if in.Task != nil {
 		payloadFields["task"] = *in.Task
 	}
@@ -822,12 +775,19 @@ func (r runtime) applyCaptureTx(ctx context.Context, tx *store.Transaction, gran
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	// The Linear issue identity the caller read from the Linear MCP server
+	// rides the same transaction as the capture (CD-0213 D3): the link row
+	// is the only Linear identity carrier, and its one-live-item rule is
+	// the collision gate.
+	if _, err := store.RecordLinearIssueLinkTx(ctx, tx, store.LinearIssueLink{WorkID: workID, RemoteIssueUUID: in.RemoteIssueUUID, HumanKey: in.HumanKey, URL: in.URL}); err != nil {
+		return nil, nil, nil, err
+	}
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	if err := store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: now}); err != nil {
 		return nil, nil, nil, err
 	}
 	eventIDs := result.EventIDs
-	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: "3"}}
+	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: workID, Version: "3"}, {EntityKind: "linear_issue_link", ID: workID, Version: "1"}}
 	return mutationPayload(changed, nil), eventIDs, changed, nil
 }
 
@@ -859,11 +819,7 @@ func (r runtime) planReviseIntent(ctx context.Context, base agentcontract.Envelo
 }
 
 func (r runtime) applyReviseIntentTx(ctx context.Context, tx *store.Transaction, grant Authority, in reviseMutationInput, digest string, plan *mutationPlan) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-	urgency := in.Urgency
-	if urgency == "" {
-		urgency = "standard"
-	}
-	payloadFields := map[string]any{"title": in.Title, "value_statement": in.ValueStatement, "kind": in.Kind, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "reason": in.Reason, "evidence_refs": evidenceLocators(in.Evidence), "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1}
+	payloadFields := map[string]any{"title": in.Title, "kind": in.Kind, "reason": in.Reason, "evidence_refs": evidenceLocators(in.Evidence), "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1}
 	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	eventActor := grant.PrincipalRef
 	if in.Contract != nil {
@@ -895,8 +851,8 @@ func (r runtime) planLifecycle(_ context.Context, base agentcontract.Envelope, r
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
 	}
-	if in.Target == "superseded" {
-		return coreError(base, "invalid_input", "superseded requires resolve_overlap with resolution_kind supersedes", "reread_entities", false), nil, true
+	if in.Target != "needed" && in.Target != "in_progress" && in.Target != "completed" && in.Target != "cancelled" && in.Target != "reopen" {
+		return coreError(base, "invalid_input", "unknown lifecycle target "+in.Target, "reread_entities", false), nil, true
 	}
 	// CD-0243 D3/D7 retire terminal-status consent, not verification evidence.
 	if (in.Target == "completed" || in.Target == "cancelled") && len(in.Evidence) == 0 {
@@ -912,16 +868,21 @@ func (r runtime) planLifecycle(_ context.Context, base agentcontract.Envelope, r
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_ids", "detail"}}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
-		payload, _ := json.Marshal(map[string]any{"from": "", "to": in.Target, "reason": in.Reason, "evidence_refs": evidenceLocators(in.Evidence), "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1})
 		from, err := currentLifecycle(ctx, tx, in.WorkID)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		var eventPayload map[string]any
-		_ = json.Unmarshal(payload, &eventPayload)
-		eventPayload["from"] = from
-		payload, _ = json.Marshal(eventPayload)
-		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":transition", Kind: "work.transitioned", SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}})
+		kind := "work.transitioned"
+		if in.Target == "reopen" {
+			// The reopened fold invalidates the item's overlap resolutions.
+			kind = "work.reopened"
+		}
+		payloadFields := map[string]any{"from": from, "reason": in.Reason, "evidence_refs": evidenceLocators(in.Evidence), "expected_version": in.ExpectedVersion, "resulting_version": in.ExpectedVersion + 1}
+		if kind == "work.transitioned" {
+			payloadFields["to"] = in.Target
+		}
+		payload, _ := json.Marshal(payloadFields)
+		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":transition", Kind: kind, SubjectType: store.SubjectWorkItem, SubjectID: in.WorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.WorkID): in.ExpectedVersion}})
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -1172,20 +1133,10 @@ func (r runtime) planSetMemberships(_ context.Context, base agentcontract.Envelo
 }
 
 // planResolveOverlap plans concord_work_relate.resolve_overlap.
-//
-// A governing-requirement scope cut requires cross_scope authority.
-func (r runtime) planResolveOverlap(ctx context.Context, base agentcontract.Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
+func (r runtime) planResolveOverlap(_ context.Context, base agentcontract.Envelope, raw []byte, digest string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
 	var in resolveOverlapMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
-	}
-	terminalResolution := in.ResolutionKind == store.ResolutionMergedInto || in.ResolutionKind == store.ResolutionSupersedes
-	if terminalResolution {
-		scope, err := r.Store.OverlapGoverningRequirementScope(ctx, in.FromWorkID, in.ToWorkID, in.ResolutionKind)
-		if err != nil {
-			return failureEnvelope(base, err), nil, true
-		}
-		plan.scope["governing_requirements"] = scope.Digest()
 	}
 	plan.declareInitialDurability(in.ResolutionKind != "depends_on")
 	plan.scope["work_ids"] = []string{in.FromWorkID, in.ToWorkID}
@@ -1196,7 +1147,6 @@ func (r runtime) planResolveOverlap(ctx context.Context, base agentcontract.Enve
 	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect_overlap_resolution", RequiredFields: []string{"work_ids", "detail"}}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 		request := store.WorkflowDomainOverlapResolutionRequest{EventID: digest + ":overlap", FromWorkID: in.FromWorkID, ToWorkID: in.ToWorkID, FromExpectedVersion: in.FromExpectedVersion, ToExpectedVersion: in.ToExpectedVersion, FromContractVersion: in.FromContractVersion, ToContractVersion: in.ToContractVersion, ResolutionKind: in.ResolutionKind, Reason: in.Reason, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now()}
-		request.CrossScope = containsCapability(grant.Capabilities, agentcontract.Capability("cross_scope"))
 		result, err := store.ResolveWorkflowDomainOverlapTx(ctx, tx, request)
 		if err != nil {
 			return nil, nil, nil, err

@@ -47,18 +47,22 @@ func TestVerificationRetirementUpgradesStaleTerminalLeasesFrom168(t *testing.T) 
 	useStampedBuild(t)
 	db, path := staleVerificationRetirementFixture(t)
 	before := retirementUpgradeSnapshot(t, db)
+	work := historicalCaptureWorkRows(t, db, "")
 	snapshot := filepath.Join(t.TempDir(), "pre-stale-verification.db")
 	manifest, err := BackupDatabase(t.Context(), path, snapshot)
 	if err != nil || manifest.SchemaVersion != 168 {
 		t.Fatalf("schema-168 snapshot = %+v, %v", manifest, err)
 	}
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"work_items", "effect_receipts", "workflow_evidence_bindings", "durable_operations"} {
+	for _, table := range []string{"effect_receipts", "workflow_evidence_bindings", "durable_operations"} {
 		if got := retirementUpgradeRows(t, db, `SELECT * FROM `+table+` ORDER BY rowid`); !reflect.DeepEqual(got, before[table]) {
 			t.Errorf("stale lease retirement changed %s", table)
 		}
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT * FROM work_items ORDER BY id`); !reflect.DeepEqual(got, work) {
+		t.Errorf("stale lease retirement changed work: got %v want %v", got, work)
 	}
 	if got := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name='worktree_verify_leases'`); len(got) != 0 {
 		t.Fatal("verification lease table survives")
@@ -120,7 +124,7 @@ func TestVerificationRetirementStaleLeaseRollbackFrom168(t *testing.T) {
 		t.Fatal("failed upgrade changed stale leases or schema-168 manifest")
 	}
 	retirementUpgradeExec(t, db, `DROP TRIGGER verification_retirement_failure`)
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, outcomeSnapshotOption(t, t.Context(), path)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -188,7 +192,8 @@ func verificationRetirementFixture(t *testing.T) (*sql.DB, string) {
 func TestVerificationRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	useStampedBuild(t)
 	db, path := verificationRetirementFixture(t)
-	before := retirementUpgradeSnapshot(t, db)
+	work := historicalCaptureWorkRows(t, db, "")
+	receipts := retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts ORDER BY rowid`)
 	if s, err := Open(t.Context(), path); err == nil {
 		s.Close()
 		t.Fatal("ordinary open crossed the breaking verification retirement")
@@ -203,7 +208,7 @@ func TestVerificationRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	if verified, err := VerifyBackup(t.Context(), snapshot); err != nil || verified.DBChecksum != manifest.DBChecksum || verified.SchemaVersion != 170 {
 		t.Fatalf("predecessor snapshot = %+v, %v", verified, err)
 	}
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
 		t.Fatal(err)
 	}
 	assertWorktreeTablesAbsent(t, db)
@@ -216,10 +221,10 @@ func TestVerificationRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 			t.Fatalf("retired verification state survives: %s: %v", query, rows)
 		}
 	}
-	if got := retirementUpgradeRows(t, db, `SELECT * FROM work_items ORDER BY rowid`); !reflect.DeepEqual(got, before["work_items"]) {
+	if got := retirementUpgradeRows(t, db, `SELECT * FROM work_items ORDER BY id`); !reflect.DeepEqual(got, work) {
 		t.Fatal("verification retirement changed work items")
 	}
-	if got := retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts ORDER BY rowid`); !reflect.DeepEqual(got, before["effect_receipts"]) {
+	if got := retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts ORDER BY rowid`); !reflect.DeepEqual(got, receipts) {
 		t.Fatal("verification retirement changed durable effect receipts")
 	}
 	if verified, err := VerifyBackup(t.Context(), snapshot); err != nil || verified.DBChecksum != manifest.DBChecksum {
@@ -254,7 +259,7 @@ func TestVerificationRetirementRollsBackAfterTableDrop(t *testing.T) {
 		t.Fatal("failed upgrade changed verification table, streams, bindings, operations or manifest")
 	}
 	retirementUpgradeExec(t, db, `DROP TRIGGER verification_retirement_failure`)
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, outcomeSnapshotOption(t, t.Context(), path)); err != nil {
 		t.Fatalf("retry after failure removal: %v", err)
 	}
 }

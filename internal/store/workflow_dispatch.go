@@ -194,9 +194,6 @@ func applyWorkflowPlanActionTx(ctx context.Context, tx *sql.Tx, scope *writeScop
 	if err != nil {
 		return result, err
 	}
-	if err := checkWorkContextDeclarationTx(ctx, tx, request.WorkID, events); err != nil {
-		return result, err
-	}
 	return finishWorkflowActionTx(ctx, tx, request, operationResult)
 }
 
@@ -319,8 +316,6 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, planType Work
 		return workflowPlanDocumentEvents(request, actor, raw, eventID, expected, WorkflowPlanRecorded), nil
 	case "record_removal_scope":
 		return workflowPlanDocumentEvents(request, actor, raw, eventID, expected, WorkflowRemovalScopeRecorded), nil
-	case "record_work_context":
-		return workflowRecordWorkContextEvents(ctx, tx, request, stepID, actor, fields, eventID, expected)
 	case "approve_contract":
 		return workflowApproveContractEvents(ctx, tx, planType, request, actor, fields, eventID, expected)
 	case "revise_candidates":

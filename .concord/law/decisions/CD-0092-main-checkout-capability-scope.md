@@ -19,7 +19,7 @@
   boundary in `internal/agent/authority.go`; issue #627
 - **Approval:** The operator approved the decision contract in issue #627 and
   directed its completion on 2026-09-01.
-- **Related:** CD-0008, CD-0072, CD-0035, issue #611
+- **Related:** CD-0008, CD-0072, issue #611
 
 ## Context
 

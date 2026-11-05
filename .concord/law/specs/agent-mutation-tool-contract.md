@@ -58,7 +58,7 @@ exists ([CD-0242](../decisions/CD-0242-knowledge-first-workflows-keep-current-st
 CD-0042 makes the generated current manifest the only pre-go-live surface
 identity. This contract does not authorize partial Domain writes or any planning write.
 
-Operator decisions follow CD-0243 D2 in conversation: an agent asks the operator only when one of its six approval classes applies. A governing-requirement scope cut remains a product decision. Authority-expanding Product or client-policy changes grant access and require security approval. Explicit cross-Product mutations require `cross_scope`, otherwise `unauthorized`. All surviving authentication, capability, version, authorization, evidence, native proof, atomicity, and durable-operation checks remain required.
+Operator decisions follow CD-0243 D2 in conversation: an agent asks the operator only when one of its six approval classes applies. Authority-expanding Product or client-policy changes grant access and require security approval. Explicit cross-Product mutations require `cross_scope`, otherwise `unauthorized`. All surviving authentication, capability, version, authorization, evidence, native proof, atomicity, and durable-operation checks remain required.
 
 
 The binding contract is sections 1 through 4: the three-tool decision with the
@@ -75,7 +75,7 @@ Concord exposes **three always-visible mutation tools**:
 2. `concord_work_transition` — perform one accepted lifecycle or workflow action
    with required evidence;
 3. `concord_work_relate` — change work membership or typed work relations while
-    preserving graph/supersession invariants.
+    preserving graph invariants.
 
 Together with TS3's three reads, these are **six always-visible tools**, below
 TS2's cap of nine. This count follows the accepted boundaries; it is not a target
@@ -97,23 +97,13 @@ or terminal-note changes.
 
 | Operation | Required domain input | Core effect |
 |---|---|---|
-| `capture` | title, value statement, work kind, at least one Project membership, the governing requirements the work carries when its target scope declares any, optional workflow type/priority/tags/external reference | Create one `work_item` plus its complete initial membership set in one SQLite transaction. |
-| `revise_intent` | work ID, expected version, complete replacement intent block, reason, optional complete `contract` | Replace the closed mutable intent block and, when supplied, append the next retained contract version atomically. Omitted intent fields are intentionally absent because the block is complete—not patch semantics. An omitted `contract` leaves contract content unchanged. |
+| `capture` | title, kind hint, Project IDs with the primary first, Linear human key, remote issue UUID, and URL; optional short note (`task`) | Create one `work_item`, its membership set, and Linear link in one SQLite transaction. |
+| `revise_intent` | work ID, expected version, title, kind hint, reason, optional task and complete `contract` | Replace title and kind; replace the note when task is supplied, otherwise preserve it. When supplied, append the next retained contract version atomically. An omitted `contract` leaves contract content unchanged. |
 
-The mutable intent block is closed: title, value statement, work kind, priority,
-tags, and accepted workflow-type reference. Identity, lifecycle,
+The mutable intent block is closed: title, task, and kind hint. Identity, lifecycle,
 memberships, relations, evidence, versions, authority, and historical locator cannot
 appear in it. A governing-law conflict returns a typed conflict and no mutation;
 the agent cannot silently shrink the accepted scope.
-
-CD-0035 makes that sentence enforceable at `capture`. Requirements are declared
-against a Project, and the core refuses when the requirement set a capture declares
-does not cover the ones its target scope carries. The refusal is a set difference,
-not a reading of the instruction: `invariant_violation` naming the omitted
-requirements in `violations`, `contact_operator` recovery, the operator's three
-`options`, and no mutation. Enumeration confers no authority — a caller can match the
-applicable set or fail, and the only path to a reduced set is an operator-approved
-scope cut resolved through the `cross_scope` capability.
 
 The optional `contract` is separate from the intent block. Its validation,
 version-addressed provenance, retained evidence, and current-proof requirements
@@ -130,16 +120,12 @@ offered by the work item's accepted workflow definition.
 
 | Operation | Required domain input | Core effect |
 |---|---|---|
-| `lifecycle` | work ID, expected version, target `needed|in_progress|completed|cancelled`, reason, required evidence | Validate PM4 transition and workflow obligations; write the current rows atomically. |
+| `lifecycle` | work ID, expected version, target `needed|in_progress|completed|cancelled|reopen`, reason, required evidence | Validate PM4 transition and workflow obligations; write the current rows atomically. |
 | `workflow_action` | work ID, expected version, stable action ID offered by the current workflow version, required fields/evidence | Execute the workflow-defined domain action atomically or reject it; action ID is authoritative data, not a caller-invented command. |
 
-`superseded` is excluded from lifecycle input. Contract changes use
-`concord_work_define.revise_intent`; an overlap resolution that terminalizes a
-work item goes through `concord_work_relate.resolve_overlap` with `supersedes`
-or `merged_into`, which commits the relation and the terminal transition
-together. Reopening
-superseded work has no operation; a superseded work item keeps its terminal
-record.
+Completed or cancelled work may be reopened to `needed` with a reason, subject
+to the one-live-Linear-issue rule in CD-0146. Contract changes use
+`concord_work_define.revise_intent`.
 
 `workflow_action` does not decide workflow registration or gate vocabulary. It is a
 stable indirection to an action already declared by the work item's pinned workflow
@@ -154,7 +140,7 @@ one concurrent Domain overlap.
 | Operation | Required domain input | Core effect |
 |---|---|---|
 | `set_memberships` | work ID, expected version, complete resulting Project membership set with optional singular primary | Validate at least one membership, uniqueness, Project identity, and primary cardinality; replace the set atomically and return bounded Product-scope impact. |
-| `resolve_overlap` | both work IDs/versions, both workflow-contract versions, resolution kind `depends_on\|blocks\|merged_into\|supersedes`, reason, and the `cross_scope` capability for `merged_into` or `supersedes` when the cut discards declared governing requirements | Record how two concurrent work items relate and create the typed relation atomically; `supersedes` and `merged_into` commit the terminal transition in the same transaction. |
+| `resolve_overlap` | both work IDs/versions, both workflow-contract versions, resolution kind `depends_on\|blocks`, and reason | Record how two concurrent work items relate and create the typed relation atomically. |
 
 Membership is complete-set replacement because add/remove patches can transiently
 violate at-least-one and primary-cardinality invariants or depend on call order.
@@ -168,8 +154,8 @@ one exercises arithmetic the product never performs. Test fixtures write
 Relation operations remain singular because each edge has its own graph oracle and
 version conflict. `depends_on` is an inverse read; `blocks` is written only by
 `resolve_overlap`. The other relation kinds have their own writers outside this
-tool: capture writes `raised_from` through `raised_from_work_id`, and the
-workflow `link_successor` action writes `forward_link`.
+tool: `raised_from` is an ordinary provenance relation, and the workflow
+`link_successor` action writes `forward_link`.
 
 ## 3. Batch boundary
 
@@ -236,7 +222,6 @@ the accepted native authority performs and proves the real operation.
   arbitrary command dispatcher.
 - Separate tools for start, pause, complete, cancel, reopen, link, unlink, approve,
   evidence, archive, or repair.
-- Direct `superseded` lifecycle patch separate from its canonical relation.
 - Client-sequenced membership add/remove/promote calls.
 - One mixed mutation batch or a global success boolean hiding per-item failure.
 - A generic Concord cloud/database/GitHub/system executor.
@@ -285,12 +270,9 @@ or storage method is not sufficient evidence.
 - Given two overlapping Product-changing items
   When `concord_work_relate.resolve_overlap` resolves one
   Then one typed relation of the resolved kind is created atomically with the
-  resolution; `supersedes` and `merged_into` terminalize the predecessor in
-  the same transaction; a resolution that would close a cycle or add a
-  second successor is refused. Both work versions, both workflow-contract
-  versions, and scope checks remain required, including `cross_scope` for
-  `merged_into` or `supersedes` when the cut discards declared governing
-  requirements. The agent asks the operator in conversation only when a
+  resolution; a resolution that would close a cycle is refused. Both work
+  versions, both workflow-contract versions, and scope checks remain required.
+  The agent asks the operator in conversation only when a
   CD-0243 D2 approval class applies, subject to D3's Concord deletion exemption.
 
 ## Verification
@@ -308,6 +290,4 @@ executed by `TestAgentJobsCorpus`
   scenario.
 - Criterion 4 is proved by the bound `AJ5-resolve-domain-overlap` scenario,
   which drives the real `concord_work_relate.resolve_overlap` dispatch, and
-  by `internal/store.TestOverlapTerminalResolutionRejectsCycle`,
-  `internal/store.TestOverlapTerminalResolutionRejectsSecondSuccessor`, and
-  `internal/store.TestOverlapBlocksRemovesWorkFromReady`.
+  by `internal/store.TestOverlapBlocksRemovesWorkFromReady`.

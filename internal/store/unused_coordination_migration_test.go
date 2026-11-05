@@ -44,7 +44,7 @@ DELETE FROM write_guard`, testManifestDigest, testManifestDigest, testManifestDi
 		t.Fatalf("retained instance=%s/%s/%s/%d/%d/v%d err=%v", state, model, disposition, unhealthy, nonDispatch, version, err)
 	}
 	instance := cutoverInstanceExpectations(t, db, "")
-	if err := Migrate(t.Context(), db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, t.Context(), db), db); err != nil {
 		t.Fatal(err)
 	}
 	if current := retirementUpgradeRows(t, db, `SELECT * FROM workflow_instances ORDER BY rowid`); !reflect.DeepEqual(current, instance) {

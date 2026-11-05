@@ -187,25 +187,25 @@ class AgentJobsCardinalityTests(unittest.TestCase):
         cls.checker = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.checker)
 
-    def test_current_corpus_passes_with_exactly_fourteen_scenarios(self):
+    def test_current_corpus_passes_with_exactly_thirteen_scenarios(self):
         corpus = self.checker._load_json(self.checker.CORPUS_PATH)
-        self.assertEqual(len(corpus["scenarios"]), 14)
+        self.assertEqual(len(corpus["scenarios"]), 13)
         self.assertEqual(self.checker.check_agent_jobs(), [])
 
     def test_checker_and_schema_reject_missing_or_extra_scenario(self):
         corpus = self.checker._load_json(self.checker.CORPUS_PATH)
-        for count in (13, 15):
+        for count in (12, 14):
             with self.subTest(count=count):
                 mutated = copy.deepcopy(corpus)
-                if count == 13:
+                if count == 12:
                     mutated["scenarios"].pop()
                 else:
                     extra = copy.deepcopy(mutated["scenarios"][0])
                     extra["id"] = "cardinality-extra-scenario"
                     mutated["scenarios"].append(extra)
                 findings = self.checker._check_corpus(mutated)
-                self.assertTrue(any(f"expected 14 scenarios, got {count}" in finding for finding in findings), findings)
-                bound = "minItems" if count == 13 else "maxItems"
+                self.assertTrue(any(f"expected 13 scenarios, got {count}" in finding for finding in findings), findings)
+                bound = "minItems" if count == 12 else "maxItems"
                 self.assertTrue(any(f"{bound} at instance.scenarios" in finding for finding in findings), findings)
 
 

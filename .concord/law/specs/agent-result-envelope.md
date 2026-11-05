@@ -162,7 +162,6 @@ message?             # human aid only; agents branch on kind/action
 current_versions[]?
 candidates[]?
 violations[]?
-options[]?           # operator resolutions; governing-law conflicts only (CD-0035)
 details?             # closed scalar/list values; bounded, no nested dump
 adapter_reason?      # required closed reason when origin=adapter
 ```
@@ -216,15 +215,6 @@ operator or identifies the authority required for the ordinary action; it does
 not offer a correction route around that boundary. Cancellation/timeout may
 use an `error` outcome only when `effect_state=none`; possible effects become
 `operation_conflict` with the recovery this section permits.
-
-`options` is the one affordance that names choices for the operator rather than
-recovery steps for the agent. It is permitted only on a governing-law conflict —
-`invariant_violation` with `contact_operator` recovery — and its closed vocabulary
-is `clarify`, `amend_contract`, `accept_scope_cut`. It is permitted rather than
-required, so an `invariant_violation` that offers no choice stays valid. Acting on
-`accept_scope_cut` requires the `cross_scope` capability; otherwise the core
-refuses with `unauthorized`. See
-[CD-0035](../decisions/CD-0035-governing-requirements-at-capture.md).
 
 ### 5.1 Contract-request validation guidance
 
@@ -280,7 +270,7 @@ retrieve bounded evidence from its authority only when needed.
 - Relation graphs: depth maximum 3, 100 nodes, 200 edges.
 - Serialized envelope: hard maximum 51,200 bytes.
 - Warnings: 16; omissions: 16; evidence refs: 32; changed refs: 32; next valid
-  intents: 83; error candidates/violations: 20 each; error options: 3. The
+  intents: 83; error candidates/violations: 20 each. The
   intent bound covers the current finite producer: 16 step actions, 64
   registered declarations, and 3 single-fire appends.
 

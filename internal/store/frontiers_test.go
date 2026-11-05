@@ -59,16 +59,16 @@ func TestFrontierRelationReopenGapLogBlind(t *testing.T) {
 	}
 	for _, e := range []Event{
 		workTransitionEvent("start", "b", "needed", "in_progress", 2, 3),
-		workSupersededEvent("supersede", "a", "b", 3, 4),
-		workReopenedFromSupersededEvent("reopen", "b", "", 4, 5),
-		relationAddedEvent("after-reopen", "implements", "c", "d", 2, 3),
+		relationAddedEvent("removed-edge", "implements", "c", "d", 2, 3),
+		relationRemovedEvent("remove-edge", "implements", "c", "d", 3, 4),
+		relationAddedEvent("after-removal", "implements", "c", "d", 4, 5),
 	} {
 		if err := applyWorkEvent(t, s, e, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if got := relationProjectionIDs(t, s); got != "[3]" {
-		t.Fatalf("relation IDs = %s, want [3]", got)
+	if got := relationProjectionIDs(t, s); got != "[2]" {
+		t.Fatalf("relation IDs = %s, want [2]", got)
 	}
 	hideEffectLog(t, s)
 	tx, err := s.db.BeginTx(t.Context(), nil)
@@ -76,9 +76,9 @@ func TestFrontierRelationReopenGapLogBlind(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	id, err := relationIdentity(t.Context(), tx, Event{EventID: "after-reopen"})
-	if err != nil || id != 3 {
-		t.Fatalf("relation identity = %d, %v; want 3", id, err)
+	id, err := relationIdentity(t.Context(), tx, Event{EventID: "after-removal"})
+	if err != nil || id != 2 {
+		t.Fatalf("relation identity = %d, %v; want 2", id, err)
 	}
 }
 
@@ -408,13 +408,17 @@ DELETE FROM write_guard`, frontierActor); err != nil {
 	if err := enterWrite(t.Context(), tx); err != nil {
 		t.Fatal(err)
 	}
+	// The historical backfill has a frozen kind set; live allocation uses
+	// the current relation identity kinds.
+	liveIdentity := map[int]int64{0: 1, 3: 2, 4: 3, 5: 4}
 	for i, row := range corpus {
 		e := Event{EventID: row.EventID, Kind: row.Kind, SubjectType: SubjectType(row.SubjectType), SubjectID: row.SubjectID, Actor: row.Actor, PayloadVersion: row.Version, Payload: []byte(row.Payload)}
 		if seq, err := appendPreparedEvent(t.Context(), tx, e); err != nil || seq != livePrefix+row.Seq {
 			t.Fatalf("live effect %s = %d, %v", row.EventID, seq, err)
 		}
 		var got sql.NullInt64
-		if err := tx.QueryRow(`SELECT relation_seq FROM effect_receipts WHERE event_id=?`, row.EventID).Scan(&got); err != nil || got.Valid != (i < 6) || (got.Valid && got.Int64 != int64(i+1)) {
+		want, identity := liveIdentity[i]
+		if err := tx.QueryRow(`SELECT relation_seq FROM effect_receipts WHERE event_id=?`, row.EventID).Scan(&got); err != nil || got.Valid != identity || (got.Valid && got.Int64 != want) {
 			t.Fatalf("live relation %s = %v, %v", row.EventID, got, err)
 		}
 	}

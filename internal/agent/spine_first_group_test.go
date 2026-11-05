@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"reflect"
 	"testing"
 	"time"
 
@@ -40,8 +39,8 @@ func TestSpineFirstGroupResumeDoesNotRestoreFirstEntry(t *testing.T) {
 		if err := f.s.DatabaseForTesting().QueryRow(`SELECT step_plan FROM workflow_instances WHERE work_id=?`, f.work).Scan(&afterPlan); err != nil {
 			t.Fatal(err)
 		}
-		if after.Version != before.Version || after.Lifecycle != before.Lifecycle || afterPlan != planJSON || !reflect.DeepEqual(after.WorkContext, before.WorkContext) {
-			t.Fatal("refused delivery changed work context, step plan, or lifecycle")
+		if after.Version != before.Version || after.Lifecycle != before.Lifecycle || afterPlan != planJSON {
+			t.Fatal("refused delivery changed the step plan or lifecycle")
 		}
 	}
 	assertHeld()

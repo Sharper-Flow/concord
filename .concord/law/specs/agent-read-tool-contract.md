@@ -99,7 +99,7 @@ rather than historical explanation.
 
 | Operation | PM1 | Required/optional inputs | Typed payload |
 |---|---|---|---|
-| `list` | Q3 | Product scope; closed lifecycle/Project/kind/tag/priority/terminal-window filters; optional stable work IDs; `detail`; cursor/limit | `work_page`: ordered unique summaries or bounded full records |
+| `list` | Q3 | Product scope; closed lifecycle/Project/kind/terminal-window filters; optional stable work IDs; `detail`; cursor/limit | `work_page`: ordered unique summaries or bounded full records |
 
 `list` with one stable work ID and `detail=full` replaces a separate `show` tool.
 It supplies current law context, pending handoff and native runs.
@@ -115,7 +115,7 @@ related to other work—not when it wants a current work list.
 | Operation | PM1 | Required/optional inputs | Typed payload |
 |---|---|---|---|
 | `history` | Q7 | `work_id`; direction; optional record kinds; cursor/limit | `work_event_page`: recorded mutations within the store's finite retained categories, with versions, actor, reason, and evidence references ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) |
-| `relations` | Q8 | `work_id`; closed relation kinds; direction; depth 1–3 | `work_relation_graph`: bounded canonical nodes/edges, inverses, archived-work links, and replacement state |
+| `relations` | Q8 | `work_id`; closed relation kinds; direction; depth 1–3 | `work_relation_graph`: bounded canonical nodes/edges and inverses |
 | `resume` | — | `work_id`; cursor/limit | the stored step plan and resume fragments |
 
 History and relation traversal share singular work scope, explanatory intent,

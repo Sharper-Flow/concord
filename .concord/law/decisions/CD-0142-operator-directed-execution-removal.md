@@ -47,7 +47,7 @@ recovery; recovery restores verified snapshots and reconciles current rows ([CD-
 ### D1. Removal is a distinct typed operation
 
 Concord keeps the closed lifecycle states `needed`, `in_progress`, `completed`,
-`cancelled`, and `superseded`. Shelving is not a lifecycle state and does not
+and `cancelled`. Shelving is not a lifecycle state and does not
 emit cancellation. Cancellation uses the same removal machinery with the reason
 `cancelled`, but its reason remains distinct in the durable receipt it records.
 

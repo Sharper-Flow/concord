@@ -105,8 +105,7 @@ The named domain-overlap proof is
 `AJ5-resolve-domain-overlap`, bound to
 `internal/agent.TestAgentJobsCorpus`, scenario `AJ5-resolve-domain-overlap`. It proves that an ordinary
 relation does not grant overlap authority, that `resolve_overlap` resolves
-overlap pinned to both work and workflow-contract versions, and that a
-governing-requirement scope cut requires the cross-scope capability. Operator consent for
+overlap pinned to both work and workflow-contract versions. Operator consent for
 an overlap resolution is conversational and follows
 [CD-0243 D2](../decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision);
 the call consumes no stored approval.
@@ -174,8 +173,7 @@ fail-closed authority.
 - Given a domain-overlap resolution request through an ordinary relation
   When the agent attempts it
   Then the ordinary link writes no overlap authority; only the version-pinned
-  `resolve_overlap` resolves it, a governing-requirement scope cut without
-  the cross-scope capability is refused, and operator consent is conversational
+  `resolve_overlap` resolves it, and operator consent is conversational
   under CD-0243 D2 and D7.
 
 ## Verification

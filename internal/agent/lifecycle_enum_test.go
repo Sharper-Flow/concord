@@ -15,9 +15,7 @@ import (
 const lifecycleDefPath = "$.$defs.lifecycle"
 
 // lifecycleRefs are the two references a property named "lifecycle" may carry.
-// The transition-target def is a declared subset with a stated reason:
-// supersession is atomic with its relation, so "superseded" is not an
-// agent-requestable target.
+// Transition requests also accept the reopen action.
 var lifecycleRefs = map[string]bool{
 	"#/$defs/lifecycle":                   true,
 	"#/$defs/lifecycle_transition_target": true,
@@ -110,7 +108,7 @@ func TestLifecycleDefSpansEveryPersistableState(t *testing.T) {
 	}
 	got := append([]string(nil), document.Defs["lifecycle"].Enum...)
 	sort.Strings(got)
-	want := []string{"cancelled", "completed", "in_progress", "needed", "superseded"}
+	want := []string{"cancelled", "completed", "in_progress", "needed"}
 	if len(got) != len(want) {
 		t.Fatalf("lifecycle def declares %v, want %v", got, want)
 	}

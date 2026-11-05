@@ -71,12 +71,6 @@ const (
 	// KindCycleDetected marks an edge that would make a governing relation graph
 	// cyclic. The graph check is performed before the edge is inserted.
 	KindCycleDetected FailureKind = "cycle_detected"
-	// KindSupersessionTargetAlreadySuperseded marks a supersession whose target
-	// has already reached the terminal superseded state.
-	KindSupersessionTargetAlreadySuperseded FailureKind = "supersession_target_already_superseded"
-	// KindSupersessionSecondSuccessor marks a second direct successor for one
-	// predecessor, which would make canonical replacement ambiguous.
-	KindSupersessionSecondSuccessor FailureKind = "supersession_second_successor"
 	// KindRelationContractViolation marks a relation event that bypasses the
 	// composite operation responsible for preserving lifecycle invariants.
 	KindRelationContractViolation FailureKind = "relation_contract_violation"
@@ -195,11 +189,8 @@ type Failure struct {
 	EffectPossible bool `json:"effect_possible,omitempty"`
 	// Violations carries the typed offending relation/edge identities for
 	// failures that refuse a relation because of a structural violation
-	// (cycle, supersession target already taken, etc.).
+	// (a cycle, for example).
 	Violations []string `json:"violations,omitempty"`
-	// ExternalRefConflict identifies the live work item that owns a colliding
-	// external reference.
-	ExternalRefConflict *ExternalRefConflict `json:"external_ref_conflict,omitempty"`
 	// Clause identifies the ordered workflow completion clause that refused the
 	// operation. Zero means the failure did not originate in that gate.
 	Clause int `json:"clause,omitempty"`
@@ -232,14 +223,6 @@ type SubjectCurrentVersion struct {
 	SubjectType SubjectType `json:"subject_type"`
 	SubjectID   string      `json:"subject_id"`
 	Version     int64       `json:"version"`
-}
-
-// ExternalRefConflict identifies the live work item that already owns an
-// external reference. Callers use this identity to acknowledge a legitimate
-// second work item without parsing the human failure detail.
-type ExternalRefConflict struct {
-	ExistingWorkID string `json:"existing_work_id"`
-	ExternalRef    string `json:"external_ref"`
 }
 
 func (f *Failure) Error() string {

@@ -1029,39 +1029,6 @@
             "maxLength": 128
           }
         },
-        "options": {
-          "type": "array",
-          "maxItems": 3,
-          "uniqueItems": true,
-          "items": {
-            "enum": [
-              "clarify",
-              "amend_contract",
-              "accept_scope_cut"
-            ],
-            "type": "string"
-          }
-        },
-        "external_ref_conflict": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "existing_work_id",
-            "external_ref"
-          ],
-          "properties": {
-            "existing_work_id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128
-            },
-            "external_ref": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256
-            }
-          }
-        },
         "supported_budget_seconds": {
           "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind.",
           "type": "integer",
@@ -1189,30 +1156,19 @@
         },
         {
           "if": {
-            "allOf": [
-              {
-                "properties": {
-                  "kind": {
-                    "enum": [
-                      "invalid_transition",
-                      "invalid_relation",
-                      "invariant_violation",
-                      "not_terminal"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ]
-              },
-              {
-                "not": {
-                  "required": [
-                    "options"
-                  ]
-                }
+            "properties": {
+              "kind": {
+                "enum": [
+                  "invalid_transition",
+                  "invalid_relation",
+                  "invariant_violation",
+                  "not_terminal"
+                ],
+                "type": "string"
               }
+            },
+            "required": [
+              "kind"
             ]
           },
           "then": {
@@ -1367,27 +1323,6 @@
                 "properties": {
                   "kind": {
                     "const": "retry_same_request"
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "required": [
-              "options"
-            ]
-          },
-          "then": {
-            "properties": {
-              "kind": {
-                "const": "invariant_violation"
-              },
-              "recovery_action": {
-                "properties": {
-                  "kind": {
-                    "const": "contact_operator"
                   }
                 }
               }

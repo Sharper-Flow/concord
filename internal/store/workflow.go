@@ -19,19 +19,20 @@ import (
 
 // Workflow event names are deliberately closed. Adding one is a contract change.
 const (
-	WorkflowDefinitionSelected       = "workflow.definition_selected"
-	WorkflowContractApproved         = "workflow.contract_approved"
-	WorkflowOverlapResolved          = "workflow.overlap_resolved"
-	WorkflowContractSuperseded       = "workflow.contract_superseded"
-	WorkflowCandidateSetRevised      = "workflow.candidate_set_revised"
-	WorkflowActorRecorded            = "workflow.actor_recorded"
-	WorkflowActionStarted            = "workflow.action_started"
-	WorkflowActionCheckpointed       = "workflow.action_checkpointed"
-	WorkflowActionCompleted          = "workflow.action_completed"
-	WorkflowActionFailed             = "workflow.action_failed"
-	WorkflowEvidenceBound            = "workflow.evidence_bound"
-	WorkflowPremiseConfirmed         = "workflow.premise_confirmed"
-	WorkflowSuccessorLinked          = "workflow.successor_linked"
+	WorkflowDefinitionSelected  = "workflow.definition_selected"
+	WorkflowContractApproved    = "workflow.contract_approved"
+	WorkflowOverlapResolved     = "workflow.overlap_resolved"
+	WorkflowContractSuperseded  = "workflow.contract_superseded"
+	WorkflowCandidateSetRevised = "workflow.candidate_set_revised"
+	WorkflowActorRecorded       = "workflow.actor_recorded"
+	WorkflowActionStarted       = "workflow.action_started"
+	WorkflowActionCheckpointed  = "workflow.action_checkpointed"
+	WorkflowActionCompleted     = "workflow.action_completed"
+	WorkflowActionFailed        = "workflow.action_failed"
+	WorkflowEvidenceBound       = "workflow.evidence_bound"
+	WorkflowPremiseConfirmed    = "workflow.premise_confirmed"
+	WorkflowSuccessorLinked     = "workflow.successor_linked"
+	// WorkflowWorkContextRecorded is read only by frozen migration replay.
 	WorkflowWorkContextRecorded      = "workflow.work_context_recorded"
 	WorkflowProposalRecorded         = "workflow.proposal_recorded"
 	WorkflowDesignRecorded           = "workflow.design_recorded"
@@ -156,7 +157,6 @@ type workflowOverlapResolvedPayload struct {
 	ToContractVersion   int64  `json:"to_contract_version"`
 	ResolutionKind      string `json:"resolution_kind"`
 	Reason              string `json:"reason"`
-	CrossScope          bool   `json:"cross_scope"`
 }
 
 func (p workflowOverlapResolvedPayload) workflowVersionFields() WorkflowVersionFields {
@@ -955,21 +955,6 @@ func persistWorkflowActorTuple(ctx context.Context, tx *sql.Tx, event Event, p w
 	return nil
 }
 
-func workflowPlanCurrentStep(plan *WorkflowStepPlan) string {
-	if plan == nil {
-		return "intake"
-	}
-	frontier := WorkflowStepPlanFrontier(*plan)
-	if len(frontier) == 0 {
-		// A completed plan reports its terminal step in the work pin.
-		if WorkflowStepPlanComplete(*plan) && len(plan.Steps) > 0 {
-			return plan.Steps[len(plan.Steps)-1].ID
-		}
-		return ""
-	}
-	return frontier[0].ID
-}
-
 // workflowStepDeclaresAction reports whether the named plan step declares the
 // action, independent of the frontier.
 func workflowStepDeclaresAction(plan *WorkflowStepPlan, stepID, actionID string) bool {
@@ -1353,17 +1338,12 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 		if err != nil {
 			return err
 		}
-		// A completed plan admits only the plan-level premise confirmation
-		// off its frontier (CON-1701), on the declaring step the dispatch
-		// used, and only while the active contract's confirmation is
-		// recorded; the paired premise_confirmed event folds first and
-		// records it.
 		if !retained {
-			owner, confirmed, err := workflowPlanCompleteConfirmationTx(ctx, tx, event.SubjectID, plan, p.ActionID)
+			owner, err := workflowPlanCompleteActionTx(ctx, tx, event.SubjectID, plan, p.ActionID, true)
 			if err != nil {
 				return err
 			}
-			if !confirmed || owner != p.StepID {
+			if owner == "" || owner != p.StepID {
 				return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on a frontier step", false, "reread_entities")
 			}
 		}
@@ -1568,11 +1548,12 @@ func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event, scop
 func producerBindingMismatch(ctx context.Context, tx *sql.Tx, workID string, p workflowEvidenceBoundPayload) error {
 	producer := workflowRefExcerpt(p.ProducerRunRef)
 	const repair = "name the producer operation that recorded the evidence reference"
+	const externalRecovery = "submit the external locator in evidence on an otherwise admitted workflow action, then bind it with that action's returned operation_id as producer_run_ref, envelope request_id as producer_watermark, and recording principal as producer_id; omit producer_id when that principal binds"
 	var recordedWork, principal, requestID, result string
 	err := tx.QueryRowContext(ctx, `SELECT work_id, COALESCE(principal_ref,''), COALESCE(request_id,''), COALESCE(result_kind,'') FROM durable_operations WHERE op_id=? ORDER BY (work_id=?) DESC, (result_kind='completed') DESC, attempt_epoch DESC LIMIT 1`, p.ProducerRunRef, workID).Scan(&recordedWork, &principal, &requestID, &result)
 	switch {
 	case err == sql.ErrNoRows:
-		return newFailure(KindInvariantViolation, "fold_event", "named producer operation "+producer+" has no durable operation record", false, repair)
+		return newFailure(KindInvariantViolation, "fold_event", "named producer operation "+producer+" has no durable operation record", false, externalRecovery)
 	case err != nil:
 		return wrapFailure(KindUnavailable, "fold_event", "cannot verify evidence authority", true, "retry once the evidence authority is readable", err)
 	case recordedWork != workID:
@@ -1582,7 +1563,7 @@ func producerBindingMismatch(ctx context.Context, tx *sql.Tx, workID string, p w
 	case principal != p.ProducerID:
 		return newFailure(KindInvariantViolation, "fold_event", "producer_id "+workflowRefExcerpt(p.ProducerID)+" does not match producer operation "+producer+", which recorded producer_id "+workflowRefExcerpt(principal), false, "set producer_id to the value the producer operation recorded")
 	case requestID != p.ProducerWatermark:
-		return newFailure(KindInvariantViolation, "fold_event", "producer_watermark "+workflowRefExcerpt(p.ProducerWatermark)+" does not match producer operation "+producer+", which recorded producer_watermark "+workflowRefExcerpt(requestID), false, "set producer_watermark to the value the producer operation recorded")
+		return newFailure(KindInvariantViolation, "fold_event", "producer_watermark "+workflowRefExcerpt(p.ProducerWatermark)+" does not match producer operation "+producer+", which recorded producer_watermark "+workflowRefExcerpt(requestID), false, "set producer_watermark to the value the producer operation recorded; or "+externalRecovery)
 	}
 	return newFailure(KindInvariantViolation, "fold_event", "named producer operation "+producer+" is not a completed durable operation for this work and actor", false, repair)
 }
@@ -1790,7 +1771,7 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *
 	}
 	// evidence_count derives from the item's total workflow.evidence_bound
 	// history, so any non-negative count the constructor produces is valid.
-	if p.TerminalState != "completed" && p.TerminalState != "cancelled" && p.TerminalState != "superseded" || p.EvidenceCount < 0 || !workflowDigest(p.ChangedRefsDigest) || !slices.Contains([]string{"breaking", "non-breaking"}, p.ImpactVerdict) || !workflowList(p.Warnings, 16, 0) {
+	if p.TerminalState != "completed" && p.TerminalState != "cancelled" || p.EvidenceCount < 0 || !workflowDigest(p.ChangedRefsDigest) || !slices.Contains([]string{"breaking", "non-breaking"}, p.ImpactVerdict) || !workflowList(p.Warnings, 16, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "completed has invalid terminal metadata", false, "supply closed terminal metadata including impact_verdict")
 	}
 	plan, err := readWorkflowPlanTx(ctx, tx, event.SubjectID)
@@ -1815,7 +1796,7 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?,completed_at=?,completion_payload=?,completion_occurred_at=? WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded')`, p.TerminalState, event.OccurredAt.UTC().Format(time.RFC3339Nano), string(event.Payload), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
+	result, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?,completed_at=?,completion_payload=?,completion_occurred_at=? WHERE work_id=? AND instance_state NOT IN ('completed','cancelled')`, p.TerminalState, event.OccurredAt.UTC().Format(time.RFC3339Nano), string(event.Payload), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
 	if err != nil {
 		return err
 	}

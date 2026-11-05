@@ -200,7 +200,14 @@ func TestTestDatabaseTemplateCleanupOnFailure(t *testing.T) {
 		fmt.Println(marker + testDatabaseTemplate.dir)
 		t.Fatal("synthetic failure after template creation")
 	}
-	command := exec.Command(os.Args[0], "-test.run=^TestTestDatabaseTemplateCleanupOnFailure$")
+	// The child must create its own template root (that root is what the
+	// cleanup assertion observes), so it cannot copy the parent's template.
+	// Its own test timeout is therefore the bound that survives an abnormal
+	// parent death; the process context bounds it while the parent lives.
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+	command := exec.CommandContext(ctx, os.Args[0],
+		"-test.run=^TestTestDatabaseTemplateCleanupOnFailure$", "-test.timeout=5m")
 	command.Env = append(os.Environ(), childEnv+"=1")
 	output, err := command.CombinedOutput()
 	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 1 {

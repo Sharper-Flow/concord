@@ -80,9 +80,8 @@ type WorkflowPayloadDefinition struct {
 
 // WorkflowActionCrossField is the engine action registry's typed declaration
 // of one action's version-invariant cross-field payload rules. It lives on
-// builtinActionPolicy (and the engine recovery registry for correction
-// actions), beside the payload fields it constrains — never on the
-// digest-covered WorkflowPayloadDefinition. Core payload validation, the
+// builtinActionPolicy, beside the payload fields it constrains — never on
+// the digest-covered WorkflowPayloadDefinition. Core payload validation, the
 // fold guards, replay, and the generated published variants all read this
 // one declaration, so the enforced and advertised contracts cannot disagree.
 // validateCrossFieldDeclaration holds its shape.
@@ -270,7 +269,7 @@ func validateCrossFieldKindMatches(byName map[string]*WorkflowPayloadField, matc
 
 // validateEngineCrossFieldDeclarations checks every engine-declared
 // cross-field rule against the action's own payload fields. The builtin
-// table and recovery registry are static, so the builtin registry runs it
+// table is static, so the registry runs it
 // once at construction rather than on every definition validation.
 func validateEngineCrossFieldDeclarations() error {
 	for id, policy := range builtinActionPolicies {

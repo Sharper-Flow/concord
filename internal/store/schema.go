@@ -9808,7 +9808,7 @@ func readManifest(ctx context.Context, tx queryer, query string) (map[int]applie
 // indentation; the canonical text keeps the indentation every earlier
 // release recorded. Migration 104 carries the variant v11.29.2 shipped with
 // a reference-sized CHECK on worktree_id that rejected every real composite
-// worktreeOccupancyID (a claim_op_id embeds a sha256 digest plus the claim
+// worktree occupancy id (a claim_op_id embeds a sha256 digest plus the claim
 // name plus the project id, 150-280 characters); the canonical text widens
 // the bound to the composite's component maxima, and databases created by
 // v11.29.2 keep opening against their recorded checksum.

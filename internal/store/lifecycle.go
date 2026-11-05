@@ -611,9 +611,7 @@ func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle
 
 // refuseLiveWorkflowLifecycleCompletionTx refuses a completed lifecycle
 // target whose workflow instance still runs. The typed refusal
-// names the workflow completion action as its remedy. A parked delivery gate
-// refuses first in refuseUnreconciledDelivery, whose remedy names the owed
-// delivery and then the same completion action.
+// names the workflow completion action as its remedy.
 func refuseLiveWorkflowLifecycleCompletionTx(ctx context.Context, tx *sql.Tx, workID string) error {
 	var state string
 	err := tx.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state)

@@ -759,8 +759,9 @@ func RefuseUnconsumedProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, p
 }
 
 // ProjectSessionRetirement is the derived, read-only readiness result. State
-// is retirementReady or retirementPending; retirementReady is emitted only
-// from verified facts, never from host placement or global work completion.
+// is ready_to_close_or_replace or pending; ready_to_close_or_replace is
+// emitted only from verified facts, never from host placement or global work
+// completion.
 type ProjectSessionRetirement struct {
 	WorkID             string   `json:"work_id"`
 	ProjectID          string   `json:"project_id"`

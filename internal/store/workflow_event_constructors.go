@@ -148,8 +148,9 @@ func workflowReviseCandidatesEvents(request WorkflowActionExecutionRequest, acto
 // The action records all three required sections in one act: the
 // reproduction record, the alignment search, and the root-cause record. The
 // outcome enum and the outcome/related_ids legal input combinations are
-// declared on the record_diagnosis registry payload and enforced by
-// validateWorkflowActionPayload before any event is built, so this
+// declared on the record_diagnosis registry payload and enforced at action
+// validation by validateWorkflowPayloadCrossFieldRules before any event is
+// built, so this
 // constructor does not restate them. Each related id names a real work
 // item, refused here at the boundary rather than at the fold's foreign key.
 func workflowRecordDiagnosisEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {

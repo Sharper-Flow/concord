@@ -9,7 +9,7 @@ release, install, privacy, and Linux amd64 bar).
 
 The alpha maturity rung requires the floor to stay met
 ([CD-0091 D3](../law/decisions/CD-0091-maturity-promotion-ladder.md#d3-the-maturity-rungs-and-their-evidence-bars)).
-Concord's current direction is in [`goals.md`](./goals.md) and
+Concord's current direction is in [`product-vision.md`](./product-vision.md) and
 [`../law/constitution/priorities.md`](../law/constitution/priorities.md).
 
 1. The operator can see, plan, and act across the full Product scope through Product → Domain context. Per CD-0021, "across the full Product scope" means every Product is reachable, not that a result set spans Products. The host starts operator sessions and owns worktree placement under CD-0088 D1. Concord derives managed context under [CD-0219 D4](../law/decisions/CD-0219-the-terminal-launcher-tui-is-retired.md#d4-kept-clauses-keep-their-surviving-owners). Planning stays in Linear through the Linear MCP server under [CD-0213 D1](../law/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d1-linear-is-the-only-planning-authority); managed work creation keeps one write authority.

@@ -191,7 +191,7 @@ This is a property of the read surfaces, not an optional filter.
 [`priorities.md` — Quality (goal E)](../law/constitution/priorities.md#quality-goal-e) names
 **proportional rigor** as a quality attribute. Declared lifecycle stage is one
 input to proportional rigor; see
-[`goals.md` — goal B](./goals.md#b-fast-right-sized-delivery).
+[`product-vision.md` — goal B](./product-vision.md#b-fast-right-sized-delivery).
 
 ### 8.1 Two axes, deliberately separate
 
@@ -230,7 +230,7 @@ describes what the operator has committed to keeping true.
 
 Stage is one input to proportional rigor (the steps, proof, and testing a
 change receives), not a fixed workflow shape. See
-[`goals.md` — goal B](./goals.md#b-fast-right-sized-delivery) and
+[`product-vision.md` — goal B](./product-vision.md#b-fast-right-sized-delivery) and
 [`priorities.md` — Quality (goal E)](../law/constitution/priorities.md#quality-goal-e).
 Mandatory stages and operator approvals cannot be waived (CD-0242 D4).
 

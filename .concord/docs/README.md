@@ -6,7 +6,7 @@
 > **Codename:** Concord (concordance: bringing scattered work into one view).
 > **Created:** 2026-07-25, from product-design work.
 > **Repository:** [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord); Go module [`github.com/sharper-flow/concord`](https://pkg.go.dev/github.com/sharper-flow/concord).
-> **Goals (guidance):** [`goals.md`](./goals.md)
+> **Goals (guidance):** [`product-vision.md`](./product-vision.md)
 > **Operating envelope, constraints, conflict rules, and standing law:** [`../law/constitution/priorities.md`](../law/constitution/priorities.md)
 
 Concord is a set of tools and infrastructure for one operator and many
@@ -14,14 +14,14 @@ concurrent local AI agents working on one machine. It uses OpenCode to
 coordinate agent-led development of software Products. Product → Domain
 architecture binds specifications, work, and evidence so independently clean
 changes cannot silently enact contradictory Product truth. Its goals are in
-[`goals.md`](./goals.md), as guidance; its operating envelope, constraints,
+[`product-vision.md`](./product-vision.md), as guidance; its operating envelope, constraints,
 conflict rules, and standing law are in [`../law/constitution/priorities.md`](../law/constitution/priorities.md).
 
 ---
 
 ## How to read this set
 
-1. Start with [`goals.md`](./goals.md) for the goals and their measures, then [`../law/constitution/priorities.md`](../law/constitution/priorities.md) for the operating envelope, the constraints, the conflict rules, and the standing law.
+1. Start with [`product-vision.md`](./product-vision.md) for the goals and their measures, then [`../law/constitution/priorities.md`](../law/constitution/priorities.md) for the operating envelope, the constraints, the conflict rules, and the standing law.
 2. Read [`design-constraints.md`](./design-constraints.md) for the hard boundaries that shape architecture.
 3. Read [`core-architecture.md`](./core-architecture.md) for the Go-core direction, state authority (CD-0002: SQLite sole authority), and consolidated resilience invariants.
 4. Read [`clarifications.md`](./clarifications.md) for accepted decisions and
@@ -34,7 +34,7 @@ conflict rules, and standing law are in [`../law/constitution/priorities.md`](..
 
 | Document | What it owns |
 |---|---|
-| [`goals.md`](./goals.md) | The operator's goals and their measures. **Guidance, not law.** |
+| [`product-vision.md`](./product-vision.md) | The operator's goals and their measures. **Guidance, not law.** |
 | [`../law/constitution/priorities.md`](../law/constitution/priorities.md) | Operating envelope, constraints, conflict rules, and the standing law that serves each goal. **Accepted law, ranked first.** |
 | [`reachability-exceptions.v1.json`](./reachability-exceptions.v1.json) | **Authorizing exception record:** functions no `cmd/concord` invocation reaches that the repository has decided to keep; reachability itself is computed, so an undeclared unreachable function is a validator finding (CD-0249). |
 | [`core-architecture.md`](./core-architecture.md) | Go-core direction, state authority (CD-0002), consolidated resilience invariants. |
@@ -57,7 +57,7 @@ conflict rules, and standing law are in [`../law/constitution/priorities.md`](..
 | [`../law/specs/agent-tool-surface-measurement.md`](../law/specs/agent-tool-surface-measurement.md) | **Accepted TS9:** pre-go-live PM1/TS1 deterministic evidence, strict schemas, authority/transaction/negative/conformance proof; model trials and telemetry are research only before go-live. |
 | [`../law/specs/product-coordination-view.md`](../law/specs/product-coordination-view.md) | **Accepted C17:** Product coordination drill-down: a structural Q8 relation tree plus a ranked Q3 work table, with bounded Product-scoped reads and visible incomplete coverage. |
 | [`../law/decisions/CD-0005-concord-agent-tool-surface.md`](../law/decisions/CD-0005-concord-agent-tool-surface.md) | **Accepted CD-0005:** consolidated TS1–TS9 agent-surface architecture and invariants. |
-| [`../law/decisions/CD-0006-concord-root-product-policy.md`](../law/decisions/CD-0006-concord-root-product-policy.md) | **Accepted CD-0006:** Product direction follows [`goals.md`](./goals.md), without a full-successor requirement; CD-0082 owns demand-driven migration and correction. Workflow, rigor/governance, single-operator, and release-evidence duties remain. |
+| [`../law/decisions/CD-0006-concord-root-product-policy.md`](../law/decisions/CD-0006-concord-root-product-policy.md) | **Accepted CD-0006:** Product direction follows [`product-vision.md`](./product-vision.md), without a full-successor requirement; CD-0082 owns demand-driven migration and correction. Workflow, rigor/governance, single-operator, and release-evidence duties remain. |
 | [`../law/decisions/CD-0007-concord-repository-bootstrap.md`](../law/decisions/CD-0007-concord-repository-bootstrap.md) | **Accepted CD-0007:** [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord), Go module identity, audited public-doc migration, MIT/public governance, one-version release/install, Linux amd64, privacy, and selective skills. |
 | [`../law/decisions/CD-0010-pre-readiness-development-authority.md`](../law/decisions/CD-0010-pre-readiness-development-authority.md) | **Accepted CD-0010:** planning and managed execution authority follow CD-0213 and the managed development authority. |
 | [`../law/decisions/CD-0089-concord-development-coordination.md`](../law/decisions/CD-0089-concord-development-coordination.md) | **Accepted CD-0089:** Concord owns explicitly managed development workflow; CD-0213 governs planning while repository review and merge authority remain intact. |

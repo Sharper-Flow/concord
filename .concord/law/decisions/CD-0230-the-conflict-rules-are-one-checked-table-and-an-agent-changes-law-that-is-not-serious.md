@@ -43,7 +43,7 @@
 - **Scope:** How Concord applies the conflict rules of `priorities.md` Appendix A:
   the mechanism that enforces each rule, the record of each application, law-change authority under R3 and P12, the
   operator approval classes, and the follow-up ledger
-- **Implements:** [`goals.md`](../../docs/goals.md) goal F for the conflict rules in
+- **Implements:** [`product-vision.md`](../../docs/product-vision.md) goal F for the conflict rules in
   [`priorities.md`](../constitution/priorities.md) Appendix A, and goal E's measure that follow-up items get closed
 - **Preserves:** CD-0159 D1, D3, D6, and D7, the authority tier and its checks;
   the ban on a silent scope cut and a substituted outcome in CD-0006 and

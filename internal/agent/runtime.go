@@ -1072,7 +1072,6 @@ type workSummary struct {
 	Priority              int64                     `json:"priority,omitempty"`
 	ProjectIDs            []string                  `json:"project_ids,omitempty"`
 	Ready                 bool                      `json:"ready,omitempty"`
-	Narrative             string                    `json:"narrative,omitempty"`
 	TerminalAt            *string                   `json:"terminal_at"`
 	CreatedAt             string                    `json:"created_at"`
 	PendingProjectHandoff *store.ProjectHandoff     `json:"pending_project_handoff,omitempty"`
@@ -1093,7 +1092,7 @@ func summary(w store.WorkItem) workSummary {
 	if w.TerminalAt != "" {
 		terminal = &w.TerminalAt
 	}
-	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, CreatedAt: w.CreatedAt, PendingProjectHandoff: w.PendingProjectHandoff, LawContext: w.LawContext, NativeRuns: w.NativeRuns}
+	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, TerminalAt: terminal, CreatedAt: w.CreatedAt, PendingProjectHandoff: w.PendingProjectHandoff, LawContext: w.LawContext, NativeRuns: w.NativeRuns}
 }
 func (r runtime) q1(base agentcontract.Envelope, q store.Q1Result) (agentcontract.Envelope, error) {
 	projects := []map[string]any{}

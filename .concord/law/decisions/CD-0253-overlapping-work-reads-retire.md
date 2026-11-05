@@ -37,8 +37,8 @@ exactly when no live blocker holds it. A needed item with `ready` absent or
 false is blocked; the relations read returns the bounded blocker graph.
 Item-scoped list with full detail supplies the work facts needed by version
 and membership refresh intents. It reports a work item's Project IDs, primary
-first, but not each membership's role; no read replaces the role list `scope`
-returned.
+first, but not each membership's role or the work narrative; no read replaces
+the role list or the narrative `scope` returned.
 
 List full detail no longer embeds a WorkPin. Mutation results retain their pins
 and derived intents under CD-0113 D1–D3. The continuity read is unchanged.

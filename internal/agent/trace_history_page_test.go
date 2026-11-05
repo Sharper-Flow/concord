@@ -71,7 +71,7 @@ func TestHistoryRejectsRetiredContractVersion(t *testing.T) {
 	}
 }
 
-func TestWorkflowPlanRead(t *testing.T) {
+func TestWorkflowResumeReadsTheStepFrontier(t *testing.T) {
 	s, _, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_transition", "product_read"})
 	seedAgentWorkflowAt(t, s, grant, store.WorkflowStepPlanFix, "implement")
 	resume, err := store.ReadWorkflowResume(t.Context(), s, "work-1")

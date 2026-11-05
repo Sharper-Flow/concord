@@ -84,7 +84,7 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 		return out, err
 	}
 	defer tx.Rollback()
-	if _, err := readOneWork(ctx, tx, req.Work); err != nil {
+	if err := requireWork(ctx, tx, req.Work); err != nil {
 		return out, err
 	}
 	revision, err := storeRevision(ctx, tx)

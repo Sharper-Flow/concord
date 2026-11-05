@@ -1329,9 +1329,6 @@
         "ready": {
           "type": "boolean"
         },
-        "narrative": {
-          "type": "string"
-        },
         "terminal_at": {
           "type": [
             "string",

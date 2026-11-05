@@ -149,7 +149,6 @@ type WorkItem struct {
 	ValueStatement        string              `json:"value_statement,omitempty"`
 	Tags                  []string            `json:"tags,omitzero"`
 	WorkflowTypeRef       string              `json:"workflow_type_ref,omitempty"`
-	Narrative             string              `json:"narrative,omitempty"`
 	Projects              []ProjectMembership `json:"projects,omitempty"`
 	Blocked               bool                `json:"blocked"`
 	Ready                 bool                `json:"ready"`
@@ -925,31 +924,19 @@ func attachWorkMemberships(ctx context.Context, tx queryer, items []WorkItem, id
 	return items, rows.Err()
 }
 
-func readOneWork(ctx context.Context, tx *sql.Tx, id string) (WorkItem, error) {
+// requireWork refuses a work ID that was published away or never existed.
+func requireWork(ctx context.Context, tx *sql.Tx, id string) error {
 	if err := publishedWorkAbsenceQ(ctx, tx, id, "query"); err != nil {
-		return WorkItem{}, err
+		return err
 	}
-	items, err := scanWorkItems(ctx, tx, `SELECT id,kind,title,lifecycle,version,priority,urgency,created_at,updated_at,coalesce(terminal_time,'') FROM work_items WHERE id=?`, id)
+	exists, err := workExistsCore(ctx, tx, id)
 	if err != nil {
-		return WorkItem{}, err
+		return wrapFailure(KindUnavailable, "query", "cannot read work items", true, "retry once the database is readable", err)
 	}
-	if len(items) == 0 {
-		return WorkItem{}, unknownScope("query", "work item does not exist")
+	if !exists {
+		return unknownScope("query", "work item does not exist")
 	}
-	// The bounded narrative rides the single-record read only. The recorded
-	// mutable-intent detail (task, value statement, tags, workflow type
-	// reference) rides with it so a coordinator can carry the complete
-	// revisable intent off this one authoritative read; list queries keep
-	// their column-only shape.
-	var narrative, intentJSON string
-	if err := tx.QueryRowContext(ctx, `SELECT narrative, intent_json FROM work_items WHERE id=?`, id).Scan(&narrative, &intentJSON); err != nil {
-		return WorkItem{}, wrapFailure(KindUnavailable, "query", "cannot read work narrative", true, "retry once the database is readable", err)
-	}
-	items[0].Narrative = narrative
-	if err := decodeRecordedIntent(&items[0], intentJSON); err != nil {
-		return WorkItem{}, err
-	}
-	return items[0], nil
+	return nil
 }
 
 type relationSpec struct {
@@ -1053,7 +1040,7 @@ func (s *Store) QueryQ8(ctx context.Context, req Q8Request) (Q8Result, error) {
 		return out, err
 	}
 	defer tx.Rollback()
-	if _, err := readOneWork(ctx, tx, req.Work); err != nil {
+	if err := requireWork(ctx, tx, req.Work); err != nil {
 		return out, err
 	}
 	if depth > 1 || direction == "both" {

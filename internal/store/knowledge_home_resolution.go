@@ -30,7 +30,7 @@ func resolveKnowledgeSourceRole(ctx context.Context, q queryer, home KnowledgeHo
 		return productID, nil
 	}
 	if err != sql.ErrNoRows {
-		return "", wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot resolve the knowledge home designation", true, "retry once the database is readable", err)
+		return "", wrapFailure(KindUnavailable, "resolve_knowledge_source_role", "cannot resolve the knowledge home designation", true, "retry once the database is readable", err)
 	}
 	return "", nil
 }

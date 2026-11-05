@@ -401,9 +401,9 @@ func proposalListItemBound(field string) outputBoundSource {
 	})
 }
 
-// Kept: proves the proposal fold's per-item prose guard is the live source
-// behind the workflow_proposal_record list rows; removing that guard from
-// validateWorkflowProposalContent makes the evaluator refuse.
+// TestOutputBoundProposalListItemSource proves proposalListItemBound refuses
+// once a list field leaves validateWorkflowProposalContent's grouped per-item
+// prose guard, so the workflow_proposal_record item rows cite a live guard.
 func TestOutputBoundProposalListItemSource(t *testing.T) {
 	root := ledgerRepoRoot(t)
 	const file = "internal/store/workflow.go"
@@ -496,8 +496,9 @@ func workflowItemsEvaluated(value int64, from string) evaluatedBound {
 	return evaluatedBound{constraints: []boundConstraint{{unit: boundItems, value: value, from: from}}, kind: "derived", describe: from}
 }
 
-// Kept: proves the registered work_pin next_valid_intents source evaluates
-// to a finite capacity within agentcontract.MaxNextValidIntents.
+// TestOutputBoundWorkPinIntentSource proves the registered work_pin
+// next_valid_intents source evaluates to a finite capacity within
+// agentcontract.MaxNextValidIntents.
 func TestOutputBoundWorkPinIntentSource(t *testing.T) {
 	const pattern = "/$defs/work_pin/properties/next_valid_intents/maxItems"
 	rt := newLedgerRuntime(ledgerRepoRoot(t))
@@ -516,9 +517,9 @@ func TestOutputBoundWorkPinIntentSource(t *testing.T) {
 	t.Fatal("work pin intent source is not registered")
 }
 
-// Kept for CON-1575's next cut: drives a live workflow and proves the
-// reachable continuity snapshot's step_actions stays within its schema
-// maxItems; it retires with the continuity read that cut removes.
+// TestOutputBoundContinuityReachableFrontier drives a live workflow through
+// an inserted-step type switch and proves the reachable continuity snapshot's
+// step_actions stays within its schema maxItems.
 func TestOutputBoundContinuityReachableFrontier(t *testing.T) {
 	ctx := t.Context()
 	s := openTemp(t)
@@ -609,9 +610,9 @@ func TestOutputBoundContinuityReachableFrontier(t *testing.T) {
 	}
 }
 
-// Kept: proves workPinIntentItemsBound counts the live direct intent writer
-// in internal/agent/mutations.go at its literal width and refuses an unknown
-// producer.
+// TestOutputBoundIntentCountDirectWriters proves workPinIntentItemsBound
+// counts the direct intent writer in internal/agent/mutations.go at its
+// literal width and refuses a non-literal producer.
 func TestOutputBoundIntentCountDirectWriters(t *testing.T) {
 	root := ledgerRepoRoot(t)
 	const file = "internal/agent/mutations.go"

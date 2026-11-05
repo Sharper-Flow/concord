@@ -180,12 +180,12 @@ func workPinReadPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *Work
 	}
 	pin.NextValidIntents = []WorkPinIntent{}
 	if plan != nil {
-		return workPinReadExistingPlanTx(pin, state, plan)
+		return workPinReadExistingPlanTx(ctx, tx, workID, pin, state, plan)
 	}
 	return workPinReadPreludeTx(ctx, tx, workID, pin, state)
 }
 
-func workPinReadExistingPlanTx(pin *WorkPin, state string, plan *WorkflowStepPlan) (string, error) {
+func workPinReadExistingPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, state string, plan *WorkflowStepPlan) (string, error) {
 	pin.WorkflowType = string(plan.Type)
 	frontier := WorkflowStepPlanFrontier(*plan)
 	if len(frontier) > 0 {
@@ -202,6 +202,11 @@ func workPinReadExistingPlanTx(pin *WorkPin, state string, plan *WorkflowStepPla
 	ids := []string{"insert_step", "pick_type"}
 	if WorkflowStepPlanComplete(*plan) {
 		ids = append(ids, "complete")
+		completed, err := workPinCompletedPlanIntentsTx(ctx, tx, workID, plan)
+		if err != nil {
+			return "", err
+		}
+		ids = append(ids, completed...)
 	}
 	for _, step := range frontier {
 		actions := WorkflowStepPlanTemplateActions(plan.Type, step.ID)
@@ -215,6 +220,29 @@ func workPinReadExistingPlanTx(pin *WorkPin, state string, plan *WorkflowStepPla
 		}
 	}
 	return state, workPinAddCatalogIntents(pin, ids)
+}
+
+func workPinCompletedPlanIntentsTx(ctx context.Context, tx *sql.Tx, workID string, plan *WorkflowStepPlan) ([]string, error) {
+	// Ambiguous contracts must not make the pin unreadable.
+	versions, err := activeWorkflowContractVersions(ctx, tx, workID)
+	if err != nil {
+		return nil, err
+	}
+	actions := []string{"record_delivery"}
+	if len(versions) <= 1 {
+		actions = []string{"approve_contract", "confirm_premise", "record_delivery"}
+	}
+	var ids []string
+	for _, action := range actions {
+		owner, err := workflowPlanCompleteActionTx(ctx, tx, workID, plan, action, false)
+		if err != nil {
+			return nil, err
+		}
+		if owner != "" {
+			ids = append(ids, action)
+		}
+	}
+	return ids, nil
 }
 
 func workPinReadPreludeTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, state string) (string, error) {

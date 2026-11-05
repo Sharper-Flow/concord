@@ -256,6 +256,72 @@ func workflowPlanCompleteConfirmationTx(ctx context.Context, q queryer, workID s
 	return workflowPlanDeclaringStep(plan, actionID), confirmed, nil
 }
 
+// workflowPlanCompletePrerequisiteTx reports the declaring step that carries
+// a completion-prerequisite action on a completed plan, whether the
+// prerequisite is recorded, and whether the action's own fold records it
+// after admission (so its fold admits while it is still missing):
+//
+//   - approve_contract records the initial contract; its paired
+//     contract_approved event folds first, so the fold admits once the
+//     contract exists;
+//   - record_delivery records the delivery assertion inside its own fold, so
+//     the fold admits while the assertion is missing.
+//
+// Completion requires these facts where they apply; the natural step order may
+// pass the declaring step before the prerequisite is recorded, and no other action can
+// record the first one, so the declaring step keeps admitting the action
+// while the prerequisite is missing — the completed-plan admission the
+// premise confirmation carries. Once the prerequisite is recorded, the
+// frontier and retained-record rules own the action again.
+func workflowPlanCompletePrerequisiteTx(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, actionID string) (string, bool, bool, error) {
+	if plan == nil || !WorkflowStepPlanComplete(*plan) {
+		return "", false, false, nil
+	}
+	var (
+		recorded       bool
+		afterAdmission bool
+	)
+	switch actionID {
+	case "approve_contract":
+		_, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
+		if err != nil && err != sql.ErrNoRows {
+			return "", false, false, err
+		}
+		recorded = err == nil
+	case "record_delivery":
+		if plan.Type == WorkflowStepPlanResearch {
+			return "", false, false, nil
+		}
+		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_delivery_state WHERE work_id=?)`, workID).Scan(&recorded); err != nil {
+			return "", false, false, wrapFailure(KindUnavailable, "workflow_action", "cannot read the delivery assertion", true, "retry once the database is readable", err)
+		}
+		afterAdmission = true
+	default:
+		return "", false, false, nil
+	}
+	return workflowPlanDeclaringStep(plan, actionID), recorded, afterAdmission, nil
+}
+
+// workflowPlanCompleteActionTx shares the completed-plan admission state
+// between preflight, projection and folding. Paired events record the contract
+// and confirmation before action completion; delivery is recorded afterwards.
+func workflowPlanCompleteActionTx(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, actionID string, folding bool) (string, error) {
+	owner, recorded, afterAdmission, err := workflowPlanCompletePrerequisiteTx(ctx, q, workID, plan, actionID)
+	if err != nil {
+		return "", err
+	}
+	if actionID == "confirm_premise" {
+		owner, recorded, err = workflowPlanCompleteConfirmationTx(ctx, q, workID, plan, actionID)
+		if err != nil {
+			return "", err
+		}
+	}
+	if owner != "" && recorded == (folding && !afterAdmission) {
+		return owner, nil
+	}
+	return "", nil
+}
+
 func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, actionID, step string, plan *WorkflowStepPlan, fields map[string]json.RawMessage) (string, error) {
 	switch actionID {
 	case "record_intake", "record_clarify", "pick_type", "insert_step":
@@ -275,11 +341,11 @@ func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 		}
 	default:
 		if !workflowPlanAllowsAction(plan, step, actionID) {
-			owner, confirmed, err := workflowPlanCompleteConfirmationTx(ctx, tx, workID, plan, actionID)
+			owner, err := workflowPlanCompleteActionTx(ctx, tx, workID, plan, actionID, false)
 			if err != nil {
 				return step, err
 			}
-			if owner != "" && !confirmed {
+			if owner != "" {
 				return owner, nil
 			}
 			owner = ""

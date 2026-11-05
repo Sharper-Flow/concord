@@ -205,3 +205,25 @@ func TestFirstDeliveryStaysFrontierBoundBeforePlanComplete(t *testing.T) {
 		t.Fatalf("mid-plan first delivery refusal=%v", err)
 	}
 }
+
+func TestCompletedResearchPlanKeepsFirstDeliveryFrontierBound(t *testing.T) {
+	t.Parallel()
+	const id = "research-without-delivery"
+	route := seedWorkflowReturnRouteFixture(t, id, WorkflowStepPlanResearch, "conclude")
+	completeWorkflowPlanFixture(t, route.store, id)
+	if _, err := route.store.db.Exec(`INSERT INTO write_guard(active) VALUES(1); DELETE FROM workflow_delivery_state WHERE work_id=?; DELETE FROM write_guard`, id); err != nil {
+		t.Fatal(err)
+	}
+	pin, err := ReadWorkPin(t.Context(), route.store, id)
+	if err != nil || workPinContainsAction(pin.NextValidIntents, "record_delivery") {
+		t.Fatalf("research pin=%+v err=%v", pin, err)
+	}
+	f := acceptanceRecoveryFixture{store: route.store, workID: id, owner: route.owner}
+	err = f.run(t.Context(), "record_delivery", "research-delivery", pin.Version, json.RawMessage(`{"delivery_artifact":"https://example.test/delivery","delivery_state":"asserted"}`), nil)
+	if !hasFailureKind(err, KindIllegalLifecycleTransition) {
+		t.Fatalf("research first delivery refusal=%v", err)
+	}
+	if err := f.run(t.Context(), "complete", "research-complete", f.version(t.Context(), t), mustJSONValue(map[string]any{"impact_verdict": "non-breaking"}), nil); err != nil {
+		t.Fatalf("research completion without delivery refused: %v", err)
+	}
+}

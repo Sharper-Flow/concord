@@ -215,7 +215,6 @@ func workPinReadPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *Work
 	return workPinReadPreludeTx(ctx, tx, workID, pin, state)
 }
 
-// workPinReadExistingPlanTx derives the next actions from the current stored plan.
 func workPinReadExistingPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, state string, plan *WorkflowStepPlan) (string, error) {
 	pin.WorkflowType = string(plan.Type)
 	frontier := WorkflowStepPlanFrontier(*plan)

@@ -290,6 +290,9 @@ func workflowPlanCompletePrerequisiteTx(ctx context.Context, q queryer, workID s
 		}
 		recorded = err == nil
 	case "record_delivery":
+		if plan.Type == WorkflowStepPlanResearch {
+			return "", false, false, nil
+		}
 		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_delivery_state WHERE work_id=?)`, workID).Scan(&recorded); err != nil {
 			return "", false, false, wrapFailure(KindUnavailable, "workflow_action", "cannot read the delivery assertion", true, "retry once the database is readable", err)
 		}

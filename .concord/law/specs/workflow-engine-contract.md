@@ -281,13 +281,12 @@ which still refuses without the recorded confirmation.
 Two more completion prerequisites keep their declaring steps on a completed
 plan, under the same coordinator-actor, contract-version, version and
 idempotency checks. `approve_contract` remains available while the work holds
-no active contract: completion requires one, only `approve_contract` records
-the first, and its paired contract approval event folds before the action's
-completion, so its declaring step keeps admitting the initial approval. The
+no active contract: completion requires one and only `approve_contract` records
+the first, so its declaring step keeps admitting the initial approval. The
 route closes once a contract exists; later contract versions belong to
-`revise_intent`. `record_delivery` remains available while the delivery
+`revise_intent`. For non-research plans, `record_delivery` remains available while the delivery
 assertion is missing: the natural order records the final review before the
-delivery, and the action's own fold records the assertion, so its declaring
+delivery, and completion requires the assertion, so its declaring
 step keeps admitting the first delivery recording. Once recorded, this
 section's current-record replacement owns delivery corrections. Neither route
 bypasses the completion gate, which still refuses a missing prerequisite

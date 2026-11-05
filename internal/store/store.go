@@ -321,12 +321,13 @@ func repairManifestBreakingColumn(ctx context.Context, db *sql.DB) error {
 	}
 	tx := write.Tx
 	if _, err := tx.ExecContext(ctx, schemaManifestDDL); err != nil {
-		_ = tx.Rollback()
-		return wrapFailure(KindUnavailable, "upgrade", "cannot create the schema manifest", true,
+		var cause error = wrapFailure(KindUnavailable, "upgrade", "cannot create the schema manifest", true,
 			"check database permissions", err)
+		write.finish(&cause)
+		return cause
 	}
 	if err := ensureManifestBreakingColumn(ctx, tx); err != nil {
-		_ = tx.Rollback()
+		write.finish(&err)
 		return err
 	}
 	if err := tx.Commit(); err != nil {

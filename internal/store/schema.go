@@ -9258,7 +9258,7 @@ func pendingBreaking(applied map[int]appliedMigration) []migration {
 func migrationLockContended(err error) bool {
 	var failure *Failure
 	if errors.As(err, &failure) {
-		if failure.Kind != KindUnavailable {
+		if failure.Kind != KindUnavailable || failure.EffectPossible {
 			return false
 		}
 		err = failure.Err
@@ -9286,7 +9286,7 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, lawIndex
 	}
 	tx := write.Tx
 	rollback := func(cause error) error {
-		_ = tx.Rollback()
+		write.finish(&cause)
 		return cause
 	}
 	if scope == migrateForUnstamped {

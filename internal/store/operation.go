@@ -468,7 +468,7 @@ func applyOperationWithResult(ctx context.Context, s *Store, operation Operation
 			"retry once the database is writable", err)
 	}
 	rollback := func(cause error) error {
-		_ = tx.Rollback()
+		tx.finish(&cause)
 		return cause
 	}
 	scope, err := beginWrite(ctx, tx.Tx)

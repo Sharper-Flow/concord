@@ -463,7 +463,7 @@ func applyOperationWithResult(ctx context.Context, s *Store, operation Operation
 			"retry once the database is writable", err)
 	}
 	rollback := func(cause error) error {
-		_ = tx.Rollback()
+		tx.finish(&cause)
 		return cause
 	}
 	scope, err := beginWrite(ctx, tx.Tx)
@@ -500,10 +500,22 @@ func applyOperationWithResult(ctx context.Context, s *Store, operation Operation
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return output, wrapFailure(KindUnavailable, "apply_operation", "cannot commit domain operation", true,
-			"retry once the database is writable", err)
+		return output, ordinaryCommitFailure(ctx, tx, "apply_operation", "cannot commit domain operation", err)
 	}
 	return output, nil
+}
+
+func ordinaryCommitFailure(ctx context.Context, tx *writeTx, op, detail string, err error) error {
+	if commitRefusedBeforeDriver(err, ctx) {
+		// A pre-driver refusal proves no commit, but database/sql's watchdog
+		// may own the rollback. Report absence only after proving cleanup.
+		var refused error = wrapFailure(KindUnavailable, op, detail, true, "retry once the database is writable", err)
+		tx.finish(&refused)
+		return refused
+	}
+	failure := wrapFailure(KindUnavailable, op, detail, false, "reconcile database state before retrying", err)
+	failure.EffectPossible = true
+	return failure
 }
 
 func enterWrite(ctx context.Context, tx *sql.Tx) error {

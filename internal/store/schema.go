@@ -9405,7 +9405,7 @@ func pendingBreaking(applied map[int]appliedMigration) []migration {
 func migrationLockContended(err error) bool {
 	var failure *Failure
 	if errors.As(err, &failure) {
-		if failure.Kind != KindUnavailable {
+		if failure.Kind != KindUnavailable || failure.EffectPossible {
 			return false
 		}
 		err = failure.Err
@@ -9433,7 +9433,7 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, lawIndex
 	}
 	tx := write.Tx
 	rollback := func(cause error) error {
-		_ = tx.Rollback()
+		write.finish(&cause)
 		return cause
 	}
 	if scope == migrateForUnstamped {
@@ -9492,8 +9492,7 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, lawIndex
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return rollback(wrapFailure(KindUnavailable, "migrate", "cannot commit schema migration", true,
-			"retry once the database is writable", err))
+		return ordinaryCommitFailure(ctx, write, "migrate", "cannot commit schema migration", err)
 	}
 	if stopped != nil {
 		return upgradeRequired(*stopped)

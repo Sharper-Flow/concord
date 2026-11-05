@@ -132,6 +132,8 @@ func TestMigrateWaitsOutALockHeldPastOneBusyTimeout(t *testing.T) {
 
 func TestMigrationLockContendedNeverRetriesDriftOrUnsupportedSchema(t *testing.T) {
 	t.Parallel()
+	uncertain := wrapFailure(KindUnavailable, "migrate", "cannot prove rollback", false, "reconcile", errors.New("database is locked"))
+	uncertain.EffectPossible = true
 	for _, testCase := range []struct {
 		name string
 		err  error
@@ -139,6 +141,7 @@ func TestMigrationLockContendedNeverRetriesDriftOrUnsupportedSchema(t *testing.T
 	}{
 		{name: "busy database is contention", err: wrapFailure(KindUnavailable, "migrate", "cannot begin schema migration", true, "retry", errors.New("database is locked (5) (SQLITE_BUSY)")), want: true},
 		{name: "locked table is contention", err: wrapFailure(KindUnavailable, "migrate", "cannot begin schema migration", true, "retry", errors.New("database table is locked")), want: true},
+		{name: "possible effect is never contention", err: uncertain, want: false},
 		{name: "schema drift is never retried", err: newFailure(KindSchemaDrift, "migrate", "migration no longer matches its recorded checksum", false, "restore"), want: false},
 		{name: "unsupported schema is never retried", err: newFailure(KindSchemaUnsupported, "migrate", "database records an unknown migration", true, "upgrade"), want: false},
 		{name: "membership requirement is never retried", err: newFailure(KindMembershipMigrationRequired, "migrate", "explicit memberships required", false, "map memberships"), want: false},

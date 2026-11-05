@@ -122,7 +122,7 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, reques
 				return err
 			}
 			if err := tx.Commit(); err != nil {
-				return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot commit owning action replay", true, "retry once the database is writable", err)
+				return err
 			}
 			return nil
 		}
@@ -155,7 +155,7 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, reques
 		return err
 	}
 	if err := tx.Commit(); err != nil {
-		return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot commit owning action", true, "retry once the database is writable", err)
+		return err
 	}
 	return nil
 }

@@ -3,6 +3,9 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -52,6 +55,40 @@ func TestQ3ItemScopedFullCarriesNativeRuns(t *testing.T) {
 				t.Fatalf("native_runs present = %v, want %v: %s", found, tc.want, data)
 			}
 		})
+	}
+}
+
+// The registry-absent refusal the item-scoped full-detail list read surfaces
+// for a contract-carrying row must name the role that can commit the missing
+// registry and the route that commits it, so an agent reading a live item is
+// not stranded with a remedy no one can act on. The read keeps failing
+// closed (CD-0222 D2): a home with committed law and no committed registry
+// still refuses.
+func TestQ3ItemScopedFullRegistryAbsentNamesCommittingOwner(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	workID := "law-context-list-registry-absent"
+	seedLawContextFixture(t, s, workID)
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, currentWorkflowPlanFixture(t, WorkflowStepPlanChange).Steps[0].ID)
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	approveCurrentLawContextContract(t, s, workID, []string{}, []string{}, binding)
+	homeRepo := workflowLawFixtureRepo(t, s)
+	if err := os.Remove(filepath.Join(homeRepo, filepath.FromSlash(knowledgeRegistryPath))); err != nil {
+		t.Fatal(err)
+	}
+	commitKnowledgeRepo(t, homeRepo, "retire the registry revision")
+	_, err := s.QueryQ3(ctx, Q3Request{Product: "product", WorkIDs: []string{workID}, Detail: "full"})
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent {
+		t.Fatalf("registry-absent list read diagnosis = %v, want typed domain_registry_absent from the committed read", err)
+	}
+	if failure.Op != lawSnapshotOp {
+		t.Fatalf("registry-absent list read op = %q, want %q", failure.Op, lawSnapshotOp)
+	}
+	for _, want := range []string{"Concord agent", "domain-registry.json", "knowledge home", "ordinary reviewed pull request"} {
+		if !strings.Contains(failure.RecoveryAction, want) {
+			t.Fatalf("registry-absent recovery %q names no actionable committing owner (missing %q)", failure.RecoveryAction, want)
+		}
 	}
 }
 

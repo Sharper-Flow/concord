@@ -325,6 +325,58 @@ func TestLawContextLocatorsRequireReadableSources(t *testing.T) {
 	}
 }
 
+// The registry locator runs only after the committed registry was read, so
+// its two absent-file shapes mean the checkout disagrees with a commit that
+// carries the registry. Both refusals must name the restore that resolves
+// them, not a commit that already exists.
+func TestKnowledgeRegistryLocatorAbsentShapesNameRestores(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		arrange func(t *testing.T) string
+		detail  func(home string) string
+		remedy  string
+	}{
+		{
+			name: "missing checkout root",
+			arrange: func(t *testing.T) string {
+				return filepath.Join(t.TempDir(), "absent-home")
+			},
+			detail: func(home string) string { return "the Product knowledge home checkout is missing: " + home },
+			remedy: "restore the Product knowledge home checkout from its default branch and retry; the verified snapshot commit already carries the Domain registry",
+		},
+		{
+			name: "checkout missing the registry file",
+			arrange: func(t *testing.T) string {
+				home := t.TempDir()
+				if err := os.MkdirAll(filepath.Join(home, ".concord", "docs", "knowledge"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				return home
+			},
+			detail: func(home string) string {
+				return "the knowledge home checkout carries no Domain registry file: " + filepath.Join(home, filepath.FromSlash(knowledgeRegistryPath))
+			},
+			remedy: "restore the Domain registry in the knowledge home checkout from its default-branch commit",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := tc.arrange(t)
+			_, err := knowledgeRegistryLocator(home)
+			var failure *Failure
+			if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent {
+				t.Fatalf("diagnosis = %v, want typed domain_registry_absent", err)
+			}
+			if failure.Detail != tc.detail(home) {
+				t.Fatalf("detail = %q, want %q", failure.Detail, tc.detail(home))
+			}
+			if failure.RecoveryAction != tc.remedy {
+				t.Fatalf("recovery = %q, want the restore remedy %q", failure.RecoveryAction, tc.remedy)
+			}
+		})
+	}
+}
+
 // The law context reads the one committed registry at its existing path: a
 // leftover registry under a pre-migration layout tier never stands in for
 // the registry file the committed revision does not carry.

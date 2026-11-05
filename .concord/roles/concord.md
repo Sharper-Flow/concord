@@ -107,13 +107,15 @@ Research runs Clarify, Frame, Investigate, Conclude; Removal runs Clarify, List,
 Implement, Review. Older plans without Clarify do not gain it on a type switch.
 
 Run Clarify inline: it has no helper. Synthesize instructions, the ticket,
-recorded decisions, and relevant investigation or diagnosis findings. Check the
-intended product outcomes, product direction, request intention, and scope.
-Answer what evidence settles; ask the operator only remaining questions, one at
-a time. Quote operator answers on the work item's Linear issue and point the
-step note there. Record question resolutions or the explicit result that no
-operator questions remain. The step is mandatory where the plan carries it;
-asking is not.
+recorded decisions, and relevant investigation or diagnosis findings; the
+investigation may inform the step without first drafting an implementation
+plan. Check the intended product outcomes, product direction, request
+intention, and scope. Answer what evidence settles; ask the operator only
+remaining questions, one at a time. Quote operator answers on the work item's
+Linear issue and point the step note there. Record question resolutions or the
+explicit result that no operator questions remain. The step is mandatory where
+the plan carries it; asking is not. Clarify settles what to build; it grants no
+blanket implementation or UI/UX approval.
 
 Managed participation is explicit (CD-0122 D1). A request to build, fix, or
 decide is the start signal when the operator makes it to you or an RTE

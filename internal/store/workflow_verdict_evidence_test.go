@@ -72,10 +72,11 @@ func runVerdictActionAs(t *testing.T, s *Store, workID, action string, payload j
 		return err
 	}
 	defer tx.Rollback()
+	identity := fmt.Sprintf("%s-%x-%d", action, sha256.Sum256([]byte(workID)), version)
 	if _, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), WorkflowActionExecutionRequest{
 		EvidenceRefs: actionEvidenceRefs(action, payload), WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner,
-		AcceptedInputsDigest: fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(fmt.Sprintf("%s-%s-%d", action, workID, version)))), IdempotencyIdentity: action + "-" + workID + "-" + fmt.Sprint(version), OperationID: action + "-" + workID + "-" + fmt.Sprint(version),
-		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: action + "-" + workID + "-" + fmt.Sprint(version), RequestID: "request:" + action + "-" + workID + "-" + fmt.Sprint(version), ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
+		AcceptedInputsDigest: fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(fmt.Sprintf("%s-%s-%d", action, workID, version)))), IdempotencyIdentity: identity, OperationID: identity,
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: identity, RequestID: "request:" + identity, ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
 	}); err != nil {
 		return err
 	}

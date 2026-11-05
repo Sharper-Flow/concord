@@ -51,7 +51,7 @@ func TestReadWorkflowResumeAnswersOpeningStepsBeforeIntake(t *testing.T) {
 	}
 }
 
-func TestReadWorkflowResumeProceedSkipsClarifyAndEndingsLeaveNone(t *testing.T) {
+func TestReadWorkflowResumeProceedLeavesPickTypeAndEndingsLeaveNone(t *testing.T) {
 	t.Parallel()
 	s, _ := seedBootstrapCapturedWork(t, "resume-opening-proceed")
 	writeResumePreludeFixture(t, s, "resume-opening-proceed", workflowPreludeState{Intake: workflowIntakeRecord{Outcome: WorkflowIntakeProceed}})

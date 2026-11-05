@@ -16,10 +16,29 @@ func TestWorkflowClarifyMigrationRetainsAndReplacesLegacyAnswers(t *testing.T) {
 	const work = "work-clarify-upgrade"
 	actorRef := "actor:" + strings.Repeat("a", 64)
 	legacy := `{"intake":{"outcome":"clarify","open_questions_found":true},"clarify":{"resolved_questions":["é"],"note":"Resolved."}}`
+	waiting := ` { "intake": { "outcome": "clarify", "open_questions_found": true } } `
+	untouched := ` { "intake": { "outcome": "proceed" } } `
+	plan, err := WorkflowStepPlanTemplate(WorkflowStepPlanChange)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.Steps = plan.Steps[1:]
+	plan.Steps[0].After = []string{}
+	planJSON, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planBytes := " \n" + string(planJSON) + " \n"
 	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
 	retirementUpgradeExec(t, db, `INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at) VALUES(?,'task','Clarify upgrade','in_progress',1,'now','now')`, work)
 	retirementUpgradeExec(t, db, `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'principal','client','agent','session','agent','now')`, actorRef)
 	retirementUpgradeExec(t, db, `INSERT INTO workflow_instances(work_id,instance_state,prelude_state) VALUES(?,'running',?)`, work, legacy)
+	for _, id := range []string{"planned", "untouched", "waiting"} {
+		retirementUpgradeExec(t, db, `INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at) VALUES(?,'task','Migration fixture','in_progress',1,'now','now')`, id)
+	}
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_instances(work_id,instance_state,workflow_type,step_plan,prelude_state) VALUES('planned','running','change',?,?)`, planBytes, legacy)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_instances(work_id,instance_state,workflow_type,step_plan,prelude_state) VALUES('untouched','running','change',?,?)`, planBytes, untouched)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_instances(work_id,instance_state,prelude_state) VALUES('waiting','intake',?)`, waiting)
 	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
@@ -38,6 +57,29 @@ func TestWorkflowClarifyMigrationRetainsAndReplacesLegacyAnswers(t *testing.T) {
 	}
 	if !strings.Contains(prelude, `"outcome":"proceed"`) || strings.Contains(prelude, `"clarify"`) || !strings.Contains(payload, `é`) || recorded.Valid || actor.Valid || eventRef.Valid {
 		t.Fatalf("migration lost legacy record: prelude=%s payload=%s provenance=%v/%v/%v", prelude, payload, recorded, actor, eventRef)
+	}
+	for _, id := range []string{"planned", "untouched"} {
+		var gotPlan, gotPrelude string
+		if err := db.QueryRowContext(ctx, `SELECT step_plan,prelude_state FROM workflow_instances WHERE work_id=?`, id).Scan(&gotPlan, &gotPrelude); err != nil {
+			t.Fatal(err)
+		}
+		if gotPlan != planBytes {
+			t.Errorf("%s plan bytes changed: %q", id, gotPlan)
+		}
+		if id == "untouched" && gotPrelude != untouched {
+			t.Errorf("untouched prelude changed: %q", gotPrelude)
+		}
+		if id == "planned" && (!strings.Contains(gotPrelude, `"outcome":"proceed"`) || strings.Contains(gotPrelude, `"clarify"`)) {
+			t.Errorf("planned prelude not rewritten: %q", gotPrelude)
+		}
+	}
+	var waitingPrelude string
+	var waitingPlan sql.NullString
+	if err := db.QueryRowContext(ctx, `SELECT prelude_state,step_plan FROM workflow_instances WHERE work_id='waiting'`).Scan(&waitingPrelude, &waitingPlan); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(waitingPrelude, `"outcome":"proceed"`) || waitingPlan.Valid {
+		t.Errorf("waiting pre-type item: prelude=%q plan=%v", waitingPrelude, waitingPlan)
 	}
 	var version int64
 	if err := db.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, work).Scan(&version); err != nil {

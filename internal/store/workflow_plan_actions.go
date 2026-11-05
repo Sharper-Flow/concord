@@ -190,7 +190,7 @@ func foldWorkflowTypePicked(ctx context.Context, tx *sql.Tx, event Event) error 
 		return err
 	}
 	if !workflowPreludeAdmitsTypePick(prelude) {
-		return newFailure(KindInvalidOperation, "fold_event", "workflow intake does not permit a type pick", false, "complete intake and clarification first")
+		return newFailure(KindInvalidOperation, "fold_event", "workflow intake does not permit a type pick", false, "complete intake first")
 	}
 	old, err := readWorkflowPlanTx(ctx, tx, event.SubjectID)
 	if err != nil {
@@ -200,24 +200,42 @@ func foldWorkflowTypePicked(ctx context.Context, tx *sql.Tx, event Event) error 
 		if old.Type == p.Type {
 			return newFailure(KindInvalidOperation, "fold_event", "workflow already has this type", false, "pick a different type to switch, or insert a step")
 		}
-		old.Type = p.Type
-		for _, step := range template.Steps {
-			// Plans have no template version marker. Grandfather only Clarify
-			// when the copied plan predates that step.
-			if step.ID == "clarify" && !stepIDExists(old.Steps, "clarify") {
-				continue
-			}
-			if !stepIDExists(old.Steps, step.ID) {
-				old.Steps = append(old.Steps, step)
-			}
-		}
-		template = *old
+		template = mergeWorkflowPlanTemplate(*old, template)
 	}
 	if err := writeWorkflowPlanTx(ctx, tx, event.SubjectID, template); err != nil {
 		return err
 	}
 	prelude.TypePickReason = p.Reason
 	return writeWorkflowPreludeTx(ctx, tx, event.SubjectID, *prelude)
+}
+
+func mergeWorkflowPlanTemplate(old, template WorkflowStepPlan) WorkflowStepPlan {
+	old.Type = template.Type
+	grandfathered := !stepIDExists(old.Steps, "clarify")
+	clarify, _ := stepByID(template.Steps, "clarify")
+	for _, step := range template.Steps {
+		// A missing Clarify is the only marker for a grandfathered plan.
+		if stepIDExists(old.Steps, step.ID) || (grandfathered && step.ID == "clarify") {
+			continue
+		}
+		if grandfathered && slices.Contains(step.After, "clarify") {
+			after := make([]string, 0, len(step.After)+len(clarify.After))
+			for _, edge := range step.After {
+				replacements := []string{edge}
+				if edge == "clarify" {
+					replacements = clarify.After
+				}
+				for _, replacement := range replacements {
+					if !slices.Contains(after, replacement) {
+						after = append(after, replacement)
+					}
+				}
+			}
+			step.After = after
+		}
+		old.Steps = append(old.Steps, step)
+	}
+	return old
 }
 
 func foldWorkflowStepInserted(ctx context.Context, tx *sql.Tx, event Event) error {

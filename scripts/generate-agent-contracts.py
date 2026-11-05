@@ -1530,8 +1530,8 @@ def main() -> int:
             fail("Bun is not installed: the publication measurement requires Bun, so write mode and strict check refuse rather than skip it")
         prepare_workflow_templates(check)
         actions, teaching, schema_refs, contract_updates = load_workflow_action_contracts()
-        validate_current_schema_refs(schema_refs, {**payload.get("$defs", {}), "clarification_answer_text": {}})
         projected_payload, public_variants = project_workflow_action_schema(payload, actions, teaching, contract_updates)
+        validate_current_schema_refs(schema_refs, projected_payload.get("$defs", {}))
         prune_payload_definitions(projected_payload, manifest, public_variants, schema_refs["current"])
         input_names = [operation["input_schema"].rsplit("/", 1)[-1] for operation in manifest["operations"]
                        if operation["id"] != "concord_work_transition.workflow_action"]

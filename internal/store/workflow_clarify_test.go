@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -183,6 +184,118 @@ func TestWorkflowLegacyTypeSwitchDoesNotAddClarify(t *testing.T) {
 	var lifecycle string
 	if err := s.db.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id='work-legacy-switch'`).Scan(&lifecycle); err != nil || lifecycle != "completed" {
 		t.Fatalf("stored lifecycle = %q, err=%v", lifecycle, err)
+	}
+}
+
+func TestWorkflowLegacyTypeSwitchEveryPairCompletes(t *testing.T) {
+	types := []WorkflowStepPlanType{WorkflowStepPlanChange, WorkflowStepPlanFix, WorkflowStepPlanResearch, WorkflowStepPlanRemoval}
+	for _, from := range types {
+		for _, to := range types {
+			if from == to {
+				continue
+			}
+			t.Run(string(from)+"_to_"+string(to), func(t *testing.T) {
+				ctx := t.Context()
+				const work = "legacy-pair"
+				f := qCurrentAcceptanceWithDelivery(t, work, "artifact:legacy-pair")
+				s := f.store
+				old, err := WorkflowStepPlanTemplate(from)
+				if err != nil {
+					t.Fatal(err)
+				}
+				clarify, _ := stepByID(old.Steps, "clarify")
+				steps := make([]WorkflowPlanStep, 0, len(old.Steps)-1)
+				for _, step := range old.Steps {
+					if step.ID == "clarify" {
+						continue
+					}
+					var after []string
+					for _, edge := range step.After {
+						if edge == "clarify" {
+							after = append(after, clarify.After...)
+						} else {
+							after = append(after, edge)
+						}
+					}
+					step.After = after
+					steps = append(steps, step)
+				}
+				old.Steps = steps
+				raw, err := json.Marshal(old)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := s.Transact(ctx, func(tx *Transaction) error {
+					scope := newWriteScope(tx.tx)
+					if err := scope.enter(ctx); err != nil {
+						return err
+					}
+					if _, err := tx.tx.ExecContext(ctx, `UPDATE workflow_instances SET workflow_type=?,step_plan=? WHERE work_id=?`, from, string(raw), work); err != nil {
+						return err
+					}
+					return scope.close(ctx)
+				}); err != nil {
+					t.Fatal(err)
+				}
+				version := readWorkVersion(t, s, work)
+				next := version + 1
+				pick := workflowTypePickedPayload{WorkflowVersionFields: WorkflowVersionFields{WorkID: work, ExpectedVersion: &version, ResultingVersion: &next}, Type: to, Reason: "switch type"}
+				pickRaw, err := json.Marshal(pick)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := s.Transact(ctx, func(tx *Transaction) error {
+					scope := newWriteScope(tx.tx)
+					if err := scope.enter(ctx); err != nil {
+						return err
+					}
+					if err := foldWorkflowTypePicked(ctx, tx.tx, Event{SubjectType: SubjectWorkItem, SubjectID: work, Payload: pickRaw, OccurredAt: time.Unix(100, 0).UTC()}); err != nil {
+						return err
+					}
+					return scope.close(ctx)
+				}); err != nil {
+					t.Fatalf("switch: %v", err)
+				}
+				updated, err := readWorkflowPlanTx(ctx, s.db, work)
+				if err != nil || updated == nil {
+					t.Fatalf("read switched plan: %v", err)
+				}
+				if stepIDExists(updated.Steps, "clarify") {
+					t.Fatal("switch added clarify")
+				}
+				template, err := WorkflowStepPlanTemplate(to)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, step := range template.Steps {
+					if step.ID != "clarify" && !stepIDExists(updated.Steps, step.ID) {
+						t.Errorf("missing template step %s", step.ID)
+					}
+					if !stepIDExists(old.Steps, step.ID) && step.ID != "clarify" && slices.Contains(step.After, "clarify") {
+						got, _ := stepByID(updated.Steps, step.ID)
+						predecessor, _ := stepByID(template.Steps, "clarify")
+						if !slices.Equal(got.After, predecessor.After) {
+							t.Errorf("%s after=%v, want %v", step.ID, got.After, predecessor.After)
+						}
+					}
+				}
+				if err := ValidateStepPlanWrite(&old, *updated); err != nil {
+					t.Fatal(err)
+				}
+				payload := json.RawMessage(`{"impact_verdict":"non-breaking"}`)
+				if err := f.run(ctx, "complete", "legacy-incomplete", f.version(ctx, t), payload, nil); err == nil {
+					t.Fatal("incomplete plan admitted")
+				}
+				completeWorkflowPlanFixture(t, s, work)
+				if err := f.run(ctx, "complete", "legacy-complete", f.version(ctx, t), payload, nil); err != nil {
+					t.Fatalf("complete: %v", err)
+				}
+				var lifecycle string
+				if err := s.db.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, work).Scan(&lifecycle); err != nil || lifecycle != "completed" {
+					t.Fatalf("lifecycle=%q err=%v", lifecycle, err)
+				}
+			})
+		}
 	}
 }
 

@@ -44,12 +44,14 @@ decides within its authority.
 After the type pick, new plans require Clarify before the planning step for every
 type; Fix diagnoses first. Older plans without Clarify do not gain it on a type
 switch. Synthesize instructions, the ticket, recorded decisions,
-and relevant investigation or diagnosis findings. Check intended product outcomes,
-product direction, request intention, and scope. Answer from evidence first,
-citing where; ask the operator only remaining questions, one at a time. Quote
-operator answers on the work item's Linear issue and point the step note there.
-Record question resolutions or the explicit result that no operator questions
-remain. Running the step is mandatory; asking is not. Reuse settled answers;
+and relevant investigation or diagnosis findings; the investigation may inform
+the step without first drafting an implementation plan. Check intended product
+outcomes, product direction, request intention, and scope. Answer from evidence
+first, citing where; ask the operator only remaining questions, one at a time.
+Quote operator answers on the work item's Linear issue and point the step note
+there. Record question resolutions or the explicit result that no operator
+questions remain. Running the step is mandatory; asking is not. Clarify grants
+no blanket implementation or UI/UX approval. Reuse settled answers;
 ask later questions where they arise.
 
 ## Plan Change and Fix work

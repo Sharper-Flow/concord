@@ -191,8 +191,9 @@ matures into a break-fix workflow, which may become an implementation change.
 
 ## 4. Workflow types
 
-Every workflow starts with intake, clarifies only when intake found open
-questions, then picks a type. Each type's ordered required steps — with each
+Every workflow starts with intake, then picks a type. A newly copied plan
+requires Clarify before its planning step; older plans without Clarify do not
+gain it on a type switch. Each type's ordered required steps — with each
 step's skill, helper, reviewed flag and admitted actions — are listed once in
 the machine-readable template contract
 [`contracts/workflow-step-templates.v1.json`](../../contracts/workflow-step-templates.v1.json);

@@ -1516,6 +1516,18 @@ class LiveAuthoringClosureTests(unittest.TestCase):
             with self.subTest(defs=defs), self.assertRaises(ValueError):
                 generator.validate_current_schema_refs({"current": ["root"]}, defs)
 
+    def test_main_validates_projected_clarification_definition(self):
+        seen = []
+        def capture(_refs, definitions):
+            seen.append(definitions["clarification_answer_text"])
+            raise RuntimeError("captured")
+        with unittest.mock.patch.object(sys, "argv", ["generator", "--check"]), \
+             unittest.mock.patch.object(generator, "prepare_workflow_templates"), \
+             unittest.mock.patch.object(generator, "validate_current_schema_refs", side_effect=capture), \
+             self.assertRaisesRegex(RuntimeError, "captured"):
+            generator.main()
+        self.assertEqual(seen, [{"type": "string", "minLength": 1, "maxLength": 2048, "pattern": r"\S"}])
+
 
 class ProjectionAdmissionTests(unittest.TestCase):
     """The projection loader checks structure, not a second action catalog."""

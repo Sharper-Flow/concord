@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -160,6 +161,49 @@ DELETE FROM write_guard`); err != nil {
 	var operations int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations WHERE work_id=?`, req.WorkID).Scan(&operations); err != nil || operations != 0 {
 		t.Fatalf("removal retained %d durable operations: %v", operations, err)
+	}
+}
+
+func TestWorkRemovalDeletesCurrentAndMigratedClarification(t *testing.T) {
+	useStampedBuild(t)
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "removal.db"), 188)
+	ctx := t.Context()
+	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
+	retirementUpgradeExec(t, db, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project','Project',1,'now','now')`)
+	retirementUpgradeExec(t, db, `INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product','Product','prototype','operator_only',1,'now','now')`)
+	retirementUpgradeExec(t, db, `INSERT INTO product_projects(product_id,project_id,role) VALUES('product','project','primary')`)
+	retirementUpgradeExec(t, db, `INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at) VALUES('migrated','task','Migrated','cancelled',1,'now','now')`)
+	retirementUpgradeExec(t, db, `INSERT INTO work_projects(work_id,project_id,role) VALUES('migrated','project','primary')`)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_instances(work_id,instance_state,prelude_state) VALUES('migrated','cancelled','{"intake":{"outcome":"clarify","open_questions_found":true},"clarify":{"resolved_questions":["é"],"note":"Resolved."}}')`)
+	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	s := &Store{db: db, Clock: time.Now}
+	seedWork(t, s, "current")
+	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
+	retirementUpgradeExec(t, db, `UPDATE work_items SET lifecycle='cancelled' WHERE id='current'`)
+	actor := "actor:" + strings.Repeat("a", 64)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'principal','client','agent','session','agent','now')`, actor)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_clarify_records(work_id,work_version,payload,recorded_at,actor,event_ref) VALUES('current',1,'{"resolved_questions":[],"note":"Resolved."}','now',?,'event:current')`, actor)
+	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
+	for _, work := range []string{"current", "migrated"} {
+		t.Run(work, func(t *testing.T) {
+			var count int
+			if err := db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_clarify_records WHERE work_id=?`, work).Scan(&count); err != nil || count != 1 {
+				t.Fatalf("clarify count=%d err=%v", count, err)
+			}
+			req := removalTestRequest()
+			req.WorkID, req.OperationID, req.IdempotencyKey = work, "remove-"+work, "key-"+work
+			req.ExpectedVersion, req.Reason = readWorkVersion(t, s, work), "cancelled"
+			confirmRemovalHandoff(t, s, &req)
+			if err := removeWorkForTest(ctx, s, req); err != nil {
+				t.Fatalf("remove: %v", err)
+			}
+			if err := db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM work_items WHERE id=?) + (SELECT count(*) FROM workflow_clarify_records WHERE work_id=?)`, work, work).Scan(&count); err != nil || count != 0 {
+				t.Fatalf("remaining rows=%d err=%v", count, err)
+			}
+		})
 	}
 }
 

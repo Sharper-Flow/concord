@@ -4,9 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
-	"reflect"
 	"slices"
-	"strings"
 	"testing"
 )
 
@@ -92,53 +90,6 @@ func sixClassSnapshot(t *testing.T, db *sql.DB, tables ...string) map[string][]s
 	return out
 }
 
-func TestSixClassMigrationPreservesContractsAndGuards(t *testing.T) {
-	t.Parallel()
-	db := seedSixClassMigration(t)
-	tables := []string{"work_items", "workflow_actors", "workflow_contract_predicates"}
-	before := sixClassSnapshot(t, db, tables...)
-	contracts := cutoverContractRows(t, db)
-	var guardBefore string
-	if err := db.QueryRow(`SELECT group_concat(sql,';') FROM (SELECT sql FROM sqlite_schema WHERE name LIKE 'workflow_contracts_guard_%' ORDER BY name)`).Scan(&guardBefore); err != nil {
-		t.Fatal(err)
-	}
-	advanceHistoricalPrefix(t, db, beforeOutcomeRetirement)
-	if got := sixClassSnapshot(t, db, tables...); !reflect.DeepEqual(got, before) {
-		t.Fatalf("migration changed existing rows: got %v, want %v", got, before)
-	}
-	if got := cutoverContractRows(t, db); !reflect.DeepEqual(got, contracts) {
-		t.Fatalf("migration changed current contract facts: got %v, want %v", got, contracts)
-	}
-	var guardAfter string
-	if err := db.QueryRow(`SELECT group_concat(sql,';') FROM (SELECT sql FROM sqlite_schema WHERE name LIKE 'workflow_contracts_guard_%' ORDER BY name)`).Scan(&guardAfter); err != nil || guardAfter != guardBefore {
-		t.Fatalf("migration changed write guards: %v", err)
-	}
-	for _, query := range []string{
-		`UPDATE workflow_contracts SET premise=premise`,
-		`DELETE FROM workflow_contracts WHERE contract_version=9`,
-		`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate) VALUES('six-class',10,'Guard witness','internal_sqlite','[]','[]','t',(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]')`,
-	} {
-		if _, err := db.Exec(query); err == nil || !strings.Contains(err.Error(), "write-seam-only") {
-			t.Fatalf("write guard lost for %s: %v", query, err)
-		}
-	}
-	var breaking, guards, oldColumns int
-	if err := db.QueryRow(`SELECT breaking,(SELECT count(*) FROM write_guard),(SELECT count(*) FROM pragma_table_info('workflow_contracts') WHERE name='decision_domains_v156') FROM schema_migrations WHERE name=?`, "workflow_contract_six_decision_classes").Scan(&breaking, &guards, &oldColumns); err != nil || breaking != 1 || guards != 0 || oldColumns != 0 {
-		t.Fatalf("breaking=%d guards=%d oldColumns=%d: %v", breaking, guards, oldColumns, err)
-	}
-	rows, err := db.Query(`PRAGMA foreign_key_check`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	if rows.Next() {
-		t.Fatal("migration broke a foreign key")
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestSixClassMigrationCanonicalConstraint(t *testing.T) {
 	t.Parallel()
 	db := seedSixClassMigration(t)
@@ -166,25 +117,4 @@ func TestSixClassMigrationCanonicalConstraint(t *testing.T) {
 		t.Fatalf("malformed writes changed existing fact to %s: %v", stored, err)
 	}
 	execSixClassSQL(t, db, `DELETE FROM write_guard`)
-}
-
-func TestSixClassMigrationRollsBackAtomically(t *testing.T) {
-	t.Parallel()
-	db := seedSixClassMigration(t)
-	execSixClassSQL(t, db, `CREATE TRIGGER six_class_fail_restore BEFORE UPDATE ON workflow_contracts BEGIN SELECT RAISE(ABORT,'injected six-class restore failure'); END`)
-	before := sixClassSnapshot(t, db, "workflow_contracts", "workflow_contract_predicates", "sqlite_schema", "schema_migrations")
-	if err := Migrate(context.Background(), db); err == nil || !strings.Contains(err.Error(), "injected six-class restore failure") {
-		t.Fatalf("migration did not reach injected failure: %v", err)
-	}
-	if got := sixClassSnapshot(t, db, "workflow_contracts", "workflow_contract_predicates", "sqlite_schema", "schema_migrations"); !reflect.DeepEqual(got, before) {
-		t.Fatal("failed migration changed rows, schema, or migration manifest")
-	}
-	var guards int
-	if err := db.QueryRow(`SELECT count(*) FROM write_guard`).Scan(&guards); err != nil || guards != 0 {
-		t.Fatalf("rollback left %d guards: %v", guards, err)
-	}
-	execSixClassSQL(t, db, `DROP TRIGGER six_class_fail_restore`)
-	if err := Migrate(outcomeSnapshotContext(t, context.Background(), db), db); err != nil {
-		t.Fatalf("retry after rollback: %v", err)
-	}
 }

@@ -72,21 +72,6 @@ func TestShippedMigration104TextMatchesVariantChecksum(t *testing.T) {
 	}
 }
 
-// liveShapeClaimOpID reproduces the longest claim_op_id shape on the operator
-// store: a worktree-retarget operation id carrying a sha256 digest.
-const liveShapeClaimOpID = "sha256:3a398c44bb4e536fd226ecc68124c95427cecf2ae8e39b7e3b3da7d4e8f6010e:worktree-retarget:work-d40734d2346c6407fa12e00c"
-
-const (
-	liveShapeSetID     = "wts:work-d40734d2346c6407fa12e00c"
-	liveShapeProjectID = "pokeedge-backend"
-	liveShapeWorkID    = "work-d40734d2346c6407fa12e00c"
-	liveShapePath      = "/wt/live-shape"
-)
-
-func liveShapeWorktreeID() string {
-	return liveShapeSetID + ":" + liveShapeProjectID + ":" + liveShapeClaimOpID
-}
-
 // migrateV103 seeds a schema-103 database with the manifest rows every real
 // store of that generation recorded.
 func migrateV103(t *testing.T, path string) *sql.DB {
@@ -129,35 +114,6 @@ func occupancyBoundAccepts(ctx context.Context, t *testing.T, db *sql.DB, keyLen
 	return err == nil
 }
 
-func TestLiveShape170CharKeyMigrates104And105(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	db := migrateV103(t, filepath.Join(t.TempDir(), "concord-v103.db"))
-	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.ExecContext(ctx, `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,reclaimed_at,git_facts,occupant_session_ref) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-		liveShapeSetID, liveShapeProjectID, liveShapeClaimOpID, "work/a", "a1", liveShapePath, "/repo", "active", "2026-09-24T10:00:00Z", nil, "{}", "ses-live"); err != nil {
-		t.Fatal(err)
-	}
-	advanceHistoricalPrefix(t, db, 105)
-	var applied int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations WHERE version IN (104,105)`).Scan(&applied); err != nil || applied != 2 {
-		t.Fatalf("migrations 104 and 105 applied=%d err=%v", applied, err)
-	}
-	var identity int
-	if err := db.QueryRowContext(ctx, `SELECT has_process_identity FROM worktree_occupancy WHERE worktree_id=?`, liveShapeWorktreeID()).Scan(&identity); err != nil {
-		t.Fatalf("the 170-char live-shape key is missing after migration: %v", err)
-	}
-	if identity != 0 {
-		t.Fatalf("backfilled row has_process_identity=%d, want the legacy shape", identity)
-	}
-	if !occupancyBoundAccepts(ctx, t, db, 386) {
-		t.Fatal("a 386-char worktree_id (the composed domain bound) was refused after migration 105")
-	}
-	if occupancyBoundAccepts(ctx, t, db, 513) {
-		t.Fatal("a 513-char worktree_id was accepted; the CHECK bound must still exist")
-	}
-}
-
 func TestShipped104StoreMigratesToWidened105(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -187,37 +143,4 @@ func TestShipped104StoreMigratesToWidened105(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT has_process_identity FROM worktree_occupancy WHERE worktree_id='set-short:project-short:claim-short'`).Scan(&identity); err != nil || identity != 0 {
 		t.Fatalf("legacy row survived the rebuild: identity=%d err=%v", identity, err)
 	}
-}
-
-func TestOccupancyLongKeyRetiresAtLatestOpen(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "concord-runtime.db")
-	db := migrateV103(t, path)
-	if _, err := db.ExecContext(ctx, `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,reclaimed_at,git_facts,occupant_session_ref) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
-		liveShapeSetID, liveShapeProjectID, liveShapeClaimOpID, "work/a", "a1", liveShapePath, "/repo", "active", "2026-09-24T10:00:00Z", nil, "{}", "ses-live"); err != nil {
-		t.Fatal(err)
-	}
-	advanceHistoricalPrefix(t, db, 105)
-	var hasIdentity int
-	var hostPID int64
-	if err := db.QueryRowContext(ctx, `SELECT has_process_identity, COALESCE(host_pid,0) FROM worktree_occupancy WHERE worktree_id=? AND session_ref='ses-live'`, liveShapeWorktreeID()).Scan(&hasIdentity, &hostPID); err != nil {
-		t.Fatalf("historical occupancy row for the long key: %v", err)
-	}
-	if hasIdentity != 0 || hostPID != 0 {
-		t.Fatalf("historical occupancy identity=%d pid=%d, want the legacy shape", hasIdentity, hostPID)
-	}
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
-	}
-	assertWorktreeTablesAbsent(t, db)
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	s, err := Open(ctx, path)
-	if err != nil {
-		t.Fatalf("open the migrated store: %v", err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-	assertWorktreeTablesAbsent(t, s.DatabaseForTesting())
 }

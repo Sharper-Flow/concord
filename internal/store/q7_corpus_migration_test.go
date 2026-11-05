@@ -40,17 +40,9 @@ func q7ExplicitCorpus(t *testing.T) historicalFactCorpus {
 	add("work.reopened", map[string]any{"from": "cancelled"})
 	add(WorkflowActionCheckpointed, map[string]any{"step_id": "findings", "attempt_epoch": 2})
 	add(WorkflowActionCompleted, map[string]any{"step_id": "findings", "attempt_epoch": 2, "action_id": "checkpoint_context", "actor_ref": actor})
-	add("work.superseded", map[string]any{"from": "in_progress", "superseded_by_work_id": "q7-corpus-related"})
-	add("work.reopened_from_superseded", map[string]any{"from": "superseded", "reopened_from_work_id": "q7-corpus-related"})
 	add(WorkflowActionCheckpointed, map[string]any{"step_id": "findings", "attempt_epoch": 3})
 	add("workflow.outside_repair_reconciled", map[string]any{"from": "in_progress", "mode": "completed"})
-	relatedCreated := corpusEvent("q7-related-created", "work.created", "q7-corpus-related", map[string]any{"resulting_version": 1})
-	relatedCreated.Actor = actor
-	c.events = append(c.events, relatedCreated)
-	// Both overlap destinations use the correct subject and resulting version.
-	for _, resolution := range []string{"merged_into", "supersedes"} {
-		add(WorkflowOverlapResolved, map[string]any{"resolution_kind": resolution, "to_work_id": "q7-corpus-related", "to_resulting_version": 2})
-	}
+	add(WorkflowOverlapResolved, map[string]any{"resolution_kind": "depends_on", "to_work_id": "q7-corpus-related", "to_resulting_version": 2})
 	add("relation.added", map[string]any{"relation_kind": "depends_on", "from_work_id": work, "to_work_id": "q7-corpus-related"})
 	add("workflow.successor_linked", map[string]any{"successor_work_id": "q7-corpus-next"})
 	for i, kind := range []string{"work.created", WorkflowActionCheckpointed, WorkflowActionCheckpointed} {
@@ -60,7 +52,7 @@ func q7ExplicitCorpus(t *testing.T) historicalFactCorpus {
 	}
 	c.parents = func(t *testing.T, s *Store, guard string) {
 		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts"}, map[string]map[string]string{
-			"work_items":         {"lifecycle": "'needed'", "transition_from": "NULL", "transition_reason": "''", "transition_actor": "''", "transition_evidence_refs": "'[]'", "transition_seq": "0", "transition_version": "1"},
+			"work_items":         {"priority": "0", "urgency": "'standard'", "lifecycle": "'needed'", "transition_from": "NULL", "transition_reason": "''", "transition_actor": "''", "transition_evidence_refs": "'[]'", "transition_seq": "0", "transition_version": "1"},
 			"workflow_instances": {"outside_repair_state": "NULL", "definition_ref": "'workflow.research'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "current_step": "'findings'", "result_disposition": "''", "latest_non_dispatch_start_seq": "0", "unhealthy_verdict_seq": "0"}, "workflow_contracts": {"required_evidence": "'[]'", "definition_ref": "'workflow.research'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "law_change": "NULL"},
 		}, guard)
 		corpusWorkParents(t, s, guard, "q7-corpus-related", "q7-corpus-next", "q7-start-only")
@@ -81,7 +73,7 @@ func q7ExplicitCorpus(t *testing.T) historicalFactCorpus {
 			if err := json.Unmarshal(e.Payload, &source); err != nil {
 				t.Fatal(err)
 			}
-			if e.Kind == "work.created" && source["raised_from_work_id"] != nil || e.Kind == "work.superseded" || e.Kind == "work.reopened_from_superseded" || e.Kind == WorkflowOverlapResolved || e.Kind == "relation.added" || e.Kind == "workflow.successor_linked" {
+			if e.Kind == "work.created" && source["raised_from_work_id"] != nil || e.Kind == WorkflowOverlapResolved || e.Kind == "relation.added" || e.Kind == "workflow.successor_linked" {
 				ordinal++
 			}
 			if e.Kind == WorkflowActionCompleted {
@@ -141,26 +133,12 @@ func q7ExplicitCorpus(t *testing.T) historicalFactCorpus {
 			return persistWorkflowCompletionExitTx(ctx, tx, e, completed)
 		case "work.transitioned":
 			return updateWorkLifecycle(ctx, tx, e, p.To, p.Expected, p.Resulting)
-		case "work.reopened", "work.reopened_from_superseded":
+		case "work.reopened":
 			return updateWorkLifecycle(ctx, tx, e, "needed", p.Expected, p.Resulting)
-		case "work.superseded":
-			return updateWorkLifecycle(ctx, tx, e, "superseded", p.Expected, p.Resulting)
 		case "workflow.outside_repair_reconciled":
 			return updateWorkLifecycle(ctx, tx, e, "completed", p.Expected, p.Resulting)
 		case WorkflowOverlapResolved:
-			target, current, resulting := e.SubjectID, p.Expected, p.Resulting
-			if p.Resolution == "supersedes" {
-				target, current, resulting = p.Target, p.TargetVersion-1, p.TargetVersion
-			}
-			if p.Resolution == "merged_into" { // The source is already completed; the overlap still records its own transition.
-				var actual int64
-				if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, target).Scan(&actual); err != nil {
-					return err
-				}
-				current = actual
-			}
-			e.SubjectID = target
-			return updateWorkLifecycle(ctx, tx, e, "superseded", current, resulting)
+			return updateWorkVersionByID(ctx, tx, e.SubjectID, p.Expected, p.Resulting, e.OccurredAt)
 		case "relation.added":
 			return insertRelation(ctx, tx, e, relationPayload{From: work, To: "q7-corpus-related", Kind: "depends_on"})
 		case "workflow.successor_linked":

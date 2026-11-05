@@ -52,13 +52,16 @@ func TestMigration59PreservesPopulatedBootstrapOperation(t *testing.T) {
 	if id != "fixture-operation" || state != "completed" {
 		t.Fatalf("operation=%s state=%s", id, state)
 	}
-	work := retirementUpgradeRows(t, db, `SELECT id,kind,title,lifecycle,priority,version,created_at,updated_at FROM work_items ORDER BY id`)
-	if err := Migrate(ctx, db); err != nil {
+	work := retirementUpgradeRows(t, db, `SELECT id,kind,title,lifecycle,version,created_at,updated_at FROM work_items ORDER BY id`)
+	if err := Migrate(outcomeSnapshotContext(t, ctx, db), db); err != nil {
 		t.Fatal(err)
 	}
 	assertWorktreeTablesAbsent(t, db)
-	if got := retirementUpgradeRows(t, db, `SELECT id,kind,title,lifecycle,priority,version,created_at,updated_at FROM work_items ORDER BY id`); !reflect.DeepEqual(got, work) {
+	if got := retirementUpgradeRows(t, db, `SELECT id,kind,title,lifecycle,version,created_at,updated_at FROM work_items ORDER BY id`); !reflect.DeepEqual(got, work) {
 		t.Fatalf("bootstrap retirement changed ordinary work: got %v, want %v", got, work)
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT intent_json FROM work_items WHERE id='work-bootstrap'`); !reflect.DeepEqual(got, [][]any{{`{"title":"Bootstrap","kind":"task"}`}}) {
+		t.Fatalf("bootstrap work intent = %v", got)
 	}
 }
 

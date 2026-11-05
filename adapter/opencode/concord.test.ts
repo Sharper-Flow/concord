@@ -128,8 +128,8 @@ test("published tool arguments expose a host-safe request shape", async () => {
   const expandedDefine: any = expandedPublishedRequestSchema(published)
   const captureBranch = expandedDefine.oneOf.find((candidate: any) => candidate.properties.operation.const === "capture")
   const captureInput = captureBranch.properties.input
-  expect(captureInput.required).toEqual(["title", "value_statement", "kind", "project_ids", "idempotency_key"])
-  expect(captureInput.properties.urgency.enum).toEqual(["standard", "expedite"])
+  expect(captureInput.required).toEqual(["title", "kind", "project_ids", "human_key", "remote_issue_uuid", "url", "idempotency_key"])
+  expect(captureInput.properties.kind.enum).toContain("task")
   const transition = adapter.publishedRequestSchema("concord_work_transition") as any
   // Select the approve_contract variant by its action_id const.
   const actionBranch = actionInput(transition, "approve_contract")
@@ -161,7 +161,8 @@ test("work define publishes the record-only issue identity contract", () => {
   const published = adapter.publishedRequestSchema("concord_work_define") as any
   expect(published.properties.operation.enum).toContain("issue_link_record")
   expect(published.properties.operation.enum).not.toContain("issue_adopt")
-  const branch = published.oneOf.find((item: any) => item.properties.operation.const === "issue_link_record")
+  const expanded: any = expandedPublishedRequestSchema(published)
+  const branch = expanded.oneOf.find((item: any) => item.properties.operation.const === "issue_link_record")
   const input = branch.properties.input
   expect(input.required).toEqual(["work_id", "human_key", "remote_issue_uuid", "url", "idempotency_key"])
   expect(input.additionalProperties).toBe(false)
@@ -445,7 +446,7 @@ test("a read answered by a newer core contract is typed as version skew", async 
 
 test("a mutation answered by a newer core contract reports unknown effect and names the remedy", async () => {
   adapter.configureConcordAdapter({ runner: runnerWithContext(foreignDigest(coreEnvelope("concord_work_define", "capture", "ok", { changed_refs: [] }))) })
-  const result: any = await rawHostResult(adapter.work_define.execute(hostCall("capture", { title: "t", value_statement: "v", kind: "task", project_ids: ["p"], idempotency_key: "k" }), contextFor()))
+  const result: any = await rawHostResult(adapter.work_define.execute(hostCall("capture", { title: "t", kind: "task", project_ids: ["p"], human_key: "ZZ-1", remote_issue_uuid: "u", url: "https://linear.app/example/issue/ZZ-1", idempotency_key: "k" }), contextFor()))
   assertAdapterEnvelope(result)
   expect(result.error.kind).toBe("operation_conflict")
   expect(result.error.adapter_reason).toBe("unknown_effect")
@@ -999,7 +1000,7 @@ for (const tampered of [false, true]) {
       const page = fixture.pages[reads++]
       return { exitCode: 0, stdout: JSON.stringify(coreEnvelope(request.tool, request.operation, "ok", page)), stderr: "" }
     } } })
-    const raw = await adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-projection-0", action_id: "record_work_context", expected_version: 2, idempotency_key: "projection-key" }), contextFor())
+    const raw = await adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-projection-0", action_id: "start_execution", expected_version: 2, idempotency_key: "projection-key" }), contextFor())
     const output = typeof raw === "string" ? raw : raw.output
     const result = JSON.parse(output.split("\n")[0])
     expect(result.outcome).toBe("ok")
@@ -1049,7 +1050,7 @@ for (const capacity of ["room", "warnings-full", "bytes-full"] as const) {
       reads++
       return { exitCode: 0, stdout: JSON.stringify(coreEnvelope(request.tool, request.operation, "ok", fixture.pages[0])), stderr: "" }
     } } })
-    const raw = await adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-projection-0", action_id: "record_work_context", expected_version: 2, idempotency_key: "projection-key" }), contextFor())
+    const raw = await adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-projection-0", action_id: "start_execution", expected_version: 2, idempotency_key: "projection-key" }), contextFor())
     const output = typeof raw === "string" ? raw : raw.output
     const result = JSON.parse(output)
     expect(writes).toBe(1)

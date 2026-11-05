@@ -39,7 +39,7 @@ DELETE FROM write_guard;`, testManifestDigest, testManifestDigest)
 	if err != nil || verified.DBChecksum != manifest.DBChecksum || verified.SchemaVersion != 169 {
 		t.Fatalf("predecessor snapshot: %+v %v", verified, err)
 	}
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
 		t.Fatal(err)
 	}
 	for _, table := range []string{"work_size_assessments", "work_size_proof_facts"} {

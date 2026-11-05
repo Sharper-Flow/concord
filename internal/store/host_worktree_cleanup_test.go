@@ -8,5 +8,5 @@ func TestWorkRemovalRequestRetainsSafetyGates(t *testing.T) {
 		t.Fatalf("complete removal request: %v", err)
 	}
 	req.WritesReconciled = false
-	assertFailureKind(t, validateRemovalRequest(req), KindInvalidOperation)
+	assertFailureKind(t, validateRemovalRequest(req), KindInvalidPayload)
 }

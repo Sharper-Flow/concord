@@ -12,7 +12,7 @@ import (
 
 func workCreatedEvent(id, eventID string) Event {
 	return operationEvent(eventID, "work.created", SubjectWorkItem, id, map[string]any{
-		"work_kind": "task", "title": id, "priority": 10,
+		"work_kind": "task", "title": id,
 	})
 }
 
@@ -25,12 +25,6 @@ func workTransitionEvent(eventID, id, from, to string, expected, resulting int64
 func workReopenedEvent(eventID, id, from string, expected, resulting int64) Event {
 	return operationEvent(eventID, "work.reopened", SubjectWorkItem, id, map[string]any{
 		"from": from, "reason": "test", "expected_version": expected, "resulting_version": resulting,
-	})
-}
-
-func workSupersededEvent(eventID, successor, predecessor string, expected, resulting int64) Event {
-	return operationEvent(eventID, "work.superseded", SubjectWorkItem, predecessor, map[string]any{
-		"successor": successor, "superseded": predecessor, "reason": "test", "expected_version": expected, "resulting_version": resulting,
 	})
 }
 
@@ -111,12 +105,6 @@ func seedState(t *testing.T, s *Store, id, state string) int64 {
 			t.Fatalf("finish work %s: %v", id, err)
 		}
 		return 3
-	case "superseded":
-		seedWork(t, s, "successor-"+id)
-		if err := applyWorkEvent(t, s, workSupersededEvent("supersede-"+id, "successor-"+id, id, 2, 3), workVersion(id, 2)); err != nil {
-			t.Fatalf("supersede work %s: %v", id, err)
-		}
-		return 3
 	default:
 		t.Fatalf("unknown test state %q", state)
 		return 0
@@ -125,7 +113,7 @@ func seedState(t *testing.T, s *Store, id, state string) int64 {
 
 func TestLifecycleTransitionsAreClosedAndTyped(t *testing.T) {
 	t.Parallel()
-	states := []string{"needed", "in_progress", "completed", "cancelled", "superseded"}
+	states := []string{"needed", "in_progress", "completed", "cancelled"}
 	allowedDirect := map[string]map[string]bool{
 		"needed":      {"in_progress": true, "completed": true, "cancelled": true},
 		"in_progress": {"needed": true, "completed": true, "cancelled": true},
@@ -195,33 +183,6 @@ func TestWorkLifecycleRejectsStaleExpectedVersionWithoutMutation(t *testing.T) {
 
 func TestPM4EvidenceFieldsRequireReasons(t *testing.T) {
 	t.Parallel()
-	t.Run("supersession", func(t *testing.T) {
-		s := openTemp(t)
-		seedWork(t, s, "a")
-		seedWork(t, s, "b")
-		before := fullPM4Snapshot(t, s)
-		err := applyWorkEvent(t, s, operationEvent("missing-reason", "work.superseded", SubjectWorkItem, "b", map[string]any{
-			"successor": "a", "superseded": "b", "reason": "", "expected_version": 1, "resulting_version": 2,
-		}), workVersion("b", 2))
-		assertFailureKind(t, err, KindInvalidPayload)
-		if got := fullPM4Snapshot(t, s); got != before {
-			t.Fatalf("missing supersession reason mutated projection =\n%s\nwant\n%s", got, before)
-		}
-	})
-
-	t.Run("reopen from superseded", func(t *testing.T) {
-		s := openTemp(t)
-		seedState(t, s, "b", "superseded")
-		before := fullPM4Snapshot(t, s)
-		err := applyWorkEvent(t, s, operationEvent("missing-reason", "work.reopened_from_superseded", SubjectWorkItem, "b", map[string]any{
-			"superseded": "b", "replacement_successor": "replacement", "reason": "", "expected_version": 2, "resulting_version": 3,
-		}), workVersion("b", 3))
-		assertFailureKind(t, err, KindInvalidPayload)
-		if got := fullPM4Snapshot(t, s); got != before {
-			t.Fatalf("missing reopen reason mutated projection =\n%s\nwant\n%s", got, before)
-		}
-	})
-
 	t.Run("relation added", func(t *testing.T) {
 		s := openTemp(t)
 		seedWork(t, s, "a")
@@ -288,69 +249,6 @@ func TestRelationRemovedRejectsStaleExpectedVersionWithoutMutation(t *testing.T)
 	}
 }
 
-func TestSupersessionIsAtomicAndRejectsCyclesAndSecondSuccessors(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	seedWork(t, s, "a")
-	seedWork(t, s, "b")
-	seedWork(t, s, "c")
-
-	if err := applyWorkEvent(t, s, workSupersededEvent("a-b", "a", "b", 2, 3), workVersion("b", 2)); err != nil {
-		t.Fatalf("supersession: %v", err)
-	}
-	var lifecycle string
-	var relationCount int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id = 'b'`).Scan(&lifecycle); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from = 'a' AND work_id_to = 'b' AND kind = 'supersedes'`).Scan(&relationCount); err != nil {
-		t.Fatal(err)
-	}
-	if lifecycle != "superseded" || relationCount != 1 {
-		t.Fatalf("atomic supersession = lifecycle %q, relation count %d", lifecycle, relationCount)
-	}
-
-	err := applyWorkEvent(t, s, workSupersededEvent("b-a", "b", "a", 2, 3), workVersion("a", 2))
-	assertFailureKind(t, err, KindCycleDetected)
-	assertTableCount(t, s, "effect_receipts", 10)
-	assertTableCount(t, s, "relations", 1)
-
-	err = applyWorkEvent(t, s, workSupersededEvent("c-b", "c", "b", 3, 4), workVersion("b", 3))
-	assertFailureKind(t, err, KindSupersessionTargetAlreadySuperseded)
-	assertTableCount(t, s, "effect_receipts", 10)
-}
-
-func TestSupersessionRejectsAlreadySupersededAndReopenRequiresCompositeEvent(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	seedState(t, s, "b", "superseded")
-	seedWork(t, s, "c")
-
-	err := applyWorkEvent(t, s, workSupersededEvent("again", "c", "b", 3, 4), workVersion("b", 3))
-	assertFailureKind(t, err, KindSupersessionTargetAlreadySuperseded)
-
-	err = applyWorkEvent(t, s, workTransitionEvent("direct-reopen", "b", "superseded", "needed", 3, 4), workVersion("b", 3))
-	assertFailureKind(t, err, KindIllegalLifecycleTransition)
-
-	if err := applyWorkEvent(t, s, workReopenedFromSupersededEvent("composite-reopen", "b", "successor-b", 3, 4), workVersion("b", 3)); err != nil {
-		t.Fatalf("composite reopen: %v", err)
-	}
-	var lifecycle string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id = 'b'`).Scan(&lifecycle); err != nil {
-		t.Fatal(err)
-	}
-	if lifecycle != "needed" {
-		t.Fatalf("reopened lifecycle = %q, want needed", lifecycle)
-	}
-	assertTableCount(t, s, "relations", 0)
-}
-
-func workReopenedFromSupersededEvent(eventID, id, replacement string, expected, resulting int64) Event {
-	return operationEvent(eventID, "work.reopened_from_superseded", SubjectWorkItem, id, map[string]any{
-		"superseded": id, "replacement_successor": replacement, "reason": "test", "expected_version": expected, "resulting_version": resulting,
-	})
-}
-
 func TestRelationKindsEnforceTheirOwnGraphRules(t *testing.T) {
 	t.Parallel()
 	for _, kind := range []string{"parent", "blocks"} {
@@ -402,8 +300,11 @@ func TestRelationsRejectSelfDuplicateAndSupersedesContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertFailureKind(t, applyWorkEvent(t, s, relationAddedEvent("ab-again", "parent", "a", "b", 3, 4), nil), KindRelationConflict)
-	for _, kind := range []string{"supersedes", "compatible_with", "merged_into"} {
-		assertFailureKind(t, applyWorkEvent(t, s, relationAddedEvent("bad-"+kind, kind, "a", "b", 3, 4), nil), KindRelationContractViolation)
+	assertFailureKind(t, applyWorkEvent(t, s, relationAddedEvent("bad-compatible_with", "compatible_with", "a", "b", 3, 4), nil), KindRelationContractViolation)
+	// The supersession kinds left the stored vocabulary entirely, so naming
+	// them is an unknown-kind payload refusal rather than a contract refusal.
+	for _, kind := range []string{"supersedes", "merged_into"} {
+		assertFailureKind(t, applyWorkEvent(t, s, relationAddedEvent("bad-"+kind, kind, "a", "b", 3, 4), nil), KindInvalidPayload)
 	}
 }
 
@@ -450,7 +351,7 @@ func TestRelationRemovalAndFoldGuard(t *testing.T) {
 		name string
 		stmt string
 	}{
-		{"work insert", `INSERT INTO work_items (id, kind, title, lifecycle, priority, version, created_at, updated_at) VALUES ('x', 'task', 'x', 'needed', 1, 1, 'now', 'now')`},
+		{"work insert", `INSERT INTO work_items (id, kind, title, lifecycle, version, created_at, updated_at) VALUES ('x', 'task', 'x', 'needed', 1, 'now', 'now')`},
 		{"work update", `UPDATE work_items SET title = 'changed' WHERE id = 'a'`},
 		{"work delete", `DELETE FROM work_items`},
 		{"relation insert", `INSERT INTO relations (work_id_from, work_id_to, kind, created_at) VALUES ('a', 'b', 'parent', 'now')`},
@@ -471,7 +372,7 @@ func fullPM4Snapshot(t *testing.T, s *Store) string {
 		query string
 		work  bool
 	}{
-		{`SELECT id, kind, title, lifecycle, priority, version, created_at, updated_at, coalesce(terminal_time, '') FROM work_items ORDER BY id`, true},
+		{`SELECT id, kind, title, lifecycle, version, created_at, updated_at, coalesce(terminal_time, '') FROM work_items ORDER BY id`, true},
 		{`SELECT id, work_id_from, work_id_to, kind, created_at FROM relations ORDER BY id`, false},
 	} {
 		rows, err := s.DatabaseForTesting().Query(tc.query)
@@ -481,12 +382,12 @@ func fullPM4Snapshot(t *testing.T, s *Store) string {
 		defer rows.Close()
 		for rows.Next() {
 			var id, from, to, kind, title, lifecycle, createdAt, updatedAt, terminal string
-			var priority, version int64
+			var version int64
 			if tc.work {
-				if err := rows.Scan(&id, &kind, &title, &lifecycle, &priority, &version, &createdAt, &updatedAt, &terminal); err != nil {
+				if err := rows.Scan(&id, &kind, &title, &lifecycle, &version, &createdAt, &updatedAt, &terminal); err != nil {
 					t.Fatal(err)
 				}
-				out += fmt.Sprintf("work|%s|%s|%s|%s|%d|%d|%s|%s|%s\n", id, kind, title, lifecycle, priority, version, createdAt, updatedAt, terminal)
+				out += fmt.Sprintf("work|%s|%s|%s|%s|%d|%s|%s|%s\n", id, kind, title, lifecycle, version, createdAt, updatedAt, terminal)
 			} else {
 				if err := rows.Scan(&id, &from, &to, &kind, &createdAt); err != nil {
 					t.Fatal(err)
@@ -530,7 +431,6 @@ func TestCompositeRelationKindsNameTheirOwningOperation(t *testing.T) {
 	}{
 		{name: "compatible_with added", kind: "compatible_with", wantDetail: "compatible_with is retired"},
 		{name: "compatible_with removed", kind: "compatible_with", wantDetail: "historical overlap-resolution records", removed: true},
-		{name: "merged_into added", kind: "merged_into", wantDetail: "resolve_overlap"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -554,13 +454,13 @@ func TestCompositeRelationKindsNameTheirOwningOperation(t *testing.T) {
 
 func TestIntentRevisionRefusesTerminalWork(t *testing.T) {
 	t.Parallel()
-	for _, state := range []string{"completed", "cancelled", "superseded"} {
+	for _, state := range []string{"completed", "cancelled"} {
 		t.Run(state, func(t *testing.T) {
 			s := openTemp(t)
 			id := "revise-" + state
 			version := seedState(t, s, id, state)
 			event := operationEvent("revise-"+state, "work.intent_revised", SubjectWorkItem, id, map[string]any{
-				"title": "Revised", "value_statement": "Revised statement", "kind": "task", "priority": 2, "tags": []string{},
+				"title": "Revised", "kind": "task",
 				"reason": "late clarity", "expected_version": version, "resulting_version": version + 1,
 			})
 			err := applyWorkEvent(t, s, event, workVersion(id, version))
@@ -573,7 +473,7 @@ func TestWorkCreatedRejectsMismatchedWorkID(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	event := operationEvent("mismatched-create", "work.created", SubjectWorkItem, "work-subject", map[string]any{
-		"work_id": "work-payload", "work_kind": "task", "title": "Mismatch", "priority": 1,
+		"work_id": "work-payload", "work_kind": "task", "title": "Mismatch",
 	})
 	err := applyWorkEvent(t, s, event, workVersion("work-subject", 0))
 	assertFailureKind(t, err, KindInvalidPayload)

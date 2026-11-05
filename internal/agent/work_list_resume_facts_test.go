@@ -56,7 +56,7 @@ func TestWorkListDispatchItemFullNativeRun(t *testing.T) {
 			t.Fatalf("native runs: %+v", page.Items[0].NativeRuns)
 		}
 	}
-	intent, err := json.Marshal(map[string]any{"task": strings.Repeat("<", 8192), "value_statement": "value", "tags": oversizedIntentTags()})
+	intent, err := json.Marshal(map[string]any{"task": strings.Repeat("<", 8192)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestWorkListDispatchItemFullNativeRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	items, fragments := readFullListDocuments(t, context.Background(), r, map[string]any{"product_id": "product-1", "detail": "full", "work_ids": []string{"work-1"}})
-	if fragments < 2 || len(items) != 1 || len(items[0].NativeRuns) != 1 || items[0].NativeRuns[0].RunID != "run-1" {
+	if len(items) != 1 || len(items[0].NativeRuns) != 1 || items[0].NativeRuns[0].RunID != "run-1" {
 		t.Fatalf("projection lost native run: fragments=%d items=%+v", fragments, items)
 	}
 }

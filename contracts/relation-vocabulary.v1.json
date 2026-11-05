@@ -10,7 +10,10 @@
       "transitive": true,
       "transitive_meaning": "Closure reports transitive delay: the source delays the target through a chain. It does not claim that clearing the source alone unblocks the target.",
       "link": "allowed",
-      "written_by": ["relation.added", "workflow.overlap_resolved"]
+      "written_by": [
+        "relation.added",
+        "workflow.overlap_resolved"
+      ]
     },
     {
       "kind": "compatible_with",
@@ -22,7 +25,9 @@
         "message": "compatible_with is retired: work that shares a Domain proceeds without a resolution",
         "recovery": "record no relation, or use depends_on or blocks for real sequencing"
       },
-      "written_by": ["workflow.overlap_resolved"]
+      "written_by": [
+        "workflow.overlap_resolved"
+      ]
     },
     {
       "kind": "depends_on",
@@ -31,7 +36,10 @@
       "transitive": true,
       "transitive_meaning": "Closure reports the transitive requirement set reachable from the source.",
       "link": "allowed",
-      "written_by": ["relation.added", "workflow.overlap_resolved"]
+      "written_by": [
+        "relation.added",
+        "workflow.overlap_resolved"
+      ]
     },
     {
       "kind": "forward_link",
@@ -39,7 +47,9 @@
       "inverse_label": null,
       "transitive": false,
       "link": "internal",
-      "written_by": ["workflow.successor_linked"]
+      "written_by": [
+        "workflow.successor_linked"
+      ]
     },
     {
       "kind": "implements",
@@ -47,19 +57,9 @@
       "inverse_label": "implemented_by",
       "transitive": false,
       "link": "allowed",
-      "written_by": ["relation.added"]
-    },
-    {
-      "kind": "merged_into",
-      "summary": "The source work was merged into the target work and terminalized.",
-      "inverse_label": null,
-      "transitive": false,
-      "link": "refused",
-      "link_refusal": {
-        "message": "overlap-resolution relations must be created by resolve_overlap",
-        "recovery": "use resolve_overlap so version pins and lifecycle changes remain atomic"
-      },
-      "written_by": ["workflow.overlap_resolved"]
+      "written_by": [
+        "relation.added"
+      ]
     },
     {
       "kind": "parent",
@@ -68,7 +68,9 @@
       "transitive": true,
       "transitive_meaning": "Closure reports the ancestor chain.",
       "link": "allowed",
-      "written_by": ["relation.added"]
+      "written_by": [
+        "relation.added"
+      ]
     },
     {
       "kind": "raised_from",
@@ -76,20 +78,9 @@
       "inverse_label": "raised",
       "transitive": false,
       "link": "allowed",
-      "written_by": ["relation.added"]
-    },
-    {
-      "kind": "supersedes",
-      "summary": "The source work replaces the target work. One successor per target.",
-      "inverse_label": "superseded_by",
-      "transitive": true,
-      "transitive_meaning": "Closure reports the successor chain to the surviving work item.",
-      "link": "refused",
-      "link_refusal": {
-        "message": "supersedes relations must be created by work.superseded",
-        "recovery": "append a work.superseded event so the edge and lifecycle change remain atomic"
-      },
-      "written_by": ["work.superseded", "work.reopened_from_superseded", "workflow.overlap_resolved"]
+      "written_by": [
+        "relation.added"
+      ]
     }
   ]
 }

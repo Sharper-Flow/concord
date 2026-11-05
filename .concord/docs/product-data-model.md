@@ -129,8 +129,7 @@ Product {
 ```
 
 `stage` is decided (§8). Product↔Project membership follows accepted PM5.
-Domain replacement and work-item supersession keep their bounded owners in
-CD-0222 and PM4.
+Domain replacement is owned by CD-0222; work relations are owned by PM4.
 
 Business grouping lives in Linear under CD-0213. Product embeds no grouping record, and grouping is not a second Product,
 Domain, or architecture authority.
@@ -259,13 +258,9 @@ can act on; "this was accepted" is not.
 
 ## 10. Bounded replacement relations
 
-> **Status:** Bounded existing mechanisms. CD-0222 owns Domain replacement and
-> PM4 owns work-item supersession.
+> **Status:** CD-0222 owns Domain replacement.
 
-CD-0222 defines the Product-internal Domain `replaces` relation and its
-version-pinned overlap controls. PM4 defines work-item `supersedes`, including
-the atomic terminal transition. These relations have separate owners and
-semantics.
+CD-0222 defines the Product-internal Domain `replaces` relation.
 
 The Product model does not define a generic replacement state machine or a
 Product, Project, or workflow replacement home. Migration and correction are
@@ -287,7 +282,7 @@ respectively. The remaining model-internal open question is:
 
 | Doc | Link |
 |---|---|
-| [CD-0222](../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) | Domain `replaces` and PM4 work-item `supersedes` remain bounded relation mechanisms. |
+| [CD-0222](../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) | Domain `replaces` remains a bounded architecture relation; PM4 governs work-item relations. |
 | [`priorities.md` — Quality (goal E)](../law/constitution/priorities.md#quality-goal-e) | Proportional rigor is the quality attribute that §8 supplies an input for. |
 | `design-constraints.md` §4 | The ownership record is Concord-owned state → lock-free, current rows with finite snapshots, no history to repair (CD-0242 D2). Stage transitions write current rows (§8.5). |
 | `self-documentation.md` §1 | The browse surface uses Product → Domain navigation. |

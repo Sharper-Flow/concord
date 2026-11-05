@@ -29,7 +29,7 @@ func TestDispatchRejectsObsoleteEpicSurfaceAndGenericInitiativeCapture(t *testin
 		t.Fatalf("obsolete Epic surface response=%+v err=%v", obsolete, obsoleteErr)
 	}
 	for _, kind := range []string{"epic", "initiative"} {
-		response, responseErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(fmt.Sprintf(`{"title":"%s","value_statement":"must reject","kind":"%s","project_ids":["project-1"],"idempotency_key":"capture-%s"}`, kind, kind, kind))}, env)
+		response, responseErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(fmt.Sprintf(`{"title":"%s","kind":"%s","project_ids":["project-1"],"human_key":"ZZ-%s","remote_issue_uuid":"fixture-capture-%s","url":"https://linear.app/example/issue/ZZ-%s","idempotency_key":"capture-%s"}`, kind, kind, kind, kind, kind, kind))}, env)
 		if responseErr == nil && (response.Error == nil || response.Error.Kind != "invalid_input") {
 			t.Fatalf("generic %s capture response=%+v err=%v", kind, response, responseErr)
 		}
@@ -44,7 +44,7 @@ func TestDispatchIdempotentReplaySurvivesAmbientScopeDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Replay","value_statement":"Replay value","kind":"task","project_ids":["project-1"],"idempotency_key":"replay-key"}`)}
+	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Replay","kind":"task","project_ids":["project-1"],"idempotency_key":"replay-key","human_key":"ZZ-9111","remote_issue_uuid":"fixture-replay-key","url":"https://linear.app/example/issue/ZZ-9111"}`)}
 	env := mutationEnvelope(grant, scopeVersion)
 	first, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || first.Outcome != agentcontract.OutcomeOK {
@@ -67,7 +67,7 @@ func TestDispatchIdempotentReplaySurvivesAmbientScopeDrift(t *testing.T) {
 	if eventsAfter != eventsBefore {
 		t.Fatalf("replay created effects: before=%d after=%d", eventsBefore, eventsAfter)
 	}
-	request.Input = json.RawMessage(`{"title":"Changed","value_statement":"Replay value","kind":"task","project_ids":["project-1"],"idempotency_key":"replay-key"}`)
+	request.Input = json.RawMessage(`{"title":"Changed","kind":"task","project_ids":["project-1"],"idempotency_key":"replay-key","human_key":"ZZ-9111","remote_issue_uuid":"fixture-replay-key","url":"https://linear.app/example/issue/ZZ-9111"}`)
 	conflict, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || conflict.Outcome != agentcontract.OutcomeError || conflict.Error == nil || conflict.Error.Kind != "idempotency_conflict" {
 		t.Fatalf("conflict=%+v err=%v", conflict, err)
@@ -83,7 +83,7 @@ func TestDispatchCrossProductCaptureKeepsCapabilityWithoutConsent(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Cross","value_statement":"Cross value","kind":"task","project_ids":["project-1"],"idempotency_key":"cross-denied"}`)}
+	request := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Cross","kind":"task","project_ids":["project-1"],"idempotency_key":"cross-denied","human_key":"ZZ-9111","remote_issue_uuid":"fixture-cross-denied","url":"https://linear.app/example/issue/ZZ-9111"}`)}
 	denied, err := Dispatch(ctx, deniedStore, deniedService, request, mutationEnvelope(deniedGrant, deniedScope))
 	if err != nil || denied.Outcome != agentcontract.OutcomeError || denied.Error == nil || denied.Error.Kind != "unauthorized" {
 		t.Fatalf("cross-product denial=%+v err=%v", denied, err)
@@ -98,7 +98,7 @@ func TestDispatchCrossProductCaptureKeepsCapabilityWithoutConsent(t *testing.T) 
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	request = InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Cross","value_statement":"Cross value","kind":"task","project_ids":["project-1"],"idempotency_key":"cross-approved"}`)}
+	request = InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Cross","kind":"task","project_ids":["project-1"],"idempotency_key":"cross-approved","human_key":"ZZ-9111","remote_issue_uuid":"fixture-cross-approved","url":"https://linear.app/example/issue/ZZ-9111"}`)}
 	approved, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("cross approved response=%+v err=%v", approved, err)
@@ -132,9 +132,9 @@ func crossProductDispatchFixture(t *testing.T, capabilities []agentcontract.Capa
 		{EventID: "cross-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"display_name":"Shared Project"}`)},
 		{EventID: "cross-membership-1", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-1","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
 		{EventID: "cross-membership-2", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-2","project_id":"project-1","role":"secondary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
-		{EventID: "cross-work-1", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Cross One","priority":1,"governing_requirements":[]}`)},
+		{EventID: "cross-work-1", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Cross One"}`)},
 		{EventID: "cross-work-1-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-		{EventID: "cross-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Cross Two","priority":1,"governing_requirements":[]}`)},
+		{EventID: "cross-work-2", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Cross Two"}`)},
 		{EventID: "cross-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProduct, "product-2"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
@@ -165,7 +165,7 @@ func mutationDispatchFixture(t *testing.T, capabilities []agentcontract.Capabili
 		{EventID: "fixture-product", Kind: "product.created", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"display_name":"Product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
 		{EventID: "fixture-project", Kind: "project.created", SubjectType: store.SubjectProject, SubjectID: "project-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"display_name":"Project"}`)},
 		{EventID: "fixture-product-project", Kind: "product_project.added", SubjectType: store.SubjectProduct, SubjectID: "product-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"product_id":"product-1","project_id":"project-1","role":"primary","reason":"fixture","expected_version":1,"resulting_version":2}`)},
-		{EventID: "fixture-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Work","priority":1,"governing_requirements":[]}`)},
+		{EventID: "fixture-work", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Work"}`)},
 		{EventID: "fixture-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProduct, "product-1"): 0, store.VersionRef(store.SubjectProject, "project-1"): 0, store.VersionRef(store.SubjectWorkItem, "work-1"): 0}}); err != nil {

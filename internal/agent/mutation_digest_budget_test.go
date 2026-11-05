@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
-	"github.com/sharper-flow/concord/internal/store"
 )
 
 func TestMutationDigestWireProtocol(t *testing.T) {
@@ -31,7 +30,7 @@ func TestMutationDigestWireProtocol(t *testing.T) {
 func TestRoutineCoordinationExplicitBudgetResolvesThroughRealDispatch(t *testing.T) {
 	t.Parallel()
 	s, service, env := routineCoordinationFixture(t)
-	binding := routineOverlapExactBinding(t, s, store.ResolutionMergedInto)
+	binding := routineOverlapExactBinding(t, s, "depends_on")
 	input := routineOverlapResolveInput(t, binding, "overlap-budget-dispatch")
 	budgeted := map[string]any{}
 	if err := json.Unmarshal(input, &budgeted); err != nil {

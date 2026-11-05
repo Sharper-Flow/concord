@@ -6,7 +6,6 @@ import (
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
-	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/testutil/schemawire"
 )
 
@@ -113,15 +112,7 @@ func TestRequestBudgetDerivesFromDeclaredMaxima(t *testing.T) {
 	if defs == nil {
 		t.Fatal("the generated payload contract carries no $defs")
 	}
-	if store.WorkContextActionFindingsMax != 16 {
-		t.Fatalf("WorkContextActionFindingsMax = %d, want 16; the finding-reference derivation rests on it", store.WorkContextActionFindingsMax)
-	}
-	// Quotes count: the reference serializes inside quotation marks.
-	findingRefMax := 2 + len("finding:") + 19 + 1 + 2
-	opt := schemawire.Options{
-		Defs:          defs,
-		FindingRefMax: findingRefMax,
-	}
+	opt := schemawire.Options{Defs: defs}
 	const variant = "work_transition_action_variant_record_review"
 	if defs[variant] == nil {
 		t.Fatal("record_review is absent from the generated contract; regenerate from the workflow owner")

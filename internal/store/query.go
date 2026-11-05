@@ -64,9 +64,6 @@ type Q3Request struct {
 	WorkIDs         []string
 	LifecycleStates []string
 	Kind            string
-	TagIDs          []string
-	PriorityMin     *int64
-	PriorityMax     *int64
 	TerminalSince   *string
 	Detail          string
 	Limit           int
@@ -125,30 +122,19 @@ type Q3Result struct {
 	Items []WorkItem `json:"items"`
 }
 
-// WorkItem is one projected work item. Priority and Urgency are columns and
-// ride every read. Task, ValueStatement, Tags, and WorkflowTypeRef are the
-// recorded mutable-intent detail (the complete revise_intent field set
-// beside identity): they ride only the authoritative intent reads — the
-// single-record scope read and the full-detail list read — so bounded list,
-// preview, and graph reads keep their column-only shape. Tags stays nil when
-// the intent recorded no array, so the lawful absent state stays distinct
-// from a recorded empty array, and WorkflowTypeRef comes from the stored
-// intent only, never from a pinned workflow instance.
+// WorkItem is one projected work item. Task, the captured short note, rides
+// only the authoritative intent reads — the full-detail list read — so
+// bounded list and preview reads keep their column-only shape.
 type WorkItem struct {
 	ID                    string              `json:"id"`
 	Kind                  string              `json:"kind"`
 	Title                 string              `json:"title"`
 	Lifecycle             string              `json:"lifecycle"`
 	Version               int64               `json:"version"`
-	Priority              int64               `json:"priority"`
-	Urgency               string              `json:"urgency"`
 	CreatedAt             string              `json:"created_at"`
 	UpdatedAt             string              `json:"updated_at"`
 	TerminalAt            string              `json:"terminal_at,omitempty"`
 	Task                  string              `json:"task,omitempty"`
-	ValueStatement        string              `json:"value_statement,omitempty"`
-	Tags                  []string            `json:"tags,omitzero"`
-	WorkflowTypeRef       string              `json:"workflow_type_ref,omitempty"`
 	Projects              []ProjectMembership `json:"projects,omitempty"`
 	Blocked               bool                `json:"blocked"`
 	Ready                 bool                `json:"ready"`
@@ -472,22 +458,21 @@ func (s *Store) QueryQ2(ctx context.Context, req Q2Request) (Q2Result, error) {
 	filter, projectArgs := productWorkScopeSQL(req.ProjectIDs)
 	// Product scope is a distinct CTE, so every count and preview uses one canonical work identity.
 	scope := `WITH scoped AS (SELECT DISTINCT wp.work_id FROM work_projects wp JOIN product_projects pp ON pp.project_id = wp.project_id WHERE pp.product_id = ?` + filter + `)`
-	var counts [9]int
+	var counts [8]int
 	countQuery := scope + ` SELECT
 		COALESCE(SUM(CASE WHEN w.lifecycle='needed' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN w.lifecycle='in_progress' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN w.lifecycle='completed' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN w.lifecycle='cancelled' THEN 1 ELSE 0 END),0),
-		COALESCE(SUM(CASE WHEN w.lifecycle='superseded' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress')) THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN w.lifecycle='needed' AND NOT EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress')) THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN w.lifecycle='in_progress' THEN 1 ELSE 0 END),0),
-		COALESCE(SUM(CASE WHEN w.lifecycle IN ('completed','cancelled','superseded') THEN 1 ELSE 0 END),0)
+		COALESCE(SUM(CASE WHEN w.lifecycle IN ('completed','cancelled') THEN 1 ELSE 0 END),0)
 		FROM work_items w JOIN scoped s ON s.work_id=w.id`
-	if err := tx.QueryRowContext(ctx, countQuery, scopeArgs(req.Product, projectArgsToIDs(projectArgs))...).Scan(&counts[0], &counts[1], &counts[2], &counts[3], &counts[4], &counts[5], &counts[6], &counts[7], &counts[8]); err != nil {
+	if err := tx.QueryRowContext(ctx, countQuery, scopeArgs(req.Product, projectArgsToIDs(projectArgs))...).Scan(&counts[0], &counts[1], &counts[2], &counts[3], &counts[4], &counts[5], &counts[6], &counts[7]); err != nil {
 		return out, wrapFailure(KindUnavailable, "PM1.Q2", "cannot read Product snapshot", true, "retry once the database is readable", err)
 	}
-	previewQuery := scope + ` SELECT w.id,w.kind,w.title,w.lifecycle,w.version,w.priority,w.urgency,w.created_at,w.updated_at,coalesce(w.terminal_time,'') FROM work_items w JOIN scoped s ON s.work_id=w.id ORDER BY w.urgency ASC, CASE WHEN w.lifecycle IN ('completed','cancelled','superseded') THEN w.terminal_time ELSE w.created_at END DESC, w.priority, w.id LIMIT ?`
+	previewQuery := scope + ` SELECT w.id,w.kind,w.title,w.lifecycle,w.version,w.created_at,w.updated_at,coalesce(w.terminal_time,'') FROM work_items w JOIN scoped s ON s.work_id=w.id ORDER BY CASE WHEN w.lifecycle IN ('completed','cancelled') THEN w.terminal_time ELSE w.created_at END DESC, w.id LIMIT ?`
 	args2 := scopeArgs(req.Product, projectArgsToIDs(projectArgs))
 	args2 = append(args2, limit)
 	items, err := scanWorkItems(ctx, tx, previewQuery, args2...)
@@ -498,13 +483,13 @@ func (s *Store) QueryQ2(ctx context.Context, req Q2Request) (Q2Result, error) {
 	if err != nil {
 		return out, err
 	}
-	out.LifecycleCounts = map[string]int{"needed": counts[0], "in_progress": counts[1], "completed": counts[2], "cancelled": counts[3], "superseded": counts[4]}
-	out.DerivedCounts = DerivedCounts{Blocked: counts[5], Ready: counts[6], Active: counts[7], Terminal: counts[8]}
+	out.LifecycleCounts = map[string]int{"needed": counts[0], "in_progress": counts[1], "completed": counts[2], "cancelled": counts[3]}
+	out.DerivedCounts = DerivedCounts{Blocked: counts[4], Ready: counts[5], Active: counts[6], Terminal: counts[7]}
 	out.Items = items
 	if out.Items == nil {
 		out.Items = []WorkItem{}
 	}
-	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q2", ResolvedScope{ProductID: req.Product}, []string{"urgency", "relevant_time", "priority", "id"})
+	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q2", ResolvedScope{ProductID: req.Product}, []string{"relevant_time", "id"})
 	if err != nil {
 		return out, err
 	}
@@ -523,7 +508,7 @@ func validateLifecycleFilters(states []string) ([]string, error) {
 	out := append([]string(nil), states...)
 	for _, state := range out {
 		if !lifecycleStates[state] {
-			return nil, newFailure(KindInvalidFilter, "PM1.Q3", "unknown lifecycle state "+state, false, "use one of needed, in_progress, completed, cancelled, superseded")
+			return nil, newFailure(KindInvalidFilter, "PM1.Q3", "unknown lifecycle state "+state, false, "use one of needed, in_progress, completed, cancelled")
 		}
 	}
 	sort.Strings(out)
@@ -534,8 +519,6 @@ type q3Cursor struct {
 	Version                          int `json:"version"`
 	QueryID, Product, Project, Order string
 	States                           []string `json:"states"`
-	Urgency                          string   `json:"urgency"`
-	Priority                         int64    `json:"priority"`
 	Timestamp, ID                    string
 }
 
@@ -554,9 +537,6 @@ func decodeQ3Cursor(raw string, req Q3Request, states []string, order string) (q
 	var c q3Cursor
 	if json.Unmarshal(b, &c) != nil || c.Version != 1 || c.QueryID != "PM1.Q3" || c.Product != req.Product || c.Project != req.Project || c.Order != order || !slices.Equal(c.States, states) || c.ID == "" || c.Timestamp == "" {
 		return q3Cursor{}, newFailure(KindInvalidCursor, "PM1.Q3", "cursor does not match the requested listing", false, "use a cursor returned for the same query and filters")
-	}
-	if c.Urgency != "" && c.Urgency != "standard" && c.Urgency != "expedite" {
-		return q3Cursor{}, newFailure(KindInvalidCursor, "PM1.Q3", "cursor has an invalid urgency value", false, "restart the bounded listing")
 	}
 	if _, err := time.Parse(time.RFC3339Nano, c.Timestamp); err != nil {
 		return q3Cursor{}, newFailure(KindInvalidCursor, "PM1.Q3", "cursor has an invalid ordering timestamp", false, "restart the bounded listing")
@@ -577,13 +557,6 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	if req.Detail != "" && req.Detail != "summary" && req.Detail != "full" {
 		return out, newFailure(KindInvalidFilter, "PM1.Q3", "detail must be summary or full", false, "choose a closed detail value")
 	}
-	if len(req.TagIDs) > 0 {
-		return out, newFailure(KindInvalidFilter, "PM1.Q3", "component and tag filters are not yet modeled in the live work projection", false, "remove the unsupported filter or use a Product/Project/work filter")
-	}
-	if req.PriorityMin != nil && req.PriorityMax != nil && *req.PriorityMin > *req.PriorityMax {
-		return out, newFailure(KindInvalidFilter, "PM1.Q3", "priority_min exceeds priority_max", false, "supply an ordered priority range")
-	}
-	terminalOnly := terminalOnlyQ3(states)
 	order, orderSQL := q3Order(states)
 	projectIDs := req.ProjectIDs
 	if len(projectIDs) == 0 && req.Project != "" {
@@ -599,16 +572,11 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 		if err != nil {
 			return out, err
 		}
-		if terminalOnly {
-			cursorSQL = ` AND (urgency > ? OR (urgency = ? AND relevant_time < ?) OR (urgency = ? AND relevant_time = ? AND priority > ?) OR (urgency = ? AND relevant_time = ? AND priority = ? AND id > ?))`
-			cursorArgs = []any{c.Urgency, c.Urgency, c.Timestamp, c.Urgency, c.Timestamp, c.Priority, c.Urgency, c.Timestamp, c.Priority, c.ID}
-		} else {
-			cursorSQL = ` AND (urgency > ? OR (urgency = ? AND priority > ?) OR (urgency = ? AND priority = ? AND relevant_time < ?) OR (urgency = ? AND priority = ? AND relevant_time = ? AND id > ?))`
-			cursorArgs = []any{c.Urgency, c.Urgency, c.Priority, c.Urgency, c.Priority, c.Timestamp, c.Urgency, c.Priority, c.Timestamp, c.ID}
-		}
+		cursorSQL = ` AND (relevant_time < ? OR (relevant_time = ? AND id > ?))`
+		cursorArgs = []any{c.Timestamp, c.Timestamp, c.ID}
 	}
-	scope := `WITH scoped AS (SELECT DISTINCT wp.work_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE pp.product_id=?` + filter + `), base AS (SELECT w.id,w.kind,w.title,w.lifecycle,w.version,w.priority,w.urgency,w.created_at,w.updated_at,coalesce(w.terminal_time,'') AS terminal_time, CASE WHEN w.lifecycle IN ('completed','cancelled','superseded') THEN w.terminal_time ELSE w.created_at END AS relevant_time FROM work_items w JOIN scoped s ON s.work_id=w.id)`
-	query := scope + ` SELECT id,kind,title,lifecycle,version,priority,urgency,created_at,updated_at,terminal_time FROM base WHERE 1=1` + placeholders + cursorSQL + ` ORDER BY ` + orderSQL + ` LIMIT ?`
+	scope := `WITH scoped AS (SELECT DISTINCT wp.work_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE pp.product_id=?` + filter + `), base AS (SELECT w.id,w.kind,w.title,w.lifecycle,w.version,w.created_at,w.updated_at,coalesce(w.terminal_time,'') AS terminal_time, CASE WHEN w.lifecycle IN ('completed','cancelled') THEN w.terminal_time ELSE w.created_at END AS relevant_time FROM work_items w JOIN scoped s ON s.work_id=w.id)`
+	query := scope + ` SELECT id,kind,title,lifecycle,version,created_at,updated_at,terminal_time FROM base WHERE 1=1` + placeholders + cursorSQL + ` ORDER BY ` + orderSQL + ` LIMIT ?`
 	args = append(args, stateArgs...)
 	args = append(args, cursorArgs...)
 	args = append(args, limit+1)
@@ -644,7 +612,7 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	if out.Items == nil {
 		out.Items = []WorkItem{}
 	}
-	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q3", ResolvedScope{ProductID: req.Product, ProjectID: req.Project}, []string{"urgency", "priority", "relevant_time", "id"})
+	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q3", ResolvedScope{ProductID: req.Product, ProjectID: req.Project}, []string{"relevant_time", "id"})
 	if err != nil {
 		return out, err
 	}
@@ -734,14 +702,6 @@ func q3FilterSQL(req Q3Request, states []string) (string, []any) {
 		}
 		placeholders += " AND id IN (" + strings.Join(ph, ",") + ")"
 	}
-	if req.PriorityMin != nil {
-		placeholders += " AND priority >= ?"
-		stateArgs = append(stateArgs, *req.PriorityMin)
-	}
-	if req.PriorityMax != nil {
-		placeholders += " AND priority <= ?"
-		stateArgs = append(stateArgs, *req.PriorityMax)
-	}
 	if req.TerminalSince != nil {
 		placeholders += " AND terminal_time >= ?"
 		stateArgs = append(stateArgs, *req.TerminalSince)
@@ -796,31 +756,15 @@ func attachRecordedIntent(ctx context.Context, tx *sql.Tx, items []WorkItem) err
 	return nil
 }
 
-// decodeRecordedIntent projects the intent fields a carrying revision needs
-// onto one item. It reads the same shape the capture and revise folds store,
-// so every revisable value the fold can persist the read can expose.
+// decodeRecordedIntent projects the captured note onto one item. It reads
+// the same shape the capture and revise folds store.
 func decodeRecordedIntent(item *WorkItem, intentJSON string) error {
 	var intent workIntentProjection
 	if err := json.Unmarshal([]byte(intentJSON), &intent); err != nil {
 		return wrapFailure(KindInvariantViolation, "query", "stored work intent is not readable", false, "restore the current rows from a verified snapshot", err)
 	}
 	item.Task = intent.Task
-	item.ValueStatement = intent.ValueStatement
-	item.Tags = intent.Tags
-	item.WorkflowTypeRef = intent.WorkflowTypeRef
 	return nil
-}
-
-func terminalOnlyQ3(states []string) bool {
-	if len(states) == 0 {
-		return false
-	}
-	for _, state := range states {
-		if !terminalState(state) {
-			return false
-		}
-	}
-	return true
 }
 
 func scanWorkItems(ctx context.Context, tx queryer, query string, args ...any) ([]WorkItem, error) {
@@ -832,7 +776,7 @@ func scanWorkItems(ctx context.Context, tx queryer, query string, args ...any) (
 	var out []WorkItem
 	for rows.Next() {
 		var w WorkItem
-		if err := rows.Scan(&w.ID, &w.Kind, &w.Title, &w.Lifecycle, &w.Version, &w.Priority, &w.Urgency, &w.CreatedAt, &w.UpdatedAt, &w.TerminalAt); err != nil {
+		if err := rows.Scan(&w.ID, &w.Kind, &w.Title, &w.Lifecycle, &w.Version, &w.CreatedAt, &w.UpdatedAt, &w.TerminalAt); err != nil {
 			return nil, wrapFailure(KindInvariantViolation, "query", "cannot decode work item projection", false, "restore the current rows from a verified snapshot", err)
 		}
 		w.Terminal = terminalState(w.Lifecycle)

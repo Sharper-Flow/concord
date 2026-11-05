@@ -32,7 +32,7 @@ func lawFolderAuthorityFixture(t *testing.T) (*Store, KnowledgeHome) {
 
 func TestLawFolderAuthorityFolderLawSatisfiesMandate(t *testing.T) {
 	s, home := lawFolderAuthorityFixture(t)
-	ctx, err := s.EstablishKnowledgeSourceSetProofForProject(t.Context(), home.HomeProjectID)
+	ctx, err := establishKnowledgeSourceSetProofForProject(t.Context(), s, home.HomeProjectID)
 	if err != nil {
 		t.Fatalf("pre-transaction verification refused a committed folder-law home: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestLawFolderAuthorityFolderLawSatisfiesMandate(t *testing.T) {
 
 func TestLawFolderAuthorityOutsideFileDoesNotSatisfyMandate(t *testing.T) {
 	s, home := lawFolderAuthorityFixture(t)
-	ctx, err := s.EstablishKnowledgeSourceSetProofForProject(t.Context(), home.HomeProjectID)
+	ctx, err := establishKnowledgeSourceSetProofForProject(t.Context(), s, home.HomeProjectID)
 	if err != nil {
 		t.Fatalf("pre-transaction verification refused a committed folder-law home: %v", err)
 	}

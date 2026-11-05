@@ -31,7 +31,7 @@ func (s *Store) EstablishDomainRegistryProof(ctx context.Context, productID stri
 	if proof := knowledgeSourceSetProofFrom(ctx); proof != nil && proof.productID == productID && proof.refreshErr == nil && sourceBoundInProof(ctx, home) {
 		return ctx, nil
 	}
-	verified, err := s.establishKnowledgeSourceSetProofAtHome(ctx, home.HomeProjectID, home.HomeLocatorID)
+	verified, err := s.establishKnowledgeSourceSetProofAtHomes(ctx, home.HomeProjectID, home.HomeLocatorID, nil)
 	if err != nil {
 		return ctx, err
 	}
@@ -55,18 +55,6 @@ func lawSnapshotForProduct(ctx context.Context, q queryer, productID, op string)
 		return nil, err
 	}
 	return lawSnapshotForSource(ctx, home, op)
-}
-
-// lawSnapshotForWork returns the committed Domain registry snapshot of the
-// Product that owns the work's contract: the Product of its primary Project.
-// A Domain registry belongs to a Product, so a work resolves no registry from
-// a standalone Project home or from another Product it is merely a member of.
-func lawSnapshotForWork(ctx context.Context, q queryer, workID, op string) (*lawFolderSnapshot, error) {
-	productID, err := architectureBindingProductID(ctx, q, workID)
-	if err != nil {
-		return nil, err
-	}
-	return lawSnapshotForProduct(ctx, q, productID, op)
 }
 
 // EnsureWorkProductKnowledgeFresh verifies the knowledge home of the work's

@@ -70,7 +70,6 @@ DELETE FROM write_guard`, repo); err != nil {
 	apply("approve_contract", map[string]any{"premise": "bounded change", "spec_mandate": []string{}, "law_modifies": []string{}, "decision_domains": []string{}, "architecture_binding": map[string]any{"home_domain_id": pm1fixture.SingleDomainRootID, "affected_domain_ids": []string{pm1fixture.SingleDomainRootID}, "domain_modifies": []string{}, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{}}})
 	apply("complete_step", map[string]any{"step_id": "plan", "note": "planned"})
 	apply("start_execution", map[string]any{})
-	apply("record_work_context", map[string]any{})
 	apply("checkpoint_context", map[string]any{"checkpoint_id": "checkpoint:test", "active_unit": "implementation", "hypothesis": "hypothesis", "diagnosis": "diagnosis", "strategy": "strategy", "touched_refs": []string{"path:test"}, "evidence_refs": []string{"evidence:test"}, "pending_questions": []string{}, "pending_decisions": []string{}})
 	apply("cross_context_boundary", map[string]any{"boundary_kind": "summary", "mode": "summary", "checkpoint_id": "checkpoint:test", "summary": "Continue the work."})
 	var checkpoints, boundaries int

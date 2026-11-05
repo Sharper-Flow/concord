@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// CON-412 registry-derived differential corpus. The corpus walks every
+// The registry-derived differential corpus walks every
 // published closed workflow action variant in the generated schema document
 // and, for each one, proves shape-verdict parity between the published
 // variant, its public variant when one exists, and the core
@@ -216,7 +216,7 @@ func corpusStringSample(node map[string]any) any {
 	}
 	// The enforcing string floor counts UTF-8 bytes (x-minBytes); the
 	// code-point minLength is derived from it, so the sample satisfies the
-	// byte floor first and both published bounds hold (CON-412).
+	// byte floor first and both published bounds hold.
 	if minimum, ok := node["x-minBytes"].(json.Number); ok {
 		if count, err := minimum.Int64(); err == nil {
 			return strings.Repeat("v", int(count))
@@ -477,7 +477,7 @@ func corpusNodeMutants(document map[string]any, node map[string]any, value any, 
 	// one byte under the byte floor can still pass the derived code-point
 	// minLength, and an all-two-byte string can sit at or under the
 	// code-point maxLength while exceeding the byte maximum. Only the x-*
-	// keywords refuse these two (CON-412).
+	// keywords refuse these two.
 	if minimum, ok := node["x-minBytes"].(json.Number); ok {
 		if count, err := minimum.Int64(); err == nil && count > 1 {
 			add(strings.Join(path, ".")+" under x-minBytes", corpusSetValue(corpusCopy(corpusRootOf(path, value)), path, strings.Repeat("v", int(count-1))))

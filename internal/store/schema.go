@@ -108,6 +108,9 @@ func applyMigration(ctx context.Context, q migrationRunner, m migration) error {
 	if m.Name == "outcome_contract_retirement" {
 		return retireOutcomeContract(ctx, q, m.SQL)
 	}
+	if m.Name == "minimal_capture_retirement" {
+		return retireCapture(ctx, q, m.SQL)
+	}
 	if err := beforeMigrationSQL(ctx, q, m); err != nil {
 		return err
 	}
@@ -8913,6 +8916,150 @@ DROP TABLE workflow_contract_law_additions_v185_backup;
 DROP TABLE workflow_contract_verification_obligations_v185_backup;
 DROP TABLE workflow_contract_law_modifications_v185_backup;
 DROP TABLE workflow_overlap_resolutions_v185_backup;
+`,
+	},
+	{
+		Version: 186, Name: "minimal_capture_retirement", Breaking: true,
+		SQL: `
+PRAGMA defer_foreign_keys = ON;
+INSERT INTO write_guard(active) VALUES(1);
+DROP TABLE work_context_findings;
+DROP TABLE work_context_state;
+DROP TABLE project_governing_requirements;
+
+-- These seven leaf projections cascade when work_items is rebuilt. Other
+-- references use RESTRICT/NO ACTION and survive under deferred checking.
+CREATE TEMP TABLE step_epochs_v186 AS SELECT * FROM workflow_step_epochs;
+CREATE TEMP TABLE phase_exits_v186 AS SELECT * FROM workflow_phase_exits;
+CREATE TEMP TABLE evidence_bindings_v186 AS SELECT * FROM workflow_evidence_bindings;
+CREATE TEMP TABLE version_actions_v186 AS SELECT * FROM work_version_actions;
+CREATE TEMP TABLE completed_exits_v186 AS SELECT * FROM workflow_completed_exits;
+CREATE TEMP TABLE coordinator_actions_v186 AS SELECT * FROM workflow_coordinator_actions;
+CREATE TEMP TABLE delivery_state_v186 AS SELECT * FROM workflow_delivery_state;
+
+CREATE TABLE work_items_v186 (
+ id TEXT PRIMARY KEY,
+ kind TEXT NOT NULL,
+ title TEXT NOT NULL,
+ lifecycle TEXT NOT NULL CHECK(lifecycle IN ('needed','in_progress','completed','cancelled')),
+ version INTEGER NOT NULL,
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL,
+ terminal_time TEXT,
+ intent_json TEXT NOT NULL DEFAULT '{}',
+ narrative TEXT NOT NULL DEFAULT '' CHECK(length(narrative)<=16384),
+ effect_seq INTEGER NOT NULL DEFAULT 0 CHECK(typeof(effect_seq)='integer' AND effect_seq>=0),
+ last_progress_at TEXT NOT NULL DEFAULT '',
+ version_actions_floor INTEGER NOT NULL DEFAULT 0,
+ transition_from TEXT,
+ transition_reason TEXT NOT NULL DEFAULT '',
+ transition_actor TEXT NOT NULL DEFAULT '',
+ transition_evidence_refs TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(transition_evidence_refs) AND json_type(transition_evidence_refs)='array'),
+ transition_seq INTEGER NOT NULL DEFAULT 0,
+ transition_version INTEGER NOT NULL DEFAULT 1
+);
+CREATE TEMP TABLE work_items_rows_v186 AS
+ SELECT id,kind,title,CASE lifecycle WHEN 'superseded' THEN 'cancelled' ELSE lifecycle END,
+ version,created_at,updated_at,terminal_time,
+ CASE WHEN json_type(intent_json,'$.task')='text'
+ THEN json_set(json_object('title',title,'kind',kind),'$.task',json_extract(intent_json,'$.task'))
+ ELSE json_object('title',title,'kind',kind) END,
+ narrative,effect_seq,last_progress_at,version_actions_floor,
+ CASE transition_from WHEN 'superseded' THEN 'cancelled' ELSE transition_from END,
+ transition_reason,transition_actor,transition_evidence_refs,transition_seq,transition_version
+ FROM work_items;
+DROP TABLE work_items;
+ALTER TABLE work_items_v186 RENAME TO work_items;
+INSERT INTO work_items SELECT * FROM work_items_rows_v186;
+DROP TABLE work_items_rows_v186;
+CREATE TRIGGER work_items_guard_insert BEFORE INSERT ON work_items BEGIN SELECT RAISE(ABORT,'work_items is write-seam-only') WHERE NOT EXISTS(SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER work_items_guard_update BEFORE UPDATE ON work_items BEGIN SELECT RAISE(ABORT,'work_items is write-seam-only') WHERE NOT EXISTS(SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER work_items_guard_delete BEFORE DELETE ON work_items BEGIN SELECT RAISE(ABORT,'work_items is write-seam-only') WHERE NOT EXISTS(SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER work_items_kind_registry_insert BEFORE INSERT ON work_items WHEN NOT EXISTS(SELECT 1 FROM work_kinds WHERE kind=NEW.kind AND stored=1) BEGIN SELECT RAISE(ABORT,'work_items kind is not a stored work kind'); END;
+CREATE TRIGGER work_items_kind_registry_update BEFORE UPDATE OF kind ON work_items WHEN NOT EXISTS(SELECT 1 FROM work_kinds WHERE kind=NEW.kind AND stored=1) BEGIN SELECT RAISE(ABORT,'work_items kind is not a stored work kind'); END;
+INSERT INTO workflow_step_epochs SELECT * FROM step_epochs_v186;
+INSERT INTO workflow_phase_exits SELECT * FROM phase_exits_v186;
+INSERT INTO workflow_evidence_bindings SELECT * FROM evidence_bindings_v186;
+INSERT INTO work_version_actions SELECT * FROM version_actions_v186;
+INSERT INTO workflow_completed_exits SELECT * FROM completed_exits_v186;
+INSERT INTO workflow_coordinator_actions SELECT * FROM coordinator_actions_v186;
+INSERT INTO workflow_delivery_state SELECT * FROM delivery_state_v186;
+DROP TABLE step_epochs_v186;
+DROP TABLE phase_exits_v186;
+DROP TABLE evidence_bindings_v186;
+DROP TABLE version_actions_v186;
+DROP TABLE completed_exits_v186;
+DROP TABLE coordinator_actions_v186;
+DROP TABLE delivery_state_v186;
+
+CREATE TABLE workflow_instances_v186 (
+ work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+ workflow_type TEXT CHECK(workflow_type IS NULL OR workflow_type IN ('change','fix','research','removal')),
+ step_plan TEXT CHECK(step_plan IS NULL OR (json_valid(step_plan) AND json_type(step_plan)='object')),
+ prelude_state TEXT CHECK(prelude_state IS NULL OR (json_valid(prelude_state) AND json_type(prelude_state)='object')),
+ instance_state TEXT NOT NULL CHECK(instance_state IN ('intake','running','blocked','verifying','completed','cancelled')),
+ execution_actor_ref TEXT REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+ execution_model TEXT NOT NULL DEFAULT '' CHECK(length(execution_model)<=128),
+ started_at TEXT, completed_at TEXT, last_checkpoint_at TEXT, execution_started_at TEXT,
+ completion_payload TEXT CHECK(completion_payload IS NULL OR json_valid(completion_payload)),
+ completion_occurred_at TEXT
+);
+INSERT INTO workflow_instances_v186 SELECT work_id,workflow_type,step_plan,prelude_state,
+ CASE instance_state WHEN 'superseded' THEN 'cancelled' ELSE instance_state END,
+ execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at FROM workflow_instances;
+DROP TABLE workflow_instances;
+ALTER TABLE workflow_instances_v186 RENAME TO workflow_instances;
+CREATE INDEX workflow_instances_state ON workflow_instances(instance_state,work_id);
+CREATE TRIGGER workflow_instances_guard_insert BEFORE INSERT ON workflow_instances BEGIN SELECT RAISE(ABORT,'workflow_instances is write-seam-only') WHERE NOT EXISTS(SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_update BEFORE UPDATE ON workflow_instances BEGIN SELECT RAISE(ABORT,'workflow_instances is write-seam-only') WHERE NOT EXISTS(SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instances BEGIN SELECT RAISE(ABORT,'workflow_instances is write-seam-only') WHERE NOT EXISTS(SELECT 1 FROM write_guard WHERE active=1); END;
+
+CREATE TABLE relations_v186 (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ work_id_from TEXT NOT NULL REFERENCES work_items(id),
+ work_id_to TEXT NOT NULL REFERENCES work_items(id),
+ kind TEXT NOT NULL CHECK(kind IN ('parent','blocks','implements','forward_link','raised_from','depends_on','compatible_with')),
+ created_at TEXT NOT NULL,
+ resolution_id TEXT, reason TEXT NOT NULL DEFAULT '', record_version INTEGER NOT NULL DEFAULT 1,
+ CHECK(work_id_from<>work_id_to), UNIQUE(work_id_from,work_id_to,kind)
+);
+INSERT INTO relations_v186 SELECT * FROM relations WHERE kind NOT IN ('supersedes','merged_into');
+-- Keep the allocation frontier even when the highest relation ID retires.
+UPDATE sqlite_sequence SET seq=MAX(seq,COALESCE((SELECT seq FROM sqlite_sequence WHERE name='relations'),0)) WHERE name='relations_v186';
+DROP TABLE relations;
+ALTER TABLE relations_v186 RENAME TO relations;
+CREATE INDEX idx_relations_from_kind ON relations(work_id_from,kind,work_id_to);
+CREATE INDEX idx_relations_to_kind ON relations(work_id_to,kind,work_id_from);
+CREATE TRIGGER relations_guard_insert BEFORE INSERT ON relations BEGIN SELECT RAISE(ABORT,'relations is write-seam-only') WHERE NOT EXISTS(SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER relations_guard_update BEFORE UPDATE ON relations BEGIN SELECT RAISE(ABORT,'relations is write-seam-only') WHERE NOT EXISTS(SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER relations_guard_delete BEFORE DELETE ON relations BEGIN SELECT RAISE(ABORT,'relations is write-seam-only') WHERE NOT EXISTS(SELECT 1 FROM write_guard WHERE active=1); END;
+
+CREATE TABLE workflow_overlap_resolutions_v186 (
+ resolution_id TEXT PRIMARY KEY,
+ event_seq INTEGER NOT NULL UNIQUE REFERENCES effect_receipts(effect_seq) ON DELETE RESTRICT,
+ product_id TEXT NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+ from_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+ to_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+ from_contract_version INTEGER NOT NULL, to_contract_version INTEGER NOT NULL,
+ resolution_kind TEXT NOT NULL CHECK(resolution_kind IN ('compatible_with','depends_on','blocks')),
+ reason TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 4096), created_at TEXT NOT NULL,
+ invalidated_seq INTEGER REFERENCES effect_receipts(effect_seq) ON DELETE RESTRICT,
+ CHECK(from_work_id<>to_work_id), CHECK(from_contract_version>0 AND to_contract_version>0),
+ FOREIGN KEY(from_work_id,from_contract_version) REFERENCES workflow_contracts(work_id,contract_version) ON DELETE RESTRICT,
+ FOREIGN KEY(to_work_id,to_contract_version) REFERENCES workflow_contracts(work_id,contract_version) ON DELETE RESTRICT
+);
+INSERT INTO workflow_overlap_resolutions_v186 SELECT * FROM workflow_overlap_resolutions WHERE resolution_kind NOT IN ('supersedes','merged_into');
+DROP TABLE workflow_overlap_resolutions;
+ALTER TABLE workflow_overlap_resolutions_v186 RENAME TO workflow_overlap_resolutions;
+CREATE INDEX workflow_overlap_resolutions_pair ON workflow_overlap_resolutions(product_id,from_work_id,to_work_id,from_contract_version,to_contract_version,event_seq);
+CREATE INDEX workflow_overlap_resolutions_reverse_pair ON workflow_overlap_resolutions(product_id,to_work_id,from_work_id,to_contract_version,from_contract_version,event_seq);
+CREATE TRIGGER workflow_overlap_resolutions_guard_insert BEFORE INSERT ON workflow_overlap_resolutions BEGIN SELECT RAISE(ABORT,'workflow_overlap_resolutions is write-seam-only') WHERE NOT EXISTS(SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_overlap_resolutions_guard_update BEFORE UPDATE ON workflow_overlap_resolutions BEGIN SELECT RAISE(ABORT,'workflow_overlap_resolutions is write-seam-only') WHERE NOT EXISTS(SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_overlap_resolutions_guard_delete BEFORE DELETE ON workflow_overlap_resolutions BEGIN SELECT RAISE(ABORT,'workflow_overlap_resolutions is write-seam-only') WHERE NOT EXISTS(SELECT 1 FROM write_guard WHERE active=1); END;
+DROP INDEX linear_issue_links_remote_uuid;
+CREATE INDEX linear_issue_links_remote_uuid ON linear_issue_links(remote_issue_uuid);
+CREATE INDEX linear_issue_links_human_key ON linear_issue_links(human_key);
+DELETE FROM write_guard;
 `,
 	},
 }

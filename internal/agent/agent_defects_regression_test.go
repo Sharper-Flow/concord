@@ -81,28 +81,6 @@ func TestRegressionDefect1_RelationEnvelopeShapeIsFromToKind(t *testing.T) {
 	}
 }
 
-// TestRegressionDefect2_SupersededLifecycleInWorkSummaryValidates asserts that
-// a work_summary-bearing result containing a superseded work item validates
-// against the public envelope schema. Pre-fix, work_summary.properties.lifecycle
-// resolved to a four-value enum (needed/in_progress/completed/cancelled), so
-// any Product that had ever superseded a work item produced a result that
-// failed validation with "enum mismatch at $.items[N].lifecycle". The fix
-// widens the shared #/$defs/lifecycle enum to include 'superseded', while a
-// narrower sibling def (#/$defs/lifecycle_transition_target) protects
-// transition inputs.
-//
-// Pre-fix failure mode: ValidateOperationPayload against the work_summary
-// result shape returns an enum-mismatch error whenever any item carries
-// lifecycle=superseded.
-func TestRegressionDefect2_SupersededLifecycleInWorkSummaryValidates(t *testing.T) {
-	t.Parallel()
-	payload := []byte(`{"items":[{"id":"work-old","kind":"task","title":"Old","lifecycle":"superseded","version":3}],"next_cursor":null}`)
-	// work_browse.list returns work_page which is a list of work_summary.
-	if err := agentcontract.ValidateOperationPayload("concord_work_browse", "list", payload, true); err != nil {
-		t.Fatalf("superseded lifecycle in work_summary must validate, got %v", err)
-	}
-}
-
 // TestRegressionDefect2_TransitionTargetRejectsSuperseded asserts that the
 // structural split between #/$defs/lifecycle (observed) and
 // #/$defs/lifecycle_transition_target (four agent-requestable targets) is
@@ -129,20 +107,6 @@ func TestRegressionDefect2_TransitionTargetRejectsSuperseded(t *testing.T) {
 		if err := agentcontract.ValidateOperationPayload("concord_work_transition", "lifecycle", ok, false); err != nil {
 			t.Fatalf("work_transition_lifecycle_input with target=%s must validate, got %v", target, err)
 		}
-	}
-}
-
-// TestRegressionDefect2_LifecycleFilterAcceptsSuperseded asserts that the
-// work_browse_list_input filter (a third reference to #/$defs/lifecycle) also
-// accepts lifecycle=superseded, so a Product that has ever superseded work
-// can still be filtered by that state. This guards against an accidental
-// re-narrowing of the shared def that would re-break defect 2 only on the
-// read-filter side.
-func TestRegressionDefect2_LifecycleFilterAcceptsSuperseded(t *testing.T) {
-	t.Parallel()
-	payload := []byte(`{"page":{"cursor":null,"limit":20},"lifecycle":"superseded"}`)
-	if err := agentcontract.ValidateOperationPayload("concord_work_browse", "list", payload, false); err != nil {
-		t.Fatalf("work_browse_list_input with lifecycle=superseded must validate, got %v", err)
 	}
 }
 

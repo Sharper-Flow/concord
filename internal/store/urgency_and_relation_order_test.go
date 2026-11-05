@@ -5,22 +5,23 @@ import (
 	"testing"
 )
 
-// workCreatedEventWithUrgency creates a work.created event with a declared
-// urgency and priority. Used by CD-0018 urgency tests.
-func workCreatedEventWithUrgency(id, eventID, urgency string, priority int64) Event {
+// workCreatedEventWithUrgency creates one plain work item. The urgency and
+// priority parameters are retired with their capture fields; the name stays
+// for its callers.
+func workCreatedEventWithUrgency(id, eventID, _ string, _ int64) Event {
 	return operationEvent(eventID, "work.created", SubjectWorkItem, id, map[string]any{
-		"work_kind": "task", "title": id, "priority": priority, "urgency": urgency,
+		"work_kind": "task", "title": id,
 	})
 }
 
-// seedWorkWithUrgency seeds a work item at creation time with a declared urgency
-// and priority, plus project membership, leaving it at version 2 in 'needed'.
-func seedWorkWithUrgency(t *testing.T, s *Store, id, urgency string, priority int64) {
+// seedWorkWithUrgency seeds one plain work item with project membership,
+// leaving it at version 2 in 'needed'.
+func seedWorkWithUrgency(t *testing.T, s *Store, id, _ string, _ int64) {
 	t.Helper()
 	seedProductAndProject(t, s)
 	if err := ApplyOperation(context.Background(), s, Operation{
 		Events: []Event{
-			workCreatedEventWithUrgency(id, "create-"+id, urgency, priority),
+			workCreatedEventWithUrgency(id, "create-"+id, "", 0),
 			operationEvent("membership-"+id, "work_project.added", SubjectWorkItem, id, map[string]any{
 				"work_id": id, "project_id": "project", "role": "secondary", "reason": "test",
 				"expected_version": 1, "resulting_version": 2,
@@ -57,95 +58,6 @@ func seedProductAndProject(t *testing.T, s *Store) {
 		},
 	}); err != nil {
 		t.Fatalf("create test product+project: %v", err)
-	}
-}
-
-func TestCD0018UrgencyRoundTripPersistence(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	seedWorkWithUrgency(t, s, "expedite-item", "expedite", 10)
-
-	var urgency string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT urgency FROM work_items WHERE id=?`, "expedite-item").Scan(&urgency); err != nil {
-		t.Fatalf("select urgency: %v", err)
-	}
-	if urgency != "expedite" {
-		t.Fatalf("urgency = %q, want %q", urgency, "expedite")
-	}
-}
-
-func TestCD0018UrgencyDefaultsToStandard(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	seedWork(t, s, "default-item")
-
-	var urgency string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT urgency FROM work_items WHERE id=?`, "default-item").Scan(&urgency); err != nil {
-		t.Fatalf("select urgency: %v", err)
-	}
-	if urgency != "standard" {
-		t.Fatalf("default urgency = %q, want %q", urgency, "standard")
-	}
-}
-
-func TestCD0018UrgencyInvalidValueRejected(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	event := operationEvent("bad-urgency", "work.created", SubjectWorkItem, "bad", map[string]any{
-		"work_kind": "task", "title": "bad", "priority": 10, "urgency": "critical",
-	})
-	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}})
-	assertFailureKind(t, err, KindInvalidPayload)
-}
-
-func TestCD0018UrgencyOrderingExpediteAboveStandard(t *testing.T) {
-	t.Parallel()
-	// An expedite item with priority=50 must sort above a standard item with
-	// priority=1. Expedite wins regardless of priority.
-	s := openTemp(t)
-	seedWorkWithUrgency(t, s, "std-high-prio", "standard", 1)
-	seedWorkWithUrgency(t, s, "exp-low-prio", "expedite", 50)
-
-	result, err := s.QueryQ3(context.Background(), Q3Request{Product: "product", Limit: 10})
-	if err != nil {
-		t.Fatalf("Q5: %v", err)
-	}
-	if len(result.Items) != 2 {
-		t.Fatalf("expected 2 ready items, got %d", len(result.Items))
-	}
-	if result.Items[0].ID != "exp-low-prio" {
-		t.Fatalf("expected expedite item first despite worse priority; got %s (urgency=%s, priority=%d)",
-			result.Items[0].ID, result.Items[0].Urgency, result.Items[0].Priority)
-	}
-	if result.Items[0].Urgency != "expedite" {
-		t.Fatalf("first item urgency = %q, want expedite", result.Items[0].Urgency)
-	}
-	if result.Items[1].ID != "std-high-prio" {
-		t.Fatalf("expected standard item second; got %s", result.Items[1].ID)
-	}
-}
-
-func TestCD0018UrgencyWithinBandPriorityOrders(t *testing.T) {
-	t.Parallel()
-	// Three expedite items with priorities 30, 10, 20: within the band, lower
-	// priority still sorts first.
-	s := openTemp(t)
-	seedWorkWithUrgency(t, s, "exp-30", "expedite", 30)
-	seedWorkWithUrgency(t, s, "exp-10", "expedite", 10)
-	seedWorkWithUrgency(t, s, "exp-20", "expedite", 20)
-
-	result, err := s.QueryQ3(context.Background(), Q3Request{Product: "product", Limit: 10})
-	if err != nil {
-		t.Fatalf("Q5: %v", err)
-	}
-	if len(result.Items) != 3 {
-		t.Fatalf("expected 3 ready items, got %d", len(result.Items))
-	}
-	expected := []string{"exp-10", "exp-20", "exp-30"}
-	for i, want := range expected {
-		if result.Items[i].ID != want {
-			t.Fatalf("item %d = %s, want %s (within-band priority ordering)", i, result.Items[i].ID, want)
-		}
 	}
 }
 

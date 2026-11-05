@@ -202,7 +202,7 @@ func TestWorkflowWriteAdmitsPlanlessHistoricalLegislator(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?, 'task', 'Authority fixture write work', 'in_progress', 1, 1, 'now', 'now')`, writeWork); err != nil {
+	if _, err := db.Exec(`INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at) VALUES(?, 'task', 'Authority fixture write work', 'in_progress', 1, 'now', 'now')`, writeWork); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {

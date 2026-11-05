@@ -13,7 +13,7 @@ import (
 )
 
 // Domain observations are non-authoritative: no gate, no evidence kind, and no workflow action reads one as
-// authority. Promotion to work stays the CD-0018 capture path.
+// authority. Promotion to work stays the ordinary capture path.
 
 var domainObservationIDPattern = regexp.MustCompile(`^dob:[0-9a-f]{16}$`)
 

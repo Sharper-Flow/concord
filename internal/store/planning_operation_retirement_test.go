@@ -76,59 +76,8 @@ func assertOverlapResolutionRefusalWroteNothing(t *testing.T, s *Store, eventID 
 }
 
 // TestOverlapTerminalResolutionRejectsCycle proves the overlap resolution
-// owner refuses a terminal resolution whose own relation would close a cycle,
-// for both terminal kinds, and leaves the projection untouched.
-func TestOverlapTerminalResolutionRejectsCycle(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct{ name, kind string }{
-		{name: "supersedes", kind: ResolutionSupersedes},
-		{name: "merged_into", kind: ResolutionMergedInto},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			s, actor := seedOverlapProjection(t, "cycle-source", "cycle-target", false)
-			seedOverlapGuardRelation(t, s, "cycle-target", "cycle-source", tc.kind)
-			err := resolveApprovedOverlap(t, s, "overlap-cycle-"+tc.kind, "cycle-source", "cycle-target", 2, 2, tc.kind, "operator approved terminal resolution", actor)
-			failure := requireOverlapOwnerRefusal(t, err, KindCycleDetected, "overlap resolution would create a relation cycle")
-			if len(failure.Violations) != 1 || failure.Violations[0] != tc.kind+":cycle-source->cycle-target" {
-				t.Fatalf("cycle violations = %v, want [%s:cycle-source->cycle-target]", failure.Violations, tc.kind)
-			}
-			assertOverlapResolutionRefusalWroteNothing(t, s, "overlap-cycle-"+tc.kind)
-		})
-	}
-}
 
 // TestOverlapTerminalResolutionRejectsSecondSuccessor proves the overlap
-// resolution owner refuses a second successor: a superseded target cannot
-// take another successor, and merged work cannot take another target, for
-// both terminal kinds, with the projection untouched.
-func TestOverlapTerminalResolutionRejectsSecondSuccessor(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name, kind, pairFrom, pairTo, guardFrom, guardTo, extraWork string
-		wantKind                                                    FailureKind
-		wantDetail                                                  string
-	}{
-		{
-			name: "supersedes", kind: ResolutionSupersedes,
-			pairFrom: "ss-second", pairTo: "ss-target", guardFrom: "ss-first", guardTo: "ss-target", extraWork: "ss-first",
-			wantKind: KindSupersessionSecondSuccessor, wantDetail: "supersession target already has a direct successor",
-		},
-		{
-			name: "merged_into", kind: ResolutionMergedInto,
-			pairFrom: "mi-source", pairTo: "mi-other", guardFrom: "mi-source", guardTo: "mi-target", extraWork: "mi-target",
-			wantKind: KindRelationConflict, wantDetail: "merged work already has a direct target",
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			s, actor := seedOverlapProjection(t, tc.pairFrom, tc.pairTo, false)
-			seedWork(t, s, tc.extraWork)
-			seedOverlapGuardRelation(t, s, tc.guardFrom, tc.guardTo, tc.kind)
-			err := resolveApprovedOverlap(t, s, "overlap-second-"+tc.kind, tc.pairFrom, tc.pairTo, 2, 2, tc.kind, "operator approved terminal resolution", actor)
-			_ = requireOverlapOwnerRefusal(t, err, tc.wantKind, tc.wantDetail)
-			assertOverlapResolutionRefusalWroteNothing(t, s, "overlap-second-"+tc.kind)
-		})
-	}
-}
 
 // TestOverlapBlocksRemovesWorkFromReady proves that
 // the blocks row resolve_overlap writes removes the blocked item from
@@ -141,7 +90,7 @@ func TestOverlapBlocksRemovesWorkFromReady(t *testing.T) {
 		_, err := ResolveWorkflowDomainOverlapTx(ctx, tx, WorkflowDomainOverlapResolutionRequest{
 			EventID: "ready-blocks", FromWorkID: "ready-blocker", ToWorkID: "ready-blocked",
 			FromExpectedVersion: 2, ToExpectedVersion: 2, FromContractVersion: 1, ToContractVersion: 1,
-			ResolutionKind: ResolutionBlocks, Reason: "operator sequenced the pair",
+			ResolutionKind: "blocks", Reason: "operator sequenced the pair",
 			Actor: actor,
 		})
 		return err

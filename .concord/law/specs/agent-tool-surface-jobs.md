@@ -54,7 +54,7 @@ scenario corpus that judges every later surface candidate.
 Recorded workflow effects are current-row mutations; no event log or replay exists
 ([CD-0242](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2).
 
-AJ8 and Domain-overlap job scenarios use CD-0243 D2's consent classes. Routine compatibility, blocking, and dependency answers prove admission while retaining both work and judged contract pins. A merger or supersession that discards declared governing requirements proves the `cross_scope` refusal; otherwise it proves ordinary admission. Workflow scenarios bind the one generated current definition ([CD-0242 D14](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)); a missing review verdict is never a consent question.
+AJ8 and Domain-overlap job scenarios use CD-0243 D2's consent classes. Routine compatibility, blocking, and dependency answers prove admission while retaining both work and judged contract pins. Workflow scenarios bind the one generated current definition ([CD-0242 D14](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)); a missing review verdict is never a consent question.
 
 
 The binding contract is sections 1 through 4: the decision boundary, the
@@ -79,11 +79,11 @@ by Concord. No Q-number implies a separate tool.
 
 | ID | End-to-end agent job | Successful outcome |
 |---|---|---|
-| **AJ1** | **Orient to a Product and choose work.** Resolve ambient Product/Project context; inspect needed, in-progress, blocked, and terminal work; understand cross-Project scope; select the highest-priority ready item. | Scope is explicit and unambiguous; one canonical work item appears once even when it spans Projects; blocked work is excluded from ready work; authority and freshness are visible. |
+| **AJ1** | **Orient to a Product and choose work.** Resolve ambient Product/Project context; inspect needed, in-progress, blocked, and terminal work; understand cross-Project scope; select a ready item. | Scope is explicit and unambiguous; one canonical work item appears once even when it spans Projects; blocked work is excluded from ready work; authority and freshness are visible. |
 | **AJ2** | **Explain why work is blocked.** Trace canonical blockers and state what must change. | Blockage is derived from relations and blocker terminality, never a competing stored state; resolved blockers disappear; graph depth and output stay bounded. |
 | **AJ3** | **Capture needed work without silently cutting scope.** Record a bounded idea, defect, investigation, implementation, or operational need with value, kind, and Project membership. | One canonical work item is created in the resolved scope. Ambiguity or conflict with governing law is surfaced for human direction rather than guessed or omitted. |
 | **AJ4** | **Transition work with evidence.** Move work through its accepted lifecycle, including completion, while satisfying evidence and version requirements. | One atomic domain transition occurs, evidence and actor are attributable, invalid or stale transitions fail structurally, and a retry cannot duplicate the effect. |
-| **AJ5** | **Relate and scope work.** Add or remove Project membership; create typed relations; and resolve concurrent Product-changing Domain overlap. | Graph and membership invariants hold; cycles and duplicate authority are rejected; supersession is atomic; overlap authority is operator-approved and pinned to both current contract versions. |
+| **AJ5** | **Relate and scope work.** Add or remove Project membership; create typed relations; and resolve concurrent Product-changing Domain overlap. | Graph and membership invariants hold; cycles and duplicate authority are rejected; overlap resolution is pinned to both current contract versions. |
 | **AJ8** | **Execute operational work with consequence controls.** Carry an ops item through plan, budgeted execution, health verification, rollback when needed, and cleanup—including ground-truth reclamation of derived resources. | Native authority executes the operation; Concord preserves intent, status, and evidence. A refused budget blocks consequences, health failure triggers the declared recovery path, cleanup uses native facts rather than stale bookkeeping, and partial completion is explicit. |
 
 These jobs are intentionally broader than storage queries and narrower than
@@ -100,7 +100,7 @@ later choose their concrete request/result schemas.
    cross-Product work require explicit resolution.
 2. **Canonical authority:** successful reads and mutations agree with the one
    current authority; degraded or unreachable state is never presented as current.
-3. **Atomic core effects:** each lifecycle transition, supersession, or membership
+3. **Atomic core effects:** each lifecycle transition, relation, or membership
    move commits as one SQLite domain transaction; no observer sees half its state.
 4. **Evidence and consequence authority:** required evidence and CD-0243's consent classes
    are checked by the core before the consequential effect.
@@ -315,7 +315,7 @@ definition, instruction, or invariant changed.
 CD-0222 makes unresolved concurrent Domain overlap a blocking Product-law fact.
 Before the current manifest added the overlap operation, AJ5's ordinary relation could record a graph edge but
 could not bind both work versions, both active contract versions,
-and one closed compatibility, sequence, merger, or supersession decision. Treating the
+and one closed compatibility or sequence decision. Treating the
 ordinary edge as authority would violate AJ5's duplicate-authority oracle and CD-0222.
 
 The named failing scenario is therefore: authorize two overlapping Product-changing

@@ -39,7 +39,7 @@ func runUpgradeStdin(t *testing.T, stdin string) (int, string, string) {
 
 // The plan input obeys the release-verb discipline like every other input:
 // arguments are refused by the shared decoder, and only the declared fields
-// of the JSON body are accepted (CON-807).
+// of the JSON body are accepted.
 func TestUpgradePlanDecodesThroughTheReleaseInput(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if code := runWithInput([]string{"upgrade", "--plan"}, strings.NewReader(""), &out, &errOut); code != 2 {
@@ -52,8 +52,8 @@ func TestUpgradePlanDecodesThroughTheReleaseInput(t *testing.T) {
 
 // The plan reports the exact prepared-candidate commands: the migration
 // command names the absolute binary that produced the plan, and the
-// activation command comes from the prepared record when one exists
-// (CON-807: exact candidate commands, never placeholders).
+// activation command comes from the prepared record when one exists:
+// exact candidate commands, never placeholders.
 func TestUpgradePlanReportsExactCommands(t *testing.T) {
 	_, root := cliStoreRoot(t)
 	code, out, errOut := runUpgradeStdin(t, `{"plan":true}`)
@@ -115,7 +115,7 @@ func TestUpgradePlanReportsExactCommands(t *testing.T) {
 
 // Session admission is the fence's excluded surface: while the boundary is
 // open the host-lease verb refuses with the fence's notice, and admission
-// resumes once the activation closes the boundary (CON-807).
+// resumes once the activation closes the boundary.
 func TestHostLeaseAdmissionIsExcludedUnderTheFence(t *testing.T) {
 	_, root := cliStoreRoot(t)
 	lease := `{"pid":` + pidJSON(os.Getpid()) + `}`
@@ -149,7 +149,7 @@ func TestHostLeaseAdmissionIsExcludedUnderTheFence(t *testing.T) {
 }
 
 // The JSON descriptor route is the installer's side-effect-free capability
-// probe (CON-807): --version --json answers before any stdin read, store
+// probe: --version --json answers before any stdin read, store
 // open, or lease write, so probing a staged core changes nothing — not the
 // store, not the lease directory, not the fence — while plain --version
 // output stays exactly the version string.
@@ -282,7 +282,7 @@ func removeMigrationManifestTail(db *sql.DB, from int) error {
 
 // A refused or failed migration closes the boundary it opened and commits
 // nothing: the store keeps its pending tail and the active release stays
-// usable (CON-807 recovery before an incompatible migration).
+// usable (recovery before an incompatible migration).
 func TestUpgradeFailureClosesItsOwnFenceAndCommitsNothing(t *testing.T) {
 	previous := version.Value
 	version.Value = "v-test"
@@ -315,8 +315,8 @@ func TestUpgradeFailureClosesItsOwnFenceAndCommitsNothing(t *testing.T) {
 
 // A committed breaking step keeps the boundary open — the older release is
 // now unusable — and the report names the activation route; a later no-op
-// run adopts the same open boundary instead of closing it (CON-807
-// candidate-forward recovery).
+// run adopts the same open boundary instead of closing it (candidate-forward
+// recovery).
 func TestUpgradeKeepsTheFenceAfterABreakingCommit(t *testing.T) {
 	previous := version.Value
 	version.Value = "v-test"
@@ -335,7 +335,7 @@ func TestUpgradeKeepsTheFenceAfterABreakingCommit(t *testing.T) {
 	// The boundary the migration opens is attributed to the release root
 	// that opened it — the ownership proof the installer's activation and
 	// superseding install adopt and close by. An unattributed boundary is
-	// nobody's to adopt (CON-807).
+	// nobody's to adopt.
 	selfRoot, selfBinary, err := selfRelease()
 	if err != nil {
 		t.Fatal(err)
@@ -386,7 +386,7 @@ func TestUpgradeKeepsTheFenceAfterABreakingCommit(t *testing.T) {
 	}
 }
 
-// A post-commit failure keeps the boundary open (CON-807): Upgrade applies
+// A post-commit failure keeps the boundary open: Upgrade applies
 // every migration and only then finishes the open, so a finishOpen refusal
 // after a committed breaking step must not reopen session admission. The
 // store's breaking tail is gone, the fence stays, and the diagnostic names
@@ -458,7 +458,7 @@ func TestUpgradeKeepsTheFenceWhenFinishOpenFailsAfterACommit(t *testing.T) {
 // A lease written before the fence protocol existed names a core that
 // admits sessions without reading the fence, so the boundary cannot
 // exclude it: the migration refuses, names the unfenceable participant,
-// and closes the boundary this run opened (CON-807 fail-closed rule).
+// and closes the boundary this run opened (the fail-closed rule).
 func TestUpgradeRefusesAnUnfenceableLegacyParticipant(t *testing.T) {
 	previous := version.Value
 	version.Value = "v-test"
@@ -512,7 +512,7 @@ func TestUpgradeRefusesAnUnfenceableLegacyParticipant(t *testing.T) {
 	}
 }
 
-// A supported compatible release pair coexists on one store (CON-807): the
+// A supported compatible release pair coexists on one store: the
 // newer release applied an additive step this (older) binary does not ship,
 // and the older release still opens the store, keeps its session admitted,
 // sees the newer session's lease beside it, and reads an unblocked readiness

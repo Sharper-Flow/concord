@@ -29,11 +29,11 @@ INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,ve
 INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product-no-home','No Home','prototype','operator_only',1,'now','now');
 INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project','Project',1,'now','now');
 INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('locator','project','canonical_path','/tmp/concord-reservation-upgrade','/tmp/concord-reservation-upgrade','now','now');
-INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES
-  ('reservation-early','task','Early','in_progress',0,1,'now','now'),
-  ('reservation-late','task','Late','in_progress',0,1,'now','now'),
-  ('reservation-both','task','Both','in_progress',0,1,'now','now'),
-  ('reservation-homeless','task','Homeless','in_progress',0,1,'now','now');
+INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at) VALUES
+  ('reservation-early','task','Early','in_progress',1,'now','now'),
+  ('reservation-late','task','Late','in_progress',1,'now','now'),
+  ('reservation-both','task','Both','in_progress',1,'now','now'),
+  ('reservation-homeless','task','Homeless','in_progress',1,'now','now');
 INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES
   ('%[1]s','p:early','c:early','a:early','s:early','agent','now'),
   ('%[2]s','p:late','c:late','a:late','s:late','agent','now'),

@@ -18,7 +18,7 @@
     },
     {
       "criterion": 3,
-      "exemption": "FK-only corruption detection is a verification property. The guarantee is proved by TestBackupRejectsForeignKeyOnlyCorruption (internal/store/backup_test.go)."
+      "exemption": "FK-only corruption detection is a verification property. Rejection by the store Backup function and its deletion of the failed candidate are proved by TestBackupDeletesForeignKeyCorruptCandidate; removal of a candidate and its manifest after verification fails by cancellation is proved by TestInterruptedBackupVerificationDiscardsSnapshotAndStaging (internal/store/backup_test.go)."
     },
     {
       "criterion": 4,
@@ -30,7 +30,7 @@
     },
     {
       "criterion": 6,
-      "exemption": "Tamper and schema-direction rejection is a verification property. The guarantee is proved by TestBackupVerifyTamperAndOlderSchemaRejection (internal/store/fence_test.go)."
+      "exemption": "Tamper and schema-direction rejection is a verification property. The guarantee is proved by TestBackupVerifyTamperAndOlderSchemaRejection (internal/store/atomic_operation_test.go)."
     }
   ]
 }
@@ -124,7 +124,7 @@ operator-approved recovery record.
 | Failure | Required behavior |
 |---|---|
 | backup interrupted | discard partial output; do not promote manifest; retry from a new snapshot |
-| verification fails | quarantine candidate; retain live authority unchanged |
+| verification fails | delete the failed candidate and its manifest; retain live authority unchanged |
 | restore interrupted | prior or verified-next state only; never expose partial state |
 | store corruption | restore last verified snapshot; `.recover` only last resort |
 
@@ -196,7 +196,7 @@ restore proof before introducing a daemon, remote store, or blob mechanism.
 
 - Given a candidate snapshot with a foreign-key-only violation
   When verification runs
-  Then the snapshot is quarantined and never promoted.
+  Then the failed candidate is deleted and never promoted.
 
 - Given a candidate snapshot that fails restore verification
   When backup or a pre-mutation snapshot runs
@@ -222,7 +222,11 @@ typed exemption naming the backup test that proves the guarantee.
 - Criterion 2 is proved by
   `TestInterruptedBackupRemovesPartialSnapshotAndManifest`
   (`internal/store/backup_test.go`).
-- Criterion 3 is proved by `TestBackupRejectsForeignKeyOnlyCorruption`
+- Criterion 3: rejection by the store `Backup` function and its deletion of
+  the failed candidate are proved by
+  `TestBackupDeletesForeignKeyCorruptCandidate`; removal after verification
+  fails by cancellation is proved by
+  `TestInterruptedBackupVerificationDiscardsSnapshotAndStaging`
   (`internal/store/backup_test.go`).
 - Criterion 4 is proved by
   `TestRestoreStageRejectsCurrentStateTampering`
@@ -238,5 +242,5 @@ typed exemption naming the backup test that proves the guarantee.
   `TestInterruptedRestoreRemovesStagingAndLeavesDestinationAbsent`
   (`internal/store/backup_test.go`).
 - Criterion 6 is proved by `TestBackupVerifyTamperAndOlderSchemaRejection`
-  (`internal/store/fence_test.go`). Section 6 records the reopen criteria
+  (`internal/store/atomic_operation_test.go`). Section 6 records the reopen criteria
   for each guarantee.

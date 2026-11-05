@@ -155,7 +155,7 @@ describe("version-skew self-heal", () => {
       throw Object.assign(new Error("core invocation timed out"), { name: "TimeoutError" })
     } } })
 
-    const raw = await adapter.work_define.execute(hostCall("capture", { title: "t", value_statement: "v", kind: "task", project_ids: ["p"], idempotency_key: "k" }), contextFor())
+    const raw = await adapter.work_define.execute(hostCall("capture", { title: "t", kind: "task", project_ids: ["p"], human_key: "ZZ-1", remote_issue_uuid: "u", url: "https://linear.app/example/issue/ZZ-1", idempotency_key: "k" }), contextFor())
     const result: any = typeof raw === "string" ? JSON.parse(raw) : JSON.parse((raw as any).output)
     expect(invokeCalls).toBe(3) // context, skewed invoke, healed retry whose child died
     expect(result.outcome).toBe("error")
@@ -182,7 +182,7 @@ describe("version-skew self-heal", () => {
       throw Object.assign(new Error("spawn concord ENOENT"), { code: "ENOENT" })
     } } })
 
-    const raw = await adapter.work_define.execute(hostCall("capture", { title: "t", value_statement: "v", kind: "task", project_ids: ["p"], idempotency_key: "k" }), contextFor())
+    const raw = await adapter.work_define.execute(hostCall("capture", { title: "t", kind: "task", project_ids: ["p"], human_key: "ZZ-1", remote_issue_uuid: "u", url: "https://linear.app/example/issue/ZZ-1", idempotency_key: "k" }), contextFor())
     const result: any = typeof raw === "string" ? JSON.parse(raw) : JSON.parse((raw as any).output)
     expect(invokeCalls).toBe(3) // context, skewed invoke, healed retry whose binary is gone
     expect(result.outcome).toBe("error")

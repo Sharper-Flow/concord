@@ -83,7 +83,7 @@ PM4/PM5 semantics (now settled separately).
 | `work_items` | one canonical typed managed-work projection; extensible `kind`; rare metadata JSON; independent `research` is ordinary work; CD-0213 permits historical `initiative` reads but no new grouping writes | Q2–Q8 | PM4 supplies states/relations; PM5 supplies membership/scope; business grouping belongs to Linear MCP |
 | Product↔Project membership | typed relational edge | Q1 ownership/ambiguity | PM5: many-to-many, role-only, optional singular primary |
 | Work↔Project membership | typed relational edge; no copied status | Q3 membership | PM5: role-only, optional singular primary, derived Product scope |
-| `relations` | typed edge structure with real foreign key (FK) endpoints | Q8 | PM4 supplies kinds, inverses, cycle rules, and supersession semantics |
+| `relations` | typed edge structure with real foreign key (FK) endpoints | Q8 | PM4 supplies kinds, inverses, and cycle rules |
 | `labels` / tagging | typed many-to-many categorical extension | Q3 tags | exact label governance |
 | `external_refs` | opaque typed locator for PR/commit/upstream/URL | Q8 links | provider-specific validation |
 | store state | current rows and finite verified snapshots; no event log, fold, upcaster, or replay exists (CD-0242 D2) | Q2–Q8 current-state reads | none |
@@ -93,7 +93,7 @@ PM4/PM5 semantics (now settled separately).
 
 A field is typed/indexed when it is a stable identity, foreign key, invariant, PM1
 filter/order key, or frequent join. At minimum this includes IDs, Product/Domain
-ownership, work kind, lifecycle projection, priority, terminal time, versions, and
+ownership, work kind, lifecycle projection, terminal time, versions, and
 relation/membership endpoints. PM4/PM5 supply semantics; exact columns follow
 implementation design.
 
@@ -180,7 +180,7 @@ the falsifiers below, and CD invariants remain controlling.
 PM3 did **not** decide:
 
 - lifecycle states, relation kinds/inverses/cycles, blocked/ready, reopen, and
-  supersession semantics—now settled by accepted PM4;
+  relation semantics—now settled by PM4;
 - membership roles/cardinality/scope—now settled by accepted PM5;
 - C16 evidence/stage mapping;
 - tool names/counts/transport, plugin/MCP, or CLI operations;
@@ -230,8 +230,8 @@ caveated, and no private SaaS storage internals are inferred.
 
 - Given the store's current rows and finite verified snapshots
   When recovery opens the store after an interruption
-  Then current rows and derived indexes are reconciled against Git, worktrees,
-  and artifacts, with no replay
+  Then current rows are reconciled against Git, worktrees, and artifacts,
+  with no replay
   ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 - Given the typed relational core

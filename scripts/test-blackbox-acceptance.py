@@ -496,11 +496,11 @@ def step_e_mutation(binary: Path, env: dict, repo: Path, context: dict, manifest
         'operation': 'capture',
         'input': {
             'title': 'Harness-issued work item',
-            'value_statement': 'The black-box harness exercises an authorized work capture.',
             'kind': 'task',
             'project_ids': ['harness-project-1'],
-            'priority': 0,
-            'urgency': 'standard',
+            'human_key': 'HARNESS-1',
+            'remote_issue_uuid': 'harness-capture-0001',
+            'url': 'https://linear.app/example/issue/HARNESS-1',
             'idempotency_key': 'harness-capture-0001',
         },
     }, env)
@@ -852,6 +852,11 @@ def _neighbor_key(writer_index: int, sequence: int) -> str:
     return f"harness-neighbor-w{writer_index:02d}-n{sequence:03d}"
 
 
+def _neighbor_human_key(writer_index: int, sequence: int) -> str:
+    """The unique Linear key one writer's one capture links."""
+    return f"NEIGHBOR-{(writer_index + 1) * 1000 + sequence}"
+
+
 def _neighbor_title(writer_index: int, sequence: int) -> str:
     return f"Harness neighbor writer {writer_index:02d} item {sequence:03d}"
 
@@ -880,11 +885,11 @@ def _neighbor_capture_input(writer_index: int, number: int, project_id: str) -> 
     """An ordinary capture, shaped exactly like the suite's own step 05."""
     return {
         'title': _neighbor_title(writer_index, number),
-        'value_statement': 'The black-box neighbor mode exercises an ordinary concurrent write.',
         'kind': 'task',
         'project_ids': [project_id],
-        'priority': 0,
-        'urgency': 'standard',
+        'human_key': _neighbor_human_key(writer_index, number),
+        'remote_issue_uuid': _neighbor_key(writer_index, number),
+        'url': f"https://linear.app/example/issue/{_neighbor_human_key(writer_index, number)}",
         'idempotency_key': _neighbor_key(writer_index, number),
     }
 

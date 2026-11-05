@@ -72,7 +72,7 @@ func TestOrchestratorIdentityNamesAbsentDefinitionAndSearchedDirectories(t *test
 // A definition whose frontmatter `name:` differs from the requested agent
 // registers under a different handle. The session runs as the requested
 // agent, so the verification must refuse instead of asserting an agent the
-// session is not (CD-0049 D2).
+// session is not.
 func TestOrchestratorIdentityRefusesADefinitionThatRegistersADifferentHandle(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	writeAgentDefinitionBody(t, filepath.Join(cwd, ".opencode", "agents"), agentDefinitionFileName("concord-1"),

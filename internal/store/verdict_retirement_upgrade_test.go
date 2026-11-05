@@ -201,7 +201,7 @@ func TestOutcomeRetirementPreservesAllContractVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{185, 187}) {
+	if !reflect.DeepEqual(report.Applied, []int{185, 186, 187}) {
 		t.Fatalf("applied = %v", report.Applied)
 	}
 	if after := retainedContractRows(t, db); !reflect.DeepEqual(retained, after) {
@@ -427,7 +427,7 @@ func TestOutcomeRetirementEvidenceDeclarationsRequireSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upgrade of contracts without outcome rows: %v", err)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{185, 187}) {
+	if !reflect.DeepEqual(report.Applied, []int{185, 186, 187}) {
 		t.Fatalf("applied = %v", report.Applied)
 	}
 	var subjects string
@@ -461,10 +461,19 @@ func TestOutcomeRetirementSnapshotDriftRefused(t *testing.T) {
 			} else if err := os.WriteFile(snapshot, []byte("tampered"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			// Drift blocks only a migration with rows the snapshot must preserve.
+			// Drift blocks only a migration with rows the snapshot must
+			// preserve. Without outcome rows migration 185 admits the drift;
+			// migration 186 rebuilds the populated work projections and refuses.
 			if mode == "unneeded" {
-				if err := Migrate(ctx, db); err != nil {
-					t.Fatalf("drift without outcome rows refused: %v", err)
+				if err := Migrate(ctx, db); !hasFailureKind(err, KindUpgradeBlocked) || !strings.Contains(err.Error(), "store changed after the verified snapshot") {
+					t.Fatalf("drift before capture retirement admitted: %v", err)
+				}
+				if err := requireOutcomeRetirementSnapshot(ctx, db); err != nil {
+					t.Fatalf("drift without outcome rows refused by migration 185: %v", err)
+				}
+				var count int
+				if err := db.QueryRow(`SELECT count(*) FROM schema_migrations WHERE version>=185`).Scan(&count); err != nil || count != 0 {
+					t.Fatalf("migration recorded despite refusal: count=%d error=%v", count, err)
 				}
 				return
 			}

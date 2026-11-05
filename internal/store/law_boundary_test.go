@@ -227,7 +227,7 @@ func TestAmendmentPathNamesTheDeclaringReferenceAcrossSources(t *testing.T) {
 func TestMandateAdmitsUnrelatedHeadMovementAndRefusesLawContentMovement(t *testing.T) {
 	t.Parallel()
 	s, home := lawConflictFolderFixture(t, "derived", "derived", "")
-	ctx, err := s.establishKnowledgeSourceSetProofAtHome(context.Background(), home.HomeProjectID, home.HomeLocatorID)
+	ctx, err := s.establishKnowledgeSourceSetProofAtHomes(context.Background(), home.HomeProjectID, home.HomeLocatorID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestMandateAdmitsUnrelatedHeadMovementAndRefusesLawContentMovement(t *testi
 	}); err != nil {
 		t.Fatalf("a commit that touched no law content refused the transaction: %v", err)
 	}
-	newCtx, err := s.establishKnowledgeSourceSetProofAtHome(context.Background(), home.HomeProjectID, home.HomeLocatorID)
+	newCtx, err := s.establishKnowledgeSourceSetProofAtHomes(context.Background(), home.HomeProjectID, home.HomeLocatorID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestMandateNamesAnOutsideFolderIDAsAbsentLaw(t *testing.T) {
 	note := canonicalWorkNote("CD-9002")
 	writeKnowledgeFile(t, home.RepoPath, ".concord/docs/work/CD-9002.md", note)
 	seedArchivedWorkNote(t, s, home, commitKnowledgeRepo(t, home.RepoPath, "archived note"), ".concord/docs/work/CD-9002.md", "CD-9002", "proj-web")
-	ctx, err := s.establishKnowledgeSourceSetProofAtHome(context.Background(), home.HomeProjectID, home.HomeLocatorID)
+	ctx, err := s.establishKnowledgeSourceSetProofAtHomes(context.Background(), home.HomeProjectID, home.HomeLocatorID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,7 +1,7 @@
 package store
 
 // Workflow-family rows for the structural output bound ledger: the
-// workflow_, continuity_, and work_context_ definitions plus work_pin,
+// workflow_ and continuity_ definitions plus work_pin,
 // work_pin_evidence and work_liveness. Every finite row cites a real full-string producer
 // bound traced to its writer: a store guard constant, a workflowString or
 // workflowList call argument resolved through its fold, an inline
@@ -59,30 +59,12 @@ func init() {
 	// character count.
 	stepIDPattern := goPatternBound("internal/store/workflow_action_policy.go", "workflowIDPattern")
 
-	// Raw event ids: Event.validate admits any caller-supplied non-empty id
-	// (internal/store/events.go:164-180), so the digest-suffixed ids the
-	// agent boundary mints are one finite alternative beside an unbounded
-	// raw identity that projects into the resolved views verbatim.
-	eventIDRaw := unboundedOutput("Event.validate admits any caller-supplied non-empty event id with no length bound (internal/store/events.go:164-180 checks presence only); the agent boundary mints digest-suffixed ids (internal/agent/mutations.go:1552-1553), but the raw identity is a valid durable event id and the resolved views project it verbatim", readSizeRefusalPath, mutationResultPath)
-
 	// Guard constants cited by more than one row.
 	handoffIDMax := goConstantBound("internal/store/project_handoffs.go", "projectHandoffIDMax", boundBytes)
 	handoffJobMax := goConstantBound("internal/store/project_handoffs.go", "projectHandoffJobMax", boundBytes)
 	handoffActionMax := goConstantBound("internal/store/project_handoffs.go", "projectHandoffActionMax", boundBytes)
 	handoffListMax := goConstantBound("internal/store/project_handoffs.go", "projectHandoffListMax", boundItems)
 	handoffEntryMax := goConstantBound("internal/store/project_handoffs.go", "projectHandoffEntryMax", boundBytes)
-	requiredReadingMax := goConstantBound("internal/store/work_context.go", "WorkContextRequiredReadingMax", boundItems)
-	viewFindingsMax := goConstantBound("internal/store/work_context.go", "WorkContextViewFindingsMax", boundItems)
-	domainIDMaxBytes := goConstantBound("internal/store/work_context.go", "workContextDomainIDMaxBytes", boundBytes)
-	projectRefMaxBytes := goConstantBound("internal/store/work_context.go", "workContextProjectIDMaxBytes", boundBytes)
-	readingReasonMaxBytes := goConstantBound("internal/store/work_context.go", "workContextReadingMaxBytes", boundBytes)
-	rationaleMaxBytes := goConstantBound("internal/store/work_context.go", "workContextRationaleMaxBytes", boundBytes)
-	repoPathMaxBytes := goConstantBound("internal/store/work_context.go", "workContextPathMaxBytes", boundBytes)
-	lawRefMaxBytes := goConstantBound("internal/store/work_context.go", "workContextLawIDMaxBytes", boundBytes)
-	findingStatementMax := goInlineBound("internal/store/work_context_finding.go", "validateWorkContextFindingEntry", "len(finding.Statement)", boundBytes)
-	findingSubjectMax := goInlineBound("internal/store/work_context_finding.go", "validateWorkContextFindingEntry", "len(finding.SubjectRef)", boundBytes)
-	findingEvidenceRefCount := goInlineBound("internal/store/work_context_finding.go", "validateWorkContextFindingEntry", "len(finding.EvidenceRefs)", boundItems)
-	findingEvidenceRefMax := goInlineBound("internal/store/work_context_finding.go", "validateWorkContextFindingEntry", "len(ref)", boundBytes)
 	bindingMaxLawAdditions := goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxLawAdditions", boundItems)
 	bindingMaxObligations := goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxObligations", boundItems)
 
@@ -95,7 +77,6 @@ func init() {
 	continuityPageLimit := goInlineBound("internal/store/workflow_continuity.go", "ReadWorkflowContinuity", "req.Limit", boundItems)
 	productIdentityBound := goInlineBound("internal/store/workflow_continuity.go", "continuityReadIdentityTx", "len(out.ProductIdentity)", boundItems)
 	stepActionCount := workPinIntentItemsBound()
-	commitOIDBound := goInlineBound("internal/store/work_context.go", "workContextCommitOID", "len(oid)", boundBytes)
 	drivingSessionCount := goInlineBound("internal/store/workpin.go", "scanWorkPinDrivingSessions", "len(sessions)", boundItems)
 
 	// Final full-string writer guards. The SQLite length(TEXT) CHECKs are
@@ -199,44 +180,6 @@ func init() {
 	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/step_actions/maxItems", stepActionCount)
 	registerOutputBound("/$defs/continuity_snapshot/properties/pinned/properties/workflow_step/maxLength", stepIDPattern)
 
-	// Work context domain groups: one group per distinct Domain across the
-	// readings and the finding slots; the partition members ride the view
-	// bounds they partition.
-	domainGroupDefs := []string{"work_context_domain_group"}
-	for _, def := range domainGroupDefs {
-		registerOutputBound("/$defs/"+def+"/properties/domain_id/maxLength", domainIDMaxBytes)
-		registerOutputBound("/$defs/"+def+"/properties/finding_ids/maxItems", viewFindingsMax)
-		registerOutputBound("/$defs/"+def+"/properties/required_reading_ordinals/maxItems", requiredReadingMax)
-	}
-
-	// Work context finding views carry declared findings.
-	registerRetainedTwinBound("/$defs/work_context_finding_view/properties/domain_id/maxLength", domainIDMaxBytes)
-	registerRetainedTwinBound("/$defs/work_context_finding_view/properties/evidence_refs/items/maxLength", findingEvidenceRefMax)
-	registerRetainedTwinBound("/$defs/work_context_finding_view/properties/evidence_refs/maxItems", findingEvidenceRefCount)
-	registerRetainedTwinBound("/$defs/work_context_finding_view/properties/product_wide_rationale/maxLength", rationaleMaxBytes)
-	registerRetainedTwinBound("/$defs/work_context_finding_view/properties/source_event_id/maxLength", eventIDRaw)
-	registerRetainedTwinBound("/$defs/work_context_finding_view/properties/statement/maxLength", findingStatementMax)
-	registerRetainedTwinBound("/$defs/work_context_finding_view/properties/subject_ref/maxLength", findingSubjectMax)
-
-	// Required readings and their closed source union.
-	registerOutputBound("/$defs/work_context_reading/properties/domain_id/maxLength", domainIDMaxBytes)
-	registerOutputBound("/$defs/work_context_reading/properties/product_wide_rationale/maxLength", rationaleMaxBytes)
-	registerOutputBound("/$defs/work_context_reading/properties/reason/maxLength", readingReasonMaxBytes)
-	registerOutputBound("/$defs/work_context_reading_source_knowledge/properties/law_id/maxLength", lawRefMaxBytes)
-	registerOutputBound("/$defs/work_context_reading_source_knowledge/properties/source_id/maxLength", projectRefMaxBytes)
-	registerOutputBound("/$defs/work_context_reading_source_repository_file/properties/path/maxLength", repoPathMaxBytes)
-	registerOutputBound("/$defs/work_context_reading_source_repository_file/properties/project_id/maxLength", projectRefMaxBytes)
-
-	// The retained context read uses the shared assembly. The subject commit
-	// rides the inline 40..64 lowercase-hex guard.
-	viewDefs := []string{"retained_work_context_view"}
-	for _, def := range viewDefs {
-		registerOutputBound("/$defs/"+def+"/properties/domain_groups/maxItems",
-			sumBound(requiredReadingMax, viewFindingsMax)) // one group per distinct Domain across <=32 readings + <=32 finding slots
-		registerOutputBound("/$defs/"+def+"/properties/findings/maxItems", viewFindingsMax)
-		registerOutputBound("/$defs/"+def+"/properties/required_reading/maxItems", requiredReadingMax)
-		registerOutputBound("/$defs/"+def+"/properties/subject_commit/maxLength", commitOIDBound)
-	}
 	// Work liveness: read-time evidence assembled from one state-switch
 	// assignment plus at most two conditional single-element appends; each
 	// element is a fixed prose format with one int64 count. last_progress
@@ -401,6 +344,9 @@ func proposalListItemBound(field string) outputBoundSource {
 	})
 }
 
+// TestOutputBoundProposalListItemSource proves proposalListItemBound refuses
+// once a list field leaves validateWorkflowProposalContent's grouped per-item
+// prose guard, so the workflow_proposal_record item rows cite a live guard.
 func TestOutputBoundProposalListItemSource(t *testing.T) {
 	root := ledgerRepoRoot(t)
 	const file = "internal/store/workflow.go"
@@ -493,6 +439,9 @@ func workflowItemsEvaluated(value int64, from string) evaluatedBound {
 	return evaluatedBound{constraints: []boundConstraint{{unit: boundItems, value: value, from: from}}, kind: "derived", describe: from}
 }
 
+// TestOutputBoundWorkPinIntentSource proves the registered work_pin
+// next_valid_intents source evaluates to a finite capacity within
+// agentcontract.MaxNextValidIntents.
 func TestOutputBoundWorkPinIntentSource(t *testing.T) {
 	const pattern = "/$defs/work_pin/properties/next_valid_intents/maxItems"
 	rt := newLedgerRuntime(ledgerRepoRoot(t))
@@ -511,6 +460,9 @@ func TestOutputBoundWorkPinIntentSource(t *testing.T) {
 	t.Fatal("work pin intent source is not registered")
 }
 
+// TestOutputBoundContinuityReachableFrontier drives a live workflow through
+// an inserted-step type switch and proves the reachable continuity snapshot's
+// step_actions stays within its schema maxItems.
 func TestOutputBoundContinuityReachableFrontier(t *testing.T) {
 	ctx := t.Context()
 	s := openTemp(t)
@@ -601,6 +553,9 @@ func TestOutputBoundContinuityReachableFrontier(t *testing.T) {
 	}
 }
 
+// TestOutputBoundIntentCountDirectWriters proves workPinIntentItemsBound
+// counts the direct intent writer in internal/agent/mutations.go at its
+// literal width and refuses a non-literal producer.
 func TestOutputBoundIntentCountDirectWriters(t *testing.T) {
 	root := ledgerRepoRoot(t)
 	const file = "internal/agent/mutations.go"
@@ -608,7 +563,7 @@ func TestOutputBoundIntentCountDirectWriters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const original = `plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "audit_removed_work"}}`
+	const original = `plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_ids", "detail"}}}`
 	for _, tc := range []struct {
 		name, replacement string
 		want              int64
@@ -638,57 +593,6 @@ func TestOutputBoundIntentCountDirectWriters(t *testing.T) {
 			}
 			if got, ok := bound.capacity(boundItems); !ok || got != tc.want {
 				t.Fatalf("capacity = %d (finite=%t), want %d", got, ok, tc.want)
-			}
-		})
-	}
-}
-
-func TestOutputBoundIntentRangeMutations(t *testing.T) {
-	const source = `package store
-const actionLimit = 4
-func site(definition Definition) {
-	items := []int{}
-	for _, action := range definition.ActionDefinitions {
-		items = append(items, action)
-	}
-	items = append(items, 1)
-}`
-	evaluate := func(text string) (int64, error) {
-		rt := newLedgerRuntime(ledgerRepoRoot(t))
-		if err := rt.parseGoSource("intent_range.go", text); err != nil {
-			t.Fatal(err)
-		}
-		bound := workflowIntentChainItemsBound(goConstantBound("intent_range.go", "actionLimit", boundItems), nil,
-			workflowIntentChainSite{file: "intent_range.go", function: "site", target: "items", loopSource: "definition.ActionDefinitions"})
-		value, err := rt.evaluateSource(bound, nil)
-		if err != nil {
-			return 0, err
-		}
-		capacity, ok := value.capacity(boundItems)
-		if !ok {
-			t.Fatal("intent derivation has no item capacity")
-		}
-		return capacity, nil
-	}
-	for _, tc := range []struct {
-		name, text string
-		want       int64
-		refuse     bool
-	}{
-		{"baseline", source, 5, false},
-		{"capacity grows", strings.Replace(source, "actionLimit = 4", "actionLimit = 8", 1), 9, false},
-		{"different range", strings.Replace(source, "range definition.ActionDefinitions", "range definition.Other", 1), 0, true},
-		{"variadic append", strings.Replace(source, "append(items, action)", "append(items, action...)", 1), 0, true},
-		{"nested loop", strings.Replace(source, "items = append(items, action)", "for range definition.Other { items = append(items, action) }", 1), 0, true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := evaluate(tc.text)
-			if tc.refuse {
-				if err == nil {
-					t.Fatalf("unsafe writer accepted with capacity %d", got)
-				}
-			} else if err != nil || got != tc.want {
-				t.Fatalf("capacity = %d, error = %v; want %d", got, err, tc.want)
 			}
 		})
 	}
@@ -816,129 +720,6 @@ func workflowReturnLiteralsMaxItemsBound(file, function string) outputBoundSourc
 	})
 }
 
-// workflowEmptyAssignmentItemsBound proves a target is assigned exactly one
-// empty composite literal and never appended to, so the produced array is
-// empty on every execution of the named function.
-func workflowEmptyAssignmentItemsBound(file, function, target string) outputBoundSource {
-	return workflowDerived(func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
-		_, fn, err := workflowFunctionDecl(rt, file, function)
-		if err != nil {
-			return evaluatedBound{}, err
-		}
-		assignments, appends := 0, 0
-		var refusal error
-		ast.Inspect(fn, func(n ast.Node) bool {
-			if refusal != nil {
-				return false
-			}
-			switch node := n.(type) {
-			case *ast.AssignStmt:
-				for i, rhs := range node.Rhs {
-					if i >= len(node.Lhs) || workflowExprText(node.Lhs[i]) != target {
-						continue
-					}
-					lit, ok := rhs.(*ast.CompositeLit)
-					if !ok {
-						refusal = fmt.Errorf("workflow empty assignment %s:%s assigns %s from a non-composite value", file, function, target)
-						return false
-					}
-					if len(lit.Elts) != 0 {
-						refusal = fmt.Errorf("workflow empty assignment %s:%s assigns %s a non-empty composite", file, function, target)
-						return false
-					}
-					assignments++
-				}
-			case *ast.CallExpr:
-				if ledgerCalledName(node.Fun) == "append" && len(node.Args) > 0 && workflowExprText(node.Args[0]) == target {
-					appends++
-				}
-			}
-			return true
-		})
-		if refusal != nil {
-			return evaluatedBound{}, refusal
-		}
-		if assignments != 1 || appends != 0 {
-			return evaluatedBound{}, fmt.Errorf("workflow empty assignment %s:%s assigns %s %d times with %d appends; the empty construction is not the only writer", file, function, target, assignments, appends)
-		}
-		from := fmt.Sprintf("workflow construction %s:%s assigns %s the empty composite", file, function, target)
-		return workflowItemsEvaluated(0, from), nil
-	})
-}
-
-// workflowRefuseFieldWriters refuses every direct writer of a struct field
-// outside the one construction the evaluator verified: an assignment whose
-// target names the field, or an append into it. A second writer would grow
-// the emitted value past the counted construction.
-func workflowRefuseFieldWriters(fn *ast.FuncDecl, field string) error {
-	var refusal error
-	ast.Inspect(fn, func(n ast.Node) bool {
-		if refusal != nil {
-			return false
-		}
-		switch node := n.(type) {
-		case *ast.AssignStmt:
-			for _, lhs := range node.Lhs {
-				text := workflowExprText(lhs)
-				if text == field || strings.HasSuffix(text, "."+field) {
-					refusal = fmt.Errorf("workflow construction assigns %s outside the verified literal", text)
-					return false
-				}
-			}
-		case *ast.CallExpr:
-			if ledgerCalledName(node.Fun) == "append" && len(node.Args) > 0 {
-				text := workflowExprText(node.Args[0])
-				if text == field || strings.HasSuffix(text, "."+field) {
-					refusal = fmt.Errorf("workflow construction appends into %s outside the verified literal", text)
-					return false
-				}
-			}
-		}
-		return true
-	})
-	return refusal
-}
-
-// workflowCompositeFieldItemsBound counts the elements of one composite
-// literal a named function builds under a struct-literal field key. The
-// field must have no other writer in the function: a selector assignment or
-// an append into the field refuses.
-func workflowCompositeFieldItemsBound(file, function, field string) outputBoundSource {
-	return workflowDerived(func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
-		_, fn, err := workflowFunctionDecl(rt, file, function)
-		if err != nil {
-			return evaluatedBound{}, err
-		}
-		if err := workflowRefuseFieldWriters(fn, field); err != nil {
-			return evaluatedBound{}, fmt.Errorf("workflow composite field %s:%s: %w", file, function, err)
-		}
-		matches := 0
-		elements := 0
-		ast.Inspect(fn, func(n ast.Node) bool {
-			entry, ok := n.(*ast.KeyValueExpr)
-			if !ok {
-				return true
-			}
-			key, ok := entry.Key.(*ast.Ident)
-			if !ok || key.Name != field {
-				return true
-			}
-			lit, ok := entry.Value.(*ast.CompositeLit)
-			if !ok {
-				return true
-			}
-			matches++
-			elements = len(lit.Elts)
-			return true
-		})
-		if matches != 1 {
-			return evaluatedBound{}, fmt.Errorf("workflow composite field %s:%s builds %s %d times; the construction is not unique", file, function, field, matches)
-		}
-		from := fmt.Sprintf("workflow construction %s:%s builds %s as a %d-element composite literal", file, function, field, elements)
-		return workflowItemsEvaluated(int64(elements), from), nil
-	})
-}
-
 // workflowFormatDigitVerbs scans one literal format string and accepts only
 // %% and %d. It returns the %d count and the render's fixed literal width:
 // every non-verb rune prints as itself, each %% prints one %, and each %d
@@ -966,59 +747,6 @@ func workflowFormatDigitVerbs(format string) (verbs, literals int, err error) {
 		}
 	}
 	return verbs, literals, nil
-}
-
-// workflowSprintfFieldCharactersBound measures one fmt.Sprintf construction
-// a named function builds under a struct-literal field key: the format's
-// fixed literal width plus workflowInt64Slot per %d verb — each %d token
-// itself prints nothing — a sound over-approximation of any int64 the verbs
-// can render. The field must have no other writer in the function.
-func workflowSprintfFieldCharactersBound(file, function, field string) outputBoundSource {
-	return workflowDerived(func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
-		_, fn, err := workflowFunctionDecl(rt, file, function)
-		if err != nil {
-			return evaluatedBound{}, err
-		}
-		if err := workflowRefuseFieldWriters(fn, field); err != nil {
-			return evaluatedBound{}, fmt.Errorf("workflow sprintf field %s:%s: %w", file, function, err)
-		}
-		matches := 0
-		characters := int64(0)
-		ast.Inspect(fn, func(n ast.Node) bool {
-			entry, ok := n.(*ast.KeyValueExpr)
-			if !ok {
-				return true
-			}
-			key, ok := entry.Key.(*ast.Ident)
-			if !ok || key.Name != field {
-				return true
-			}
-			call, ok := entry.Value.(*ast.CallExpr)
-			if !ok || !ledgerCalleeMatches(call, "Sprintf") || len(call.Args) == 0 {
-				return true
-			}
-			lit, ok := call.Args[0].(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				return true
-			}
-			format, err := strconv.Unquote(lit.Value)
-			if err != nil {
-				return true
-			}
-			verbs, literals, err := workflowFormatDigitVerbs(format)
-			if err != nil {
-				return true
-			}
-			matches++
-			characters = int64(literals) + int64(verbs)*workflowInt64Slot
-			return true
-		})
-		if matches != 1 {
-			return evaluatedBound{}, fmt.Errorf("workflow sprintf field %s:%s builds %s %d times from a literal format; the construction is not unique", file, function, field, matches)
-		}
-		from := fmt.Sprintf("workflow construction %s:%s renders %s from one literal Sprintf format at %d characters", file, function, field, characters)
-		return workflowCharactersEvaluated(characters, from), nil
-	})
 }
 
 // workflowStringConstructionCharactersBound measures the largest string
@@ -1087,42 +815,6 @@ func workflowStringConstructionCharactersBound(file, function string) outputBoun
 		}
 		from := fmt.Sprintf("workflow construction %s:%s renders strings at most %d characters (largest literal or literal-format Sprintf)", file, function, characters)
 		return workflowCharactersEvaluated(characters, from), nil
-	})
-}
-
-// workflowSplitConstItemsBound counts the segments of one declared string
-// constant after splitting on a separator: the fixed list a writer derives
-// from the constant.
-func workflowSplitConstItemsBound(file, constName, separator string) outputBoundSource {
-	return workflowDerived(func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
-		goS, err := rt.loadGo(file)
-		if err != nil {
-			return evaluatedBound{}, err
-		}
-		consts, err := rt.ledgerConstScope(goS, nil)
-		if err != nil {
-			return evaluatedBound{}, err
-		}
-		def, ok := consts[constName]
-		if !ok {
-			return evaluatedBound{}, fmt.Errorf("workflow split const %s:%s resolves to no constant", file, constName)
-		}
-		lit, ok := def.expr.(*ast.BasicLit)
-		if !ok || lit.Kind != token.STRING {
-			return evaluatedBound{}, fmt.Errorf("workflow split const %s:%s is not a string literal", file, constName)
-		}
-		value, err := strconv.Unquote(lit.Value)
-		if err != nil {
-			return evaluatedBound{}, fmt.Errorf("workflow split const %s:%s is unparsable: %w", file, constName, err)
-		}
-		parts := strings.Split(value, separator)
-		for _, part := range parts {
-			if strings.TrimSpace(part) == "" {
-				return evaluatedBound{}, fmt.Errorf("workflow split const %s:%s carries an empty segment", file, constName)
-			}
-		}
-		from := fmt.Sprintf("workflow split const %s:%s splits into %d segments", file, constName, len(parts))
-		return workflowItemsEvaluated(int64(len(parts)), from), nil
 	})
 }
 
@@ -1231,15 +923,6 @@ func workflowLawContextDomainsItemsBound() outputBoundSource {
 	})
 }
 
-// workflowIntentChainSite is one function of a work-pin intent chain: the
-// target the chain builds and the exact range covered by a cited capacity.
-type workflowIntentChainSite struct {
-	file       string
-	function   string
-	target     string
-	loopSource string
-}
-
 // A pin starts empty and adds each catalog action at most once. Direct agent
 // intent lists are bounded by their literal constructions.
 func workPinIntentItemsBound() outputBoundSource {
@@ -1326,165 +1009,6 @@ func workPinIntentItemsBound() outputBoundSource {
 			return evaluatedBound{}, fmt.Errorf("agent direct intent constructions are absent")
 		}
 		return workflowItemsEvaluated(largest, "distinct live catalog actions and direct agent intent lists"), nil
-	})
-}
-
-// workflowIntentChainItemsBound bounds a pin intent list built across a
-// chain of functions: the base source covers the declared bounded ranges,
-// and every other append site must add one fixed element outside any
-// loop. Assignments may replace the target with a listed relabel-or-filter
-// call (the base builder, a subset filter, or a one-to-one relabel, each
-// verified by reading) or with a same-function alias copy of an admission
-// filter; every other assignment shape refuses. The bound is the base plus
-// every fixed append, raised to the widest replacement literal.
-func workflowIntentChainItemsBound(base outputBoundSource, relabels []string, sites ...workflowIntentChainSite) outputBoundSource {
-	return workflowDerived(func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
-		baseEvaluated, err := rt.evaluateSource(base, census)
-		if err != nil {
-			return evaluatedBound{}, fmt.Errorf("workflow intent chain: %w", err)
-		}
-		baseItems, ok := baseEvaluated.capacity(boundItems)
-		if !ok {
-			return evaluatedBound{}, fmt.Errorf("workflow intent chain: the base guard has no item capacity")
-		}
-		allowed := map[string]bool{}
-		for _, name := range relabels {
-			allowed[name] = true
-		}
-		total := baseItems
-		totalFixed := int64(0)
-		maxAssigned := int64(0)
-		for _, site := range sites {
-			siteGo, fn, err := workflowFunctionDecl(rt, site.file, site.function)
-			if err != nil {
-				return evaluatedBound{}, err
-			}
-			loopNodes := workflowLoopBodyNodes(fn)
-			allowedLoopNodes := map[ast.Node]bool{}
-			ast.Inspect(fn.Body, func(n ast.Node) bool {
-				loop, ok := n.(*ast.RangeStmt)
-				if ok && workflowExprText(loop.X) == site.loopSource && !loopNodes[loop] {
-					ast.Inspect(loop.Body, func(inner ast.Node) bool { allowedLoopNodes[inner] = true; return true })
-				}
-				return true
-			})
-			fixed, loopAppends := 0, 0
-			var refusal error
-			ast.Inspect(fn, func(n ast.Node) bool {
-				if refusal != nil {
-					return false
-				}
-				switch node := n.(type) {
-				case *ast.AssignStmt:
-					for i, rhs := range node.Rhs {
-						if i >= len(node.Lhs) || workflowExprText(node.Lhs[i]) != site.target {
-							continue
-						}
-						switch value := rhs.(type) {
-						case *ast.CompositeLit:
-							if int64(len(value.Elts)) > maxAssigned {
-								maxAssigned = int64(len(value.Elts))
-							}
-						case *ast.CallExpr:
-							if ledgerCalledName(value.Fun) == "append" {
-								continue // counted at the call site below
-							}
-							if ledgerCalledName(value.Fun) == "make" {
-								// A zero-length slice construction: make
-								// never carries elements, and a length
-								// argument other than the zero literal
-								// refuses.
-								if len(value.Args) != 3 {
-									refusal = fmt.Errorf("workflow intent chain %s:%s constructs %s with make in an unsupported shape", site.file, site.function, site.target)
-									return false
-								}
-								length, evalErr := rt.evalNumeric(siteGo, fn, value.Args[1])
-								if evalErr != nil || length != 0 {
-									refusal = fmt.Errorf("workflow intent chain %s:%s constructs %s with make length %v", site.file, site.function, site.target, value.Args[1])
-									return false
-								}
-								break
-							}
-							if !allowed[ledgerCalledName(value.Fun)] {
-								refusal = fmt.Errorf("workflow intent chain %s:%s assigns %s from unlisted call %s", site.file, site.function, site.target, ledgerCalledName(value.Fun))
-								return false
-							}
-						case *ast.Ident:
-							// A same-function alias copy of an admission
-							// filter; the subset relationship is the chain's
-							// traced responsibility and never grows the list.
-						default:
-							refusal = fmt.Errorf("workflow intent chain %s:%s assigns %s from an unsupported shape %T", site.file, site.function, site.target, rhs)
-							return false
-						}
-					}
-				case *ast.CallExpr:
-					if ledgerCalledName(node.Fun) != "append" || len(node.Args) == 0 || workflowExprText(node.Args[0]) != site.target {
-						return true
-					}
-					if loopNodes[node] {
-						if site.loopSource == "" || !allowedLoopNodes[node] || len(node.Args) != 2 || node.Ellipsis != token.NoPos {
-							refusal = fmt.Errorf("workflow intent chain %s:%s appends %s inside a loop", site.file, site.function, site.target)
-							return false
-						}
-						// A nested loop would multiply the cited range capacity.
-						nested := false
-						ast.Inspect(fn.Body, func(n ast.Node) bool {
-							switch inner := n.(type) {
-							case *ast.RangeStmt:
-								if allowedLoopNodes[inner] {
-									ast.Inspect(inner.Body, func(n ast.Node) bool {
-										if n == node {
-											nested = true
-										}
-										return true
-									})
-								}
-							case *ast.ForStmt:
-								if allowedLoopNodes[inner] {
-									ast.Inspect(inner.Body, func(n ast.Node) bool {
-										if n == node {
-											nested = true
-										}
-										return true
-									})
-								}
-							}
-							return true
-						})
-						if nested {
-							refusal = fmt.Errorf("workflow intent chain %s:%s has a nested loop append", site.file, site.function)
-							return false
-						}
-						loopAppends++
-						return true
-					}
-					if len(node.Args) != 2 || node.Ellipsis != token.NoPos {
-						refusal = fmt.Errorf("workflow intent chain %s:%s appends %s with a variadic or multi-element shape", site.file, site.function, site.target)
-						return false
-					}
-					fixed++
-				}
-				return true
-			})
-			if refusal != nil {
-				return evaluatedBound{}, refusal
-			}
-			expectedLoop := 0
-			if site.loopSource != "" {
-				expectedLoop = 1
-			}
-			if loopAppends != expectedLoop {
-				return evaluatedBound{}, fmt.Errorf("workflow intent chain %s:%s carries %d guard-covered loop appends for %s; the base citation changed", site.file, site.function, loopAppends, site.target)
-			}
-			totalFixed += int64(fixed)
-		}
-		total += totalFixed
-		if maxAssigned > total {
-			total = maxAssigned
-		}
-		from := fmt.Sprintf("workflow intent chain: base %d plus %d fixed single-element appends, at most %d via replacement literals", baseItems, totalFixed, maxAssigned)
-		return workflowItemsEvaluated(total, from), nil
 	})
 }
 
@@ -1584,153 +1108,6 @@ func workflowDigestRefCharactersBound(file, function string) outputBoundSource {
 		from := fmt.Sprintf("digest identity %s:%s mints %q plus one traced sha256 hex digest", file, function, prefix)
 		return workflowCharactersEvaluated(value, from), nil
 	})
-}
-
-// TestWorkflowCompositeFieldSecondWriter pins the second-writer refusal on
-// synthetic sources: the verified literal alone passes, and an append, a
-// selector assignment, or a duplicated key refuses.
-func TestWorkflowCompositeFieldSecondWriter(t *testing.T) {
-	t.Parallel()
-	const good = `package store
-
-type choice struct{ ID string }
-
-type question struct{ Choices []choice }
-
-func build() *question {
-	return &question{Choices: []choice{{ID: "confirm"}, {ID: "revise"}, {ID: "stop"}}}
-}
-`
-	const appendWriter = `package store
-
-type choice struct{ ID string }
-
-type question struct{ Choices []choice }
-
-func build() *question {
-	out := &question{Choices: []choice{{ID: "confirm"}, {ID: "revise"}}}
-	out.Choices = append(out.Choices, choice{ID: "stop"})
-	return out
-}
-`
-	const assignWriter = `package store
-
-type choice struct{ ID string }
-
-type question struct{ Choices []choice }
-
-func build() *question {
-	out := &question{Choices: []choice{{ID: "confirm"}}}
-	out.Choices = []choice{{ID: "revise"}, {ID: "stop"}, {ID: "more"}}
-	return out
-}
-`
-	const duplicateKey = `package store
-
-type choice struct{ ID string }
-
-type question struct{ Choices []choice }
-
-func build() *question {
-	out := &question{Choices: []choice{{ID: "confirm"}}}
-	return &question{Choices: []choice{{ID: "confirm"}, {ID: "revise"}, {ID: "stop"}}}
-}
-`
-	cases := []struct {
-		name    string
-		source  string
-		want    int64
-		wantErr bool
-	}{
-		{name: "verified literal passes", source: good, want: 3},
-		{name: "append second writer refuses", source: appendWriter, wantErr: true},
-		{name: "selector assignment second writer refuses", source: assignWriter, wantErr: true},
-		{name: "duplicated field key refuses", source: duplicateKey, wantErr: true},
-	}
-	for _, tc := range cases {
-		witness := newLedgerRuntime(ledgerRepoRoot(t))
-		if err := witness.parseGoSource("witness.go", tc.source); err != nil {
-			t.Fatalf("%s: synthetic source does not parse: %v", tc.name, err)
-		}
-		evaluated, err := witness.evaluateSource(workflowCompositeFieldItemsBound("witness.go", "build", "Choices"), nil)
-		if tc.wantErr {
-			if err == nil {
-				t.Fatalf("%s: expected the second writer to refuse, got %+v", tc.name, evaluated)
-			}
-			continue
-		}
-		if err != nil {
-			t.Fatalf("%s: %v", tc.name, err)
-		}
-		if len(evaluated.constraints) != 1 || evaluated.constraints[0].value != tc.want {
-			t.Fatalf("%s: evaluated %+v, want one %d-item constraint", tc.name, evaluated.constraints, tc.want)
-		}
-	}
-}
-
-// TestWorkflowSprintfFieldSecondWriter pins the second-writer refusal for the
-// Sprintf field measure: the single literal-format construction passes and a
-// selector assignment refuses.
-func TestWorkflowSprintfFieldSecondWriter(t *testing.T) {
-	t.Parallel()
-	const good = `package store
-
-type view struct{ ViewID string }
-
-func build(seq int64, ordinal int) []view {
-	out := make([]view, 0, 4)
-	out = append(out, view{ViewID: fmt.Sprintf("research:%d:%d", seq, ordinal)})
-	return out
-}
-`
-	const assignWriter = `package store
-
-type view struct{ ViewID string }
-
-func build(seq int64, ordinal int) []view {
-	entry := view{ViewID: fmt.Sprintf("research:%d:%d", seq, ordinal)}
-	entry.ViewID = fmt.Sprintf("research:%d:%d", seq, ordinal)
-	return []view{entry}
-}
-`
-	// The render width derives from the actual format "research:%d:%d":
-	// the %d tokens render nothing, so the fixed literal text is
-	// "research:" plus the one separating colon = 10 runes, and each of the
-	// 2 slots renders at most one signed int64 (workflowInt64Slot).
-	formatLiteral := "research:" + ":"
-	formatSlots := 2
-	want := int64(len(formatLiteral)) + int64(formatSlots)*workflowInt64Slot
-	if len(formatLiteral) != 10 || formatSlots != 2 {
-		t.Fatalf("format arithmetic drifted: literal %q, slots %d", formatLiteral, formatSlots)
-	}
-	cases := []struct {
-		name    string
-		source  string
-		want    int64
-		wantErr bool
-	}{
-		{name: "verified sprintf passes", source: good, want: want},
-		{name: "selector assignment second writer refuses", source: assignWriter, wantErr: true},
-	}
-	for _, tc := range cases {
-		witness := newLedgerRuntime(ledgerRepoRoot(t))
-		if err := witness.parseGoSource("witness.go", tc.source); err != nil {
-			t.Fatalf("%s: synthetic source does not parse: %v", tc.name, err)
-		}
-		evaluated, err := witness.evaluateSource(workflowSprintfFieldCharactersBound("witness.go", "build", "ViewID"), nil)
-		if tc.wantErr {
-			if err == nil {
-				t.Fatalf("%s: expected the second writer to refuse, got %+v", tc.name, evaluated)
-			}
-			continue
-		}
-		if err != nil {
-			t.Fatalf("%s: %v", tc.name, err)
-		}
-		if len(evaluated.constraints) != 1 || evaluated.constraints[0].value != tc.want {
-			t.Fatalf("%s: evaluated %+v, want one %d-character constraint", tc.name, evaluated.constraints, tc.want)
-		}
-	}
 }
 
 // TestWorkflowDigestRefCharactersBound pins the deterministic digest identity

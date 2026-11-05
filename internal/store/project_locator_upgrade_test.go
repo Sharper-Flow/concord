@@ -109,7 +109,7 @@ func TestRemoteLocatorUpgradeRecordedCutover(t *testing.T) {
 		ProjectLocator{ID: "ftp", Kind: LocatorGitRemote, Value: "ftp://user:pw@host/o/r"},
 		ProjectLocator{ID: "path", Kind: LocatorCanonicalPath, Value: root})
 	old := histEventRows(t, s)
-	if err := Migrate(ctx, s.db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, ctx, s.db), s.db); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := s.ProjectLocators(ctx, "project-a")
@@ -172,7 +172,7 @@ func TestRemoteLocatorUpgradeIncompleteURLRelinquishment(t *testing.T) {
 				t.Fatalf("legacy rows=%+v err=%v", rows, err)
 			}
 			before := histEventRows(t, s)
-			if err := Migrate(ctx, s.db); err != nil {
+			if err := Migrate(outcomeSnapshotContext(t, ctx, s.db), s.db); err != nil {
 				t.Fatal(err)
 			}
 			rows, err = s.ProjectLocators(ctx, "project-a")
@@ -357,7 +357,7 @@ func TestRemoteLocatorUpgradeHistoricalTransientCollision(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(ctx, s.db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, ctx, s.db), s.db); err != nil {
 		t.Fatal(err)
 	}
 	var generation int

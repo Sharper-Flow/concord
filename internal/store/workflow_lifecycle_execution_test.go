@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -20,7 +21,7 @@ func TestFirstWorkflowActionStartsLifecycle(t *testing.T) {
 	s := openTemp(t)
 	workID := "first-action-lifecycle"
 	setupProductWithProject(t, s, "product", "product-project")
-	seedProjectWorkItem(t, s, workID, "product-project", "First action lifecycle", "Proves the first action starts the lifecycle")
+	seedProjectWorkItem(t, s, workID, "product-project", "First action lifecycle")
 	actor := WorkflowActor{PrincipalRef: "principal:operator", ClientRef: "client:concord-1", AgentRef: "agent:owner", SessionRef: "session:" + workID, ActorClass: ActorAgent}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
 		return initializeWorkflowRawTx(ctx, tx.tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 8, 19, 0, 0, 0, 0, time.UTC)})
@@ -128,6 +129,7 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 	db := openMigratedTo(t, path, 106)
 	copyFixtureDataToPrefix(t, s, db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances"}, map[string]map[string]string{
 		"products":           {"planning_mode": "'local_only'"},
+		"work_items":         {"priority": "0", "urgency": "'standard'"},
 		"workflow_instances": {"outside_repair_state": "NULL", "definition_ref": "'workflow.change'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "1", "current_step": "'execution'"},
 	}, "fold_guard")
 	start := func(id, action, identity string, expected, epoch int64) Event {
@@ -170,7 +172,7 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 	if got := histEventRows(t, &Store{db: db}); !reflect.DeepEqual(got, before) {
 		t.Fatal("execution-start migration changed source bytes, actors, sequence or occurrence times")
 	}
-	if err := Migrate(ctx, db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, ctx, db), db); err != nil {
 		t.Fatal(err)
 	}
 	if backfilled := executionStart(db, "upgraded migration107"); backfilled != folded {
@@ -184,15 +186,15 @@ func TestExecutionStartBackfillMatchesFoldDerivation(t *testing.T) {
 		parents: func(t *testing.T, prefix *Store, guard string) {
 			copyFixtureDataToPrefix(t, s, prefix.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances"}, map[string]map[string]string{
 				"products":           {"planning_mode": "'local_only'"},
+				"work_items":         {"priority": "0", "urgency": "'standard'"},
 				"workflow_instances": {"outside_repair_state": "NULL", "definition_ref": "'workflow.change'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "1", "current_step": "'execution'"},
 			}, guard)
 		},
 	}, 107, "ORDER BY e.seq", "ORDER BY e.seq DESC", queries, workerFactsQueryRows(t, s, queries))
 }
 
-// seedProjectWorkItem seeds a needed task with a title, a value statement, and
-// primary membership in one Project.
-func seedProjectWorkItem(t *testing.T, s *Store, workID, projectID, title, valueStatement string) {
+// seedProjectWorkItem seeds a needed task with primary membership in one Project.
+func seedProjectWorkItem(t *testing.T, s *Store, workID, projectID, title string) {
 	t.Helper()
 	ctx := context.Background()
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -203,7 +205,11 @@ func seedProjectWorkItem(t *testing.T, s *Store, workID, projectID, title, value
 	if err := enterWrite(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO work_items(id, kind, title, lifecycle, priority, urgency, version, intent_json, created_at, updated_at) VALUES(?, 'task', ?, 'needed', 0, 'standard', 1, ?, '2026-09-09T00:00:00Z', '2026-09-09T00:00:00Z')`, workID, title, `{"title":"`+title+`","value_statement":"`+valueStatement+`","kind":"task","priority":0,"urgency":"standard"}`); err != nil {
+	intent, err := json.Marshal(workIntentProjection{Title: title, Kind: "task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO work_items(id, kind, title, lifecycle, version, intent_json, created_at, updated_at) VALUES(?, 'task', ?, 'needed', 1, ?, '2026-09-09T00:00:00Z', '2026-09-09T00:00:00Z')`, workID, title, string(intent)); err != nil {
 		t.Fatalf("seed work item %s: %v", workID, err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO work_projects(work_id, project_id, role) VALUES(?, ?, 'primary')`, workID, projectID); err != nil {

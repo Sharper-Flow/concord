@@ -50,7 +50,7 @@ func TestWorkKindPoliciesAndDatabaseRegistry(t *testing.T) {
 			t.Errorf("remove write guard: %v", err)
 		}
 	}()
-	insert := `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES(?,?,?,?,1,1,?,?,NULL)`
+	insert := `INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at,terminal_time) VALUES(?,?,?,?,1,?,?,NULL)`
 	if _, err := db.ExecContext(ctx, insert, "stored-bug", "bug", "Bug", "needed", "now", "now"); err != nil {
 		t.Fatalf("stored bug rejected: %v", err)
 	}

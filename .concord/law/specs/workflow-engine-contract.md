@@ -67,6 +67,13 @@ definition builder, with strict payload fields and no approval. The explicit
 continuity read does not automatically inject pinned context into current
 OpenCode calls; typed-agent injection on restart belongs to issue #120.
 
+An explicit work reopen clears an existing terminal workflow instance's completion
+metadata in the same transaction. With a plan, the instance returns to `running`,
+preserves its plan and prelude state, and admits `insert_step`. Without a plan,
+it returns to `intake` and clears its prelude state, allowing a new `record_intake`.
+Neither case requires a new capture. PM4 and CD-0146 govern the lifecycle and
+Linear collision checks.
+
 [CD-0243 D7](../decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
 acceptance criteria. Other admission, safety, and evidence requirements remain
@@ -155,7 +162,7 @@ the new type's missing required steps; it never removes a step.
 
 `instance_state` is closed:
 `intake`, `running`, `blocked`, `verifying`,
-`completed`, `cancelled`, `superseded`.
+`completed`, `cancelled`.
 
 | From | To | Operation | Authority/fence |
 |---|---|---|---|
@@ -166,10 +173,11 @@ the new type's missing required steps; it never removes a step.
 | `running` | `verifying` | execution steps are complete and verification begins | internal-inline |
 | `verifying` | `completed` | ordered completion gate succeeds | one internal transaction |
 | `running`, `blocked`, `verifying` | `cancelled` | explicit authorized cancellation | one expected-version-checked transaction |
+| `completed`, `cancelled` | `running`, or `intake` when no plan exists | explicit work reopen | the reopen's expected-version-checked transaction |
 
 An action failure records its typed failure result; it does not invent a state.
 Recoverable failures leave the instance in `running` or `blocked`.
-A completed, cancelled, or superseded instance is immutable.
+A completed or cancelled instance changes only through an explicit work reopen.
 Each action is one expected-version-checked, idempotent domain
 transaction with its operation result and effect receipts. There is no separate
 step claim, takeover or claim/settle protocol. Native authorities own external
@@ -207,7 +215,7 @@ the rows below do not repeat this pair.
 | `workflow.native_run_recorded` | `work_id`, `run_id` (1–128), `native_subject_ref` (1–2048 opaque non-secret), `subject_digest` (core-derived), `phase` (`start`/`health`/`rollback`/`cleanup`, fixed by the action ID), `status` (closed per-phase vocabulary), `evidence_ref`, `evidence_digest`, `asserted_at` (RFC3339, within the two-minute report skew bound), `reporting_authority_ref` (the authenticated actor's client, never caller input), `actor_ref`, and the embedded CD-0040 capture component: `capture_method`, the closed `observed_universe` structure (one item, exactly scoped, complete by closed-structure digest — validated by the shared D4 rules when recorded and read), the derived content-hashed `freshness_policy_ref`/`divergence_policy_ref` from the reviewed per-kind register, and the `observation_id` the run's phases share. The mutation registers that observation in `external_observations` as its shared provenance home, so one verification record answers every phase row and the attributed read (`NativeRunReport`) carries the derived verification state. |
 | `workflow.premise_confirmed` | `work_id`, `contract_version`, `confirming_actor_ref` |
 | `workflow.successor_linked` | `work_id`, `successor_work_id`, `relation_kind` (`forward_link`) |
-| `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`, `superseded`), `premise_confirmed` (boolean), `evidence_count` (non-negative, derived from the item's bound evidence history), `changed_refs_digest` (digest), `impact_verdict` (`breaking` or `non-breaking`), `warnings` (0–16 staleness-rule IDs) |
+| `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`), `premise_confirmed` (boolean), `evidence_count` (non-negative, derived from the item's bound evidence history), `changed_refs_digest` (digest), `impact_verdict` (`breaking` or `non-breaking`), `warnings` (0–16 staleness-rule IDs) |
 
 `legislative_subjects` belongs to the exact contract version that recorded it.
 Legislative standing also requires the operator-approved contract and the other
@@ -380,14 +388,14 @@ Workflow state is current rows written by each mutation in one transaction, and 
 | step completed | append the step's attempt through the plan-write check; the frontier derives from completions, and no step pointer is stored |
 | contract recorded/updated | insert the immutable contract version; an ordinary update atomically makes the next version current under §4.1 |
 | candidate set revised | insert added candidates and delete only the named removed candidates for that contract; premise and outcome bytes are untouched |
-| backlog alignment recorded | insert the declaration row and, when the outcome is `related_found`, one row per named work id; the alignment action records the candidate set only and creates no relation, so work-to-work relation creation stays with `resolve_overlap`, capture's `raised_from` provenance, and the workflow `link_successor` action |
+| backlog alignment recorded | insert the declaration row and, when the outcome is `related_found`, one row per named work id; the alignment action records the candidate set only and creates no relation |
 | actor recorded | insert once; a different tuple for an existing `actor_ref` is refused |
 | action started/checkpointed/completed/failed | update instance state/checkpoint timestamps and insert/update checkpoint rows; a repeated idempotency key returns the stored result without a second effect |
 | evidence bound | write to the existing evidence authority; it is not copied into a workflow-only authority |
 | premise confirmed | insert operator confirmation |
 | successor linked | write the existing `forward_link` relation; workflow state remains independent |
 | completed | retain terminal current-state identity and reported delivery links and dispose workflow step records atomically after the completion transaction's prior clauses pass; no publication, closure hash or deferred cleanup |
-| work item terminal (`work.transitioned` to `completed` or `cancelled`, `work.superseded`) | close a live instance in the same transaction: `superseded` mirrors the lifecycle, `cancelled` and completed-by-lifecycle both record `cancelled` because the completion gate never ran; an instance already terminal keeps its record |
+| work item terminal (`work.transitioned` to `completed` or `cancelled`) | close a live instance in the same transaction: `cancelled` and completed-by-lifecycle both record `cancelled` because the completion gate never ran; an instance already terminal keeps its record |
 
 ## 6. Independent Review
 
@@ -572,7 +580,7 @@ of a plan step. `record_review` and `complete_step` use the same step-attempt wr
 |---|---|
 | `record_intake`, `record_clarify`, `pick_type`, `insert_step`, `complete_step` | `workflow.intake_recorded`, `workflow.clarify_recorded`, `workflow.type_picked`, `workflow.step_inserted`, `workflow.step_completed`, respectively |
 | `record_plan`, `record_removal_scope` | `workflow.plan_recorded`, `workflow.removal_scope_recorded`, respectively, plus `workflow.action_completed` |
-| `checkpoint_context`, `cross_context_boundary`, `record_work_context` | `workflow.context_checkpointed`, `workflow.context_boundary_crossed`, `workflow.work_context_recorded`, respectively |
+| `checkpoint_context`, `cross_context_boundary` | `workflow.context_checkpointed`, `workflow.context_boundary_crossed`, respectively |
 | `approve_contract`, `revise_candidates`, `record_diagnosis` | `workflow.contract_approved`, `workflow.candidate_set_revised`, `workflow.diagnosis_recorded`, respectively, plus `workflow.action_completed` |
 | `record_review` | `workflow.step_completed` with the reviewed attempt |
 | `bind_evidence`, `record_report` | `workflow.evidence_bound` plus `workflow.action_completed` |

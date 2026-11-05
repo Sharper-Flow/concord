@@ -45,6 +45,7 @@ func TestTerminalStepsRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	useStampedBuild(t)
 	db, path := terminalStepsMigrationFixture(t)
 	before := retirementUpgradeSnapshot(t, db)
+	work := historicalCaptureWorkRows(t, db, "")
 	retainedContracts := cutoverRetainedContractRows(t, db)
 	const instanceColumns = `SELECT work_id,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY work_id`
 	instances := retirementUpgradeRows(t, db, instanceColumns)
@@ -72,13 +73,16 @@ func TestTerminalStepsRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	if err != nil || manifest.SchemaVersion != 176 {
 		t.Fatalf("verified predecessor snapshot=%+v err=%v", manifest, err)
 	}
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"work_items", "effect_receipts", "archived_work"} {
+	for _, table := range []string{"effect_receipts", "archived_work"} {
 		if after := retirementUpgradeRows(t, db, "SELECT * FROM "+table+" ORDER BY rowid"); !reflect.DeepEqual(before[table], after) {
 			t.Errorf("retirement changed surviving %s", table)
 		}
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT * FROM work_items ORDER BY id`); !reflect.DeepEqual(got, work) {
+		t.Errorf("retirement changed surviving work facts: got=%v want=%v", got, work)
 	}
 	if got := cutoverRetainedContractRows(t, db); !reflect.DeepEqual(got, retainedContracts) {
 		t.Error("current contract facts changed")
@@ -135,7 +139,7 @@ func TestTerminalStepsRetirementRollback(t *testing.T) {
 		t.Fatal("failed retirement changed predecessor rows or manifest")
 	}
 	retirementUpgradeExec(t, db, `DROP TRIGGER terminal_steps_failure`)
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, outcomeSnapshotOption(t, t.Context(), path)); err != nil {
 		t.Fatal(err)
 	}
 	retirementUpgradeHealthy(t, db)

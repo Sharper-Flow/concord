@@ -166,7 +166,7 @@ func retirementUpgradeHealthy(t *testing.T, db *sql.DB) {
 
 func retirementUpgradeMigrate(t *testing.T, db *sql.DB) {
 	t.Helper()
-	if err := Migrate(t.Context(), db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, t.Context(), db), db); err != nil {
 		t.Fatalf("Migrate v150 -> v151: %v", err)
 	}
 	got := retirementUpgradeRows(t, db, `SELECT name,checksum,breaking FROM schema_migrations WHERE version=151`)

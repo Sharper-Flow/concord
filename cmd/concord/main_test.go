@@ -1077,8 +1077,8 @@ func runCLIJSON(t *testing.T, args []string, value any) []byte {
 	return []byte(lines[0])
 }
 
-// TestClientPolicyExpandCLIPreservesEveryExistingGrant pins TS5 at the
-// operator boundary: the expand verb widens a trusted client policy by union,
+// TestClientPolicyExpandCLIPreservesEveryExistingGrant pins policy expansion at
+// the operator boundary: the expand verb widens a trusted client policy by union,
 // both accepted command forms work, replay through the two-word form is
 // idempotent, and the stored row keeps every prior grant and the principal.
 func TestClientPolicyExpandCLIPreservesEveryExistingGrant(t *testing.T) {

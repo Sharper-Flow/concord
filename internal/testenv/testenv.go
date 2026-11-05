@@ -10,15 +10,10 @@ import (
 	"strings"
 )
 
-// ScrubEnv must run before m.Run in each package's TestMain. It removes all
-// CONCORD_* variables, including unknown future inputs, and redirects user
-// state to an empty private home. Go telemetry is quarantined in a private
-// directory whose mode file holds the exact bytes "off", so child Go commands
-// record no counters and start no uploaders. Go's effective cache and module
-// paths are pinned before HOME changes so child go commands can use the
-// modules and toolchain already fetched by the host. The returned run root
-// owns the private home and telemetry directories; the caller passes it with
-// m.Run's code to Cleanup.
+// ScrubEnv must precede m.Run in TestMain. It removes all CONCORD_* variables,
+// isolates HOME and user state, and sets telemetry mode to exact bytes "off".
+// Go cache and module paths are pinned before HOME changes so child commands can
+// reuse the host's toolchain and modules. Pass the returned root and exit code to Cleanup.
 func ScrubEnv() string {
 	root, err := os.MkdirTemp("", "concord-testenv-")
 	if err != nil {
@@ -31,10 +26,7 @@ func ScrubEnv() string {
 	return root
 }
 
-// isolate builds the private state inside root and rewires the process
-// environment. The telemetry directory is armed before the first Go child
-// runs, so even the environment probe below records nothing, and the probe
-// resolves Go's paths while the original HOME is still in place.
+// isolate arms telemetry before any Go child and resolves Go paths before HOME changes.
 func isolate(root string) error {
 	home := filepath.Join(root, "home")
 	telemetry := filepath.Join(root, "go-telemetry")

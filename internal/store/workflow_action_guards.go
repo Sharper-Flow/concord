@@ -183,7 +183,7 @@ func assemblePlanWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, request
 	if err != nil {
 		return nil, err
 	}
-	if request.ActionID == "checkpoint_context" || request.ActionID == "cross_context_boundary" || request.ActionID == "record_work_context" {
+	if request.ActionID == "checkpoint_context" || request.ActionID == "cross_context_boundary" {
 		return events, nil
 	}
 	values := map[string]any{"step_id": stepID, "action_id": request.ActionID, "attempt_epoch": epoch, "result_evidence_refs": evidenceRefs, "changed_refs": []string{request.WorkID}, "actor_ref": actor}

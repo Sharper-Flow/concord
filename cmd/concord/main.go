@@ -809,10 +809,12 @@ func runBackup(command string, raw []byte, s *store.Store, out, errOut io.Writer
 		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 		return 1
 	}
-	if _, err := store.VerifyBackup(ctx, request.Destination); err != nil {
-		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-		return 1
-	}
+	// Backup verified the destination (SQLite triple) and promoted it through
+	// the PM10 disposable-clone gate before publishing the snapshot and
+	// manifest, and its failure path removes partial output. The verb does not
+	// re-verify the published artifact: a trailing pass could only fail after
+	// publication and report failure while the verified snapshot remains on
+	// disk. Consumers apply VerifyBackup on use.
 	return writeJSON(out, manifest, errOut)
 }
 

@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/gittest"
@@ -911,6 +912,45 @@ func TestCLIEndToEndRegistersClientAndInvokesRead(t *testing.T) {
 	}
 	if envelope.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("invoke outcome=%s, want ok; raw=%s", envelope.Outcome, invokeRaw)
+	}
+}
+
+// The backup verb must not run a verification pass after store.Backup
+// publishes the snapshot and manifest. Backup's own cascade verifies the
+// destination (SQLite triple) and the PM10 disposable-clone promotion before
+// publication, and its failure path removes partial output, so a trailing
+// pass can only fail after publication and report failure while the
+// published snapshot and manifest remain on disk. The store clock fixture
+// (a five-digit year publishes but no consumer can parse) makes exactly that
+// trailing pass fail; PM10's verification rules apply on use instead.
+func TestBackupVerbPublishesWithoutReverifying(t *testing.T) {
+	dbPath := freshMigratedCLIDatabase(t)
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	s.Clock = func() time.Time { return time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC) }
+	destination := filepath.Join(t.TempDir(), "snapshot.db")
+	raw, err := json.Marshal(map[string]any{"destination": destination})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	if code := runBackup("backup", raw, s, &out, &errOut); code != 0 {
+		t.Fatalf("backup exit=%d stderr=%q; the verb re-verified its published snapshot and failed after publication", code, errOut.String())
+	}
+	if _, err := os.Stat(destination); err != nil {
+		t.Fatalf("published snapshot missing: %v", err)
+	}
+	if _, err := os.Stat(destination + ".manifest.json"); err != nil {
+		t.Fatalf("published manifest missing: %v", err)
+	}
+	var manifest struct {
+		SnapshotID string `json:"snapshot_id"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &manifest); err != nil || manifest.SnapshotID == "" {
+		t.Fatalf("backup response is not a manifest: %v; raw=%s", err, out.String())
 	}
 }
 

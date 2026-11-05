@@ -328,7 +328,7 @@ func TestLawContextLocatorsRequireReadableSources(t *testing.T) {
 // The registry locator runs only after the committed registry was read, so
 // its two absent-file shapes mean the checkout disagrees with a commit that
 // carries the registry. Both refusals must name the restore that resolves
-// them, not a commit that already exists (CON-1685).
+// them, not a commit that already exists.
 func TestKnowledgeRegistryLocatorAbsentShapesNameRestores(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

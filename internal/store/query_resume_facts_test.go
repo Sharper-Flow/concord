@@ -58,12 +58,12 @@ func TestQ3ItemScopedFullCarriesNativeRuns(t *testing.T) {
 	}
 }
 
-// CON-1685: the registry-absent refusal the item-scoped full-detail list
-// read surfaces for a contract-carrying row must name the owner who can
-// commit the missing registry and the route that commits it, so an agent
-// reading a live item is not stranded with a remedy no one can act on. The
-// read keeps failing closed (CD-0222 D2): a home with committed law and no
-// committed registry still refuses.
+// The registry-absent refusal the item-scoped full-detail list read surfaces
+// for a contract-carrying row must name the role that can commit the missing
+// registry and the route that commits it, so an agent reading a live item is
+// not stranded with a remedy no one can act on. The read keeps failing
+// closed (CD-0222 D2): a home with committed law and no committed registry
+// still refuses.
 func TestQ3ItemScopedFullRegistryAbsentNamesCommittingOwner(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
@@ -85,7 +85,7 @@ func TestQ3ItemScopedFullRegistryAbsentNamesCommittingOwner(t *testing.T) {
 	if failure.Op != lawSnapshotOp {
 		t.Fatalf("registry-absent list read op = %q, want %q", failure.Op, lawSnapshotOp)
 	}
-	for _, want := range []string{"law owner", "domain-registry.json", "knowledge home", "ordinary reviewed pull request"} {
+	for _, want := range []string{"Concord agent", "domain-registry.json", "knowledge home", "ordinary reviewed pull request"} {
 		if !strings.Contains(failure.RecoveryAction, want) {
 			t.Fatalf("registry-absent recovery %q names no actionable committing owner (missing %q)", failure.RecoveryAction, want)
 		}

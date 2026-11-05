@@ -210,12 +210,13 @@ func workPinReadPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *Work
 	}
 	pin.NextValidIntents = []WorkPinIntent{}
 	if plan != nil {
-		return workPinReadExistingPlanTx(pin, state, plan)
+		return workPinReadExistingPlanTx(ctx, tx, workID, pin, state, plan)
 	}
 	return workPinReadPreludeTx(ctx, tx, workID, pin, state)
 }
 
-func workPinReadExistingPlanTx(pin *WorkPin, state string, plan *WorkflowStepPlan) (string, error) {
+// workPinReadExistingPlanTx derives the next actions from the current stored plan.
+func workPinReadExistingPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, state string, plan *WorkflowStepPlan) (string, error) {
 	pin.WorkflowType = string(plan.Type)
 	frontier := WorkflowStepPlanFrontier(*plan)
 	if len(frontier) > 0 {
@@ -232,6 +233,25 @@ func workPinReadExistingPlanTx(pin *WorkPin, state string, plan *WorkflowStepPla
 	ids := []string{"insert_step", "pick_type"}
 	if WorkflowStepPlanComplete(*plan) {
 		ids = append(ids, "complete")
+		// The pin advertises the same completed-plan routes admission
+		// serves: each completion prerequisite stays actionable on its
+		// declaring step while it is missing.
+		for _, action := range []string{"approve_contract", "record_delivery"} {
+			owner, recorded, _, err := workflowPlanCompletePrerequisiteTx(ctx, tx, workID, plan, action)
+			if err != nil {
+				return "", err
+			}
+			if owner != "" && !recorded {
+				ids = append(ids, action)
+			}
+		}
+		confirmOwner, confirmed, err := workflowPlanCompleteConfirmationTx(ctx, tx, workID, plan, "confirm_premise")
+		if err != nil {
+			return "", err
+		}
+		if confirmOwner != "" && !confirmed {
+			ids = append(ids, "confirm_premise")
+		}
 	}
 	for _, step := range frontier {
 		actions := WorkflowStepPlanTemplateActions(plan.Type, step.ID)

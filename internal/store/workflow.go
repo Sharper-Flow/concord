@@ -1513,24 +1513,24 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, s
 		if err != nil {
 			return err
 		}
-		// A completed plan admits two actions off its frontier, each on the
+		// A completed plan admits three actions off its frontier, each on the
 		// declaring step the dispatch used and only while the completion
-		// gate's prerequisite holds: the plan-level premise confirmation
-		// (CON-1701), whose paired premise_confirmed event folds first and
-		// records it, and the initial contract approval (CON-1714), whose
-		// paired contract_approved event folds first and records the
-		// contract.
+		// gate's prerequisite holds: the plan-level premise confirmation,
+		// whose paired premise_confirmed event folds first and records it;
+		// the initial contract approval, whose paired contract_approved
+		// event folds first and records the contract; and the first delivery
+		// recording, whose own fold records the assertion after admission.
 		if !retained {
-			contractOwner, contractExists, err := workflowPlanCompleteContractTx(ctx, tx, event.SubjectID, plan, p.ActionID)
+			owner, recorded, recordsAfterAdmission, err := workflowPlanCompletePrerequisiteTx(ctx, tx, event.SubjectID, plan, p.ActionID)
 			if err != nil {
 				return err
 			}
-			if !(contractOwner != "" && contractExists && contractOwner == p.StepID) {
-				owner, confirmed, err := workflowPlanCompleteConfirmationTx(ctx, tx, event.SubjectID, plan, p.ActionID)
+			if !(owner != "" && owner == p.StepID && recorded != recordsAfterAdmission) {
+				confirmOwner, confirmed, err := workflowPlanCompleteConfirmationTx(ctx, tx, event.SubjectID, plan, p.ActionID)
 				if err != nil {
 					return err
 				}
-				if !confirmed || owner != p.StepID {
+				if !confirmed || confirmOwner != p.StepID {
 					return newFailure(KindIllegalLifecycleTransition, "fold_event", "completed action is not declared on a frontier step", false, "reread_entities")
 				}
 			}

@@ -257,28 +257,47 @@ func workflowPlanCompleteConfirmationTx(ctx context.Context, q queryer, workID s
 	return workflowPlanDeclaringStep(plan, actionID), confirmed, nil
 }
 
-// workflowPlanCompleteContractTx reports the declaring step that carries the
-// initial contract approval on a completed plan, and whether an active
-// contract exists. Completion requires an active contract, only
-// approve_contract creates the first one (workflow_contract_authority.go),
-// and the declaring step may have passed before the contract was recorded,
-// so the step keeps the action — the same completed-plan admission the
-// premise confirmation carries. Admission uses the step while the contract
-// is missing; the action_completed fold uses it once the paired
-// contract_approved event has recorded the contract. Once a contract
-// exists, the frontier and retained-record rules own any change to it.
-func workflowPlanCompleteContractTx(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, actionID string) (string, bool, error) {
-	if plan == nil || actionID != "approve_contract" || !WorkflowStepPlanComplete(*plan) {
-		return "", false, nil
+// workflowPlanCompletePrerequisiteTx reports the declaring step that carries
+// a completion-prerequisite action on a completed plan, whether the
+// prerequisite is recorded, and whether the action's own fold records it
+// after admission (so its fold admits while it is still missing):
+//
+//   - approve_contract records the initial contract; its paired
+//     contract_approved event folds first, so the fold admits once the
+//     contract exists;
+//   - record_delivery records the delivery assertion inside its own fold, so
+//     the fold admits while the assertion is missing.
+//
+// Completion requires each prerequisite, the natural step order may pass the
+// declaring step before the prerequisite is recorded, and no other action can
+// record the first one, so the declaring step keeps admitting the action
+// while the prerequisite is missing — the completed-plan admission the
+// premise confirmation carries. Once the prerequisite is recorded, the
+// frontier and retained-record rules own the action again.
+func workflowPlanCompletePrerequisiteTx(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, actionID string) (string, bool, bool, error) {
+	if plan == nil || !WorkflowStepPlanComplete(*plan) {
+		return "", false, false, nil
 	}
-	_, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
-	if err == sql.ErrNoRows {
-		return workflowPlanDeclaringStep(plan, actionID), false, nil
+	var (
+		recorded     bool
+		afterAdmitte bool
+	)
+	switch actionID {
+	case "approve_contract":
+		_, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
+		if err != nil && err != sql.ErrNoRows {
+			return "", false, false, err
+		}
+		recorded = err == nil
+	case "record_delivery":
+		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_delivery_state WHERE work_id=?)`, workID).Scan(&recorded); err != nil {
+			return "", false, false, wrapFailure(KindUnavailable, "workflow_action", "cannot read the delivery assertion", true, "retry once the database is readable", err)
+		}
+		afterAdmitte = true
+	default:
+		return "", false, false, nil
 	}
-	if err != nil {
-		return "", false, err
-	}
-	return workflowPlanDeclaringStep(plan, actionID), true, nil
+	return workflowPlanDeclaringStep(plan, actionID), recorded, afterAdmitte, nil
 }
 
 func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, actionID, step string, plan *WorkflowStepPlan, fields map[string]json.RawMessage) (string, error) {
@@ -300,11 +319,11 @@ func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 		}
 	default:
 		if !workflowPlanAllowsAction(plan, step, actionID) {
-			owner, contractExists, err := workflowPlanCompleteContractTx(ctx, tx, workID, plan, actionID)
+			owner, recorded, _, err := workflowPlanCompletePrerequisiteTx(ctx, tx, workID, plan, actionID)
 			if err != nil {
 				return step, err
 			}
-			if owner != "" && !contractExists {
+			if owner != "" && !recorded {
 				return owner, nil
 			}
 			owner, confirmed, err := workflowPlanCompleteConfirmationTx(ctx, tx, workID, plan, actionID)

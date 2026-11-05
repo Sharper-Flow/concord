@@ -229,7 +229,8 @@ evidence, and work version unchanged. Operator decisions remain ordinary
 questions whose answers are recorded in the work record under
 [CD-0243 D2](../decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision).
 The update grants no legislative authority, overlap exemption, or approval
-waiver. Initial contract recording remains `approve_contract`.
+waiver. Initial contract recording remains `approve_contract`, which a completed
+plan still admits while no active contract exists (§4.2).
 
 Retained contract content, candidate sets, attribution, and evidence remain
 addressable by the versions and subjects they originally named. The update
@@ -277,6 +278,20 @@ declaring step keeps admitting the action for the active contract under the
 same coordinator-actor, contract-version, version and idempotency checks.
 This route supplies the confirmation; it never bypasses the completion gate,
 which still refuses without the recorded confirmation.
+Two more completion prerequisites keep their declaring steps on a completed
+plan, under the same coordinator-actor, contract-version, version and
+idempotency checks. `approve_contract` remains available while the work holds
+no active contract: completion requires one, only `approve_contract` records
+the first, and its paired contract approval event folds before the action's
+completion, so its declaring step keeps admitting the initial approval. The
+route closes once a contract exists; later contract versions belong to
+`revise_intent`. `record_delivery` remains available while the delivery
+assertion is missing: the natural order records the final review before the
+delivery, and the action's own fold records the assertion, so its declaring
+step keeps admitting the first delivery recording. Once recorded, this
+section's current-record replacement owns delivery corrections. Neither route
+bypasses the completion gate, which still refuses without the missing
+prerequisite.
 A record-only replacement holds the current step, instance state and lifecycle;
 it does not repeat the original forward transition. In particular,
 `record_delivery` replaces a completed item's reported delivery links without

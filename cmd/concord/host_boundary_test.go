@@ -64,8 +64,6 @@ var multiplexerNeedles = []string{
 	"multi" + "plexer",
 }
 
-// TestLauncherAndCommandCarryNoMultiplexerKnowledge proves CD-0078 D1
-// structurally over the command package.
 func TestLauncherAndCommandCarryNoMultiplexerKnowledge(t *testing.T) {
 	packages := listPackages(t, "./cmd/concord")
 	if len(packages) == 0 {

@@ -47,8 +47,7 @@ func TestWorkflowCompleteClosesLifecycle(t *testing.T) {
 	}
 }
 
-// CD-0183 D3: the workflow completion closes the lifecycle as completed. A completion that names another terminal state refuses
-// before any effect: supersession stays atomic with its relation, and
+// CD-0183 D3: a workflow completion closes the lifecycle as completed;
 // cancellation keeps its own lifecycle route.
 func TestWorkflowCompleteRefusesNonCompletedTerminalState(t *testing.T) {
 	t.Parallel()

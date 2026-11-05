@@ -10,20 +10,20 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "exemption": "No scenario covers coordination-view ranking. TestOverlapBlocksRemovesWorkFromReady (internal/store/planning_operation_retirement_test.go) proves the list readiness and relation facts, not a rendered view."
+      "exemption": "No scenario covers coordination-view ordering. TestOverlapBlocksRemovesWorkFromReady (internal/store/planning_operation_retirement_test.go) proves the list readiness and relation facts, not a rendered view."
     }
   ]
 }
 ---
 # Product coordination view — accepted contract
 
-**Status:** Accepted C17 contract. The ranked-query contract is owned by the product-memory query contract.
-**Storage ([CD-0242](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2):** ranking reads current rows;
+**Status:** Accepted C17 contract. The work-list query contract is owned by the product-memory query contract.
+**Storage ([CD-0242](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2):** the view reads current rows;
 no fold, event history, or replay exists.
 
 The coordination queries provide two
 bounded modes over canonical Product-scoped reads, structural grouping only,
-stored-priority ranking, and visible incomplete coverage.
+stable ordering, and visible incomplete coverage.
 
 These two bounded work projections are subordinate coordination views. Product detail opens
 through Product → Domain. Canonical typed relations remain available through
@@ -38,7 +38,7 @@ accepted document said what it renders. The binding inputs are the standing
 visibility and planning obligations in [`../constitution/priorities.md`](../constitution/priorities.md#visibility-and-continuity)
 and the canonical PM1 reads. This record accepts the coordination view: two
 bounded modes over canonical Product-scoped reads, structural grouping only,
-stored-priority ranking, and visible incomplete coverage. CD-0222 amends the
+stable ordering, and visible incomplete coverage. CD-0222 amends the
 shape: Product detail opens through Product to Domain first, and these two
 projections remain subordinate coordination views.
 
@@ -50,7 +50,7 @@ preserves the effect of live `blocks` relations on list readiness.
 ## Contract
 
 The binding contract is sections 2, 3, and 5: the two accepted modes — the
-Q8 relation tree with structural grouping and the Q3 ranked work table —
+Q8 relation tree with structural grouping and the Q3 work table —
 the reliance and coverage discipline, and the anti-requirements. Sections 1,
 4, and 6 through 10 record the gap, what the contract does not change, the
 read-path bounds, acceptance tests, sequencing, risks, and falsifiers, and
@@ -70,36 +70,33 @@ Product detail, rendering two modes over already-accepted canonical queries from
 
 ### Mode 1 — Relation tree
 
-Source: Q8, dependencies and supersession.
+Source: Q8 work relations.
 
 | Aspect | Rule |
 |---|---|
-| Relation kinds | `parent`, `blocks`, `depends_on`, `supersedes`, `implements` |
+| Relation kinds | `parent`, `blocks`, `depends_on`, `raised_from`, `implements` |
 | Depth | Default 1, maximum 3, matching the Q8 bound |
 | Grouping | Connected components over the returned edge set, structural only |
 | Roots | Node with no in-edge of a traversed kind |
 | Cycles | Rendered as `invariant_violation`, never hidden, matching the Q8 oracle |
-| Supersession | Resolves to the canonical successor exactly once, no duplicate authority |
 | Cross-Project work | Appears once with `project_count` per PM5, never per-Project copies |
 
 Grouping derives from declared edges only. Topical or thematic grouping is excluded:
 it carries no authority and is not stable across two renders of unchanged state.
 
-### Mode 2 — Ranked work table
+### Mode 2 — Work table
 
 Source: Q3 work list and Q8 relations for blocker explanation.
 
 | Column | Source | Rule |
 |---|---|---|
-| Work ID and title | Q3 | Title truncates before identity or priority meaning is lost |
-| Priority | Q3 explicit priority rank | Stored value, never computed or inferred |
-| Lifecycle | Q3 | Displayed for rigor, never silently rewrites business priority |
+| Work ID and title | Q3 | Title truncates before identity meaning is lost |
+| Lifecycle | Q3 | Displayed without inferring importance |
 | Blocked | Q3 readiness and lifecycle | A needed item with `ready` absent or false is blocked |
 | Blocker | Q8 relations | Blocker identity, blocker authority, blocker age, external-blocker marker |
 | Project count | PM5 | Breadth signal only, no repository list |
 
-Order follows the Q3 contract: explicit priority rank, relevant lifecycle time, then
-stable work ID.
+Order follows the Q3 contract: relevant lifecycle time, then stable work ID.
 
 List `work_summary.ready` is true exactly when lifecycle is `needed` and no live
 blocker holds the item. A needed item with `ready` absent or false is blocked;
@@ -130,11 +127,8 @@ Each of these is prohibited because prose-based coordination answers have produc
 it, and each produced output that looked authoritative while being non-derivable and
 unstable across runs.
 
-1. **No computed importance score.** Ranking uses the stored explicit priority rank. A
-   model-assigned numeric importance is heuristic authority over correctness.
-2. **No activity-derived priority.** Computed importance and activity-derived
-   priority stay prohibited. Ranking reads the stored explicit priority rank over current rows
-   ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+1. **No computed importance score.** A model-assigned numeric importance is heuristic authority over correctness.
+2. **No activity-derived priority.** Computed importance and activity-derived priority stay prohibited.
 3. **No thematic clustering.** Connected work subgraphs come from declared relation edges only.
 4. **No third blocked state.** No stalled, idle, or otherwise inferred category.
 5. **No silent truncation.** A result the query could not fully cover renders
@@ -156,13 +150,11 @@ The implementation must satisfy at minimum:
 - A multi-level parent chain renders as one relation tree with a single root.
 - A relation cycle renders `invariant_violation` and is neither hidden nor silently
   broken.
-- Superseded work resolves to its canonical successor exactly once.
 - Cross-Project work appears once with a correct `project_count`.
 - Blocked work shows blocker identity, blocker authority, and blocker age.
 - An external blocker carries its marker.
 - Incomplete required coverage renders `unavailable` rather than zero rows.
-- A higher-priority blocked item is excluded from ready ranking and the next unblocked
-  item wins deterministically.
+- A blocked item is excluded from ready work and an unblocked item can be selected deterministically.
 - Two renders over unchanged state produce identical ordering and identical grouping.
 
 Operator test: from the coordination view, name what is blocked, name what blocks it,
@@ -185,7 +177,6 @@ the production query surface. A practical order is:
 | Risk | Mitigation |
 |---|---|
 | Relation edges are under-declared, so the tree looks empty and invites heuristic inference | Empty renders as authoritative-empty with an explicit reason and never falls back to inferred edges |
-| Priority ranks are unset in early corpora, making ordering look arbitrary | Missing priority is a typed absent value ordered last, never a substituted guess |
 | Drill-down accretes fields until it becomes a dashboard | The anti-requirements form part of acceptance; any new field requires a named operator job plus prototype evidence |
 | A depth cap hides a real transitive blocker | Truncated traversal is marked explicitly at the boundary node, never silently cut |
 
@@ -204,14 +195,13 @@ This contract must be revised or superseded when:
 
 ## Acceptance criteria
 
-- Given a higher-priority blocked item and the next unblocked item
-  When mode 2 ranks
-  Then the blocked item is excluded from ready ranking and the winner is
-  deterministic.
+- Given a blocked item and a ready item
+  When mode 2 presents work
+  Then the blocked item is excluded from ready work and ordering is deterministic.
 
 ## Verification
 
 - Criterion 1 has no rendered-view proof. `TestOverlapBlocksRemovesWorkFromReady`
   (`internal/store/planning_operation_retirement_test.go`) proves the list
-  readiness and relation facts, not the ranking of a rendered view. Section 10
+  readiness and relation facts, not the ordering of a rendered view. Section 10
   records the falsifiers for each guarantee.

@@ -17,8 +17,8 @@ func TestComponentInputsAreProhibitedOnTheAgentSurface(t *testing.T) {
 		tool, operation, payload string
 	}{
 		{"concord_work_browse", "list", `{"page":{"cursor":null,"limit":20},"component_id":"auth"}`},
-		{"concord_work_define", "capture", `{"title":"T","value_statement":"V","kind":"task","project_ids":["project-1"],"component_id":"auth","idempotency_key":"probe"}`},
-		{"concord_work_define", "revise_intent", `{"work_id":"work-1","expected_version":1,"title":"T","value_statement":"V","kind":"task","reason":"probe","component_id":"auth","idempotency_key":"probe"}`},
+		{"concord_work_define", "capture", `{"title":"T","kind":"task","project_ids":["project-1"],"human_key":"ZZ-1","remote_issue_uuid":"probe","url":"https://linear.app/example/issue/ZZ-1","component_id":"auth","idempotency_key":"probe"}`},
+		{"concord_work_define", "revise_intent", `{"work_id":"work-1","expected_version":1,"title":"T","kind":"task","reason":"probe","component_id":"auth","idempotency_key":"probe"}`},
 	}
 	for _, probe := range prohibited {
 		if err := agentcontract.ValidateOperationPayload(probe.tool, probe.operation, []byte(probe.payload), false); err == nil {

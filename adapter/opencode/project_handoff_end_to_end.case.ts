@@ -213,8 +213,9 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
   const invoke = (toolName: string, operation: string, input: JSONRecord, callContext: any) => invokeConcordOperation(toolName, { operation, input } as any, callContext)
   const captureInput = {
     title: "Synthetic handoff route",
-    value_statement: "The bounded handoff crosses Projects without operator copying.",
     kind: "bug", task: "Exercise the handoff route.", project_ids: [SOURCE_PROJECT],
+    human_key: "CON-9001", remote_issue_uuid: "handoff-e2e-issue-1",
+    url: "https://linear.app/example/issue/CON-9001",
     idempotency_key: "handoff-e2e-capture",
   }
   const capture = await invoke("concord_work_define", "capture", captureInput, contextFor(SOURCE_SESSION, repoSource))

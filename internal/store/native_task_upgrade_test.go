@@ -138,7 +138,9 @@ func TestNativeTaskPopulatedUpgradePreservesCurrentData(t *testing.T) {
 		"idempotency_records":        `SELECT * FROM idempotency_records ORDER BY rowid`,
 		"effect_receipts":            `SELECT * FROM effect_receipts ORDER BY rowid`,
 		"store_sequences":            `SELECT * FROM store_sequences ORDER BY rowid`,
-		"work_context_findings":      `SELECT * FROM work_context_findings ORDER BY rowid`,
+	}
+	if len(before["work_context_findings"]) == 0 {
+		t.Fatal("predecessor lacks work context findings")
 	}
 	instances := cutoverInstanceExpectations(t, db, "")
 	if len(instances) == 0 || len(before["workflow_step_epochs"]) == 0 {
@@ -158,6 +160,9 @@ func TestNativeTaskPopulatedUpgradePreservesCurrentData(t *testing.T) {
 	}
 	if err != nil || report.SchemaVersion != CurrentSchemaVersion() || !reflect.DeepEqual(report.Applied, wantApplied) {
 		t.Fatalf("authorized native upgrade=%+v err=%v", report, err)
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name='work_context_findings'`); len(got) != 0 {
+		t.Fatalf("retired work context findings remain: %v", got)
 	}
 	if got := retirementUpgradeRows(t, db, `SELECT name,checksum,breaking FROM schema_migrations WHERE version=?`, m.Version); !reflect.DeepEqual(got, [][]any{{m.Name, m.checksum(), int64(1)}}) {
 		t.Fatalf("native cutover did not record its exact breaking migration: %v", got)

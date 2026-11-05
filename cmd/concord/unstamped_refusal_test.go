@@ -83,7 +83,7 @@ func cliDataRootState(t *testing.T, root string) string {
 }
 
 // A branch, development, or test build of concord never opens the store of a
-// data root the installer manages, whatever its stamp (CD-0240). This test
+// data root the installer manages, whatever its stamp. This test
 // binary is such a build. Every command route refuses before it reads or
 // writes the store, its leases, its locks, or its fences, names the installed
 // release, and names the recovery.

@@ -1,69 +1,22 @@
 ---
 {
   "id": "CD-0146",
-  "title": "Capture refuses a colliding external reference",
-  "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
-  },
+  "title": "One live work item per Linear issue",
+  "authority": {"tier": "derived"},
   "home_domain_id": "durable-authority",
-  "applies_to_domain_ids": [],
-  "law_relations": [
-    {
-      "kind": "refines",
-      "target_id": "CD-0035"
-    }
-  ]
+  "applies_to_domain_ids": ["work-coordination", "agent-contract"]
 }
 ---
-# CD-0146: Capture refuses a colliding external reference
-
-- **Status:** Accepted
-- **Date:** 2026-09-12
-- **Scope:** Work creation admission and capture surfaces
-- **Approval:** The operator approved this bounded collision gate.
-- **Related:** CD-0002, CD-0013, CD-0035, CD-0050
-- **Preserves:** Terminal work reuse, one-way Linear import, and domain-overlap detection
-
-## Context
-
-Work captures can carry an external reference from an issue tracker or another
-source. The store had no common refusal when two live work items carried the
-same reference, so a duplicate could be created without a declared origin.
-
-Every creation route emits `work.created`. A gate in one command handler would
-leave another route able to bypass the collision check.
+# CD-0146: One live work item per Linear issue
 
 ## Decision
 
-### D1. Read live collisions at creation
+`linear_issue_links` is the sole carrier of Linear issue identity. Capture takes
+the human key, remote issue UUID, and URL and writes the link and work item in
+one transaction. Attaching a link to existing work follows the same rule.
 
-The creation read (`foldWorkCreated`) checks the exact external reference on
-its existing transaction and matches only work items whose
-`terminal_time IS NULL`. An empty reference
-skips the read. The creation mutation returns `projection_conflict` with an
-`external_ref_conflict` payload that carries the existing work ID and reference
-([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-
-### D2. Require an explicit origin for a legitimate duplicate
-
-The optional `raised_from_work_id` capture field must name the item returned by
-the collision read. The same mutation records the `raised_from` relation with the new
-work item in one transaction
-([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-Any other value refuses the capture.
-
-### D3. Keep creation routes on one rule
-
-Agent capture publishes `raised_from_work_id` on the shared
-creation route
-([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
-Initiative creation and Linear import retain their existing import behavior.
-
-## Verification
-
-- Store tests prove live collisions refuse with the typed owner and reference.
-- Store tests prove a matching acknowledgement records `raised_from` atomically.
-- Store tests prove terminal owners do not block a later capture.
-- Contract checks prove the capture fields are published.
+At most one live work item may hold a given Linear key or remote UUID. Capture
+and link attachment refuse a collision without effects. A `raised_from` relation
+does not bypass this refusal. Terminal links remain recorded and do not prevent
+capture of a new item. Reopening a terminal item refuses if another live item
+holds its key or UUID.

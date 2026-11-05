@@ -92,7 +92,7 @@ DELETE FROM fold_guard`); err != nil {
 		t.Fatalf("145 changed source envelopes: %+v", got)
 	}
 	for range 2 {
-		if err := Migrate(t.Context(), db); err != nil {
+		if err := Migrate(outcomeSnapshotContext(t, t.Context(), db), db); err != nil {
 			t.Fatal(err)
 		}
 		assertParity()

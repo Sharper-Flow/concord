@@ -36,12 +36,12 @@ func TestDomainEvidenceSeedsCurrentEventSchemas(t *testing.T) {
 			t.Fatal(err)
 		}
 		var title string
-		var priority, version int
-		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT title,priority,version FROM work_items WHERE id=?`, "fixture-work").Scan(&title, &priority, &version); err != nil {
+		var version int
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT title,version FROM work_items WHERE id=?`, "fixture-work").Scan(&title, &version); err != nil {
 			t.Fatal(err)
 		}
-		if title != "Fixture work" || priority != 3 || version != 2 {
-			t.Fatalf("seeded work = %q/%d/v%d, want Fixture work/3/v2", title, priority, version)
+		if title != "Fixture work" || version != 2 {
+			t.Fatalf("seeded work = %q/v%d, want Fixture work/v2", title, version)
 		}
 	})
 }

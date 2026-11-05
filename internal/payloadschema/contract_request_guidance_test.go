@@ -82,7 +82,7 @@ func TestContractRequestFailureSelectsTheApplicableVariant(t *testing.T) {
 }
 
 func TestContractRevisionFailureSelectsTheApplicableVariant(t *testing.T) {
-	data := []byte(`{"work_id":"work-1","expected_version":1,"title":"Updated plan","value_statement":"Current criteria","kind":"task","reason":"Revise the plan","idempotency_key":"select-revision-1","contract":` +
+	data := []byte(`{"work_id":"work-1","expected_version":1,"title":"Updated plan","task":"Current criteria","kind":"task","reason":"Revise the plan","idempotency_key":"select-revision-1","contract":` +
 		revisionContractWithSubject(`"subject has spaces"`) + `}`)
 
 	err := ValidateInDocument(Document(), "work_define_revise_input", data)

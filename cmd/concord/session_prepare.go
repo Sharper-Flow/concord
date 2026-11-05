@@ -49,7 +49,7 @@ func sessionPrepareFailureExit(err error, untypedExit int) int {
 }
 
 // Identity is verified before the boot packet is derived.
-// The registry comes from one bare probe in the session's directory (CD-0189 D4).
+// The registry comes from one bare probe in the session's directory.
 func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, hostCommand sessionHostCommandFunc, identity sessionOrchestratorFunc, bootstrap sessionBootstrapFunc) int {
 	var input sessionPrepareInput
 	if err := decodeObject(raw, &input); err != nil {

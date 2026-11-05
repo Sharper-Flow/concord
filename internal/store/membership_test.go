@@ -321,8 +321,8 @@ func TestPM5RemovingLastMembershipIsRejectedAndWorkStateIsUntouched(t *testing.T
 		t.Fatalf("create work: %v", err)
 	}
 	var beforeTitle, beforeLifecycle string
-	var beforePriority, beforeVersion int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT title, lifecycle, priority, version FROM work_items WHERE id = 'work'`).Scan(&beforeTitle, &beforeLifecycle, &beforePriority, &beforeVersion); err != nil {
+	var beforeVersion int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT title, lifecycle, version FROM work_items WHERE id = 'work'`).Scan(&beforeTitle, &beforeLifecycle, &beforeVersion); err != nil {
 		t.Fatal(err)
 	}
 	err := ApplyOperation(ctx, s, Operation{Events: []Event{membershipEvent("remove-last-work-project", "work_project.removed", SubjectWorkItem, "work", map[string]any{
@@ -330,12 +330,12 @@ func TestPM5RemovingLastMembershipIsRejectedAndWorkStateIsUntouched(t *testing.T
 	})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work"): 2}})
 	assertFailureKind(t, err, KindMembershipInvariant)
 	var afterTitle, afterLifecycle string
-	var afterPriority, afterVersion int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT title, lifecycle, priority, version FROM work_items WHERE id = 'work'`).Scan(&afterTitle, &afterLifecycle, &afterPriority, &afterVersion); err != nil {
+	var afterVersion int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT title, lifecycle, version FROM work_items WHERE id = 'work'`).Scan(&afterTitle, &afterLifecycle, &afterVersion); err != nil {
 		t.Fatal(err)
 	}
-	if beforeTitle != afterTitle || beforeLifecycle != afterLifecycle || beforePriority != afterPriority || beforeVersion != afterVersion {
-		t.Fatalf("failed membership removal changed canonical work: before=%q/%q/%d/%d after=%q/%q/%d/%d", beforeTitle, beforeLifecycle, beforePriority, beforeVersion, afterTitle, afterLifecycle, afterPriority, afterVersion)
+	if beforeTitle != afterTitle || beforeLifecycle != afterLifecycle || beforeVersion != afterVersion {
+		t.Fatalf("failed membership removal changed canonical work: before=%q/%q/%d after=%q/%q/%d", beforeTitle, beforeLifecycle, beforeVersion, afterTitle, afterLifecycle, afterVersion)
 	}
 
 	// A Product and Project with one edge reject the same final-state removal.

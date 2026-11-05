@@ -219,15 +219,9 @@ func TestNativeExecutionStartFenceAndAtomicRefusals(t *testing.T) {
 	s := fixture.store
 	first := fixture.owner
 	second := diagnosisS1Actor(workID, "second")
-	contextPayload, err := json.Marshal(map[string]any{
-		"required_reading": []map[string]any{workContextRepoReading("product-root:product", "the reading is product-wide")},
-		"finding_refs":     []string{}, "context_findings": []map[string]any{},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := runVerdictActionAs(t, s, workID, "record_work_context", contextPayload, 0, first); err != nil {
-		t.Fatalf("record context before start: %v", err)
+	checkpointPayload := workContextCheckpointPayload("native-start-checkpoint")
+	if err := runVerdictActionAs(t, s, workID, "checkpoint_context", checkpointPayload, 0, first); err != nil {
+		t.Fatalf("record checkpoint before start: %v", err)
 	}
 	if start := workflowCurrentStartAtStep(t, s, workID, "implement"); start != nil || len(workflowStartReceiptIDs(t, s, workID)) != 0 {
 		t.Fatalf("context created a start: %+v", start)
@@ -267,14 +261,14 @@ func TestNativeExecutionStartFenceAndAtomicRefusals(t *testing.T) {
 		t.Fatalf("instance execution fence = %q %q", startedAt, actorRef)
 	}
 	receipts := workflowStartReceiptIDs(t, s, workID)
-	if err := runWorkflowActionWithIdentity(t, s, workID, "record_work_context", contextPayload, 0, first, "after-start"); err != nil {
-		t.Fatalf("record context after start: %v", err)
+	if err := runWorkflowActionWithIdentity(t, s, workID, "checkpoint_context", workContextCheckpointPayload("after-start-checkpoint"), 0, first, "after-start"); err != nil {
+		t.Fatalf("record checkpoint after start: %v", err)
 	}
 	if got := workflowCurrentStartAtStep(t, s, workID, "implement"); got == nil || *got != *start || !slices.Equal(receipts, workflowStartReceiptIDs(t, s, workID)) {
-		t.Fatalf("context changed the start watermark: %+v -> %+v", start, got)
+		t.Fatalf("checkpoint changed the start watermark: %+v -> %+v", start, got)
 	}
 	if gotTime, gotActor := instanceExecutionStart(t, s, workID); gotTime != startedAt || gotActor != actorRef {
-		t.Fatalf("context changed execution fence: %q %q", gotTime, gotActor)
+		t.Fatalf("checkpoint changed execution fence: %q %q", gotTime, gotActor)
 	}
 	if err := runVerdictActionAtVersion(t, s, workID, "start_execution", json.RawMessage(`{}`), version, second); err == nil {
 		t.Fatal("stale competing start was admitted")
@@ -302,43 +296,15 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 		t.Fatalf("instance after the contract revision = %q, want implement", step)
 	}
 
-	// Source-qualified context binds an immutable source commit.
-	const sourceProject = "liveness-source"
-	var productVersion int64
-	if err := s.db.QueryRow(`SELECT version FROM products WHERE id='product'`).Scan(&productVersion); err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplyOperation(t.Context(), s, Operation{Events: []Event{
-		projectCreatedEvent(sourceProject, "create-"+sourceProject),
-		operationEvent("add-"+sourceProject, "product_project.added", SubjectProduct, "product", map[string]any{
-			"product_id": "product", "project_id": sourceProject, "role": "secondary", "reason": "the revised contract's pinned reading",
-			"expected_version": productVersion, "resulting_version": productVersion + 1,
-		}),
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, sourceProject): 0, VersionRef(SubjectProduct, "product"): productVersion}}); err != nil {
-		t.Fatal(err)
-	}
-	sourceRepo := initKnowledgeRepo(t)
-	writeKnowledgeFile(t, sourceRepo, "internal/store/work_context.go", "package synthetic\n")
-	sourceCommit := commitKnowledgeRepo(t, sourceRepo, "source-qualified liveness reading")
-	if err := s.AddProjectLocator(t.Context(), sourceProject, ProjectLocator{ID: "liveness-source-repo", Kind: LocatorCanonicalPath, Value: sourceRepo}, 1); err != nil {
-		t.Fatal(err)
-	}
-	reading := workContextRepoReading("product-root:product", "the reading is product-wide")
-	reading["source"] = map[string]any{"kind": "repository_file", "project_id": sourceProject, "path": "internal/store/work_context.go", "commit_oid": sourceCommit}
-	contextPayload, err := json.Marshal(map[string]any{
-		"required_reading": []map[string]any{reading},
-		"finding_refs":     []string{},
-		"context_findings": []map[string]any{{"kind": "direction", "statement": "the revised contract requires current repair proof", "subject_ref": "internal/store/workflow.go", "evidence_refs": []string{"internal/store/workflow.go"}, "domain_id": "product-root:product", "product_wide_rationale": "the finding is product-wide"}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := runVerdictActionAs(t, s, workID, "record_work_context", contextPayload, 0, fixture.owner); err != nil {
-		t.Fatalf("source-qualified work context at implement: %v", err)
+	// A held checkpoint after the contract revision keeps the step and its
+	// version current, then the revision's producer path still starts.
+	if err := runVerdictActionAs(t, s, workID, "checkpoint_context", workContextCheckpointPayload("revised-contract-checkpoint"), 0, fixture.owner); err != nil {
+		t.Fatalf("checkpoint at implement after contract revision: %v", err)
 	}
 	if err := runVerdictActionAs(t, s, workID, "start_execution", json.RawMessage(`{}`), 0, fixture.owner); err != nil {
 		t.Fatalf("start execution after contract revision: %v", err)
 	}
+	sourceCommit := strings.Repeat("a1", 20)
 	bindKind := func(kind, ref string) {
 		t.Helper()
 		authority := "liveness-authority-" + kind + "-" + workID

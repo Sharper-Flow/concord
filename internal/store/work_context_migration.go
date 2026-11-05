@@ -2,12 +2,42 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 )
 
-// Findings remain selectable claims until work cleanup. Their coordinates are
-// public identities, not inputs for replaying a declaration or terminal report.
+// Migration 148 backfills work-context tables that migration 186 drops.
+// No live read or write path may call this frozen migration replay code.
+
+// WorkContextFinding is the declared-claim shape historical
+// workflow.work_context_recorded and workflow.action_completed payloads
+// carried. It discharged no predicate and recorded no verdict.
+type WorkContextFinding struct {
+	Kind                 string   `json:"kind"`
+	Statement            string   `json:"statement"`
+	SubjectRef           string   `json:"subject_ref"`
+	EvidenceRefs         []string `json:"evidence_refs"`
+	DomainID             string   `json:"domain_id"`
+	ProductWideRationale string   `json:"product_wide_rationale,omitempty"`
+}
+
+// WorkContextReadingSource is the closed source union shape historical
+// work-context readings and frozen review-migration records carry.
+type WorkContextReadingSource struct {
+	Kind        string `json:"kind"`
+	ProjectID   string `json:"project_id,omitempty"`
+	Path        string `json:"path,omitempty"`
+	CommitOID   string `json:"commit_oid,omitempty"`
+	SourceID    string `json:"source_id,omitempty"`
+	LawID       string `json:"law_id,omitempty"`
+	ContentHash string `json:"content_hash,omitempty"`
+}
+
+func workContextMigrationFailure(detail string) error {
+	return newFailure(KindInvariantViolation, "work_context_migration", detail, false, "restore a verified backup")
+}
+
+// writeWorkContextFacts replays one source event's declared findings into the
+// work-context fact tables migration 148 builds.
 func writeWorkContextFacts(ctx context.Context, q migrationRunner, event Event) error {
 	if event.SubjectType != SubjectWorkItem {
 		return nil
@@ -17,7 +47,7 @@ func writeWorkContextFacts(ctx context.Context, q migrationRunner, event Event) 
 	}
 	generic, ok := workContextTerminalFindingsAtEvent(event)
 	if !ok {
-		return workContextFailure(KindInvariantViolation, "work_context", "the admitted context findings are malformed", "restore a verified backup")
+		return workContextMigrationFailure("the admitted context findings are malformed")
 	}
 	if _, err := q.ExecContext(ctx, `INSERT INTO work_context_state(work_id,source_frontier) VALUES(?,?) ON CONFLICT(work_id) DO UPDATE SET source_frontier=excluded.source_frontier`, event.SubjectID, event.Seq); err != nil {
 		return err
@@ -43,35 +73,6 @@ func writeWorkContextFacts(ctx context.Context, q migrationRunner, event Event) 
 	return nil
 }
 
-func readWorkContextFindingSource(ctx context.Context, q queryer, workID string, seq int64) (Event, []WorkContextFinding, error) {
-	var source Event
-	err := q.QueryRowContext(ctx, `SELECT event_id,kind FROM effect_receipts WHERE effect_seq=? AND subject_type='work_item' AND subject_id=?`, seq, workID).Scan(&source.EventID, &source.Kind)
-	if err != nil {
-		return source, nil, err
-	}
-	rows, err := q.QueryContext(ctx, `SELECT finding_class,finding FROM work_context_findings WHERE work_id=? AND source_seq=? ORDER BY ordinal`, workID, seq)
-	if err != nil {
-		return source, nil, err
-	}
-	defer rows.Close()
-	var generic []WorkContextFinding
-	for rows.Next() {
-		var class, raw string
-		if err := rows.Scan(&class, &raw); err != nil {
-			return source, nil, err
-		}
-		if class != "generic" {
-			continue
-		}
-		var finding WorkContextFinding
-		if err := json.Unmarshal([]byte(raw), &finding); err != nil {
-			return source, nil, workContextFailure(KindInvariantViolation, "work_context_read", "stored context finding facts are malformed", "restore a verified backup into a new path with concord restore, then swap")
-		}
-		generic = append(generic, finding)
-	}
-	return source, generic, rows.Err()
-}
-
 func workContextSourceHoldsFindings(kind string) bool {
 	return kind == WorkflowWorkContextRecorded || kind == WorkflowActionCompleted || kind == "worker.completed" || kind == "worker.failed"
 }
@@ -86,8 +87,9 @@ func workContextTerminalFindingsAtEvent(event Event) ([]WorkContextFinding, bool
 	return payload.ContextFindings, true
 }
 
-// Only migration148 reads source envelopes. Live readers use claims and the
-// single current declaration, while effect receipts supply source identity.
+// backfillWorkContextFacts is migration 148's replay backfill. Live readers
+// were removed with the declaration surface; only the migration runner calls
+// this.
 func backfillWorkContextFacts(ctx context.Context, q migrationRunner) error {
 	rows, err := q.QueryContext(ctx, `SELECT seq,event_id,kind,subject_type,subject_id,payload FROM domain_events WHERE subject_type='work_item' AND kind IN (?,'worker.completed','worker.failed') AND subject_id IN (SELECT id FROM work_items) ORDER BY seq`, WorkflowWorkContextRecorded)
 	if err != nil {
@@ -113,13 +115,4 @@ func backfillWorkContextFacts(ctx context.Context, q migrationRunner) error {
 		}
 	}
 	return nil
-}
-
-func readWorkContextSourceFrontier(ctx context.Context, q queryer, workID string) (int64, error) {
-	var frontier int64
-	err := q.QueryRowContext(ctx, `SELECT source_frontier FROM work_context_state WHERE work_id=?`, workID).Scan(&frontier)
-	if err == sql.ErrNoRows {
-		return 0, nil
-	}
-	return frontier, err
 }

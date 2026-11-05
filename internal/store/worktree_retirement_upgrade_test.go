@@ -56,6 +56,7 @@ func TestWorktreeRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	ordinaryRecordsUpgradeExpectations(t, db, retained)
 	retainedBindings := retirementUpgradeRows(t, db, `SELECT work_id,contract_version,product_id,home_domain_id,projection_hash FROM workflow_architecture_bindings ORDER BY rowid`)
 	retainedContracts := cutoverContractRows(t, db)
+	retainedWork := historicalCaptureWorkRows(t, db, "")
 	if s, err := Open(t.Context(), path); err == nil {
 		s.Close()
 		t.Fatal("ordinary open crossed the breaking ownership retirement")
@@ -73,7 +74,7 @@ func TestWorktreeRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 	if verified, err := VerifyBackup(t.Context(), snapshot); err != nil || verified.DBChecksum != manifest.DBChecksum || verified.SchemaVersion != 172 {
 		t.Fatalf("verified predecessor = %+v, %v", verified, err)
 	}
-	report, err := Upgrade(t.Context(), path, nil)
+	report, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,9 +103,14 @@ func TestWorktreeRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 			continue
 		}
 		switch table {
+		case "work_items":
+			if got := retirementUpgradeRows(t, db, `SELECT * FROM work_items ORDER BY id`); !reflect.DeepEqual(got, retainedWork) {
+				t.Errorf("retained work changed: got %v, want %v", got, retainedWork)
+			}
+			continue
 		case "schema", "schema_migrations", "store_revision", "workflow_contract_law_revisions":
 			continue
-		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions", "workflow_step_completions", "workflow_contract_predicates", "workflow_predicate_verdicts", "workflow_review_state":
+		case "outside_repair_dispositions", "outside_repair_reconciliations", "work_context_state", "work_context_findings", "project_governing_requirements", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions", "workflow_step_completions", "workflow_contract_predicates", "workflow_predicate_verdicts", "workflow_review_state":
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' AND name=?`, table); len(rows) != 0 {
 				t.Errorf("retired table %s survives: %v", table, rows)
 			}
@@ -173,7 +179,7 @@ func TestWorktreeRetirementAtomicRollback(t *testing.T) {
 		t.Fatal("failed upgrade changed schema, ownership rows, ordinary state or manifest")
 	}
 	retirementUpgradeExec(t, db, `DROP TRIGGER worktree_retirement_failure`)
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, outcomeSnapshotOption(t, t.Context(), path)); err != nil {
 		t.Fatalf("retry after rollback: %v", err)
 	}
 	assertWorktreeTablesAbsent(t, db)

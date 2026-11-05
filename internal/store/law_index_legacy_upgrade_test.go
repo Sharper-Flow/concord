@@ -34,6 +34,7 @@ func TestLawIndexSchema168RetiredLawSnapshotAndUpgrade(t *testing.T) {
 	seedLawIndexLegacyProof(t, db)
 	before := retirementUpgradeSnapshot(t, db)
 	retainedContracts := cutoverContractRows(t, db)
+	work := historicalCaptureWorkRows(t, db, "")
 	preserved := append(append([]string{}, lawIndexPreservedTables...), "effect_receipts", "workflow_contracts")
 	if _, err := PlanUpgradeReadiness(t.Context(), path); err != nil {
 		t.Fatal(err)
@@ -46,11 +47,17 @@ func TestLawIndexSchema168RetiredLawSnapshotAndUpgrade(t *testing.T) {
 	if manifest.SchemaVersion != 168 || !reflect.DeepEqual(retirementUpgradeSnapshot(t, db), before) {
 		t.Fatal("snapshot creation migrated or changed the schema168 source")
 	}
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
 		t.Fatalf("upgrade refused a positively evidenced folder retirement: %v", err)
 	}
 	assertLawIndexRetired(t, db)
 	for _, table := range preserved {
+		if table == "work_items" {
+			if got := retirementUpgradeRows(t, db, `SELECT * FROM work_items ORDER BY id`); !reflect.DeepEqual(got, work) {
+				t.Errorf("upgrade changed retained work: got %v want %v", got, work)
+			}
+			continue
+		}
 		if table == "workflow_contracts" {
 			if got := cutoverContractRows(t, db); !reflect.DeepEqual(got, retainedContracts) {
 				t.Error("current contract facts changed")

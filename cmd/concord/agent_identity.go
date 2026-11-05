@@ -13,14 +13,10 @@ func agentDefinitionFileName(agent string) string {
 	return agent + ".md"
 }
 
-// orchestratorInvocationHandle returns the name the host registers the
-// resolved definition under: the frontmatter `name:` value when the
-// definition carries one, else the file stem. Renaming via `name:` is not
-// an alias — the stem stops resolving — so selection by stem alone silently
-// falls back to the operator's default agent on a renamed definition.
-// The scan is a conservative subset of the host's YAML: a `name:` line at
-// column 0 inside the leading frontmatter block, value trimmed, symmetric
-// quotes stripped. Anything else reads as the stem.
+// orchestratorInvocationHandle uses the frontmatter name or the file stem.
+// A renamed definition no longer resolves by stem; selection by stem makes the
+// host substitute its default. The scan accepts a column-zero name in leading frontmatter,
+// trims its value and strips symmetric quotes; other forms use the stem.
 func orchestratorInvocationHandle(resolved string) string {
 	stem := strings.TrimSuffix(filepath.Base(resolved), ".md")
 	data, err := os.ReadFile(resolved) //nolint:gosec // resolved is an operator-owned host agent definition selected from the fixed search roots.
@@ -54,7 +50,7 @@ func orchestratorInvocationHandle(resolved string) string {
 // agentIdentityMismatchError reports a definition that resolves for the
 // requested agent but registers under a different invocation handle. The
 // session runs as the requested agent, so asserting the derived handle would
-// record evidence for an agent the session is not (CD-0049 D2).
+// record evidence for an agent the session is not.
 type agentIdentityMismatchError struct {
 	Requested  string
 	Handle     string
@@ -91,11 +87,8 @@ func (e *agentIdentityAbsentError) Error() string {
 	)
 }
 
-// agentSearchDirectories lists the directories a definition may resolve from,
-// nearest last, skipping any the caller cannot supply. dir is the session
-// directory (CD-0093 D2): the resolved Project directory for `concord
-// session`, the verified worktree for session-prepare. An empty result is
-// legal and resolves nothing, which is the fail-closed outcome.
+// agentSearchDirectories lists definition directories, nearest last. dir is the
+// resolved Project directory or verified worktree; an empty result resolves nothing.
 func agentSearchDirectories(home, dir string) []string {
 	dirs := make([]string, 0, 2)
 	if home != "" {
@@ -107,16 +100,9 @@ func agentSearchDirectories(home, dir string) []string {
 	return dirs
 }
 
-// verifyOrchestratorIdentity asserts that the active host agent's definition
-// resolves in the searched directories, that the host registers it under the
-// same name the session runs as, and returns that handle.
-//
-// An absent or unresolvable definition is a typed failure naming the
-// required identity, the observed absence, and the paths searched, because
-// CD-0049 D4 admits no degraded start. A definition whose frontmatter
-// `name:` differs from the requested agent is a typed mismatch for the same
-// reason: the host would substitute the operator's default agent
-// (CD-0049 D2). The returned handle equals agent on success.
+// verifyOrchestratorIdentity requires the requested agent's definition and
+// matching invocation handle. Absence or mismatch is a typed failure; there is
+// no degraded start and the host otherwise substitutes its default agent.
 func verifyOrchestratorIdentity(home, dir, agent string) (string, error) {
 	dirs := agentSearchDirectories(home, dir)
 	fileName := agentDefinitionFileName(agent)
@@ -135,14 +121,8 @@ func verifyOrchestratorIdentity(home, dir, agent string) (string, error) {
 	return handle, nil
 }
 
-// firstAgentDefinition returns the first searched directory that contains a
-// regular file named fileName. When no directory supplies the file, the
-// returned error is the typed agentIdentityAbsentError session preparation
-// surfaces unchanged.
-//
-// fileName derives from the caller-validated agent name: session-prepare
-// matches it against ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ before this runs, so
-// it cannot carry a path separator or traversal.
+// firstAgentDefinition returns the first matching regular file or a typed absence.
+// The caller validates fileName's agent name, excluding traversal and separators.
 func firstAgentDefinition(dirs []string, fileName string) (string, error) {
 	resolved := ""
 	for _, dir := range dirs {

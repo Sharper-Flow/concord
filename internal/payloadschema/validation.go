@@ -1,11 +1,6 @@
 // Package payloadschema owns raw JSON admission and validation against the
 // embedded payload and envelope contract documents.
-//
-// The declaration of an action payload names a schema; the agent boundary and
-// the workflow engine both answer to that name. Before this package existed the
-// boundary resolved the schema and the engine reimplemented its rules in Go, so
-// one declaration had two enforcement authorities and every divergence between
-// them reached an agent as a refusal no published contract stated.
+// The agent boundary and workflow engine validate against the same declarations.
 package payloadschema
 
 import (
@@ -30,7 +25,6 @@ var (
 	dateTimePattern = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$`)
 )
 
-// loadDocumentOnce parses one embedded schema document exactly once.
 func loadDocumentOnce(once *sync.Once, raw string, target *map[string]any, what string) {
 	once.Do(func() {
 		decoder := json.NewDecoder(strings.NewReader(raw))
@@ -57,8 +51,7 @@ func HasIn(root map[string]any, name string) bool {
 	return ok
 }
 
-// DescribesArrayIn reports whether the named schema in the given document
-// describes an array value rather than one element of one.
+// DescribesArrayIn reports whether the named schema is itself an array, not one element.
 func DescribesArrayIn(root map[string]any, name string) bool {
 	defs, ok := root["$defs"].(map[string]any)
 	if !ok {
@@ -146,8 +139,8 @@ func validateSchemaValueWithEvaluated(value any, schema map[string]any, root map
 			return nil, err
 		}
 	}
-	// Select the applicable composed explanation before the shared outer shape
-	// can hide its field teaching. Both sets of constraints still govern admission.
+	// Select the composed explanation before the outer shape hides its field teaching.
+	// Both sets of constraints still govern admission.
 	if err := validateTypeKeywords(value, schema, root, path, evaluated); err != nil {
 		return nil, err
 	}
@@ -268,13 +261,9 @@ func validateConditionalBranch(value any, schema, condition map[string]any, root
 	return nil
 }
 
-// validateCombinatorBranches enforces one allOf, anyOf, or oneOf keyword and
-// folds the properties its matching branches evaluated into the caller's set.
-// Admission reads only the match count; when the keyword is unsatisfied, the
-// explanation is selected: a branch the value's own discriminator or closed
-// fieldset rules out is local to that branch and does not contribute its
-// refusal as a rule about the whole request. Alternatives that genuinely
-// remain stay labeled together. Selection never compares message lengths.
+// validateCombinatorBranches counts matches for admission. Explanations exclude
+// branches ruled out by the discriminator or closed fieldset, retain genuine
+// alternatives and never compare message lengths.
 func validateCombinatorBranches(value any, keyword string, branches []any, root map[string]any, path string, evaluated map[string]bool) error {
 	matches := 0
 	// branchFailures stays aligned with branches: a nil entry is a branch
@@ -307,10 +296,8 @@ func validateCombinatorBranches(value any, keyword string, branches []any, root 
 }
 
 func combinatorMismatch(value any, keyword string, branches []any, branchFailures []error, matches int, root map[string]any, path string) error {
-	// allOf requires every branch, so the first branch failure is the
-	// whole reason. Returning it unwrapped keeps the offending field at
-	// the front of the message, where a schema factored through $defs
-	// would otherwise stack one identical frame per composition level.
+	// allOf requires every branch; return the first failure unwrapped to keep
+	// the offending field at the front of the message.
 	if keyword == "allOf" {
 		if failure := firstBranchFailure(branchFailures); failure != nil {
 			return failure
@@ -351,8 +338,7 @@ func combinatorMismatch(value any, keyword string, branches []any, branchFailure
 	return fmt.Errorf("%s mismatch at %s", keyword, path)
 }
 
-// Keep attribution attached to each guided failure, rather than only in a
-// trailing variant inventory that a bounded diagnostic may have to omit.
+// Attach attribution to each guided failure so bounded diagnostics retain it.
 func labelBranchFailures(branches []any, failures []error, root map[string]any) []error {
 	labeled := append([]error(nil), failures...)
 	for index, failure := range failures {
@@ -378,14 +364,10 @@ func firstBranchFailure(branchFailures []error) error {
 	return nil
 }
 
-// applicableBranchFailures returns the indexes of branchFailures whose branch
-// the value does not rule out, with the number of branch failures there were.
-// A branch is ruled out when a supplied discriminator property it pins with
-// const or enum is accepted by another branch of the same keyword, or when its
-// closed shape refused properties that another not-yet-ruled-out branch
-// declares: the value's fieldset is the other branch's, so the
-// unknown-property refusal is local to the forbidding branch. A value with
-// nothing to select on keeps every branch failure.
+// applicableBranchFailures excludes branches whose const or enum rejects a supplied
+// value accepted by another branch, or whose closed shape rejects fields another
+// viable branch declares.
+// Without a discriminator or selecting fieldset, every failure remains.
 func applicableBranchFailures(value any, branches []any, branchFailures []error, root map[string]any) ([]int, int) {
 	failures := 0
 	for _, failure := range branchFailures {
@@ -479,11 +461,8 @@ func unknownKeysStrictSubset(candidate, present []string) bool {
 	return true
 }
 
-// branchPinsContradictedValue reports whether a branch pins a supplied
-// property with const or enum and refuses the supplied value. Such a branch
-// rejects the value itself, not merely a foreign fieldset, so it cannot own
-// the value's fieldset for selection purposes: when the discriminator the
-// caller supplied matches no branch, the alternatives genuinely remain.
+// branchPinsContradictedValue rejects a branch's fieldset ownership when its
+// const or enum refuses the supplied value; unmatched alternatives remain.
 func branchPinsContradictedValue(object map[string]any, schema map[string]any) bool {
 	for _, name := range sortedKeys(object) {
 		property := schemaPropertyName(schema, name)
@@ -638,7 +617,7 @@ func validateValueKeywords(value any, schema map[string]any, path string) error 
 // additionalProperties is false, every undeclared key, and returns one
 // refusal that names them all: missing fields in declared order, then
 // undeclared keys sorted by name. Each segment keeps the per-field message
-// callers match today. Value keywords keep stop-at-first behavior, visit map
+// callers match. Value keywords keep stop-at-first behavior, visit map
 // keys in lexical order, and run only after the structure is complete.
 func validateObjectKeywords(object map[string]any, schema map[string]any, root map[string]any, path string) (map[string]bool, error) {
 	evaluated := map[string]bool{}
@@ -822,10 +801,7 @@ func validateStringKeywords(text string, schema map[string]any, path string) err
 	if n, ok := schema["maxLength"].(json.Number); ok && codePoints > numberInt(n) {
 		return withGuidance(fmt.Errorf("maxLength at %s: carries %d Unicode code points against a limit of %d", path, codePoints, numberInt(n)), schema)
 	}
-	// The store's enforcing string bounds count UTF-8 bytes; the generated
-	// x-maxBytes/x-minBytes keywords carry those byte bounds beside the
-	// derived code-point bounds, so this validator refuses a byte-overrun
-	// string the code-point maxLength alone would admit (CON-412).
+	// x-maxBytes/x-minBytes carry the store's UTF-8 byte bounds, which maxLength alone can admit past.
 	if n, ok := schema["x-maxBytes"].(json.Number); ok && len(text) > numberInt(n) {
 		return withGuidance(fmt.Errorf("x-maxBytes at %s: carries %d UTF-8 bytes against a limit of %d", path, len(text), numberInt(n)), schema)
 	}
@@ -894,13 +870,8 @@ func schemaVariantDescriptions(branches []any, root map[string]any) []string {
 	return descriptions
 }
 
-// composedSchemaFrames returns the branch plus every schema its allOf keyword
-// composes into it, resolving local refs, so a variant factored through allOf
-// describes itself by what its frames require. A frame that carries only
-// if/then contributes nothing: its requirements hold only when its condition
-// does, so they are not unconditional requirements of the variant. The depth
-// bound matches resolveSchemaRef, because describing a refusal must not
-// itself refuse on a cyclic or self-referential schema.
+// composedSchemaFrames includes unconditional allOf frames and local refs.
+// Conditional requirements are excluded; the depth bound keeps a cyclic schema from failing the description.
 func composedSchemaFrames(branch map[string]any, root map[string]any, depth int) []map[string]any {
 	frames := []map[string]any{branch}
 	if depth >= 8 {

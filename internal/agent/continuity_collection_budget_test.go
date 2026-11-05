@@ -279,32 +279,6 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 			"summary": boundarySummary(i),
 		})
 	}
-	// The declared working context rides the admitted record_work_context
-	// action: the fixture's root Domain under its product-wide rationale,
-	// one maximal repository reading, and sixteen maximal findings. The view
-	// stays inside its 64 KiB retention bound, so the store returns both
-	// copies the projection renders.
-	findings := []map[string]any{}
-	for i := range 16 {
-		findings = append(findings, map[string]any{
-			"kind":                   "observation",
-			"statement":              fmt.Sprintf("liveness-finding-%02d-%s", i, strings.Repeat("f", 1003)),
-			"subject_ref":            strings.Repeat("s", 128),
-			"evidence_refs":          []string{},
-			"domain_id":              workflowArchitectureBindingForSeededRegistry(t, s)["home_domain_id"],
-			"product_wide_rationale": "the liveness witness spans every Domain of the fixture Product",
-		})
-	}
-	engine("record_work_context", map[string]any{
-		"required_reading": []map[string]any{{
-			"domain_id":              workflowArchitectureBindingForSeededRegistry(t, s)["home_domain_id"],
-			"product_wide_rationale": "the liveness witness reads across every Domain of the fixture Product",
-			"reason":                 strings.Repeat("w", 512),
-			"source":                 map[string]any{"kind": "repository_file", "project_id": "project-1", "path": "internal/store/work_context.go", "commit_oid": strings.Repeat("a", 40)},
-		}},
-		"finding_refs":     []string{},
-		"context_findings": findings,
-	})
 	// Fixture proof, before any read: with the observation window empty and
 	// one boundary kept, the fixed projection alone renders past the
 	// unchanged envelope bound, both work-context copies ride the captured
@@ -326,12 +300,6 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 	}
 	if captured.LatestCheckpoint == nil || len(captured.LatestCheckpoint.Hypothesis) != 4096 {
 		t.Fatal("fixture lost the escaped latest checkpoint")
-	}
-	if captured.WorkPin == nil || captured.WorkPin.WorkContext == nil || len(captured.WorkPin.WorkContext.Findings) != 16 {
-		t.Fatal("fixture lost the work-pin context")
-	}
-	if captured.WorkContext == nil || len(captured.WorkContext.Findings) != 16 {
-		t.Fatal("fixture lost the top-level work-context view")
 	}
 	t.Logf("fixed projection with no observation window renders %d serialized bytes against the %d-byte envelope", len(fixedBytes), agentcontract.MaxResultEnvelopeBytes)
 
@@ -385,7 +353,6 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 				Pinned struct {
 					LatestCheckpoint *store.ContextCheckpoint `json:"latest_checkpoint"`
 					WorkPin          *store.WorkPin           `json:"work_pin"`
-					WorkContext      *store.WorkContextView   `json:"work_context"`
 				} `json:"pinned"`
 				Boundaries struct {
 					Count      int64                   `json:"count"`
@@ -397,20 +364,13 @@ func TestContinuityFixedProjectionEnvelopeLiveness(t *testing.T) {
 				t.Fatal(err)
 			}
 			// The completed page sequence keeps every fixed member exactly:
-			// the escaped latest checkpoint, both work-context copies with
-			// all sixteen findings, the pin's intents, and
+			// the escaped latest checkpoint, the pin's intents, and
 			// the whole observation population behind its paged read pointer.
 			if payload.Pinned.LatestCheckpoint == nil || payload.Pinned.LatestCheckpoint.Hypothesis != strings.Repeat("\\", 4096) {
 				t.Fatal("escaped latest checkpoint lost or truncated")
 			}
 			if payload.Pinned.WorkPin == nil || len(payload.Pinned.WorkPin.NextValidIntents) == 0 {
 				t.Fatal("work pin lost its durable intents")
-			}
-			if payload.Pinned.WorkPin.WorkContext == nil || len(payload.Pinned.WorkPin.WorkContext.Findings) != 16 {
-				t.Fatal("work-pin context lost from the reconstructed document")
-			}
-			if payload.Pinned.WorkContext == nil || len(payload.Pinned.WorkContext.Findings) != 16 {
-				t.Fatal("top-level work-context view lost from the reconstructed document")
 			}
 			// Boundary continuation after fragment completion: the envelope
 			// cursor the completed document exposes resumes the history, and
@@ -623,27 +583,6 @@ func oversizedContinuationFixture(t *testing.T) (*store.Store, context.Context) 
 	engine("cross_context_boundary", map[string]any{
 		"boundary_kind": "summary", "mode": "summary", "checkpoint_id": "continuation-checkpoint",
 		"summary": "😀§中 \"quoted\" <html>&" + strings.Repeat("\\", 16300),
-	})
-	findings := []map[string]any{}
-	for i := range 16 {
-		findings = append(findings, map[string]any{
-			"kind":                   "observation",
-			"statement":              fmt.Sprintf("continuation-finding-%02d-😀%s", i, strings.Repeat("f", 995)),
-			"subject_ref":            strings.Repeat("s", 128),
-			"evidence_refs":          []string{},
-			"domain_id":              workflowArchitectureBindingForSeededRegistry(t, s)["home_domain_id"],
-			"product_wide_rationale": "the continuation fixture spans every Domain of the fixture Product",
-		})
-	}
-	engine("record_work_context", map[string]any{
-		"required_reading": []map[string]any{{
-			"domain_id":              workflowArchitectureBindingForSeededRegistry(t, s)["home_domain_id"],
-			"product_wide_rationale": "the continuation fixture reads across every Domain of the fixture Product",
-			"reason":                 strings.Repeat("w", 512),
-			"source":                 map[string]any{"kind": "repository_file", "project_id": "project-1", "path": "internal/agent/runtime.go", "commit_oid": strings.Repeat("b", 40)},
-		}},
-		"finding_refs":     []string{},
-		"context_findings": findings,
 	})
 	proof, err := store.ReadWorkflowContinuity(ctx, s, store.ContinuityRequest{Work: "work-1", Limit: 1})
 	if err != nil {

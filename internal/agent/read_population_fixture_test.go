@@ -132,7 +132,7 @@ func seedReadPopulationProducts(t *testing.T, s *store.Store) {
 			case 6:
 				lifecycle = "in_progress"
 			}
-			fmt.Fprintf(&statements, "INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES('%s','%s','Perf work %03d-%02d','%s',%d,1,'2026-08-%02dT00:00:00Z','2026-08-%02dT00:00:00Z',%s);", workID, kind, product, work, lifecycle, work+1, (work%8)+1, (work%8)+1, terminal)
+			fmt.Fprintf(&statements, "INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at,terminal_time) VALUES('%s','%s','Perf work %03d-%02d','%s',1,'2026-08-%02dT00:00:00Z','2026-08-%02dT00:00:00Z',%s);", workID, kind, product, work, lifecycle, (work%8)+1, (work%8)+1, terminal)
 			fmt.Fprintf(&statements, "INSERT INTO work_projects(work_id,project_id,role) VALUES('%s','%s','primary'),('%s','%s','secondary');", workID, projectPrimary, workID, projectSecondary)
 			if work == 0 {
 				fmt.Fprintf(&statements, "INSERT INTO workflow_instances(work_id,workflow_type,step_plan,instance_state,started_at) VALUES('%s','change','%s','running','2026-08-01T00:00:00Z');", workID, planJSON)
@@ -153,7 +153,7 @@ func seedReadPopulationFocusWork(t *testing.T, s *store.Store) {
 	t.Helper()
 	ctx := context.Background()
 	events := []store.Event{
-		{EventID: "population-work-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: readPopulationWork, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Population focus","priority":1}`)},
+		{EventID: "population-work-create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: readPopulationWork, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 4, Payload: json.RawMessage(`{"work_kind":"task","title":"Population focus"}`)},
 		{EventID: "population-work-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: readPopulationWork, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"proj-web","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
 	}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: events, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, readPopulationWork): 0}}); err != nil {

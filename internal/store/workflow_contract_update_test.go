@@ -20,7 +20,7 @@ func reviseContractRecord(t *testing.T, s *Store, workID string, owner WorkflowA
 		return err
 	}
 	payload, err := json.Marshal(map[string]any{
-		"title": "Updated plan", "value_statement": "Retain valid proof", "kind": kind, "tags": []string{},
+		"title": "Updated plan", "kind": kind,
 		"reason": "revise the plan", "expected_version": expected, "resulting_version": expected + 1, "contract": contract,
 	})
 	if err != nil {

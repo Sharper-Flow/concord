@@ -22,7 +22,7 @@ type outcomeRetirementProof struct {
 	checksum string
 	digest   string
 	verified bool
-	// refusal is raised only if migration 185 has rows that need the proof.
+	// A retirement raises refusal only if its source needs the proof.
 	refusal error
 }
 
@@ -31,7 +31,9 @@ func withOutcomeRetirementProof(ctx context.Context, snapshot string, manifest B
 }
 
 func prepareOutcomeRetirementUpgrade(ctx context.Context, before map[int]appliedMigration, options []UpgradeOptions) (context.Context, error) {
-	if _, done := before[185]; !done {
+	_, outcomeDone := before[185]
+	_, captureDone := before[186]
+	if !outcomeDone || !captureDone {
 		for _, option := range options {
 			if option.SnapshotPath != "" {
 				return prepareOutcomeRetirementSnapshot(ctx, option.SnapshotPath)
@@ -52,13 +54,15 @@ func prepareOutcomeRetirementSnapshot(ctx context.Context, path string) (context
 // A supplied snapshot is compared with the same current-state digest as the
 // backup verifier, under the migration transaction, before any pending
 // migration changes rows. Drift is recorded rather than refused here: only
-// migration 185 knows whether it has rows the snapshot must preserve.
+// each retirement knows whether it has rows the snapshot must preserve.
 func verifyOutcomeRetirementSnapshot(ctx context.Context, tx *sql.Tx, scope migrationScope, applied map[int]appliedMigration) error {
 	if scope != migrateForUpgrade || len(applied) == 0 {
 		return nil
 	}
 	if _, done := applied[185]; done {
-		return nil
+		if _, captureDone := applied[186]; captureDone {
+			return nil
+		}
 	}
 	proof, ok := ctx.Value(outcomeRetirementProofKey{}).(*outcomeRetirementProof)
 	if !ok {

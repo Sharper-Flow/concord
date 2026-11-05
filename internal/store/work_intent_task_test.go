@@ -14,7 +14,7 @@ func TestCapturePersistsTaskAndFullReadReturnsIt(t *testing.T) {
 	seedBootstrapStoreAuthority(t, s, repo)
 
 	const workID, task = "captured-task", "persist this task"
-	create := operationEvent("captured-task-create", "work.created", SubjectWorkItem, workID, map[string]any{"work_kind": "task", "title": "Task", "task": task, "value_statement": "Task round trip", "priority": 1})
+	create := operationEvent("captured-task-create", "work.created", SubjectWorkItem, workID, map[string]any{"work_kind": "task", "title": "Task", "task": task})
 	create.PayloadVersion = CurrentEventPayloadVersion("work.created")
 	membership := operationEvent("captured-task-membership", "work.memberships_replaced", SubjectWorkItem, workID, map[string]any{"memberships": []workMembershipPayload{{ProjectID: "project-bootstrap", Role: "primary"}}, "expected_version": 1, "resulting_version": 2})
 	if err := ApplyOperation(t.Context(), s, Operation{Events: []Event{create, membership}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
@@ -48,19 +48,19 @@ func TestIntentRevisionTaskRoundTripPreservesAbsentAndReplacesPresent(t *testing
 	t.Parallel()
 	s := openTemp(t)
 	seedSchemaEvolutionBase(t, s)
-	create := Event{EventID: "task-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "task-work", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: []byte(`{"work_kind":"task","title":"Original","task":"initial task","value_statement":"Original statement","priority":2}`)}
+	create := Event{EventID: "task-create", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "task-work", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: CurrentEventPayloadVersion("work.created"), Payload: []byte(`{"work_kind":"task","title":"Original","task":"initial task"}`)}
 	membership := Event{EventID: "task-membership", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: "task-work", Actor: "operator", OccurredAt: time.Unix(1, 1).UTC(), PayloadVersion: 1, Payload: []byte(`{"work_id":"task-work","project_id":"schema-project","role":"primary","reason":"test","expected_version":1,"resulting_version":2}`)}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{create, membership}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "task-work"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	withoutTask := Event{EventID: "task-revise-preserve", Kind: "work.intent_revised", SubjectType: SubjectWorkItem, SubjectID: "task-work", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"title":"Revised","value_statement":"Revised statement","kind":"task","priority":3,"tags":[],"reason":"clarified","expected_version":2,"resulting_version":3}`)}
+	withoutTask := Event{EventID: "task-revise-preserve", Kind: "work.intent_revised", SubjectType: SubjectWorkItem, SubjectID: "task-work", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"title":"Revised","kind":"task","reason":"clarified","expected_version":2,"resulting_version":3}`)}
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{withoutTask}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "task-work"): 2}}); err != nil {
 		t.Fatal(err)
 	}
 	assertStoredTask(t, s, "task-work", "initial task")
 
 	updatedTask := "updated task"
-	withTaskPayload, err := json.Marshal(map[string]any{"title": "Revised again", "value_statement": "Revised statement again", "kind": "task", "task": updatedTask, "priority": 4, "tags": []string{}, "reason": "clarified again", "expected_version": 3, "resulting_version": 4})
+	withTaskPayload, err := json.Marshal(map[string]any{"title": "Revised again", "kind": "task", "task": updatedTask, "reason": "clarified again", "expected_version": 3, "resulting_version": 4})
 	if err != nil {
 		t.Fatal(err)
 	}

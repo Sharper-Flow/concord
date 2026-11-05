@@ -302,7 +302,7 @@ func TestMaintenanceIsExclusiveAndDoesNotWait(t *testing.T) {
 // the acquisition creates an absent root before opening it, so the lock is
 // held from the first command on and a second command refuses.
 // The release retains the bootstrapped root and its ancestors: retention
-// (obs:1ca149d633e69626) is the approved outcome, because no cleanup can
+// is the approved outcome, because no cleanup can
 // prove a replacement holder has not taken the directory over.
 func TestMaintenanceLocksAnAbsentRootBeforeAnyStateWork(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "concord")
@@ -496,8 +496,8 @@ func TestMaintenanceRefusesARootReplacedByASymlinkBetweenOpenAndFlock(t *testing
 	}
 }
 
-// The release retains the empty bootstrap chain the acquisition created
-// (obs:1ca149d633e69626): retained disk space is the accepted cost
+// The release retains the empty bootstrap chain the acquisition created:
+// retained disk space is the accepted cost
 // of never letting a cleanup delete a directory a replacement holder may
 // own. A root another participant recreated during the hold, a root the
 // command never bootstrapped, and the bootstrapped chain itself all survive

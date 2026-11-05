@@ -254,7 +254,8 @@ func seedWorkItems(ctx context.Context, s *store.Store, c Corpus, versions map[s
 		if created.To != nil {
 			to = *created.To
 		}
-		workEvents := []store.Event{fixtureEvent("create-"+w.ID, "work.created", 4, store.SubjectWorkItem, w.ID, actor, w.CreatedAt, map[string]any{"work_kind": "task", "title": w.ID, "priority": w.Priority, "from": created.From, "to": to})}
+		_ = to
+		workEvents := []store.Event{fixtureEvent("create-"+w.ID, "work.created", 4, store.SubjectWorkItem, w.ID, actor, w.CreatedAt, map[string]any{"work_kind": "task", "title": w.ID})}
 		// Membership is written the way the capture path writes it: one
 		// work.memberships_replaced carrying the whole set, not one
 		// work_project.added per Project. Both are legal, and they consume a
@@ -340,17 +341,10 @@ func fixtureTransitionStates(event Event, from, to string) (string, string) {
 
 func seedWorkRelations(ctx context.Context, s *store.Store, c Corpus, versions map[string]int64) error {
 	for _, r := range c.Fixtures.Relations {
-		switch r.Kind {
-		case "depends_on":
-			event := fixtureEvent("relation-depends", "relation.added", 1, store.SubjectWorkItem, r.Target, "operator", "2026-08-06T00:00:00Z", map[string]any{"from": r.Target, "to": r.Source, "kind": "blocks", "reason": "fixture dependency", "expected_version": versions[r.Target], "resulting_version": versions[r.Target] + 1})
+		if r.Kind == "depends_on" {
+			event := fixtureEvent("relation-depends-"+r.Source+"-"+r.Target, "relation.added", 1, store.SubjectWorkItem, r.Target, "operator", "2026-08-06T00:00:00Z", map[string]any{"from": r.Target, "to": r.Source, "kind": "blocks", "reason": "fixture dependency", "expected_version": versions[r.Target], "resulting_version": versions[r.Target] + 1})
 			if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{event}}); err != nil {
 				return fmt.Errorf("pm1fixture: seed depends_on relation %s->%s: %w", r.Source, r.Target, err)
-			}
-			versions[r.Target]++
-		case "supersedes":
-			event := fixtureEvent("relation-supersedes", "work.superseded", 1, store.SubjectWorkItem, r.Target, "operator", "2026-08-06T00:00:00Z", map[string]any{"successor": r.Source, "superseded": r.Target, "reason": "fixture supersession", "expected_version": versions[r.Target], "resulting_version": versions[r.Target] + 1})
-			if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{event}}); err != nil {
-				return fmt.Errorf("pm1fixture: seed supersedes relation %s->%s: %w", r.Source, r.Target, err)
 			}
 			versions[r.Target]++
 		}
@@ -424,35 +418,6 @@ func writeFixtureRegistry(repo string) error {
 			Purpose: "Product-wide fixture law", Status: "current", ArchitectureRelations: []store.KnowledgeArchitectureRelation{}}},
 	}
 	return WriteKnowledgeShards(repo, registry)
-}
-
-// SeedGoverningRequirement declares one CD-0035 governing requirement against a
-// seeded Project. It stays separate from Seed to keep base Project versions stable.
-func SeedGoverningRequirement(ctx context.Context, s *store.Store, projectID, requirementRef, reason string) error {
-	var current int64
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM projects WHERE id=?`, projectID).Scan(&current); err != nil {
-		return fmt.Errorf("pm1fixture: read Project %s version: %w", projectID, err)
-	}
-	event := fixtureEvent(
-		"governing-requirement-"+projectID+"-"+requirementRef,
-		"project.governing_requirement_declared",
-		1,
-		store.SubjectProject,
-		projectID,
-		"operator",
-		"2026-08-07T12:00:00Z",
-		map[string]any{
-			"project_id":        projectID,
-			"requirement_ref":   requirementRef,
-			"reason":            reason,
-			"expected_version":  current,
-			"resulting_version": current + 1,
-		},
-	)
-	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectProject, projectID): current}}); err != nil {
-		return fmt.Errorf("pm1fixture: declare governing requirement %s on %s: %w", requirementRef, projectID, err)
-	}
-	return nil
 }
 
 func fixtureEvent(id, kind string, payloadVersion int, subject store.SubjectType, subjectID, actor, occurred string, payload map[string]any) store.Event {

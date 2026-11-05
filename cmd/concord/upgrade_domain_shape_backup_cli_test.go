@@ -152,7 +152,11 @@ func TestUpgradeRetiringDomainShapeSnapshotsRowsBeforeDrop(t *testing.T) {
 		t.Fatal(err)
 	}
 	for table, rows := range shapeCLIState(t, path, false) {
-		if !reflect.DeepEqual(rows, before[table]) {
+		want := before[table]
+		if table == "work_items" {
+			want = expectedMinimalWorkRows(t, want)
+		}
+		if !reflect.DeepEqual(rows, want) {
 			t.Fatalf("upgrade changed retained %s:\nbefore: %v\nafter: %v", table, before[table], rows)
 		}
 	}
@@ -308,13 +312,16 @@ DELETE FROM write_guard`); err != nil {
 	if err != nil || manifest.SchemaVersion != 171 {
 		t.Fatalf("remediated upgrade snapshot schema=%d err=%v", manifest.SchemaVersion, err)
 	}
-	for _, source := range []string{report.Backup, path} {
-		db = openRawSQLite(t, source)
-		if rows := lawCoverageFixtureRows(t, db, "work_context_state"); !reflect.DeepEqual(rows, remediated) {
-			t.Fatalf("upgrade changed the remediated declaration in %s: %v", source, rows)
-		}
-		if err := db.Close(); err != nil {
-			t.Fatal(err)
-		}
+	db = openRawSQLite(t, report.Backup)
+	if rows := lawCoverageFixtureRows(t, db, "work_context_state"); !reflect.DeepEqual(rows, remediated) {
+		t.Fatalf("snapshot changed the remediated declaration: %v", rows)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db = openRawSQLite(t, path)
+	var objects int
+	if err := db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='work_context_state'`).Scan(&objects); err != nil || objects != 0 {
+		t.Fatalf("retired work context table count=%d err=%v", objects, err)
 	}
 }

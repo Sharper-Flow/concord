@@ -62,6 +62,7 @@ type Q3Request struct {
 	AmbientProject  string
 	ProjectIDs      []string
 	WorkIDs         []string
+	LinearIssueKey  string
 	LifecycleStates []string
 	Kind            string
 	TerminalSince   *string
@@ -135,6 +136,7 @@ type WorkItem struct {
 	UpdatedAt             string              `json:"updated_at"`
 	TerminalAt            string              `json:"terminal_at,omitempty"`
 	Task                  string              `json:"task,omitempty"`
+	LinearIssueKey        string              `json:"linear_issue_key,omitempty"`
 	Projects              []ProjectMembership `json:"projects,omitempty"`
 	Blocked               bool                `json:"blocked"`
 	Ready                 bool                `json:"ready"`
@@ -546,6 +548,9 @@ func decodeQ3Cursor(raw string, req Q3Request, states []string, order string) (q
 
 func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	var out Q3Result
+	if req.LinearIssueKey != "" && (len(req.LinearIssueKey) > 64 || !linearIssueKeyPattern.MatchString(req.LinearIssueKey)) {
+		return out, newFailure(KindInvalidFilter, "PM1.Q3", "issue key must be a Linear issue key such as CON-801", false, "supply a valid Linear issue key")
+	}
 	limit, err := queryLimit(req.Limit)
 	if err != nil {
 		return out, err
@@ -598,6 +603,9 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	}
 	items, err = attachDerivedFlags(ctx, tx, items)
 	if err != nil {
+		return out, err
+	}
+	if err := attachLinearIssueKeys(ctx, tx, items); err != nil {
 		return out, err
 	}
 	if req.Detail == "full" {
@@ -694,6 +702,10 @@ func q3FilterSQL(req Q3Request, states []string) (string, []any) {
 		placeholders += " AND kind = ?"
 		stateArgs = append(stateArgs, req.Kind)
 	}
+	if req.LinearIssueKey != "" {
+		placeholders += " AND EXISTS (SELECT 1 FROM linear_issue_links l WHERE l.work_id=base.id AND l.human_key=?)"
+		stateArgs = append(stateArgs, req.LinearIssueKey)
+	}
 	if len(req.WorkIDs) > 0 {
 		ph := make([]string, len(req.WorkIDs))
 		for i := range ph {
@@ -707,6 +719,32 @@ func q3FilterSQL(req Q3Request, states []string) (string, []any) {
 		stateArgs = append(stateArgs, *req.TerminalSince)
 	}
 	return placeholders, stateArgs
+}
+
+func attachLinearIssueKeys(ctx context.Context, tx *sql.Tx, items []WorkItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	placeholders := make([]string, len(items))
+	args := make([]any, len(items))
+	byID := make(map[string]int, len(items))
+	for i := range items {
+		placeholders[i], args[i] = "?", items[i].ID
+		byID[items[i].ID] = i
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT work_id, human_key FROM linear_issue_links WHERE work_id IN (`+strings.Join(placeholders, ",")+`)`, args...) //nolint:gosec // Only generated placeholders are interpolated.
+	if err != nil {
+		return wrapFailure(KindUnavailable, "PM1.Q3", "cannot read Linear issue keys", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, key string
+		if err := rows.Scan(&id, &key); err != nil {
+			return wrapFailure(KindUnavailable, "PM1.Q3", "cannot decode Linear issue keys", true, "retry once the database is readable", err)
+		}
+		items[byID[id]].LinearIssueKey = key
+	}
+	return rows.Err()
 }
 
 func attachQ3FullDetail(ctx context.Context, tx *sql.Tx, items []WorkItem) error {

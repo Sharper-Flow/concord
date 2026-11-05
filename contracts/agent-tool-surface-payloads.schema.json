@@ -1257,6 +1257,10 @@
         "title": {
           "$ref": "#/$defs/retained_work_text"
         },
+        "linear_issue_key": {
+          "type": "string",
+          "maxLength": 64
+        },
         "task": {
           "type": "string",
           "minLength": 1,
@@ -1501,6 +1505,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "linear_issue_key": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9]*-[1-9][0-9]*$",
+          "maxLength": 64,
+          "description": "Filter by Linear issue key. Bounds: <=64 code points inclusive"
+        },
         "product_id": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"

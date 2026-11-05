@@ -13,7 +13,7 @@ import (
 )
 
 // issueLinkRecordFixture opens a store with one Product, one primary Project,
-// and the named work items, plus a work_define grant.
+// and the named work items, plus a work_define and product_read grant.
 func issueLinkRecordFixture(t *testing.T, workIDs ...string) (*store.Store, *Service, CallEnvelope) {
 	t.Helper()
 	s, err := storetest.Open(t.TempDir())
@@ -33,7 +33,7 @@ func issueLinkRecordFixture(t *testing.T, workIDs ...string) (*store.Store, *Ser
 	for _, workID := range workIDs {
 		seedLinkWorkItem(t, s, workID, "project-1")
 	}
-	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"work_define"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"work_define", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -112,6 +112,9 @@ func TestDispatchIssueLinkRecordRefusesSecondAndForeignIdentity(t *testing.T) {
 		}
 		if err != nil || response.Error == nil || !strings.Contains(response.Error.Message, tc.want) {
 			t.Fatalf("%s: response error=%+v err=%v", tc.name, response.Error, err)
+		}
+		if tc.name == "foreign issue" && (response.Error.Kind != "invalid_relation" || response.Error.EffectState != "none" || !strings.Contains(response.Error.Message, "link-held-work")) {
+			t.Fatalf("foreign issue must name the readable holder: %+v", response.Error)
 		}
 	}
 	var key string

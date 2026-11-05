@@ -123,15 +123,16 @@ type productSnapshotInput struct {
 	Limit        int       `json:"limit,omitempty"`
 }
 type workListInput struct {
-	ProductID     string    `json:"product_id"`
-	ProjectIDs    []string  `json:"project_ids"`
-	WorkIDs       []string  `json:"work_ids"`
-	Lifecycle     string    `json:"lifecycle"`
-	Kind          string    `json:"kind"`
-	Detail        string    `json:"detail"`
-	TerminalSince *string   `json:"terminal_since"`
-	Page          pageInput `json:"page"`
-	Limit         int       `json:"limit,omitempty"`
+	ProductID      string    `json:"product_id"`
+	ProjectIDs     []string  `json:"project_ids"`
+	WorkIDs        []string  `json:"work_ids"`
+	LinearIssueKey string    `json:"linear_issue_key"`
+	Lifecycle      string    `json:"lifecycle"`
+	Kind           string    `json:"kind"`
+	Detail         string    `json:"detail"`
+	TerminalSince  *string   `json:"terminal_since"`
+	Page           pageInput `json:"page"`
+	Limit          int       `json:"limit,omitempty"`
 }
 type historyInput struct {
 	WorkID      string    `json:"work_id"`
@@ -1036,6 +1037,7 @@ type workSummary struct {
 	// the single-record scope read and the full-detail list read. Bounded
 	// summary and preview reads leave it empty.
 	Task                  string                    `json:"task,omitempty"`
+	LinearIssueKey        string                    `json:"linear_issue_key,omitempty"`
 	Lifecycle             string                    `json:"lifecycle"`
 	Version               int64                     `json:"version"`
 	ProjectIDs            []string                  `json:"project_ids,omitempty"`
@@ -1060,7 +1062,7 @@ func summary(w store.WorkItem) workSummary {
 	if w.TerminalAt != "" {
 		terminal = &w.TerminalAt
 	}
-	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, Lifecycle: w.Lifecycle, Version: w.Version, ProjectIDs: ids, Ready: w.Ready, TerminalAt: terminal, CreatedAt: w.CreatedAt, PendingProjectHandoff: w.PendingProjectHandoff, LawContext: w.LawContext, NativeRuns: w.NativeRuns}
+	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, LinearIssueKey: w.LinearIssueKey, Lifecycle: w.Lifecycle, Version: w.Version, ProjectIDs: ids, Ready: w.Ready, TerminalAt: terminal, CreatedAt: w.CreatedAt, PendingProjectHandoff: w.PendingProjectHandoff, LawContext: w.LawContext, NativeRuns: w.NativeRuns}
 }
 func (r runtime) q1(base agentcontract.Envelope, q store.Q1Result) (agentcontract.Envelope, error) {
 	projects := []map[string]any{}

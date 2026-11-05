@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -50,11 +51,40 @@ func TestLinearLinkOneLiveItemPerIssue(t *testing.T) {
 			if !errors.As(err, &failure) || failure.Kind != KindInvalidRelation {
 				t.Fatalf("collision error = %v, want typed %s", err, KindInvalidRelation)
 			}
-			if !strings.Contains(failure.Detail, "another live work item") || strings.Contains(failure.Detail, "link-first") {
-				t.Fatalf("refusal must report the collision without an unscoped holder identity: %+v", failure)
+			if !strings.Contains(failure.Detail, "another live work item") || strings.Contains(failure.Detail, "link-first") || failure.HoldingWorkID != "link-first" {
+				t.Fatalf("refusal must carry the holder without publishing it: %+v", failure)
+			}
+			encoded, err := json.Marshal(failure)
+			if err != nil || strings.Contains(string(encoded), "link-first") {
+				t.Fatalf("serialized refusal exposes holder: %s, %v", encoded, err)
 			}
 		})
 	}
+	t.Run("cross product", func(t *testing.T) {
+		err := ApplyOperation(context.Background(), s, Operation{
+			Events: []Event{
+				productCreatedEvent("product-other", "create-product-other"),
+				projectCreatedEvent("project-other", "create-project-other"),
+				operationEvent("other-product-project", "product_project.added", SubjectProduct, "product-other", map[string]any{"product_id": "product-other", "project_id": "project-other", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2}),
+				workCreatedEvent("link-other", "create-link-other"),
+				operationEvent("membership-link-other", "work_project.added", SubjectWorkItem, "link-other", map[string]any{"work_id": "link-other", "project_id": "project-other", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2}),
+			},
+			ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-other"): 0, VersionRef(SubjectProject, "project-other"): 0, VersionRef(SubjectWorkItem, "link-other"): 0},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		recordLink(t, s, "link-other", "CON-8200", "uuid-other-product")
+		seedLinkWork(t, s, "link-probe")
+		err = s.Transact(context.Background(), func(tx *Transaction) error {
+			_, err := RecordLinearIssueLinkTx(context.Background(), tx, LinearIssueLink{WorkID: "link-probe", RemoteIssueUUID: "uuid-other-product", HumanKey: "CON-8200", URL: "https://linear.app/example/issue/CON-8200"})
+			return err
+		})
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindInvalidRelation || !strings.Contains(failure.Detail, "another live work item") || strings.Contains(failure.Detail, "link-other") || failure.HoldingWorkID != "link-other" {
+			t.Fatalf("cross-product holder must stay anonymous: %v", err)
+		}
+	})
 }
 
 func TestLinearLinkTerminalHolderDoesNotBlock(t *testing.T) {
@@ -71,6 +101,15 @@ func TestLinearLinkTerminalHolderDoesNotBlock(t *testing.T) {
 	var count int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM linear_issue_links WHERE remote_issue_uuid='uuid-link-terminal'`).Scan(&count); err != nil || count != 2 {
 		t.Fatalf("terminal identity must stay recorded while a fresh live item recaptures: count=%d err=%v", count, err)
+	}
+}
+
+func TestLinearLinkQ3InvalidKey(t *testing.T) {
+	s := openTemp(t)
+	_, err := s.QueryQ3(context.Background(), Q3Request{LinearIssueKey: "con-123"})
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidFilter || failure.Op != "PM1.Q3" || !strings.Contains(failure.Detail, "CON-801") {
+		t.Fatalf("invalid Linear filter: %v", err)
 	}
 }
 

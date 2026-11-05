@@ -925,6 +925,9 @@ func init() {
 		pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkCreated", "len(payload.Task)"),
 		pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkIntentRevised", "len(*payload.Task)"),
 	))
+	// The summary key echoes linear_issue_links.human_key, whose only writers
+	// pass validateLinearIssueLink's byte guard; the table CHECK repeats it.
+	registerOutputBound("/$defs/work_summary/properties/linear_issue_key/maxLength", goInlineBound("internal/store/linear_issue_link.go", "validateLinearIssueLink", "len(link.HumanKey)", boundBytes))
 	registerOutputBound("/$defs/work_summary/properties/terminal_at/maxLength", pkTimeLayoutWidthBound("internal/store/lifecycle.go", "updateWorkLifecycle", "time.RFC3339Nano"))
 
 }

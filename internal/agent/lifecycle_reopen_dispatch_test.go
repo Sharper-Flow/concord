@@ -171,7 +171,7 @@ func TestReopenDeclinedIntakeCanProceed(t *testing.T) {
 func TestReopenDispatch(t *testing.T) {
 	for _, name := range []string{"exact", "stale", "live", "holder"} {
 		t.Run(name, func(t *testing.T) {
-			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition", "product_read"})
 			scope, _, err := s.ScopeVersion(context.Background(), "project-1")
 			if err != nil {
 				t.Fatal(err)
@@ -199,11 +199,13 @@ func TestReopenDispatch(t *testing.T) {
 					t.Fatalf("cancel: %+v", cancelled.Error)
 				}
 			}
+			var holderID string
 			if name == "holder" {
 				holder := dispatchCapture(t, s, service, grant, scope, "new-holder", `{"title":"New holder","kind":"task","project_ids":["project-1"],"human_key":"ZZ-9010","remote_issue_uuid":"reopen-uuid","url":"https://example.com/issue/ZZ-9010","idempotency_key":"new-holder"}`)
 				if holder.Outcome != agentcontract.OutcomeOK || holder.ChangedRefs == nil || len(*holder.ChangedRefs) == 0 {
 					t.Fatalf("holder: %+v", holder.Error)
 				}
+				holderID = (*holder.ChangedRefs)[0].ID
 			}
 			version := 4
 			if name == "stale" || name == "live" {
@@ -254,7 +256,7 @@ func TestReopenDispatch(t *testing.T) {
 				case "live":
 					kind, message = "invalid_input", "work.reopened must name a terminal prior state and reason"
 				case "holder":
-					kind, message = "invalid_relation", "another live work item already holds that Linear issue UUID"
+					kind, message = "invalid_relation", "another live work item already holds that Linear issue UUID: "+holderID
 				}
 				if response.Error.Kind != kind || response.Error.Message != message || response.Error.EffectState != "none" {
 					t.Fatalf("refusal = %+v, want kind=%s message=%q effect_state=none", response.Error, kind, message)

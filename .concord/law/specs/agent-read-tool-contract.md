@@ -99,13 +99,18 @@ rather than historical explanation.
 
 | Operation | PM1 | Required/optional inputs | Typed payload |
 |---|---|---|---|
-| `list` | Q3 | Product scope; closed lifecycle/Project/kind/terminal-window filters; optional stable work IDs; `detail`; cursor/limit | `work_page`: ordered unique summaries or bounded full records |
+| `list` | Q3 | Product scope; closed lifecycle/Project/kind/terminal-window/Linear-issue-key filters; optional stable work IDs; `detail`; cursor/limit | `work_page`: ordered unique summaries or bounded full records; each linked item's summary carries its recorded Linear issue key |
 
 `list` with one stable work ID and `detail=full` replaces a separate `show` tool.
 It supplies current law context, pending handoff and native runs.
 List readiness is derived from lifecycle and live canonical blockers, not a
 caller-authored filter. A needed item whose `ready` is absent or false is
 blocked. The `relations` read supplies the bounded blocker graph.
+A `linear_issue_key` filter matches every item whose recorded
+`linear_issue_links` row holds exactly that key, terminal items included. At
+most one match is live, so a session resuming a Linear ticket finds its work
+item without title matching. An item with no recorded link omits the key and
+never matches the filter.
 
 ### 2.3 `concord_work_trace`
 

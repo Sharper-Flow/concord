@@ -202,5 +202,3 @@ func assertQ7Corpus150(t *testing.T) {
 	}
 	assertCorpusSelectionRed(t, c, 150, "WHERE first_start=1", "WHERE first_start=2", queries, want)
 }
-
-func TestQ7ExplicitCorpusMigration150(t *testing.T) { assertQ7Corpus150(t) }

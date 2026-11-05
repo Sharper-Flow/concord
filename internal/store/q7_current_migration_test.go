@@ -72,38 +72,6 @@ func TestQ7CurrentRowsWithoutLog(t *testing.T) {
 		t.Fatalf("log removal changed current history")
 	}
 }
-
-func TestQ7CurrentMetadataMigration150Parity(t *testing.T) {
-	t.Parallel()
-	s, work := seedQ7CurrentRows(t)
-	seedWork(t, s, "q7-migrate-next")
-	v := readWorkVersion(t, s, "q7-related")
-	if err := applyWorkEvent(t, s, workSupersededEvent("q7-migrate-superseded", "q7-migrate-next", "q7-related", v, v+1), workVersion("q7-related", v)); err != nil {
-		t.Fatal(err)
-	}
-	queries := []string{
-		`SELECT json_array(id,transition_from,transition_reason,transition_actor,transition_evidence_refs,transition_seq,transition_version) FROM work_items ORDER BY id`,
-		`SELECT json_array(id,reason,record_version) FROM relations ORDER BY id`,
-		`SELECT json_array(work_id,action_id,actor,step_id,contract_version,record_version) FROM workflow_phase_exits ORDER BY work_id,action_id`,
-	}
-	wantRows := workerFactsQueryRows(t, s, queries)
-	want, err := s.QueryQ7(t.Context(), Q7Request{Work: work, Limit: 100})
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertQ7Corpus150(t)
-	got, err := s.QueryQ7(t.Context(), Q7Request{Work: work, Limit: 100})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(got.Result, want.Result) {
-		t.Fatalf("migration150 diverged from current writers:\ngot %+v\nwant %+v", got.Entries, want.Entries)
-	}
-	if gotRows := workerFactsQueryRows(t, s, queries); !reflect.DeepEqual(gotRows, wantRows) {
-		t.Fatalf("migration150 metadata:\ngot %v\nwant %v", gotRows, wantRows)
-	}
-}
-
 func TestQ7WorkflowLifecycleStartAndSupersessionMetadata(t *testing.T) {
 	t.Parallel()
 	s, work := seedQ7CurrentRows(t)

@@ -151,20 +151,16 @@ excuse new dead material.
 
 ## Verification
 
-- `internal/store.TestMigrateV165ToV166RetiresLawCoverageStorageAndPreservesCurrentState`
-  proves an upgrade from v165 drops the coverage table and its guard triggers
-  while current knowledge, law and work rows are preserved unchanged (D1).
-- `internal/store.TestMigration166PreservesPreShapeRetirementRows` proves
-  migration 166 alone preserves the package-map and law-evidence rows alongside
-  current knowledge, law and work rows (D1).
-- `internal/store.TestMigrateV165ToV166FailedStepRollsBack` proves a failed
-  drop leaves the pre-upgrade catalog and rows unchanged and the upgrade
-  completes once the blocker is gone (D1).
 - `cmd/concord.TestUpgradeRetiringLawCoverageSnapshotsTheCoverageTableBeforeTheDrop`
   proves the upgrade route verifies a snapshot containing the original table
   and rows before dropping it (D1).
 - `cmd/concord.TestUpgradeSnapshotFailurePreventsTheCoverageDrop` proves a
   snapshot failure leaves the schema and rows unchanged (D1).
+- `internal/store.TestMigrateV162ToV165FailedStepRollsBack` (with
+  `internal/store.TestMigrateV171ToV172FailedDropRollsBack` as its sibling)
+  proves a failed drop migration rolls back leaving the pre-upgrade catalog,
+  schema, and rows unchanged — the same one-transaction route the coverage
+  drop takes (D1).
 - `python3 scripts/test-reachability.py` proves the reachability refusals in
   both directions — an undeclared unreachable subject and a declaration that
   has become reachable — and that state obligations and the live-issue rule

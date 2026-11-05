@@ -6,7 +6,7 @@ import (
 	"slices"
 )
 
-// The per-item step plan (CON-1574). Each work item's workflow row carries one
+// The per-item step plan. Each work item's workflow row carries one
 // JSON plan copied from contracts/workflow-step-templates.v1.json when the
 // driving agent picks the type. The plan is written only when the type is
 // picked, when a step is inserted, and when a step completes; every write
@@ -65,7 +65,6 @@ type WorkflowPlanAttempt struct {
 	Link     string `json:"link,omitempty"`
 }
 
-// WorkflowPlanStep is one step of a stored plan.
 type WorkflowPlanStep struct {
 	ID       string                `json:"id"`
 	Required bool                  `json:"required"`
@@ -77,7 +76,6 @@ type WorkflowPlanStep struct {
 	Attempts []WorkflowPlanAttempt `json:"attempts,omitempty"`
 }
 
-// WorkflowStepPlan is the stored plan document.
 type WorkflowStepPlan struct {
 	SchemaVersion string               `json:"schema_version"`
 	Type          WorkflowStepPlanType `json:"type"`

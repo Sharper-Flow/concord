@@ -36,8 +36,6 @@ type Store struct {
 	// so a test can interleave a committed state change into exactly that
 	// window. Production leaves it nil.
 	retireProbeInterleave func()
-	// Observation-only seam at the native test program's successful Start.
-	// It cannot replace execution or change authorization.
 
 	// durableCommits counts the durable transactions this handle committed.
 	durableCommits atomic.Uint64
@@ -99,8 +97,8 @@ func DefaultPath() (string, error) {
 // Open prepares the authority at path, creating the file and its parent
 // directory when absent, and brings the schema up to date. A stamped release
 // applies additive migrations only: when the next pending migration is breaking
-// it refuses with KindUpgradeRequired, and Upgrade applies that step (CD-0111
-// D3). An unstamped build migrates only a fresh store and admits an existing
+// it refuses with KindUpgradeRequired, and Upgrade applies that step.
+// An unstamped build migrates only a fresh store and admits an existing
 // store only when every known migration is already applied.
 func Open(ctx context.Context, path string) (*Store, error) {
 	s, err := openUnmigrated(ctx, path)
@@ -254,7 +252,7 @@ func prepareResearchRetirementUpgrade(ctx context.Context, before map[int]applie
 	return ctx, "", nil
 }
 
-// CheckUpgradeSessions is the CD-0111 D3 gate: a breaking step never applies
+// CheckUpgradeSessions is the upgrade gate: a breaking step never applies
 // under a live session whose release predates it. Each refused session is
 // named with the first pending breaking step it predates. The CLI checks its
 // plan before taking a snapshot; Upgrade rechecks before applying migrations.

@@ -20,12 +20,12 @@ const installedReleaseLink = "current"
 var installerReleaseName = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
 
 // ReleaseManagedRecovery is the route a refused binary takes instead of the
-// installed store (CD-0240 D2).
+// installed store.
 const ReleaseManagedRecovery = "run the installed release, or set CONCORD_DB_PATH to a fresh path outside any repository; to work against this history, restore a backup of it to such a path"
 
 // AdmitStorePath refuses, before any file is touched, a database in a data
 // root the installer manages unless the running binary is one the installer
-// placed there (CD-0240 D1). A branch, development, or test build, including
+// placed there. A branch, development, or test build, including
 // one built inside a managed worktree under the data root, is not, so it
 // never opens, migrates, or writes the installed store, whatever its version
 // stamp. An unresolvable data root or binary fails closed.

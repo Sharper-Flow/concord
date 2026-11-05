@@ -97,7 +97,7 @@ func appendEvent(ctx context.Context, tx *sql.Tx, e Event, allowCompletion bool)
 // derive a typed effect use it without recursively resolving the registry
 // that binds those writers during package initialization.
 func appendPreparedEvent(ctx context.Context, tx *sql.Tx, e Event) (Sequence, error) {
-	// Refuse an initiative work.created payload before the receipt exists (CD-0213 D4).
+	// Refuse an initiative work.created payload before the receipt exists.
 	if err := refuseRetiredPlanningAppend(e); err != nil {
 		return 0, err
 	}
@@ -199,11 +199,10 @@ func isJSONObject(payload []byte) bool {
 // the durable row from the same connection, never a stale snapshot from a
 // separate pool member.
 //
-// The SQLite default ON CONFLICT resolution is ABORT, which rolls back only
+// The SQLite default ON CONFLICT resolution is ABORT: it rolls back only
 // the failing statement and leaves the transaction usable for the follow-up
-// SELECT. If that guarantee ever changes, callers will see a read failure
-// rather than silently classify the wrong operation, and this function reports
-// it as KindUnavailable rather than guessing.
+// SELECT. If that guarantee ever changes, the follow-up read fails and this
+// function reports KindUnavailable rather than guessing.
 //
 // occurred_at is deliberately excluded from semantic identity: a legitimate
 // retry carries a fresh clock reading and must not be misclassified as

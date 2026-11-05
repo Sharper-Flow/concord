@@ -100,7 +100,7 @@ func appendWorkflowCompletionTx(ctx context.Context, tx *sql.Tx, event Event, sc
 	if err := advanceWorkEffectSeqTx(ctx, tx, completion); err != nil {
 		return workflowClauseError(err, 7)
 	}
-	// CD-0183 D3: the workflow's terminal state closes the work item
+	// The workflow's terminal state closes the work item
 	// lifecycle in this same transaction, so the lifecycle follows the
 	// workflow instead of stranding in_progress after a recorded completion.
 	// The completion fold has already marked the instance terminal, so the

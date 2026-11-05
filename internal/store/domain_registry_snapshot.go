@@ -7,7 +7,7 @@ import "context"
 // knowledgeSourceSetProof every law boundary consumes. The proof is
 // established before the caller's transaction opens, because resolving the
 // head and reading the committed registry are Git subprocesses the pooled
-// connection must never hold (CD-0195 D2). Inside the transaction the consumer
+// connection must never hold. Inside the transaction the consumer
 // revalidates the proof's home binding and committed content with the bounded
 // small-file checks, then reads the snapshot the proof carries. There is no
 // second proof carrier, no Store-held cache, and no SQL Domain projection
@@ -45,7 +45,7 @@ func (s *Store) EstablishDomainRegistryProof(ctx context.Context, productID stri
 // Product's designated home after revalidating the transaction's proof for
 // that home: the designation, the resolved canonical location, and the
 // committed law and registry content. It reads only SQL and small files; no
-// Git subprocess runs inside the transaction (CD-0195 D2).
+// Git subprocess runs inside the transaction.
 func lawSnapshotForProduct(ctx context.Context, q queryer, productID, op string) (*lawFolderSnapshot, error) {
 	home, err := resolveKnowledgeQueryHome(ctx, q, productID, op)
 	if err != nil {

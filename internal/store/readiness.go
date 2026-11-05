@@ -13,7 +13,7 @@ import (
 )
 
 // PlanUpgradeReadiness inspects the store at path and answers, without
-// applying anything, whether this binary may activate against it (CON-807).
+// applying anything, whether this binary may activate against it.
 // It creates no store, changes no permissions, applies no migration, and
 // repairs no manifest: one plain read-only SQLite connection (mode=ro) on
 // the existing store answers every question, and SQLite's own WAL and
@@ -33,7 +33,7 @@ import (
 // Schema-floor admission is necessary, not sufficient. An unblocked plan
 // says this binary may open the store; it does not promise that every
 // release pair coexists. A session keeps the pinned adapter/core pair it
-// started with (CD-0111 D1), and a pair whose surfaces disagree in ways the
+// started with, and a pair whose surfaces disagree in ways the
 // manifest cannot see is refused by the digest check, not by this plan.
 func PlanUpgradeReadiness(ctx context.Context, path string) (UpgradeReadiness, error) {
 	if strings.TrimSpace(path) == "" {
@@ -216,7 +216,7 @@ type UpgradeReadiness struct {
 	// later additive migrations have run. It is the store's floor, not this
 	// binary's schema version, and 0 when nothing breaking is applied.
 	// Admission at the floor is necessary, not sufficient, for a release
-	// pair to coexist; CD-0111 D1 pins each session's adapter/core pair.
+	// pair to coexist; each session's adapter/core pair is pinned.
 	CompatibilityFloor int `json:"compatibility_floor"`
 	// MigrationCommand is the exact operator-run migration command. The
 	// store fills a descriptive default; a caller that knows the release
@@ -245,7 +245,7 @@ const (
 // appliedBreakingFloor computes the store's compatibility floor from what it
 // actually applied: the highest breaking version in the manifest. Later
 // additive migrations never move it, and a manifest that applied nothing
-// breaking has no floor (schema.go's checkManifest rule, issue #722).
+// breaking has no floor (schema.go's checkManifest rule).
 func appliedBreakingFloor(applied map[int]appliedMigration) int {
 	floor := 0
 	for version, row := range applied {

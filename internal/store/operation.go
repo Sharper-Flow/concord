@@ -385,7 +385,6 @@ func applyOperationEventTx(ctx context.Context, tx *sql.Tx, event Event, expecte
 			return err
 		}
 	}
-	// Validate the current payload before recording any effect.
 	if err := validateRegisteredEvent(event); err != nil {
 		return attributeFailure(err, event, StageDecode)
 	}
@@ -548,12 +547,9 @@ func versionConflictForQuery(ctx context.Context, q queryer, subjectID string, e
 }
 
 func versionConflictWithActions(subjectType SubjectType, subjectID string, expected, got int64, exists bool, actions []InterveningAction) *Failure {
-	// A version conflict promises the caller a live version to re-read, and
-	// every layer above depends on that promise: the agent envelope refuses a
-	// version_conflict that names no current version. An absent subject has no
-	// live version to name, so reporting one as a version conflict produces a
-	// refusal that cannot be expressed, and the caller receives a transport
-	// fault in place of the decision the core reached.
+	// An absent subject must be reported as absent, not as a version
+	// conflict: the agent envelope refuses a version_conflict that names no
+	// current version, and an absent subject has none to name.
 	if !exists {
 		return newFailure(KindProjectionNotFound, "apply_operation",
 			fmt.Sprintf("%s %s does not exist, so its version cannot be compared with %d", subjectType, subjectID, expected), false,

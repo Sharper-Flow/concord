@@ -242,11 +242,11 @@ func replayPreparedWorkRemovalTx(ctx context.Context, tx *sql.Tx, req WorkRemova
 }
 
 func validateRemovalDestinationQ(ctx context.Context, q queryer, req WorkRemovalRequest) error {
-	// CD-0142 handoff, CD-0213 D3: a work item that records a Linear issue
+	// A work item that records a Linear issue
 	// identity hands its preservation to that issue. The agent confirms the
 	// handoff through the Linear MCP server; the store checks the
 	// confirmation against the recorded identity and makes no Linear call.
-	// Linear is the only planning authority (CD-0213 D1), so a removal
+	// Linear is the only planning authority, so a removal
 	// without a recorded issue identity and confirmation has no planning
 	// destination and refuses.
 	link, recorded, err := readLinearLinkCore(ctx, q, req.WorkID)

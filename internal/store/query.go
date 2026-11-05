@@ -621,7 +621,7 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 
 // prepareItemScopedLawProofs prepares the per-item verified law-folder
 // contexts an item-scoped full-detail read needs, before its transaction
-// opens (CD-0195 D2). Broad scans prepare nothing: law proof is per-item
+// opens. Broad scans prepare nothing: law proof is per-item
 // work and must not multiply over inventory reads.
 func prepareItemScopedLawProofs(ctx context.Context, s *Store, req Q3Request) (map[string]context.Context, error) {
 	proofs := map[string]context.Context{}

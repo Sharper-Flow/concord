@@ -16,12 +16,12 @@ import (
 // drop must not strand a law the index still names: before the migrating
 // transaction opens, every legacy law_subjects row of a designated home must
 // resolve by stable ID to current folder law or prove a committed law-folder
-// retirement. Git reads run outside the transaction (CD-0195 D2); the
+// retirement. Git reads run outside the transaction; the
 // transaction re-reads the inventory and each home's head cheaply and applies
 // the drop only while both still match what was accounted.
 //
 // Rows of a locator no Product designates are not Product law: resolution
-// reads designated homes only (CD-0200), and the verified upgrade snapshot
+// reads designated homes only, and the verified upgrade snapshot
 // keeps them with every other retired row.
 const lawIndexRetirementName = "law_index_retirement"
 

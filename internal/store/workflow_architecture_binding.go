@@ -214,7 +214,7 @@ type WorkflowContractTeaching struct {
 	// relation rules the architecture-binding guards enforce.
 	ArchitectureDomainRule string `json:"architecture_domain_rule"`
 	// AlignmentCombinationRule states the cross-field rule the
-	// record_alignment registry declaration enforces at payload validation.
+	// record_diagnosis registry declaration enforces at payload validation.
 	AlignmentCombinationRule string `json:"alignment_combination_rule"`
 }
 

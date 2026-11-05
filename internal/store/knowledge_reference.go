@@ -12,7 +12,7 @@ func orderedStrings(values []string) []string {
 }
 
 // parseQualifiedKnowledgeID splits the source-qualified reference form
-// "project_id/law_id" (CD-0200). Project IDs cannot contain '/', and the law
+// "project_id/law_id". Project IDs cannot contain '/', and the law
 // folder refuses '/' inside a stable law ID, so the first '/' is the exact
 // split point and a second '/' is a malformed reference, never a nested path.
 // A bare reference is its own law ID.

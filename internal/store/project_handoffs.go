@@ -17,13 +17,13 @@ import (
 	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
-// Project-session handoff (CD-0182 amendment): a bounded typed work-scoped
+// Project-session handoff: a bounded typed work-scoped
 // projection next to the shared-work owners. One handoff records
 // one Project-selected session's bounded repository job and its explicit
 // receiving Project on the SAME work item and active contract, and the
 // receiving side's core consume binds the record to the work-and-Project
-// pair before managed execution (CD-0182 D5 amendment: the bind no longer
-// names one receiving session, so a second landed coordinator session of
+// pair before managed execution (the bind names no single
+// receiving session, so a second landed coordinator session of
 // the receiving Project neither records a fresh handoff nor opens a new
 // session). The state lives beside the
 // work, never in a second work item, a peer message, or a knowledge kind.
@@ -519,7 +519,7 @@ type ProjectHandoffConsumptionResult struct {
 // ConsumeProjectHandoffTx is the tx-scoped consume the agent mutation effect
 // runs inside its own transaction. The consume binds a recorded handoff to
 // the work item and its addressed receiving Project under the active
-// contract (CD-0182 D5 amendment): any session of the receiving Project may
+// contract: any session of the receiving Project may
 // bind it, the standing bind resolves for every later session of that
 // Project, and a second coordinator session needs no fresh handoff of its
 // own. The consumer Project is the calling session's resolved Project, and it
@@ -582,8 +582,8 @@ func consumeProjectHandoffCore(ctx context.Context, tx *sql.Tx, req ConsumeProje
 		return out, err
 	}
 	if handoff.State == ProjectHandoffConsumed {
-		// The bind names the work-and-Project pair (CD-0182 D5
-		// amendment): every session of the receiving Project resolves the
+		// The bind names the work-and-Project pair: every
+		// session of the receiving Project resolves the
 		// standing bind — the session that recorded the consume and a
 		// later session alike — so a second
 		// coordinator session never needs a fresh addressed handoff of
@@ -685,7 +685,7 @@ func requireWorkProjectMemberTx(ctx context.Context, q queryer, workID, projectI
 // cannot be consumed, so the source session records a fresh addressed
 // handoff whose recording supersedes the stale one. A consumed frontier
 // admits every session of the receiving Project, and only under the
-// contract the bind was made under (CD-0182 D5 amendment): the bind names
+// contract the bind was made under: the bind names
 // the work-and-Project pair, not one receiving session, so a second
 // coordinator session dispatches without a fresh handoff or a new session,
 // and after a contract replacement the stale bind refuses closed equally for
@@ -726,8 +726,8 @@ func RefuseUnconsumedProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, p
 		return wrapFailure(KindUnavailable, "project_handoff", "cannot read the work's addressed handoff frontier", true, "retry once the database is readable", frontierErr)
 	}
 	if frontierState != ProjectHandoffRecorded {
-		// The frontier's bind names the work-and-Project pair (CD-0182 D5
-		// amendment): consumed by ANY session of this Project, it admits
+		// The frontier's bind names the work-and-Project pair:
+		// consumed by ANY session of this Project, it admits
 		// every session of it — the acting session's Project checked
 		// above — so no remedy prescribes a
 		// fresh handoff for a second session or a new session. A bind
@@ -759,8 +759,9 @@ func RefuseUnconsumedProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, p
 }
 
 // ProjectSessionRetirement is the derived, read-only readiness result. State
-// is retirementReady or retirementPending; retirementReady is emitted only
-// from verified facts, never from host placement or global work completion.
+// is ready_to_close_or_replace or pending; ready_to_close_or_replace is
+// emitted only from verified facts, never from host placement or global work
+// completion.
 type ProjectSessionRetirement struct {
 	WorkID             string   `json:"work_id"`
 	ProjectID          string   `json:"project_id"`
@@ -780,7 +781,7 @@ const (
 // Project-selected session from three verified facts: the session recorded an
 // addressed handoff on the work, its changed artifacts are preserved in the
 // source worktree, and its unfinished workflow actions have settled. Host
-// tools own physical departure (CD-0182 D5, CD-0088 D1). Unknown action
+// tools own physical departure. Unknown action
 // attribution blocks readiness. The evaluation
 // writes no event, completes no work, cancels nothing, removes no worktree,
 // and terminates no process.
@@ -803,7 +804,7 @@ func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, pro
 	if workID == "" || projectID == "" || sessionRef == "" {
 		return out, newFailure(KindInvalidOperation, "project_retirement", "the retirement read requires the work, Project, and session identities", false, "read the retirement state with the session's authenticated identities")
 	}
-	// Phase one: the read snapshot gathers the recorded facts.
+	// The read snapshot gathers the recorded facts.
 	var handoffFacts projectRetirementHandoffFacts
 	err := s.readSnapshot(ctx, func(q queryer) error {
 		return readRetirementHandoffFactsTx(ctx, q, workID, projectID, sessionRef, &handoffFacts)
@@ -819,7 +820,7 @@ func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, pro
 			out.Blockers = append(out.Blockers, "record the addressed Project handoff before retirement")
 		}
 	}
-	// Phase two: git/filesystem probes run OUTSIDE the SQL transaction.
+	// The git/filesystem probe must run outside the SQL transaction.
 	if probeErr := verifyArtifactPreservation(ctx, sourceWorktree, handoffFacts.artifactRefs); probeErr != nil {
 		out.Blockers = append(out.Blockers, preservationBlocker(probeErr))
 	} else {
@@ -828,8 +829,8 @@ func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, pro
 	if s.retireProbeInterleave != nil {
 		s.retireProbeInterleave()
 	}
-	// Phase three: the remaining facts are projection reads, and the same
-	// final read snapshot revalidates the phase-one snapshot the probe proved.
+	// The remaining facts are projection reads; the same
+	// final read snapshot revalidates the facts the first snapshot gathered.
 	var execution projectRetirementExecutionFacts
 	var recheck projectRetirementHandoffFacts
 	err = s.readSnapshot(ctx, func(q queryer) error {
@@ -1060,8 +1061,8 @@ func PendingProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID string) (*P
 
 // addressedProjectHandoffFrontierTx reads the newest handoff addressed to
 // projectID under the active contract, in any state. Every session of the
-// receiving Project reads that bounded job, before and after the consume
-// (CD-0182 D5). An empty Project or no active contract reads nothing.
+// receiving Project reads that bounded job, before and after the consume.
+// An empty Project or no active contract reads nothing.
 func addressedProjectHandoffFrontierTx(ctx context.Context, tx *sql.Tx, workID, projectID string, contractVersion int64) (*ProjectHandoff, error) {
 	if projectID == "" || contractVersion == 0 {
 		return nil, nil

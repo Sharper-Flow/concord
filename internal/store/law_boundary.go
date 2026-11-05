@@ -15,7 +15,7 @@ import (
 // head and reads the committed law folder at that explicit commit into an
 // immutable in-memory snapshot (law-folder authority: folder membership
 // supplies acceptance). A git probe can never run inside an open transaction
-// (CD-0195 D2) and the store pools one connection, so the consequential law
+// and the store pools one connection, so the consequential law
 // boundary proves its reading with this value in the call's context instead:
 // the transaction-scoped check refuses a mandated-law read at a designated
 // home that carries no proof, and it re-validates the proof against the
@@ -28,18 +28,15 @@ type knowledgeSourceSetProof struct {
 	productID string
 	sources   []KnowledgeHome
 	snapshots map[string]*lawFolderSnapshot
-	// revisions keeps PM1 §3.3's two revisions apart per source. The head is
-	// the git head whose law content the verification itself verified; the
-	// law folder and registry OIDs are the content identity the snapshot was
-	// read from. A commit that moves the head without touching that content
-	// is part of the verified state and admits the transaction; the
-	// transaction admission compares each later read against these OIDs, not
-	// against the head alone.
+	// revisions keeps the verified head and the content OIDs apart per
+	// source; a commit that moves the head without touching law content
+	// still admits the transaction, so admission compares the OIDs, not the
+	// head alone.
 	revisions map[string]knowledgeSourceVerifiedRevision
 	// Standalone failures are demand-driven: a mandate consumes refreshErr.
 	// Neither a load failure nor anything else blocks a law-free legacy
 	// transition that shares the preparation; the designated path refuses
-	// eagerly instead (a law boundary has no degraded form, CD-0200 D3).
+	// eagerly instead (a law boundary has no degraded form).
 	refreshErr error
 }
 
@@ -72,7 +69,7 @@ func knowledgeSourceProofKey(home KnowledgeHome) string {
 // loadLawFolderSnapshotAtHome resolves one home's head and reads the
 // committed law folder at that explicit commit. It must run before the
 // consequential transaction opens: both steps are git subprocesses the pool
-// lock must never hold (CD-0195 D2). The snapshot never resolves a ref on
+// lock must never hold. The snapshot never resolves a ref on
 // its own, so the resolved head here is the commit the transaction
 // revalidates against.
 func loadLawFolderSnapshotAtHome(ctx context.Context, home KnowledgeHome) (*lawFolderSnapshot, error) {
@@ -89,7 +86,7 @@ func loadLawFolderSnapshotAtHome(ctx context.Context, home KnowledgeHome) (*lawF
 
 // verifyLawSourceSnapshot verifies one source the way the boundary consumes
 // it: the committed law folder snapshot at an explicit head, the legislated
-// reference admission over that snapshot (CD-0159), and the bounded content
+// reference admission over that snapshot, and the bounded content
 // identity the transaction revalidates against. The head may move while the
 // verification runs; PM1 §3.3 admits a move whose law folder and registry
 // content are unchanged and re-verifies at the new head when it is not.
@@ -145,7 +142,7 @@ func (s *Store) verifyLawSourceSnapshot(ctx context.Context, home KnowledgeHome)
 // validateSnapshotLegislatedAuthority is the owning admission boundary for
 // declared legislative references: before a committed law folder reaches a
 // consequential transaction, every legislated law it carries resolves its
-// declared reference through the retained CD-0159 rules — the frozen default
+// declared reference through the retained default-cohort rules — the frozen default
 // cohort, or one live work whose exact historical contract is approved,
 // Product-changing, and admits the law. A held negative refuses the
 // verification; an unknown declared work is unverified, not negative, and
@@ -239,7 +236,7 @@ func lawSnapshotForSource(ctx context.Context, home KnowledgeHome, op string) (*
 // no law content — that commit is itself part of the verified state (PM1
 // §3.3) — so the check compares the law folder and registry OIDs, never the
 // head alone. It uses only small file reads (resolveKnowledgeHeadCheap and
-// the cheap object walk), so it stays inside CD-0195 D2.
+// the cheap object walk), which the connection-pool rule admits in-transaction.
 func (proof *knowledgeSourceSetProof) revalidateSource(source KnowledgeHome, op string) error {
 	if err := requireDefaultLawRef(source); err != nil {
 		return err
@@ -269,8 +266,6 @@ func (proof *knowledgeSourceSetProof) revalidateSource(source KnowledgeHome, op 
 	return newFailure(KindInvalidOperation, op, "knowledge home "+key+" moved its committed law content after its verification", false, "verify the Product's knowledge home again before the consequential transaction opens")
 }
 
-// sourceBoundInProof reports whether the pre-transaction proof carries a
-// verified snapshot for this source.
 func sourceBoundInProof(ctx context.Context, home KnowledgeHome) bool {
 	proof := knowledgeSourceSetProofFrom(ctx)
 	return proof != nil && proof.snapshots[knowledgeSourceProofKey(home)] != nil
@@ -279,8 +274,8 @@ func sourceBoundInProof(ctx context.Context, home KnowledgeHome) bool {
 // PrepareWorkLawProof verifies, before any transaction for the work opens,
 // the committed law and Domain registry that transaction may read. Full work
 // list detail resolves bound law IDs. Verification reads the committed law folder —
-// subprocesses the pooled connection must never hold inside a transaction
-// (CD-0195 D2). A context that already carries a proof passes through; the
+// subprocesses the pooled connection must never hold inside a transaction.
+// A context that already carries a proof passes through; the
 // transaction revalidates it. A work whose contract binds no law and no
 // Domain needs no snapshot. Identity and
 // ambiguity refusals stay with the caller's transaction path.
@@ -317,7 +312,7 @@ func (s *Store) PrepareWorkLawProof(ctx context.Context, workID string) (context
 // verified sources without ever letting a bare ID cross a home. It must run
 // before the consequential transaction opens: the snapshot needs the
 // connection the transaction would hold, and a git probe must never run
-// inside one (CD-0195 D2). A standalone home keeps demand-driven preparation
+// inside one. A standalone home keeps demand-driven preparation
 // before its transaction. A designated Product home requires a verified
 // snapshot even when it is the only source: an empty mandate still compares
 // the entire inventory.
@@ -339,9 +334,9 @@ func (s *Store) EstablishKnowledgeSourceSetProof(ctx context.Context, workID str
 }
 
 // contractQualifiedLawProjects lists the Projects the work's active contract
-// names through the qualified project_id/law_id reference form (CD-0200),
+// names through the qualified project_id/law_id reference form,
 // excluding the law home's own Project. The mandate is the verification
-// demand (CD-0082 D1): its named sources verify beside the Product's own.
+// demand: its named sources verify beside the Product's own.
 func contractQualifiedLawProjects(ctx context.Context, q queryer, workID, homeProjectID string) ([]string, error) {
 	versions, err := activeWorkflowContractVersions(ctx, q, workID)
 	if err != nil || len(versions) != 1 {
@@ -433,8 +428,7 @@ func (s *Store) establishKnowledgeSourceSetProofAtHomes(ctx context.Context, hom
 	proof := &knowledgeSourceSetProof{productID: productID, sources: sources, snapshots: make(map[string]*lawFolderSnapshot, len(sources)), revisions: make(map[string]knowledgeSourceVerifiedRevision, len(sources))}
 	for _, source := range sources {
 		// An unreachable or malformed law home refuses the consequential
-		// transaction outright — a law boundary has no degraded form
-		// (CD-0200 D3).
+		// transaction outright — a law boundary has no degraded form.
 		snapshot, revision, err := s.verifyLawSourceSnapshot(ctx, source)
 		if err != nil {
 			return ctx, err
@@ -473,8 +467,8 @@ func (s *Store) qualifiedSourceHomes(ctx context.Context, home KnowledgeHome, qu
 // contract's qualified mandate names — each source's resolved canonical
 // location, and each source's law content compared against the content the
 // verified snapshot was read from. The head and content re-reads use only
-// small file reads (resolveKnowledgeHeadCheap and the cheap object walk), so
-// the re-validation stays inside CD-0195 D2. The refusal is the consuming
+// small file reads (resolveKnowledgeHeadCheap and the cheap object walk),
+// which the connection-pool rule admits in-transaction. The refusal is the consuming
 // transaction's answer when the caller skipped the pre-transaction
 // verification, or when a source changed after it.
 func requireKnowledgeSourceSetProof(ctx context.Context, q queryer, homeProjectID, homeLocatorID string) error {
@@ -624,7 +618,7 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 	if proof := knowledgeSourceSetProofFrom(ctx); proof != nil && proof.refreshErr != nil {
 		return proof.refreshErr
 	}
-	// CD-0200 D4/D6: a bare mandated ID resolves in the Product's designated
+	// A bare mandated ID resolves in the Product's designated
 	// home, and a qualified project_id/law_id form resolves in its named
 	// Project's canonical home. Bare IDs alone keep the single-home path below.
 	productID, err := resolveKnowledgeSourceRole(ctx, q, KnowledgeHome{HomeProjectID: homeProjectID, HomeLocatorID: homeLocatorID})
@@ -847,13 +841,13 @@ func mandatedReferenceForID(mandated []string, lawID string) (string, bool) {
 }
 
 // validateDerivedLawModification holds the tier-scoped half of the
-// Product-truth boundary that CD-0222 D5 states: a contract that does not change
+// Product-truth boundary: a contract that does not change
 // Product truth may revise derived law in-contract, and nothing else. It reads each
 // modified law's authority tier from the verified law-folder snapshot through
 // the work's canonical law home, so the approve path and the fold answer with
 // one source and cannot drift. Project-qualified modified
 // references resolve through the same Project-qualified identity as
-// the mandated-law boundary (CD-0200 D6). A missing
+// the mandated-law boundary. A missing
 // name or a non-derived tier is a refusal; the caller's recovery hint names
 // the Product-changing route.
 func validateDerivedLawModification(ctx context.Context, q queryer, workID string, modified []string) error {
@@ -1052,8 +1046,8 @@ type conflictEnd struct {
 // explicitConflictRefusal decides one explicit conflict between mandated
 // laws. Completion carries no amendment allowance and refuses every conflict.
 // At approval only the record that declares the conflict can withdraw it, so
-// the contract must revise that record (CD-0015) and may resolve it inside
-// the contract only under the tier rule (CD-0159 D4). The folder snapshot
+// the contract must revise that record and may resolve it inside
+// the contract only under the tier rule. The folder snapshot
 // reads each relation from its declaring record, so the declaring record is
 // always known.
 func explicitConflictRefusal(source, target conflictEnd, declarer string, allowAmendment bool) error {
@@ -1106,7 +1100,7 @@ func conflictResolvesInsideContract(declarer, other conflictEnd) bool {
 	}
 	// The other end stays untouched, whatever its tier. When it is
 	// legislated, the derived declaring record is brought into conformance
-	// with an untouched legislated commitment, which CD-0159 D4 resolves
+	// with an untouched legislated commitment, which the tier rule resolves
 	// inside the contract. That rule lives here and nowhere else.
 	return true
 }
@@ -1116,8 +1110,8 @@ type mandatedSourceLawSet struct {
 	idToReference map[string]string
 }
 
-// checkMandatedLawsAcrossSources checks Project-qualified law references
-// (CD-0200). Each reference must resolve to a law file in the verified
+// checkMandatedLawsAcrossSources checks Project-qualified law references.
+// Each reference must resolve to a law file in the verified
 // snapshot of the source that holds it. Conflicts read from the declaring
 // records inside the snapshot of the source that owns the resolved law.
 func checkMandatedLawsAcrossSources(ctx context.Context, q queryer, sources []KnowledgeHome, mandated, modified []string, allowAmendment bool) error {

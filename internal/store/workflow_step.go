@@ -37,7 +37,6 @@ func startWorkflowInstanceStepTx(ctx context.Context, tx *sql.Tx, workID, stepID
 	return nil
 }
 
-// workflowCompletedInstanceActionImmutable reports terminal workflow instances.
 func workflowCompletedInstanceActionImmutable(state string) bool {
 	return state == "completed" || state == "cancelled"
 }

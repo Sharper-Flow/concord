@@ -119,7 +119,7 @@ func sliceOrEmpty[T any](values []T) []T {
 // loadDomainSnapshot resolves the Product's designated git home and reads the
 // committed law folder and Domain registry at its explicit head commit. It
 // runs on the pool, never inside a transaction: the reads are git
-// subprocesses the pool lock must never hold (CD-0195 D2).
+// subprocesses the pool lock must never hold.
 func (s *Store) loadDomainSnapshot(ctx context.Context, productID, op string) (*lawFolderSnapshot, KnowledgeDomainRegistry, error) {
 	home, err := resolveKnowledgeQueryHome(ctx, s.db, productID, op)
 	if err != nil {
@@ -333,7 +333,7 @@ func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest, 
 		return left.TargetDomain < right.TargetDomain
 	})
 
-	// CD-0224: the open observations join the existing Domain surface, so
+	// The open observations join the existing Domain surface, so
 	// the operator meets them where the next decision about the Domain is
 	// made. They are not authority — the result stays authoritative on law and
 	// relations, and an observation satisfies nothing.

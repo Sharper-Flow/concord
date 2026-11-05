@@ -96,15 +96,14 @@ func effectiveLimit(topLevel int, page pageInput) int {
 	return page.Limit
 }
 
-// budgetInput carries the only agent-facing operation budget: the CD-0038 D1
-// caller deadline parsed from the input top level. The result-size budget
-// object is retired (CD-0038 amendment, 2026-10-02): time is bounded only by
+// budgetInput carries the only agent-facing operation budget: the
+// caller deadline parsed from the input top level. Time is bounded only by
 // requested_budget_seconds and size only by limit/page. SupportedSeconds is
 // the operation's declared ceiling from the contract registry, never
 // caller-controlled. CeilingRefused marks requested-above-supported; the
 // refusal itself is minted by the caller's admission point, because reads
 // refuse at dispatch while mutations refuse only after their idempotency
-// lookup (CD-0038 D3).
+// lookup.
 type budgetInput struct {
 	RequestedSeconds int  `json:"-"`
 	SupportedSeconds int  `json:"-"`
@@ -203,7 +202,7 @@ func Dispatch(ctx context.Context, s *store.Store, authority *Service, request I
 		return readRefusal.budgetRefusal(base, budgetErr.message), nil
 	}
 	defer cancel()
-	// CD-0038 D3: reads have no idempotency identity, so ceiling admission for
+	// Reads have no idempotency identity, so ceiling admission for
 	// a read happens here, immediately after strict input validation. A
 	// mutation must not refuse here — its idempotency lookup precedes budget
 	// admission, and the mutation paths enforce the ceiling themselves.
@@ -246,7 +245,8 @@ func preflightDispatchWorkflowAction(ctx context.Context, s *store.Store, author
 		return refuse(coreError(base, "unreachable", "workflow authority is not available", "contact_operator", true))
 	}
 	// The workflow actor tuple and the idempotency partition both key on
-	// principal_ref, which CD-0080 D1 derives rather than accepts. Identity
+	// principal_ref, which is derived from the registered client rather
+	// than accepted from input. Identity
 	// authorization therefore precedes the preflight; Product and Project
 	// scope stay out of it, because scope is validated after the budget.
 	actorInv := Invocation{ClientRef: env.ClientRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: request.Operation}
@@ -473,7 +473,7 @@ func scopeIntersects(left, right []string) bool {
 
 // Invoke is the byte-oriented core boundary. cmd/concord's invoke verb and the
 // agent boundary corpus both enter here, so the corpus exercises the same
-// composition production runs rather than a test-only shortcut (issue #450).
+// composition production runs rather than a test-only shortcut.
 //
 // It decodes strictly, dispatches, and shapes a dispatch failure into the typed
 // envelope the caller receives. Only a decode failure is returned as an error,
@@ -568,18 +568,18 @@ func newRuntimeFailure(kind, message, recovery string, retry bool) *runtimeFailu
 }
 
 func failureEnvelope(base agentcontract.Envelope, err error) agentcontract.Envelope {
-	// A failure marked EffectPossible followed a committed transaction
-	// (CD-0050 D2), so it must not read as a clean timeout even when its
+	// A failure marked EffectPossible followed a committed transaction,
+	// so it must not read as a clean timeout even when its
 	// wrapped cause is a deadline. The store-failure branch below carries
 	// the possible effect.
 	var effectFailure *store.Failure
 	effectPossible := errors.As(err, &effectFailure) && effectFailure.EffectPossible
 	if errors.Is(err, context.DeadlineExceeded) && !effectPossible {
-		// CD-0038 D5: expiry before any durable effect claims no effect. The
+		// Expiry before any durable effect claims no effect. The
 		// store rolls an open transaction back on error, so an in-process
 		// deadline reaching this point means no commit happened. External
 		// effects that outlive cancellation are the native-run surface's
-		// problem (CD-0039), not this envelope's.
+		// problem, not this envelope's.
 		return coreError(base, "timeout", "operation budget expired", "retry_same_request", true)
 	}
 	var f *runtimeFailure
@@ -600,7 +600,7 @@ func storeFailureEnvelope(base agentcontract.Envelope, sf *store.Failure) agentc
 	kind := mapFailureKind(sf.Kind)
 	proposed := sf.RecoveryAction
 	// These store kinds describe operation state or retained knowledge, not
-	// request shape, despite sharing the legacy public invalid_input kind.
+	// request shape, despite sharing the public invalid_input kind.
 	requestInput := kind == "invalid_input" && sf.Kind != store.KindInvalidOperation && sf.Kind != store.KindInvalidNoteProof && sf.Kind != store.KindKnowledgeMissing
 	if kind == "invalid_input" && !requestInput && !agentcontract.RecoveryActionAllowed(proposed) {
 		proposed = "reread_entities"
@@ -641,7 +641,7 @@ func storeFailureEnvelope(base agentcontract.Envelope, sf *store.Failure) agentc
 	// Carry typed current-version carriers into the agent envelope so
 	// callers can recover the live projection version structurally without
 	// having to parse the human detail string. Mirrors the same path for
-	// typed violations: see D5.
+	// typed violations.
 	for _, current := range sf.CurrentVersions {
 		out.Error.CurrentVersions = append(out.Error.CurrentVersions, agentcontract.ChangedRef{EntityKind: string(current.SubjectType), ID: current.SubjectID, Version: strconv.FormatInt(current.Version, 10)})
 	}
@@ -791,13 +791,10 @@ func mapFailureKind(kind store.FailureKind) string {
 	case store.KindIndexDegraded:
 		return "degraded_not_allowed"
 	}
-	// A store kind whose value is already a public kind passes through. The
-	// cases above are the genuine renames, where the store's name and the
-	// public name differ by intent. Everything else that names a public kind
-	// is that kind; collapsing it to internal_error told the caller a fault
-	// occurred and to contact the operator for a refusal it could have
-	// answered itself, and agentcontract.PublicRecovery then discarded the
-	// store's remedy.
+	// A store kind whose value is already a public kind passes through; the
+	// cases above are the genuine renames. Collapsing one to internal_error
+	// would report a self-answerable refusal as a fault and discard the
+	// store's authored remedy.
 	if payloadschema.TypedErrorKindAllowed(string(kind)) {
 		return string(kind)
 	}
@@ -820,9 +817,9 @@ func decodeStrict(data []byte, value any) error {
 	return nil
 }
 
-// decodeOperationInput is the strict decoder for operation inputs. CD-0038 D1
-// supplies requested_budget_seconds to every operation through one shared
-// schema definition rather than per-operation restatement, and the budget
+// decodeOperationInput is the strict decoder for operation inputs. The
+// shared schema supplies requested_budget_seconds to every operation
+// through one definition rather than per-operation restatement, and the budget
 // layer parses and enforces it before any typed input decode. Stripping it
 // here — after the canonical digest was taken over the raw input, which is
 // what makes changing the budget change the request — keeps every typed input

@@ -11,7 +11,7 @@ import (
 )
 
 // The closed work-relation kinds resolve_overlap records between two items
-// that each hold an approved Product-changing contract (CD-0222, CD-0013 D11).
+// that each hold an approved Product-changing contract.
 const (
 	ResolutionDependsOn = "depends_on"
 	ResolutionBlocks    = "blocks"
@@ -179,8 +179,6 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 	return recordWorkflowOverlapResolutionTx(ctx, tx, event, payload, productID, from, to, fromResulting, resolutionFromWorkID, resolutionToWorkID, payload.FromContractVersion, payload.ToContractVersion)
 }
 
-// readWorkflowOverlapResolutionWorks reads both endpoint work items and
-// validates their expected and resulting versions.
 func readWorkflowOverlapResolutionWorks(ctx context.Context, tx *sql.Tx, event Event, payload workflowOverlapResolvedPayload) (workProjection, workProjection, error) {
 	from, err := readWork(ctx, tx, event.SubjectID)
 	if err != nil {
@@ -245,8 +243,6 @@ func readWorkflowOverlapEndpointProductTx(ctx context.Context, tx *sql.Tx, workI
 	return productID, nil
 }
 
-// recordWorkflowOverlapResolutionTx writes the resolution row, its derived
-// relation, and both endpoints' version bumps.
 func recordWorkflowOverlapResolutionTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowOverlapResolvedPayload, productID string, from, to workProjection, fromResulting int64, resolutionFromWorkID, resolutionToWorkID string, resolutionFromContractVersion, resolutionToContractVersion int64) error {
 	seq, err := eventSequenceTx(ctx, tx, event.EventID)
 	if err != nil {

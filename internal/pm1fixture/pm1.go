@@ -170,8 +170,7 @@ func Load() (Corpus, error) {
 }
 
 // OpenTemp opens a fresh, migrated Concord store inside dir. The caller owns
-// the returned *store.Store and is responsible for closing it. This mirrors
-// the historical openTemp helper used inside internal/store tests.
+// the returned *store.Store and is responsible for closing it.
 func OpenTemp(dir string) (*store.Store, error) {
 	s, err := storetest.Open(dir)
 	if err != nil {

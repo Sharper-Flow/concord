@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// WorkflowInitializationRequest contains the work and authenticated actor.
 type WorkflowInitializationRequest struct {
 	WorkID string
 	Actor  WorkflowActor

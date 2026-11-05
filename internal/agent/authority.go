@@ -19,9 +19,8 @@ import (
 // mainCheckoutAllowedCapabilities names the closed set of capabilities that
 // resolve from a registered Project's default checkout. product_read is
 // trivially read-only. work_define joins it because its operations write
-// Product state in the store and never touch a checkout path (CD-0092 D2).
-// The boundary is declared once here so future additions require a decision
-// naming the new capability's write surface (CD-0092 D3).
+// Product state in the store and never touch a checkout path. Future
+// additions require a decision naming the new capability's write surface.
 var mainCheckoutAllowedCapabilities = map[agentcontract.Capability]struct{}{
 	agentcontract.Capability("product_read"): {},
 	agentcontract.Capability("work_define"):  {},
@@ -29,13 +28,12 @@ var mainCheckoutAllowedCapabilities = map[agentcontract.Capability]struct{}{
 
 // mainCheckoutAllowedOperations names the operation-scoped extension to the
 // capability allowlist. lifecycle writes one Product-state work.transitioned
-// event and never touches a checkout path or claims a worktree (CD-0094 D1/D2).
-// The boundary remains declared once so each new operation requires a decision
-// naming its write surface (CD-0094 D3).
+// event and never touches a checkout path or claims a worktree. Each new
+// operation requires a decision naming its write surface.
 var mainCheckoutAllowedOperations = map[agentcontract.Capability]map[string]struct{}{
 	agentcontract.Capability("work_transition"): {
 		"lifecycle": {},
-		// CD-0094 D5 admits remove conditionally: replay or the planner's
+		// remove is admitted conditionally: replay or the planner's
 		// exact-item shelving proof, revalidated in the transaction.
 		"remove": {},
 	},
@@ -52,7 +50,7 @@ type Service struct {
 	// transaction. The CLI boundary installs both. Keeping them injectable
 	// gives tests a deterministic git runner while ensuring routine model
 	// input cannot supply a Project or Product authority, and the split
-	// keeps git work outside every mutation transaction (CD-0195 D2).
+	// keeps git work outside every mutation transaction.
 	ProjectHostProber  func(context.Context, string, string) (store.ResolvedProjectHost, error)
 	ProjectHostMatcher func(context.Context, *store.Transaction, store.ResolvedProjectHost) (store.ProjectResolution, error)
 }
@@ -196,8 +194,8 @@ func unionPolicyExpansion(op string, add canonicalPolicyJSON) func(store.Trusted
 		if next.ProjectScopeJSON, err = unionPolicyJSON(op, "project scope", current.ProjectScopeJSON, add.projects, 100); err != nil {
 			return current, err
 		}
-		// The agent scope is a policy dimension like the others (CD-0049 D5).
-		// An expansion that skipped it would leave a client unable to present
+		// The agent scope is a policy dimension like the others. An
+		// expansion that skipped it would leave a client unable to present
 		// an agent it was just granted.
 		if next.AgentScopeJSON, err = unionPolicyJSON(op, "agent scope", current.AgentScopeJSON, add.agents, 100); err != nil {
 			return current, err
@@ -312,7 +310,7 @@ func (s *Service) Authorize(ctx context.Context, in Invocation) (Authority, erro
 }
 
 // ProbeProjectHost resolves the invoking git identity with no transaction
-// open (CD-0195 D2). Callers run it before opening the mutation transaction
+// open. Callers run it before opening the mutation transaction
 // whose authorization matches the probed host against Project locators.
 func (s *Service) ProbeProjectHost(ctx context.Context, directory, worktree string) (store.ResolvedProjectHost, error) {
 	if err := s.authorityReady("agent_authorize"); err != nil {
@@ -427,12 +425,11 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 	if in.ProjectID != "" && in.ProjectID != resolved.ProjectID {
 		return Authority{}, authorityRefusal("project outside resolved scope")
 	}
-	// Project authority follows current Product membership (CD-0152 D1). The
-	// explicit policy is the authority source for Products, so every Product
-	// it authorizes contributes its current Projects: the authority spans
-	// every Project of every authorized Product, and the ambient locator
-	// neither limits it nor selects a narrower set. A Project a Product no
-	// longer owns drops out on the next invocation.
+	// Project authority follows current Product membership: the explicit
+	// policy is the authority source for Products, so every Product
+	// it authorizes contributes its current Projects. The ambient locator
+	// neither limits it nor selects a narrower set, and a Project a Product
+	// no longer owns drops out on the next invocation.
 	authorizedProducts := normalizeStrings(policyProducts)
 	projects, err := s.authorizedProductProjects(ctx, tx, resolved.ProjectID, authorizedProducts)
 	if err != nil {

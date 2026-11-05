@@ -102,7 +102,7 @@ type KnowledgeRecord struct {
 	// Evidence names implementation paths (scenarios, tests, code) that
 	// carry this record's guidance. The offline validator fails when an
 	// evidence path no longer exists — the structural law/implementation
-	// drift audit (CD-0026).
+	// drift audit.
 	Evidence          []string                    `json:"evidence,omitempty"`
 	CriterionBindings []KnowledgeCriterionBinding `json:"criterion_bindings,omitempty"`
 	// ProductWideRationale states why this record's behavior fits no child
@@ -435,7 +435,7 @@ func validateKnowledgeDomainLawReferences(registry KnowledgeDomainRegistry, reco
 
 // validateManifestRootHomeClaim holds the asymmetry between the root Domain
 // and every child. A child home has already decided, so the record needs no
-// further statement. The root has not: CD-0222 D2 makes it correct for
+// further statement. The root has not: it is correct for
 // Product-wide law and simultaneously the only home an author reaches by
 // deciding nothing. Requiring the claim in the record is what separates the
 // two cases after the fact, which no later reader can otherwise do.

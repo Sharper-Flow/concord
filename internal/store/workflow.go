@@ -103,7 +103,7 @@ type workflowContractApprovedPayload struct {
 // current payload version.
 const workflowContractPayloadVersion = 7
 
-// workflowDecisionDomainSet is the sorted authoring set from CD-0243 D2.
+// workflowDecisionDomainSet is the closed authoring set.
 var workflowDecisionDomainSet = []string{"increased_spending", "legal", "product", "production_data", "security", "ui_ux"}
 
 // validateWorkflowAuthoredDecisionDomains excludes the retired preference class
@@ -172,8 +172,9 @@ type workflowCandidateSetRevisedPayload struct {
 	Removed         []string `json:"removed"`
 }
 
-// workflowBacklogAlignmentRecordedPayload carries the CD-0156 mandatory
-// backlog-alignment search result. related_ids is present only when outcome
+// workflowBacklogAlignmentRecordedPayload is the retired standalone
+// alignment event's payload, kept so stored backlog_alignment_recorded
+// events still replay. related_ids is present only when outcome
 // is related_found; an omitted optional list and a deliberate empty result
 // must stay distinguishable, so none_found records no list at all.
 type workflowBacklogAlignmentRecordedPayload struct {
@@ -183,10 +184,10 @@ type workflowBacklogAlignmentRecordedPayload struct {
 	RelatedIDs []string `json:"related_ids,omitempty"`
 }
 
-// workflowDiagnosisRecordedPayload is the typed record_diagnosis event
-// (CD-0198 D2): one required section per merged source action, and the
-// alignment section's fields keep the shape the alignment event carried so
-// the projection fold writes identical rows.
+// workflowDiagnosisRecordedPayload is the typed record_diagnosis event:
+// one required section per merged source action; the
+// alignment fields keep the retired alignment event's shape so
+// the projection fold writes identical rows for both events.
 type workflowDiagnosisRecordedPayload struct {
 	WorkflowVersionFields
 	Reproduction string   `json:"reproduction"`
@@ -214,8 +215,8 @@ type workflowActionStartedPayload struct {
 	AcceptedInputsDigest string `json:"accepted_inputs_digest"`
 	IdempotencyIdentity  string `json:"idempotency_identity"`
 	ActorRef             string `json:"actor_ref"`
-	// ExecutionModel is the readback executing-model identity for this run
-	// (CD-0017 D5). Empty when the run dispatched no typed lane.
+	// ExecutionModel is the readback executing-model identity for this run.
+	// Empty when the run dispatched no typed lane.
 	ExecutionModel string `json:"execution_model,omitempty"`
 }
 
@@ -433,16 +434,16 @@ func workflowBase(event Event, fields WorkflowVersionFields) error {
 
 // workflowStringMinBytes is the floor every workflowString guard holds a
 // workflow string to, in UTF-8 bytes. Declared payload limits derive from
-// this constant so the advertised floor is the enforced one (CON-412).
+// this constant so the advertised floor is the enforced one.
 const workflowStringMinBytes = 2
 
 func workflowString(value string, upper int) bool {
 	return len(value) >= workflowStringMinBytes && len(value) <= upper
 }
 
-// workflowOperationEvidenceRefBound is the per-operation evidence bound: the
-// number of distinct evidence references one workflow action operation may
-// resolve. The action_completed fold enforces it on result_evidence_refs. A
+// workflowOperationEvidenceRefBound is the number of distinct evidence
+// references one workflow action operation may resolve. The action_completed
+// fold enforces it on result_evidence_refs.
 const workflowOperationEvidenceRefBound = 32
 
 // workflowEvidenceRef bounds one evidence reference. An entry of this kind
@@ -452,17 +453,10 @@ const workflowOperationEvidenceRefBound = 32
 func workflowEvidenceRef(value string) bool { return len(value) >= 1 && len(value) <= 2048 }
 
 // workflowEvidenceRefsFault names the entry that fails the evidence reference
-// bound, and returns the empty string when the list holds. A caller correcting
-// the call learns which locator to change instead of learning only that some
-// field of the payload was wrong. The list is a set: workflowActionEvidenceRefs
-// normalizes the merged refs before the event is written, so a duplicate here
-// is a projection fault rather than ordinary caller input.
-// workflowEvidenceRefsFault names the entry that fails the evidence reference
-// bound, and returns the empty string when the list holds. A caller correcting
-// the call learns which locator to change instead of learning only that some
-// field of the payload was wrong. The list is a set: workflowActionEvidenceRefs
-// normalizes the merged refs before the event is written, so a duplicate here
-// is a projection fault rather than ordinary caller input.
+// bound, so a caller correcting the call learns which locator to change. The
+// list is a set — workflowActionEvidenceRefs normalizes the merged refs
+// before the event is written — so a duplicate here is a projection fault
+// rather than ordinary caller input.
 func workflowEvidenceRefsFault(values []string) string {
 	if len(values) > workflowOperationEvidenceRefBound {
 		return fmt.Sprintf("the list holds %d references and the bound is 0 to %d", len(values), workflowOperationEvidenceRefBound)
@@ -802,13 +796,14 @@ func overlap(a, b []string) bool {
 	return false
 }
 
-// foldWorkflowBacklogAlignmentRecorded writes the CD-0156 write-seam-only alignment
+// foldWorkflowBacklogAlignmentRecorded writes the write-seam-only alignment
 // projection: one declaration row and, when the search found related work,
 // one row per named work id. It does not reuse workflow_candidate_sets, whose
 // foreign key binds to workflow_contracts(work_id, contract_version) and
 // which therefore cannot hold a row before planning approves a contract. The
-// outcome/related_ids cross-field rule is the record_alignment registry
-// declaration's; the fold evaluates the same declaration here.
+// fold enforces the related_found bound — one to sixty-four unique related
+// ids. The none_found-carries-no-ids rule is enforced at action validation on
+// record_diagnosis; this replay fold does not re-check it.
 func foldWorkflowBacklogAlignmentRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowBacklogAlignmentRecordedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -821,7 +816,7 @@ func foldWorkflowBacklogAlignmentRecorded(ctx context.Context, tx *sql.Tx, event
 		return newFailure(KindInvalidPayload, "fold_event", "backlog_alignment_recorded has invalid search or outcome fields", false, "supply the search scope and a closed outcome")
 	}
 	// Presence is a non-empty id list, the event's own recorded shape: the
-	// constructor writes related_ids only when the search found work.
+	// event records related_ids only when the search found work.
 	alignmentFields := map[string]json.RawMessage{"outcome": []byte(`"` + p.Outcome + `"`)}
 	if len(p.RelatedIDs) != 0 {
 		encoded, err := json.Marshal(p.RelatedIDs)
@@ -845,11 +840,10 @@ func foldWorkflowBacklogAlignmentRecorded(ctx context.Context, tx *sql.Tx, event
 	return writeWorkflowBacklogAlignmentRowsTx(ctx, tx, event.SubjectID, p.Searched, p.Outcome, p.RelatedIDs, event.OccurredAt, event.Actor)
 }
 
-// writeWorkflowBacklogAlignmentRowsTx writes the CD-0156 write-seam-only alignment
+// writeWorkflowBacklogAlignmentRowsTx writes the write-seam-only alignment
 // projection rows for one recorded search: the declaration row and, when the
-// search found related work, one row per named work id. The CD-0198 D2
-// diagnosis fold reuses it, so the merged record writes exactly the rows the
-// alignment action wrote.
+// search found related work, one row per named work id. The merged diagnosis
+// fold reuses it, so both events write identical rows.
 func writeWorkflowBacklogAlignmentRowsTx(ctx context.Context, tx *sql.Tx, workID, searched, outcome string, relatedIDs []string, at time.Time, actor string) error {
 	recordedAt := at.UTC().Format(time.RFC3339Nano)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_backlog_alignment WHERE work_id=?`, workID); err != nil {
@@ -866,10 +860,10 @@ func writeWorkflowBacklogAlignmentRowsTx(ctx context.Context, tx *sql.Tx, workID
 	return nil
 }
 
-// foldWorkflowDiagnosisRecorded writes the CD-0198 D2 merged diagnosis
-// record. The alignment section answers to the record_alignment registry
-// declaration — the same cross-field rules the alignment fold evaluates —
-// and the projection rows are the alignment fold's own; the reproduction and
+// foldWorkflowDiagnosisRecorded writes the merged diagnosis
+// record. The alignment section answers to the same
+// related_found bound the alignment fold enforces, and the projection
+// rows are the alignment fold's own; the reproduction and
 // root-cause sections ride the event the action recorded. No relation is
 // created.
 func foldWorkflowDiagnosisRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -906,8 +900,8 @@ func foldWorkflowDiagnosisRecorded(ctx context.Context, tx *sql.Tx, event Event)
 }
 
 // mustJSONRawMessageOrEmpty encodes the related-id list for the fold's
-// cross-field evaluation: absent for an empty list, so an outcome that
-// forbids the field never sees a present empty array.
+// cross-field evaluation: absent for an empty list, so an empty list reads
+// as an absent field, never a present empty array.
 func mustJSONRawMessageOrEmpty(relatedIDs []string) json.RawMessage {
 	if len(relatedIDs) == 0 {
 		return nil
@@ -1074,7 +1068,7 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event, sco
 }
 
 // beginWorkflowLifecycleTx moves a needed work item to in_progress when the
-// store applies a workflow action to it (CD-0183 D1). Every action fold calls it, so the
+// store applies a workflow action to it. Every action fold calls it, so the
 // first action of any kind — checkpoint and dispatch included — starts the
 // lifecycle and the item stops reading ready. Only a needed item moves, which
 // leaves a resumed item untouched, and the move carries no version of its
@@ -1593,7 +1587,7 @@ func foldWorkflowEvidenceBound(ctx context.Context, tx *sql.Tx, event Event) err
 	if recorded != 1 {
 		return newFailure(KindInvariantViolation, "fold_event", "locator mismatch: producer operation "+workflowRefExcerpt(p.ProducerRunRef)+" completed without "+workflowRefExcerpt(p.ImmutableSubjectRef)+" among its recorded evidence", false, "bind a locator the producer operation recorded, or rerun the producer with this evidence reference")
 	}
-	// CD-0040 D9 via CD-0039 D4/D11: a native-run report may back completion
+	// A native-run report may back completion
 	// evidence only through this explicit binding, and only while its
 	// attributed record is verified. The report stays readable while
 	// unverified — the gate is on consumption, not existence.

@@ -21,7 +21,7 @@ import (
 // initial approval and ordinary contract updates share: the architecture
 // binding must parse, a Product-changing contract requires one, and a
 // non-Product-changing contract carries none. A non-Product-changing contract
-// may name law_modifies only when every named law is derived (CD-0222 D5);
+// may name law_modifies only when every named law is derived;
 // the tier-scoped check runs against the same transaction the caller already holds.
 // role names the contract side in the refusal messages; completeRecovery is
 // the Product-changing refusal's recovery hint. The parsed binding returns
@@ -113,7 +113,7 @@ func workflowBoundContractContent(ctx context.Context, tx *sql.Tx, planType Work
 	}
 	// law_modifies stays on non-Product-changing contracts that passed the
 	// tier-scoped guard: the derived revision lines are the visible record
-	// the operator approves (CD-0222 D5 as amended). An empty law_modifies is
+	// the operator approves. An empty law_modifies is
 	// dropped only for non-Product-changing contracts, so a contract that
 	// touches no law keeps its old shape; the Product-changing fold requires
 	// the composed field to be present even when empty.
@@ -144,25 +144,15 @@ func workflowReviseCandidatesEvents(request WorkflowActionExecutionRequest, acto
 	return []Event{workflowTypedEvent(eventID, WorkflowCandidateSetRevised, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": workflowContractVersionField(fields, 1), "candidate_kind": workflowFieldStringDefault(fields, "candidate_kind", "work_item"), "candidate_ref": workflowFieldStringDefault(fields, "candidate_ref", request.WorkID), "added": added, "removed": removed})}, nil
 }
 
-// workflowRecordAlignmentEvents builds the typed CD-0156 alignment event. The
-// action records the candidate set only: it creates no relation, so the
-// related ids travel as recorded search output, and relation creation stays
-// with resolve_overlap. The outcome enum and the
-// outcome/related_ids legal input combinations are declared on the
-// record_alignment registry payload and enforced by
-// validateWorkflowActionPayload before any event is built, so this
-// constructor does not restate them. Each related id names a real work item,
-// refused here at the boundary rather than at the fold's foreign key.
-
-// workflowRecordDiagnosisEvents builds the typed CD-0198 D2 diagnosis event.
+// workflowRecordDiagnosisEvents builds the typed diagnosis event.
 // The action records all three required sections in one act: the
 // reproduction record, the alignment search, and the root-cause record. The
 // outcome enum and the outcome/related_ids legal input combinations are
-// declared on the record_diagnosis registry payload and enforced by
-// validateWorkflowActionPayload before any event is built, so this
+// declared on the record_diagnosis registry payload and enforced at action
+// validation by validateWorkflowPayloadCrossFieldRules before any event is
+// built, so this
 // constructor does not restate them. Each related id names a real work
-// item, refused here at the boundary rather than at the fold's foreign key,
-// under the same rule the alignment constructor applies.
+// item, refused here at the boundary rather than at the fold's foreign key.
 func workflowRecordDiagnosisEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
 	relatedIDs := workflowFieldStrings(fields, "related_ids")
 	for _, relatedID := range relatedIDs {

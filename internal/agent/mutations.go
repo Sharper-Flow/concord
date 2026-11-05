@@ -156,8 +156,9 @@ func mutationReplayDurability(durable bool, authorizedScope map[string]any, sele
 		}
 		durable = durable || committedDurably
 	}
-	// Preserve cross-Product durability on replay. CD-0243 D3/D7 retire
-	// ordinary coordination consent, not re-authorization of the Product set.
+	// A replayed mutation that recorded a cross-Product binding stays
+	// durable: a Product in the stored scope other than the selected one
+	// marks the effect cross-Product.
 	if products, present := authorizedScope["product_ids"].([]any); present && selectedProduct != "" {
 		for _, rawProduct := range products {
 			product, valid := rawProduct.(string)
@@ -233,7 +234,7 @@ func scopeFromMap(scope map[string]any) *agentcontract.Scope {
 }
 
 // preflightWorkflowActionRequest takes the authorized actor
-// separately from the envelope. CD-0080 D1 derives principal_ref from the
+// separately from the envelope. The principal is derived from the
 // registered client, so the envelope carries no principal to build an actor
 // tuple from and none to partition idempotency by.
 func preflightWorkflowActionRequest(ctx context.Context, s *store.Store, raw []byte, env CallEnvelope, actor Authority) error {
@@ -264,15 +265,15 @@ func preflightWorkflowActionRequest(ctx context.Context, s *store.Store, raw []b
 	}
 	// One bind-family action records one durable evidence_kind. The refusal
 	// sits after the replay window so an exact replay of a request recorded
-	// before this rule keeps answering with its stored result (#945).
+	// before this rule keeps answering with its stored result.
 	if err := validateEvidenceKindBinding(in.ActionID, payload, in.Evidence); err != nil {
 		return newRuntimeFailure("invalid_input", err.Error(), "", false)
 	}
 	// An approval carries an architecture binding that the mutation verifies
 	// against the derived Domain registry inside its transaction. The demand
-	// for a fresh registry is therefore here, before that transaction opens
-	// (CD-0082 D1, and the single-connection rule: a rebuild needs the
-	// connection the transaction would hold).
+	// for a fresh registry is therefore here, before that transaction opens:
+	// the store pools one connection, so a rebuild needs the
+	// connection the transaction would hold.
 	if in.ActionID == "approve_contract" {
 		if err := s.EnsureWorkProductKnowledgeFresh(ctx, in.WorkID); err != nil {
 			return err
@@ -365,7 +366,7 @@ func withEvidenceKindDefault(actionID string, payload json.RawMessage, evidence 
 // fields.evidence_kind that contradicts any entry's kind. Kinds submitted for
 // one locator thread into the store per entry and bind one event per kind;
 // kinds spread over several locators name several subjects, which the store
-// refuses, so the boundary refuses first and names both kinds (#945).
+// refuses, so the boundary refuses first and names both kinds.
 func validateEvidenceKindBinding(actionID string, payload json.RawMessage, evidence []agentcontract.EvidenceRef) error {
 	if !evidenceBindingFamily(actionID) || len(evidence) == 0 {
 		return nil
@@ -492,7 +493,7 @@ func (r runtime) workflowActionReplayPreflight(ctx context.Context, base agentco
 // knowledgeSourceProofForAction prepares the knowledge-source proof the
 // action verifies inside its transaction (store.PrepareWorkflowActionProof).
 // It runs after replay and approval admission, with
-// no transaction open (CD-0195 D2). A non-nil envelope carries the refusal.
+// no transaction open. A non-nil envelope carries the refusal.
 func (r runtime) knowledgeSourceProofForAction(ctx context.Context, base agentcontract.Envelope, actionID, workID string) (context.Context, *agentcontract.Envelope) {
 	verifiedCtx, proofErr := r.Store.PrepareWorkflowActionProof(ctx, actionID, workID)
 	if proofErr != nil {
@@ -560,17 +561,17 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 			return failureEnvelope(base, err), nil
 		}
 	}
-	// CD-0038 D3: budget admission for a mutation follows its idempotency
-	// lookup. A replay that matches the recorded digest returns the original
-	// result regardless of the ceiling, so a lowered ceiling can never strand
-	// an already-committed request behind a refusal.
+	// Budget admission for a mutation follows its idempotency lookup. A
+	// replay that matches the recorded digest returns the original result
+	// regardless of the ceiling, so a lowered ceiling can never strand an
+	// already-committed request behind a refusal.
 	if r.Budget.CeilingRefused {
 		return r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds)), nil
 	}
-	// CD-0059 D3: per-action capability resolution is structural. The
-	// action declares the capability the dispatcher must hold;
-	// legacy actions that did not declare one default to work_transition
-	// so pre-CD-0059 actions retain their authority contract.
+	// Per-action capability resolution is structural. The action declares
+	// the capability the dispatcher must hold; an undeclared capability
+	// defaults to work_transition and keeps the action's authority
+	// contract.
 	requiredCapability := agentcontract.Capability("work_transition")
 	if action.RequiredCapability != "" {
 		requiredCapability = agentcontract.Capability(action.RequiredCapability)
@@ -579,15 +580,15 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 	if inv.HostAssertionDigest == "" {
 		inv.HostAssertionDigest = digest
 	}
-	// The host probes before any transaction this mutation opens (CD-0195 D2);
-	// each authorization inside matches the probed host with SQL only.
+	// The host probes before any transaction this mutation opens; each
+	// authorization inside matches the probed host with SQL only.
 	host, hostErr := r.probeInvocationHost(ctx)
 	if hostErr != nil {
 		return failureEnvelope(base, hostErr), nil
 	}
 	scopeJSON, _ := json.Marshal(scope)
 	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, ExpectedTakeover: takeover, AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: agentcontract.ManifestDigest, Now: r.Authority.now()}
-	// CD-0200: the approval, supersession, and completion gates each run the
+	// The approval, supersession, and completion gates each run the
 	// mandated-law boundary inside their transaction, so their registered
 	// source set verifies before the transaction opens (store connection
 	// invariant); the returned context carries the proof.
@@ -776,7 +777,7 @@ func (r runtime) applyCaptureTx(ctx context.Context, tx *store.Transaction, gran
 		return nil, nil, nil, err
 	}
 	// The Linear issue identity the caller read from the Linear MCP server
-	// rides the same transaction as the capture (CD-0213 D3): the link row
+	// rides the same transaction as the capture: the link row
 	// is the only Linear identity carrier, and its one-live-item rule is
 	// the collision gate.
 	if _, err := store.RecordLinearIssueLinkTx(ctx, tx, store.LinearIssueLink{WorkID: workID, RemoteIssueUUID: in.RemoteIssueUUID, HumanKey: in.HumanKey, URL: in.URL}); err != nil {
@@ -854,7 +855,7 @@ func (r runtime) planLifecycle(_ context.Context, base agentcontract.Envelope, r
 	if in.Target != "needed" && in.Target != "in_progress" && in.Target != "completed" && in.Target != "cancelled" && in.Target != "reopen" {
 		return coreError(base, "invalid_input", "unknown lifecycle target "+in.Target, "reread_entities", false), nil, true
 	}
-	// CD-0243 D3/D7 retire terminal-status consent, not verification evidence.
+	// A terminal lifecycle transition requires verification evidence.
 	if (in.Target == "completed" || in.Target == "cancelled") && len(in.Evidence) == 0 {
 		response := coreError(base, "missing_evidence", "terminal lifecycle transition requires verification evidence", "provide_evidence", false)
 		response.Error.Details = map[string]any{"operation_digest": digest, "work_id": in.WorkID, "expected_version": in.ExpectedVersion, "required_kind": "verification"}
@@ -895,8 +896,7 @@ func (r runtime) planLifecycle(_ context.Context, base agentcontract.Envelope, r
 
 // planIssueLinkRecord plans concord_work_define.issue_link_record: record the
 // Linear issue identity the agent read from the Linear MCP server on one work
-// item. Concord makes no Linear call (CD-0213 D3, D7), and the record bumps no
-// work version.
+// item. Concord makes no Linear call, and the record bumps no work version.
 func (r runtime) planIssueLinkRecord(_ context.Context, base agentcontract.Envelope, raw []byte, _ string, _ Authority, _ agentcontract.ContractOperation, plan *mutationPlan) (agentcontract.Envelope, error, bool) {
 	var in issueLinkRecordInput
 	if err := decodeOperationInput(raw, &in); err != nil {
@@ -914,8 +914,8 @@ func (r runtime) planIssueLinkRecord(_ context.Context, base agentcontract.Envel
 	return agentcontract.Envelope{}, nil, false
 }
 
-// projectHandoffRecordInput is concord_work_transition.project_handoff_record
-// (CD-0182 amendment). The source Project and source session resolve from the
+// projectHandoffRecordInput is concord_work_transition.project_handoff_record.
+// The source Project and source session resolve from the
 // authenticated call context; the input only names the receiving Project and
 // the handoff content.
 type projectHandoffRecordInput struct {
@@ -995,7 +995,7 @@ func (r runtime) planProjectHandoffRecord(ctx context.Context, base agentcontrac
 
 // planProjectHandoffConsume plans the receiving side of the Project-session
 // handoff. The core binds the consume to the work item, the ambient
-// receiving Project, and the active contract (CD-0182 D5 amendment): a
+// receiving Project, and the active contract: a
 // missing, wrong-target, or stale consume refuses with no event, a frontier
 // another session of the Project already consumed resolves from the
 // standing shared bind, and managed execution stays closed until a bind
@@ -1076,8 +1076,8 @@ func (r runtime) planWorkRemoval(ctx context.Context, base agentcontract.Envelop
 	// No next intent is served. The work projection is deleted, so every
 	// read that resolves live work scope refuses the removed identity, and
 	// the retained document read (mutation_result) accepts workflow_action
-	// sources only. CD-0113 D3 bars a hand-written intent that names a work
-	// mutation, so advertising the replay is not allowed either. The
+	// sources only. A hand-written intent that names a work
+	// mutation is barred, so advertising the replay is not allowed either. The
 	// retained acknowledgement this result carries is the audit record;
 	// replaying this operation re-serves it from the idempotency record.
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
@@ -1561,13 +1561,13 @@ func (r runtime) executeMutation(ctx context.Context, base agentcontract.Envelop
 	if plannedInitialDurability != nil {
 		durable = *plannedInitialDurability
 	}
-	// The host probes before this mutation's transaction opens (CD-0195 D2);
+	// The host probes before this mutation's transaction opens;
 	// the authorization inside matches the probed host with SQL only.
 	host, hostErr := r.probeInvocationHost(ctx)
 	if hostErr != nil {
 		return agentcontract.Envelope{}, hostErr
 	}
-	// Read current law before opening the transaction (CD-0195 D2). Consumers
+	// Read current law before opening the transaction. Consumers
 	// requiring verified law reject a missing proof; other mutations need none.
 	for _, workID := range mutationScopeWorkIDs(scope) {
 		verified, err := r.Store.PrepareWorkLawProof(ctx, workID)
@@ -1665,9 +1665,9 @@ func (m *mutationExecution) admitTx(ctx context.Context, tx *store.Transaction, 
 			return newRuntimeFailure("stale_context", "shelving scope changed after planning", "refresh_context", false)
 		}
 	}
-	// CD-0038 D3: the seconds ceiling is admitted after the idempotency
-	// lookup above, for the same reason the workflow-action path states.
-	// A refused request records no idempotency effect, so the same key may
+	// The seconds ceiling is admitted after the idempotency
+	// lookup above, for the same reason the workflow-action path states:
+	// a refused request records no idempotency effect, so the same key may
 	// be reused with a lower budget.
 	if r.Budget.CeilingRefused {
 		m.response = r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds))
@@ -1778,7 +1778,7 @@ func mutationScopeWorkIDs(scope map[string]any) []string {
 }
 
 // probeInvocationHost resolves the invoking git identity with no transaction
-// open (CD-0195 D2). Every mutation that opens a transaction runs it before
+// open. Every mutation that opens a transaction runs it before
 // the transaction opens, and each authorization inside matches the probed
 // host against Project locators with SQL only.
 func (r runtime) probeInvocationHost(ctx context.Context) (store.ResolvedProjectHost, error) {

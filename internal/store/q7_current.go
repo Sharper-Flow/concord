@@ -73,7 +73,7 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	if err != nil {
 		return out, err
 	}
-	// Prepare committed-law reads before the transaction opens (CD-0195 D2).
+	// Prepare committed-law reads before the transaction opens.
 	verifiedCtx, proofErr := s.PrepareWorkLawProof(ctx, req.Work)
 	if proofErr != nil {
 		return out, proofErr

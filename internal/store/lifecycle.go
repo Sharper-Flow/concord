@@ -521,7 +521,7 @@ func readRelationEndpointsTx(ctx context.Context, tx *sql.Tx, event Event, paylo
 
 // cycleFailure refuses an edge that would close a cycle. It carries the typed
 // offending edge so the agent layer surfaces error.violations structurally
-// (D5) instead of parsing the human detail string.
+// instead of parsing the human detail string.
 func cycleFailure(op, detail, recovery, kind, from, to string) *Failure {
 	f := newFailure(KindCycleDetected, op, detail, false, recovery)
 	f.Violations = []string{kind + ":" + from + "->" + to}
@@ -610,10 +610,8 @@ func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle
 }
 
 // refuseLiveWorkflowLifecycleCompletionTx refuses a completed lifecycle
-// target whose workflow instance still runs (CD-0183 D4). The typed refusal
-// names the workflow completion action as its remedy. A parked delivery gate
-// refuses first in refuseUnreconciledDelivery, whose remedy names the owed
-// delivery and then the same completion action.
+// target whose workflow instance still runs. The typed refusal
+// names the workflow completion action as its remedy.
 func refuseLiveWorkflowLifecycleCompletionTx(ctx context.Context, tx *sql.Tx, workID string) error {
 	var state string
 	err := tx.QueryRowContext(ctx, `SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state)

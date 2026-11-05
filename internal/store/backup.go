@@ -93,7 +93,6 @@ func Backup(ctx context.Context, s *Store, destination string) (BackupManifest, 
 	return BackupWithOptions(ctx, s, destination, BackupOptions{})
 }
 
-// BackupWithOptions is Backup with explicit snapshot and Git inventory data.
 func BackupWithOptions(ctx context.Context, s *Store, destination string, options BackupOptions) (manifest BackupManifest, err error) {
 	if s == nil || s.db == nil {
 		return manifest, newFailure(KindUnavailable, "backup", "store is not open", false, "open a store before backing it up")
@@ -430,7 +429,7 @@ func verifyRestoredStage(ctx context.Context, stage string, source BackupManifes
 // migrates the live store — every pending step, breaking ones included — so a
 // pre-upgrade snapshot verifies against the schema this binary serves. An
 // unstamped development build owns no migration for an existing store and
-// refuses a pending tail instead of bypassing that rule (CD-0139).
+// refuses a pending tail instead of bypassing that rule.
 func migrateRestoredStage(ctx context.Context, db *sql.DB) error {
 	if version.Value == version.Development {
 		return migrateUnstamped(ctx, db)

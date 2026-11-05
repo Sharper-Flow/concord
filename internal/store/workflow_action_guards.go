@@ -12,7 +12,6 @@ type workflowActionGuardContext struct {
 	request WorkflowActionExecutionRequest
 }
 
-// guardForwardLinkOnly rejects nested or non-forward workflow composition.
 func guardForwardLinkOnly(g *workflowActionGuardContext) error {
 	fields, fieldErr := workflowActionObject(g.request.Payload)
 	if fieldErr != nil {
@@ -192,7 +191,7 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *write
 	startReceipt := len(scope.eventIDs)
 	// The completion fold's requireActor refuses an event actor whose tuple
 	// is not recorded, and the actor-recording events the guard minted are
-	// the only writer that can land them (#909). Append and fold them first,
+	// the only writer that can land them. Append and fold them first,
 	// consuming one expected version each, so the completion event that
 	// follows sequences on top of a recorded actor.
 	for _, event := range prefixEvents {

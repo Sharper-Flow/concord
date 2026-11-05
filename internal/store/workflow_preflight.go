@@ -260,18 +260,18 @@ func workflowPlanCompleteConfirmationTx(ctx context.Context, q queryer, workID s
 // completed plan has exactly one active contract. This route never closes:
 // the action's own fold records each binding, and prior bindings do not prevent
 // fresh independent evidence.
-func workflowPlanCompleteEvidenceBindingTx(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, actionID string) (string, bool, error) {
+func workflowPlanCompleteEvidenceBindingTx(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, actionID string) (string, error) {
 	if plan == nil || actionID != "bind_evidence" || !WorkflowStepPlanComplete(*plan) {
-		return "", false, nil
+		return "", nil
 	}
 	versions, err := activeWorkflowContractVersions(ctx, q, workID)
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
 	if len(versions) != 1 {
-		return "", false, nil
+		return "", nil
 	}
-	return workflowPlanDeclaringStep(plan, actionID), false, nil
+	return workflowPlanDeclaringStep(plan, actionID), nil
 }
 
 // workflowPlanCompletePrerequisiteTx reports the declaring step that carries
@@ -329,11 +329,13 @@ func workflowPlanCompleteActionTx(ctx context.Context, q queryer, workID string,
 		}
 	}
 	if actionID == "bind_evidence" {
-		owner, recorded, err = workflowPlanCompleteEvidenceBindingTx(ctx, q, workID, plan, actionID)
+		owner, err = workflowPlanCompleteEvidenceBindingTx(ctx, q, workID, plan, actionID)
 		if err != nil {
 			return "", err
 		}
-		afterAdmission = true
+		// The route never closes: every binding is fresh independent
+		// evidence, so the recorded flag stays false on both paths.
+		recorded, afterAdmission = false, true
 	}
 	if owner != "" && recorded == (folding && !afterAdmission) {
 		return owner, nil

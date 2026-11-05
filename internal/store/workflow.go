@@ -1732,7 +1732,7 @@ func producerBindingMismatch(ctx context.Context, tx *sql.Tx, workID string, p w
 	err := tx.QueryRowContext(ctx, `SELECT work_id, COALESCE(principal_ref,''), COALESCE(request_id,''), COALESCE(result_kind,'') FROM durable_operations WHERE op_id=? ORDER BY (work_id=?) DESC, (result_kind='completed') DESC, attempt_epoch DESC LIMIT 1`, p.ProducerRunRef, workID).Scan(&recordedWork, &principal, &requestID, &result)
 	switch {
 	case err == sql.ErrNoRows:
-		return newFailure(KindInvariantViolation, "fold_event", "named producer operation "+producer+" has no durable operation record", false, repair)
+		return newFailure(KindInvariantViolation, "fold_event", "named producer operation "+producer+" has no durable operation record", false, "submit the external locator in evidence on an otherwise admitted workflow action, then bind it with that action's returned operation_id as producer_run_ref, envelope request_id as producer_watermark, and recording principal as producer_id")
 	case err != nil:
 		return wrapFailure(KindUnavailable, "fold_event", "cannot verify evidence authority", true, "retry once the evidence authority is readable", err)
 	case recordedWork != workID:

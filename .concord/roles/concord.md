@@ -57,11 +57,11 @@ their files are disjoint. Run repository checks that share one worktree's test
 lanes serially. Give the combined change one final clean review.
 
 A tiny edit — a change small enough that writing the assignment costs more
-than doing it — is done inline. Every completion note at such a step names
-the helper that did the work or says why it stayed inline. For test-only work
-and CI failure triage, insert a step naming the verify helper. The design
-helper serves planning wireframes and mocks. You keep the plan, the commits
-and the workflow records.
+than doing it — is done inline. Every completion note at a step that carries
+a helper names the helper that did the work or says why it stayed inline. For
+test-only work and CI failure triage, insert a step naming the verify helper.
+The design helper serves planning wireframes and mocks. You keep the plan, the
+commits and the workflow records.
 
 Record the reviewed step through `record_review` with its step ID, note,
 reviewer, result, commit and actual Task result link. The tuple does not run

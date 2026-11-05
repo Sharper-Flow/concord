@@ -8,6 +8,7 @@ import (
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
+	"github.com/sharper-flow/concord/internal/store"
 )
 
 func TestWorkListLinearKeyDispatch(t *testing.T) {
@@ -69,5 +70,69 @@ func TestWorkListLinearKeyDispatch(t *testing.T) {
 	page.Items = nil
 	if empty.Outcome != agentcontract.OutcomeOK || json.Unmarshal(empty.Result, &page) != nil || page.Items == nil || len(page.Items) != 0 {
 		t.Fatalf("empty: result=%s error=%+v", empty.Result, empty.Error)
+	}
+}
+
+// A terminal linked item stays findable by its key beside the live item that
+// recaptured the same issue: the filter matches every holder, and at most one
+// match is live (TS3 2.2).
+func TestWorkListLinearKeyMatchesTerminalHolder(t *testing.T) {
+	s, _, _, _ := captureTaskFixture(t)
+	ctx := context.Background()
+	service, _, grant := newAuthorizedService(t, s, "terminal-client", "terminal-human", []agentcontract.Capability{"work_define", "work_transition", "product_read"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
+	scope, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := `{"title":"First","kind":"task","project_ids":["project-1"],"human_key":"ZZ-7100","remote_issue_uuid":"uuid-terminal-key","url":"https://example.com/issue/ZZ-7100","idempotency_key":"terminal-first"}`
+	holder := dispatchCapture(t, s, service, grant, scope, "terminal-first", first)
+	if holder.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("holder: %+v", holder.Error)
+	}
+	holderID := (*holder.ChangedRefs)[0].ID
+	env := mutationEnvelope(grant, scope)
+	env.RequestID = "terminal-intake"
+	intakeInput, err := json.Marshal(map[string]any{"work_id": holderID, "expected_version": 3, "action_id": "record_intake", "idempotency_key": "terminal-intake", "fields": map[string]any{"outcome": "decline", "open_questions_found": false}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	intake, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: intakeInput}, env)
+	if err != nil || intake.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("intake decline: %+v err=%v", intake.Error, err)
+	}
+	cancelInput, err := json.Marshal(map[string]any{"work_id": holderID, "expected_version": 4, "target": "cancelled", "reason": "superseded", "evidence": []map[string]string{{"kind": "verification", "authority": "test", "locator_kind": "file", "locator": "README.md"}}, "idempotency_key": "terminal-cancel"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: cancelInput}, env)
+	if err != nil || cancelled.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("cancel: %+v err=%v", cancelled, err)
+	}
+	recapture := `{"title":"Second","kind":"task","project_ids":["project-1"],"human_key":"ZZ-7100","remote_issue_uuid":"uuid-terminal-key","url":"https://example.com/issue/ZZ-7100","idempotency_key":"terminal-second"}`
+	fresh := dispatchCapture(t, s, service, grant, scope, "terminal-second", recapture)
+	if fresh.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("recapture after terminal holder: %+v", fresh.Error)
+	}
+	list, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_browse", Operation: "list", Input: json.RawMessage(`{"linear_issue_key":"ZZ-7100"}`)}, mutationEnvelope(grant, scope))
+	if err != nil || list.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("list: %+v err=%v", list, err)
+	}
+	var page struct {
+		Items []map[string]any `json:"items"`
+	}
+	if json.Unmarshal(list.Result, &page) != nil || len(page.Items) != 2 {
+		t.Fatalf("terminal holder must stay findable beside its live recapture: %s", list.Result)
+	}
+	live := 0
+	for _, item := range page.Items {
+		if item["lifecycle"] == "in_progress" || item["lifecycle"] == "needed" {
+			live++
+		}
+		if _, ok := item["linear_issue_key"]; !ok {
+			t.Fatalf("linked item without key: %v", item)
+		}
+	}
+	if live != 1 {
+		t.Fatalf("exactly one holder is live: %s", list.Result)
 	}
 }

@@ -507,14 +507,6 @@ func validateArchitectureBindingObligationsTx(snapshot *lawFolderSnapshot, oblig
 	return nil
 }
 
-func stringSet(values []string) map[string]struct{} {
-	result := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		result[value] = struct{}{}
-	}
-	return result
-}
-
 func productKnowledgeHomeTx(ctx context.Context, tx *sql.Tx, productID string) (string, string, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT project_id,locator_id FROM product_knowledge_homes WHERE product_id=? ORDER BY project_id,locator_id LIMIT 2`, productID)
 	if err != nil {

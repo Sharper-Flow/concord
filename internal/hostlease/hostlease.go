@@ -35,7 +35,7 @@ type Lease struct {
 	Worktree  string `json:"worktree,omitempty"`
 }
 
-// Writers using CurrentFenceProtocol check the fence under the admission lock.
+// CurrentFenceProtocol requires writers to check the fence under the admission lock.
 // Recognition is exact: any other number, including a higher one, fails closed.
 const CurrentFenceProtocol = 1
 

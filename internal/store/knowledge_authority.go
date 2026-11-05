@@ -286,20 +286,15 @@ func workflowContractHasArchitectureBindingTx(ctx context.Context, tx *sql.Tx, w
 
 func knowledgeContractAdmitsLawTx(ctx context.Context, tx *sql.Tx, record KnowledgeRecord, lawModifies string) (bool, error) {
 	workID, version := record.Authority.LegislatedBy, record.Authority.ContractVersion
-	predicates, err := readWorkflowContractPredicates(ctx, tx, workID, version)
-	if err != nil {
-		return false, err
+	var encoded string
+	if err := tx.QueryRowContext(ctx, `SELECT legislative_subjects FROM workflow_contracts WHERE work_id=? AND contract_version=?`, workID, version).Scan(&encoded); err != nil {
+		return false, wrapFailure(KindUnavailable, "knowledge_authority", "cannot read the declared contract's legislative subjects", true, "retry once the database is readable", err)
 	}
-	admitted := false
-	for _, predicate := range predicates {
-		decoded, decodeErr := DecodeWorkflowPredicate([]byte(predicate.OutcomePayload))
-		if decodeErr != nil {
-			return false, decodeErr
-		}
-		if (decoded.Kind == PredicateExists || decoded.Kind == PredicateAbsent) && slices.Contains(decoded.Subjects, record.ID) {
-			admitted = true
-		}
+	var subjects []string
+	if json.Unmarshal([]byte(encoded), &subjects) != nil || subjects == nil || !validLegislativeSubjects(subjects) {
+		return false, newFailure(KindInvariantViolation, "knowledge_authority", "the declared contract's legislative_subjects projection is malformed", false, "restore a verified backup into a new path with concord restore, then swap")
 	}
+	admitted := slices.Contains(subjects, record.ID)
 	if !admitted && (record.Kind == "decision" || record.Kind == "constitution") {
 		var modifies []string
 		if json.Unmarshal([]byte(lawModifies), &modifies) != nil {

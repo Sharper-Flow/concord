@@ -114,7 +114,7 @@ func TestTerminalLifecycleRefusesCompletedWhileWorkflowLive(t *testing.T) {
 func TestTerminalLifecycleLeavesACompletedInstanceAlone(t *testing.T) {
 	t.Parallel()
 	workID := "completed-then-lifecycle"
-	s, completion := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
+	s, completion := seedCompletionGateCase(t, workID, completionGateCase{includeSpec: true, includePremise: true})
 	if err := CompleteWorkflow(context.Background(), s, completion); err != nil {
 		t.Fatalf("workflow completion refused: %v", err)
 	}

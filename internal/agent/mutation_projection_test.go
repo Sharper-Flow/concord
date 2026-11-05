@@ -21,28 +21,23 @@ func TestMutationProjectionReviewAndMessageMutations(t *testing.T) {
 	f.verify(t)
 	f.implement(t)
 	f.proof = f.verify(t)
-	// HTML escaping expands legal Review detail beyond the envelope limit.
-	detail := strings.Repeat("<", 512)
-	pin := f.read(t).Pinned.Pin
-	candidate := store.ReviewCandidate{ProjectID: "project-1", Commit: gitRun(t, f.path, "rev-parse", "HEAD"), Tree: gitRun(t, f.path, "rev-parse", "HEAD^{tree}")}
-	report := store.ReviewBlock{Disposition: "correction_required", InputCandidate: candidate, OutputCandidate: candidate, Dependencies: *pin.Review.Dependencies,
-		Assessments: []store.ReviewAssessment{}, RemainingObligations: []store.ReviewObligation{}, Findings: []store.ReviewFinding{}}
+	// Escaped, retained work-context statements exceed the result envelope
+	// while remaining within the context's own serialized bound.
+	findings := []map[string]any{}
 	for i := 0; i < 16; i++ {
-		report.Findings = append(report.Findings, store.ReviewFinding{FindingID: fmt.Sprintf("finding:projection-%02d", i), Status: "open", Severity: "P1", Confidence: "high", Detail: detail, Blocking: true, InScope: true, EvidenceRefs: []string{f.proof}, ClosureRefs: []string{}})
+		findings = append(findings, map[string]any{"kind": "observation", "statement": fmt.Sprintf("finding-%02d-%s", i, strings.Repeat("<", 570)), "subject_ref": "path:projection", "evidence_refs": []string{}, "domain_id": workflowArchitectureBindingForSeededRegistry(t, f.s)["home_domain_id"], "product_wide_rationale": "The finding applies across the fixture Product."})
 	}
-	spineOK(t, f.action(t, "record_review", map[string]any{"review": report}))
-	reportRef := f.read(t).Pinned.Pin.Review.Accepted.ReportRef
-	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": reportRef}))
+	spineOK(t, f.action(t, "record_work_context", map[string]any{"required_reading": []any{}, "finding_refs": []string{}, "context_findings": findings}))
 	state := f.read(t)
-	if len(state.Pinned.Pin.Review.Findings) != 16 {
-		t.Fatal("Review did not retain its blockers")
+	if state.Pinned.Pin.WorkContext == nil || len(state.Pinned.Pin.WorkContext.Findings) != 16 {
+		t.Fatal("work context did not retain its findings")
 	}
 	for _, vector := range []struct {
 		name, tool, operation string
 		fields                map[string]any
 	}{
 		{"review", "concord_work_transition", "workflow_action", map[string]any{
-			"action_id": "record_review", "fields": map[string]any{"review": report},
+			"action_id": "record_review", "fields": map[string]any{"step_id": "implement", "note": "Reviewed the implementation.", "reviewer": "concord-review", "result": "pass", "commit": gitRun(t, f.path, "rev-parse", "HEAD"), "link": "https://example.com/review/projection"},
 		}},
 	} {
 		t.Run(vector.name, func(t *testing.T) {
@@ -104,7 +99,7 @@ func TestMutationProjectionReviewAndMessageMutations(t *testing.T) {
 			if err != nil || committed <= before {
 				t.Fatalf("invalid committed version: %d %v", committed, err)
 			}
-			if err := json.Unmarshal([]byte(record.ResultPayload), &original); err != nil || len(original.Pins) != 1 || original.Pins[0].Version != committed || len(original.Pins[0].Review.Findings) != 16 || !reflect.DeepEqual(original.Intents, mutationResultIntents(nextIntentsFromPin(original.Pins[0]))) {
+			if err := json.Unmarshal([]byte(record.ResultPayload), &original); err != nil || len(original.Pins) != 1 || original.Pins[0].Version != committed || original.Pins[0].WorkContext == nil || len(original.Pins[0].WorkContext.Findings) != 16 || !reflect.DeepEqual(original.Intents, mutationResultIntents(nextIntentsFromPin(original.Pins[0]))) {
 				t.Fatalf("incomplete original pin or intents: err=%v", err)
 			}
 			if err := agentcontract.ValidateOperationPayload(vector.tool, vector.operation, []byte(record.ResultPayload), true); err != nil {
@@ -378,13 +373,9 @@ func TestMutationProjectionRejectsUntrustedRetainedDocuments(t *testing.T) {
 
 func TestMutationProjectionRequiresRetainedIdentity(t *testing.T) {
 	_, _, pin := enrichmentPinFixture(t)
-	refs := make([]string, 32)
-	for i := range refs {
-		refs[i] = fmt.Sprintf("%02d%s", i, strings.Repeat("<", 126))
-	}
-	pin.Review = &store.WorkflowReviewState{Findings: []store.ReviewFinding{}}
+	pin.WorkContext = &store.WorkContextView{SourceEventFrontier: 1, RequiredReading: []store.WorkContextReading{}, Findings: []store.WorkContextFindingView{}, DomainGroups: []store.WorkContextDomainGroup{}}
 	for i := 0; i < 16; i++ {
-		pin.Review.Findings = append(pin.Review.Findings, store.ReviewFinding{FindingID: fmt.Sprintf("finding:%02d", i), Status: "open", Severity: "P1", Confidence: "high", Detail: strings.Repeat("<", 512), EvidenceRefs: refs, ClosureRefs: []string{}})
+		pin.WorkContext.Findings = append(pin.WorkContext.Findings, store.WorkContextFindingView{FindingID: fmt.Sprintf("finding:1:%d", i), Kind: "observation", Statement: strings.Repeat("<", 570), SubjectRef: "path:projection", EvidenceRefs: []string{}, DomainID: "domain:fixture", Origin: store.WorkContextOriginDeclaration, Status: store.WorkContextFindingStatusReported, SourceEventID: "event:context", SourceEventSeq: 1, Ordinal: i})
 	}
 	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: pin.WorkID, Version: strconv.FormatInt(pin.Version, 10)}}
 	payload, intents, err := enrichMutationPayload(mutationPayload(changed, nil), []store.WorkPin{pin})

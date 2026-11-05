@@ -2,6 +2,7 @@ import { test, expect, mock, beforeEach, afterEach } from "bun:test"
 import { chmod, mkdtemp as createDirectory, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { createHash } from "node:crypto"
 import { contractOperations, manifestDigest, maxEnvelopeBytes, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { configureCoreBinary } from "./core-runtime"
 import { claimHostLease, configureHostLease, hostLeaseFault } from "./host-lease"
@@ -130,21 +131,14 @@ test("published tool arguments expose a host-safe request shape", async () => {
   expect(captureInput.required).toEqual(["title", "value_statement", "kind", "project_ids", "idempotency_key"])
   expect(captureInput.properties.urgency.enum).toEqual(["standard", "expedite"])
   const transition = adapter.publishedRequestSchema("concord_work_transition") as any
-  // Select the approve_contract variant by its action_id const: it is the
-  // variant whose fields carry the outcome_predicates admission rules.
+  // Select the approve_contract variant by its action_id const.
   const actionBranch = actionInput(transition, "approve_contract")
   const fieldsBranches = actionFieldsBranches(actionBranch)
   expect(fieldsBranches, "approve_contract fields branches").toHaveLength(1)
   expect(fieldsBranches[0].required).toContain("decision_domains")
   expect(fieldsBranches[0].properties.decision_domains).toBeObject()
   expect(fieldsBranches[0].additionalProperties).toBe(false)
-  // CON-412: the items close per kind; each branch binds outcome_kind to
-  // outcome_payload.kind and carries that branch's payload inline.
-  for (const fields of fieldsBranches) {
-    const itemVariants = fields.properties.outcome_predicates.items.oneOf
-    expect(itemVariants.map((branch: any) => branch.properties.outcome_kind.const)).toEqual(["exists", "absent", "outcome", "check"])
-    expect(itemVariants.map((branch: any) => branch.properties.outcome_payload.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
-  }
+  expect(fieldsBranches[0].properties.legislative_subjects.maxItems).toBe(800)
   // The branch names the conditional action fields, so a calling agent can
   // read them before calling.
   for (const field of ["action_id"]) {
@@ -780,6 +774,60 @@ const runnerWithContext = (invoke: any) => {
   return { calls: () => calls, async run(argv: string[], input: string, signal: AbortSignal) { calls++; if (calls === 1) return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }; const response = typeof invoke === "function" ? invoke(argv, input, signal, calls) : invoke; return response && typeof response === "object" && "stdout" in response ? response : { exitCode: 0, stdout: JSON.stringify(response), stderr: "" } } }
 }
 
+test("boot reference documents survive the adapter JSON transport", async () => {
+  // These compact documents model Go json.Marshal output, including its HTML
+  // and Unicode separator escapes. The byte strings are the digest oracle.
+  const resume = String.raw`{"work_id":"work-1","version":3,"state":"intake","opening_steps":["intake","pick_type"]}`
+  const handoff = String.raw`{"handoff_id":"handoff-1","work_id":"work-1","contract_version":1,"source_project_id":"source-1","target_project_id":"project-1","source_session_ref":"session-1","bounded_job":"\u003c\u003e\u0026\u2028\u2029MULTIBYTE\n\t\u0001","changes":[],"verification":[],"artifact_refs":[],"blockers":[],"next_action":"act","state":"recorded","recorded_at":"2026-01-01T00:00:00Z"}`.replace("MULTIBYTE", "界")
+  const digest = (doc: string) => `sha256:${createHash("sha256").update(doc, "utf8").digest("hex")}`
+  const reference = (doc: string) => ({ digest: digest(doc), total_bytes: Buffer.byteLength(doc, "utf8") })
+  const canonical = (value: unknown) => JSON.stringify(value).replace(/[<>&\u2028\u2029]/g, (character) => ({
+    "<": "\\u003c", ">": "\\u003e", "&": "\\u0026", "\u2028": "\\u2028", "\u2029": "\\u2029",
+  })[character]!)
+  const verify = (doc: string, ref: ReturnType<typeof reference>) => {
+    expect(Buffer.byteLength(doc, "utf8")).toBe(ref.total_bytes)
+    expect(digest(doc)).toBe(ref.digest)
+  }
+  const read = async (tool: "trace" | "browse", operation: string, resultJSON: string) => {
+    const name = tool === "trace" ? "concord_work_trace" : "concord_work_browse"
+    const envelope = coreEnvelope(name, operation, "ok", { result: null })
+    const stdout = JSON.stringify(envelope).replace('"result":null', `"result":${resultJSON}`)
+    adapter.configureConcordAdapter({ runner: runnerWithContext({ exitCode: 0, stdout, stderr: "" }) })
+    const input = tool === "trace" ? { work_id: "work-1" } : { product_id: "product-1", project_ids: ["project-1"], work_ids: ["work-1"], detail: "full" }
+    const exposed = tool === "trace" ? adapter.work_trace : adapter.work_browse
+    const response: any = await rawHostResult(exposed.execute(hostCall(operation, input), contextFor()))
+    expect(response.outcome, JSON.stringify(response)).toBe("ok")
+    return response.result
+  }
+
+  const inlineResume = await read("trace", "resume", resume)
+  verify(canonical(inlineResume), reference(resume))
+  const doc = `{"items":[{"id":"work-1","kind":"task","title":"work","lifecycle":"needed","version":1,"pending_project_handoff":${handoff}}]}`
+  const list = await read("browse", "list", doc)
+  expect(JSON.stringify(list.items[0].pending_project_handoff)).not.toBe(handoff)
+  expect(canonical(list.items[0].pending_project_handoff)).toBe(handoff)
+  verify(canonical(list.items[0].pending_project_handoff), reference(handoff))
+
+  // Fragment data is already a piece of the source JSON, not a JSON value to
+  // canonicalize again. Split at a character boundary, including multibyte text.
+  const split = doc.indexOf("界") + 1
+  const parts = [doc.slice(0, split), doc.slice(split)]
+  let rebuilt = ""
+  for (const part of parts) {
+    const complete = rebuilt.length + part.length === doc.length
+    const page = { encoding: "json-fragment", ...reference(doc), offset: Buffer.byteLength(rebuilt), data: part, fragment_bytes: Buffer.byteLength(part), document_complete: complete, next_kind: complete ? null : "projection" }
+    const received = await read("browse", "list", JSON.stringify(page))
+    expect(received.offset).toBe(Buffer.byteLength(rebuilt))
+    expect(received.fragment_bytes).toBe(Buffer.byteLength(received.data))
+    expect(received.digest).toBe(page.digest)
+    expect(received.total_bytes).toBe(page.total_bytes)
+    rebuilt += received.data
+  }
+  expect(rebuilt).toBe(doc)
+  verify(rebuilt, reference(doc))
+  verify(canonical(JSON.parse(rebuilt).items[0].pending_project_handoff), reference(handoff))
+})
+
 test("all context and transport failures produce valid adapter envelopes", async () => {
   const cases: Array<[string, any, any, string, string]> = [
     ["context resolution failure", undefined, { exitCode: 1, stdout: "", stderr: "context resolution failed" }, "transport_failure", "io_failure"],
@@ -895,37 +943,10 @@ const runWorkflowAction = (runner: any, input: Record<string, unknown>, ask?: ()
   adapter.configureConcordAdapter({ runner })
   return rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", input), contextFor(ask)))
 }
-test("host publication round-trips check predicate payloads unchanged", async () => {
+test("host publication round-trips legislative subjects unchanged", async () => {
   const input = {
-    work_id: "work-1",
-    expected_version: 2,
-    action_id: "approve_contract",
-    idempotency_key: "idem-check-predicate-1",
-    fields: {
-      outcome_predicates: [{
-        predicate_id: "predicate:primary",
-        ordinal: 0,
-        outcome_kind: "check",
-        outcome_payload: {
-          kind: "check",
-          check_ref: "check:approve-contract",
-          immutable_subject_ref: "commit:approve-contract",
-          expected_result: "pass",
-        },
-      }],
-    },
-  }
-  const published: any = adapter.publishedRequestSchema("concord_work_transition")
-  const expandedPublished: any = expandedPublishedRequestSchema(published)
-  const actionBranch: any = expandedPublished.oneOf.find((branch: any) => branch.properties.operation.const === "workflow_action" && branch.properties.input.properties.action_id.const === "approve_contract").properties.input
-  // CON-412: the items close per kind; each branch binds outcome_kind to
-  // outcome_payload.kind and carries that branch's payload inline. The
-  // check runs on each branch of the fields union, so a branch-only drop
-  // cannot hide behind the factored parent.
-  for (const fields of actionFieldsBranches(actionBranch)) {
-    const itemVariants = fields.properties.outcome_predicates.items.oneOf
-    expect(itemVariants.map((branch: any) => branch.properties.outcome_kind.const)).toEqual(["exists", "absent", "outcome", "check"])
-    expect(itemVariants.map((branch: any) => branch.properties.outcome_payload.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
+    work_id: "work-1", expected_version: 2, action_id: "approve_contract", idempotency_key: "idem-subjects-1",
+    fields: { premise: "Review the proposed law change.", decision_domains: [], legislative_subjects: ["spec:one", "decision:one"] },
   }
   let sentInput: unknown
   const success = coreEnvelope("concord_work_transition", "workflow_action", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })
@@ -939,9 +960,9 @@ test("host publication round-trips check predicate payloads unchanged", async ()
 })
 
 test("confirm_premise refusals come from the core, not the adapter", async () => {
-  // The core owns the acceptance-deliverables gate and its refusal.
+  // The core owns step admission and its refusal.
   const artifactRefusal = coreEnvelope("concord_work_transition", "workflow_action", "error", {
-    error: { kind: "missing_evidence", retry_safe: false, recovery_action: { kind: "provide_evidence" }, effect_state: "none", message: "premise confirmation requires a recorded workflow verdict" },
+    error: { kind: "missing_evidence", retry_safe: false, recovery_action: { kind: "provide_evidence" }, effect_state: "none", message: "premise confirmation needs a recorded premise" },
   })
   const first = runnerWithContext(artifactRefusal)
   const result: any = await runWorkflowAction(first,
@@ -949,7 +970,7 @@ test("confirm_premise refusals come from the core, not the adapter", async () =>
   expect(first.calls()).toBe(2)
   expect(result.outcome).toBe("error")
   expect(result.origin).toBe("core")
-  expect(result.error.message).toContain("recorded workflow verdict")
+  expect(result.error.message).toContain("recorded premise")
 
 })
 
@@ -1407,13 +1428,8 @@ test("portable continuation posture leaves host protocol names to the host surfa
   expect(recordsSource).toContain("decide it when the change is delivered.")
 })
 
-test("tools forward the coordinator's typed Review without launch authorization", async () => {
-  const candidate = { project_id: "project-1", commit: "a".repeat(40), tree: "b".repeat(40) }
-  const review = {
-    disposition: "ready_for_final_proof", input_candidate: candidate, output_candidate: candidate,
-    dependencies: { criteria: [{ predicate_id: "predicate:one", content_digest: "sha256:" + "c".repeat(64) }], architecture_not_applicable: true },
-    assessments: [], findings: [], remaining_obligations: [],
-  }
+test("tools forward the coordinator's reviewed step without launch authorization", async () => {
+  const review = { step_id: "review", note: "Review completed.", reviewer: "reviewer:one", result: "pass", commit: "a".repeat(40), link: "review:one" }
   let input: any
   const runner = runnerWithContext((_argv: string[], body: string) => {
     input = JSON.parse(body)
@@ -1423,10 +1439,10 @@ test("tools forward the coordinator's typed Review without launch authorization"
   })
   adapter.configureConcordAdapter({ runner })
   const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", {
-    work_id: "work-1", expected_version: 3, action_id: "record_review", idempotency_key: "record-native-review", fields: { review },
+    work_id: "work-1", expected_version: 3, action_id: "record_review", idempotency_key: "record-native-review", fields: review,
   }), contextFor()))
   expect(result.outcome, JSON.stringify(result)).toBe("ok")
-  expect(input.input.fields).toEqual({ review })
+  expect(input.input.fields).toEqual(review)
   expect(input.input.action_id).toBe("record_review")
   expect(runner.calls()).toBe(2)
   expect(result.warnings).toEqual([])

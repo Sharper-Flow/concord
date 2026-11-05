@@ -37,16 +37,12 @@ func bindAJ4HistoryOfASupersededContract(t *testing.T, _ jobScenario) jobObserva
 		"contract_version":     2,
 		"premise":              "corrected premise",
 		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, s),
-		"outcome_predicates": []map[string]any{{
-			"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check",
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:workflow", "expected_result": "pass"},
-		}},
-		"required_evidence": []string{"verification"},
-		"route_conventions": []string{},
-		"spec_mandate":      []string{},
-		"law_modifies":      []string{},
-		"rigor_class":       "prototype_internal",
-		"decision_domains":  []string{},
+		"legislative_subjects": []string{},
+		"route_conventions":    []string{},
+		"spec_mandate":         []string{},
+		"law_modifies":         []string{},
+		"rigor_class":          "prototype_internal",
+		"decision_domains":     []string{},
 	}, "aj4-history-revise")
 	if revised.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("revise_intent = %+v", revised.Error)

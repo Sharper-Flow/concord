@@ -42,9 +42,7 @@ func currentLawUpgradeFixture(t *testing.T, contract, boundary int) (*Store, Wor
 	queries := map[string]string{
 		"work":        `SELECT * FROM work_items WHERE id='upgrade-law'`,
 		"actors":      `SELECT * FROM workflow_actors ORDER BY actor_ref`,
-		"contracts":   `SELECT work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,superseded_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json,supersession_seq,last_healthy_seq,decision_domains FROM workflow_contracts ORDER BY work_id,contract_version`,
-		"predicates":  `SELECT * FROM workflow_contract_predicates ORDER BY work_id,contract_version,ordinal`,
-		"review":      `SELECT * FROM workflow_review_state ORDER BY work_id`,
+		"contracts":   `SELECT work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,superseded_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json,supersession_seq,last_healthy_seq,decision_domains FROM workflow_contracts ORDER BY work_id,contract_version`,
 		"checkpoints": `SELECT work_id,work_version,checkpoint_sequence,checkpoint_id,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions,workflow_ref,actor_ref,request_id,recorded_at FROM workflow_context_checkpoints ORDER BY work_id,checkpoint_sequence`,
 		"boundaries":  `SELECT work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,actor_ref,request_id,recorded_at FROM workflow_context_boundaries ORDER BY work_id,boundary_sequence`,
 		"membership":  `SELECT * FROM work_projects ORDER BY work_id`,
@@ -57,12 +55,28 @@ func currentLawUpgradeFixture(t *testing.T, contract, boundary int) (*Store, Wor
 	for name, query := range queries {
 		before[name] = retirementUpgradeRows(t, db, query)
 	}
-	report, err := Upgrade(t.Context(), path, nil)
+	if got := retirementUpgradeRows(t, db, `SELECT state FROM workflow_review_state WHERE work_id='upgrade-law'`); len(got) != 1 {
+		t.Fatalf("historical Review missing before upgrade: %v", got)
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT predicate_id FROM workflow_contract_predicates WHERE work_id='upgrade-law'`); len(got) != contract {
+		t.Fatalf("historical predicate count before upgrade=%v, want %d", got, contract)
+	}
+	snapshot := filepath.Join(t.TempDir(), "pre-step-plan.db")
+	if _, err := BackupDatabase(t.Context(), path, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{183, 184}) {
-		t.Fatalf("applied migrations=%v, want [183 184]", report.Applied)
+	var wantApplied []int
+	for _, m := range migrations {
+		if m.Version > 182 {
+			wantApplied = append(wantApplied, m.Version)
+		}
+	}
+	if !reflect.DeepEqual(report.Applied, wantApplied) {
+		t.Fatalf("applied migrations=%v, want %v", report.Applied, wantApplied)
 	}
 	for name, query := range queries {
 		if got := retirementUpgradeRows(t, db, query); !reflect.DeepEqual(got, before[name]) {
@@ -113,8 +127,7 @@ func TestWorkflowLawUpgradeCurrentContractRoutes(t *testing.T) {
 			seedWorkflowPlanFrontier(t, s, "upgrade-law", WorkflowStepPlanResearch, firstCallApprovalFrontier(t, WorkflowStepPlanResearch))
 			fields := map[string]any{
 				"premise": "Record the bounded research result", "decision_domains": []string{},
-				"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}}},
-				"required_evidence":  []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
+				"legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
 			}
 			if action == "revise_intent" {
 				fields["contract_version"] = 2
@@ -124,8 +137,8 @@ func TestWorkflowLawUpgradeCurrentContractRoutes(t *testing.T) {
 			} else if err := currentLawUpgradeAction(t, s, owner, action, fields); err != nil {
 				t.Fatalf("upgraded contract approval: %v", err)
 			}
-			contractData, err := workflowCompletionContractRows(t.Context(), s.db, "upgrade-law")
-			if err != nil || contractData.Version != int64(contract+1) || len(contractData.Predicates) != 1 || contractData.Predicates[0].PredicateID != "predicate:primary" {
+			contractData, err := readWorkflowContractVersion(t.Context(), s.db, "upgrade-law", int64(contract+1))
+			if err != nil || contractData.Version != int64(contract+1) {
 				t.Fatalf("current contract=%+v error=%v", contractData, err)
 			}
 		})

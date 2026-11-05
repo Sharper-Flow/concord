@@ -28,10 +28,19 @@ func runBindAction(t *testing.T, s *Store, workID string, payload json.RawMessag
 	}
 	defer tx.Rollback()
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	requestID := "request:" + action + "-" + workID + "-" + fmt.Sprint(version)
+	var fields map[string]any
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		return err
+	}
+	if _, ok := fields["producer_watermark"]; !ok {
+		fields["producer_watermark"] = requestID
+	}
+	payload = mustJSONValue(fields)
 	if _, err := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), WorkflowActionExecutionRequest{
 		EvidenceRefs: evidenceRefs, EvidenceKinds: evidenceKinds, WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64) + fmt.Sprint(version), IdempotencyIdentity: action + "-" + workID + "-" + fmt.Sprint(version), OperationID: action + "-" + workID + "-" + fmt.Sprint(version),
-		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: action + "-" + workID + "-" + fmt.Sprint(version), RequestID: "request:" + action + "-" + workID + "-" + fmt.Sprint(version), ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: action + "-" + workID + "-" + fmt.Sprint(version), RequestID: requestID, ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),
 	}); err != nil {
 		return err
 	}
@@ -63,7 +72,7 @@ func TestBindEvidenceRefusesToBindOnlyASubsetOfSubmittedSubjects(t *testing.T) {
 		t.Fatalf("refusal does not name the one-subject-per-call rule: %s", got)
 	}
 
-	// Whichever subject a follow-up verdict names must be either fully
+	// Whichever subject a later reference names must be either fully
 	// bound or refused at bind time; nothing may be half-submitted.
 	for _, ref := range []string{secondRef, thirdRef} {
 		var bound int
@@ -78,7 +87,7 @@ func TestBindEvidenceRefusesToBindOnlyASubsetOfSubmittedSubjects(t *testing.T) {
 
 // The reference rule the declared payload fields already enforce also bounds
 // a subject derived from the evidence array. Without this an array entry
-// outside ValidReference mints durable evidence that no verdict or completion
+// outside ValidReference mints durable evidence that no completion
 // reference can ever name.
 func TestBindEvidenceRefusesArraySubjectOutsideTheReferenceRule(t *testing.T) {
 	t.Parallel()
@@ -88,7 +97,7 @@ func TestBindEvidenceRefusesArraySubjectOutsideTheReferenceRule(t *testing.T) {
 
 	err := runBindAction(t, s, workID, json.RawMessage(`{"evidence_kind":"verification"}`), []string{invalidLocator})
 	if err == nil {
-		t.Fatalf("bind_evidence admitted an array-derived subject the verdict cannot name: %q", invalidLocator)
+		t.Fatalf("bind_evidence admitted an array-derived subject no reference can name: %q", invalidLocator)
 	}
 	if !strings.Contains(err.Error(), "reference rule") {
 		t.Fatalf("array-subject refusal does not name the reference rule: %v", err)

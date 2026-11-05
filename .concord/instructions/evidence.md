@@ -28,5 +28,4 @@ documentation for a library or platform, source code for behavior a vendor
 does not document, or current public information for anything that changes.
 
 Correct yourself in place. When you find that something you already said was
-wrong, say so directly and give the correction. Do not let an earlier claim
-stand because revisiting it is awkward.
+wrong, say so directly and give the correction.

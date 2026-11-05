@@ -25,10 +25,10 @@ func TestWorkPinAmbiguousContractsCarryWatermark(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
-INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
-SELECT 'workpin-ambiguous',1,'ambiguous fixture premise','internal_sqlite','[]','[]','2026-09-21T00:00:00Z',?,'[]','[]',1,'prototype_internal';
-INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
-SELECT 'workpin-ambiguous',2,'ambiguous fixture premise','internal_sqlite','[]','[]','2026-09-21T00:00:00Z',?,'[]','[]',1,'prototype_internal';
+INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
+SELECT 'workpin-ambiguous',1,'ambiguous fixture premise','internal_sqlite','[]','2026-09-21T00:00:00Z',?,'[]','[]',1,'prototype_internal';
+INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
+SELECT 'workpin-ambiguous',2,'ambiguous fixture premise','internal_sqlite','[]','2026-09-21T00:00:00Z',?,'[]','[]',1,'prototype_internal';
 DELETE FROM write_guard`, actorRef, actorRef); err != nil {
 		t.Fatal(err)
 	}
@@ -56,9 +56,6 @@ DELETE FROM write_guard`, actorRef, actorRef); err != nil {
 	}
 	if !workPinContainsAction(pin.NextValidIntents, "insert_step") || !workPinContainsAction(pin.NextValidIntents, "pick_type") {
 		t.Fatalf("ambiguous pin omitted independent plan routes: %+v", pin.NextValidIntents)
-	}
-	if pin.Obligations != nil || pin.OutstandingEvidenceKinds != nil || len(pin.VerifiedCriteria) != 0 {
-		t.Fatalf("ambiguous pin selected contract facts: %+v", pin)
 	}
 	before := outsideRepairDatabaseSnapshot(t, s)
 	err = reviseContractRecord(t, s, "workpin-ambiguous", actor, map[string]any{}, version)

@@ -2,14 +2,14 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"reflect"
 	"testing"
 )
 
 func TestWorkflowEvidenceCurrentFactsWithoutLog(t *testing.T) {
 	const work = "evidence-current-facts"
-	s, _ := seedCompletionGateCase(t, work, completionGateCase{requiredEvidence: []string{"verification", "review"}})
+	f := seedWorkflowReturnRouteFixture(t, work, WorkflowStepPlanChange, "implement")
+	s := f.store
 	defer s.Close()
 	ctx := context.Background()
 	seedWorkflowAuthority(t, s, "current-proof-producer", work, "principal/current-proof", "request/current-proof", []string{"evidence:gate-proof"})
@@ -21,35 +21,24 @@ func TestWorkflowEvidenceCurrentFactsWithoutLog(t *testing.T) {
 	})}}); err != nil {
 		t.Fatal(err)
 	}
-	bound, err := workflowEvidenceReferenceBound(ctx, s.db, work, "evidence:gate-proof", "workflow_action")
-	if err != nil || !bound {
-		t.Fatalf("positive binding fixture: bound=%v err=%v", bound, err)
+	readBinding := func() (any, error) {
+		var count int
+		err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=? AND json_extract(payload,'$.immutable_subject_ref')=? AND json_extract(payload,'$.producer_watermark')=?`, work, "evidence:gate-proof", "request/current-proof").Scan(&count)
+		return count, err
 	}
-	inTx := func(read func(*sql.Tx) (any, error)) (any, error) {
-		tx, err := s.db.BeginTx(ctx, nil)
-		if err != nil {
-			return nil, err
-		}
-		defer tx.Rollback()
-		return read(tx)
+	bound, err := readBinding()
+	if err != nil || bound != 1 {
+		t.Fatalf("positive binding fixture: count=%v err=%v", bound, err)
 	}
 	assertWorkerFactsLogBlind(t, s, map[string]func() (any, error){
-		"P53-evidence-inventory": func() (any, error) {
-			return inTx(func(tx *sql.Tx) (any, error) { return workPinVerdictEvidenceTx(ctx, tx, work) })
-		},
-		"G24-reference": func() (any, error) {
-			return workflowEvidenceReferenceBound(ctx, s.db, work, "evidence:gate-proof", "workflow_action")
-		},
-		"G24-verification-order": func() (any, error) { return workflowVerificationBindingsAfter(ctx, s.db, work, 0, "workflow_action") },
-		"G24-requirements": func() (any, error) {
-			return unboundWorkflowEvidenceRequirements(ctx, s.db, work, []workflowEvidenceRequirement{{Kind: "verification"}, {Reference: "evidence:gate-proof"}, {Kind: "verification", Reference: "evidence:gate-proof"}})
-		},
+		"binding": readBinding,
 	})
 }
 
 func TestWorkflowEvidenceCurrentFactsMigrationBackfill(t *testing.T) {
 	const work = "current-evidence-backfill"
-	s, _ := seedCompletionGateCase(t, work, completionGateCase{requiredEvidence: []string{"verification", "review"}})
+	f := seedWorkflowReturnRouteFixture(t, work, WorkflowStepPlanChange, "implement")
+	s := f.store
 	defer s.Close()
 	queries := []string{
 		`SELECT json_array(work_id,step_id,attempt_epoch,latest_start_seq,latest_start_event_id,latest_start_payload) FROM workflow_step_epochs ORDER BY work_id,step_id`,

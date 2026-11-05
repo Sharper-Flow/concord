@@ -68,15 +68,11 @@ func testContractRevisionDispatch(t *testing.T, stage string) {
 		"contract_version":     2,
 		"premise":              "corrected premise",
 		"architecture_binding": successorBinding,
-		"outcome_predicates": []map[string]any{{
-			"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check",
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:workflow", "expected_result": "pass"},
-		}},
-		"required_evidence": []string{"verification"},
-		"route_conventions": []string{},
-		"spec_mandate":      []string{},
-		"law_modifies":      []string{},
-		"rigor_class":       "prototype_internal",
+		"legislative_subjects": []string{},
+		"route_conventions":    []string{},
+		"spec_mandate":         []string{},
+		"law_modifies":         []string{},
+		"rigor_class":          "prototype_internal",
 	}
 	approvedRaw := contractRevisionInput(t, s, "work-1", version, fields, "contract-revision-dispatch")
 	var stale map[string]any
@@ -149,8 +145,8 @@ func seedContractCorrectionPeer(t *testing.T, s *store.Store) {
 	}
 	_, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
 		INSERT INTO workflow_instances(work_id,workflow_type,step_plan,instance_state,execution_started_at) VALUES('correction-peer','fix',?,'running','2026-08-19T00:00:00Z');
-		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
-		SELECT 'correction-peer',contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id='work-1' AND contract_version=1;
+		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
+		SELECT 'correction-peer',contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id='work-1' AND contract_version=1;
 		INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash)
 		SELECT 'correction-peer',contract_version,product_id,home_domain_id,projection_hash FROM workflow_architecture_bindings WHERE work_id='work-1' AND contract_version=1;
 		INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id)

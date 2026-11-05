@@ -101,7 +101,7 @@ func TestWorkflowAdmissionMigration149Parity(t *testing.T) {
 	retirementUpgradeExec(t, s.db, `INSERT INTO workflow_instances(work_id,definition_ref,definition_digest,current_step,instance_state) VALUES('admission-corpus','workflow.research',?,'findings','running')`, "sha256:"+strings.Repeat("a", 64))
 	retirementUpgradeExec(t, s.db, `DELETE FROM write_guard`)
 	receipts := retirementUpgradeRows(t, s.db, `SELECT * FROM effect_receipts ORDER BY effect_seq`)
-	if _, err := Upgrade(t.Context(), s.path, nil); err != nil {
+	if _, err := Upgrade(t.Context(), s.path, nil, outcomeSnapshotOption(t, t.Context(), s.path)); err != nil {
 		t.Fatal(err)
 	}
 	if got := retirementUpgradeRows(t, s.db, `SELECT * FROM effect_receipts ORDER BY effect_seq`); !reflect.DeepEqual(got, receipts) {
@@ -209,14 +209,13 @@ func TestWorkflowAdmissionCutoverPreservesWorkAndLinearIdentity(t *testing.T) {
 	links := retirementUpgradeRows(t, db, `SELECT * FROM linear_issue_links ORDER BY work_id`)
 	receipts := retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts ORDER BY effect_seq`)
 	actors := retirementUpgradeRows(t, db, `SELECT * FROM workflow_actors ORDER BY actor_ref`)
-	verdicts := retirementUpgradeRows(t, db, `SELECT * FROM workflow_predicate_verdicts ORDER BY work_id,predicate_id`)
 	delivery := retirementUpgradeRows(t, db, `SELECT * FROM workflow_delivery_state ORDER BY work_id`)
 	snapshot := filepath.Join(t.TempDir(), "before-cutover.db")
 	manifest, err := BackupDatabase(ctx, path, snapshot)
 	if err != nil {
 		t.Fatalf("snapshot predecessor: %v", err)
 	}
-	if _, err := Upgrade(ctx, path, nil); err != nil {
+	if _, err := Upgrade(ctx, path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
 		t.Fatalf("upgrade predecessor: %v", err)
 	}
 	if got := retirementUpgradeRows(t, db, `SELECT * FROM work_items WHERE id='work-upgrade-from'`); !reflect.DeepEqual(got, work) {
@@ -229,9 +228,8 @@ func TestWorkflowAdmissionCutoverPreservesWorkAndLinearIdentity(t *testing.T) {
 		t.Fatalf("effect receipts changed: before=%v after=%v", receipts, got)
 	}
 	for query, want := range map[string][][]any{
-		`SELECT * FROM workflow_actors ORDER BY actor_ref`:                        actors,
-		`SELECT * FROM workflow_predicate_verdicts ORDER BY work_id,predicate_id`: verdicts,
-		`SELECT * FROM workflow_delivery_state ORDER BY work_id`:                  delivery,
+		`SELECT * FROM workflow_actors ORDER BY actor_ref`:       actors,
+		`SELECT * FROM workflow_delivery_state ORDER BY work_id`: delivery,
 	} {
 		if got := retirementUpgradeRows(t, db, query); !reflect.DeepEqual(got, want) {
 			t.Errorf("retained facts changed for %s: before=%v after=%v", query, want, got)

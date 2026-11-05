@@ -119,7 +119,7 @@ func TestWorkflowPlanActionFolds(t *testing.T) {
 	version = result.ResultingVersion
 	apply(foldWorkflowStepCompleted, workflowStepCompletedPayload{WorkflowVersionFields: fields(), StepID: plan.Steps[0].ID, Note: "done"}, false)
 	apply(foldWorkflowStepCompleted, workflowStepCompletedPayload{WorkflowVersionFields: fields(), StepID: "extra", Note: "reviewed"}, true)
-	apply(foldWorkflowStepCompleted, workflowStepCompletedPayload{WorkflowVersionFields: fields(), StepID: "extra", Note: "reviewed", Reviewer: "concord-review", Result: "pass", Commit: "commit", Link: "link"}, true)
+	apply(foldWorkflowStepCompleted, workflowStepCompletedPayload{WorkflowVersionFields: fields(), StepID: "extra", Note: "reviewed", Reviewer: "concord-review", Result: "pass", Commit: "commit", Link: "link"}, false)
 	apply(foldWorkflowTypePicked, workflowTypePickedPayload{WorkflowVersionFields: fields(), Type: WorkflowStepPlanFix, Reason: "switch type"}, false)
 	var rawPrelude string
 	if err := db.QueryRowContext(ctx, `SELECT prelude_state FROM workflow_instances WHERE work_id='work'`).Scan(&rawPrelude); err != nil {
@@ -148,7 +148,7 @@ func TestWorkflowPlanActionFolds(t *testing.T) {
 		}
 	}
 	step, ok := stepByID(plan.Steps, "extra")
-	if !ok || len(step.Attempts) != 0 || plan.Type != WorkflowStepPlanFix {
+	if !ok || len(step.Attempts) != 1 || step.Attempts[0].Reviewer != "concord-review" || step.Attempts[0].Result != "pass" || plan.Type != WorkflowStepPlanFix {
 		t.Fatalf("switch lost completed step: %+v", plan)
 	}
 	template, err := WorkflowStepPlanTemplate(WorkflowStepPlanFix)
@@ -167,36 +167,17 @@ func TestWorkflowPlanReviewRecordedBinding(t *testing.T) {
 	db, _ := terminalStepsMigrationFixture(t)
 	advanceHistoricalPrefix(t, db, 183)
 	const work = "work-upgrade-to"
-	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-upgrade-to',1,'predicate:plan',0,'check','{"kind":"check"}'); DELETE FROM write_guard`)
-	deps, err := workflowReviewDependencies(t.Context(), db, work)
-	if err != nil || len(deps.Criteria) == 0 {
-		t.Fatalf("fixture dependencies: %+v: %v", deps, err)
-	}
-	candidate := ReviewCandidate{ProjectID: "project-upgrade", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Tree: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
-	input := candidate
-	input.Commit = "cccccccccccccccccccccccccccccccccccccccc"
-	input.Tree = "dddddddddddddddddddddddddddddddddddddddd"
 	for _, tc := range []struct {
-		name, step, result, disposition, mutation string
-		changed, refuse                           bool
+		name, step, result, mutation string
+		refuse                       bool
 	}{
-		{"intermediate continue", "implement", "pass", "continue", "", false, false},
-		{"intermediate fixed", "implement", "fixed", "continue", "", true, false},
-		{"final clean pass", "review", "pass", "ready_for_final_proof", "", false, false},
-		{"final fixed repeats", "review", "fixed", "continue", "", true, false},
-		{"invented fixed", "implement", "fixed", "continue", "", false, true},
-		{"invented pass", "implement", "pass", "continue", "", true, true},
-		{"final changed pass", "review", "pass", "ready_for_final_proof", "", true, true},
-		{"final continue", "review", "pass", "continue", "", false, true},
-		{"wrong reviewer", "implement", "pass", "continue", "reviewer", false, true},
-		{"wrong commit", "implement", "pass", "continue", "commit", false, true},
-		{"wrong link", "implement", "pass", "continue", "link", false, true},
-		{"no accepted review", "implement", "pass", "continue", "missing", false, true},
-		{"blocking finding", "implement", "pass", "continue", "blocking", false, true},
-		{"stale dependencies", "implement", "pass", "continue", "stale", false, true},
-		{"stale candidate", "implement", "pass", "continue", "candidate", false, true},
-		{"correction required", "implement", "pass", "correction_required", "", false, true},
-		{"revision required", "implement", "pass", "revision_required", "", false, true},
+		{"intermediate pass", "implement", "pass", "", false},
+		{"intermediate fixed", "implement", "fixed", "", false},
+		{"final clean pass", "review", "pass", "", false},
+		{"final fixed repeats", "review", "fixed", "", false},
+		{"wrong reviewer", "implement", "pass", "reviewer", true},
+		{"missing commit", "implement", "pass", "commit", true},
+		{"missing link", "implement", "pass", "link", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
@@ -220,41 +201,19 @@ func TestWorkflowPlanReviewRecordedBinding(t *testing.T) {
 			if _, err = tx.ExecContext(ctx, `UPDATE workflow_instances SET workflow_type='change',step_plan=? WHERE work_id=?`, string(rawPlan), work); err != nil {
 				t.Fatal(err)
 			}
-			report := ReviewBlock{Disposition: tc.disposition, InputCandidate: candidate, OutputCandidate: candidate, Dependencies: deps, Assessments: []ReviewAssessment{}, Findings: []ReviewFinding{}, RemainingObligations: []ReviewObligation{}}
-			report.Dependencies.Criteria = append([]ReviewCriterion(nil), deps.Criteria...)
-			if tc.changed {
-				report.InputCandidate = input
-			}
-			accepted := &WorkflowAcceptedReview{ReportRef: "event:review", ActorRef: "actor:coordinator", Report: report, ReportDigest: reviewDigest(report)}
-			state := WorkflowReviewState{Candidate: &candidate, Accepted: accepted, Findings: []ReviewFinding{}}
-			switch tc.mutation {
-			case "missing":
-				state.Accepted = nil
-			case "blocking":
-				state.Findings = []ReviewFinding{{FindingID: "finding:block", Status: "open", InScope: true, Blocking: true}}
-			case "stale":
-				state.Accepted.Report.Dependencies.Criteria[0].ContentDigest = "sha256:stale"
-			case "candidate":
-				other := candidate
-				other.Commit = input.Commit
-				state.Candidate = &other
-			}
-			if err = writeWorkflowReviewFacts(ctx, tx, work, state); err != nil {
-				t.Fatal(err)
-			}
 			var version int64
 			if err = tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, work).Scan(&version); err != nil {
 				t.Fatal(err)
 			}
 			next := version + 1
-			p := workflowStepCompletedPayload{WorkflowVersionFields: WorkflowVersionFields{WorkID: work, ExpectedVersion: &version, ResultingVersion: &next}, StepID: tc.step, Note: "review complete", Reviewer: "concord-review", Result: tc.result, Commit: candidate.Commit, Link: "event:review"}
+			p := workflowStepCompletedPayload{WorkflowVersionFields: WorkflowVersionFields{WorkID: work, ExpectedVersion: &version, ResultingVersion: &next}, StepID: tc.step, Note: "review complete", Reviewer: "concord-review", Result: tc.result, Commit: "commit:fixture", Link: "event:review"}
 			switch tc.mutation {
 			case "reviewer":
 				p.Reviewer = "actor:coordinator"
 			case "commit":
-				p.Commit = input.Commit
+				p.Commit = ""
 			case "link":
-				p.Link = "event:forged"
+				p.Link = ""
 			}
 			raw, err := json.Marshal(p)
 			if err != nil {

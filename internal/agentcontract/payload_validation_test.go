@@ -110,11 +110,11 @@ func TestValidateOperationPayloadPreservesSelectedGuidance(t *testing.T) {
 	for _, test := range []struct{ name, payload string }{
 		{
 			name:    "missing outer field",
-			payload: `{"expected_version":1,"action_id":"approve_contract","idempotency_key":"guidance","fields":{"premise":"A bounded change.","decision_domains":[],"outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"exists","outcome_payload":{"kind":"exists","surface":"go_source","subjects":["internal-example"]}}]}}`,
+			payload: `{"expected_version":1,"action_id":"approve_contract","idempotency_key":"guidance","fields":{"premise":"A bounded change.","decision_domains":[],"legislative_subjects":[]}}`,
 		},
 		{
 			name:    "selected nested field",
-			payload: `{"work_id":"work-1","expected_version":1,"action_id":"approve_contract","idempotency_key":"guidance","fields":{"premise":"A bounded change.","decision_domains":["bogus"],"outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"exists","outcome_payload":{"kind":"exists","surface":"go_source","subjects":["internal-example"]}}]}}`,
+			payload: `{"work_id":"work-1","expected_version":1,"action_id":"approve_contract","idempotency_key":"guidance","fields":{"premise":"A bounded change.","decision_domains":["bogus"],"legislative_subjects":[]}}`,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

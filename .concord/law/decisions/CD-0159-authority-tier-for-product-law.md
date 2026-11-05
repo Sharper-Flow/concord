@@ -99,12 +99,20 @@ approval is not Product-changing never establishes legislative standing,
 whatever field names the law.
 
 A decision or constitutional record is `legislated` when that contract
-version names its `law_id` in an `exists` or `absent` predicate's `subjects`,
+version names its `law_id` in `legislative_subjects`,
 `architecture_binding.law_additions`, or `law_modifies`.
 
 Every other record kind is `legislated` only when that contract version
-names its `law_id` in an `exists` or `absent` predicate's `subjects`.
+names its `law_id` in `legislative_subjects`.
 `spec_mandate` does not establish legislative standing.
+
+`legislative_subjects` is part of the contract presented for approval and is
+stored at that exact contract version. It holds up to 800 subjects; an empty
+list establishes no standing. For every retained contract version and Product,
+the list preserves the union of historical `exists` and `absent` predicate
+subjects, without filtering by current law, claims, or active contracts. Other
+predicate kinds contribute no subjects. Malformed source or failed transfer
+prevents destructive removal.
 
 A record outside the closed D5 default cohort is `derived` until an
 operator-approved contract meets this test. The test reads the

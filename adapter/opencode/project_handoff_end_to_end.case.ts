@@ -38,17 +38,6 @@ const RECEIVE_SESSION = "session-handoff-receive"
 const RECEIVE_SESSION_B = "session-handoff-receive-b"
 const AGENT = "Concord"
 const PRIVATE_SEED = new Uint8Array(32).fill(11)
-const HANDOFF_PREDICATE = {
-  predicate_id: "predicate:handoff-e2e-consume",
-  ordinal: 0,
-  outcome_kind: "check",
-  outcome_payload: {
-    kind: "check",
-    check_ref: "check:bun-test/adapter/opencode/project_handoff_end_to_end.test.ts",
-    expected_result: "pass",
-    immutable_subject_ref: "contract:work-handoff-e2e:1",
-  },
-}
 
 
 interface HandoffHost {
@@ -272,8 +261,7 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
   expect(domainList.outcome).toBe("ok")
   await walk("approve_contract", {
     premise: "Deliver the bounded cross-Project handoff.",
-    outcome_predicates: [HANDOFF_PREDICATE],
-    required_evidence: [],
+    legislative_subjects: [],
     route_conventions: [],
     spec_mandate: [],
     law_modifies: [],

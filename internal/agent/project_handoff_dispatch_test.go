@@ -31,9 +31,9 @@ func resultMap(t *testing.T, e agentcontract.Envelope) map[string]any {
 	return out
 }
 
-func resultField(t *testing.T, e agentcontract.Envelope, key string) string {
+func handoffIDField(t *testing.T, e agentcontract.Envelope) string {
 	t.Helper()
-	value, _ := resultMap(t, e)[key].(string)
+	value, _ := resultMap(t, e)["handoff_id"].(string)
 	return value
 }
 
@@ -246,7 +246,7 @@ func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) 
 		_ = osWrite("/tmp/opencode", "handoff-error.txt", record.Error.Message)
 		t.Fatalf("record failed: %+v", record.Error)
 	}
-	handoffID := resultField(t, record, "handoff_id")
+	handoffID := handoffIDField(t, record)
 	if handoffID == "" {
 		t.Fatalf("record result carries no handoff id: %s", record.Result)
 	}
@@ -261,7 +261,7 @@ func TestProjectHandoffToolsRecordConsumeAndGateAtTheToolBoundary(t *testing.T) 
 	if replay.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("replay failed: %+v", replay.Error)
 	}
-	if resultField(t, replay, "handoff_id") != handoffID || !resultBool(t, replay, "already_recorded") {
+	if handoffIDField(t, replay) != handoffID || !resultBool(t, replay, "already_recorded") {
 		t.Fatalf("replay=%s, want the same id flagged already_recorded", replay.Result)
 	}
 	// The session's dirty worktree refuses before any transaction.
@@ -330,7 +330,7 @@ func TestProjectHandoffConsumeReplayRechecksBindAndContract(t *testing.T) {
 	if record.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("record failed: %+v", record.Error)
 	}
-	handoffID := resultField(t, record, "handoff_id")
+	handoffID := handoffIDField(t, record)
 	input := map[string]any{"work_id": "work-1", "handoff_id": handoffID, "idempotency_key": "replay-consume"}
 	first := handoffInvoke(t, s, receiveService, receiveEnv, "project_handoff_consume", input)
 	if first.Outcome != agentcontract.OutcomeOK {
@@ -358,8 +358,8 @@ func TestProjectHandoffConsumeReplayRechecksBindAndContract(t *testing.T) {
 	// bind: the cached success would otherwise authorize execution under a
 	// contract the receiver can no longer consume.
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-	INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
-	SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id='work-1' AND contract_version=1;
+	INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
+	SELECT work_id,2,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id='work-1' AND contract_version=1;
 	UPDATE workflow_contracts SET superseded_by=2 WHERE work_id='work-1' AND contract_version=1;
 	DELETE FROM write_guard;`); err != nil {
 		t.Fatal(err)

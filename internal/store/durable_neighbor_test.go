@@ -126,7 +126,7 @@ func durableNeighborOperations() []neighborOperation {
 			}
 		}},
 		neighborOperation{"workflow completion", func(t *testing.T) (*Store, func() error, func()) {
-			s, event := seedCompletionGateCase(t, "neighbor-complete", completionGateCase{requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
+			s, event := seedCompletionGateCase(t, "neighbor-complete", completionGateCase{includeSpec: true, includePremise: true})
 			return s, func() error { return CompleteWorkflow(ctx, s, event) }, func() {
 				var state string
 				if err := s.db.QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id='neighbor-complete'`).Scan(&state); err != nil {

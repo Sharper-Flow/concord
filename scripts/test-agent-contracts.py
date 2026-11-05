@@ -14,32 +14,63 @@ envelope_schema = json.loads((ROOT / "contracts/agent-tool-envelope.schema.json"
 payload_schema = json.loads((ROOT / "contracts/agent-tool-surface-payloads.schema.json").read_text())
 
 
-class VerificationReportSchemaTests(unittest.TestCase):
-    def test_report_is_closed_and_bounded(self):
-        schema = payload_schema["$defs"]["workflow_verification_report"]
-        report = {"source": "local", "commit": "a" * 40, "result": "pass", "run_ref": "run:1"}
-        generator.schema_validate(report, schema, payload_schema)
-        for change in ({"source": "other"}, {"result": "unknown"}, {"commit": "abc"},
-                       {"run_ref": ""}, {"run_ref": "x" * 513}, {"project_id": "project"},
-                       {"checks": ["test"]}, {"predicate_ids": ["predicate:one"]}, {"extra": True}):
-            with self.subTest(change=change), self.assertRaises(ValueError):
-                generator.schema_validate(report | change, schema, payload_schema)
-        for field in report:
-            incomplete = dict(report)
-            del incomplete[field]
-            with self.subTest(missing=field), self.assertRaises(ValueError):
-                generator.schema_validate(incomplete, schema, payload_schema)
+class RetainedWorkflowPayloadTests(unittest.TestCase):
+    def test_contract_read_admits_current_store_contract(self):
+        contract = {"version": 1, "premise": "A bounded change.", "route_conventions": [],
+                    "spec_mandate": [], "legislative_subjects": []}
+        generator.schema_validate(contract, payload_schema["$defs"]["workflow_contract"], payload_schema)
 
-    def test_bind_evidence_publishes_report(self):
-        fields = payload_schema["$defs"]["work_transition_action_variant_bind_evidence"]["properties"]["fields"]
-        self.assertEqual(fields["properties"]["verification_report"], {"$ref": "#/$defs/workflow_verification_report"})
+    def test_evidence_binding_requires_producer_watermark(self):
         schema = payload_schema["$defs"]["work_transition_action_variant_bind_evidence"]
-        binding = {"work_id": "work-1", "expected_version": 1, "action_id": "bind_evidence",
-                   "idempotency_key": "key-1", "fields": {"evidence_kind": "verification",
-                   "verification_report": {"source": "required_ci", "commit": "a" * 40,
-                                           "result": "pass", "run_ref": "run:1"}}}
-        generator.schema_validate(binding, schema, payload_schema)
-        generator.schema_validate(binding | {"fields": {"evidence_kind": "review"}}, schema, payload_schema)
+        call = {"work_id": "work-1", "expected_version": 1, "action_id": "bind_evidence",
+                "idempotency_key": "key-1", "fields": {"producer_watermark": "watermark:one"}}
+        generator.schema_validate(call, schema, payload_schema)
+        with self.assertRaises(ValueError):
+            generator.schema_validate(call | {"fields": {}}, schema, payload_schema)
+
+    def test_review_requires_complete_step_attempt(self):
+        schema = payload_schema["$defs"]["work_transition_action_variant_record_review"]
+        fields = {"step_id": "review", "note": "Reviewed.", "reviewer": "reviewer:one",
+                  "result": "pass", "commit": "commit:one", "link": "review:one"}
+        call = {"work_id": "work-1", "expected_version": 1, "action_id": "record_review",
+                "idempotency_key": "key-1", "fields": fields}
+        generator.schema_validate(call, schema, payload_schema)
+        for key in fields:
+            with self.subTest(missing=key), self.assertRaises(ValueError):
+                generator.schema_validate(call | {"fields": {k: v for k, v in fields.items() if k != key}}, schema, payload_schema)
+
+    def test_legislative_subject_capacity_and_uniqueness(self):
+        defs = payload_schema["$defs"]
+        schemas = [defs["workflow_contract"]["properties"]["legislative_subjects"],
+                   defs["workflow_contract_update"]["properties"]["legislative_subjects"],
+                   defs["work_transition_action_variant_approve_contract"]["properties"]["fields"]["properties"]["legislative_subjects"]]
+        subjects = [f"spec:{i}" for i in range(800)]
+        for schema in schemas:
+            with self.subTest(schema=schema):
+                generator.schema_validate([], schema, payload_schema)
+                generator.schema_validate(subjects, schema, payload_schema)
+                with self.assertRaises(ValueError):
+                    generator.schema_validate(subjects + ["spec:extra"], schema, payload_schema)
+                with self.assertRaises(ValueError):
+                    generator.schema_validate(["spec:one", "spec:one"], schema, payload_schema)
+
+
+class WorkflowTemplateBootstrapTests(unittest.TestCase):
+    def test_check_reports_drift_and_write_projects_before_helper(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "internal/store/generated_workflow_templates.go"
+            target.parent.mkdir(parents=True)
+            target.write_text("stale")
+            with unittest.mock.patch.object(generator, "ROOT", root), unittest.mock.patch.object(
+                generator, "go_workflow_templates_projection", return_value="projected"
+            ):
+                with self.assertRaisesRegex(ValueError, "generated contract drift: internal/store/generated_workflow_templates.go"):
+                    generator.prepare_workflow_templates(True)
+                self.assertEqual(target.read_text(), "stale")
+                generator.prepare_workflow_templates(False)
+                self.assertEqual(target.read_text(), "projected")
+                generator.prepare_workflow_templates(True)
 
 
 class NativeTaskContractTests(unittest.TestCase):
@@ -47,60 +78,11 @@ class NativeTaskContractTests(unittest.TestCase):
         self.payload = copy.deepcopy(payload_schema)
         self.defs = self.payload["$defs"]
 
-    def review_report(self):
-        candidate = {"project_id": "project-1", "commit": "a" * 40, "tree": "b" * 40}
-        return {
-            "disposition": "continue", "input_candidate": candidate, "output_candidate": candidate,
-            "dependencies": {"criteria": [{"predicate_id": "predicate:one", "content_digest": "sha256:" + "c" * 64}],
-                             "architecture_not_applicable": True},
-            "assessments": [], "remaining_obligations": [],
-            "findings": [{"finding_id": "finding:one", "severity": "P1", "confidence": "high", "detail": "Synthetic finding",
-                          "in_scope": True, "blocking": True, "status": "open", "evidence_refs": [], "closure_refs": []}],
-        }
-
-    def test_review_report_needs_no_attempt_or_oracle_classification(self):
-        report = self.review_report()
-        schema = self.defs["workflow_review_report"]
-        for disposition in ("continue", "correction_required", "revision_required", "ready_for_final_proof"):
-            generator.schema_validate({**report, "disposition": disposition}, schema, self.payload)
-        for field in ("attempt_id", "lane_id", "job_id", "readback_model"):
-            with self.subTest(field=field), self.assertRaises(ValueError):
-                generator.schema_validate({**report, field: "untrusted"}, schema, self.payload)
-
-    def test_review_keeps_optional_classification_and_pure_or_mixed_closure_claims(self):
-        report = self.review_report()
-        report["findings"][0]["oracle"] = {
-            "classification": "uncovered_case", "owner_id": "owner:acceptance", "failure_family": "owner-variant",
-            "predicate_ids": ["predicate:one"], "case_ids": ["case:second"], "control_ids": ["control:second"],
-            "evidence_refs": ["run:one"], "entry_point": "SyntheticOwner",
-        }
-        for claim in ({"finding_id": "finding:19:0", "judged_case_ids": ["case:meaning"]},
-                      {"finding_id": "finding:19:0", "judged_case_ids": ["case:meaning"], "evidence_refs": ["run:one"]}):
-            report["resolved_findings"] = [claim]
-            generator.schema_validate(report, self.defs["workflow_review_report"], self.payload)
-
-    def test_review_resolution_rejects_missing_empty_duplicate_or_unbounded_proof(self):
-        base = {"finding_id": "finding:19:0"}
-        for claim in (base, {**base, "judged_case_ids": []},
-                      {**base, "evidence_refs": [], "judged_case_ids": ["case:one"]},
-                      {**base, "evidence_refs": ["run:one"], "judged_case_ids": []},
-                      {**base, "judged_case_ids": ["case:one", "case:one"]},
-                      {**base, "evidence_refs": ["run:one", "run:one"]},
-                      {**base, "judged_case_ids": ["not-a-case"]},
-                      {**base, "judged_case_ids": ["case:" + "a" * 124]},
-                      {**base, "judged_case_ids": [f"case:{index}" for index in range(9)]},
-                      {**base, "evidence_refs": ["a" * 257]},
-                      {**base, "judged_case_ids": ["case:one"], "citations": ["docs/contract.md"]}):
-            report = self.review_report()
-            report["resolved_findings"] = [claim]
-            with self.subTest(claim=claim), self.assertRaises(ValueError):
-                generator.schema_validate(report, self.defs["workflow_review_report"], self.payload)
-
-    def test_pruning_keeps_transitive_review_definitions(self):
+    def test_pruning_keeps_transitive_definitions(self):
         self.defs["root"] = {"$ref": "#/$defs/leaf"}
         self.defs["leaf"] = {"type": "string"}
         generator.prune_payload_definitions(self.payload, {"schemas": {"root": {"ref": "#/$defs/root"}}}, [])
-        for name in ("root", "leaf", "workflow_review_report"):
+        for name in ("root", "leaf"):
             self.assertIn(name, self.payload["$defs"])
         broken = copy.deepcopy(self.payload)
         broken["$defs"]["root"] = {"$ref": "#/$defs/missing"}
@@ -150,53 +132,6 @@ class MutationMetadataTests(unittest.TestCase):
                 self.assertEqual(operation["consequence"], consequence)
                 self.assertEqual(operation["metadata"]["idempotency"], "required")
                 self.assertEqual(operation["metadata"]["context"], context)
-
-
-def without_guidance(properties):
-    """Generated bound guidance annotates request inputs only; constraints must match."""
-    return {key: {k: v for k, v in value.items() if k != "description"} for key, value in properties.items()}
-
-
-class ReviewCandidateReadbackProjectionTests(unittest.TestCase):
-    def test_readback_preserves_unknown_fields_without_relaxing_reports(self):
-        payload = copy.deepcopy(payload_schema)
-        view = payload["$defs"]["workflow_review_candidate_view"]
-        strict = payload["$defs"]["lane_report_review_candidate"]
-        self.assertEqual(view["required"], ["commit"])
-        self.assertEqual(without_guidance(view["properties"]), without_guidance(strict["properties"]))
-        self.assertEqual(set(strict["required"]), {"project_id", "commit", "tree"})
-        self.assertEqual(payload["$defs"]["workflow_review_state"]["properties"]["candidate"]["anyOf"][1],
-                         {"$ref": "#/$defs/workflow_review_candidate_view"})
-        for fields in [{}, {"project_id": "project-one"}, {"tree": "b" * 40},
-                       {"project_id": "project-one", "tree": "b" * 40}]:
-            candidate = {"commit": "a" * 40, **fields}
-            generator.schema_validate(candidate, view, payload)
-            if len(fields) < 2:
-                with self.assertRaises(ValueError):
-                    generator.schema_validate(candidate, strict, payload)
-        for field, value in {"commit": "", "project_id": "", "tree": "not-a-tree"}.items():
-            with self.subTest(field=field), self.assertRaises(ValueError):
-                generator.schema_validate({"commit": "a" * 40, field: value}, view, payload)
-
-
-class UnidentifiedFindingReadbackProjectionTests(unittest.TestCase):
-    def test_only_closed_unidentified_findings_get_the_readback_variant(self):
-        payload = copy.deepcopy(payload_schema)
-        view = payload["$defs"]["workflow_review_unidentified_finding"]
-        strict = payload["$defs"]["lane_report_review_finding"]
-        self.assertEqual(set(view["required"]), {"severity", "confidence", "detail"})
-        self.assertEqual(set(view["properties"]), {"severity", "confidence", "detail", "oracle"})
-        self.assertFalse(view["additionalProperties"])
-        self.assertEqual(without_guidance(view["properties"]),
-                         without_guidance({key: strict["properties"][key] for key in view["properties"]}))
-        finding = {"severity": "P2", "confidence": "high", "detail": "The recorded proof is incomplete."}
-        generator.schema_validate(finding, view, payload)
-        with self.assertRaises(ValueError):
-            generator.schema_validate(finding, strict, payload)
-        for key, value in {"finding_id": "finding:known", "status": "open", "in_scope": False,
-                           "blocking": False, "evidence_refs": [], "closure_refs": []}.items():
-            with self.subTest(key=key), self.assertRaises(ValueError):
-                generator.schema_validate({**finding, key: value}, view, payload)
 
 
 class WorkflowPlanTemplateSchemaTests(unittest.TestCase):
@@ -283,7 +218,7 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
         corpus_path = ROOT / ".concord/scenarios/workflow-engine.v1.json"
         load = lane_checker._load_json
         corpus = load(corpus_path)
-        corpus["scenarios"] = [item for item in corpus["scenarios"] if item["id"] != "WF50-one-conjunct-weaker"]
+        corpus["scenarios"] = [item for item in corpus["scenarios"] if item["id"] != "WF19-completion-one-transaction"]
         with unittest.mock.patch.object(lane_checker, "_load_json", side_effect=lambda path: corpus if path == corpus_path else load(path)):
             findings = lane_checker.check_workflow_contracts()
         self.assertTrue(any("scenario" in finding and "got" in finding for finding in findings), findings)
@@ -320,12 +255,12 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
 
     def test_native_requests_keep_their_required_fields(self):
         original = lane_checker._load_json(ROOT / ".concord/scenarios/workflow-engine.v1.json")
-        association = copy.deepcopy(original["scenarios"][0])
-        association["action"] = association["request"]["action_id"] = "record_verdict"
-        association["request"]["fields"] = {"verdicts": [{"predicate_id": "predicate:return-route", "receipt_refs": ["verification:reported"]}]}
-        original["scenarios"].append(association)
+        approval = copy.deepcopy(original["scenarios"][0])
+        approval["action"] = approval["request"]["action_id"] = "approve_contract"
+        approval["request"]["fields"] = {"premise": "A bounded objective.", "decision_domains": []}
+        original["scenarios"].append(approval)
         self.assertEqual(lane_checker._structured_scenario_check(original), [])
-        for action, field in (("approve_contract", "premise"), ("record_verdict", "verdicts"), ("complete", "impact_verdict")):
+        for action, field in (("approve_contract", "premise"), ("approve_contract", "decision_domains"), ("complete", "impact_verdict")):
             with self.subTest(action=action, field=field):
                 corpus = copy.deepcopy(original)
                 scenario = next(item for item in corpus["scenarios"] if item["action"] == action)
@@ -365,7 +300,7 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
                 elif mutation == "workflow_type":
                     scenario["request"]["workflow_type"] = "missing"
                 else:
-                    refused = next(item for item in corpus["scenarios"] if item["id"] == "WF02-planning-requires-outcome")
+                    refused = next(item for item in corpus["scenarios"] if item["id"] == "WF19-completion-one-transaction")
                     refused["expected"]["assertions"][0]["value"] = "not_a_real_error_kind"
                 load = lane_checker._load_json
                 with unittest.mock.patch.object(lane_checker, "_load_json", side_effect=lambda path: corpus if path == corpus_path else load(path)):
@@ -386,14 +321,12 @@ class ContractGuidanceProjectionTests(unittest.TestCase):
             generator.check_schema_keywords({"items": {"unknown_constraint": True}})
 
     def test_contract_fields_publish_schema_derived_examples(self):
-        actions, workflows, teaching, _, contract_updates, _ = generator.load_workflow_action_contracts()
-        projected, _ = generator.project_workflow_action_schema(payload_schema, actions, workflows, teaching, contract_updates)
-        for name in ("workflow_outcome_subject", "workflow_outcome_surface"):
-            with self.subTest(schema=name):
-                field = projected["$defs"][name]
-                self.assertIn("Accepted shape:", field.get("description", ""))
-                self.assertEqual(len(field.get("examples", [])), 1)
-                generator.schema_validate(field["examples"][0], field, projected)
+        actions, teaching, _, contract_updates, _ = generator.load_workflow_action_contracts()
+        projected, _ = generator.project_workflow_action_schema(payload_schema, actions, teaching, contract_updates)
+        field = projected["$defs"]["workflow_contract_update"]["properties"]["premise"]
+        self.assertIn("Accepted shape:", field.get("description", ""))
+        self.assertEqual(len(field.get("examples", [])), 1)
+        generator.schema_validate(field["examples"][0], field, projected)
 
 _SCRIPTS_DIR = str(ROOT / "scripts")
 if _SCRIPTS_DIR not in sys.path:
@@ -1391,30 +1324,6 @@ class AdapterHostDiagnosticTests(unittest.TestCase):
         self.assertEqual(self.reconcile("", [], 0), [])
 
 
-class DeliveryDecidableTeachingTests(unittest.TestCase):
-    """CD-0184: the authoring schema teaches that acceptance is decidable at
-    delivery. The outcome_predicates array shared by approve_contract and
-    ordinary contract updates carries the rule, and the generator refuses a
-    projection that drops it.
-    """
-
-    def test_shipped_predicate_array_teaches_the_rule(self):
-        items = payload_schema["$defs"]["workflow_action_outcome_predicates"]
-        self.assertEqual(generator.DELIVERY_RULE_PREDICATE_DESCRIPTION, items.get("description"))
-
-    def test_generator_refuses_a_projection_that_drops_the_rule(self):
-        defs = copy.deepcopy(payload_schema["$defs"])
-        del defs["workflow_action_outcome_predicates"]["description"]
-        with self.assertRaises(ValueError):
-            generator.require_delivery_rule_teaching(defs)
-
-    def test_generator_refuses_a_predicate_description_reduced_to_markers(self):
-        defs = copy.deepcopy(payload_schema["$defs"])
-        defs["workflow_action_outcome_predicates"]["description"] = "decidable at delivery; raised_from"
-        with self.assertRaises(ValueError):
-            generator.require_delivery_rule_teaching(defs)
-
-
 def _schema_sample(node, root, path="$"):
     """Build one value a schema node admits, resolving local $refs.
 
@@ -1514,7 +1423,7 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.actions, cls.workflows, cls.teaching, cls.schema_refs, cls.contract_updates, _ = generator.load_workflow_action_contracts()
+        cls.actions, cls.teaching, cls.schema_refs, cls.contract_updates, _ = generator.load_workflow_action_contracts()
 
     def action(self, action_id):
         return next(action for action in self.actions if action["id"] == action_id)
@@ -1555,13 +1464,13 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
         defs = payload_schema["$defs"]
         branches = _condition_branches(_action_condition(defs, "record_review"))
         broken = _schema_sample(_fields_object(branches[0]), payload_schema)
-        broken["review"]["findings"] = "not-an-array"
+        broken["reviewer"] = 42
         call = {"work_id": "work-1", "expected_version": 1, "action_id": "record_review", "idempotency_key": "review-1", "fields": broken}
         for name in ("work_transition_action_input", "work_transition_action_public_input"):
             with self.assertRaises(ValueError, msg=f"{name} admits a broken Review"):
                 generator.schema_validate(call, defs[name], payload_schema, "broken")
         sample = _schema_sample(_fields_object(branches[0]), payload_schema)
-        sample.pop("review")
+        sample.pop("reviewer")
         for branch in branches:
             with self.assertRaises(ValueError):
                 generator.schema_validate(sample, _fields_object(branch), payload_schema, "missing-required")
@@ -1585,11 +1494,9 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
         self.assertEqual(len(action["variants"]), 1)
         for variant in action["variants"]:
             self.assertEqual(variant["payload"], variant["public_payload"])
-            self.assertEqual([field["name"] for field in variant["payload"]["fields"]], ["review"])
-            self.assertEqual(variant["payload"]["fields"][0]["schema_ref"], "workflow_review_report")
+            self.assertEqual({field["name"] for field in variant["payload"]["fields"]}, {"step_id", "note", "reviewer", "result", "commit", "link"})
         fields = _fields_object(_action_condition(payload_schema["$defs"], "record_review"))
-        self.assertEqual(set(fields["properties"]), {"review"})
-        self.assertEqual(fields["properties"]["review"]["$ref"], "#/$defs/workflow_review_report")
+        self.assertEqual(set(fields["properties"]), {"step_id", "note", "reviewer", "result", "commit", "link"})
 
 
 class LiveAuthoringClosureTests(unittest.TestCase):
@@ -1597,7 +1504,7 @@ class LiveAuthoringClosureTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.actions, cls.workflows, cls.teaching, cls.schema_refs, cls.contract_updates, _ = generator.load_workflow_action_contracts()
+        cls.actions, cls.teaching, cls.schema_refs, cls.contract_updates, _ = generator.load_workflow_action_contracts()
 
     def test_continuity_action_limit_follows_catalog_projection(self):
         result = subprocess.run(["go", "run", "./scripts/workflow-action-contracts"], cwd=ROOT,
@@ -1617,43 +1524,6 @@ class LiveAuthoringClosureTests(unittest.TestCase):
             self.assertNotIn(action_id, live_ids, f"retired action {action_id} is authorable")
         self.assertIn("record_diagnosis", live_ids)
 
-    def test_the_live_outcome_union_uses_plan_tokens(self):
-        defs = payload_schema["$defs"]
-        live_tokens = sorted({token for workflow in self.workflows for token in workflow["allowed_outcome_tokens"]})
-        self.assertEqual(set(live_tokens), {"no_change", "resolved", "report_recorded"})
-        allowed = defs["workflow_outcome_outcome"]["properties"]["allowed"]
-        self.assertEqual(allowed["items"]["enum"], live_tokens)
-        self.assertEqual(allowed["maxItems"], len(live_tokens))
-        self.assertIn("decision_record", defs["workflow_outcome_outcome"]["properties"])
-        # The four predicate kinds survive with their per-kind payloads, and
-        # every check result token the historical readers know stays.
-        kinds = {branch["properties"]["outcome_kind"]["const"]
-                 for branch in defs["workflow_action_outcome_predicates"]["items"]["oneOf"]}
-        self.assertEqual(kinds, {"exists", "absent", "outcome", "check"})
-        check_tokens = defs["workflow_outcome_check"]["properties"]["expected_result"]["enum"]
-        self.assertEqual(sorted(check_tokens), sorted(["true", "false", "pass", "fail", "present",
-                                                       "absent", "healthy", "unhealthy", "accepted", "rejected"]))
-        self.assertEqual(defs["workflow_outcome_absent"]["properties"]["distinguish_from"]["items"]["enum"],
-                         ["archived", "relocated", "renamed", "disabled"])
-        # Authoring names only live tokens; retained output keeps the full set.
-        retired_tokens = {"accepted_decision", "insufficient_evidence", "remediated", "completed", "operator_defined"}
-        self.assertNotIn("workflow_outcome_payload", defs)
-        text = json.dumps({name: defs[name] for name in ("workflow_action_outcome", "workflow_outcome_outcome",
-                                                         "workflow_action_outcome_predicates")},
-                          sort_keys=True)
-        for token in retired_tokens:
-            self.assertNotIn(f'"{token}"', text, f"retired outcome token {token} is still authorable")
-        self.assertIn("decision_record", text)
-        # The work pin replays stored predicates unchanged, so it keeps the
-        # retained vocabulary and decision record that authoring narrows away.
-        retained = defs["workflow_retained_outcome"]["properties"]
-        self.assertEqual(retained["allowed"]["maxItems"], 8)
-        self.assertTrue(retired_tokens <= set(retained["allowed"]["items"]["enum"]))
-        self.assertIn("decision_record", retained)
-        criterion = json.dumps(defs["work_pin_verified_criterion"], sort_keys=True)
-        self.assertIn('"#/$defs/workflow_retained_outcome"', criterion)
-        self.assertNotIn('"#/$defs/workflow_outcome_outcome"', criterion)
-
     def test_current_schema_refs_resolve_in_the_public_document(self):
         self.assertEqual(set(self.schema_refs), {"current"})
         generator.validate_current_schema_refs(self.schema_refs, payload_schema["$defs"])
@@ -1670,10 +1540,10 @@ class ProjectionAdmissionTests(unittest.TestCase):
     @staticmethod
     def canned(actions):
         teaching = {rule: "rule" for rule in (
-            "predicate_ordinal_rule", "law_addition_mandate_rule", "obligation_membership_rule",
-            "architecture_domain_rule", "alignment_combination_rule", "outcome_kind_equality_rule")}
+            "law_addition_mandate_rule", "obligation_membership_rule",
+            "architecture_domain_rule", "alignment_combination_rule")}
         return json.dumps({
-            "schema_version": "2.0", "actions": actions, "workflows": [],
+            "schema_version": "2.0", "actions": actions,
             "teaching": teaching, "schema_refs": {"current": []},
             "contract_updates": [], "catalog_action_count": len(actions),
         })
@@ -1698,7 +1568,7 @@ class ProjectionAdmissionTests(unittest.TestCase):
     def test_the_projection_refuses_an_old_projection_version(self):
         fake = json.dumps({
             "schema_version": "1.0",
-            "actions": [{"id": "record_verdict", "variants": [], "legacy_payloads": [], "cross_field": {}}],
+            "actions": [{"id": "old-action", "variants": [], "legacy_payloads": [], "cross_field": {}}],
             "workflows": [], "teaching": {}, "schema_refs": {"current": []},
         })
         with self.assertRaises(ValueError) as caught:
@@ -1709,10 +1579,9 @@ class ProjectionAdmissionTests(unittest.TestCase):
 class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        actions, workflows, teaching, _, contract_updates, _ = generator.load_workflow_action_contracts()
-        cls.projected, _ = generator.project_workflow_action_schema(payload_schema, actions, workflows, teaching, contract_updates)
+        actions, teaching, _, contract_updates, _ = generator.load_workflow_action_contracts()
+        cls.projected, _ = generator.project_workflow_action_schema(payload_schema, actions, teaching, contract_updates)
         cls.actions = actions
-        cls.workflows = workflows
         cls.teaching = teaching
         cls.contract_updates = contract_updates
 
@@ -1752,7 +1621,7 @@ class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
         # variant after projection, even when the projected document starts
         # from a previous generation that still carried one: the drop is
         # explicit, and the closed core input names only live action IDs.
-        projected, _ = generator.project_workflow_action_schema(payload_schema, self.actions, self.workflows, self.teaching, self.contract_updates)
+        projected, _ = generator.project_workflow_action_schema(payload_schema, self.actions, self.teaching, self.contract_updates)
         defs = projected["$defs"]
         live_ids = {action["id"] for action in self.actions}
         for action_id in sorted(RETIRED_PUBLISHED_ACTIONS):
@@ -1888,35 +1757,15 @@ class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
 class NativeOracleRequestProjectionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        actions, workflows, teaching, _, contract_updates, _ = generator.load_workflow_action_contracts()
-        cls.projected, _ = generator.project_workflow_action_schema(payload_schema, actions, workflows, teaching, contract_updates)
+        actions, teaching, _, contract_updates, _ = generator.load_workflow_action_contracts()
+        cls.projected, _ = generator.project_workflow_action_schema(payload_schema, actions, teaching, contract_updates)
 
     def validate(self, value, name):
         generator.schema_validate(value, self.projected["$defs"][name], self.projected)
 
-    def test_resolution_proof_kinds_are_bounded_and_nonempty(self):
-        schemas = ((self.projected["$defs"]["lane_report_resolved_finding"], self.projected),)
-        native = {"finding_id": "finding:19:0", "evidence_refs": ["verification:reported"]}
-        judged = {"finding_id": "finding:19:0", "judged_case_ids": ["case:one"]}
-        for schema, root in schemas:
-            for valid in (native, judged, native | judged,
-                          judged | {"judged_case_ids": [f"case:{i}" for i in range(8)]}):
-                generator.schema_validate(valid, schema, root)
-            for invalid in ({"finding_id": "finding:19:0"}, judged | {"evidence_refs": []},
-                            native | {"judged_case_ids": []}, native | {"evidence_refs": ["a"] * 2},
-                            judged | {"judged_case_ids": ["case:one"] * 2},
-                            judged | {"judged_case_ids": [f"case:{i}" for i in range(9)]},
-                            judged | {"judged_case_ids": ["not-a-case"]},
-                            judged | {"judged_case_ids": ["case:" + "a" * 124]},
-                            native | {"evidence_refs": ["a" * 257]},
-                            native | {"evidence_refs": [str(i) for i in range(9)]},
-                            judged | {"citations": ["source/main.go"]}):
-                with self.assertRaises(ValueError, msg=invalid):
-                    generator.schema_validate(invalid, schema, root)
-
     def test_projection_is_idempotent_and_keeps_native_navigation(self):
-        actions, workflows, teaching, _, contract_updates, _ = generator.load_workflow_action_contracts()
-        repeated, _ = generator.project_workflow_action_schema(self.projected, actions, workflows, teaching, contract_updates)
+        actions, teaching, _, contract_updates, _ = generator.load_workflow_action_contracts()
+        repeated, _ = generator.project_workflow_action_schema(self.projected, actions, teaching, contract_updates)
         self.assertEqual(repeated, self.projected)
         generator.check_schema_keywords(self.projected)
         generator.check_payload_closed(self.projected)
@@ -2317,15 +2166,12 @@ class StrictFailureControls(unittest.TestCase):
             self.assertEqual(json.loads((workspace / "tsconfig.json").read_text()), {"compilerOptions": pin["compiler_options"], "include": ["src/*.ts"]})
 
     def test_a_broken_contract_fixture_fails_the_check(self):
-        # The outcome schema remains current even after definition pins retire.
         real_load = lane_checker._load_json
 
         def broken_fixture(path):
             value = real_load(path)
-            if getattr(path, "name", str(path)) == "workflow-engine.fixtures.json":
-                for case in value["cases"]:
-                    if case["id"] == "outcome-exists-valid":
-                        case["instance"]["kind"] = "unknown"
+            if getattr(path, "name", str(path)) == "workflow-engine.v1.json":
+                value["scenarios"][0]["scenario_number"] = 0
             return value
 
         out, err = io.StringIO(), io.StringIO()
@@ -2333,7 +2179,7 @@ class StrictFailureControls(unittest.TestCase):
             with redirect_stdout(out), redirect_stderr(err):
                 code = lane_checker.main([])
         self.assertEqual(code, 1)
-        self.assertIn("expected valid instance", err.getvalue())
+        self.assertIn("schema validation failed", err.getvalue())
 
 
 class ExternalSuiteRoutingOptionsTests(unittest.TestCase):
@@ -2578,7 +2424,7 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.actions, cls.workflows, cls.teaching, cls.schema_refs, cls.contract_updates, _ = generator.load_workflow_action_contracts()
+        cls.actions, cls.teaching, cls.schema_refs, cls.contract_updates, _ = generator.load_workflow_action_contracts()
         cls.defs = payload_schema["$defs"]
 
     def _variants(self):
@@ -2896,25 +2742,15 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
                         self._assert_verdict(value, "work_transition_action_public_input", True, f"{action['id']} shared public fieldset")
 
     def test_guard_owned_teaching_is_published(self):
-        # CON-412: the items close per kind; every branch teaches the ordinal
-        # position rule and the outcome_kind/outcome_payload.kind equality
-        # rule from the guard-owned projection.
-        items = self.defs["workflow_action_outcome_predicates"]["items"]["oneOf"]
-        self.assertEqual(len(items), 4)
-        for branch in items:
-            self.assertEqual(branch["properties"]["ordinal"]["description"], self.teaching["predicate_ordinal_rule"])
-            self.assertEqual(branch["properties"]["outcome_kind"]["description"], self.teaching["outcome_kind_equality_rule"])
-            self.assertEqual(branch["properties"]["outcome_kind"]["const"], branch["properties"]["outcome_payload"]["properties"]["kind"]["const"])
         for condition in _condition_branches(self.defs["work_transition_action_variant_approve_contract"]):
             approve = _fields_object(condition)["properties"]
-            if "required_evidence" in approve:
-                field = approve["required_evidence"]
-                original, marker, guidance = field["description"].partition(" Accepted shape:")
-                self.assertEqual(original, self.teaching["obligation_membership_rule"])
-                self.assertEqual(marker, " Accepted shape:")
-                self.assertIn("example:", guidance)
-                self.assertEqual(len(field["examples"]), 1)
-                generator.schema_validate(field["examples"][0], field, {"$defs": self.defs})
+            field = approve["architecture_binding"]
+            original, marker, guidance = field["description"].partition(" Accepted shape:")
+            self.assertEqual(original, self.teaching["architecture_domain_rule"])
+            self.assertEqual(marker, " Accepted shape:")
+            self.assertIn("example:", guidance)
+            self.assertEqual(len(field["examples"]), 1)
+            generator.schema_validate(field["examples"][0], field, {"$defs": self.defs})
 
     def test_every_registry_action_has_one_closed_variant(self):
         core_refs = [{"$ref": f"#/$defs/work_transition_action_variant_{action['id']}"} for action in self.actions]

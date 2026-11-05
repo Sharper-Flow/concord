@@ -3,6 +3,7 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -26,7 +27,7 @@ func TestResearchRetirementUpgradePreservesVerifiedExportAndSnapshot(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(report.Applied) != 2 || report.Applied[0] != 183 || report.Applied[1] != 184 || report.ResearchExport != snapshot+".research" {
+	if !slices.Equal(report.Applied, []int{183, 184, 185}) || report.ResearchExport != snapshot+".research" {
 		t.Fatalf("upgrade = %+v", report)
 	}
 	if err := VerifyResearchExport(t.Context(), snapshot, report.ResearchExport); err != nil {

@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -15,37 +14,7 @@ import (
 // production: any change in the widest shape fails this exact figure first,
 // and the pin moves only by a deliberate re-derivation beside the ceilings'
 // own next-power-of-two assertions.
-const derivedRequestWireMaxBytes = 10398807
-
-func TestContinuityRetiresDuplicateReviewInput(t *testing.T) {
-	defs := payloadschema.Document()["$defs"].(map[string]any)
-	if _, ok := defs["continuity_review_input"]; ok {
-		t.Fatal("duplicate continuity review_input schema remains")
-	}
-	candidate := &store.ReviewCandidate{ProjectID: "project:test", Commit: "commit", Tree: "tree"}
-	deps := &store.ReviewDependencies{Criteria: []store.ReviewCriterion{{PredicateID: "predicate:test", ContentDigest: "digest"}}}
-	snapshot := store.ContinuitySnapshot{WorkPin: &store.WorkPin{Review: &store.WorkflowReviewState{Candidate: candidate, Dependencies: deps}}}
-	pinned := ContinuityPayload(snapshot)["pinned"].(map[string]any)
-	if _, ok := pinned["review_input"]; ok {
-		t.Fatal("continuity emitted duplicate review_input")
-	}
-	wire, err := json.Marshal(pinned["work_pin"])
-	if err != nil {
-		t.Fatal(err)
-	}
-	var pin struct {
-		Review struct {
-			Candidate    store.ReviewCandidate    `json:"candidate"`
-			Dependencies store.ReviewDependencies `json:"dependencies"`
-		} `json:"review"`
-	}
-	if err := json.Unmarshal(wire, &pin); err != nil {
-		t.Fatal(err)
-	}
-	if pin.Review.Candidate != *candidate || len(pin.Review.Dependencies.Criteria) != 1 || pin.Review.Dependencies.Criteria[0] != deps.Criteria[0] {
-		t.Fatalf("work_pin lost Review candidate or dependencies: %s", wire)
-	}
-}
+const derivedRequestWireMaxBytes = 2102334
 
 // The shared action ceilings derive from the widest admitted shape, not a
 // shortlist: this test enumerates every admitted workflow-action variant the
@@ -63,34 +32,6 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 	defs, _ := payloadschema.Document()["$defs"].(map[string]any)
 	if defs == nil {
 		t.Fatal("the generated payload contract carries no $defs")
-	}
-	// Keep Review candidate and dependency bounds visible beside the wire
-	// pin. The walker includes optional members and uses 2+6*maxLength even
-	// for hex patterns; it does not narrow objects by conditional oneOf arms.
-	// Candidate: 770+386+386 string bytes + 33 syntax bytes = 1575.
-	// Criterion: 770+428 string bytes + 35 syntax bytes = 1233;
-	// criteria: 8*1233 + 2 brackets + 7 commas = 9873.
-	// Dependencies: 9873+428+5 value bytes + 67 syntax bytes = 10373.
-	dependencies := defs["lane_report_review_dependencies"].(map[string]any)["properties"].(map[string]any)
-	criteria := dependencies["criteria"].(map[string]any)
-	for _, row := range []struct {
-		name string
-		node any
-		want int
-	}{
-		{"candidate", defs["lane_report_review_candidate"], 1575},
-		{"criterion", criteria["items"], 1233},
-		{"criteria", criteria, 9873},
-		{"dependencies", defs["lane_report_review_dependencies"], 10373},
-	} {
-		got, err := schemawire.Max(row.node, row.name, schemawire.Options{Defs: defs})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got != row.want {
-			t.Fatalf("Review %s = %d bytes, want the member-derived %d", row.name, got, row.want)
-		}
-		t.Logf("Review %s = %d bytes", row.name, got)
 	}
 	input, _ := defs["work_transition_action_input"].(map[string]any)
 	anyOf, _ := input["anyOf"].([]any)

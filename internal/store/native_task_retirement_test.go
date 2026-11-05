@@ -121,46 +121,6 @@ func TestNativeTaskRetirementRefusesUnsettledMemberTrees(t *testing.T) {
 	}
 }
 
-func TestNativeTaskRetirementPreservesFindingSourceInventory(t *testing.T) {
-	db := nativeTaskRetirementDB(t)
-	oracle := AcceptanceOracle{Owners: []OracleOwner{{OwnerID: "owner:one", DomainID: "domain:one"}}, Cases: []OracleCase{{CaseID: "case:one", OwnerID: "owner:one", EntryPoint: "entry:one", Judge: OracleJudgeReview}}, Controls: []OracleControl{}}
-	finding := ReviewFinding{FindingID: "local:one", Status: "open", InScope: true, Blocking: true, Oracle: &ReviewOracleFinding{Classification: OracleClassificationDeliveryBlocker, OwnerID: "owner:one", CaseIDs: []string{"case:one"}}}
-	state, err := json.Marshal(workflowReviewFacts{Findings: []ReviewFinding{finding}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`UPDATE workflow_review_state SET state=? WHERE work_id='work:one'`, string(state)); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := json.Marshal(finding)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO work_context_findings VALUES('work:one',?,7,0,'ranked')`, string(raw)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO effect_receipts VALUES(7,'report:one','worker.completed','work_item','work:one');INSERT INTO worker_oracle_finding_facts VALUES('work:one','[{"FindingID":"finding:7:0","DomainID":"domain:one","SourceEventSeq":7,"SourceOrdinal":0,"source_job":{"job_id":"job:one","revision":1,"digest":"digest:one"}}]')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO worker_job_revisions VALUES('work:one','job:one',1,'digest:one',?)`, workflowJSON(map[string]any{"acceptance_oracle": oracle})); err != nil {
-		t.Fatal(err)
-	}
-	if err := runNativeTaskRetirement(t, db, nativeTaskRetirementMigration(t).SQL); err != nil {
-		t.Fatal(err)
-	}
-	retained, err := readWorkflowReviewFacts(t.Context(), db, "work:one")
-	if err != nil {
-		t.Fatal(err)
-	}
-	source := retained.findingSources["local:one"]
-	if source.CanonicalID != "finding:7:0" || source.DomainID != "domain:one" || source.EventID != "report:one" || source.Kind != "worker.completed" || source.Seq != 7 || source.Ordinal != 0 || !oracleEntryIdentical(source.Oracle, &oracle) {
-		t.Fatalf("finding source lost its exact bound inventory: %+v", source)
-	}
-	if retained.Accepted != nil || len(retained.Findings) != 1 || retained.Findings[0].Status != "open" {
-		t.Fatalf("migration fabricated acceptance or closure: %+v", retained)
-	}
-}
-
 func TestNativeTaskRetirementPreservesOrdinaryState(t *testing.T) {
 	db := nativeTaskRetirementDB(t)
 	m := nativeTaskRetirementMigration(t)

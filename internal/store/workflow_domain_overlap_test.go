@@ -46,11 +46,7 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 			tx.Rollback()
 			t.Fatal(err)
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, workID, 1, "overlap test", "internal_sqlite", `[]`, `[]`, "2026-08-19T00:00:00Z", actor, `[]`, `[]`, 1, "prototype_internal"); err != nil {
-			tx.Rollback()
-			t.Fatal(err)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check',?)`, workID, `{"kind":"check","check_ref":"check:overlap","immutable_subject_ref":"commit:overlap","expected_result":"pass"}`); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, workID, 1, "overlap test", "internal_sqlite", `[]`, "2026-08-19T00:00:00Z", actor, `[]`, `[]`, 1, "prototype_internal"); err != nil {
 			tx.Rollback()
 			t.Fatal(err)
 		}
@@ -142,9 +138,8 @@ func seedProductChangingContract(t *testing.T, s *Store, workID string, binding 
 	}
 	contract := workflowEventWithActor("overlap-contract-"+workID, WorkflowContractApproved, workID, actorRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1),
-		"premise": "coordinate Product-changing overlap", "outcome_kind": "check",
-		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:" + workID, "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-		"required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": []string{},
+		"premise": "coordinate Product-changing overlap", "legislative_subjects": []string{},
+		"route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": []string{},
 		"law_boundary_version": 1,
 		"rigor_class":          "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})

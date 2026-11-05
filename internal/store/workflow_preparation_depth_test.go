@@ -46,7 +46,7 @@ func TestSmallFixPreparationDepthNeedsNoArchitectureDocument(t *testing.T) {
 			act("complete_step", map[string]any{"step_id": "diagnose", "note": "diagnosis completed"})
 			act("approve_contract", map[string]any{
 				"premise": "Correct the factual comment without changing behavior.", "decision_domains": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
-				"outcome_predicates":   []map[string]any{{"predicate_id": "predicate:comment", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:comment", "immutable_subject_ref": "commit:comment", "expected_result": "pass"}}},
+				"legislative_subjects": []string{},
 				"architecture_binding": WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}},
 			})
 			if workflowPlanFixtureFrontier(t, s, workID) != "plan" {

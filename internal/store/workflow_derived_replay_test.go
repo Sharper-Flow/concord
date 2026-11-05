@@ -27,10 +27,7 @@ func TestNonProductChangingLawRevision(t *testing.T) {
 			fields := map[string]any{
 				"premise":      "Preserve the approved derived-law revision.",
 				"spec_mandate": []string{"spec:one"}, "law_modifies": scenario.modifies,
-				"outcome_predicates": []map[string]any{{
-					"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "outcome",
-					"outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"resolved"}},
-				}},
+				"legislative_subjects": []string{},
 			}
 			payload, err := json.Marshal(fields)
 			if err != nil {

@@ -14,16 +14,16 @@ func TestWorkflowEvidenceRefsCarryTheDeclaredLocatorBound(t *testing.T) {
 	if len(permalink) <= 128 {
 		t.Fatalf("fixture permalink is %d bytes, and the reproduction needs one over 128", len(permalink))
 	}
-	if fault := workflowEvidenceRefsFault([]string{permalink}, 32); fault != "" {
+	if fault := workflowEvidenceRefsFault([]string{permalink}); fault != "" {
 		t.Fatal("a 136-byte evidence locator was refused, and the declared bound admits 2048")
 	}
-	if fault := workflowEvidenceRefsFault([]string{strings.Repeat("r", 2048)}, 32); fault != "" {
+	if fault := workflowEvidenceRefsFault([]string{strings.Repeat("r", 2048)}); fault != "" {
 		t.Fatal("a 2048-byte evidence locator was refused at the declared upper bound")
 	}
-	if workflowEvidenceRefsFault([]string{strings.Repeat("r", 2049)}, 32) == "" {
+	if workflowEvidenceRefsFault([]string{strings.Repeat("r", 2049)}) == "" {
 		t.Fatal("an evidence locator past the declared upper bound was admitted")
 	}
-	if workflowEvidenceRefsFault([]string{""}, 32) == "" {
+	if workflowEvidenceRefsFault([]string{""}) == "" {
 		t.Fatal("an empty evidence locator was admitted")
 	}
 	// changed_refs carries work ids, not locators, and keeps the reference bound.
@@ -51,7 +51,7 @@ func TestWorkflowEvidenceBoundAdmitsALongImmutableSubjectRef(t *testing.T) {
 func TestWorkflowEvidenceRefsFaultNamesTheOffendingEntry(t *testing.T) {
 	t.Parallel()
 	oversized := strings.Repeat("r", 2049)
-	fault := workflowEvidenceRefsFault([]string{oversized}, 32)
+	fault := workflowEvidenceRefsFault([]string{oversized})
 	if fault == "" {
 		t.Fatal("an oversized locator produced no fault")
 	}
@@ -61,11 +61,11 @@ func TestWorkflowEvidenceRefsFaultNamesTheOffendingEntry(t *testing.T) {
 	if strings.Contains(fault, oversized) {
 		t.Fatal("the fault quoted the whole 2049-byte locator instead of an excerpt")
 	}
-	duplicate := workflowEvidenceRefsFault([]string{"evidence:one", "evidence:one"}, 32)
+	duplicate := workflowEvidenceRefsFault([]string{"evidence:one", "evidence:one"})
 	if !strings.Contains(duplicate, "evidence:one") || !strings.Contains(duplicate, "twice") {
 		t.Fatalf("duplicate fault = %q, want the repeated entry named", duplicate)
 	}
-	if workflowEvidenceRefsFault([]string{"evidence:one"}, 32) != "" {
+	if workflowEvidenceRefsFault([]string{"evidence:one"}) != "" {
 		t.Fatal("a valid list reported a fault")
 	}
 }
@@ -86,7 +86,7 @@ func TestWorkflowActionEvidenceRefsMergeToASet(t *testing.T) {
 	if len(refs) != 1 || refs[0] != pull {
 		t.Fatalf("merged refs = %v, want the shared locator once", refs)
 	}
-	if fault := workflowEvidenceRefsFault(refs, 32); fault != "" {
+	if fault := workflowEvidenceRefsFault(refs); fault != "" {
 		t.Fatalf("the merged set still failed the fold bound: %s", fault)
 	}
 }
@@ -104,25 +104,5 @@ func TestWorkflowActionEvidenceRefsPreserveOrderAndPromotedSubject(t *testing.T)
 	}
 	if len(refs) != 2 || refs[0] != "evidence:beta" || refs[1] != "evidence:alpha" {
 		t.Fatalf("merged refs = %v, want caller order held and the promoted subject not repeated", refs)
-	}
-}
-
-func TestCriterionAssociationReferencesOnlyExplicitReceipts(t *testing.T) {
-	request := WorkflowActionExecutionRequest{ActionID: "record_verdict", OperationID: "association:fixture", EvidenceRefs: []string{"evidence:unrelated"}}
-	refs, err := workflowActionEvidenceRefs(request, []byte(`{"verdicts":[{"predicate_id":"predicate:one","receipt_refs":["receipt:one"]},{"predicate_id":"predicate:two","receipt_refs":["receipt:one","receipt:two"]}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Join(refs, ",") != "receipt:one,receipt:two" {
-		t.Fatalf("association reference authority = %v, want only explicitly cited receipts", refs)
-	}
-	for _, payload := range []string{
-		`{"verdicts":[{"predicate_id":"predicate:one"}]}`,
-		`{"verdicts":[{"predicate_id":"predicate:one","receipt_refs":[]}]}`,
-		`{"verdicts":[{"predicate_id":"predicate:one","verdict_kind":"ok"}]}`,
-	} {
-		if refs, err := workflowActionEvidenceRefs(request, []byte(payload)); err == nil || len(refs) != 0 {
-			t.Fatalf("missing producer receipt acquired authority from envelope/operation: refs=%v error=%v", refs, err)
-		}
 	}
 }

@@ -59,14 +59,10 @@ it hosts.
 
 ### D2. Premise confirmation uses the authenticated coordinator
 
-The active contract's coordinator confirmation records directly. Admission
-requires verdict evidence, and forward
-confirmation in delivery-producing families requires the current ready Review
-under [workflow-engine contract §4.1](../specs/workflow-engine-contract.md#41-ordinary-contract-updates).
-Ordinary record replacements follow
+The active contract's coordinator confirmation records directly. Ordinary record replacements follow
 [workflow-engine contract §4.2](../specs/workflow-engine-contract.md#42-ordinary-retry-and-record-correction).
-They supply no healthy verdict or fresh Review by themselves. Work-pin,
-continuity, and action admission use the same folded prerequisites.
+They supply no independent Review by themselves. Work-pin, continuity, and
+action admission use the same folded prerequisites.
 
 ### D3. The checks derive every admission condition
 

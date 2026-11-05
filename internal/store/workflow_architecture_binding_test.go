@@ -56,6 +56,99 @@ func TestWorkflowArchitectureBindingStrictShape(t *testing.T) {
 	}
 }
 
+// approveQualifiedAdditionAtSeam drives one Product-changing contract
+// approval through the real event-application seam (the same fold the
+// approve_contract workflow action dispatches) and returns the fold error, if
+// any. The Product's knowledge home is the fixture home: home Project
+// "project" carrying the committed spec:one law.
+func approveQualifiedAdditionAtSeam(t *testing.T, s *Store, workID string, mandate []string, additions []WorkflowLawAddition) error {
+	t.Helper()
+	seedWork(t, s, workID)
+	actor := WorkflowActor{PrincipalRef: "principal:qualified-addition", ClientRef: "client:qualified-addition", AgentRef: "agent:qualified-addition", SessionRef: "session:" + workID, ActorClass: ActorAgent}
+	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeWorkflowRawTx(ctx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 11, 4, 0, 0, 0, 0, time.UTC)}); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
+	version := readWorkVersion(t, s, workID)
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: additions, VerificationObligations: []WorkflowVerificationObligation{}}
+	fields := map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "premise": "qualified addition admission", "legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": []string{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
+	}
+	event := workflowEventWithActor("qualified-addition-approval-"+workID, WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), fields)
+	event = pOverlapContractFacts(t, s, event)
+	return applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
+}
+
+// TestQualifiedOwnHomeLawAdditionReuseRefusedAtApprovalSeam pins the reuse
+// refusal at the approval seam. The bare ID and the own-home qualified
+// reference name the same verified law identity — spec:one committed at the
+// Product's home Project "project" — so both forms must receive the existing
+// reuse refusal. Two boundaries stay as they are: an own-home qualified
+// reference to an unpublished ID is a legitimate addition, and a qualified
+// reference naming another home stays a foreign identity the own-home
+// snapshot cannot verify, so the Product-law reuse refusal does not apply to
+// it.
+func TestQualifiedOwnHomeLawAdditionReuseRefusedAtApprovalSeam(t *testing.T) {
+	s := openTemp(t)
+	seedWork(t, s, "qualified-addition-home-bootstrap")
+	seedWorkflowLaw(t, s)
+	commitWorkflowFixtureRegistry(t, KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}, workflowArchitectureFixtureRegistry)
+	cases := []struct {
+		name       string
+		mandate    []string
+		additionID string
+		refused    bool
+	}{
+		{name: "bare existing ID", mandate: []string{"spec:one"}, additionID: "spec:one", refused: true},
+		{name: "own-home qualified existing ID", mandate: []string{"project/spec:one"}, additionID: "project/spec:one", refused: true},
+		{name: "own-home qualified unpublished ID", mandate: []string{"project/law:new"}, additionID: "project/law:new", refused: false},
+		{name: "foreign-home qualified ID", mandate: []string{"other/law:new"}, additionID: "other/law:new", refused: false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			workID := "qualified-addition-" + strings.ReplaceAll(testCase.name, " ", "-")
+			err := approveQualifiedAdditionAtSeam(t, s, workID, testCase.mandate, []WorkflowLawAddition{{LawID: testCase.additionID, HomeDomainID: "root"}})
+			if testCase.refused {
+				var failure *Failure
+				if !failureAs(err, &failure) || failure.Kind != KindProjectionConflict || failure.Op != "workflow_architecture_binding" {
+					t.Fatalf("reuse refusal=%+v err=%v, want typed projection conflict", failure, err)
+				}
+				if !strings.Contains(err.Error(), "law addition reuses an existing Product law ID") {
+					t.Fatalf("wrong addition refusal: %v", err)
+				}
+				var contracts int
+				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&contracts); err != nil || contracts != 0 {
+					t.Fatalf("refused approval left contracts=%d err=%v", contracts, err)
+				}
+				var reserved int
+				if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_law_addition_reservations WHERE law_id=?`, testCase.additionID).Scan(&reserved); err != nil || reserved != 0 {
+					t.Fatalf("refused approval reserved %q: rows=%d err=%v", testCase.additionID, reserved, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("legitimate addition refused: %v", err)
+			}
+			var reserved int
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_law_addition_reservations WHERE law_id=?`, testCase.additionID).Scan(&reserved); err != nil || reserved != 1 {
+				t.Fatalf("admitted addition reservation rows=%d err=%v", reserved, err)
+			}
+		})
+	}
+}
+
 func architectureValidationFixture(t *testing.T, workID string) (*Store, WorkflowStepPlanType, WorkflowArchitectureBinding, []string) {
 	t.Helper()
 	s := openTemp(t)
@@ -137,9 +230,6 @@ func TestArchitectureBindingCurrentValidationFailures(t *testing.T) {
 		}},
 		{name: "law outside mandate", mutate: func(_ *Store, _ *WorkflowArchitectureBinding, mandate *[]string) {
 			*mandate = []string{}
-		}},
-		{name: "invalid obligation", mutate: func(_ *Store, b *WorkflowArchitectureBinding, _ *[]string) {
-			b.VerificationObligations[0].ObligationID = "not-declared"
 		}},
 		{name: "non-current obligation law", mutate: func(_ *Store, b *WorkflowArchitectureBinding, _ *[]string) {
 			b.VerificationObligations[0].LawID = "law:missing"
@@ -287,20 +377,12 @@ func TestLawAdditionReservationsAreProductScopedAndRevisionStable(t *testing.T) 
 			tx.Rollback()
 			t.Fatal(err)
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'reservation','internal_sqlite','[]','[]','now',?,'[]','[]',0,'prototype_internal')`, workID, actorRef); err != nil {
-			tx.Rollback()
-			t.Fatal(err)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check"}')`, workID); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'reservation','internal_sqlite','[]','now',?,'[]','[]',0,'prototype_internal')`, workID, actorRef); err != nil {
 			tx.Rollback()
 			t.Fatal(err)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version) SELECT work_id,2,premise,consequence_class,required_evidence,route_conventions,'now',approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version FROM workflow_contracts WHERE work_id='reservation-owner' AND contract_version=1`); err != nil {
-		tx.Rollback()
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) SELECT work_id,2,predicate_id,ordinal,outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id='reservation-owner' AND contract_version=1`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version) SELECT work_id,2,premise,consequence_class,route_conventions,'now',approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version FROM workflow_contracts WHERE work_id='reservation-owner' AND contract_version=1`); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -386,7 +468,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	version := readWorkVersion(t, s, workID)
 	binding := WorkflowArchitectureBinding{HomeDomainID: "child", AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{"child"}, DomainRelationModifies: []WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}}
 	event := workflowEventWithActor("architecture-binding-approval", WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "premise": "bind Product law", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:architecture", "immutable_subject_ref": "commit:architecture", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:one", "law:new"}, "law_modifies": []string{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "premise": "bind Product law", "legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{"spec:one", "law:new"}, "law_modifies": []string{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})
 	event = pOverlapContractFacts(t, s, event)
 	var approvalFields map[string]any
@@ -443,7 +525,6 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	successorBinding.DomainModifies = []string{"root"}
 	successor := pContractSuccessor(t, s, workID, "revised Product law binding")
 	successor["architecture_binding"] = successorBinding
-	successor["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:architecture-v2", "immutable_subject_ref": "commit:architecture-v2", "expected_result": "pass"}}}
 	absentSuccessor := map[string]any{}
 	for key, value := range successor {
 		absentSuccessor[key] = value
@@ -515,7 +596,7 @@ func TestProductChangingApprovalMissingBindingIsAtomic(t *testing.T) {
 	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
 	version := readWorkVersion(t, s, workID)
 	fields := map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "premise": "missing binding", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:missing", "immutable_subject_ref": "commit:missing", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "premise": "missing binding", "legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 		"architecture_binding": WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}},
 	}
 	for _, omitted := range []string{"spec_mandate", "law_modifies", "architecture_binding"} {
@@ -544,62 +625,25 @@ func TestProductChangingCompletionDoesNotRecheckVerificationObligation(t *testin
 	t.Parallel()
 	ctx := context.Background()
 	workID := "architecture-obligation-completion"
-	f, repo, refs := pReceiptFixture(t, workID, 1, 1, func(f workContextFixture) {
-		s := f.store
-		contract, err := readWorkflowContractVersion(ctx, s.db, workID, 1)
-		if err != nil {
-			t.Fatal(err)
-		}
-		current := pContractSuccessor(t, s, workID, contract.Premise)
-		var successor map[string]any
-		if err := json.Unmarshal(mustJSONValue(current), &successor); err != nil {
-			t.Fatal(err)
-		}
-		successor["contract_version"] = 2
-		successor["required_evidence"] = []string{"verification", "review"}
-		successor["spec_mandate"] = []string{"spec:one"}
-		successor["law_modifies"] = []string{"spec:one"}
-		successor["architecture_binding"].(map[string]any)["verification_obligations"] = []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}
-		version := readWorkVersion(t, s, workID)
-		if err := reviseContractRecord(t, s, workID, f.owner, successor, version); err != nil {
-			t.Fatal(err)
-		}
-		seedWorkflowAuthority(t, s, "architecture-obligation-spec", workID, "principal:spec", "request:spec", []string{"spec:one"})
-		if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{
-			"evidence_kind": "artifact", "immutable_subject_ref": "spec:one", "producer_id": "principal:spec",
-			"producer_run_ref": "architecture-obligation-spec", "producer_watermark": "request:spec",
-		}), 0, f.owner); err != nil {
-			t.Fatal(err)
-		}
-	})
+	f := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "review")
 	s := f.store
-	pin, err := ReadWorkPin(ctx, s, workID)
-	if err != nil {
+	successor := pContractSuccessor(t, s, workID, "complete with the current law")
+	successor["spec_mandate"] = []string{"spec:one"}
+	successor["law_modifies"] = []string{"spec:one"}
+	binding := *successor["architecture_binding"].(*WorkflowArchitectureBinding)
+	binding.VerificationObligations = []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}
+	successor["architecture_binding"] = binding
+	if err := reviseContractRecord(t, s, workID, f.owner, successor, readWorkVersion(t, s, workID)); err != nil {
 		t.Fatal(err)
 	}
-	if pin.Review == nil || pin.Review.Accepted == nil {
-		t.Fatal("fixture has no accepted Review")
-	}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
-		t.Fatal(err)
-	}
-	outstanding, err := unboundWorkflowEvidenceRequirements(ctx, s.db, workID, []workflowEvidenceRequirement{{Kind: "verification", Reference: "spec:one"}})
-	if err != nil || len(outstanding) != 1 || outstanding[0].Kind != "verification" || outstanding[0].Reference != "spec:one" {
-		t.Fatalf("outstanding requirements=%+v err=%v, want only (verification,spec:one)", outstanding, err)
-	}
-	// Seed confirmation to exercise completion separately from verification.
-	ownerRef, _ := WorkflowActorRef(f.owner)
-	version := readWorkVersion(t, s, workID)
-	premise := workflowEventWithActor("architecture-obligation-premise", WorkflowPremiseConfirmed, workID, ownerRef, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 2, "confirming_actor_ref": ownerRef, "confirmation_authority": "coordinator",
-	})
-	premise.PayloadVersion = CurrentEventPayloadVersion(WorkflowPremiseConfirmed)
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{premise}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		t.Fatal(err)
+	if err := runVerdictActionAs(t, s, workID, "confirm_premise", json.RawMessage(`{}`), 0, f.owner); err != nil {
+		t.Fatalf("confirmation without a verification binding: %v", err)
 	}
 	completeWorkflowPlanFixture(t, s, workID)
-	j := &candidateJourney{fixture: f, s: s, workID: workID, repo: repo}
-	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), 0, f.owner); err != nil {
 		t.Fatalf("completion rechecked verification obligation: %v", err)
+	}
+	if pin, err := ReadWorkPin(ctx, s, workID); err != nil || pin.Lifecycle != "completed" {
+		t.Fatalf("completion pin=%+v err=%v", pin, err)
 	}
 }

@@ -114,13 +114,10 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 		t.Fatalf("cross_context_boundary moved the step to %q", step)
 	}
 
-	f.review(t, "ready_for_final_proof", f.proof)
 	delivery := map[string]any{"delivery_artifact": "artifact:repair", "delivery_state": "asserted"}
-	if step := currentStep(); step != "implement" {
-		t.Fatalf("ready Review moved the step to %q, want implement", step)
-	}
-	report := f.read(t).Pinned.Pin.Review.Accepted.ReportRef
-	if err := try("complete_step", map[string]any{"step_id": "implement", "note": "Implementation reviewed.", "reviewer": "concord-review", "result": "pass", "commit": f.proofCommit, "link": report}); err != nil {
+	// complete_step keeps its reviewed-attempt interface beside record_review;
+	// both write the same step attempt.
+	if err := try("complete_step", map[string]any{"step_id": "implement", "note": "Implementation reviewed.", "reviewer": "concord-review", "result": "pass", "commit": gitRun(t, f.path, "rev-parse", "HEAD"), "link": "https://example.com/review/repair"}); err != nil {
 		t.Fatalf("complete implement refused: %v", err)
 	}
 	if step := currentStep(); step != "review" {
@@ -134,8 +131,8 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 	}
 }
 
-// An unreviewed implementation cannot claim delivery on an inserted frontier.
-func TestRecordDeliveryRequiresAcceptedReview(t *testing.T) {
+// Delivery on an inserted frontier records the artifact without completing a step.
+func TestRecordDeliveryOnInsertedFrontier(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
@@ -162,29 +159,25 @@ func TestRecordDeliveryRequiresAcceptedReview(t *testing.T) {
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET step_plan=? WHERE work_id=?; DELETE FROM write_guard`, string(retryJSON(plan)), workID); err != nil {
 		t.Fatal(err)
 	}
-	version := workVersion(t, s, workID)
-	before := agentCurrentEffects(t, s)
-	var receipts int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM idempotency_records`).Scan(&receipts); err != nil {
+	var beforePlan string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT step_plan FROM workflow_instances WHERE work_id=?`, workID).Scan(&beforePlan); err != nil {
 		t.Fatal(err)
 	}
+	version := workVersion(t, s, workID)
 	raw, _ := json.Marshal(map[string]any{"work_id": workID, "expected_version": version, "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "artifact:missing-start", "delivery_state": "asserted"}, "idempotency_key": "delivery-no-start-action"})
 	env.RequestID = "request:delivery-no-start"
 	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "missing_evidence" {
-		t.Fatalf("record_delivery without review outcome=%q error=%+v, want missing evidence", response.Outcome, response.Error)
+	if response.Outcome != agentcontract.OutcomeOK || response.Error != nil {
+		t.Fatalf("record_delivery on inserted frontier outcome=%q error=%+v", response.Outcome, response.Error)
 	}
-	if !strings.Contains(response.Error.Message, "Review") {
-		t.Fatalf("refusal message=%q does not name the missing review", response.Error.Message)
-	}
-	var afterReceipts int
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM idempotency_records`).Scan(&afterReceipts); err != nil {
+	var afterPlan, artifact string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT i.step_plan, json_extract(d.payload,'$.delivery_artifact') FROM workflow_instances i JOIN workflow_delivery_state d ON d.work_id=i.work_id WHERE i.work_id=?`, workID).Scan(&afterPlan, &artifact); err != nil {
 		t.Fatal(err)
 	}
-	if agentCurrentEffects(t, s) != before || workVersion(t, s, workID) != version || receipts != afterReceipts {
-		t.Fatal("refused delivery changed durable state")
+	if beforePlan != afterPlan || artifact != "artifact:missing-start" || workVersion(t, s, workID) <= version {
+		t.Fatalf("delivery changed plan or failed to record artifact: artifact=%q", artifact)
 	}
 }

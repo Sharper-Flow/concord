@@ -84,7 +84,7 @@ func TestWorkflowDeliveryReceiptFlagBackfillParity(t *testing.T) {
 	}
 	assertFlags("fresh append", current)
 	assertFlags("migration147", upgraded)
-	if err := Migrate(t.Context(), db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, t.Context(), db), db); err != nil {
 		t.Fatal(err)
 	}
 	assertHistoricalReceipts(t, db, before)

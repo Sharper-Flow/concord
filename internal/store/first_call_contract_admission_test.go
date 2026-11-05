@@ -14,8 +14,7 @@ import (
 
 // First-call admission fixtures for approve_contract and revise_intent.contract.
 // Each valid call is assembled from the published closed input variant. The
-// workflow plan type supplies admitted predicate kinds, and the contract names
-// verification obligations using the current evidence-kind vocabulary.
+// contract names its legislative subjects and architecture obligations.
 
 func firstCallPublishedDefs(t *testing.T) map[string]any {
 	t.Helper()
@@ -79,8 +78,6 @@ func firstCallSample(defs map[string]any, node map[string]any) any {
 			return "msg:" + strings.Repeat("0", 32)
 		case strings.HasPrefix(pattern, "^https://"):
 			return "https://example.test/pull/1"
-		case strings.HasPrefix(pattern, "^predicate:"):
-			return "predicate:first-call-sample"
 		case strings.Contains(pattern, "[0-9a-f]{40}"):
 			return strings.Repeat("0", 40)
 		default:
@@ -159,29 +156,6 @@ func firstCallActionInput(t *testing.T, defs map[string]any, workID string, vers
 	input["work_id"] = workID
 	input["expected_version"] = version
 	return input
-}
-
-// firstCallPredicates builds one predicate admitted by the workflow plan type.
-func firstCallPredicates(planType WorkflowStepPlanType) []map[string]any {
-	kinds, tokens := WorkflowPlanAllowedPredicates(planType)
-	admitted := map[PredicateKind]bool{}
-	for _, kind := range kinds {
-		admitted[kind] = true
-	}
-	switch {
-	case admitted[PredicateCheck]:
-		return []map[string]any{{
-			"predicate_id": "predicate:first-call-admission", "ordinal": 0, "outcome_kind": string(PredicateCheck),
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:first-call-admission", "immutable_subject_ref": "commit:" + strings.Repeat("0", 40), "expected_result": "pass"},
-		}}
-	case admitted[PredicateOutcome] && len(tokens) > 0:
-		return []map[string]any{{
-			"predicate_id": "predicate:first-call-admission", "ordinal": 0, "outcome_kind": string(PredicateOutcome),
-			"outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{tokens[0]}},
-		}}
-	default:
-		return nil
-	}
 }
 
 func firstCallApprovalFrontier(t *testing.T, planType WorkflowStepPlanType) string {
@@ -282,7 +256,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	defs := firstCallPublishedDefs(t)
 	// The legal binding: the added law is authorized by spec_mandate, every
 	// Domain names the seeded registry, and the verification obligation pairs
-	// an evidence kind with the current law spec:one.
+	// an obligation with the current law spec:one.
 	legalBinding := func() map[string]any {
 		return map[string]any{
 			"home_domain_id":           "root",
@@ -294,7 +268,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 		}
 	}
 	input := firstCallActionInput(t, defs, workID, version, map[string]any{
-		"outcome_predicates":   firstCallPredicates(WorkflowStepPlanChange),
+		"legislative_subjects": []string{},
 		"spec_mandate":         []string{"spec:one", "law:new"},
 		"architecture_binding": legalBinding(),
 	})
@@ -312,41 +286,17 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	// owning guard with no durable effect, and the unchanged state then
 	// admits the valid call on its first submission.
 
-	// Positional ordinal mutant: the predicate at position 0 declares
-	// ordinal 1. The owning guard is validateWorkflowContractPredicate.
-	ordinalMutant := firstCallActionInput(t, defs, workID, version, map[string]any{
-		"outcome_predicates": []map[string]any{{
-			"predicate_id": "predicate:first-call-ordinal", "ordinal": 1, "outcome_kind": "check",
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:ordinal", "immutable_subject_ref": "commit:ordinal", "expected_result": "pass"},
-		}},
-		"spec_mandate":         []string{"spec:one", "law:new"},
-		"architecture_binding": legalBinding(),
-	})
-	mutantErr := firstCallApproveContract(t, s, workID, version, "first-call-approve-ordinal", actor, ordinalMutant)
-	firstCallRequireRefusal(t, mutantErr, "declares ordinal 1 at position 0")
-
 	// Unauthorized-addition mutant: the addition is not in spec_mandate. The
 	// owning guard is validateArchitectureBindingLawAdditionsTx.
 	unauthorizedBinding := legalBinding()
 	unauthorizedBinding["law_additions"] = []map[string]any{{"law_id": "law:unauthorized", "home_domain_id": "root"}}
 	unauthorizedMutant := firstCallActionInput(t, defs, workID, version, map[string]any{
-		"outcome_predicates":   firstCallPredicates(WorkflowStepPlanChange),
+		"legislative_subjects": []string{},
 		"spec_mandate":         []string{"spec:one"},
 		"architecture_binding": unauthorizedBinding,
 	})
-	mutantErr = firstCallApproveContract(t, s, workID, version, "first-call-approve-unauthorized", actor, unauthorizedMutant)
+	mutantErr := firstCallApproveContract(t, s, workID, version, "first-call-approve-unauthorized", actor, unauthorizedMutant)
 	firstCallRequireRefusal(t, mutantErr, "law addition is outside spec_mandate")
-
-	// Verification obligations must name a declared evidence kind.
-	undeclaredBinding := legalBinding()
-	undeclaredBinding["verification_obligations"] = []map[string]any{{"law_id": "spec:one", "obligation_id": "undeclared-obligation"}}
-	undeclaredMutant := firstCallActionInput(t, defs, workID, version, map[string]any{
-		"outcome_predicates":   firstCallPredicates(WorkflowStepPlanChange),
-		"spec_mandate":         []string{"spec:one", "law:new"},
-		"architecture_binding": undeclaredBinding,
-	})
-	mutantErr = firstCallApproveContract(t, s, workID, version, "first-call-approve-undeclared", actor, undeclaredMutant)
-	firstCallRequireRefusal(t, mutantErr, "verification obligation is not a declared evidence kind")
 
 	// Affected-Domain membership mutant: affected_domain_ids names a Domain
 	// the pinned registry does not declare. The owning guard is
@@ -354,7 +304,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	unknownDomainBinding := legalBinding()
 	unknownDomainBinding["affected_domain_ids"] = []string{"root", "ghost"}
 	unknownDomainMutant := firstCallActionInput(t, defs, workID, version, map[string]any{
-		"outcome_predicates":   firstCallPredicates(WorkflowStepPlanChange),
+		"legislative_subjects": []string{},
 		"spec_mandate":         []string{"spec:one", "law:new"},
 		"architecture_binding": unknownDomainBinding,
 	})
@@ -364,36 +314,13 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	// Law-modification subset mutant: law_modifies names a law outside
 	// spec_mandate. The owning guard is validateLawModificationSubset.
 	subsetMutant := firstCallActionInput(t, defs, workID, version, map[string]any{
-		"outcome_predicates":   firstCallPredicates(WorkflowStepPlanChange),
+		"legislative_subjects": []string{},
 		"spec_mandate":         []string{"spec:one"},
 		"law_modifies":         []string{"spec:unmandated"},
 		"architecture_binding": legalBinding(),
 	})
 	mutantErr = firstCallApproveContract(t, s, workID, version, "first-call-approve-subset", actor, subsetMutant)
 	firstCallRequireRefusal(t, mutantErr, "law_modifies must be a subset of spec_mandate")
-
-	// Nested kind-equality mutant (CON-412): the predicate declares
-	// outcome_kind exists with a check outcome_payload. The owning guard is
-	// the per-kind item contract the publication and payload validation
-	// share (validateWorkflowPayloadSchema against the generated items def);
-	// the fold keeps its deeper DecodeWorkflowPredicate refusal.
-	kindMismatchMutant := firstCallActionInput(t, defs, workID, version, map[string]any{
-		"outcome_predicates": []map[string]any{{
-			"predicate_id": "predicate:first-call-kind", "ordinal": 0, "outcome_kind": "exists",
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:kind-mismatch", "immutable_subject_ref": "commit:kind-mismatch", "expected_result": "pass"},
-		}},
-		"spec_mandate":         []string{"spec:one", "law:new"},
-		"architecture_binding": legalBinding(),
-	})
-	kindMismatchEncoded, err := json.Marshal(kindMismatchMutant)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := payloadschema.Validate("work_transition_action_variant_approve_contract", kindMismatchEncoded); err == nil {
-		t.Fatal("published approve variant admitted an outcome_predicates item whose outcome_kind and outcome_payload.kind disagree")
-	}
-	mutantErr = firstCallApproveContract(t, s, workID, version, "first-call-approve-kind", actor, kindMismatchMutant)
-	firstCallRequireRefusal(t, mutantErr, `does not satisfy its declared schema "workflow_action_outcome_predicates"`)
 
 	if err := firstCallApproveContract(t, s, workID, version, "first-call-approve", actor, input); err != nil {
 		t.Fatalf("first-call approve_contract refused after the mutants were refused without effect: %v", err)
@@ -418,8 +345,7 @@ func firstCallBreakFixSeed(t *testing.T, workID string) (*Store, WorkflowActor) 
 		}
 	}
 	approve := firstCallActionInput(t, defs, workID, version, map[string]any{
-		"outcome_predicates":   firstCallPredicates(WorkflowStepPlanFix),
-		"required_evidence":    []string{"verification"},
+		"legislative_subjects": []string{},
 		"spec_mandate":         []string{"spec:one", "law:new"},
 		"architecture_binding": binding(),
 	})
@@ -434,14 +360,7 @@ func TestFirstCallContractUpdateAdmitsFromPublishedInput(t *testing.T) {
 	const workID = "work-first-call-update"
 	s, owner := firstCallBreakFixSeed(t, workID)
 	defer s.Close()
-	// Take required evidence and obligations from the WorkPin.
-	pin, err := ReadWorkPin(context.Background(), s, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pin.Obligations == nil {
-		t.Fatal("active contract has no required evidence projection")
-	}
+	var err error
 	defs := firstCallPublishedDefs(t)
 	var workKind string
 	if err := s.db.QueryRow(`SELECT kind FROM work_items WHERE id=?`, workID).Scan(&workKind); err != nil {
@@ -459,12 +378,8 @@ func TestFirstCallContractUpdateAdmitsFromPublishedInput(t *testing.T) {
 	}
 	updateInput := func(mutate func(fields map[string]any)) map[string]any {
 		overrides := map[string]any{
-			"contract_version": 2,
-			"outcome_predicates": []map[string]any{{
-				"predicate_id": "predicate:first-call-supersede", "ordinal": 0, "outcome_kind": "check",
-				"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:first-call-supersede", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-			}},
-			"required_evidence":    *pin.Obligations,
+			"contract_version":     2,
+			"legislative_subjects": []string{},
 			"spec_mandate":         []string{"spec:one", "law:successor"},
 			"architecture_binding": successorBinding(),
 		}
@@ -502,15 +417,6 @@ func TestFirstCallContractUpdateAdmitsFromPublishedInput(t *testing.T) {
 		t.Fatalf("contract is not optional in the published update input: %v", err)
 	}
 
-	// Positional ordinal mutant: the successor predicate at position 0
-	// declares ordinal 1.
-	ordinal := updateInput(func(fields map[string]any) {
-		predicates := fields["outcome_predicates"].([]map[string]any)
-		predicates[0]["ordinal"] = 1
-	})
-	err = applyUpdate(ordinal)
-	firstCallRequireRefusal(t, err, "declares ordinal 1 at position 0")
-
 	// Unauthorized-addition mutant: the successor addition sits outside
 	// spec_mandate while every mandated law stays accepted, so the refusal
 	// is the addition-subset guard, not the mandate guard.
@@ -521,14 +427,6 @@ func TestFirstCallContractUpdateAdmitsFromPublishedInput(t *testing.T) {
 	})
 	err = applyUpdate(unauthorized)
 	firstCallRequireRefusal(t, err, "law addition is outside spec_mandate")
-
-	// Verification obligations must name a declared evidence kind.
-	undeclared := updateInput(func(fields map[string]any) {
-		binding := fields["architecture_binding"].(map[string]any)
-		binding["verification_obligations"] = []map[string]any{{"law_id": "spec:one", "obligation_id": "undeclared-obligation"}}
-	})
-	err = applyUpdate(undeclared)
-	firstCallRequireRefusal(t, err, "verification obligation is not a declared evidence kind")
 
 	// Affected-Domain membership mutant: the successor binding names a
 	// Domain the pinned registry does not declare.
@@ -547,17 +445,8 @@ func TestFirstCallContractUpdateAdmitsFromPublishedInput(t *testing.T) {
 	err = applyUpdate(versionSkip)
 	firstCallRequireRefusal(t, err, "next retained version")
 
-	itemMismatch := updateInput(nil)
-	itemMismatch["contract"].(map[string]any)["outcome_predicates"].([]map[string]any)[0]["outcome_kind"] = "exists"
-	if err := payloadschema.Validate("work_define_revise_input", mustJSONRaw(t, itemMismatch)); err == nil {
-		t.Fatal("published update input admitted an outcome kind mismatch")
-	}
-	err = applyUpdate(itemMismatch)
-	firstCallRequireRefusal(t, err, `does not satisfy its declared schema "workflow_action_outcome_predicates"`)
-
 	pairMismatch := updateInput(nil)
 	pairFields := pairMismatch["contract"].(map[string]any)
-	delete(pairFields, "outcome_predicates")
 	pairFields["outcome_kind"] = "exists"
 	pairFields["outcome_payload"] = map[string]any{"kind": "check", "check_ref": "check:pair-mismatch", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}
 	if err := payloadschema.Validate("work_define_revise_input", mustJSONRaw(t, pairMismatch)); err == nil {
@@ -585,7 +474,6 @@ func TestFirstCallContractUpdateAdmitsFromPublishedInput(t *testing.T) {
 		fields["contract_version"] = 3
 	})
 	pairValidFields := pairValid["contract"].(map[string]any)
-	delete(pairValidFields, "outcome_predicates")
 	pairValidFields["outcome_kind"] = "check"
 	pairValidFields["outcome_payload"] = map[string]any{"kind": "check", "check_ref": "check:pair-valid", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}
 	if err := payloadschema.Validate("work_define_revise_input", mustJSONRaw(t, pairValid)); err == nil {

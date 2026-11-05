@@ -30,31 +30,24 @@ func contractGuidanceInput(t *testing.T, idempotencyKey, fields string) []byte {
 	return encoded
 }
 
-func approveFieldsWithPredicate(payload string) string {
+func approveFieldsWithSubject(payload string) string {
 	return `{
 		"premise": "The premise states the bounded change.",
 		"decision_domains": [],
-		"outcome_predicates": [
-			{"predicate_id": "predicate:one", "ordinal": 0, "outcome_kind": "exists",
-			 "outcome_payload": {"kind": "exists", "surface": "go_source", "subjects": [` + payload + `]}}
-		]
+		"legislative_subjects": [` + payload + `]
 	}`
 }
 
-func revisionContractWithPredicate(payload string) string {
+func revisionContractWithSubject(payload string) string {
 	return `{
 		"contract_version": 2,
 		"premise": "The premise states the bounded replacement.",
-		"required_evidence": [],
 		"route_conventions": [],
 		"spec_mandate": [],
 		"law_modifies": [],
 		"rigor_class": "prototype_internal",
 		"decision_domains": [],
-		"outcome_predicates": [
-			{"predicate_id": "predicate:two", "ordinal": 0, "outcome_kind": "absent",
-			 "outcome_payload": ` + payload + `}
-		]
+		"legislative_subjects": [` + payload + `]
 	}`
 }
 
@@ -67,14 +60,14 @@ func revisionContractWithPredicate(payload string) string {
 // message budget either.
 func TestContractRequestFailureSelectsTheApplicableVariant(t *testing.T) {
 	data := contractGuidanceInput(t, "select-approve-1",
-		approveFieldsWithPredicate(`"The acceptance sentence has spaces"`))
+		approveFieldsWithSubject(`"The subject has spaces"`))
 
 	err := ValidateInDocument(Document(), "work_transition_action_input", data)
 	if err == nil {
-		t.Fatal("a predicate subject with spaces was accepted")
+		t.Fatal("a legislative subject with spaces was accepted")
 	}
 	got := err.Error()
-	if !strings.Contains(got, "pattern at $.fields.outcome_predicates[0].outcome_payload.subjects[0]") {
+	if !strings.Contains(got, "pattern at $.fields.legislative_subjects[0]") {
 		t.Errorf("refusal does not select the true leaf failure: %s", got)
 	}
 	if strings.Contains(got, "unknown property $.fields.decision_domains") {
@@ -90,14 +83,14 @@ func TestContractRequestFailureSelectsTheApplicableVariant(t *testing.T) {
 
 func TestContractRevisionFailureSelectsTheApplicableVariant(t *testing.T) {
 	data := []byte(`{"work_id":"work-1","expected_version":1,"title":"Updated plan","value_statement":"Current criteria","kind":"task","reason":"Revise the plan","idempotency_key":"select-revision-1","contract":` +
-		revisionContractWithPredicate(`{"kind": "absent", "surface": "go_source", "subjects": ["internal-store-workpin"], "distinguish_from": ["deleted"]}`) + `}`)
+		revisionContractWithSubject(`"subject has spaces"`) + `}`)
 
 	err := ValidateInDocument(Document(), "work_define_revise_input", data)
 	if err == nil {
-		t.Fatal("a distinguish_from value outside its enum was accepted")
+		t.Fatal("a legislative subject with spaces was accepted")
 	}
 	got := err.Error()
-	if !strings.Contains(got, "enum mismatch at $.contract.outcome_predicates[0].outcome_payload.distinguish_from[0]") {
+	if !strings.Contains(got, "pattern at $.contract.legislative_subjects[0]") {
 		t.Errorf("refusal does not select the true leaf failure: %s", got)
 	}
 	if strings.Contains(got, "unknown property $.contract.decision_domains") {
@@ -111,86 +104,12 @@ func TestContractRevisionFailureSelectsTheApplicableVariant(t *testing.T) {
 	}
 }
 
-// Each outcome kind's own invalid member is the leaf failure when the
-// supplied outcome_kind discriminator selects that kind's variant alone.
-func TestOutcomeKindDiscriminatorSelectsTheKindLeafFailure(t *testing.T) {
-	cases := []struct {
-		name    string
-		kind    string
-		payload string
-		want    string
-		absent  []string
-	}{
-		{
-			name:    "exists bad subject pattern",
-			kind:    "exists",
-			payload: `{"kind": "exists", "surface": "go_source", "subjects": ["has spaces"]}`,
-			want:    "pattern at $.fields.outcome_predicates[0].outcome_payload.subjects[0]",
-			absent:  []string{"distinguish_from", "expected_result", `allowed`},
-		},
-		{
-			name:    "absent bad distinguish_from enum",
-			kind:    "absent",
-			payload: `{"kind": "absent", "surface": "go_source", "subjects": ["internal-store-workpin"], "distinguish_from": ["deleted"]}`,
-			want:    "enum mismatch at $.fields.outcome_predicates[0].outcome_payload.distinguish_from[0]: accepted values are",
-			absent:  []string{"expected_result", `"exists"`},
-		},
-		{
-			name:    "outcome bad allowed enum",
-			kind:    "outcome",
-			payload: `{"kind": "outcome", "allowed": ["unknown"]}`,
-			want:    "enum mismatch at $.fields.outcome_predicates[0].outcome_payload.allowed[0]: accepted values are",
-			absent:  []string{"distinguish_from", "check_ref"},
-		},
-		{
-			name:    "check bad check_ref pattern",
-			kind:    "check",
-			payload: `{"kind": "check", "check_ref": "not a check", "immutable_subject_ref": "src-example", "expected_result": "pass"}`,
-			want:    "pattern at $.fields.outcome_predicates[0].outcome_payload.check_ref",
-			absent:  []string{"distinguish_from", `"outcome"`},
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.kind, func(t *testing.T) {
-			fields := `{
-				"premise": "The premise states the bounded change.",
-				"decision_domains": [],
-				"outcome_predicates": [
-					{"predicate_id": "predicate:one", "ordinal": 0, "outcome_kind": "` + tc.kind + `",
-					 "outcome_payload": ` + tc.payload + `}
-				]
-			}`
-			data := contractGuidanceInput(t, "select-kind-"+tc.kind, fields)
-			err := ValidateInDocument(Document(), "work_transition_action_input", data)
-			if err == nil {
-				t.Fatal("an invalid outcome payload was accepted")
-			}
-			got := err.Error()
-			if !strings.Contains(got, tc.want) {
-				t.Errorf("refusal does not select the %s leaf failure: %s", tc.kind, got)
-			}
-			for _, noise := range tc.absent {
-				if strings.Contains(got, noise) {
-					t.Errorf("refusal carries unrelated branch noise %q: %s", noise, got)
-				}
-			}
-			if len(got) > 1000 {
-				t.Errorf("selected refusal carries %d bytes against the 1000-byte message budget: %s", len(got), got)
-			}
-		})
-	}
-}
-
 // A genuinely invalid decision_domains member is refused through the variant
 // that declares the field, not through the legacy alternative that forbids it.
 func TestInvalidDecisionDomainsNamesItsEnumThroughTheDeclaringVariant(t *testing.T) {
 	fields := `{
 		"premise": "The premise states the bounded change.",
-		"decision_domains": ["bogus"],
-		"outcome_predicates": [
-			{"predicate_id": "predicate:one", "ordinal": 0, "outcome_kind": "exists",
-			 "outcome_payload": {"kind": "exists", "surface": "go_source", "subjects": ["internal-store-workpin"]}}
-		]
+		"decision_domains": ["bogus"]
 	}`
 	data := contractGuidanceInput(t, "select-domains-1", fields)
 
@@ -204,35 +123,6 @@ func TestInvalidDecisionDomainsNamesItsEnumThroughTheDeclaringVariant(t *testing
 	}
 	if strings.Contains(got, "unknown property $.fields.decision_domains") {
 		t.Errorf("a branch-local unknown-property refusal reached the caller as global: %s", got)
-	}
-}
-
-// An outcome_payload contradicted by its own kind constant is refused through
-// the variant the declared outcome_kind selects, without sibling kinds'
-// missing-field noise.
-func TestContradictoryOutcomeKindSelectsTheDeclaredKind(t *testing.T) {
-	fields := `{
-		"premise": "The premise states the bounded change.",
-		"decision_domains": [],
-		"outcome_predicates": [
-			{"predicate_id": "predicate:one", "ordinal": 0, "outcome_kind": "exists",
-			 "outcome_payload": {"kind": "check", "surface": "go_source", "subjects": ["internal-store-workpin"]}}
-		]
-	}`
-	data := contractGuidanceInput(t, "select-kind-contradiction", fields)
-
-	err := ValidateInDocument(Document(), "work_transition_action_input", data)
-	if err == nil {
-		t.Fatal("an outcome_kind contradicted by its payload kind was accepted")
-	}
-	got := err.Error()
-	if !strings.Contains(got, "const mismatch at $.fields.outcome_predicates[0].outcome_payload.kind") {
-		t.Errorf("refusal does not name the contradicted kind constant: %s", got)
-	}
-	for _, noise := range []string{"distinguish_from", "expected_result"} {
-		if strings.Contains(got, noise) {
-			t.Errorf("refusal carries unrelated kind noise %q: %s", noise, got)
-		}
 	}
 }
 

@@ -112,7 +112,6 @@ func TestWorkContextDeclarationRetainsClaimsWithoutProofAuthority(t *testing.T) 
 	t.Cleanup(func() { f.store.Close() })
 	findings := []WorkContextFinding{contextFindingFixture(), {Kind: "direction", Statement: "the reader joins declarations without parsing narrative", SubjectRef: "internal/store/fold.go", EvidenceRefs: []string{"a", "b"}, DomainID: workContextTestRoot, ProductWideRationale: workContextRootRationale}}
 	beforeEvidence := countRows(t, f.store, "workflow_evidence_bindings")
-	beforeVerdicts := countRows(t, f.store, "workflow_predicate_verdicts")
 	if err := f.recordWorkContext(t, map[string]any{"context_findings": findings}); err != nil {
 		t.Fatal(err)
 	}
@@ -133,12 +132,8 @@ func TestWorkContextDeclarationRetainsClaimsWithoutProofAuthority(t *testing.T) 
 			t.Fatalf("claim %d changed: %+v", i, got)
 		}
 	}
-	if countRows(t, f.store, "workflow_evidence_bindings") != beforeEvidence || countRows(t, f.store, "workflow_predicate_verdicts") != beforeVerdicts {
-		t.Fatal("context claims manufactured proof or a verdict")
-	}
-	review, err := loadWorkflowReviewState(t.Context(), f.store.db, f.workID)
-	if err != nil || review.Accepted != nil {
-		t.Fatalf("context claims manufactured accepted Review: %+v, %v", review.Accepted, err)
+	if countRows(t, f.store, "workflow_evidence_bindings") != beforeEvidence {
+		t.Fatal("context claims manufactured evidence")
 	}
 	var stored []WorkContextFinding
 	if err := json.Unmarshal([]byte(raw), &stored); err != nil || !reflect.DeepEqual(stored, findings) {

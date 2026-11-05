@@ -1775,7 +1775,11 @@ for name, sql in (
         breaking=[175],
     )
 
-# Law attribution retirement (180) sets the live compatibility floor: it drops
+# Outcome contract retirement (185) sets the live compatibility floor: it
+# drops the outcome predicate, verdict and Review state tables and rebuilds
+# workflow_contracts without required_evidence, which older binaries still
+# read and write. Research retirement (184) drops the active research tables.
+# Law attribution retirement (180) drops
 # the owning-start law baseline and the law_change contract column. Work
 # side-channel retirement (179) drops work_messages and work_observations,
 # which older binaries still fold and read, so it also constrains older
@@ -1841,7 +1845,7 @@ expect_evaluate(
 live_failures, live_breaking = check.evaluate(check.migrations(live_source))
 if live_failures:
     FAILURES.append(f"live manifest drew refusals: {live_failures}")
-required_breaking = {110, 111, 119, 120, 121, 123, 124, 125, 126, 128, 134, 136, 137, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184}
+required_breaking = {110, 111, 119, 120, 121, 123, 124, 125, 126, 128, 134, 136, 137, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185}
 historical_declared = {
     version for version, declaration, _ in check.migrations(live_source)
     if version <= 174 and check.declares_breaking(declaration)

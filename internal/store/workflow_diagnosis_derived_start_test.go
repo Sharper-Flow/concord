@@ -294,9 +294,7 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 	const workID = "corrected-contract-liveness"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanFix, "implement")
 	s := fixture.store
-	journey := pReturnClaim(t, fixture, workID)
-	journey.acceptor = fixture.owner
-	current := journey.fixture
+	current := workContextFixture{store: s, workID: workID, owner: fixture.owner, operator: fixture.operator}
 	if err := reviseContractRecord(t, s, workID, fixture.owner, pContractSuccessor(t, s, workID, "The repaired subject has current proof."), readWorkVersion(t, s, workID)); err != nil {
 		t.Fatalf("revise the contract at the producer step: %v", err)
 	}
@@ -352,17 +350,10 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 	}
 	bindKind("review", "review:liveness-"+workID)
 	bindKind("artifact", "artifact:liveness-"+workID)
-	proof := journey.observeRun(t, "liveness-current")
-	journey.bindVerification(t, proof)
-	acceptCurrentReviewForTest(t, current, "continue")
 	completeReviewedStep := func(step string) {
 		t.Helper()
-		state, err := loadWorkflowReviewState(t.Context(), s.db, workID)
-		if err != nil || state.Accepted == nil || state.Candidate == nil {
-			t.Fatalf("read accepted review: %+v, %v", state, err)
-		}
-		payload := mustJSONValue(map[string]any{"step_id": step, "note": "review completed", "reviewer": "concord-review", "result": "pass", "commit": state.Candidate.Commit, "link": state.Accepted.ReportRef})
-		if err := runVerdictActionAs(t, s, workID, "complete_step", payload, 0, fixture.owner); err != nil {
+		payload := mustJSONValue(map[string]any{"step_id": step, "note": "review completed", "reviewer": "concord-review", "result": "pass", "commit": sourceCommit, "link": "https://example.com/review"})
+		if err := runVerdictActionAs(t, s, workID, "record_review", payload, 0, fixture.owner); err != nil {
 			t.Fatalf("complete %s: %v", step, err)
 		}
 	}
@@ -370,13 +361,8 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 	if step := currentStep(t, s, workID); step != "review" {
 		t.Fatalf("frontier after implement = %q, want review", step)
 	}
-	qAcceptCriterionReview(t, current, proof.OperationRef)
 	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:liveness-gate-`+workID+`","delivery_state":"asserted"}`), 0, fixture.owner); err != nil {
 		t.Fatalf("record delivery on the corrected contract: %v", err)
-	}
-	reviewer := diagnosisS1Actor(workID, "liveness-reviewer")
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", criterionAssociationPayload(proof.OperationRef, "predicate:return-route"), 0, reviewer); err != nil {
-		t.Fatalf("fresh verdict on the corrected contract: %v", err)
 	}
 	if err := pConfirmReceiptPremise(t, current); err != nil {
 		t.Fatalf("confirm the corrected premise: %v", err)
@@ -385,8 +371,6 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 		t.Fatalf("frontier after the corrected premise = %q, want review", step)
 	}
 	completeReviewedStep("review")
-	// The completing coordinator is neither the step's fenced executor nor
-	// the verdict actor (CD-0013 D5).
 	completer := diagnosisS1Actor(workID, "completer")
 	completePayload := json.RawMessage(`{"impact_verdict":"non-breaking"}`)
 	if err := runVerdictActionAs(t, s, workID, "complete", completePayload, 0, completer); err != nil {
@@ -474,7 +458,7 @@ func runWorkflowActionWithIdentity(t *testing.T, s *Store, workID, action string
 // step completes only after its typed diagnosis record exists.
 func TestDiagnoseStepCompletionRequiresRecordedDiagnosis(t *testing.T) {
 	const workID = "diagnose-document-gate"
-	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanFix, "diagnose", []string{}, nil)
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanFix, "diagnose", nil)
 	before := readWorkVersion(t, f.store, workID)
 	err := runVerdictActionAs(t, f.store, workID, "complete_step", mustJSONValue(map[string]any{"step_id": "diagnose", "note": "no diagnosis recorded"}), 0, f.owner)
 	if !hasFailureKind(err, KindMissingEvidence) {

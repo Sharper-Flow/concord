@@ -12,7 +12,7 @@ import (
 // deliveryGateFixture places a fix plan at its delivery-capable review frontier.
 func deliveryGateFixture(t *testing.T) *Store {
 	t.Helper()
-	return seedWorkflowReturnRouteFixtureWithPlan(t, "work-deliv", WorkflowStepPlanFix, "review", []string{"verification"}, []string{"review", "artifact"}).store
+	return seedWorkflowReturnRouteFixtureWithPlan(t, "work-deliv", WorkflowStepPlanFix, "review", []string{"review", "artifact"}).store
 }
 
 func transitionDeliverWork(t *testing.T, s *Store, to, reason string) error {

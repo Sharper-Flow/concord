@@ -91,7 +91,7 @@ func historicalRepeatedDeliveryFixture(t *testing.T, work string, assertions int
 	if _, err := s.db.Exec(`INSERT INTO fold_guard VALUES(1); UPDATE work_items SET lifecycle='completed',version=? WHERE id=?; UPDATE workflow_instances SET instance_state='completed',completed_at=? WHERE work_id=?; DELETE FROM fold_guard`, version, work, terminal.OccurredAt.Format(time.RFC3339Nano), work); err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(t.Context(), s.db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, t.Context(), s.db), s.db); err != nil {
 		t.Fatal(err)
 	}
 	return s

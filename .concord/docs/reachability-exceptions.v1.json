@@ -40,8 +40,7 @@
         "internal/store.WorkflowActionCanonicalCrossFieldRules",
         "internal/store.WorkflowActionCrossFieldRules",
         "internal/store.WorkflowContractTeachingRules",
-        "internal/store.workflowCanonicalCombination",
-        "internal/store.workflowDeclaredFieldCount"
+        "internal/store.workflowCanonicalCombination"
       ],
       "reason": "These pure accessors supply canonical recovery payloads, the consequence_v1 decision-fact action payloads, cross-field declarations, and guard-owned teaching to scripts/workflow-action-contracts. The projector generates the authoring contract from the engine-owned fields and rules; it grants no runtime admission. The analysis roots ./cmd/... only and cannot see this build-time edge. CI runs generate-agent-contracts.py --check to detect projection drift. Core preflight and recovery validation retain the runtime field and cross-field owners."
     },
@@ -106,14 +105,11 @@
         "internal/store.WorkflowActionCatalogSize",
         "internal/store.WorkflowPlanActionContract",
         "internal/store.WorkflowPlanContractUpdatePayload",
-        "internal/store.validateCrossFieldAlternatives",
         "internal/store.validateCrossFieldCombinationFields",
         "internal/store.validateCrossFieldCombinations",
         "internal/store.validateCrossFieldDeclaration",
         "internal/store.validateCrossFieldKindMatches",
         "internal/store.validateEngineCrossFieldDeclarations",
-        "internal/store.verdictBatchActionFields",
-        "internal/store.workflowAcceptanceSubjectCurrent",
         "internal/store.workflowProjectionInvariant"
       ],
       "reason": "These helpers are the contract generator's projection surface and retained typed validators exercised by store conformance and review-admission tests through package seams the CLI does not reach."

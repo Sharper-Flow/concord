@@ -105,9 +105,8 @@ func TestWorkContextFactsAnchorSelectionBackfillAndLogBlind(t *testing.T) {
 	recordDeclaration(map[string]any{"context_findings": []WorkContextFinding{contextFindingFixture()}})
 	reportSeq := recordTerminal("worker.completed", map[string]any{
 		"context_findings": []WorkContextFinding{contextFindingFixture()},
-		"review":           map[string]any{"findings": []ReviewFinding{{FindingID: "review:one", Severity: "high", Detail: "ranked claim", Status: "open"}}},
 	})
-	selected := fmt.Sprintf("finding:%d:1", reportSeq)
+	selected := fmt.Sprintf("finding:%d:0", reportSeq)
 	recordDeclaration(map[string]any{"finding_refs": []string{selected}, "context_findings": []map[string]any{workContextFinding(workContextTestChild, "direction", "current declaration", "")}})
 	failedSeq := recordTerminal("worker.failed", map[string]any{"context_findings": []WorkContextFinding{contextFindingFixture()}})
 	emptySeq := recordTerminal("worker.completed", map[string]any{})
@@ -153,7 +152,7 @@ func TestWorkContextFactsAnchorSelectionBackfillAndLogBlind(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "context-selection-144.db")
 		db := openMigratedTo(t, path, 144)
 		copyFixtureDataToPrefix(t, f.store, db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_contracts", "workflow_architecture_bindings", "workflow_contract_affected_domains"}, map[string]map[string]string{
-			"workflow_contracts":             {"definition_ref": "'workflow.break_fix'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "law_change": "NULL"},
+			"workflow_contracts":             {"required_evidence": "'[]'", "definition_ref": "'workflow.break_fix'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "law_change": "NULL"},
 			"workflow_architecture_bindings": {"domain_registry_content_hash": "'sha256:" + strings.Repeat("a", 64) + "'"},
 		}, "fold_guard")
 		var definitionRef, definitionDigest string
@@ -191,7 +190,7 @@ func TestWorkContextFactsAnchorSelectionBackfillAndLogBlind(t *testing.T) {
 	if got := facts(db); !reflect.DeepEqual(got, wantFacts) {
 		t.Fatalf("migration148 declaration/selection/terminal facts differ: got %q; want %q", got, wantFacts)
 	}
-	if err := Migrate(ctx, db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, ctx, db), db); err != nil {
 		t.Fatal(err)
 	}
 	assertHistoricalReceipts(t, db, before)
@@ -234,7 +233,7 @@ func TestWorkContextFactsAnchorSelectionBackfillAndLogBlind(t *testing.T) {
 	if reflect.DeepEqual(facts(mutant.db), wantFacts) {
 		t.Fatal("migration148 failed-report exclusion escaped the retained-facts oracle")
 	}
-	if err := Migrate(ctx, mutant.db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, ctx, mutant.db), mutant.db); err != nil {
 		t.Fatal(err)
 	}
 	broken, err := readWorkContextView(ctx, mutant.db, f.workID)

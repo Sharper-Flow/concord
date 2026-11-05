@@ -8,7 +8,7 @@ import (
 func TestWorkflowForwardLinkRequiresTypedSuccessorAndRejectsCycle(t *testing.T) {
 	const source = "forward-link-source"
 	const target = "forward-link-target"
-	f := seedWorkflowReturnRouteFixtureWithPlan(t, source, WorkflowStepPlanChange, "implement", []string{}, []string{})
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, source, WorkflowStepPlanChange, "implement", []string{})
 	s := f.store
 	seedWork(t, s, target)
 	if err := s.Transact(t.Context(), func(tx *Transaction) error {

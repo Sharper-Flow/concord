@@ -118,7 +118,7 @@ func TestOrdinaryAlignmentReplacement(t *testing.T) {
 }
 
 func TestWorkflowRecordActionOwnership(t *testing.T) {
-	for _, action := range []string{"record_intake", "record_clarify", "record_plan", "record_diagnosis", "record_delivery", "record_review", "record_verdict", "revise_candidates"} {
+	for _, action := range []string{"record_intake", "record_clarify", "record_plan", "record_diagnosis", "record_delivery", "record_review", "revise_candidates"} {
 		if !workflowRecordAction(action) {
 			t.Errorf("%s must own a current record", action)
 		}
@@ -278,5 +278,7 @@ func TestOrdinaryRecordReplacementKeepsPlan(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(before, after) {
 		t.Fatalf("diagnosis changed plan: before=%+v after=%+v err=%v", before, after, err)
 	}
-	reviewGateRequireStep(t, s, work, "diagnose")
+	if step := currentStep(t, s, work); step != "diagnose" {
+		t.Fatalf("diagnosis moved frontier to %q", step)
+	}
 }

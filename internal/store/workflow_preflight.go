@@ -134,7 +134,7 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, reques
 	if err != nil {
 		return err
 	}
-	if action.Consequence != ActionInternalSQLite && request.ActionID != "record_verdict" {
+	if action.Consequence != ActionInternalSQLite {
 		// Project-session handoff admission (CD-0182 amendment): a
 		// session whose receiving Project holds an unconsumed or stale
 		// frontier executes no managed external effect until a session of
@@ -199,16 +199,8 @@ func workflowPlanActionAdmissionTx(ctx context.Context, tx *sql.Tx, workID strin
 	if err != nil {
 		return action, plan, step, err
 	}
-	if err := guardPlanMandate(ctx, tx, workID, plan, step, action); err != nil {
-		return action, plan, step, err
-	}
 	if actionID == "bind_evidence" {
-		if err := guardEvidenceBindingContract(ctx, tx, workID); err != nil {
-			return action, plan, step, err
-		}
-	}
-	if actionID == "record_delivery" {
-		if err := guardPlanDelivery(ctx, tx, workID); err != nil {
+		if _, err := activeWorkflowContractVersion(ctx, tx, workID, "workflow_action"); err != nil {
 			return action, plan, step, err
 		}
 	}
@@ -233,9 +225,6 @@ func workflowPlanTerminalAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 			records["record_delivery"] = exists
 		}
 		if owner != "" && records["record_delivery"] {
-			if err := guardPlanDelivery(ctx, tx, workID); err != nil {
-				return owner, err
-			}
 			return owner, nil
 		}
 	}
@@ -245,15 +234,9 @@ func workflowPlanTerminalAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, actionID, step string, plan *WorkflowStepPlan, fields map[string]json.RawMessage) (string, error) {
 	switch actionID {
 	case "record_intake", "record_clarify", "pick_type", "insert_step":
-	case "complete_step":
+	case "complete_step", "record_review":
 		step, _ = workflowFieldString(fields, "step_id")
-		if plan == nil {
-			return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow has no plan", false, "pick a workflow type")
-		}
-		item, found := stepByID(plan.Steps, step)
-		if !found || (len(item.Attempts) == 0 && !workflowPlanAllowsAction(plan, step, actionID)) {
-			return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "step is not a frontier or completed step", false, "reread the workflow plan")
-		}
+		return step, workflowPlanStepAttemptAdmission(plan, step, actionID)
 	case "complete":
 		if plan == nil || !WorkflowStepPlanComplete(*plan) {
 			return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow plan is not complete", false, "complete every plan step")
@@ -287,6 +270,20 @@ func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 	return step, nil
 }
 
+func workflowPlanStepAttemptAdmission(plan *WorkflowStepPlan, step, actionID string) error {
+	if plan == nil {
+		return newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow has no plan", false, "pick a workflow type")
+	}
+	item, found := stepByID(plan.Steps, step)
+	if !found || (len(item.Attempts) == 0 && !workflowPlanAllowsAction(plan, step, "complete_step")) {
+		return newFailure(KindIllegalLifecycleTransition, "workflow_action", "step is not a frontier or completed step", false, "reread the workflow plan")
+	}
+	if actionID == "record_review" && !item.Reviewed {
+		return newFailure(KindIllegalLifecycleTransition, "workflow_action", "step does not require review", false, "record review only for a reviewed step")
+	}
+	return nil
+}
+
 func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, request WorkflowActionPreflightRequest) (WorkflowActionDefinition, error) {
 	return workflowActionPreflightCoreTx(ctx, tx, request, true)
 }
@@ -298,9 +295,6 @@ func workflowActionPreflightCoreTx(ctx context.Context, tx *sql.Tx, request Work
 	}
 	if request.StepID != "" && request.StepID != currentStep {
 		return action, newFailure(KindIllegalLifecycleTransition, "workflow_action_preflight", "workflow action request does not match the current plan step", false, "reread the workflow plan")
-	}
-	if err := validateWorkflowReviewRequest(ctx, tx, request.WorkID, request.ActionID, request.Payload); err != nil {
-		return action, err
 	}
 	if err := ValidateWorkflowActor(request.Actor); err != nil {
 		return action, err
@@ -321,22 +315,6 @@ func workflowActionPreflightCoreTx(ctx context.Context, tx *sql.Tx, request Work
 			return action, err
 		}
 	}
-	if request.ActionID == "record_verdict" {
-		fields, err := workflowActionObject(request.Payload)
-		if err != nil {
-			return action, err
-		}
-		actor, err := WorkflowActorRef(request.Actor)
-		if err != nil {
-			return action, err
-		}
-		if _, err := workflowVerdictReceiptAssociations(ctx, tx, request.WorkID, actor, fields); err != nil {
-			return action, err
-		}
-		if err := guardLateCriterionAssociations(ctx, tx, request.WorkID, plan.Type, currentStep, fields); err != nil {
-			return action, err
-		}
-	}
 	return action, nil
 }
 
@@ -354,9 +332,8 @@ func validateWorkflowPayloadStructure(actionID string, definitionFields []Workfl
 	// retry, not N, and the sorted undeclared walk reports the same fields
 	// in the same order on every run.
 	missing := make([]string, 0)
-	exempt := workflowAlternativeForbiddenFields(actionID, fields)
 	for _, field := range definitionFields {
-		if field.Required && !exempt[field.Name] {
+		if field.Required {
 			if _, ok := fields[field.Name]; !ok {
 				missing = append(missing, field.Name)
 			}
@@ -389,25 +366,8 @@ func validateWorkflowPayloadStructure(actionID string, definitionFields []Workfl
 	return nil
 }
 
-// workflowAlternativeForbiddenFields names the fields a fully supplied
-// alternative group forbids. A required field is not required beside a group
-// that forbids it: the published branch for that group omits it, and the
-// cross-field rule refuses it there.
-func workflowAlternativeForbiddenFields(actionID string, fields map[string]json.RawMessage) map[string]bool {
-	forbidden := map[string]bool{}
-	for _, group := range workflowActionCrossField(actionID).Alternatives {
-		if slices.ContainsFunc(group.Fields, func(name string) bool { _, ok := fields[name]; return !ok }) {
-			continue
-		}
-		for _, name := range group.Forbids {
-			forbidden[name] = true
-		}
-	}
-	return forbidden
-}
-
 // validateWorkflowPayloadCrossFieldRules enforces the legal input
-// combinations and alternative field groups the action's ENGINE registry
+// combinations the action's ENGINE registry
 // declaration names — the same single declaration (resolved through
 // workflowActionCrossField) the generated published variants build their
 // closed branches from, so a payload any published variant refuses, core
@@ -427,64 +387,8 @@ func validateWorkflowPayloadCrossFieldRules(actionID string, fields map[string]j
 		}
 		return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("%s %s %s cannot carry %s", actionID, combination.Field, combination.Value, field), false, remedy)
 	}
-	if declaration.Alternatives != nil {
-		complete, partial := workflowPayloadAlternativeGroups(declaration.Alternatives, fields)
-		if complete == 1 && !partial {
-			if err := workflowAlternativeForbids(actionID, declaration.Alternatives, fields); err != nil {
-				return err
-			}
-		} else {
-			groups := make([]string, 0, len(declaration.Alternatives))
-			for _, group := range declaration.Alternatives {
-				groups = append(groups, strings.Join(group.Fields, "+"))
-			}
-			switch {
-			case complete == 0 && !partial:
-				return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("%s requires one of the declared field groups: %s", actionID, strings.Join(groups, "; ")), false, "supply exactly one declared field group")
-			case complete >= 2:
-				return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("%s must supply exactly one declared field group, not several of: %s", actionID, strings.Join(groups, "; ")), false, "supply exactly one declared field group")
-			default:
-				// Zero or one complete group plus a partially supplied other
-				// group. Counting only complete groups admitted these payloads
-				// while the published closed branches refused them; the closed
-				// branch semantics is the declaring owner's (CON-412).
-				return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("%s must supply exactly one declared field group: a field of another group is present without its complete group (%s)", actionID, strings.Join(groups, "; ")), false, "complete the started field group or remove its fields")
-			}
-		}
-	}
 	if match, fieldKind, objectKind, violated := workflowPayloadKindMatchViolation(declaration, fields); violated {
 		return workflowPayloadKindMatchRefusal(actionID, match, fieldKind, objectKind)
-	}
-	return nil
-}
-
-// workflowAlternativeForbids enforces the one complete group's Forbids: a
-// field the declaration forbids beside that group cannot ride at the top
-// level even though no group claims it (record_verdict's entry-level fields
-// beside the batch, CD-0198 D1). The refusal names the field and the group
-// it cannot ride beside, from the same declaration the published variant
-// builds its closed branch from (CON-412).
-func workflowAlternativeForbids(actionID string, alternatives []WorkflowPayloadAlternative, fields map[string]json.RawMessage) error {
-	for _, group := range alternatives {
-		present := 0
-		for _, name := range group.Fields {
-			if _, ok := fields[name]; ok {
-				present++
-			}
-		}
-		if present != len(group.Fields) {
-			continue
-		}
-		for _, name := range group.Forbids {
-			if _, ok := fields[name]; ok {
-				remedy := group.Remedy
-				if remedy == "" {
-					remedy = "drop " + name + " or supply the other declared field group"
-				}
-				return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("%s field %s cannot ride beside the %s group", actionID, name, strings.Join(group.Fields, "+")), false, remedy)
-			}
-		}
-		return nil
 	}
 	return nil
 }
@@ -513,29 +417,6 @@ func workflowPayloadCombinationViolation(declaration WorkflowActionCrossField, f
 		}
 	}
 	return WorkflowPayloadCombination{}, "", false, false
-}
-
-// workflowPayloadAlternativeGroups reports how many of the declaration's
-// alternative field groups the payload supplies completely, and whether any
-// group is partially engaged (a member present without its whole group).
-// The published closed branches accept exactly one complete group with no
-// field of any other group present, so a partially supplied second group is
-// a violation, not a neutral payload (CON-412).
-func workflowPayloadAlternativeGroups(alternatives []WorkflowPayloadAlternative, fields map[string]json.RawMessage) (complete int, partial bool) {
-	for _, group := range alternatives {
-		present := 0
-		for _, name := range group.Fields {
-			if _, ok := fields[name]; ok {
-				present++
-			}
-		}
-		if present == len(group.Fields) {
-			complete++
-		} else if present > 0 {
-			partial = true
-		}
-	}
-	return complete, partial
 }
 
 // workflowPayloadKindMatchViolation evaluates the declaration's nested

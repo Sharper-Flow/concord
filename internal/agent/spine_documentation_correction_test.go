@@ -26,17 +26,14 @@ func TestSpineFactualDocumentationCorrectionWithoutApproval(t *testing.T) {
 		t.Fatalf("the correction changed more than the factual documentation: %s", diff)
 	}
 	f.proof = f.verify(t)
-	f.review(t, "ready_for_final_proof", f.proof)
-	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
 	f.advanceToAcceptance(t)
-	spineOK(t, f.action(t, "record_verdict", map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{f.proof}}}}))
 	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{
 		"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise", "idempotency_key": "doc-correction-confirm",
 	}))
 	f.completeReview(t)
 	spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))
 	done := f.read(t)
-	if done.Pinned.Pin.Lifecycle != "completed" || len(done.Pinned.Pin.VerifiedCriteria) != 1 || done.Pinned.Contract.Version != 1 {
+	if done.Pinned.Pin.Lifecycle != "completed" || done.Pinned.Contract.Version != 1 {
 		t.Fatalf("factual correction did not complete on its original contract: %+v", done.Pinned)
 	}
 }

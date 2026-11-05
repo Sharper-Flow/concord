@@ -35,9 +35,9 @@ outside Concord. Producers retain or discard them under their own policy;
 completion requires no publication or deletion attestation.
 
 The store keeps current state and finite verified snapshots under CD-0242 D2.
-Verification reports remain attributed and bound to their recorded candidate
-under CD-0242 D8. PM6 §1 owns reported-link completion and disposal of step
-records. PM10 restores accepted SQLite and Git authorities, not producer-owned
+Evidence bindings remain attributed and subject-bound under CD-0242 D8.
+PM6 §1 owns reported-link completion and disposal of step
+records. Recovery restores accepted SQLite and Git authorities, not producer-owned
 WIP output.
 
 ### 2. Findings use their existing owners

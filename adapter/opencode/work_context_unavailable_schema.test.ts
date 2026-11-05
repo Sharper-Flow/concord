@@ -41,7 +41,6 @@ const basePin = (): Record<string, unknown> => ({
   driving_sessions: [],
   watermark: "seq:1",
   next_valid_intents: [],
-  obligations: [],
 })
 
 const continuityWith = (view: unknown, marker: unknown): Record<string, unknown> => ({

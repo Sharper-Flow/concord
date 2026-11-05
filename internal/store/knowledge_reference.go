@@ -26,18 +26,3 @@ func parseQualifiedKnowledgeID(op, value string) (projectID, lawID string, quali
 	}
 	return projectID, lawID, true, nil
 }
-
-// uniqueSorted drops empty and repeated values from a list and sorts the
-// result, the canonical form relation and applicability lists answer in.
-func uniqueSorted(values []string) []string {
-	seen := map[string]bool{}
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		if value != "" && !seen[value] {
-			seen[value] = true
-			result = append(result, value)
-		}
-	}
-	sort.Strings(result)
-	return result
-}

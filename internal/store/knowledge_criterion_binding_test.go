@@ -2,7 +2,6 @@ package store
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 )
 
@@ -26,38 +25,29 @@ func criterionBindingLawRecord(t *testing.T, bindings []KnowledgeCriterionBindin
 	return record
 }
 
-// TestLawSpecAdmitsPredicateCriterionBindings holds the third binding form
-// (CD-0180): a spec criterion resolves through a work-item predicate
-// reference, the two fields stand or fall together, and the mixed or
-// malformed shapes refuse with the typed note-proof failure.
-func TestLawSpecAdmitsPredicateCriterionBindings(t *testing.T) {
+func TestLawSpecCriterionBindings(t *testing.T) {
 	t.Parallel()
-	workID := "work-" + strings.Repeat("a", 24)
 	valid := []KnowledgeCriterionBinding{
 		{Criterion: 1, Scenario: "scenario-one"},
 		{Criterion: 2, Exemption: "A recorded reason for this exemption."},
-		{Criterion: 3, WorkID: workID, PredicateID: "predicate:criterion-bindings-predicate-form"},
 	}
 	record := criterionBindingLawRecord(t, valid)
 	if err := validateKnowledgeCriterionBindings(record); err != nil {
-		t.Fatalf("the three binding forms compose one valid law record: %v", err)
+		t.Fatalf("scenario and exemption compose one valid law record: %v", err)
 	}
-	bindings := record.CriterionBindings
-	if len(bindings) != 3 || bindings[2].WorkID != workID || bindings[2].PredicateID != "predicate:criterion-bindings-predicate-form" {
-		t.Fatalf("predicate binding did not round-trip: %+v", bindings)
-	}
-
 	for name, bindings := range map[string][]KnowledgeCriterionBinding{
-		"half predicate reference":     {{Criterion: 1, WorkID: workID}},
-		"predicate id without work id": {{Criterion: 1, PredicateID: "predicate:criterion-bindings-predicate-form"}},
-		"scenario and predicate mixed": {{Criterion: 1, Scenario: "scenario-one", WorkID: workID, PredicateID: "predicate:criterion-bindings-predicate-form"}},
 		"scenario and exemption mixed": {{Criterion: 1, Scenario: "scenario-one", Exemption: "A recorded reason for this exemption."}},
-		"malformed work id":            {{Criterion: 1, WorkID: "job-1234", PredicateID: "predicate:criterion-bindings-predicate-form"}},
-		"malformed predicate prefix":   {{Criterion: 1, WorkID: workID, PredicateID: "pred:criterion-bindings-predicate-form"}},
-		"oversized work id":            {{Criterion: 1, WorkID: "work-" + strings.Repeat("a", 200), PredicateID: "predicate:criterion-bindings-predicate-form"}},
-		"oversized predicate id":       {{Criterion: 1, WorkID: workID, PredicateID: "predicate:" + strings.Repeat("a", 119)}},
 	} {
 		record := criterionBindingLawRecord(t, bindings)
 		requireFailureKind(t, validateKnowledgeCriterionBindings(record), KindInvalidNoteProof, name)
 	}
+}
+
+func TestLawSnapshotRefusesRetiredWorkPredicateCriterionBinding(t *testing.T) {
+	repo, commit := lawSnapshotFixture(t, map[string]string{
+		".concord/docs/knowledge/domain-registry.json": lawSnapshotRegistryJSON,
+		".concord/law/specs/spec-1.md":                 lawSnapshotTierLawContent("SPEC-1", "Fixture spec", `"criterion_bindings":[{"criterion":1,"work_id":"work-0f1e2d3c4b5a6978","predicate_id":"predicate:one"}]`),
+	})
+	_, err := loadLawFolderSnapshot(t.Context(), repo, commit)
+	requireFailureKind(t, err, KindInvalidNoteProof, "retired work predicate binding")
 }

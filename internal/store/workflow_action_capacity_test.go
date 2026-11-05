@@ -86,9 +86,6 @@ func TestWorkflowCurrentActionWriterBounds(t *testing.T) {
 	if WorkContextActionFindingsMax != 16 {
 		t.Fatalf("WorkContextActionFindingsMax = %d, want 16; the finding-reference derivation rests on it", WorkContextActionFindingsMax)
 	}
-	if maxWorkflowPredicateBytes != 64*1024 {
-		t.Fatalf("predicate bound = %d, want the unchanged 65536", maxWorkflowPredicateBytes)
-	}
 }
 
 func TestWorkflowActionPayloadBudgetRefusesTypedAndWhole(t *testing.T) {

@@ -13,15 +13,13 @@ import (
 // snapshot with no contract validates against a strictly smaller schema, so
 // only a pinned contract exercises the workflow_contract shape end to end.
 //
-// The fixture is shared with the verdict-scope tests because it is the one
-// place that drives the engine to an approved contract through
+// The fixture drives the engine to an approved contract through
 // AuthorizeWorkflowActionAtBoundaryTx rather than seeding rows.
 func TestContinuityDispatchReadsAPinnedContract(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, execKey, _ := verdictScopeFixture(t)
+	s, service, _ := workflowEngineFixture(t, "")
 
-	_ = execKey
 	grant, err := service.Authorize(ctx, Invocation{ClientRef: "client-session-exec-aaaa", PrincipalRef: "human-1", SessionRef: "session-exec-aaaa", AgentRef: "agent-exec", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: agentcontract.ManifestDigest, RequiredCapability: "product_read", ProductID: "product-1", ProjectID: "project-1"})
 	if err != nil {
 		t.Fatal(err)

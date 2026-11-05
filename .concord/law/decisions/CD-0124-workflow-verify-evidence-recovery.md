@@ -27,9 +27,7 @@
 
 ## Context
 
-An accepted break-fix delivery can reach `verify` with a contract-required
-evidence kind still outstanding. Binding evidence holds the step; premise
-confirmation retains its contract evidence requirements.
+Evidence may be bound without advancing the current workflow step.
 
 ## Decision
 
@@ -38,20 +36,19 @@ confirmation retains its contract evidence requirements.
 Break-fix declares `bind_evidence` on `verify`. The action has hold execution
 mode and no approval requirement. An authenticated actor may bind evidence for
 an active contract once the workflow reaches or passes a step declaring the
-action. The binding must satisfy ordinary payload, producer, subject,
-evidence-kind and obligation checks. A previously satisfied requirement does not
-prevent a fresh binding.
+action. The binding must satisfy ordinary payload, producer, subject and
+evidence-kind checks and include the producer watermark. A prior binding does
+not prevent a fresh binding.
 
 ### D2. Confirmation remains the advancing gate
 
 `bind_evidence` never advances `verify`. `confirm_premise` remains the only
-advancing action on that step. Confirmation and completion retain the
-outstanding-requirement calculation; it does not restrict ordinary binding.
+advancing action on that step. Binding is not a premise-confirmation gate.
 
 ### D3. Binding preserves authority and refuses unsafe input
 
-The binding preserves the active contract, prior evidence, verdicts, and operator
-decisions. It refuses an unrelated kind or obligation, an unauthorized actor, a
+The binding preserves the active contract, prior evidence and operator
+decisions. It refuses an invalid kind, an unauthorized actor, a
 stale version, and terminal work without a durable effect. An exact successful
 replay is idempotent and creates no duplicate binding.
 
@@ -68,7 +65,5 @@ deployment or stranded-work recovery.
 
 - The break-fix definition declares `bind_evidence` on `verify` with hold
   execution mode, while `confirm_premise` remains the only advancing action.
-- Recovery and acceptance share the typed outstanding-requirement calculation.
-- Confirmation and completion retain the typed outstanding-requirement calculation.
-- Refusal tests prove no effect for unrelated, unauthorized, stale, and terminal requests.
+- Refusal tests prove no effect for invalid, unauthorized, stale, and terminal requests.
 - Replay tests prove one durable binding for one successful request identity.

@@ -53,7 +53,7 @@ reachable.
 
 A context boundary records a work item crossing a continuity boundary, not
 session identity. A host-started session with no selected work stays
-identity-only and performs no preparation (CD-0031).
+identity-only and performs no preparation (CD-0252).
 
 ### D3. The orphaned reservation is removed, not populated
 

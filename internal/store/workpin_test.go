@@ -170,38 +170,3 @@ func TestReadWorkPinCountsCancelledInstanceLifecycleCloses(t *testing.T) {
 		t.Fatalf("other project pin=%s closes=%d, want project-secondary with 1", other.ProjectID, other.CancelledInstanceCloses)
 	}
 }
-
-func TestReadWorkPinCompletedIncludesVerifiedCriteria(t *testing.T) {
-	t.Parallel()
-	s, completion := seedCompletionGateCase(t, "workpin-completed", completionGateCase{
-		requiredEvidence: []string{"verification", "review"},
-		includeSpec:      true,
-		includeVerdict:   true,
-		includePremise:   true,
-		verdictKind:      "ok",
-	})
-	// Before the workflow completes, the gate withholds the criteria: the
-	// projection pairs approved predicates with verdicts only for a
-	// completed workflow and a completed item.
-	pending, err := ReadWorkPin(context.Background(), s, "workpin-completed")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(pending.VerifiedCriteria) != 0 {
-		t.Fatalf("uncompleted workflow carries verified criteria = %v", pending.VerifiedCriteria)
-	}
-	if err := CompleteWorkflow(context.Background(), s, completion); err != nil {
-		t.Fatal(err)
-	}
-	pin, err := ReadWorkPin(context.Background(), s, "workpin-completed")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(pin.VerifiedCriteria) != 1 {
-		t.Fatalf("verified criteria=%+v, want one approved predicate", pin.VerifiedCriteria)
-	}
-	criterion := pin.VerifiedCriteria[0]
-	if criterion.PredicateID != "predicate:return-route" || criterion.OutcomeKind != "check" || criterion.VerdictKind != "ok" {
-		t.Fatalf("verified criterion=%+v, want the approved check and ok verdict", criterion)
-	}
-}

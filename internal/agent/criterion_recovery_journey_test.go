@@ -2,81 +2,94 @@ package agent
 
 import (
 	"encoding/json"
-	"slices"
+	"reflect"
 	"testing"
 
-	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func TestCriterion38RecoveryReevaluationJourney(t *testing.T) {
+func TestContractRevisionPreservesExecutionAndLegislativeSubjects(t *testing.T) {
 	f := newSpineFixtureForFamily(t, "workflow.break_fix")
-	f.advanceToAcceptance(t)
+	if step := f.read(t).Pinned.Step; step != "implement" {
+		t.Fatalf("producing step = %q, want implement", step)
+	}
+	f.review(t, "pass")
 	before := f.read(t)
-	candidate := *before.Pinned.Pin.Review.Candidate
-	proof := store.WorkPinEvidence{EvidenceKind: "verification", ImmutableSubjectRef: f.proof}
-
-	f.env.SessionRef, f.env.AgentRef = "session-reevaluator", "agent-evaluator"
-	verdict := map[string]any{"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "receipt_refs": []string{f.proof}}}}
-	spineOK(t, f.action(t, "record_verdict", verdict))
-	contract := f.read(t).Pinned.Contract
-	predicates := make([]map[string]any, 0, len(contract.OutcomePredicates))
-	for _, predicate := range contract.OutcomePredicates {
-		predicates = append(predicates, map[string]any{"predicate_id": predicate.PredicateID, "ordinal": predicate.Ordinal,
-			"outcome_kind": predicate.OutcomeKind, "outcome_payload": json.RawMessage(predicate.OutcomePayload)})
+	if before.Pinned.Step != "review" {
+		t.Fatalf("reviewed implementation left step %q, want review", before.Pinned.Step)
 	}
-	successor := map[string]any{
-		"contract_version": contract.Version + 1,
-		"premise":          contract.Premise, "outcome_predicates": predicates, "required_evidence": contract.RequiredEvidence,
-		"route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
-		"architecture_binding": contract.ArchitectureBinding, "rigor_class": "prototype_internal", "decision_domains": []string{},
-	}
-	beforeRevision := f.read(t)
-	updated, _ := dispatchContractRevisionResult(t, f.s, f.service, f.env, f.work, beforeRevision.Pinned.Pin.Version, successor, "journey-revise-unchanged")
-	spineOK(t, updated)
-	if after := f.read(t); after.Pinned.Step != beforeRevision.Pinned.Step || !slices.Contains(after.Pinned.Pin.VerdictEvidence, proof) {
-		t.Fatal("ordinary revision reset the step or discarded valid proof")
-	}
-	if review := f.read(t).Pinned.Pin.Review; *review.Candidate != candidate || !review.DependenciesCurrent {
-		t.Fatal("evaluation-admission correction lost production or its applicable Review")
-	}
-
-	// The approved check now names a different required subject. Its previous
-	// Review cannot establish the changed obligation, even on identical code.
-	contract = f.read(t).Pinned.Contract
-	var changed map[string]any
-	if err := json.Unmarshal(predicates[0]["outcome_payload"].(json.RawMessage), &changed); err != nil {
+	var rawPlan string
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT step_plan FROM workflow_instances WHERE work_id=?`, f.work).Scan(&rawPlan); err != nil {
 		t.Fatal(err)
 	}
-	changed["immutable_subject_ref"] = "commit:reevaluated-value"
-	predicates[0]["outcome_payload"] = changed
-	successor["contract_version"] = contract.Version + 1
-	successor["route_conventions"] = []string{}
-	updated, _ = dispatchContractRevisionResult(t, f.s, f.service, f.env, f.work, f.read(t).Pinned.Pin.Version, successor, "journey-revise-subject")
+	var plan store.WorkflowStepPlan
+	if err := json.Unmarshal([]byte(rawPlan), &plan); err != nil {
+		t.Fatal(err)
+	}
+	reviewed := false
+	for _, step := range plan.Steps {
+		if step.ID == "implement" && len(step.Attempts) > 0 {
+			attempt := step.Attempts[len(step.Attempts)-1]
+			reviewed = attempt.Reviewer == "concord-review" && attempt.Result == "pass" && attempt.Commit == f.proofCommit && attempt.Link == "https://example.com/review/spine"
+		}
+	}
+	if !reviewed {
+		t.Fatal("implementation review tuple was not recorded before revision")
+	}
+	contract := before.Pinned.Contract
+	if contract == nil {
+		t.Fatal("approved contract missing")
+	}
+	// Workflow engine contract §4.1: unchanged valid proof needs no
+	// replacement merely because a contract version was appended.
+	const evidenceRows = `SELECT * FROM workflow_evidence_bindings WHERE work_id=?`
+	proof := agentRowsSnapshot(t, f.s, evidenceRows, f.work)
+	if proof == "[]" {
+		t.Fatal("fixture bound no proof before the revision")
+	}
+	successor := map[string]any{
+		"contract_version":     contract.Version + 1,
+		"premise":              contract.Premise,
+		"legislative_subjects": contract.LegislativeSubjects,
+		"route_conventions":    contract.RouteConventions,
+		"spec_mandate":         contract.SpecMandate,
+		"law_modifies":         contract.LawModifies,
+		"architecture_binding": contract.ArchitectureBinding,
+		"rigor_class":          contract.RigorClass,
+		"decision_domains":     contract.DecisionDomains,
+	}
+	updated, _ := dispatchContractRevisionResult(t, f.s, f.service, f.env, f.work, before.Pinned.Pin.Version, successor, "journey-revise-unchanged")
 	spineOK(t, updated)
-	version := f.read(t).Pinned.Pin.Version
-	refused := f.action(t, "confirm_premise", map[string]any{})
-	if refused.Error == nil || refused.Error.EffectState != agentcontract.EffectNone || f.read(t).Pinned.Pin.Version != version || f.read(t).Pinned.Pin.Review.DependenciesCurrent {
-		t.Fatalf("changed obligation used the old Review or committed an effect: %+v", refused.Error)
+	after := f.read(t)
+	if after.Pinned.Step != before.Pinned.Step || after.Pinned.Contract == nil || after.Pinned.Contract.Version != contract.Version+1 ||
+		!reflect.DeepEqual(after.Pinned.Contract.LegislativeSubjects, contract.LegislativeSubjects) || after.Pinned.Contract.Premise != contract.Premise {
+		t.Fatalf("revision lost execution position or contract authority: before=%+v after=%+v", before.Pinned, after.Pinned)
 	}
-	f.review(t, "correction_required", "")
-	report := f.read(t).Pinned.Pin.Review.Accepted.ReportRef
-	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "review", "evidence_ref": report}))
-	if unmet := f.action(t, "confirm_premise", map[string]any{}); unmet.Error == nil || unmet.Error.EffectState != agentcontract.EffectNone {
-		t.Fatalf("an unmet changed obligation left execution without correction: %+v", unmet.Error)
+	if agentRowsSnapshot(t, f.s, evidenceRows, f.work) != proof {
+		t.Fatal("ordinary revision discarded or rewrote bound proof")
 	}
-	f.review(t, "ready_for_final_proof", f.proof)
-	spineOK(t, f.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": f.proof}))
-	spineOK(t, f.action(t, "record_verdict", verdict))
+	var revisedPlan string
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT step_plan FROM workflow_instances WHERE work_id=?`, f.work).Scan(&revisedPlan); err != nil {
+		t.Fatal(err)
+	}
+	if revisedPlan != rawPlan {
+		t.Fatal("ordinary revision changed the reviewed execution plan")
+	}
+	spineOK(t, f.action(t, "record_delivery", map[string]any{"delivery_artifact": "artifact:spine-value", "delivery_state": "asserted"}))
 	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{
-		"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise",
-		"idempotency_key": "journey-corrected-confirm",
+		"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise", "idempotency_key": "revision-journey-confirm",
 	}))
+	var confirmedVersion int64
+	if err := f.s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_premise_confirmations WHERE work_id=?`, f.work).Scan(&confirmedVersion); err != nil {
+		t.Fatal(err)
+	}
+	if confirmedVersion != after.Pinned.Contract.Version || f.read(t).Pinned.Step != "review" {
+		t.Fatalf("confirmation version = %d, want active version %d at review", confirmedVersion, after.Pinned.Contract.Version)
+	}
 	f.completeReview(t)
-	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{"work_id": f.work, "expected_version": workVersion(t, f.s, f.work), "action_id": "complete", "fields": map[string]any{"impact_verdict": "non-breaking"}, "idempotency_key": "journey-complete"}))
+	spineOK(t, f.action(t, "complete", map[string]any{"impact_verdict": "non-breaking"}))
 	done := f.read(t)
-	if done.Pinned.Pin.Lifecycle != "completed" || *done.Pinned.Pin.Review.Candidate != candidate || len(done.Pinned.Pin.VerifiedCriteria) != 1 ||
-		f.proofCommit != candidate.Commit {
-		t.Fatal("re-evaluation required no-op production or discarded proof")
+	if done.Pinned.Pin.Lifecycle != "completed" || done.Pinned.Contract == nil || done.Pinned.Contract.Version != confirmedVersion {
+		t.Fatalf("completion lost lifecycle or revised contract: %+v", done.Pinned)
 	}
 }

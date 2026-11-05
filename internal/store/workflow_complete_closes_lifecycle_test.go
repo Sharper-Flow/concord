@@ -13,7 +13,7 @@ func TestWorkflowCompleteClosesLifecycle(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	const workID = "complete-closes-lifecycle"
-	s, completion := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
+	s, completion := seedCompletionGateCase(t, workID, completionGateCase{includeSpec: true, includePremise: true})
 
 	var lifecycleBefore string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycleBefore); err != nil {
@@ -56,7 +56,7 @@ func TestWorkflowCompleteRefusesNonCompletedTerminalState(t *testing.T) {
 		t.Run(terminal, func(t *testing.T) {
 			t.Parallel()
 			workID := "complete-refuses-" + terminal
-			s, _ := seedCompletionGateCase(t, workID, completionGateCase{requiredEvidence: []string{"verification", "review"}, includeSpec: true, includeVerdict: true, includePremise: true, verdictKind: "ok"})
+			s, _ := seedCompletionGateCase(t, workID, completionGateCase{includeSpec: true, includePremise: true})
 			payload := mustJSONValue(map[string]any{"impact_verdict": "non-breaking", "terminal_state": terminal})
 			var eventsBefore int
 			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=?`, workID).Scan(&eventsBefore); err != nil {

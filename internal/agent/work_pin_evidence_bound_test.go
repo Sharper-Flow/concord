@@ -8,8 +8,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// A work pin can still echo a historical locator up to 2048 bytes. New
-// bind_evidence payloads use the shared 2-to-128-byte reference rule.
+// New bind_evidence payloads use the shared 2-to-128-byte reference rule.
 func wpebLongLocator() string {
 	return "https://github.com/Sharper-Flow/concord/actions/runs/15999480341/job/45125907882#step:8:910" +
 		"----------------" + "------------------------------------------------------------------------" +
@@ -17,21 +16,6 @@ func wpebLongLocator() string {
 		"------------------------------------------------------------------------" +
 		"------------------------------------------------------------------------" +
 		"------------------------------------------------------------------------"
-}
-
-func TestWorkPinEvidenceAdmitsTheDeclaredLocatorBound(t *testing.T) {
-	t.Parallel()
-	long := wpebLongLocator()
-	if len(long) <= 256 {
-		t.Fatalf("fixture locator is %d bytes, the reproduction needs one over 256", len(long))
-	}
-	if len(long) > 2048 {
-		t.Fatalf("fixture locator is %d bytes, past the bind-side bound this defect is about", len(long))
-	}
-	payload := `{"changed_refs":[{"entity_kind":"work_item","id":"work-1","version":3}],"next_valid_intents":[],"operation_id":"workflow-1","work_pins":[{"work_id":"work-1","title":"t","linear_issue_key":"CON-1240","project_id":"concord","project_display_name":"Concord","version":3,"lifecycle":"in_progress","cancelled_instance_closes":0,"workflow_type":"fix","step":"plan","driving_sessions":[],"watermark":"seq:1","next_valid_intents":[],"verdict_evidence":[{"evidence_kind":"verification","immutable_subject_ref":"` + long + `"}],"obligations":["verification"]}]}`
-	if err := agentcontract.ValidateOperationPayload("concord_work_transition", "workflow_action", []byte(payload), true); err != nil {
-		t.Fatalf("work pin echoing a 2048-bound locator refused: %v", err)
-	}
 }
 
 func TestBindEvidenceRefusesLocatorPastReferenceBound(t *testing.T) {
@@ -73,7 +57,7 @@ func TestBindEvidenceRefusesLocatorPastReferenceBound(t *testing.T) {
 	}
 	compositionCompletePlanStep(t, ctx, s, service, env, workID)
 	after = agentCompositionWorkVersion(t, s, workID)
-	bound, _ := ekbDispatch(t, s, service, env, workID, after, "bind_evidence", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": long}, nil, "wpeb-bind")
+	bound, _ := ekbDispatch(t, s, service, env, workID, after, "bind_evidence", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": long, "producer_watermark": "request:fixture"}, nil, "wpeb-bind")
 	if bound.Outcome == agentcontract.OutcomeOK || bound.Error == nil || bound.Error.Kind != "invalid_input" {
 		t.Fatalf("bind_evidence accepted the %d-byte locator: %+v", len(long), bound.Error)
 	}

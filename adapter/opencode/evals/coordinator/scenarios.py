@@ -13,14 +13,9 @@ def runtime_response(case):
     })
 
 PROJECT = "synthetic-project"
-REVIEW_FIELDS = {"review": {
-    "disposition": "ready_for_final_proof",
-    "input_candidate": {"project_id": PROJECT, "commit": "a" * 40, "tree": "b" * 40},
-    "output_candidate": {"project_id": PROJECT, "commit": "a" * 40, "tree": "b" * 40},
-    "dependencies": {"criteria": [{"predicate_id": "predicate:synthetic", "content_digest": "sha256:" + "c" * 64}],
-                     "architecture_not_applicable": True},
-    "assessments": [], "findings": [], "remaining_obligations": [],
-}}
+REVIEW_FIELDS = {"step_id": "review", "note": "Independent review passed.",
+                 "reviewer": "reviewer:synthetic", "result": "pass",
+                 "commit": "a" * 40, "link": "review:synthetic"}
 def continuity_ok():
     """A continuity read: the coordinator definitions require one before a consequential action."""
     return {
@@ -110,7 +105,7 @@ No new scope or operator override exists; do not create a replacement item to re
     },
     "native-route-discovery": {
         "prompt": f"""The independent native Task Review of synthetic-work is finished.
-The coordinator must record its typed report, without registering or authorizing a subagent.
+The coordinator must record its reviewed step, without registering or authorizing a subagent.
 A partial MCP catalog search omitted native Concord tools. Inspect continuity and
 the available native tool definitions rather than conclude recording is unavailable.
 Record exactly this Review fields object: {REVIEW_FIELDS!r}.
@@ -118,7 +113,7 @@ This fixture ends when record_review succeeds. Do not spawn a subagent in this f
         "required": [TRACE, TRANSITION],
         "responses": {
             TRACE: {"outcome": "ok", "authority": "authoritative", "result": {
-                "work_id": WORK, "version": 1, "workflow_step": "execution",
+                "work_id": WORK, "version": 1, "workflow_step": "review",
                 "admitted_action": "record_review",
             }},
             TRANSITION: {"outcome": "ok", "effect_state": "committed", "result": {

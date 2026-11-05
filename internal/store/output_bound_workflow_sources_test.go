@@ -23,7 +23,6 @@ import (
 	"go/ast"
 	"go/token"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -82,29 +81,10 @@ func init() {
 	lawRefMaxBytes := goConstantBound("internal/store/work_context.go", "workContextLawIDMaxBytes", boundBytes)
 	findingStatementMax := goInlineBound("internal/store/work_context_finding.go", "validateWorkContextFindingEntry", "len(finding.Statement)", boundBytes)
 	findingSubjectMax := goInlineBound("internal/store/work_context_finding.go", "validateWorkContextFindingEntry", "len(finding.SubjectRef)", boundBytes)
-	findingEvidenceRefCount := maxBound(
-		goInlineBound("internal/store/work_context_finding.go", "validateWorkContextFindingEntry", "len(finding.EvidenceRefs)", boundItems),
-		goInlineBound("internal/store/review.go", "validateReviewFinding", "len(finding.EvidenceRefs)", boundItems))
-	findingEvidenceRefMax := maxBound(
-		goInlineBound("internal/store/work_context_finding.go", "validateWorkContextFindingEntry", "len(ref)", boundBytes),
-		goInlineBound("internal/store/workflow_action_policy.go", "ValidReference", "len(value)", boundBytes))
-	criterionBindingsMax := goConstantBound("internal/store/knowledge_record.go", "maxCriterionBindings", boundItems)
+	findingEvidenceRefCount := goInlineBound("internal/store/work_context_finding.go", "validateWorkContextFindingEntry", "len(finding.EvidenceRefs)", boundItems)
+	findingEvidenceRefMax := goInlineBound("internal/store/work_context_finding.go", "validateWorkContextFindingEntry", "len(ref)", boundBytes)
 	bindingMaxLawAdditions := goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxLawAdditions", boundItems)
 	bindingMaxObligations := goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxObligations", boundItems)
-
-	// The closed evidence-kind enum: a declared slice whose members are
-	// string constants, and the same typed constant vocabulary the shared
-	// helper resolves. The slice helper counts the declared members; the
-	// typed-vocabulary helper measures the longest member.
-	evidenceKindSlice := goSliceBound("internal/store/workflow_action_policy.go", "workflowEvidenceKinds")
-	evidenceKindLongest := pkTypedConstVocabularyLongestBound("EvidenceKind", "internal/store/workflow_action_policy.go")
-
-	// The workflowList member guard: every list the fold admits passes
-	// workflowString(value, 128) inside workflowList, so each member is at
-	// most 128 bytes.
-	workflowListMember := goCallBound("internal/store/workflow.go", "workflowList", "workflowString", "", 1, boundBytes)
-	// Uniquely citable guard call: exactly one matching callee per function.
-	outcomeSubjects := goCallBound("internal/store/workflow.go", "validateWorkflowOutcome", "workflowList", "", 1, boundItems)
 
 	// Inline comparison guards: the helper selects the unambiguous upper
 	// guard over the exact expression, evaluating its operand from live
@@ -117,10 +97,7 @@ func init() {
 	stepActionCount := workPinIntentItemsBound()
 	commitOIDBound := goInlineBound("internal/store/work_context.go", "workContextCommitOID", "len(oid)", boundBytes)
 	drivingSessionCount := goInlineBound("internal/store/workpin.go", "scanWorkPinDrivingSessions", "len(sessions)", boundItems)
-	evidenceRefBound := goInlineBound("internal/store/workflow.go", "workflowEvidenceRef", "len(value)", boundBytes)
 	readPageLimit := goInlineBound("internal/store/workflow_read.go", "readWorkflowProjectionTx", "request.Limit", boundItems)
-	distinguishFromCount := goInlineBound("internal/store/workflow.go", "validateWorkflowOutcome", "len(v.Distinguish)", boundItems)
-	outcomeAllowedCount := goInlineBound("internal/store/workflow.go", "validateWorkflowOutcome", "len(v.Allowed)", boundItems)
 
 	// Final full-string writer guards. The SQLite length(TEXT) CHECKs are
 	// NUL-prefix constraints and never bounded the complete stored text, so
@@ -129,7 +106,7 @@ func init() {
 	// resolved through the fold's own body, the inline comparison the
 	// validation helper carries, or the deterministic digest identity the
 	// writer derives.
-	contractRequiredEvidence := pkGuardArgBound("internal/store/workflow.go", "normalizeWorkflowContractApproval", "workflowList", "p.RequiredEvidence", 1, boundItems)
+	contractLegislativeSubjects := goCallBound("internal/store/workflow.go", "validLegislativeSubjects", "workflowList", "", 1, boundItems)
 	contractRouteConventions := pkGuardArgBound("internal/store/workflow.go", "normalizeWorkflowContractApproval", "workflowList", "p.RouteConventions", 1, boundItems)
 	contractSpecMandate := pkGuardArgBound("internal/store/workflow.go", "normalizeWorkflowContractApproval", "workflowList", "p.SpecMandate", 1, boundItems)
 	contractLawModifies := pkGuardArgBound("internal/store/workflow.go", "normalizeWorkflowContractApproval", "workflowList", "p.LawModifies", 1, boundItems)
@@ -154,24 +131,12 @@ func init() {
 
 	declaredPayloadFields := requiredIntentFieldsBound()
 
-	// The approved contract's outcome predicates: the live approve_contract
-	// write admits at most 8 through this action-input shape and the fold
-	// re-admits the same 1..8 for replayed events (workflow.go:996-998);
-	// the projection's ordinal CHECK is a bare integer comparison the DDL
-	// parser cannot read.
-	contractOutcomePredicates := inputBound("/$defs/work_transition_action_variant_approve_contract/properties/fields/properties/outcome_predicates/maxItems")
-
 	// The delivery assertion artifact writer uses record_delivery's admitted
 	// delivery_artifact input.
 	deliveryArtifactInputs := inputBound("/$defs/work_transition_action_variant_record_delivery/properties/fields/properties/delivery_artifact/maxLength")
 
-	// The committed law read admits each law title at maxManifestTitle code
-	// points (law_snapshot.go) and each criterion predicate ID at
-	// maxCriterionReferenceID bytes. The predicate guard in
-	// validateKnowledgeCriterionBindingForm is presence-conjoined, so the row
-	// cites the live constant and names the guard site.
+	// The committed law read admits each law title at maxManifestTitle code points.
 	manifestRecordTitle := goConstantBound("internal/store/knowledge_record.go", "maxManifestTitle", boundCharacters)
-	manifestCriterionPredicate := goConstantBound("internal/store/knowledge_record.go", "maxCriterionReferenceID", boundBytes)
 
 	// Contract premise: the fold's single premise guard is
 	// workflowString(p.Premise, WorkflowPremiseMaxLength) at
@@ -246,8 +211,7 @@ func init() {
 		registerOutputBound("/$defs/"+def+"/properties/required_reading_ordinals/maxItems", requiredReadingMax)
 	}
 
-	// Work context finding views combine declarations and accepted Review
-	// findings. Both writers must fit the retained output shape.
+	// Work context finding views carry declared findings.
 	registerRetainedTwinBound("/$defs/work_context_finding_view/properties/domain_id/maxLength", domainIDMaxBytes)
 	registerRetainedTwinBound("/$defs/work_context_finding_view/properties/evidence_refs/items/maxLength", findingEvidenceRefMax)
 	registerRetainedTwinBound("/$defs/work_context_finding_view/properties/evidence_refs/maxItems", findingEvidenceRefCount)
@@ -292,18 +256,6 @@ func init() {
 		declaredPayloadFields)
 	registerOutputBound("/$defs/work_pin/properties/next_valid_intents/maxItems",
 		workPinIntentItemsBound())
-	registerOutputBound("/$defs/work_pin/properties/obligations/items/maxLength", evidenceKindLongest)
-	registerOutputBound("/$defs/work_pin/properties/obligations/maxItems", evidenceKindSlice)
-	registerOutputBound("/$defs/work_pin/properties/outstanding_evidence_kinds/maxItems", evidenceKindSlice)
-	registerOutputBound("/$defs/work_pin/properties/verdict_evidence/maxItems",
-		workflowSQLLimitItemsBound("internal/store/workpin.go", "workPinVerdictEvidenceTx"))
-	registerOutputBound("/$defs/work_pin/properties/verified_criteria/maxItems", contractOutcomePredicates) // one criterion per approved contract predicate
-
-	// Work pin evidence: the evidence_bound fold's inline closed vocabulary
-	// and the shared evidence reference guard.
-	registerOutputBound("/$defs/work_pin_evidence/properties/evidence_kind/maxLength",
-		workflowContainsLiteralLongestBound("internal/store/workflow.go", "foldWorkflowEvidenceBound", "slices.Contains"))
-	registerOutputBound("/$defs/work_pin_evidence/properties/immutable_subject_ref/maxLength", evidenceRefBound)
 
 	// Workflow contract: the projection columns carry the admission CHECKs.
 	registerOutputBound("/$defs/workflow_contract/properties/approved_at/maxLength", contractApprovedAt)
@@ -317,10 +269,7 @@ func init() {
 		inputBound("/$defs/work_transition_action_variant_approve_contract/properties/fields/properties/decision_domains/maxItems"),
 		inputBound("/$defs/workflow_contract_update/properties/decision_domains/maxItems")))
 	registerOutputBound("/$defs/workflow_contract/properties/law_modifies/maxItems", contractLawModifies)
-	registerOutputBound("/$defs/workflow_contract/properties/outcome_predicates/items/properties/outcome_payload/maxLength",
-		goConstantBound("internal/store/workflow_outcome.go", "maxWorkflowPredicateBytes", boundBytes)) // the fold stores the raw admitted predicate text (workflow.go:1097), whose only length guard is DecodeWorkflowPredicate's 64 KiB input refusal (workflow_outcome.go:74)
-	registerOutputBound("/$defs/workflow_contract/properties/outcome_predicates/maxItems", contractOutcomePredicates)
-	registerOutputBound("/$defs/workflow_contract/properties/required_evidence/maxItems", contractRequiredEvidence)
+	registerOutputBound("/$defs/workflow_contract/properties/legislative_subjects/maxItems", contractLegislativeSubjects)
 	registerOutputBound("/$defs/workflow_contract/properties/route_conventions/maxItems", contractRouteConventions)
 	registerOutputBound("/$defs/workflow_contract/properties/spec_mandate/maxItems", contractSpecMandate)
 
@@ -390,16 +339,12 @@ func init() {
 		sumBound(contractSpecMandate, bindingMaxLawAdditions, bindingMaxObligations)) // the 128-entry ceiling is the documented write-side sum (workflow_law_revision.go:941-943)
 	registerRetainedTwinBound("/$defs/workflow_law_context/properties/registry_path/maxLength",
 		unboundedOutput("knowledgeRegistryLocator joins the knowledge home's canonical-path locator with one fixed shard file name (internal/store/workflow_law_revision.go:836,849); the home locator's normalized value derives through normalizePath, whose symlink resolution expands the path to filesystem-target text with no length guard (internal/store/project_locator.go:154-161), so the joined locator is byte-ceiling only", readSizeRefusalPath, mutationResultPath))
-	registerOutputBound("/$defs/workflow_law_context_criterion/properties/predicate_id/maxLength",
-		manifestCriterionPredicate) // the committed law read bounds criterion predicate ids
 	// Law context Domain identity: the full-string guards sit in the
 	// committed law read (knowledge_record.go,
 	// validateKnowledgeDomainRegistry -> validateKnowledgeDomainRecord), so
 	// the already-validated fields are the writer chain's bounds.
 	registerOutputBound("/$defs/workflow_law_context_domain/properties/name/maxLength", domainNameGuard)
 	registerOutputBound("/$defs/workflow_law_context_domain/properties/purpose/maxLength", domainPurposeGuard)
-	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/criteria/maxItems",
-		criterionBindingsMax) // the law's criterion bindings filtered to this work; the store admits up to 1000 bindings per law record
 	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/obligation_ids/maxItems",
 		bindingMaxObligations) // the law's obligations are its subset of the binding's verification obligations
 	// Genuinely unbounded: the law file locator joins the knowledge home's
@@ -413,63 +358,6 @@ func init() {
 		workflowRoleMarkItemsBound("internal/store/workflow_law_revision.go", "readWorkflowLawContext", "markRole"))
 	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/title/maxLength",
 		manifestRecordTitle) // the law context copies the committed law title verbatim
-
-	// Outcome payloads: subjects ride the fold's list guard and its member
-	// bound; the surface and check fields ride the admitted input shape the
-	// fold re-admits at the same numbers; the absent distinguish_from list
-	// rides the fold's inline comparison guard.
-	// The live outcome union reaches output only inside a dispatched worker
-	// packet's predicates, which dispatch admission validates against it.
-	registerOutputBound("/$defs/workflow_outcome_absent/properties/distinguish_from/maxItems", distinguishFromCount)
-	registerOutputBound("/$defs/workflow_outcome_absent/properties/subjects/maxItems", outcomeSubjects)
-	registerOutputBound("/$defs/workflow_outcome_check/properties/check_ref/maxLength",
-		pkGuardArgBound("internal/store/workflow.go", "validateWorkflowOutcome", "workflowString", "v.CheckRef", 1, boundBytes))
-	registerOutputBound("/$defs/workflow_outcome_check/properties/immutable_subject_ref/maxLength",
-		pkGuardArgBound("internal/store/workflow.go", "validateWorkflowOutcome", "workflowString", "v.ImmutableSubjectRef", 1, boundBytes))
-	registerOutputBound("/$defs/workflow_outcome_exists/properties/subjects/maxItems", outcomeSubjects)
-	registerOutputBound("/$defs/workflow_outcome_subject/maxLength", workflowListMember)
-	registerOutputBound("/$defs/workflow_outcome_surface/maxLength",
-		inputBound("/$defs/workflow_outcome_surface/maxLength"))
-
-	// Retained outcome payloads: the output surfaces replay stored
-	// predicates unchanged, so the allowed list rides the retained output
-	// def, not the narrowed live authoring def, whose allowed array is
-	// input-only once every output use is separated. The fold re-admits the
-	// same 1..8 list it enforced at approval (workflow.go:4364).
-	registerOutputBound("/$defs/workflow_retained_outcome/properties/allowed/maxItems", outcomeAllowedCount)
-
-	// Retained decision record: the enforcing guards are the inline
-	// validateDecisionRecord comparisons and the anchored actor pattern
-	// (internal/store/workflow_outcome.go). Element text and the supersedes
-	// fields carry no field guard; their one finite ceiling is the
-	// whole-predicate decode refusal maxWorkflowPredicateBytes, because a
-	// serialized input of N bytes decodes to at most N code points.
-	predicateDecodeCeiling := goConstantBound("internal/store/workflow_outcome.go", "maxWorkflowPredicateBytes", boundBytes)
-	registerOutputBound("/$defs/workflow_retained_decision_record/properties/consequences/maxItems",
-		goInlineBound("internal/store/workflow_outcome.go", "validateDecisionRecord", "len(record.Consequences)", boundItems))
-	registerOutputBound("/$defs/workflow_retained_decision_record/properties/consequences/items/maxLength", predicateDecodeCeiling)
-	registerOutputBound("/$defs/workflow_retained_decision_record/properties/inputs/maxItems",
-		goInlineBound("internal/store/workflow_outcome.go", "validateDecisionRecord", "len(record.Inputs)", boundItems))
-	registerOutputBound("/$defs/workflow_retained_decision_record/properties/inputs/items/maxLength", predicateDecodeCeiling)
-	registerOutputBound("/$defs/workflow_retained_decision_record/properties/options_considered/maxItems",
-		goInlineBound("internal/store/workflow_outcome.go", "validateDecisionRecord", "len(record.OptionsConsidered)", boundItems))
-	registerOutputBound("/$defs/workflow_retained_decision_record/properties/options_considered/items/maxLength", predicateDecodeCeiling)
-	registerOutputBound("/$defs/workflow_retained_decision_record/properties/poc_findings/maxLength",
-		goInlineBound("internal/store/workflow_outcome.go", "validateDecisionRecord", "len(record.POCFindings)", boundBytes))
-	registerOutputBound("/$defs/workflow_retained_decision_record/properties/question/maxLength",
-		goInlineBound("internal/store/workflow_outcome.go", "validateDecisionRecord", "len(record.Question)", boundBytes))
-	registerOutputBound("/$defs/workflow_retained_decision_record/properties/rationale/maxLength",
-		goInlineBound("internal/store/workflow_outcome.go", "validateDecisionRecord", "len(record.Rationale)", boundBytes))
-	registerOutputBound("/$defs/workflow_retained_decision_record/properties/required_to_decide/maxItems",
-		goInlineBound("internal/store/workflow_outcome.go", "validateDecisionRecord", "len(record.RequiredToDecide)", boundItems))
-	registerOutputBound("/$defs/workflow_retained_decision_record/properties/required_to_decide/items/maxLength", predicateDecodeCeiling)
-	registerOutputBound("/$defs/workflow_retained_decision_record/properties/reviewer_actor_ref/maxLength",
-		goPatternBound("internal/store/workflow_outcome.go", "workflowActorRefPattern"))
-	registerOutputBound("/$defs/workflow_retained_decision_record/properties/supersedes/maxLength", predicateDecodeCeiling)
-	registerOutputBound("/$defs/workflow_retained_decision_record/properties/superseded_by/maxLength", predicateDecodeCeiling)
-	registerOutputBound("/$defs/workflow_retained_decision_record/properties/unknowns/maxItems",
-		goInlineBound("internal/store/workflow_outcome.go", "validateDecisionRecord", "len(record.Unknowns)", boundItems))
-	registerOutputBound("/$defs/workflow_retained_decision_record/properties/unknowns/items/maxLength", predicateDecodeCeiling)
 
 	// Contract premise: the fold's admission guard is
 	// workflowString(p.Premise, WorkflowPremiseMaxLength); the cited
@@ -1240,113 +1128,6 @@ func workflowStringConstructionCharactersBound(file, function string) outputBoun
 		}
 		from := fmt.Sprintf("workflow construction %s:%s renders strings at most %d characters (largest literal or literal-format Sprintf)", file, function, characters)
 		return workflowCharactersEvaluated(characters, from), nil
-	})
-}
-
-// workflowContainsLiteralLongestBound measures the longest string literal in
-// the one callee call of a named function that carries a slice-of-string-
-// literals argument: the closed vocabulary the call admits.
-func workflowContainsLiteralLongestBound(file, function, callee string) outputBoundSource {
-	return workflowDerived(func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
-		_, fn, err := workflowFunctionDecl(rt, file, function)
-		if err != nil {
-			return evaluatedBound{}, err
-		}
-		var calls []*ast.CallExpr
-		ast.Inspect(fn, func(n ast.Node) bool {
-			if call, ok := n.(*ast.CallExpr); ok && ledgerCalleeMatches(call, callee) {
-				calls = append(calls, call)
-			}
-			return true
-		})
-		if len(calls) != 1 {
-			return evaluatedBound{}, fmt.Errorf("workflow contains vocabulary %s:%s carries %d %s calls; the citation is ambiguous", file, function, len(calls), callee)
-		}
-		found := false
-		longest := int64(0)
-		for _, arg := range calls[0].Args {
-			lit, ok := arg.(*ast.CompositeLit)
-			if !ok {
-				continue
-			}
-			for _, elt := range lit.Elts {
-				str, ok := elt.(*ast.BasicLit)
-				if !ok || str.Kind != token.STRING {
-					return evaluatedBound{}, fmt.Errorf("workflow contains vocabulary %s:%s carries a non-literal member", file, function)
-				}
-				value, err := strconv.Unquote(str.Value)
-				if err != nil {
-					return evaluatedBound{}, fmt.Errorf("workflow contains vocabulary %s:%s carries an unparsable member: %w", file, function, err)
-				}
-				if r := int64(utf8.RuneCountInString(value)); r > longest {
-					longest = r
-				}
-				found = true
-			}
-		}
-		if !found {
-			return evaluatedBound{}, fmt.Errorf("workflow contains vocabulary %s:%s carries no string-literal vocabulary", file, function)
-		}
-		from := fmt.Sprintf("workflow contains vocabulary %s:%s %s longest member is %d characters", file, function, callee, longest)
-		return workflowCharactersEvaluated(longest, from), nil
-	})
-}
-
-// workflowSQLLimitItemsBound reads the row cap one read query applies: the
-// named function must carry exactly one Query* call whose arguments carry
-// exactly one plain SQL string literal containing exactly one word-boundary
-// LIMIT followed by a decimal number. Parameterized or repeated LIMIT
-// clauses refuse.
-func workflowSQLLimitItemsBound(file, function string) outputBoundSource {
-	return workflowDerived(func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
-		_, fn, err := workflowFunctionDecl(rt, file, function)
-		if err != nil {
-			return evaluatedBound{}, err
-		}
-		isQuery := func(name string) bool {
-			if dot := strings.LastIndex(name, "."); dot >= 0 {
-				name = name[dot+1:]
-			}
-			switch name {
-			case "Query", "QueryRow", "QueryContext", "QueryRowContext":
-				return true
-			}
-			return false
-		}
-		var calls []*ast.CallExpr
-		ast.Inspect(fn, func(n ast.Node) bool {
-			if call, ok := n.(*ast.CallExpr); ok && isQuery(ledgerCalledName(call.Fun)) {
-				calls = append(calls, call)
-			}
-			return true
-		})
-		if len(calls) != 1 || len(calls[0].Args) == 0 {
-			return evaluatedBound{}, fmt.Errorf("workflow SQL limit %s:%s must carry exactly one query call", file, function)
-		}
-		var sqlLiterals []*ast.BasicLit
-		for _, arg := range calls[0].Args {
-			if lit, ok := arg.(*ast.BasicLit); ok && lit.Kind == token.STRING {
-				sqlLiterals = append(sqlLiterals, lit)
-			}
-		}
-		if len(sqlLiterals) != 1 {
-			return evaluatedBound{}, fmt.Errorf("workflow SQL limit %s:%s query call carries %d SQL string literals; the query text is absent or ambiguous", file, function, len(sqlLiterals))
-		}
-		sql, err := strconv.Unquote(sqlLiterals[0].Value)
-		if err != nil {
-			return evaluatedBound{}, fmt.Errorf("workflow SQL limit %s:%s query text is unparsable: %w", file, function, err)
-		}
-		locations := regexp.MustCompile(`(?i)\bLIMIT\b`).FindAllStringIndex(sql, -1)
-		if len(locations) != 1 {
-			return evaluatedBound{}, fmt.Errorf("workflow SQL limit %s:%s carries %d LIMIT clauses; the citation is ambiguous", file, function, len(locations))
-		}
-		tail := strings.TrimSpace(sql[locations[0][1]:])
-		value, err := strconv.ParseInt(tail, 10, 64)
-		if err != nil {
-			return evaluatedBound{}, fmt.Errorf("workflow SQL limit %s:%s LIMIT operand %q is not a decimal number", file, function, tail)
-		}
-		from := fmt.Sprintf("workflow SQL limit %s:%s query applies LIMIT %d", file, function, value)
-		return workflowItemsEvaluated(value, from), nil
 	})
 }
 

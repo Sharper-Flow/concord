@@ -10,10 +10,7 @@ func TestWorkflowCompletionIgnoresRetiredContractClauses(t *testing.T) {
 		name string
 		sql  string
 	}{
-		{"required_evidence", `UPDATE workflow_contracts SET required_evidence='["native_run"]' WHERE work_id=?`},
 		{"mandated_law", `UPDATE workflow_contracts SET spec_mandate='["law:absent"]',law_boundary_version=1 WHERE work_id=?`},
-		{"verdict", `DELETE FROM workflow_predicate_verdicts WHERE work_id=?`},
-		{"changed_criteria_and_review", `UPDATE workflow_contract_predicates SET outcome_payload=json_set(outcome_payload,'$.expected_result','fail') WHERE work_id=?`},
 	} {
 		t.Run(fault.name, func(t *testing.T) {
 			id := "retired-completion-" + fault.name

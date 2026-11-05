@@ -74,7 +74,7 @@ func correctionStateForEvent(event Event) (correctionStateFact, bool, error) {
 	}
 	var completed struct {
 		workflowCorrectionCompletionFields
-		Review *ReviewBlock `json:"review"`
+		Review *legacyReviewBlock `json:"review"`
 	}
 	if err := json.Unmarshal(event.Payload, &completed); err != nil {
 		return state, false, err

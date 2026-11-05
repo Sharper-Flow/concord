@@ -9,8 +9,7 @@ import (
 func TestReportedCompletionDiscardsStepsAndPreservesDelivery(t *testing.T) {
 	const workID = "reported-completion"
 	s, completion := seedCompletionGateCase(t, workID, completionGateCase{
-		requiredEvidence: []string{"verification", "review"}, emptyMandate: true,
-		includeVerdict: true, includePremise: true, verdictKind: "ok", omitClosure: true,
+		emptyMandate: true, includePremise: true, omitClosure: true,
 	})
 	if _, err := s.db.Exec(`INSERT INTO write_guard VALUES(1); INSERT OR REPLACE INTO workflow_delivery_state(work_id,assertion_seq,assertion_id,actor,occurred_at,payload_version,payload) VALUES(?,1,'reported-delivery','principal/operator','2026-11-01T00:00:00Z',1,'{"delivery_artifact":"https://example.com/change/1","delivery_state":"asserted"}'); DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
@@ -75,14 +74,12 @@ func completeReviewedPlanForTerminalTest(t *testing.T, s *Store, workID string, 
 		}
 		step := frontier[0]
 		payload := map[string]any{"step_id": step.ID, "note": "completed for delivery"}
+		action := "complete_step"
 		if step.Reviewed {
-			state, err := loadWorkflowReviewState(t.Context(), s.db, workID)
-			if err != nil || state.Accepted == nil || state.Candidate == nil {
-				t.Fatalf("read accepted review: %+v, %v", state, err)
-			}
-			payload["reviewer"], payload["result"], payload["commit"], payload["link"] = "concord-review", "pass", state.Candidate.Commit, state.Accepted.ReportRef
+			action = "record_review"
+			payload["reviewer"], payload["result"], payload["commit"], payload["link"] = "concord-review", "pass", "commit:fixture", "https://example.com/review"
 		}
-		if err := runVerdictActionAs(t, s, workID, "complete_step", mustJSONValue(payload), 0, actor); err != nil {
+		if err := runVerdictActionAs(t, s, workID, action, mustJSONValue(payload), 0, actor); err != nil {
 			t.Fatalf("complete step %s: %v", step.ID, err)
 		}
 	}
@@ -91,8 +88,7 @@ func completeReviewedPlanForTerminalTest(t *testing.T, s *Store, workID string, 
 func TestReportedCompleteActionDiscardsStepsAtomically(t *testing.T) {
 	const workID = "reported-action"
 	s, completion := seedCompletionGateCase(t, workID, completionGateCase{
-		requiredEvidence: []string{"verification", "review"}, emptyMandate: true,
-		includeVerdict: true, includePremise: true, verdictKind: "ok", omitClosure: true,
+		emptyMandate: true, includePremise: true, omitClosure: true,
 	})
 	completeReviewedPlanForTerminalTest(t, s, workID, workflowActorForRef(t, s, completion.Actor))
 	if err := runVerdictAction(t, s, workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`)); err != nil {
@@ -152,8 +148,7 @@ func TestTerminalLifecycleDiscardsStepExecution(t *testing.T) {
 func TestLifecycleRepairPreservesCompletedWorkflow(t *testing.T) {
 	const workID = "completed-lifecycle-repair"
 	s, completion := seedCompletionGateCase(t, workID, completionGateCase{
-		requiredEvidence: []string{"verification", "review"}, emptyMandate: true,
-		includeVerdict: true, includePremise: true, verdictKind: "ok", omitClosure: true,
+		emptyMandate: true, includePremise: true, omitClosure: true,
 	})
 	initialVersion := readWorkVersion(t, s, workID)
 	completeReviewedPlanForTerminalTest(t, s, workID, workflowActorForRef(t, s, completion.Actor))

@@ -166,31 +166,6 @@ func TestWorkContextDeclarationResultingView(t *testing.T) {
 		}
 	})
 
-	t.Run("a mandatory-content overflow refuses a declaration without effects", func(t *testing.T) {
-		fixture := seedWorkContextFixture(t, "ctx-view-mandatory")
-		defer fixture.store.Close()
-		seedMandatoryNativeEvidence(t, fixture, 24)
-		if _, readErr := readWorkContextView(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID); !hasFailureKind(readErr, KindLimitExceeded) {
-			t.Fatalf("fixture premise: mandatory-only view read = %v, want %s", readErr, KindLimitExceeded)
-		}
-		version := readWorkVersion(t, fixture.store, fixture.workID)
-		events := declarationEventCount(t, fixture)
-		operations := durableOperationCount(t, fixture)
-		err := fixture.recordWorkContext(t, map[string]any{
-			"finding_refs":     []string{},
-			"context_findings": []map[string]any{workContextFinding(workContextTestChild, "observation", "the legal generic finding", "")},
-		})
-		if !hasFailureKind(err, KindLimitExceeded) {
-			t.Fatalf("declaration error = %v, want %s refusing whole", err, KindLimitExceeded)
-		}
-		if got := readWorkVersion(t, fixture.store, fixture.workID); got != version {
-			t.Fatalf("refused declaration moved the version to %d, want %d", got, version)
-		}
-		if got := declarationEventCount(t, fixture); got != events {
-			t.Fatalf("refused declaration left %d declaration events, want %d", got, events)
-		}
-		assertRefusedDeclarationLeftNoEffect(t, fixture, version, events, operations)
-	})
 }
 
 // recordHistoricalWorkContext folds one historical work-context declaration

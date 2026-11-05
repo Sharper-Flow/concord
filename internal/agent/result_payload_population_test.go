@@ -43,8 +43,7 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 		Contract: &store.WorkflowReadContract{
 			Version:             2,
 			Premise:             "the premise",
-			OutcomePredicates:   []store.WorkflowReadPredicate{{PredicateID: "predicate:primary", Ordinal: 0, OutcomeKind: "artifact", OutcomePayload: "the outcome"}},
-			RequiredEvidence:    []string{"verification"},
+			LegislativeSubjects: []string{"spec-1"},
 			RouteConventions:    []string{"route-1"},
 			SpecMandate:         []string{"spec-1"},
 			LawModifies:         []string{"spec-1"},
@@ -235,8 +234,8 @@ func fullyPopulatedWorkflowReadProjection() store.WorkflowReadProjection {
 		Plan: &plan,
 		Contract: &store.WorkflowReadContract{
 			Version: 2, Premise: "the approved premise",
-			OutcomePredicates: []store.WorkflowReadPredicate{{PredicateID: "predicate:primary", Ordinal: 0, OutcomeKind: "check", OutcomePayload: `{"kind":"check"}`}},
-			RequiredEvidence:  []string{"verification"}, RouteConventions: []string{"workflow_action"}, SpecMandate: []string{"spec-1"},
+			LegislativeSubjects: []string{"spec-1"},
+			RouteConventions:    []string{"workflow_action"}, SpecMandate: []string{"spec-1"},
 			LawModifies: []string{"spec-1"},
 			RigorClass:  "prototype_internal", ChangesProductTruth: new(true), ArchitectureBinding: binding,
 		},
@@ -420,6 +419,7 @@ func payloadSchemaDefs(t *testing.T) map[string]map[string]any {
 // looks like.
 var fixtureStringCandidates = []string{
 	"sha256:" + strings.Repeat("0", 64),
+	"sha256:" + strings.Repeat("0", 64) + ":/conformance",
 	"check:mutation.result.conformance",
 	"approval:conformance",
 	"actor:" + strings.Repeat("0", 64),

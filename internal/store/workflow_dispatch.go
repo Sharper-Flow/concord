@@ -140,9 +140,6 @@ func applyWorkflowPlanActionTx(ctx context.Context, tx *sql.Tx, scope *writeScop
 	if err != nil {
 		return result, err
 	}
-	if err := validateWorkflowReviewRequest(ctx, tx, request.WorkID, request.ActionID, request.Payload); err != nil {
-		return result, err
-	}
 	if err := normalizeWorkflowActionRequest(&request); err != nil {
 		return result, err
 	}
@@ -209,7 +206,7 @@ func applyWorkflowPlanActionTx(ctx context.Context, tx *sql.Tx, scope *writeScop
 }
 
 func workflowPlanActionEventsTx(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, action WorkflowActionDefinition, plan *WorkflowStepPlan, currentStep, actor string, evidenceRefs []string, version int64) ([]Event, error) {
-	planKinds := map[string]string{"record_intake": WorkflowIntakeRecorded, "record_clarify": WorkflowClarifyRecorded, "pick_type": WorkflowTypePicked, "insert_step": WorkflowStepInserted, "complete_step": WorkflowStepCompleted}
+	planKinds := map[string]string{"record_intake": WorkflowIntakeRecorded, "record_clarify": WorkflowClarifyRecorded, "pick_type": WorkflowTypePicked, "insert_step": WorkflowStepInserted, "complete_step": WorkflowStepCompleted, "record_review": WorkflowStepCompleted}
 	if kind, ok := planKinds[request.ActionID]; ok {
 		fields, err := workflowActionObject(request.Payload)
 		if err != nil {
@@ -219,7 +216,7 @@ func workflowPlanActionEventsTx(ctx context.Context, tx *sql.Tx, request Workflo
 		for name, value := range fields {
 			values[name] = value
 		}
-		if request.ActionID == "complete_step" {
+		if request.ActionID == "complete_step" || request.ActionID == "record_review" {
 			values["actor"] = actor
 		}
 		return []Event{workflowTypedEvent(request.OperationID+":semantic", kind, request.WorkID, actor, request.Now, version, values)}, nil
@@ -268,7 +265,7 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 	request.EvidenceRefs = dedupeWorkflowRefs(request.EvidenceRefs)
 	refs := append([]string(nil), request.EvidenceRefs...)
 	switch request.ActionID {
-	case "complete", "record_review", "bind_evidence", "record_verdict":
+	case "complete", "bind_evidence":
 	default:
 		return refs, nil
 	}
@@ -282,8 +279,6 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 			refs = dedupeWorkflowRefs(workflowFieldStrings(fields, "evidence_refs"))
 		}
 		return refs, nil
-	case "record_review":
-		return dedupeWorkflowRefs(append(refs, request.OperationID+":completed")), nil
 	case "bind_evidence":
 		// fields.evidence_ref is the declared route for naming the immutable
 		// subject. An explicit immutable_subject_ref overrides that fallback.
@@ -294,21 +289,7 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 		}
 		return refs, nil
 	}
-	return workflowVerdictEvidenceRefs(fields)
-}
-
-// workflowVerdictEvidenceRefs retains only the receipts explicitly associated
-// with criteria. An envelope locator cannot substitute for a receipt.
-func workflowVerdictEvidenceRefs(fields map[string]json.RawMessage) ([]string, error) {
-	entries, err := normalizeWorkflowVerdictEntries(fields)
-	if err != nil {
-		return nil, err
-	}
-	var refs []string
-	for _, entry := range entries {
-		refs = append(refs, entry.EvaluationEvidence...)
-	}
-	return dedupeWorkflowRefs(refs), nil
+	return refs, nil
 }
 
 // dedupeWorkflowRefs keeps the first occurrence of each reference and preserves
@@ -355,19 +336,8 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, planType Work
 		return workflowReviseCandidatesEvents(request, actor, fields, eventID, expected)
 	case "record_diagnosis":
 		return workflowRecordDiagnosisEvents(ctx, tx, request, actor, fields, eventID, expected)
-	case "record_review":
-		return workflowRecordedReviewEvents(request, actor, eventID, expected)
 	case "bind_evidence", "record_research", "record_report", "approve_operation":
 		return workflowEvidenceBindingEvents(request, actor, fields, eventID, expected)
-	case "record_verdict":
-		events, err := workflowRecordVerdictEvents(ctx, tx, request, actor, fields, eventID, expected)
-		if err != nil {
-			return nil, err
-		}
-		if err := guardLateCriterionAssociations(ctx, tx, request.WorkID, planType, stepID, fields); err != nil {
-			return nil, err
-		}
-		return events, nil
 	case "confirm_premise":
 		return workflowConfirmPremiseEvents(ctx, tx, planType, request, actor, fields, eventID, expected)
 	case "link_successor":
@@ -379,11 +349,6 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, planType Work
 
 func workflowCompletionEventForDefinition(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage) (Event, error) {
 	fields, err := workflowActionObject(raw)
-	if err != nil {
-		return Event{}, err
-	}
-	verdictActor := actor
-	verdictActor, err = workflowAuthenticatedActorField(fields, "verdict_actor_ref", verdictActor)
 	if err != nil {
 		return Event{}, err
 	}
@@ -405,7 +370,7 @@ func workflowCompletionEventForDefinition(ctx context.Context, tx *sql.Tx, reque
 	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=?`, request.WorkID, contractVersion).Scan(&premiseRow); err == nil {
 		premiseConfirmed = true
 	}
-	payload := map[string]any{"terminal_state": "completed", "verdict_actor_ref": verdictActor, "premise_confirmed": premiseConfirmed, "evidence_count": boundEvidence, "changed_refs_digest": WorkflowChangedRefsDigest([]string{request.WorkID}), "impact_verdict": impactVerdict}
+	payload := map[string]any{"terminal_state": "completed", "premise_confirmed": premiseConfirmed, "evidence_count": boundEvidence, "changed_refs_digest": WorkflowChangedRefsDigest([]string{request.WorkID}), "impact_verdict": impactVerdict}
 	return workflowTypedEvent(request.OperationID+":completed", WorkflowCompleted, request.WorkID, actor, request.Now, request.ExpectedVersion, payload), nil
 }
 
@@ -460,15 +425,6 @@ func workflowFieldString(fields map[string]json.RawMessage, name string) (string
 	return value, ok
 }
 
-func workflowAuthenticatedActorField(fields map[string]json.RawMessage, name, actor string) (string, error) {
-	if raw := fields[name]; len(raw) != 0 {
-		value, ok := workflowFieldString(fields, name)
-		if !ok || strings.TrimSpace(value) != actor {
-			return "", newFailure(KindUnauthorized, "workflow_action", name+" must match the authenticated invocation actor", false, "use the authenticated workflow actor")
-		}
-	}
-	return actor, nil
-}
 func workflowFieldStringDefault(fields map[string]json.RawMessage, name, fallback string) string {
 	if value, ok := workflowFieldString(fields, name); ok && value != "" {
 		return value

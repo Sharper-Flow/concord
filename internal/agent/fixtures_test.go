@@ -8,7 +8,6 @@ import (
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
-	"github.com/sharper-flow/concord/internal/store"
 )
 
 func TestGeneratedPayloadFixturesAreConsumedByGoValidator(t *testing.T) {
@@ -74,10 +73,14 @@ func TestWorkflowCompletionImpactVerdictIsPublicAndRequired(t *testing.T) {
 
 func TestWorkflowActionSchemaIsActionSpecific(t *testing.T) {
 	t.Parallel()
-	valid := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"bind_evidence","idempotency_key":"bind-1","fields":{"evidence_kind":"verification","evidence_ref":"worktree_verify:one"}}`)
+	valid := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"bind_evidence","idempotency_key":"bind-1","fields":{"evidence_kind":"verification","evidence_ref":"worktree_verify:one","producer_watermark":"request:one"}}`)
 	for _, schema := range []string{"work_transition_action_public_input", "work_transition_action_input"} {
 		if err := payloadschema.Validate(schema, valid); err != nil {
 			t.Fatalf("%s rejected ordinary evidence binding: %v", schema, err)
+		}
+		missingWatermark := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"bind_evidence","idempotency_key":"bind-1","fields":{"evidence_kind":"verification","evidence_ref":"worktree_verify:one"}}`)
+		if err := payloadschema.Validate(schema, missingWatermark); err == nil {
+			t.Fatalf("%s accepted evidence without a producer watermark", schema)
 		}
 	}
 
@@ -93,7 +96,7 @@ func TestWorkflowActionSchemasRejectUnknownFieldsAtBoundary(t *testing.T) {
 		id     string
 		fields string
 	}{
-		{id: "bind_evidence", fields: `{"evidence_kind":"verification","evidence_ref":"worktree_verify:one"}`},
+		{id: "bind_evidence", fields: `{"evidence_kind":"verification","evidence_ref":"worktree_verify:one","producer_watermark":"request:one"}`},
 	} {
 		payload := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"` + action.id + `","idempotency_key":"action-1","fields":` + action.fields + `}`)
 		for _, schema := range []string{"work_transition_action_input", "work_transition_action_public_input"} {
@@ -124,26 +127,23 @@ func TestWorkflowActionSchemasRejectUnknownFieldsAtBoundary(t *testing.T) {
 	}
 }
 
-func TestReviewSubjectBindingIsPublicAndRequired(t *testing.T) {
+func TestReviewStepRecordIsPublicAndRequired(t *testing.T) {
 	t.Parallel()
-	candidate := store.ReviewCandidate{ProjectID: "project-1", Commit: strings.Repeat("a", 40), Tree: strings.Repeat("b", 40)}
-	review := store.ReviewBlock{Disposition: "continue", InputCandidate: candidate, OutputCandidate: candidate,
-		Dependencies: store.ReviewDependencies{ArchitectureNotApplicable: true, Criteria: []store.ReviewCriterion{{PredicateID: "predicate:primary", ContentDigest: "sha256:" + strings.Repeat("c", 64)}}},
-		Assessments:  []store.ReviewAssessment{}, Findings: []store.ReviewFinding{}, RemainingObligations: []store.ReviewObligation{}}
-	input := map[string]any{"work_id": "work-1", "expected_version": 1, "action_id": "record_review", "idempotency_key": "review-1", "fields": map[string]any{"review": review}}
+	review := map[string]any{"step_id": "review", "note": "Review passed.", "reviewer": "reviewer:one", "result": "pass", "commit": strings.Repeat("a", 40), "link": "https://example.com/review"}
+	input := map[string]any{"work_id": "work-1", "expected_version": 1, "action_id": "record_review", "idempotency_key": "review-1", "fields": review}
 	for _, schema := range []string{"work_transition_action_input", "work_transition_action_public_input"} {
 		if err := payloadschema.Validate(schema, retryJSON(input)); err != nil {
 			t.Fatalf("%s rejected complete Review subject binding: %v", schema, err)
 		}
 	}
-	for _, member := range []string{"input_candidate", "output_candidate", "dependencies"} {
+	for _, member := range []string{"step_id", "note", "reviewer", "result", "commit", "link"} {
 		t.Run("missing "+member, func(t *testing.T) {
 			var incomplete map[string]any
 			if err := json.Unmarshal(retryJSON(review), &incomplete); err != nil {
 				t.Fatal(err)
 			}
 			delete(incomplete, member)
-			input["fields"] = map[string]any{"review": incomplete}
+			input["fields"] = incomplete
 			for _, schema := range []string{"work_transition_action_input", "work_transition_action_public_input"} {
 				if err := payloadschema.Validate(schema, retryJSON(input)); err == nil {
 					t.Fatalf("%s admitted Review without %s", schema, member)

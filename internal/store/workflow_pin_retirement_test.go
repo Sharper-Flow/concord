@@ -15,7 +15,7 @@ func TestWorkflowApprovalStoresNoLawFreshnessPins(t *testing.T) {
 	seedWorkflowLaw(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal:pin-free", ClientRef: "client:pin-free", AgentRef: "agent:pin-free", SessionRef: "session:pin-free", ActorClass: ActorAgent}
 	version := seedDerivedRevisionWorkflow(t, s, workID, actor)
-	payload := json.RawMessage(`{"premise":"Research against current law without freshness pins.","spec_mandate":["spec:one"],"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["resolved"]}}]}`)
+	payload := json.RawMessage(`{"premise":"Research against current law without freshness pins.","spec_mandate":["spec:one"],"legislative_subjects":[]}`)
 	if err := runDerivedLawApproval(t, s, workID, version, actor, payload); err != nil {
 		t.Fatal(err)
 	}
@@ -32,8 +32,8 @@ func TestWorkflowActionsSurviveLaterLawChanges(t *testing.T) {
 	for _, change := range []string{"amendment", "deletion", "unrelated_registry"} {
 		t.Run(change, func(t *testing.T) {
 			const workID = "pin-free-actions"
-			s := seedLawRevisionPendingReview(t, workID)
-			payload := mustJSONValue(lawRevisionAcceptancePayload(t, s, workID))
+			s, _ := seedLawRevisionContract(t, workID, "review")
+			payload := mustJSONValue(map[string]any{"step_id": "review", "note": "Independent review", "reviewer": "concord-review", "result": "pass", "commit": lawChangeHashA, "link": "https://example.com/review"})
 			home := lawChangeFixtureHome(t, s)
 			switch change {
 			case "amendment":

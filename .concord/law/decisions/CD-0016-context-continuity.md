@@ -25,8 +25,9 @@
 Agents obtain current work context through explicit Concord reads, including
 `concord_work_trace.continuity` with a work ID. Concord injects no automatic
 per-turn context and derives no work identity from worktree ownership or a
-directory-to-work locator. CD-0031 supplies core-derived continuity for explicitly
-selected work through store-write-free `session-prepare`.
+directory-to-work locator. CD-0252 supplies the core-derived resume plan and
+addressed handoff for explicitly selected work through store-write-free
+`session-prepare`.
 The store keeps current rows; no event log, fold, or replay exists
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
@@ -106,7 +107,7 @@ pinned by source, law ID, and content hash. Each reading and finding names a
 registry Domain.
 
 One transaction-scoped reader assembles the current work-context view from
-these records and recorded Review findings. The reader
+these records and retained worker findings. The reader
 adds no table and no migration. The work pin and the continuity snapshot carry
 the view. The view holds at most 32 readings and 32 findings within 64 KiB. A
 view past these bounds refuses the read and leaves the records unchanged. Each
@@ -117,8 +118,6 @@ into another record.
 A declaration refuses without effects if its resulting shared view exceeds the bounds. The
 check runs once in the live action transaction that records the declaration. A
 declaration that restores a bounded view remains admissible.
-Recorded Review outcomes, blockers, acceptance and bound verification reports remain retained even
-when the resulting view exceeds its read bound.
 
 When the shared reader refuses with `limit_exceeded`, the work pin and continuity
 snapshot carry the closed `work_context_unavailable: {"reason":"limit_exceeded"}`

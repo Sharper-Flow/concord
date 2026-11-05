@@ -1,31 +1,18 @@
 import { expect, test } from "bun:test"
 import { validateGeneratedPayload } from "./generated-contract-tests"
 
-test("work pin validators accept bounded kind debt and legacy absence", () => {
-  const kinds = ["approval", "artifact", "commit", "durable_note", "native_run", "review", "verification"]
+test("work pin validators enforce the intent count bound", () => {
   const pin: Record<string, unknown> = {
-    work_id: "work-debt", title: "Evidence debt", linear_issue_key: "",
+    work_id: "work-test", title: "Work fixture", linear_issue_key: "",
     project_id: "project-test", project_display_name: "Fixture", version: 3,
     lifecycle: "in_progress", cancelled_instance_closes: 0,
     workflow_type: "change", step: "review",
     driving_sessions: [], watermark: "seq:3", next_valid_intents: [],
-    obligations: [],
-    outstanding_evidence_kinds: kinds,
   }
   expect(validateGeneratedPayload("work_pin", pin)).toBe(true)
-  pin.outstanding_evidence_kinds = []
+  const intent = { tool: "concord_work_trace", operation: "history", reason_code: "audit" }
+  pin.next_valid_intents = Array.from({ length: 83 }, () => intent)
   expect(validateGeneratedPayload("work_pin", pin)).toBe(true)
-  delete pin.outstanding_evidence_kinds
-  expect(validateGeneratedPayload("work_pin", pin)).toBe(true)
-  for (const invalid of [null, ["unknown"], ["commit", "commit"]]) {
-    pin.outstanding_evidence_kinds = invalid
-    expect(validateGeneratedPayload("work_pin", pin)).toBe(false)
-  }
-  for (const state of ["active", "completed"]) {
-    const held: Record<string, unknown> = { ...pin, outstanding_evidence_kinds: [], outside_repair_disposition: {
-      work_id: "work-debt", reason: "repair", state,
-      recorded_at: "2026-10-17T00:00:00Z",
-    } }
-    expect(validateGeneratedPayload("work_pin", held)).toBe(false)
-  }
+  pin.next_valid_intents = Array.from({ length: 84 }, () => intent)
+  expect(validateGeneratedPayload("work_pin", pin)).toBe(false)
 })

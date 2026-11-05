@@ -32,10 +32,7 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 			fields := map[string]any{
 				"premise":      "Revise the derived record inside this contract.",
 				"spec_mandate": []string{"spec:one"}, "law_modifies": []string{"spec:one"},
-				"outcome_predicates": []map[string]any{{
-					"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "outcome",
-					"outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"resolved"}},
-				}},
+				"legislative_subjects": []string{},
 			}
 			if err := runDerivedLawApproval(t, s, workID, version, actor, mustJSONValue(fields)); err != nil {
 				t.Fatalf("live approval: %v", err)

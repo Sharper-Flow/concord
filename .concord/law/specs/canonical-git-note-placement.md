@@ -89,7 +89,7 @@ content_hash
 Project and locator IDs identify the logical repository across path, remote,
 clone and archive changes. The path identifies the file in the recorded commit;
 `content_hash` identifies the note bytes. Mutable paths and remotes resolve
-when a consumer or PM10 recovery opens the note, and never replace these
+when a consumer opens the note, and never replace these
 identity fields. A historical note hash is not a
 workflow closure hash.
 
@@ -104,23 +104,22 @@ commit, path, work identity and note hash identify the note. A returned locator
 proves what the retained record stores, not a current Git check. They never
 infer a different note or silently choose between two valid notes claiming one
 work ID. Verifying the recorded commit and note hash against Git belongs to the
-consumer or to PM10 recovery, never to the read. Read inspection does not
-publish, reconcile, prune or change membership. Verified PM10
-recovery may reconstruct the existing Git-derived historical projection; it
-creates no law catalog or public rebuild surface.
+consumer, never to the read. Read inspection does not
+publish, reconcile, prune or change membership. Restore returns the retained
+historical projection rows as current state.
 
 ## 4. Read outcomes and authority
 
 Historical reads decide from the retained record. Resolving the recorded
 commit against a Git repository, including its absence or unreachability,
-belongs to the consumer or to PM10 recovery, never to the read.
+belongs to the consumer, never to the read.
 
 | Outcome | Meaning |
 |---|---|
 | canonical locator | the reader returned the single retained canonical locator; its stored commit, path, work identity and note hash identify the note, and no Git object was checked |
 | `not_compacted` | no retained canonical note is indexed for the work identity; this does not prevent completion |
 | `ambiguous` | multiple retained notes claim the work ID |
-| `missing` | the retained locator names a Git object the consumer or PM10 recovery did not find; the read itself claims nothing about the object |
+| `missing` | the retained locator names a Git object the resolving consumer did not find; the read itself claims nothing about the object |
 
 The historical read computes no authority tier of its own: an OK read is
 authoritative over the retained record, and a store that cannot answer refuses
@@ -131,8 +130,8 @@ or refuses.
 
 An offline or lost remote does not prove absence. Historical Product visibility
 uses frozen associations, not later home-Project memberships. A renamed, moved or
-read-only home does not rewrite a locator. Recovery may use another clone or
-backup to resolve the recorded commit and verify the hash under PM10.
+read-only home does not rewrite a locator. A consumer may use another clone or
+backup to resolve the recorded commit and verify the hash.
 
 ## Acceptance criteria
 

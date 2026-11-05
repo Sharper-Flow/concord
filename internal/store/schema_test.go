@@ -215,7 +215,7 @@ func TestMigration88BackfillsWorkflowContractDefinitionAuthorityPins(t *testing.
 	if ref != definitionRef || version != 6 || digest != historicalDefinitionDigest {
 		t.Fatalf("migration 88 pins = %q, %d, %q", ref, version, digest)
 	}
-	const retained = `SELECT work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate FROM workflow_contracts WHERE work_id='migration-88-contract-pins'`
+	const retained = `SELECT work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate FROM workflow_contracts WHERE work_id='migration-88-contract-pins'`
 	want := retirementUpgradeRows(t, db, retained)
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
@@ -285,9 +285,7 @@ func TestMigrateV60ToV61PreservesWorkflowContractForeignKeys(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
-	}
+	advanceHistoricalPrefix(t, db, beforeOutcomeRetirement)
 
 	var kind, payload string
 	if err := db.QueryRowContext(ctx, `SELECT outcome_kind,outcome_payload FROM workflow_contract_predicates WHERE work_id='work-v61' AND contract_version=1 AND predicate_id='predicate:primary'`).Scan(&kind, &payload); err != nil {
@@ -375,9 +373,7 @@ func TestMigrateV39ToV40BackfillsLawModificationsAndGuardsOverlapAuthority(t *te
 	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
-	}
+	advanceHistoricalPrefix(t, db, beforeOutcomeRetirement)
 	var laws string
 	if err := db.QueryRowContext(ctx, `SELECT group_concat(law_id,',') FROM (SELECT law_id FROM workflow_contract_law_modifications WHERE work_id='work-v39' ORDER BY law_id)`).Scan(&laws); err != nil {
 		t.Fatal(err)
@@ -1435,9 +1431,7 @@ func TestMigration54UpgradesValidRigorClass(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatalf("valid rigor class failed upgrade: %v", err)
-	}
+	advanceHistoricalPrefix(t, db, beforeOutcomeRetirement)
 }
 
 func TestMigration54RejectsInvalidRigorClass(t *testing.T) {
@@ -1699,7 +1693,7 @@ func insertRigorClassContract(ctx context.Context, db *sql.DB, actorRef, rigorCl
 		_, err := db.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,outcome_kind,outcome_payload,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('rigor-class-work',1,'rigor class','check','{"kind":"check"}','internal_sqlite','[]','[]','now',?,'[]','[]',0,?)`, actorRef, rigorClass)
 		return err
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('rigor-class-work',1,'rigor class','internal_sqlite','[]','[]','now',?,'[]','[]',0,?)`, actorRef, rigorClass); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('rigor-class-work',1,'rigor class','internal_sqlite','[]','now',?,'[]','[]',0,?)`, actorRef, rigorClass); err != nil {
 		return err
 	}
 	var predicatesTable int
@@ -2358,7 +2352,7 @@ func TestMigration89BackfillsWorktreeOccupancyForInProgressWork(t *testing.T) {
 			t.Errorf("%s: occupant = %q, want %q (%s)", want.workID, got, want.occupant, want.reason)
 		}
 	}
-	if err := Migrate(ctx, db); err != nil {
+	if err := Migrate(outcomeSnapshotContext(t, ctx, db), db); err != nil {
 		t.Fatal(err)
 	}
 	assertWorktreeTablesAbsent(t, db)

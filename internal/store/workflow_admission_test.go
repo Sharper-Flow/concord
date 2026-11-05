@@ -64,7 +64,7 @@ func TestWorkflowPlanAdmissionFrontierParity(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			workID := "admission-frontier-" + tc.name
-			f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, tc.planType, tc.step, []string{}, nil)
+			f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, tc.planType, tc.step, nil)
 			pin, err := ReadWorkPin(t.Context(), f.store, workID)
 			if err != nil {
 				t.Fatal(err)
@@ -72,7 +72,9 @@ func TestWorkflowPlanAdmissionFrontierParity(t *testing.T) {
 			if pin.Step != tc.step || pin.WorkflowType != string(tc.planType) || workPinContainsAction(pin.NextValidIntents, "bind_evidence") != tc.binding {
 				t.Fatalf("pin type=%q step=%q intents=%v", pin.WorkflowType, pin.Step, pin.NextValidIntents)
 			}
-			request := planAdmissionRequest(workID, "bind_evidence", pin.Version, f.owner, json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"artifact:admission"}`))
+			seedWorkflowAuthority(t, f.store, "admission-producer", workID, "principal/admission", "request/admission", []string{"artifact:admission"})
+			request := planAdmissionRequest(workID, "bind_evidence", pin.Version, f.owner, json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"artifact:admission","producer_id":"principal/admission","producer_run_ref":"admission-producer","producer_watermark":"request/admission"}`))
+			request.EvidenceRefs = []string{"artifact:admission"}
 			preflight := planAdmissionPreflight(t, f.store, request)
 			if !tc.binding {
 				first := planAdmissionFailure(t, preflight, KindIllegalLifecycleTransition)
@@ -92,10 +94,6 @@ func TestWorkflowPlanAdmissionFrontierParity(t *testing.T) {
 			if err != nil || after.Step != tc.step || after.Version <= pin.Version {
 				t.Fatalf("binding changed plan frontier or did not record: pin=%+v err=%v", after, err)
 			}
-			bound, err := workflowEvidenceReferenceBound(t.Context(), f.store.db, workID, "artifact:admission", "test")
-			if err != nil || !bound {
-				t.Fatalf("binding was not recorded: bound=%v err=%v", bound, err)
-			}
 			actorRef, err := WorkflowActorRef(f.owner)
 			if err != nil {
 				t.Fatal(err)
@@ -110,9 +108,10 @@ func TestWorkflowPlanAdmissionFrontierParity(t *testing.T) {
 
 func TestWorkflowPlanAdmissionRefusalParity(t *testing.T) {
 	const workID = "plan-admission-refusals"
-	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", []string{}, nil)
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", nil)
 	version := readWorkVersion(t, f.store, workID)
-	valid := json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"artifact:refusal"}`)
+	seedWorkflowAuthority(t, f.store, "refusal-producer", workID, "principal/refusal", "request/refusal", []string{"artifact:refusal"})
+	valid := json.RawMessage(`{"evidence_kind":"artifact","immutable_subject_ref":"artifact:refusal","producer_id":"principal/refusal","producer_run_ref":"refusal-producer","producer_watermark":"request/refusal"}`)
 	for _, tc := range []struct {
 		name string
 		edit func(*WorkflowActionExecutionRequest)

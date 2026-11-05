@@ -168,7 +168,7 @@ re-litigate them silently.
   updated in one transaction (`synchronous=NORMAL`, WAL, one writer at a time).
   No event log or replay exists (CD-0242 D2).
   This was the recommended primary option (A) from the D1 research; it structurally
-  prevents the Advance failure cluster via six binding invariants (I1–I6). The
+  prevents the split-authority failure cluster via six binding invariants (I1–I6). The
   ranked alternatives (DBOS/Postgres, Restate, LMDB, Temporal-collapsed) remain
   documented in CD-0002 §2 as upgrade/fallback paths. PM2 resolves one global
   local authority; PM3 replaces CD-0003 D1's generic materialized spine with typed
@@ -262,10 +262,6 @@ re-litigate them silently.
   [`../law/specs/compaction-retention-policy.md`](../law/specs/compaction-retention-policy.md) and
   [`../law/specs/canonical-git-note-placement.md`](../law/specs/canonical-git-note-placement.md). This question is
   unrelated to that tier and must be named **context continuity** to avoid collision.
-- **Predecessor evidence:** [Advance #422](https://github.com/Sharper-Flow/Advance/issues/422),
-  [#423](https://github.com/Sharper-Flow/Advance/issues/423), and
-  [#424](https://github.com/Sharper-Flow/Advance/issues/424). These identify
-  mechanisms to prevent structurally; they are not work Concord must reproduce.
 - **Direction:** Durable checkpoints and
   boundary records own the working state; pinned continuity is re-derived from
   SQLite on every call; summaries are advisory and summary-only boundaries are
@@ -321,12 +317,12 @@ re-litigate them silently.
 
 ## ⚪ Strategic / branding
 
-### C11. Concord vs Advance ✅ Accepted 2026-08-06
-- **Question:** Is Concord a rebrand/successor of Advance, or a coexisting layer?
-- **Why:** "Advance V2" suggests succession; a non-goal says coexist indefinitely
-  — slight tension worth resolving.
+### C11. Concord's relationship to prior systems ✅ Accepted 2026-08-06
+- **Question:** Is Concord a successor to any prior system, or a coexisting layer?
+- **Why:** Successor framing implies a replacement obligation that no goal states.
 - **Decision:** [`CD-0006`](../law/decisions/CD-0006-concord-root-product-policy.md)
-  D1 owns Product direction; its D2 refers migration and correction to
+  D1 owns Product direction (no successor-readiness requirement toward any other
+  system); its D2 refers migration and correction to
   [`CD-0082`](../law/decisions/CD-0082-migration-is-demand-driven.md) D1.
 
 ### C12. Realism vs aspiration ✅ Accepted 2026-08-06
@@ -427,14 +423,15 @@ Accepted TS decisions do not by themselves authorize runtime/tool surfaces.
 ## 🔴 Minimal agent tool-surface decision backlog — ordered, build-authorizing
 
 Concord's agent surface must be **right-sized to proven jobs**, not copied from
-Advance or generated mechanically from tables/CLI commands. Advance's 86-tool
-catalog is predecessor evidence, not a transfer target. Minimal means **the
-fewest tools that complete canonical jobs reliably**, with bounded schemas.
+any prior system or generated mechanically from tables/CLI commands. A prior
+86-tool catalog is evidence against mechanical transfer, not a transfer target.
+Minimal means **the fewest tools that complete canonical jobs reliably**, with
+bounded schemas.
 
 **Hard avoidances (binding while these decisions are open):**
 
 - No tool-per-table / CRUD surface.
-- No command-for-command port of Advance.
+- No command-for-command port of any prior system.
 - No single untyped "invoke anything" mega-tool.
 - No 1:1 mapping from Go CLI subcommands to agent tools.
 - Adapter ownership follows [`core-architecture.md` §1](./core-architecture.md#1-language-ownership); no second domain implementation belongs in TypeScript.

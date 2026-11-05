@@ -10,7 +10,7 @@ import (
 func TestPredispatchContractRevisionPreservesExecutionIdentity(t *testing.T) {
 	ctx := context.Background()
 	const workID = "predispatch-replay"
-	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "plan", []string{"verification"}, nil)
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "plan", nil)
 	s, owner := f.store, f.owner
 	before, err := readWorkflowPlanTx(ctx, s.db, workID)
 	if err != nil || before == nil {

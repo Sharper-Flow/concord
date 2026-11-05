@@ -2,18 +2,12 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
 )
-
-// candidateReport is test input for bind_evidence, not an execution receipt.
-type candidateReport struct {
-	OperationRef string
-	SubjectRef   string
-	Report       VerificationReport
-}
 
 type candidateJourney struct {
 	fixture        workContextFixture
@@ -36,34 +30,9 @@ func (j *candidateJourney) head(t *testing.T) string {
 	return runTestGit(t, j.repo, "rev-parse", "HEAD")
 }
 
-// observeRun builds a report from test data. Concord does not observe Git when
-// it binds or consumes the report.
-func (j *candidateJourney) observeRun(t *testing.T, id string) candidateReport {
-	t.Helper()
-	commit := j.head(t)
-	ref := "commit:" + commit
-	return candidateReport{OperationRef: ref, SubjectRef: ref, Report: VerificationReport{Source: "local", Commit: commit, Result: "pass", RunRef: "run:" + id}}
-}
-
-func (j *candidateJourney) observe(t *testing.T, id string) string {
-	t.Helper()
-	return j.observeRun(t, id).Report.Commit
-}
-
-func (j *candidateJourney) bindVerification(t *testing.T, report candidateReport) {
-	t.Helper()
-	actor := j.acceptor
-	if actor.PrincipalRef == "" {
-		actor = j.fixture.owner
-	}
-	if err := j.action(t, "bind_evidence", map[string]any{"evidence_kind": "verification", "immutable_subject_ref": report.SubjectRef, "verification_report": report.Report}, actor); err != nil {
-		t.Fatalf("bind verification report: %v", err)
-	}
-}
-
 func (j *candidateJourney) action(t *testing.T, action string, payload any, actor WorkflowActor) error {
 	t.Helper()
-	if action == "record_review" || action == "record_verdict" || action == "confirm_premise" || action == "complete" {
+	if action == "record_review" || action == "confirm_premise" || action == "complete" {
 		return j.terminalAction(t, action, mustJSONValue(payload), actor)
 	}
 	return runVerdictActionAs(t, j.s, j.workID, action, mustJSONValue(payload), 0, actor)
@@ -85,7 +54,7 @@ func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Conte
 	return j.s.Transact(ctx, func(tx *Transaction) error {
 		_, err := ApplyWorkflowActionTx(ctx, tx, WorkflowActionExecutionRequest{
 			WorkID: j.workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: actor,
-			EvidenceRefs: actionEvidenceRefs(action, payload), AcceptedInputsDigest: nativeDigest([]byte(id)), IdempotencyIdentity: id,
+			EvidenceRefs: actionEvidenceRefs(action, payload), AcceptedInputsDigest: fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(id))), IdempotencyIdentity: id,
 			OperationID: id, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: id,
 			RequestID: "request:" + id, ContractDigest: testManifestDigest, Now: time.Now().UTC(),
 		})
@@ -93,86 +62,7 @@ func (j *candidateJourney) terminalActionContext(t *testing.T, ctx context.Conte
 	})
 }
 
-func (j *candidateJourney) pinned(t *testing.T) string {
-	t.Helper()
-	state, err := readWorkflowReviewFacts(t.Context(), j.s.db, j.workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if state.Candidate == nil {
-		return ""
-	}
-	return state.Candidate.Commit
-}
-
 func (j *candidateJourney) effects(t *testing.T) string {
 	t.Helper()
 	return outsideRepairDatabaseSnapshot(t, j.s)
-}
-
-func TestManagedCandidateSubjectReviewNeverRelabelsOldProof(t *testing.T) {
-	f, repo, refs := pReceiptFixture(t, "candidate-review-old-report", 1, 1)
-	report := currentReviewBlockForTest(t, f.store, f.workID, "ready_for_final_proof")
-	report.OutputCandidate.Commit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	report.InputCandidate = report.OutputCandidate
-	report.Assessments = []ReviewAssessment{{PredicateID: "predicate:p0", Assessment: "supported", ReceiptRefs: refs[0]}}
-	_ = repo
-	if err := validateReviewAssessmentReceiptSubjects(t.Context(), f.store.db, f.workID, report); !hasFailureKind(err, KindStaleRequiresReview) {
-		t.Fatalf("Review relabelled a report for another commit: %v", err)
-	}
-}
-
-func TestManagedCandidateSubjectStaleProofNeverAuthorizesB(t *testing.T) {
-	f, _, refs := pReceiptFixture(t, "candidate-stale-report", 1, 1)
-	candidate := &ReviewCandidate{Commit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
-	if err := workflowAcceptanceSubjectCurrent(t.Context(), f.store.db, f.workID, candidate, refs[0]); !hasFailureKind(err, KindStaleRequiresReview) {
-		t.Fatalf("acceptance admitted a report for another candidate: %v", err)
-	}
-}
-
-func TestManagedCandidateSubjectFreshIndependentEvidenceAcceptsB(t *testing.T) {
-	f, _, refs := pReceiptFixture(t, "candidate-current-report", 1, 1)
-	state, err := loadWorkflowReviewState(t.Context(), f.store.db, f.workID)
-	if err != nil || state.Candidate == nil {
-		t.Fatalf("recorded Review = %+v, %v", state, err)
-	}
-	if err := workflowAcceptanceSubjectCurrent(t.Context(), f.store.db, f.workID, state.Candidate, refs[0]); err != nil {
-		t.Fatalf("matching passing report refused: %v", err)
-	}
-	if err := runVerdictActionAs(t, f.store, f.workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
-		t.Fatalf("associate independently reviewed report: %v", err)
-	}
-	if err := pConfirmReceiptPremise(t, f); err != nil {
-		t.Fatalf("confirm the reviewed candidate and report: %v", err)
-	}
-	if err := runVerdictActionAs(t, f.store, f.workID, "record_delivery", mustJSONValue(map[string]any{"delivery_artifact": "artifact:candidate-current", "delivery_state": "asserted"}), 0, f.owner); err != nil {
-		t.Fatalf("record delivery: %v", err)
-	}
-	completeWorkflowPlanFixture(t, f.store, f.workID)
-	j := &candidateJourney{fixture: f, s: f.store, workID: f.workID}
-	if err := j.terminalAction(t, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner); err != nil {
-		t.Fatalf("complete the reviewed candidate: %v", err)
-	}
-}
-
-func TestManagedCandidateSubjectCorrectiveReviewOnB(t *testing.T) {
-	c := acceptDeliveryCandidateAt(t, "candidate-corrective-report", WorkflowStepPlanFix)
-	acceptCurrentReviewForTest(t, c.f, "correction_required")
-	run := c.j.observeRun(t, "correction")
-	c.j.bindVerification(t, run)
-	step := workflowPlanFixtureFrontier(t, c.f.store, c.f.workID)
-	acceptCurrentReviewForTest(t, c.f, "ready_for_final_proof")
-	state, err := loadWorkflowReviewState(t.Context(), c.f.store.db, c.f.workID)
-	if err != nil || state.Accepted == nil || state.Accepted.Report.Disposition != "ready_for_final_proof" || workflowPlanFixtureFrontier(t, c.f.store, c.f.workID) != step {
-		t.Fatalf("ordinary Review did not refresh readiness in place: %+v, %v", state, err)
-	}
-}
-
-func TestManagedCandidateSubjectLateReviewNeverReplacesNewerCandidate(t *testing.T) {
-	a := ReviewCandidate{ProjectID: "project:one", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Tree: "cccccccccccccccccccccccccccccccccccccccc"}
-	b := ReviewCandidate{ProjectID: a.ProjectID, Commit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Tree: "dddddddddddddddddddddddddddddddddddddddd"}
-	report := &ReviewBlock{InputCandidate: a, OutputCandidate: b}
-	if err := validateReviewCandidates(report, &b); !hasFailureKind(err, KindStaleRequiresReview) {
-		t.Fatalf("late corrective Review accepted a superseded input: %v", err)
-	}
 }

@@ -66,15 +66,15 @@ func TestReviseIntentUpdatesContractAtomicallyAndReplays(t *testing.T) {
 	contract := workflowContractFieldsFixture()
 	contract["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
 	contract["decision_domains"] = []string{}
-	contract["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:plan", "immutable_subject_ref": "commit:fixture", "expected_result": "pass"}}}
+	contract["legislative_subjects"] = []string{}
 	invokeAction("approve_contract", contract)
 	contract["contract_version"] = 2
 	delete(contract, "route_convention")
-	var required, routes, rigor string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT required_evidence,route_conventions,rigor_class FROM workflow_contracts WHERE work_id='work-1' AND contract_version=1`).Scan(&required, &routes, &rigor); err != nil {
+	var routes, rigor string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT route_conventions,rigor_class FROM workflow_contracts WHERE work_id='work-1' AND contract_version=1`).Scan(&routes, &rigor); err != nil {
 		t.Fatal(err)
 	}
-	contract["required_evidence"], contract["route_conventions"], contract["rigor_class"] = json.RawMessage(required), json.RawMessage(routes), rigor
+	contract["route_conventions"], contract["rigor_class"] = json.RawMessage(routes), rigor
 	expected := workVersion(t, s, "work-1")
 	raw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": expected, "title": "Revised plan", "value_statement": "Retain proof", "kind": "task", "reason": "Clarify the plan", "contract": contract, "idempotency_key": "ordinary-contract-update"})
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: raw}

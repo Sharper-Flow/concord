@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 )
@@ -44,82 +43,54 @@ func contractRecordUpdate(t *testing.T, s *Store, workID string) map[string]any 
 }
 
 func TestContractRecordUpdatePreservesProofAndProvenance(t *testing.T) {
-	for _, scenario := range []string{"unchanged", "empty-requirements", "criterion", "subject", "ancestry-unchanged", "ancestry-criterion", "ancestry-subject"} {
+	for _, scenario := range []string{"unchanged", "legislative-subject"} {
 		t.Run(scenario, func(t *testing.T) {
-			change := strings.TrimPrefix(scenario, "ancestry-")
-			f, _, refs := pReceiptFixture(t, "record-update-"+scenario, 1, 1)
+			workID := "record-update-" + scenario
+			f := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "implement")
 			s := f.store
-			if err := runVerdictActionAs(t, s, f.workID, "record_verdict", pReceiptBatch(refs, 0), 0, f.owner); err != nil {
-				t.Fatal(err)
-			}
-			proof, err := latestWorkflowVerdicts(t.Context(), s.db, f.workID, 1)
-			if err != nil || len(proof) != 1 {
-				t.Fatalf("initial proof = %+v, %v", proof, err)
-			}
-			// Historical projections can carry the retired convention and a
-			// sequence after accepted proof. Neither is a current proof cutoff.
-			if strings.HasPrefix(scenario, "ancestry-") {
-				if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1);
-					UPDATE workflow_contracts SET route_conventions='["complete_step_correction"]',supersession_seq=(SELECT max(effect_seq)+1 FROM effect_receipts WHERE subject_id=?) WHERE work_id=? AND contract_version=1;
-					DELETE FROM write_guard`, f.workID, f.workID); err != nil {
-					t.Fatal(err)
-				}
-				intermediate := contractRecordUpdate(t, s, f.workID)
-				intermediate["route_conventions"] = []string{}
-				if err := reviseContractRecord(t, s, f.workID, f.owner, intermediate, readWorkVersion(t, s, f.workID)); err != nil {
-					t.Fatal(err)
-				}
-			}
-			previous, err := activeWorkflowContractVersion(t.Context(), s.db, f.workID, "test")
+			previous, err := activeWorkflowContractVersion(t.Context(), s.db, workID, "test")
 			if err != nil {
 				t.Fatal(err)
 			}
-			bindingsSnapshot := contractRecordBindingSnapshot(t, s, f.workID)
+			bindingsSnapshot := contractRecordBindingSnapshot(t, s, workID)
 			if bindingsSnapshot == "" {
 				t.Fatal("fixture carries no stored evidence bindings")
 			}
 			var bindingsBefore int
-			if err := s.db.QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=?`, f.workID).Scan(&bindingsBefore); err != nil {
+			if err := s.db.QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=?`, workID).Scan(&bindingsBefore); err != nil {
 				t.Fatal(err)
 			}
-			before, err := readWorkflowContractVersion(t.Context(), s.db, f.workID, previous)
+			before, err := readWorkflowContractVersion(t.Context(), s.db, workID, previous)
 			if err != nil {
 				t.Fatal(err)
 			}
-			step := workflowPlanFixtureFrontier(t, s, f.workID)
-			expected := readWorkVersion(t, s, f.workID)
-			contract := contractRecordUpdate(t, s, f.workID)
-			if change == "empty-requirements" {
-				contract["required_evidence"] = []string{}
+			step := workflowPlanFixtureFrontier(t, s, workID)
+			expected := readWorkVersion(t, s, workID)
+			contract := contractRecordUpdate(t, s, workID)
+			if scenario == "legislative-subject" {
+				contract["legislative_subjects"] = []string{"spec:one"}
 			}
-			predicate := contract["outcome_predicates"].([]any)[0].(map[string]any)["outcome_payload"].(map[string]any)
-			if change == "criterion" {
-				predicate["check_ref"] = "check:revised"
-			}
-			if change == "subject" {
-				predicate["immutable_subject_ref"] = "commit:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-			}
-			if err := reviseContractRecord(t, s, f.workID, f.owner, contract, expected); err != nil {
+			if err := reviseContractRecord(t, s, workID, f.owner, contract, expected); err != nil {
 				t.Fatal(err)
 			}
-			active, err := activeWorkflowContractVersion(t.Context(), s.db, f.workID, "test")
+			active, err := activeWorkflowContractVersion(t.Context(), s.db, workID, "test")
 			if err != nil || active != previous+1 {
 				t.Fatalf("active contract = %d, %v; want next retained version %d", active, err, previous+1)
 			}
-			updated, err := readWorkflowContractVersion(t.Context(), s.db, f.workID, active)
+			updated, err := readWorkflowContractVersion(t.Context(), s.db, workID, active)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if change == "empty-requirements" && len(updated.RequiredEvidence) != 0 {
-				t.Fatalf("complete update defaulted an explicitly empty evidence list: %v", updated.RequiredEvidence)
+			if scenario == "legislative-subject" && !reflect.DeepEqual(updated.LegislativeSubjects, []string{"spec:one"}) {
+				t.Fatalf("revised legislative subjects = %v", updated.LegislativeSubjects)
 			}
-			if got := readWorkVersion(t, s, f.workID); got != expected+1 {
+			if got := readWorkVersion(t, s, workID); got != expected+1 {
 				t.Fatalf("ordinary update advanced work version to %d, want %d", got, expected+1)
 			}
-			if got := workflowPlanFixtureFrontier(t, s, f.workID); got != step {
+			if got := workflowPlanFixtureFrontier(t, s, workID); got != step {
 				t.Fatalf("ordinary update reset step %s to %s", step, got)
 			}
-			after, err := readWorkflowContractVersion(t.Context(), s.db, f.workID, previous)
+			after, err := readWorkflowContractVersion(t.Context(), s.db, workID, previous)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -128,22 +99,11 @@ func TestContractRecordUpdatePreservesProofAndProvenance(t *testing.T) {
 				t.Fatalf("historical contract content changed: before=%+v after=%+v", before, after)
 			}
 			var bindingsAfter int
-			if err := s.db.QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=?`, f.workID).Scan(&bindingsAfter); err != nil || bindingsAfter != bindingsBefore {
+			if err := s.db.QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=?`, workID).Scan(&bindingsAfter); err != nil || bindingsAfter != bindingsBefore {
 				t.Fatalf("stored bindings = %d, %v; want %d", bindingsAfter, err, bindingsBefore)
 			}
-			if got := contractRecordBindingSnapshot(t, s, f.workID); got != bindingsSnapshot {
+			if got := contractRecordBindingSnapshot(t, s, workID); got != bindingsSnapshot {
 				t.Fatal("ordinary update changed stored binding bytes")
-			}
-			current, err := latestWorkflowVerdicts(t.Context(), s.db, f.workID, active)
-			if err != nil {
-				t.Fatal(err)
-			}
-			unchanged := change == "unchanged" || change == "empty-requirements"
-			if unchanged && !reflect.DeepEqual(current, proof) {
-				t.Fatalf("unchanged criterion lost valid proof: %+v", current)
-			}
-			if !unchanged && len(current) != 0 {
-				t.Fatalf("changed %s gained old proof: %+v", change, current)
 			}
 		})
 	}
@@ -162,7 +122,7 @@ func TestContractRecordUpdateRefusalsAreAtomic(t *testing.T) {
 	for _, mutant := range []string{"malformed", "missing premise", "unknown field", "null", "current version", "skipped version", "stale work version"} {
 		t.Run(mutant, func(t *testing.T) {
 			workID := "record-refusal-" + fmt.Sprint(len(mutant))
-			f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanFix, "plan", []string{"verification"}, nil)
+			f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanFix, "plan", nil)
 			defer f.store.Close()
 			expected := readWorkVersion(t, f.store, workID)
 			contract := contractRecordUpdate(t, f.store, workID)
@@ -174,7 +134,7 @@ func TestContractRecordUpdateRefusalsAreAtomic(t *testing.T) {
 			case "null":
 				contract = nil
 			case "malformed":
-				contract["outcome_predicates"] = []any{}
+				contract["legislative_subjects"] = []any{"spec:one", "spec:one"}
 			case "current version":
 				contract["contract_version"] = 1
 			case "skipped version":

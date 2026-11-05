@@ -50,7 +50,7 @@ func TestLawAttributionVerifiedSnapshotUpgrade(t *testing.T) {
 	if verified, err := VerifyBackup(t.Context(), snapshot); err != nil || verified.SchemaVersion != 178 || verified.DBChecksum != manifest.DBChecksum {
 		t.Fatalf("verified predecessor=%+v error=%v", verified, err)
 	}
-	report, err := Upgrade(t.Context(), path, nil)
+	report, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestLawAttributionVerifiedSnapshotUpgrade(t *testing.T) {
 			continue
 		}
 		switch table {
-		case "schema", "schema_migrations", "store_revision", "workflow_law_baselines", "work_messages", "work_observations", "workflow_correction_state", "workflow_artifact_actions":
+		case "schema", "schema_migrations", "store_revision", "workflow_law_baselines", "work_messages", "work_observations", "workflow_correction_state", "workflow_artifact_actions", "workflow_contract_predicates", "workflow_predicate_verdicts", "workflow_review_state":
 			continue
 		case "workflow_step_completions":
 			if got := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name=? OR tbl_name=?`, table, table); len(got) != 0 {
@@ -91,8 +91,8 @@ func TestLawAttributionVerifiedSnapshotUpgrade(t *testing.T) {
 	if got := retirementUpgradeRows(t, db, `SELECT name FROM pragma_table_info('workflow_contracts') WHERE name='law_change'`); len(got) != 0 {
 		t.Fatalf("retired carrier survives: %v", got)
 	}
-	contract, err := workflowCompletionContractRows(t.Context(), db, "work-upgrade-from")
-	if err != nil || contract.Version != 1 || len(contract.Predicates) != 1 || contract.Predicates[0].PredicateID != "predicate:retained" {
+	contract, err := readWorkflowContractVersion(t.Context(), db, "work-upgrade-from", 1)
+	if err != nil || contract.Version != 1 {
 		t.Fatalf("retained contract is unreadable: %+v error=%v", contract, err)
 	}
 	backup, err := sql.Open(driverName, readOnlyDataSource(snapshot))
@@ -120,15 +120,16 @@ func TestLawAttributionMigrationRollback(t *testing.T) {
 	// failure follows DROP TABLE and must roll that deletion back atomically.
 	retirementUpgradeExec(t, db, `CREATE INDEX law_attribution_rollback ON workflow_contracts(law_change)`)
 	before := retirementUpgradeSnapshot(t, db)
-	if _, err := Upgrade(t.Context(), path, nil); err == nil || !strings.Contains(err.Error(), "law_attribution_rollback") {
+	_, err := Upgrade(t.Context(), path, nil)
+	if err == nil || !strings.Contains(err.Error(), "law_attribution_rollback") {
 		t.Fatalf("upgrade did not reach the destructive rollback witness: %v", err)
 	}
 	if got := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(got, before) {
 		t.Fatal("failed migration changed schema, rows, guards or manifest")
 	}
 	retirementUpgradeExec(t, db, `DROP INDEX law_attribution_rollback`)
-	if _, err := Upgrade(t.Context(), path, nil); err != nil {
-		t.Fatalf("retry after rollback: %v", err)
+	if _, err := Upgrade(t.Context(), path, nil, outcomeSnapshotOption(t, t.Context(), path)); err != nil {
+		t.Fatalf("retry after removing injected failure: %v", err)
 	}
 	retirementUpgradeHealthy(t, db)
 }

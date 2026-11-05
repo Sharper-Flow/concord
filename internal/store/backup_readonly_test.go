@@ -14,6 +14,13 @@ import (
 	"time"
 )
 
+// boundedTemplateEnv carries the parent's migrated template database to the
+// re-executed child. The child copies that template instead of rebuilding it:
+// copyTestDatabase's sync.Once is per-process, so a child that migrated its
+// own template would spend its whole run on migration rather than on the
+// bounded operation the child-process bound exists to watch.
+const boundedTemplateEnv = "TEST_CONCORD_BOUNDED_TEMPLATE_DB"
+
 // Compile-time proof that the generalized read owner accepts both a pool and
 // one held connection without any caller change.
 var (
@@ -389,13 +396,14 @@ func TestBackupDatabaseReadOnlyWALBounded(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		template := copyTestDatabase(t)
 		for _, mode := range []string{"0444", "0444-sidecars"} {
 			t.Run(mode, func(t *testing.T) {
 				// Raw driver calls need a process bound if they ignore the context.
 				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel()
 				cmd := exec.CommandContext(ctx, binary, "-test.run=^TestBackupDatabaseReadOnlyWALBounded$", "-test.v", "-test.timeout=10s")
-				cmd.Env = append(os.Environ(), childModeEnv+"="+mode)
+				cmd.Env = append(os.Environ(), childModeEnv+"="+mode, boundedTemplateEnv+"="+template)
 				output, err := cmd.CombinedOutput()
 				if err != nil {
 					t.Fatalf("backup of WAL source mode %s: %v (process context: %v)\n%s", mode, err, ctx.Err(), output)
@@ -406,7 +414,11 @@ func TestBackupDatabaseReadOnlyWALBounded(t *testing.T) {
 		return
 	}
 
-	fixture := copyTestDatabase(t)
+	template := os.Getenv(boundedTemplateEnv)
+	if template == "" {
+		t.Fatalf("bounded child requires the parent's template in %s; run through the parent test", boundedTemplateEnv)
+	}
+	fixture := copyClosedTestDatabase(t, template)
 	ctx := context.Background()
 	manifest, err := verifyBackupFile(ctx, fixture, CurrentSchemaVersion(), nil)
 	if err != nil {
@@ -540,13 +552,14 @@ func TestRestoreBackupReadOnlyWALBounded(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		template := copyTestDatabase(t)
 		for _, mode := range []string{"0600", "0444", "0444-sidecars"} {
 			t.Run(mode, func(t *testing.T) {
 				// Raw driver calls need a process bound if they ignore the context.
 				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel()
 				cmd := exec.CommandContext(ctx, binary, "-test.run=^TestRestoreBackupReadOnlyWALBounded$", "-test.v", "-test.timeout=10s")
-				cmd.Env = append(os.Environ(), childModeEnv+"="+mode)
+				cmd.Env = append(os.Environ(), childModeEnv+"="+mode, boundedTemplateEnv+"="+template)
 				output, err := cmd.CombinedOutput()
 				if err != nil {
 					t.Fatalf("restore of WAL source mode %s: %v (process context: %v)\n%s", mode, err, ctx.Err(), output)
@@ -557,7 +570,11 @@ func TestRestoreBackupReadOnlyWALBounded(t *testing.T) {
 		return
 	}
 
-	fixture := copyTestDatabase(t)
+	template := os.Getenv(boundedTemplateEnv)
+	if template == "" {
+		t.Fatalf("bounded child requires the parent's template in %s; run through the parent test", boundedTemplateEnv)
+	}
+	fixture := copyClosedTestDatabase(t, template)
 	ctx := context.Background()
 	manifest, err := verifyBackupFile(ctx, fixture, CurrentSchemaVersion(), nil)
 	if err != nil {

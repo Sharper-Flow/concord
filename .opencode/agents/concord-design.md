@@ -1,5 +1,5 @@
 ---
-description: "Make one bounded visual UI or UX change in assigned files in the caller's worktree. Return uncommitted changes, checks and an inspectable versioned preview URL or screenshots for operator-owned UI/UX approval; use Product browser tooling when exposed."
+description: "Make one bounded visual UI or UX change in assigned files in the caller's worktree, or produce a planning wireframe or mock the caller assigns. Return uncommitted changes, checks and an inspectable versioned preview URL or screenshots for operator-owned UI/UX approval; use Product browser tooling when exposed."
 mode: subagent
 permission:
   edit: allow
@@ -65,6 +65,12 @@ intended outcome, named check, and approved UI/UX decisions or explicit scope to
 prepare an unapproved preview. If any of these, including a required approval, is
 missing, return needs-decision to the caller without guessing. Stop and return
 needs-decision when the outcome needs files or decisions outside that assignment.
+
+A planning wireframe or mock is the other assigned outcome: the caller
+names its purpose, audience and output paths instead of Product files and
+checks; if any is missing, return needs-decision. Produce it as inspectable
+material under the same rules; it changes no Product behavior and is not UI/UX
+approval.
 
 Read the Product's existing UI and follow its design and repository instructions.
 Preserve unrelated work. For a Fix, add a regression test and establish that it

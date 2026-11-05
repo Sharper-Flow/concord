@@ -175,7 +175,8 @@ portable skills ready for OpenCode out of the box.
   across repository and external sources within the caller's budget, returning
   cited findings, uncertainty and gaps without editing files.
 - **Native design helper**: `concord-design` makes a bounded visual UI or UX change
-  in assigned files and returns uncommitted changes, checks and a versioned preview
+  in assigned files, or produces an assigned planning wireframe or mock, and
+  returns uncommitted changes, checks and a versioned preview
   URL or screenshots. UI/UX approval stays with the operator; Product browser
   tooling is optional and host-provided.
 

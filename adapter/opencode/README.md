@@ -251,7 +251,8 @@ denials and the other helpers' workflow, host safety and no-bypass boundaries;
 read-only diagnostics are allowed, but command-text restrictions are not a sandbox.
 
 The native `concord-design` helper makes one bounded visual UI or UX change in
-assigned files in the caller's worktree. It has the implementer's edit-capable
+assigned files in the caller's worktree, or produces a planning wireframe or mock
+the caller assigns. It has the implementer's edit-capable
 permissions, Concord reads, explore/lookup-only delegation and no-bypass boundaries.
 It returns uncommitted changes, checks and inspectable preview material: a live
 URL or screenshots identifying the exact version shown. Missing scope or required

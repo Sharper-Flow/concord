@@ -305,7 +305,7 @@
     {
       "id": "concord-design",
       "mode": "subagent",
-      "description": "Make one bounded visual UI or UX change in assigned files in the caller's worktree. Return uncommitted changes, checks and an inspectable versioned preview URL or screenshots for operator-owned UI/UX approval; use Product browser tooling when exposed.",
+      "description": "Make one bounded visual UI or UX change in assigned files in the caller's worktree, or produce a planning wireframe or mock the caller assigns. Return uncommitted changes, checks and an inspectable versioned preview URL or screenshots for operator-owned UI/UX approval; use Product browser tooling when exposed.",
       "role_source": ".concord/roles/design.md",
       "tools": {
         "edit": "allow",

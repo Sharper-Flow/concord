@@ -127,15 +127,16 @@ func commitBoundaryFailure(t *testing.T, err error, landed, unprovedRollback, du
 		}
 		return
 	}
-	if errors.Is(err, context.Canceled) && !errors.Is(err, sql.ErrTxDone) {
+	switch {
+	case errors.Is(err, context.Canceled) && !errors.Is(err, sql.ErrTxDone):
 		if failure.EffectPossible || !failure.RetrySafe {
 			t.Errorf("clean refusal envelope: %+v", failure)
 		}
-	} else if errors.Is(err, sql.ErrTxDone) {
+	case errors.Is(err, sql.ErrTxDone):
 		if !failure.EffectPossible || failure.RetrySafe {
 			t.Errorf("unproved settlement envelope: %+v", failure)
 		}
-	} else {
+	default:
 		t.Errorf("cancel did not reach commit: %v", err)
 	}
 }

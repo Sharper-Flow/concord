@@ -9,7 +9,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -331,22 +330,7 @@ func repairManifestBreakingColumn(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
-		var failure *Failure
-		if errors.As(err, &failure) {
-			return err
-		}
-		if commitRefusedBeforeDriver(err, ctx) {
-			// database/sql's watchdog may own the refused commit's
-			// settlement; finish reports one this scope did not observe.
-			var refused error = wrapFailure(KindUnavailable, "upgrade", "cannot commit the manifest repair", true,
-				"retry once the database is writable", err)
-			write.finish(&refused)
-			return refused
-		}
-		failure = wrapFailure(KindUnavailable, "upgrade", "cannot commit the manifest repair", false,
-			"reconcile database state before retrying", err)
-		failure.EffectPossible = true
-		return failure
+		return ordinaryCommitFailure(ctx, write, "upgrade", "cannot commit the manifest repair", err)
 	}
 	return nil
 }

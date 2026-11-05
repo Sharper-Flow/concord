@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -506,24 +505,22 @@ func applyOperationWithResult(ctx context.Context, s *Store, operation Operation
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		var failure *Failure
-		if errors.As(err, &failure) {
-			return output, err
-		}
-		if commitRefusedBeforeDriver(err, ctx) {
-			// database/sql's watchdog may own the refused commit's
-			// settlement; finish reports one this scope did not observe.
-			var refused error = wrapFailure(KindUnavailable, "apply_operation", "cannot commit domain operation", true,
-				"retry once the database is writable", err)
-			tx.finish(&refused)
-			return output, refused
-		}
-		failure = wrapFailure(KindUnavailable, "apply_operation", "cannot commit domain operation", false,
-			"reconcile database state before retrying", err)
-		failure.EffectPossible = true
-		return output, failure
+		return output, ordinaryCommitFailure(ctx, tx, "apply_operation", "cannot commit domain operation", err)
 	}
 	return output, nil
+}
+
+func ordinaryCommitFailure(ctx context.Context, tx *writeTx, op, detail string, err error) error {
+	if commitRefusedBeforeDriver(err, ctx) {
+		// A pre-driver refusal proves no commit, but database/sql's watchdog
+		// may own the rollback. Report absence only after proving cleanup.
+		var refused error = wrapFailure(KindUnavailable, op, detail, true, "retry once the database is writable", err)
+		tx.finish(&refused)
+		return refused
+	}
+	failure := wrapFailure(KindUnavailable, op, detail, false, "reconcile database state before retrying", err)
+	failure.EffectPossible = true
+	return failure
 }
 
 func enterWrite(ctx context.Context, tx *sql.Tx) error {

@@ -239,26 +239,23 @@ preview or mockup, renewed approval of a changed experience, or interception of
 a Git push or merge.
 
 S, P10, A2 row 9 and P8 use D2's recorded-review method.
-`internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims` follows a
-live Review completion into the work-pin. It checks exact
-claim text and evidence references, retained producer and source ordering,
-and that claims grant neither approval nor acceptance.
-`internal/store.TestDispatchRefusesStaleWorkContextPacket` and
-`internal/store.TestDispatchRefusesTamperedWorkContextPacket` protect the
-context supplied to the reviewer. These tests prove carriers and source
-bindings, not the judgment that an explanation is adequate or consent informed.
+The reviewed step's `record_review` attempt carries the applied-rule claims in
+its note and links the review result.
+`internal/store.TestWorkflowReviewAttemptTuple` refuses an attempt without its
+result, reviewer, commit or link. No test proves that the carrier retains exact
+claim text, evidence references or source ordering, or that the context
+supplied to the reviewer is current and untampered. Carrier tests never prove
+the judgment that an explanation is adequate or consent informed.
 `scripts/testdata/conflict-review-cases.md` supplies safe positive and
 negative cases for independent application of the method, including late or
 unverifiable evidence, informed approval without recovery, and an operator's
 quality-cost decision. The delivery's recorded independent review supplies
 that application evidence; shipping the instruction alone does not.
-Public reads expose current context claims, within the existing context bounds
-and selection lifecycle, not a permanent review history. Missing source or
-ordering proof remains unproved, never compliant by default.
+Missing source or ordering proof remains unproved, never compliant by default.
 
 P1, P2 and P3 use D2's recorded-review method.
-`internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims` also retains
-P1/P2/P3 claims; the same source-binding controls protect their inputs.
+The same `record_review` carrier holds P1/P2/P3 claims; no test protects their
+inputs.
 `scripts/testdata/conflict-review-law-cases.md` supplies ownership, retirement
 order, cheapest-means, and missing-evidence cases for independent application of
 the existing method.
@@ -277,8 +274,8 @@ The delivery's recorded independent review supplies the application evidence;
 the method adds no runtime gate or ad-hoc-route enforcement.
 
 P7, P9 and P11 use D2's recorded-review method.
-`internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims` also retains
-P7/P9/P11 claims; the same source-binding controls protect their inputs.
+The same `record_review` carrier holds P7/P9/P11 claims; no test protects their
+inputs.
 `scripts/testdata/conflict-review-parts-cases.md` supplies first- and
 second-occurrence, prose-versus-tool, shared-part repair, out-of-scope part fix
 and operator-request cases for independent application of the existing method.
@@ -291,8 +288,8 @@ follow-up item's rule label, raising-change link enforcement and saved view
 remain D6's open duty below.
 
 P4 and P6 use D2's recorded-review method.
-`internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims` also retains
-P4/P6 claims; the same source-binding controls protect their inputs.
+The same `record_review` carrier holds P4/P6 claims; no test protects their
+inputs.
 `scripts/testdata/conflict-review-architecture-cases.md` supplies kept, crossed
 and moved Domain boundaries, forced duplication, and parameterized, copied and
 special-cased shared-part variant cases for independent application of the
@@ -303,8 +300,8 @@ those judgments; the delivery's recorded independent review supplies the
 application evidence. A2 row 4's boundary-change handling remains open below.
 
 R1 and A2 row 1 use D2's recorded-review method.
-`internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims` also retains
-R1/A2-1 claims; the same source-binding controls protect their inputs.
+The same `record_review` carrier holds R1/A2-1 claims; no test protects their
+inputs.
 `scripts/testdata/conflict-review-bloat-cases.md` supplies removed and retained
 fix-made bloat, older bloat with and without a follow-up item, older bloat removed
 outside the change's scope, and unknown-origin cases for independent application
@@ -330,9 +327,8 @@ which judges in-scope repair and follow-up filing that the check does not decide
 The follow-up item's rule label, link and saved view remain D6's open duty.
 
 D3 has no dedicated carrier. Review records an applied rule as a finding whose
-statement starts `conflict-rule:<rule ID>`;
-`internal/store.TestReviewCompletionRetainsAppliedRuleContextClaims` proves the
-carrier. Nothing checks that a settlement outside Review names its rule.
+statement starts `conflict-rule:<rule ID>` in the `record_review` note. Nothing
+checks that statement form, or that a settlement outside Review names its rule.
 
 The remaining enforcement and proof is assigned below:
 

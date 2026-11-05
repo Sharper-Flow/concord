@@ -316,9 +316,7 @@ func (fx readPopulationFixture) envelope(t *testing.T) CallEnvelope {
 
 // seedPopulationRows gives every declared primary row collection at least one
 // row: a peer work item bound to the child Domain, Domain observations,
-// a relation edge, and a summary context boundary. Mutations and folds run
-// through the store's own APIs; the summary context boundary uses the store's
-// SQL fixture because no public store API authors that row.
+// and a relation edge. Mutations and folds run through the store's own APIs.
 func (fx readPopulationFixture) seedPopulationRows(t *testing.T) {
 	t.Helper()
 	fx.seedPopulationPeerWork(t)

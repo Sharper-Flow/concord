@@ -80,7 +80,7 @@ func TestWorkRemovalLinearHandoffRequiresRecordedIdentity(t *testing.T) {
 	// Linear is the only planning authority (CD-0213 D1), so no unconfirmed
 	// removal path remains.
 	err := validateRemovalDestinationQ(ctx, s.DatabaseForTesting(), req)
-	assertFailureKind(t, err, KindInvalidOperation)
+	assertFailureKind(t, err, KindInvalidPayload)
 	if !strings.Contains(err.Error(), "no recorded Linear issue identity") || !strings.Contains(err.Error(), "carries no Linear handoff confirmation") {
 		t.Fatalf("unlinked unconfirmed refusal=%v", err)
 	}
@@ -111,7 +111,7 @@ func TestWorkRemovalRefusesMissingSafetyEvidence(t *testing.T) {
 	req.Reason = "shelved"
 	req.ArtifactsVerified = false
 	err := validateRemovalRequest(req)
-	assertFailureKind(t, err, KindInvalidOperation)
+	assertFailureKind(t, err, KindInvalidPayload)
 	if err == nil || !strings.Contains(err.Error(), "safety evidence is incomplete") {
 		t.Fatalf("missing safety evidence refusal=%v", err)
 	}

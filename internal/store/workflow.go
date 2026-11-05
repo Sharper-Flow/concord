@@ -172,9 +172,9 @@ type workflowCandidateSetRevisedPayload struct {
 	Removed         []string `json:"removed"`
 }
 
-// workflowBacklogAlignmentRecordedPayload carries the typed
-// backlog-alignment search result: the alignment section the diagnosis
-// record requires. related_ids is present only when outcome
+// workflowBacklogAlignmentRecordedPayload is the retired standalone
+// alignment event's payload, kept so stored backlog_alignment_recorded
+// events still replay. related_ids is present only when outcome
 // is related_found; an omitted optional list and a deliberate empty result
 // must stay distinguishable, so none_found records no list at all.
 type workflowBacklogAlignmentRecordedPayload struct {
@@ -185,9 +185,9 @@ type workflowBacklogAlignmentRecordedPayload struct {
 }
 
 // workflowDiagnosisRecordedPayload is the typed record_diagnosis event:
-// one required section per merged source action, and the
-// alignment section's fields keep the shape the alignment event carried so
-// the projection fold writes identical rows.
+// one required section per merged source action; the
+// alignment fields keep the retired alignment event's shape so
+// the projection fold writes identical rows for both events.
 type workflowDiagnosisRecordedPayload struct {
 	WorkflowVersionFields
 	Reproduction string   `json:"reproduction"`
@@ -801,8 +801,8 @@ func overlap(a, b []string) bool {
 // one row per named work id. It does not reuse workflow_candidate_sets, whose
 // foreign key binds to workflow_contracts(work_id, contract_version) and
 // which therefore cannot hold a row before planning approves a contract. The
-// outcome/related_ids cross-field rule is the record_alignment registry
-// declaration's; the fold evaluates the same declaration here.
+// outcome/related_ids rule is enforced in this fold: related_found requires
+// one to sixty-four unique related ids, and none_found carries none.
 func foldWorkflowBacklogAlignmentRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowBacklogAlignmentRecordedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -842,8 +842,7 @@ func foldWorkflowBacklogAlignmentRecorded(ctx context.Context, tx *sql.Tx, event
 // writeWorkflowBacklogAlignmentRowsTx writes the write-seam-only alignment
 // projection rows for one recorded search: the declaration row and, when the
 // search found related work, one row per named work id. The merged diagnosis
-// fold reuses it, so the merged record writes exactly the rows the
-// alignment action wrote.
+// fold reuses it, so both events write identical rows.
 func writeWorkflowBacklogAlignmentRowsTx(ctx context.Context, tx *sql.Tx, workID, searched, outcome string, relatedIDs []string, at time.Time, actor string) error {
 	recordedAt := at.UTC().Format(time.RFC3339Nano)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_backlog_alignment WHERE work_id=?`, workID); err != nil {
@@ -861,9 +860,9 @@ func writeWorkflowBacklogAlignmentRowsTx(ctx context.Context, tx *sql.Tx, workID
 }
 
 // foldWorkflowDiagnosisRecorded writes the merged diagnosis
-// record. The alignment section answers to the record_alignment registry
-// declaration — the same cross-field rules the alignment fold evaluates —
-// and the projection rows are the alignment fold's own; the reproduction and
+// record. The alignment section answers to the same
+// outcome/related_ids rule the alignment fold enforces, and the projection
+// rows are the alignment fold's own; the reproduction and
 // root-cause sections ride the event the action recorded. No relation is
 // created.
 func foldWorkflowDiagnosisRecorded(ctx context.Context, tx *sql.Tx, event Event) error {

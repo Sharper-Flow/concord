@@ -361,9 +361,9 @@ func actionPolicyWithCombinations(policy builtinActionPolicy, combinations ...Wo
 }
 
 // workflowActionCrossField resolves one action's cross-field declaration
-// from its single owner: the builtin engine policy table, or the engine
-// recovery registry for correction actions admitted off a pinned step.
-// Core preflight, the fold guards, and the exported generator projection
+// from the builtin engine policy table. An action without a policy entry
+// resolves an empty declaration. Core preflight, the fold guards, and the
+// exported generator projection
 // all read this accessor, so no second copy of a rule can drift.
 func workflowActionCrossField(actionID string) WorkflowActionCrossField {
 	if policy, ok := builtinActionPolicies[actionID]; ok && policy.CrossField != nil {
@@ -524,8 +524,9 @@ func nativeRunActionFields(statuses ...string) []WorkflowPayloadField {
 	}
 }
 
-// workflowAlignmentCombinationTeaching states the record_alignment cross-field
-// rule the registry's combination declarations enforce through
+// workflowAlignmentCombinationTeaching states the outcome/related_ids
+// cross-field rule the record_diagnosis combination declaration enforces
+// through
 // validateWorkflowPayloadCrossFieldRules; the teaching projection publishes
 // the same text from this declaration site.
 const workflowAlignmentCombinationTeaching = "record_alignment couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination."
@@ -573,11 +574,10 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"checkpoint_refine":   actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
 	// The typed diagnosis record. The payload carries one
 	// required section per merged source action: the reproduction record,
-	// the alignment search whose searched/outcome/related_ids
-	// fields and legal input combinations the merged action carries
-	// unchanged, and the root-cause record. The projection fold writes the
-	// same workflow_backlog_alignment rows the alignment action wrote and
-	// creates no relation.
+	// the alignment search with its searched/outcome/related_ids
+	// fields and legal input combinations, and the root-cause record. The
+	// projection fold writes the same workflow_backlog_alignment rows the
+	// alignment fold writes and creates no relation.
 	"record_diagnosis": actionPolicyWithCombinations(actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
 		// The bounds match the searched floor the fold enforces through
 		// workflowString: a schema-valid section cannot be refused by the

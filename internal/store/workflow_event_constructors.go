@@ -151,8 +151,7 @@ func workflowReviseCandidatesEvents(request WorkflowActionExecutionRequest, acto
 // declared on the record_diagnosis registry payload and enforced by
 // validateWorkflowActionPayload before any event is built, so this
 // constructor does not restate them. Each related id names a real work
-// item, refused here at the boundary rather than at the fold's foreign key,
-// under the same rule the alignment constructor applies.
+// item, refused here at the boundary rather than at the fold's foreign key.
 func workflowRecordDiagnosisEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
 	relatedIDs := workflowFieldStrings(fields, "related_ids")
 	for _, relatedID := range relatedIDs {

@@ -137,3 +137,27 @@ func TestReviseIntentEvidenceFixtureDecodes(t *testing.T) {
 		t.Fatalf("revise_intent evidence fixture lost its locator: %+v", in.Evidence)
 	}
 }
+
+func TestWorkflowActionFieldsNormalization(t *testing.T) {
+	for _, input := range []string{`{"finding_refs":["finding-a"]}`, `[{"name":"finding_refs","value":["finding-a"]}]`} {
+		payload, err := workflowActionFields(json.RawMessage(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got struct {
+			FindingRefs []string `json:"finding_refs"`
+		}
+		if err := json.Unmarshal(payload, &got); err != nil || len(got.FindingRefs) != 1 || got.FindingRefs[0] != "finding-a" {
+			t.Fatalf("normalized fields = %s, err = %v", payload, err)
+		}
+	}
+	for _, input := range []string{
+		`{"finding_refs":[],"finding_refs":[]}`,
+		`[{"name":"finding_refs","value":[]},{"name":"finding_refs","value":[]}]`,
+		`{"context_findings":[{"id":"a","id":"b"}]}`,
+	} {
+		if _, err := workflowActionFields(json.RawMessage(input)); err == nil {
+			t.Fatalf("ambiguous fields passed normalization: %s", input)
+		}
+	}
+}

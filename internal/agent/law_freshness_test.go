@@ -124,7 +124,7 @@ func TestLawFreshnessDisclosureThroughInvoke(t *testing.T) {
 					}
 				}
 			}
-			for _, operation := range []string{"continuity", "history"} {
+			for _, operation := range []string{"history"} {
 				requireLawFreshnessNotice(t, invoke("concord_work_trace", operation, map[string]any{"work_id": workID}))
 			}
 			requireLawFreshnessNotice(t, invoke("concord_work_browse", "list", map[string]any{"product_id": "product-1", "work_ids": []string{workID}, "detail": "full"}))

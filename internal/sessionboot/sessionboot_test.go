@@ -193,7 +193,7 @@ func TestBuildReferencesLargeDocuments(t *testing.T) {
 			var handoff []byte
 			if s.PendingProjectHandoff != nil {
 				handoff = mustJSON(t, s.PendingProjectHandoff)
-				if err := payloadschema.Validate("continuity_pending_project_handoff", handoff); err != nil {
+				if err := payloadschema.Validate("pending_project_handoff", handoff); err != nil {
 					t.Fatalf("handoff fixture: %v", err)
 				}
 				if len(handoff) <= MaxBootPacketBytes {

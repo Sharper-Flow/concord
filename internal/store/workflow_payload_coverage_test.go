@@ -70,7 +70,6 @@ func TestDispatcherFieldReadsHaveActionPayloadDeclarations(t *testing.T) {
 		{"workflow_dispatch.go", "workflowCompletionEventForDefinition", []string{"complete"}},
 		{"workflow_event_constructors.go", "workflowContractContent", []string{"approve_contract"}},
 		{"workflow_action_guards.go", "guardForwardLinkOnly", []string{"link_successor"}},
-		{"workflow_action_guards.go", "guardNoRestartDispatch", []string{"cross_context_boundary"}},
 	} {
 		fields := workflowTestFieldReads(workflowTestFunction(t, files[binding.file], binding.name).Body, "fields")
 		for _, action := range binding.actions {

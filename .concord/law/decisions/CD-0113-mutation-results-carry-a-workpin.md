@@ -13,12 +13,11 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-06
-- **Scope:** The mutation result envelope of the agent tool surface, the
-  continuity read that carries the same state, and the derivation of
-  `next_valid_intents`
+- **Scope:** The mutation result envelope of the agent tool surface and the
+  derivation of `next_valid_intents`
 - **Approval:** The operator approved this decision for issue #857 on work item
   `work-201ad0df0700db9255d3f256`.
-- **Related:** CD-0005, CD-0027, CD-0039, CD-0173, CD-0201
+- **Related:** CD-0005, CD-0039, CD-0173, CD-0201
 
 ## Context
 
@@ -33,7 +32,7 @@ requires, and which attempt is live. It tells the session none of that.
 
 The read surface scatters the same facts. The version is readable through
 `concord_work_browse.list`. The step is readable through
-`concord_work_trace.continuity`.
+`concord_work_trace.resume`.
 
 ## Decision
 
@@ -82,10 +81,6 @@ A result that carries a pin takes its intents from the pin
 alone, so no hand-written intent reaches it. A result without a pin keeps the
 intents its operation writes, if any: reads that verify the write, never a work mutation.
 
-### D4. Continuity embeds the same pin
-
-`concord_work_trace.continuity` embeds the pin.
-
 ### D5. Structural tests
 
 A test proves every mutation result carries the pin of each `work_item` changed
@@ -109,14 +104,14 @@ Scenario: a mutation returns its post-state
 
 Scenario: a session learns its next actions
   Given a work item at a state where the engine admits actions A1 and A2
-  When any mutation or read returns the pin
+  When a mutation returns the pin
   Then next_valid_intents lists A1 and A2
   And each intent names its required fields and expected version
 
 Scenario: a session never reads the store around the surface
   Given a driving session preparing a workflow action
    When it needs the version and current step state
-   Then one typed read returns both
+   Then the item-scoped full work list and resume read provide current state
   And no refusal of a typed operation names reading the database as recovery
 
 Scenario: intents stay honest

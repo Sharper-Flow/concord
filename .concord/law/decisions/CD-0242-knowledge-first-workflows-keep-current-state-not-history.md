@@ -318,8 +318,8 @@ P12 consequence. Every law change is listed in the pull request and the
 completion report with its records, its change in meaning or the absence of
 one, and its reason.
 
-Workflow contracts store no law or registry freshness pins, and continuity
-reports no compatible-amendment hash pairs. Current readable law context and
+Workflow contracts store no law or registry freshness pins, and current reads
+report no compatible-amendment hash pairs. Current readable law context and
 same-operation snapshot consistency remain required. Concord retains no
 owning-start law inventory, enactment before-state or per-item law attribution.
 Law publication and review follow CD-0222 D1; a contract does not retain a

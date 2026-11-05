@@ -34,7 +34,7 @@ func completeWork(t *testing.T, s *store.Store, workID string) {
 	}
 }
 
-func seedContinuityWorkflow(t *testing.T, s *store.Store, workID string) {
+func seedInitializedWorkflow(t *testing.T, s *store.Store, workID string) {
 	t.Helper()
 	actor := store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1", ActorClass: store.ActorAgent}
 	ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)

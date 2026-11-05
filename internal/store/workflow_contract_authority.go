@@ -51,7 +51,7 @@ func ensureInitialWorkflowContractApproval(ctx context.Context, q queryer, workI
 		}
 		return activeErr
 	}
-	if workflowFieldInt(fields, "contract_version", 1) != 1 {
+	if workflowContractVersionField(fields, 1) != 1 {
 		return newFailure(KindInvalidPayload, "workflow_action", "initial workflow contract approval must be version 1", false, "approve the initial contract as version 1")
 	}
 	return nil

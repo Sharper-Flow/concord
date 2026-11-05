@@ -39,20 +39,20 @@ func TestWorkflowActionPreflightNamesEveryMissingAndUndeclaredField(t *testing.T
 // yields first, so the same empty payload reports a different field per run
 // and a caller cannot tell which field to correct first.
 func TestMissingRequiredFieldNamesFirstDeclaredMissingField(t *testing.T) {
-	// checkpoint_context declares eight required fields; active_unit is first.
+	// record_plan declares outcomes first and approach second.
 	for i := 0; i < 100; i++ {
-		_, failure := validateWorkflowPlanActionPayload("checkpoint_context", json.RawMessage(`{}`))
+		_, failure := validateWorkflowPlanActionPayload("record_plan", json.RawMessage(`{}`))
 		if failure == nil {
-			t.Fatal("REPRO: an empty checkpoint_context payload passed the required-field scan")
+			t.Fatal("REPRO: an empty record_plan payload passed the required-field scan")
 		}
-		if !strings.Contains(failure.Error(), `"active_unit"`) {
+		if !strings.Contains(failure.Error(), `"outcomes"`) {
 			t.Fatalf("REPRO: iteration %d named a non-first declared field: %v", i, failure)
 		}
 	}
 
 	// A payload that carries the first declared field must name the next one.
-	_, failure := validateWorkflowPlanActionPayload("checkpoint_context", json.RawMessage(`{"active_unit":"catalog scan"}`))
-	if failure == nil || !strings.Contains(failure.Error(), `"hypothesis"`) {
+	_, failure := validateWorkflowPlanActionPayload("record_plan", json.RawMessage(`{"outcomes":["catalog scan"]}`))
+	if failure == nil || !strings.Contains(failure.Error(), `"approach"`) {
 		t.Fatalf("partial payload did not name the next declared missing field: %v", failure)
 	}
 }

@@ -53,7 +53,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedWork(t, s, "work-1")
-	actor, version := continuityTestWorkflow(t, s, "neighbor-work")
+	actor, version := seedTestWorkflow(t, s, "neighbor-work")
 	seedWorkflowLaw(t, s)
 	if _, err := s.db.Exec(`INSERT INTO durable_operations(op_id,work_id,workflow_type_ref,step_id,accepted_inputs_digest,principal_ref,request_id,observed_at,contract_digest) VALUES('neighbor-result','work-1','fixture.atomic','execute',?,'agent-1','request:neighbor','2026-08-07T00:00:00Z',?)`, testDigest("inputs"), testManifestDigest); err != nil {
 		t.Fatal(err)
@@ -186,8 +186,8 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 
 		// Workflow reads.
 		{name: "ReadWorkPin", run: func() error { _, err := ReadWorkPin(ctx, s, "neighbor-work"); return err }},
-		{name: "ReadWorkflowContinuity", run: func() error {
-			_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: "neighbor-work", Limit: 20})
+		{name: "ReadSessionResume", run: func() error {
+			_, err := ReadSessionResume(ctx, s, "neighbor-work", "")
 			return err
 		}},
 		{name: "ReadWorkflowResume", run: func() error {

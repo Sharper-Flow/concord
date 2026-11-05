@@ -90,7 +90,7 @@ invent a Git note, GitHub adapter, second database, or generic provider layer.
 
 ### D4. Absence survives reads, recovery, and renewal
 
-Operational lists, exact-ID reads, continuity, workflow actions,
+Operational lists, exact-ID reads, resume, workflow actions,
 and overlap computation exclude a removed ID. Audit reads return only
 the explicit historical receipt. Snapshot restore, restart, and migration
 preserve the absence; recovery restores verified snapshots and reconciles current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). A retry with the original identity returns the

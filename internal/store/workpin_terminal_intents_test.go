@@ -20,7 +20,7 @@ import (
 func TestTerminalWorkOffersNoWorkflowIntent(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
-	_, version := continuityTestWorkflow(t, s, "workpin-terminal")
+	_, version := seedTestWorkflow(t, s, "workpin-terminal")
 
 	live, err := ReadWorkPin(ctx, s, "workpin-terminal")
 	if err != nil {

@@ -53,7 +53,7 @@ func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 	if _, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
 		t.Fatal(err)
 	}
-	retired := map[string]bool{"work_messages": true, "work_observations": true, "work_context_state": true, "work_context_findings": true, "project_governing_requirements": true, "workflow_law_baselines": true, "workflow_artifact_actions": true, "workflow_correction_state": true, "workflow_step_completions": true, "workflow_contract_predicates": true, "workflow_predicate_verdicts": true, "workflow_review_state": true}
+	retired := map[string]bool{"work_messages": true, "work_observations": true, "work_context_state": true, "work_context_findings": true, "project_governing_requirements": true, "workflow_law_baselines": true, "workflow_artifact_actions": true, "workflow_correction_state": true, "workflow_step_completions": true, "workflow_contract_predicates": true, "workflow_predicate_verdicts": true, "workflow_review_state": true, "workflow_context_checkpoints": true, "workflow_context_boundaries": true}
 	for table, want := range retained {
 		if retirementUpgradeResearchTable(t, db, table) {
 			continue

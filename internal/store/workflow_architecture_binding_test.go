@@ -699,12 +699,8 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	if projection.Contract == nil || projection.Contract.Version != 2 || projection.Contract.ChangesProductTruth == nil || !*projection.Contract.ChangesProductTruth || projection.Contract.ArchitectureBinding == nil || len(projection.Contract.ArchitectureBinding.DomainModifies) != 1 || projection.Contract.ArchitectureBinding.DomainModifies[0] != "root" {
 		t.Fatalf("unexpected active contract: %+v", projection.Contract)
 	}
-	continuity, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !continuity.ChangesProductTruth || continuity.ArchitectureBinding == nil || len(continuity.ArchitectureBinding.VerificationObligations) != 1 {
-		t.Fatalf("unexpected continuity: %+v", continuity)
+	if len(projection.Contract.ArchitectureBinding.VerificationObligations) != 1 {
+		t.Fatalf("unexpected active contract binding: %+v", projection.Contract.ArchitectureBinding)
 	}
 	if projection.Plan == nil || projection.Plan.Type != WorkflowStepPlanChange || projection.CurrentStep != "plan" {
 		t.Fatalf("unexpected workflow plan projection: %+v", projection)

@@ -137,12 +137,12 @@ func TestWorkListDispatchAddressedProjectHandoff(t *testing.T) {
 	read := func(service *Service, env CallEnvelope) *store.ProjectHandoff {
 		t.Helper()
 		item := listResumeFacts(t, s, service, env)
-		snapshot, err := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: "work-1", ProjectID: env.AmbientProjectID})
+		snapshot, err := store.ReadSessionResume(context.Background(), s, "work-1", env.AmbientProjectID)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(item.PendingProjectHandoff, snapshot.PendingProjectHandoff) {
-			t.Fatalf("list handoff=%+v continuity handoff=%+v", item.PendingProjectHandoff, snapshot.PendingProjectHandoff)
+			t.Fatalf("list handoff=%+v resume handoff=%+v", item.PendingProjectHandoff, snapshot.PendingProjectHandoff)
 		}
 		return item.PendingProjectHandoff
 	}

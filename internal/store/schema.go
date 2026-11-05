@@ -9160,6 +9160,13 @@ DROP TABLE workflow_law_addition_reservations_v187_backup;
 DROP TABLE workflow_contract_law_additions_v187_backup;
 `,
 	},
+	{
+		Version: 188, Name: "context_continuity_retirement", Breaking: true,
+		SQL: `
+DROP TABLE workflow_context_boundaries;
+DROP TABLE workflow_context_checkpoints;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

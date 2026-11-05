@@ -17,7 +17,7 @@ import (
 func TestWorkPinAmbiguousContractsCarryWatermark(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
-	actor, version := continuityTestWorkflow(t, s, "workpin-ambiguous")
+	actor, version := seedTestWorkflow(t, s, "workpin-ambiguous")
 
 	db := s.DatabaseForTesting()
 	var actorRef string

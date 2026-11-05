@@ -13,7 +13,7 @@ func TestPublishedExecutionAbsenceAuthorizationAndWire(t *testing.T) {
 	s := runtimeKnowledgeStore(t, "work-published", "work_note", []string{"product-a"}, map[string]string{"product-a": "member"})
 	defer s.Close()
 	ctx := t.Context()
-	request := InvokeRequest{Tool: "concord_work_trace", Operation: "continuity", Input: json.RawMessage(`{"work_id":"work-published"}`)}
+	request := InvokeRequest{Tool: "concord_work_trace", Operation: "resume", Input: json.RawMessage(`{"work_id":"work-published"}`)}
 	for _, products := range [][]string{{"product-b"}, {"product-a"}} {
 		err := validateRequestedScope(ctx, s, CallEnvelope{SelectedProductID: products[0]}, Authority{ProductScope: products}, request, agentcontract.OperationRead)
 		if products[0] == "product-b" {
@@ -27,7 +27,7 @@ func TestPublishedExecutionAbsenceAuthorizationAndWire(t *testing.T) {
 			t.Fatalf("authorized outcome owner refused: %v", err)
 		}
 		r := runtime{Store: s, Tool: request.Tool, Operation: request.Operation, Envelope: CallEnvelope{SelectedProductID: "product-a"}}
-		response, err := r.read(ctx, agentcontract.NewBase("published-read", r.Tool, r.Operation), request.Input, "C19.Continuity")
+		response, err := r.read(ctx, agentcontract.NewBase("published-read", r.Tool, r.Operation), request.Input, "C19.Resume")
 		if err != nil {
 			response = failureEnvelope(agentcontract.NewBase("published-read", r.Tool, r.Operation), err)
 		}
@@ -62,7 +62,7 @@ func TestPublishedExecutionAbsenceUnresolvedLocatorWire(t *testing.T) {
 			if err == nil {
 				t.Fatal("removed execution returned live metadata")
 			}
-			response := failureEnvelope(agentcontract.NewBase("published-read", "concord_work_trace", "continuity"), err)
+			response := failureEnvelope(agentcontract.NewBase("published-read", "concord_work_trace", "resume"), err)
 			if response.Error == nil || response.Error.Kind != tc.kind {
 				t.Fatalf("wire failure=%+v, want %s", response.Error, tc.kind)
 			}

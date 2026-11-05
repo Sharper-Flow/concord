@@ -41,7 +41,7 @@ first, but not each membership's role or the work narrative; no read replaces
 the role list or the narrative `scope` returned.
 
 List full detail no longer embeds a WorkPin. Mutation results retain their pins
-and derived intents under CD-0113 D1–D3. The continuity read is unchanged.
+and derived intents under CD-0113 D1–D3.
 History no longer carries the `workflow` sub-projection. Agent reads retire for
 the `record_plan` and `record_removal_scope` documents, `record_delivery`
 assertion and parked-delivery state, `record_diagnosis` backlog-alignment

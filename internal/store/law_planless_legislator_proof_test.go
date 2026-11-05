@@ -8,7 +8,7 @@ package store
 // must not consult the item's current step plan — a pre-plan legislator has
 // none and a plan is mutable after approval.
 //
-// These cases drive the public continuity read and the owning
+// These cases drive knowledge source proof establishment and the owning
 // workflow-action write boundary against the recorded post-cutover row
 // shape of a pre-plan legislating work: completed item, completed planless
 // instance, approved active contract with NULL changes_product_truth and a
@@ -105,29 +105,29 @@ func seedLegislatorPrimaryMembership(t *testing.T, s *Store, workID string) {
 	}
 }
 
-// Continuity must resolve law whose legislating work's approved contract
+// Knowledge source proof must resolve law whose legislating work's approved contract
 // predates stored step plans.
-func TestContinuityResolvesPlanlessHistoricalLegislator(t *testing.T) {
+func TestKnowledgeProofResolvesPlanlessHistoricalLegislator(t *testing.T) {
 	t.Parallel()
 	s, _ := authorityLawScenario(t, authorityLawFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: authorityLegislatorDeclaredVersion})
 	defer s.Close()
 	seedAuthorityWork(t, s, authoritySyntheticWork)
 	seedPlanlessLegislatorFixture(t, s, `["CD-8751"]`)
-	if _, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: authoritySyntheticWork}); err != nil {
-		t.Fatalf("continuity must resolve law whose legislator predates stored plans: %v", err)
+	if _, err := s.EstablishKnowledgeSourceSetProof(context.Background(), authoritySyntheticWork); err != nil {
+		t.Fatalf("knowledge source proof must resolve law whose legislator predates stored plans: %v", err)
 	}
 }
 
 // Control: a research plan at the same public seam still refuses. A research
 // approving contract is genuinely not Product-changing, plan or no migration.
-func TestContinuityRefusesResearchPlanLegislator(t *testing.T) {
+func TestKnowledgeProofRefusesResearchPlanLegislator(t *testing.T) {
 	t.Parallel()
 	s, _ := authorityLawScenario(t, authorityLawFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: authorityLegislatorDeclaredVersion})
 	defer s.Close()
 	seedAuthorityWork(t, s, authoritySyntheticWork)
 	seedAuthorityContract(t, s, authoritySyntheticWork, authorityLegislatorDeclaredVersion, WorkflowStepPlanResearch, []string{"CD-8751"}, nil)
 	seedLegislatorPrimaryMembership(t, s, authoritySyntheticWork)
-	_, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: authoritySyntheticWork})
+	_, err := s.EstablishKnowledgeSourceSetProof(context.Background(), authoritySyntheticWork)
 	assertLegislatorRefusal(t, err, "the approving contract is not Product-changing")
 }
 
@@ -137,7 +137,7 @@ func TestContinuityRefusesResearchPlanLegislator(t *testing.T) {
 // contract, so binding absence is the recorded non-Product-changing fact:
 // a new declaration naming an old research contract cannot ride the NULL
 // column to standing.
-func TestContinuityRefusesPlanlessLegislatorWithoutRetainedBinding(t *testing.T) {
+func TestKnowledgeProofRefusesPlanlessLegislatorWithoutRetainedBinding(t *testing.T) {
 	t.Parallel()
 	s, _ := authorityLawScenario(t, authorityLawFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: authorityLegislatorDeclaredVersion})
 	defer s.Close()
@@ -153,7 +153,7 @@ func TestContinuityRefusesPlanlessLegislatorWithoutRetainedBinding(t *testing.T)
 	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
-	_, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: authoritySyntheticWork})
+	_, err := s.EstablishKnowledgeSourceSetProof(context.Background(), authoritySyntheticWork)
 	assertLegislatorRefusal(t, err, "the approving contract is not Product-changing")
 }
 
@@ -161,7 +161,7 @@ func TestContinuityRefusesPlanlessLegislatorWithoutRetainedBinding(t *testing.T)
 // legislative field still refuses, whatever the product-truth classification
 // turns out to be. The contract mandates a second, derived fixture law so the
 // demand-driven establishment walk runs, while admitting nothing for CD-8751.
-func TestContinuityRefusesPlanlessLegislatorWithoutAdmittedReference(t *testing.T) {
+func TestKnowledgeProofRefusesPlanlessLegislatorWithoutAdmittedReference(t *testing.T) {
 	t.Parallel()
 	s, _ := authorityLawScenario(t,
 		authorityLawFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: authorityLegislatorDeclaredVersion},
@@ -181,7 +181,7 @@ func TestContinuityRefusesPlanlessLegislatorWithoutAdmittedReference(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: authoritySyntheticWork})
+	_, err = s.EstablishKnowledgeSourceSetProof(context.Background(), authoritySyntheticWork)
 	assertLegislatorRefusal(t, err, "names the law in no admitted legislative field")
 }
 

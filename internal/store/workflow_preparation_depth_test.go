@@ -30,11 +30,7 @@ func TestSmallFixPreparationDepthNeedsNoArchitectureDocument(t *testing.T) {
 				}
 			}
 			if investigate {
-				act("checkpoint_context", map[string]any{
-					"active_unit": "unit:repair", "hypothesis": "The documented value disagrees with the unchanged implementation.",
-					"diagnosis": "Inspect the implementation and its caller before correcting the comment.", "strategy": "Keep the existing behavior and correct only the factual comment.",
-					"touched_refs": []string{"pkg/value.go"}, "evidence_refs": []string{"reading:value"}, "pending_questions": []string{}, "pending_decisions": []string{},
-				})
+				act("record_diagnosis", map[string]any{"reproduction": "Initial reproduction.", "searched": "Initial backlog search.", "outcome": "none_found", "root_cause": "Initial hypothesis."})
 			}
 			act("record_diagnosis", map[string]any{
 				"reproduction": "The comment says eight; the function and check return seven.", "searched": "No related correction exists in the isolated backlog.",
@@ -64,16 +60,20 @@ func TestSmallFixPreparationDepthNeedsNoArchitectureDocument(t *testing.T) {
 			if workflowPlanFixtureFrontier(t, s, workID) != "implement" {
 				t.Fatal("small fix required an architecture document before implementation")
 			}
-			design, err := readCurrentWorkflowDesign(t.Context(), s.db, workID)
-			if err != nil || design != nil {
-				t.Fatalf("small fix acquired a redundant architecture document: %+v, %v", design, err)
+			var designs int
+			if err := s.db.QueryRowContext(t.Context(), `SELECT count(*) FROM workflow_design_records WHERE work_id=?`, workID).Scan(&designs); err != nil || designs != 0 {
+				t.Fatalf("small fix acquired %d redundant architecture documents: %v", designs, err)
 			}
-			var checkpoints int
-			if err := s.db.QueryRow(`SELECT count(*) FROM workflow_context_checkpoints WHERE work_id=?`, workID).Scan(&checkpoints); err != nil {
+			var declarations int
+			if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowDiagnosisRecorded).Scan(&declarations); err != nil {
 				t.Fatal(err)
 			}
-			if (checkpoints == 1) != investigate {
-				t.Fatalf("optional preparation checkpoint count=%d, additional investigation=%v", checkpoints, investigate)
+			want := 1
+			if investigate {
+				want++
+			}
+			if declarations != want {
+				t.Fatalf("diagnosis count=%d, want %d", declarations, want)
 			}
 		})
 	}

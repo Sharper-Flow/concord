@@ -13,9 +13,7 @@
           "actions": [
             "record_plan",
             "complete_step",
-            "approve_contract",
-            "checkpoint_context",
-            "cross_context_boundary"
+            "approve_contract"
           ]
         },
         {
@@ -29,9 +27,7 @@
             "record_review",
             "checkpoint_execution",
             "bind_evidence",
-            "link_successor",
-            "checkpoint_context",
-            "cross_context_boundary"
+            "link_successor"
           ]
         },
         {
@@ -45,9 +41,7 @@
             "confirm_premise",
             "complete_step",
             "complete",
-            "bind_evidence",
-            "checkpoint_context",
-            "cross_context_boundary"
+            "bind_evidence"
           ]
         }
       ]
@@ -62,9 +56,7 @@
           "reviewed": false,
           "actions": [
             "record_diagnosis",
-            "complete_step",
-            "checkpoint_context",
-            "cross_context_boundary"
+            "complete_step"
           ]
         },
         {
@@ -75,9 +67,7 @@
           "actions": [
             "record_plan",
             "complete_step",
-            "approve_contract",
-            "checkpoint_context",
-            "cross_context_boundary"
+            "approve_contract"
           ]
         },
         {
@@ -91,9 +81,7 @@
             "record_review",
             "checkpoint_execution",
             "bind_evidence",
-            "link_successor",
-            "checkpoint_context",
-            "cross_context_boundary"
+            "link_successor"
           ]
         },
         {
@@ -107,9 +95,7 @@
             "confirm_premise",
             "complete_step",
             "complete",
-            "bind_evidence",
-            "checkpoint_context",
-            "cross_context_boundary"
+            "bind_evidence"
           ]
         }
       ]
@@ -125,9 +111,7 @@
           "actions": [
             "frame_research",
             "complete_step",
-            "approve_contract",
-            "checkpoint_context",
-            "cross_context_boundary"
+            "approve_contract"
           ]
         },
         {
@@ -139,9 +123,7 @@
             "record_finding",
             "complete_step",
             "revise_candidates",
-            "bind_evidence",
-            "checkpoint_context",
-            "cross_context_boundary"
+            "bind_evidence"
           ]
         },
         {
@@ -158,9 +140,7 @@
             "record_delivery",
             "complete_step",
             "complete",
-            "bind_evidence",
-            "checkpoint_context",
-            "cross_context_boundary"
+            "bind_evidence"
           ]
         }
       ]
@@ -176,9 +156,7 @@
           "actions": [
             "record_removal_scope",
             "complete_step",
-            "approve_contract",
-            "checkpoint_context",
-            "cross_context_boundary"
+            "approve_contract"
           ]
         },
         {
@@ -192,9 +170,7 @@
             "record_review",
             "checkpoint_execution",
             "bind_evidence",
-            "link_successor",
-            "checkpoint_context",
-            "cross_context_boundary"
+            "link_successor"
           ]
         },
         {
@@ -208,9 +184,7 @@
             "confirm_premise",
             "complete_step",
             "complete",
-            "bind_evidence",
-            "checkpoint_context",
-            "cross_context_boundary"
+            "bind_evidence"
           ]
         }
       ]

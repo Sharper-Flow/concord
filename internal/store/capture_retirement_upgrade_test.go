@@ -121,7 +121,7 @@ func TestCaptureRetirementPreservesSeededRows(t *testing.T) {
 	}
 	for table, rows := range before {
 		switch table {
-		case "schema", "schema_migrations", "sqlite_sequence", "store_revision", "work_items", "workflow_instances", "relations", "workflow_overlap_resolutions", "work_context_state", "work_context_findings", "project_governing_requirements":
+		case "schema", "schema_migrations", "sqlite_sequence", "store_revision", "work_items", "workflow_instances", "relations", "workflow_overlap_resolutions", "work_context_state", "work_context_findings", "project_governing_requirements", "workflow_context_checkpoints", "workflow_context_boundaries":
 			continue
 		}
 		if !reflect.DeepEqual(rows, after[table]) {

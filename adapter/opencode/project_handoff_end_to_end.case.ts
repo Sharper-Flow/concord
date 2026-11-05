@@ -13,7 +13,7 @@ import { manifestDigest } from "./generated-contracts"
 import { sessionDirectoryReader, SESSION_ROUTE } from "./session-directory"
 import { dbValue, fixturePublicKeyBase64, type JSONRecord } from "./end-to-end.fixture"
 
-// The core owns capture, session identity, continuity and handoff state. Git
+// The core owns capture, session identity, work state and handoff state. Git
 // and the fixture host own checkout creation and session placement. No SQL
 // fixture rows stand in for a production admission or preservation check.
 // A clean checkout needs Go to build the real core; absence reports a skip.
@@ -306,13 +306,13 @@ async function prepareSession(fixture: HandoffFixture, directory: string): Promi
 async function readAddressedHandoff(fixture: HandoffFixture, sessionID: string): Promise<JSONRecord> {
   const directory = await sessionDirectoryReader().sessionDirectory(sessionID)
   expect(directory).toBe(fixture.receiveWorktree)
-  const continuity = await invokeConcordOperation("concord_work_trace", { operation: "continuity", input: { work_id: fixture.workID } } as any, contextFor(sessionID, directory!))
-  expect(continuity.outcome, JSON.stringify(continuity)).toBe("ok")
-  const result = continuity.result as JSONRecord
-  expect(result.work_id).toBe(fixture.workID)
-  expect(result.pinned.work_pin.work_id).toBe(fixture.workID)
-  const handoff = result.pinned.pending_project_handoff
-  expect(handoff, JSON.stringify(continuity)).toMatchObject({ handoff_id: fixture.handoffID, target_project_id: RECEIVE_PROJECT })
+  const listing = await invokeConcordOperation("concord_work_browse", { operation: "list", input: { product_id: PRODUCT_ID, work_ids: [fixture.workID], detail: "full" } }, contextFor(sessionID, directory!))
+  expect(listing.outcome, JSON.stringify(listing)).toBe("ok")
+  const result = listing.result as JSONRecord
+  expect(result.items).toHaveLength(1)
+  expect(result.items[0].id).toBe(fixture.workID)
+  const handoff = result.items[0].pending_project_handoff
+  expect(handoff, JSON.stringify(listing)).toMatchObject({ handoff_id: fixture.handoffID, target_project_id: RECEIVE_PROJECT })
   return handoff
 }
 
@@ -414,7 +414,7 @@ routeDeclaration("prepares, consumes, and retires through the real core routes",
     expect(consumed, JSON.stringify(consumed)).toMatchObject({ outcome: "ok", result: { handoff_id: handoffID } })
     expect(host.sessions[RECEIVE_SESSION].directory).toBe(receiveWorktree)
 
-    // The consume carries the continuity-rendered id and the host's actual
+    // The consume carries the listed handoff id and the host's actual
     // directory through the authenticated adapter boundary.
     const envelope = (captured.invoke?.call_envelope ?? {}) as JSONRecord
     expect(captured.invoke?.tool).toBe("concord_work_transition")

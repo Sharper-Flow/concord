@@ -117,7 +117,7 @@ func constructLawChangeContract(t *testing.T, s *Store, planType WorkflowStepPla
 		t.Fatalf("workflow plan type = %s, want %s", plan.Type, planType)
 	}
 	expected := readWorkVersion(t, s, workID)
-	if workflowFieldInt(fields, "contract_version", 1) > 1 {
+	if workflowContractVersionField(fields, 1) > 1 {
 		contract := make(map[string]any, len(fields))
 		for name, value := range fields {
 			contract[name] = value

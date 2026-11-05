@@ -155,16 +155,4 @@ func TestSixClassDecisionFactSchemas(t *testing.T) {
 			}
 		}
 	}
-	// Read schemas preserve stored preference, rather than reauthoring that fact.
-	for _, domains := range [][]string{{"preference"}, {"preference", "product", "ui_ux"}, {"increased_spending", "legal", "product", "production_data", "security", "ui_ux"}} {
-		input := corpusSample(document, defs["workflow_contract"].(map[string]any)).(map[string]any)
-		input["decision_domains"] = domains
-		raw, err := json.Marshal(input)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := Validate("workflow_contract", raw); err != nil {
-			t.Errorf("stored domains %v refused by read schema: %v", domains, err)
-		}
-	}
 }

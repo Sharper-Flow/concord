@@ -785,11 +785,11 @@ func TestWorkflowActionDispatchPersistsDefinitionContract(t *testing.T) {
 		t.Fatalf("unexpected plan frontier: %+v", resume)
 	}
 	wantBinding := workflowArchitectureBindingForSeededRegistry(t, s)
-	continuity, err := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: "work-1"})
-	if err != nil {
+	var homeDomain string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT b.home_domain_id FROM workflow_architecture_bindings b JOIN workflow_contracts c ON c.work_id=b.work_id AND c.contract_version=b.contract_version WHERE b.work_id='work-1' AND c.superseded_by IS NULL`).Scan(&homeDomain); err != nil {
 		t.Fatal(err)
 	}
-	if continuity.ArchitectureBinding == nil || continuity.ArchitectureBinding.HomeDomainID != wantBinding["home_domain_id"] {
-		t.Fatalf("agent approval did not persist readable architecture binding: %+v", continuity.ArchitectureBinding)
+	if homeDomain != wantBinding["home_domain_id"] {
+		t.Fatalf("agent approval did not persist readable architecture binding: %s", homeDomain)
 	}
 }

@@ -155,7 +155,7 @@ func TestReviewStepRecordIsPublicAndRequired(t *testing.T) {
 
 func TestWorkflowActionSchemaAcceptsWorkflowReferencePaths(t *testing.T) {
 	t.Parallel()
-	input := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"checkpoint_context","idempotency_key":"checkpoint-1","fields":{"active_unit":"repair","hypothesis":"test","diagnosis":"test","strategy":"test","touched_refs":["internal/store/workflow_registry.go"],"evidence_refs":["artifact:test/output.json"],"pending_questions":[],"pending_decisions":[]}}`)
+	input := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"bind_evidence","idempotency_key":"evidence-1","fields":{"evidence_ref":"artifact:test/output.json","producer_watermark":"request:test"}}`)
 	if err := payloadschema.Validate("work_transition_action_input", input); err != nil {
 		t.Fatalf("workflow reference path was rejected: %v", err)
 	}

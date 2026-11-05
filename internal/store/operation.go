@@ -191,8 +191,6 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowEvidenceBound:               workflowRegistration[workflowEvidenceBoundPayload](1, foldWorkflowEvidenceBound),
 	WorkflowPremiseConfirmed:            workflowScopedRegistration[workflowPremiseConfirmedPayload](2, foldWorkflowPremiseConfirmed),
 	WorkflowSuccessorLinked:             workflowRegistration[workflowSuccessorLinkedPayload](3, foldWorkflowSuccessorLinked),
-	WorkflowContextCheckpointed:         workflowRegistration[workflowContextCheckpointedPayload](1, foldWorkflowContextCheckpointed),
-	WorkflowContextBoundaryCrossed:      workflowRegistration[workflowContextBoundaryCrossedPayload](1, foldWorkflowContextBoundaryCrossed),
 	WorkflowProposalRecorded:            workflowRegistration[workflowProposalRecordedPayload](1, foldWorkflowProposalRecorded),
 	WorkflowDesignRecorded:              workflowRegistration[workflowDesignRecordedPayload](1, foldWorkflowDesignRecorded),
 	WorkflowBacklogAlignmentRecorded:    workflowRegistration[workflowBacklogAlignmentRecordedPayload](1, foldWorkflowBacklogAlignmentRecorded),

@@ -11,7 +11,7 @@ import (
 func TestReadWorkPinUsesOneTransactionAndDeclaredStepActions(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
-	_, version := continuityTestWorkflow(t, s, "workpin-reader")
+	_, version := seedTestWorkflow(t, s, "workpin-reader")
 
 	pin, err := ReadWorkPin(context.Background(), s, "workpin-reader")
 	if err != nil {
@@ -23,7 +23,7 @@ func TestReadWorkPinUsesOneTransactionAndDeclaredStepActions(t *testing.T) {
 	if !strings.HasPrefix(pin.Watermark, "seq:") {
 		t.Fatalf("watermark=%q, want sequence watermark", pin.Watermark)
 	}
-	if len(pin.DrivingSessions) != 1 || pin.DrivingSessions[0].SessionRef != "session:continuity" || pin.DrivingSessions[0].LastActionID != "workflow.actor_recorded" || pin.DrivingSessions[0].LastActedAt != "2026-08-11T00:00:00Z" {
+	if len(pin.DrivingSessions) != 1 || pin.DrivingSessions[0].SessionRef != "session:fixture" || pin.DrivingSessions[0].LastActionID != "workflow.actor_recorded" || pin.DrivingSessions[0].LastActedAt != "2026-08-11T00:00:00Z" {
 		t.Fatalf("driving sessions=%v, want only the coordinator session", pin.DrivingSessions)
 	}
 	gotActions := make([]string, 0, len(pin.NextValidIntents))
@@ -54,7 +54,7 @@ func TestReadWorkPinUsesOneTransactionAndDeclaredStepActions(t *testing.T) {
 
 func TestReadWorkPinIncludesRecordedLinearIssueKeyInTheSameTransaction(t *testing.T) {
 	s := openTemp(t)
-	continuityTestWorkflow(t, s, "workpin-linear")
+	seedTestWorkflow(t, s, "workpin-linear")
 	if err := s.Transact(context.Background(), func(tr *Transaction) error {
 		_, err := RecordLinearIssueLinkTx(context.Background(), tr, LinearIssueLink{WorkID: "workpin-linear", RemoteIssueUUID: "remote-1", HumanKey: "CON-42", URL: "https://linear.app/example/issue/CON-42"})
 		return err
@@ -117,7 +117,7 @@ func TestReadWorkPinCountsCancelledInstanceLifecycleCloses(t *testing.T) {
 		{id: "pin-count-other", lifecycle: "completed", instance: "cancelled", project: "project-secondary"},
 	}
 	for i, item := range cases {
-		continuityTestWorkflow(t, s, item.id)
+		seedTestWorkflow(t, s, item.id)
 		if i == 0 {
 			if err := ApplyOperation(ctx, s, Operation{Events: []Event{
 				projectCreatedEvent("project-secondary", "create-project-secondary"),

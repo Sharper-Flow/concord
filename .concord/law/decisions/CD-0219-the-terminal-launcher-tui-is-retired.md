@@ -100,7 +100,9 @@ store reads (the store query contracts).
 
 CD-0078 D1 through D3,
 CD-0163 D1, CD-0176 D3, CD-0093, and CD-0252 bind host-started managed
-sessions through session preparation and explicit work-context reads. The
+sessions through session preparation and explicit reads through
+`concord_work_trace.resume` and item-scoped `concord_work_browse.list` with
+`detail=full`. The
 context, identity, registry-probe, and terminal-placement proofs live with
 the surfaces that own those behaviors. Host tools own worktree lifecycle
 under CD-0088 D1. No worktree-ownership lookup supplies context; authenticated

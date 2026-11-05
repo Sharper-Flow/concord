@@ -43,7 +43,7 @@ func outsideRepairSettleAction(t *testing.T, s *Store, work string, actor Workfl
 	if kind == WorkflowActionFailed {
 		fields["failure_kind"], fields["recoverable"] = "timeout", false
 	} else {
-		fields["action_id"] = "checkpoint_context"
+		fields["action_id"] = "record_plan"
 	}
 	event := workflowEventWithActor(fmt.Sprintf("%s-settle-%d", work, version), kind, work, ref, fields)
 	if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(work, version)}); err != nil {

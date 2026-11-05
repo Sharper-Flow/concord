@@ -15,11 +15,6 @@ payload_schema = json.loads((ROOT / "contracts/agent-tool-surface-payloads.schem
 
 
 class RetainedWorkflowPayloadTests(unittest.TestCase):
-    def test_contract_read_admits_current_store_contract(self):
-        contract = {"version": 1, "premise": "A bounded change.", "route_conventions": [],
-                    "spec_mandate": [], "legislative_subjects": []}
-        generator.schema_validate(contract, payload_schema["$defs"]["workflow_contract"], payload_schema)
-
     def test_evidence_binding_requires_producer_watermark(self):
         schema = payload_schema["$defs"]["work_transition_action_variant_bind_evidence"]
         call = {"work_id": "work-1", "expected_version": 1, "action_id": "bind_evidence",
@@ -41,8 +36,7 @@ class RetainedWorkflowPayloadTests(unittest.TestCase):
 
     def test_legislative_subject_capacity_and_uniqueness(self):
         defs = payload_schema["$defs"]
-        schemas = [defs["workflow_contract"]["properties"]["legislative_subjects"],
-                   defs["workflow_contract_update"]["properties"]["legislative_subjects"],
+        schemas = [defs["workflow_contract_update"]["properties"]["legislative_subjects"],
                    defs["work_transition_action_variant_approve_contract"]["properties"]["fields"]["properties"]["legislative_subjects"]]
         subjects = [f"spec:{i}" for i in range(800)]
         for schema in schemas:
@@ -321,7 +315,7 @@ class ContractGuidanceProjectionTests(unittest.TestCase):
             generator.check_schema_keywords({"items": {"unknown_constraint": True}})
 
     def test_contract_fields_publish_schema_derived_examples(self):
-        actions, teaching, _, contract_updates, _ = generator.load_workflow_action_contracts()
+        actions, teaching, _, contract_updates = generator.load_workflow_action_contracts()
         projected, _ = generator.project_workflow_action_schema(payload_schema, actions, teaching, contract_updates)
         field = projected["$defs"]["workflow_contract_update"]["properties"]["premise"]
         self.assertIn("Accepted shape:", field.get("description", ""))
@@ -1104,9 +1098,9 @@ class EnvelopeOperationVocabularyTests(unittest.TestCase):
         self.assertEqual(self.findings(), [])
 
     def test_operation_removed_from_the_base_enum_is_rejected(self):
-        value = copy.deepcopy(envelope_schema); value["$defs"]["base"]["properties"]["operation"]["enum"].remove("continuity")
+        value = copy.deepcopy(envelope_schema); value["$defs"]["base"]["properties"]["operation"]["enum"].remove("resume")
         found = self.findings(value)
-        self.assertTrue(any("unsatisfiable" in f and "concord_work_trace.continuity" in f for f in found), found)
+        self.assertTrue(any("unsatisfiable" in f and "concord_work_trace.resume" in f for f in found), found)
 
     def test_operation_removed_from_the_next_intent_enum_is_rejected(self):
         value = copy.deepcopy(envelope_schema); value["$defs"]["nextIntent"]["properties"]["operation"]["enum"].remove("list")
@@ -1423,7 +1417,7 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.actions, cls.teaching, cls.schema_refs, cls.contract_updates, _ = generator.load_workflow_action_contracts()
+        cls.actions, cls.teaching, cls.schema_refs, cls.contract_updates = generator.load_workflow_action_contracts()
 
     def action(self, action_id):
         return next(action for action in self.actions if action["id"] == action_id)
@@ -1504,18 +1498,7 @@ class LiveAuthoringClosureTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.actions, cls.teaching, cls.schema_refs, cls.contract_updates, _ = generator.load_workflow_action_contracts()
-
-    def test_continuity_action_limit_follows_catalog_projection(self):
-        result = subprocess.run(["go", "run", "./scripts/workflow-action-contracts"], cwd=ROOT,
-                                text=True, capture_output=True, check=True)
-        count = json.loads(result.stdout)["catalog_action_count"]
-        limit = payload_schema["$defs"]["continuity_snapshot"]["properties"]["pinned"]["properties"]["step_actions"]["maxItems"]
-        self.assertGreaterEqual(count, len(self.actions))
-        self.assertEqual(limit, count)
-        projected = copy.deepcopy(payload_schema["$defs"])
-        generator.project_continuity_action_bound(projected, count + 1)
-        self.assertEqual(projected["continuity_snapshot"]["properties"]["pinned"]["properties"]["step_actions"]["maxItems"], count + 1)
+        cls.actions, cls.teaching, cls.schema_refs, cls.contract_updates = generator.load_workflow_action_contracts()
 
     def test_the_live_projection_is_the_approved_closed_set(self):
         live_ids = {action["id"] for action in self.actions}
@@ -1545,7 +1528,7 @@ class ProjectionAdmissionTests(unittest.TestCase):
         return json.dumps({
             "schema_version": "2.0", "actions": actions,
             "teaching": teaching, "schema_refs": {"current": []},
-            "contract_updates": [], "catalog_action_count": len(actions),
+            "contract_updates": [],
         })
 
     def load(self, projection):
@@ -1579,7 +1562,7 @@ class ProjectionAdmissionTests(unittest.TestCase):
 class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        actions, teaching, _, contract_updates, _ = generator.load_workflow_action_contracts()
+        actions, teaching, _, contract_updates = generator.load_workflow_action_contracts()
         cls.projected, _ = generator.project_workflow_action_schema(payload_schema, actions, teaching, contract_updates)
         cls.actions = actions
         cls.teaching = teaching
@@ -1757,14 +1740,14 @@ class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
 class NativeOracleRequestProjectionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        actions, teaching, _, contract_updates, _ = generator.load_workflow_action_contracts()
+        actions, teaching, _, contract_updates = generator.load_workflow_action_contracts()
         cls.projected, _ = generator.project_workflow_action_schema(payload_schema, actions, teaching, contract_updates)
 
     def validate(self, value, name):
         generator.schema_validate(value, self.projected["$defs"][name], self.projected)
 
     def test_projection_is_idempotent_and_keeps_native_navigation(self):
-        actions, teaching, _, contract_updates, _ = generator.load_workflow_action_contracts()
+        actions, teaching, _, contract_updates = generator.load_workflow_action_contracts()
         repeated, _ = generator.project_workflow_action_schema(self.projected, actions, teaching, contract_updates)
         self.assertEqual(repeated, self.projected)
         generator.check_schema_keywords(self.projected)
@@ -2423,7 +2406,7 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.actions, cls.teaching, cls.schema_refs, cls.contract_updates, _ = generator.load_workflow_action_contracts()
+        cls.actions, cls.teaching, cls.schema_refs, cls.contract_updates = generator.load_workflow_action_contracts()
         cls.defs = payload_schema["$defs"]
 
     def _variants(self):

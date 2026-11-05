@@ -238,7 +238,7 @@ func TestDefaultCheckoutShelvingScopeAndWorkflow(t *testing.T) {
 			removalFixtureSQL(t, s, `INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product-2','Second Product','prototype','operator_only',1,'now','now')`)
 			removalFixtureSQL(t, s, `INSERT INTO product_projects(product_id,project_id,role) VALUES('product-2','project-1','secondary')`)
 		}},
-		{"uncancelled workflow", func(t *testing.T, s *store.Store) { seedContinuityWorkflow(t, s, "work-1") }},
+		{"uncancelled workflow", func(t *testing.T, s *store.Store) { seedInitializedWorkflow(t, s, "work-1") }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, service, env, in := defaultRemovalFixture(t)
@@ -262,7 +262,7 @@ func TestDefaultCheckoutShelvingScopeAndWorkflow(t *testing.T) {
 func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	ctx := t.Context()
 	s, service, grant, root := worktreeDispatchFixture(t)
-	seedContinuityWorkflow(t, s, "work-1")
+	seedInitializedWorkflow(t, s, "work-1")
 	// The contract's mandated law is committed content at the work's resolved
 	// canonical home (law-folder-authority.md, Committed reads): the fixture
 	// commits the independent registry and law into the home's repository.

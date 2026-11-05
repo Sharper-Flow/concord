@@ -101,8 +101,8 @@ func seedCrossRepositoryLawFixture(t *testing.T, s *Store, workID string) string
 }
 
 // A contract that binds no law needs no knowledge home: works without a
-// designated home legitimately approve law-less contracts, so the continuity
-// read must return no law context rather than failing to resolve a home.
+// designated home legitimately approve law-less contracts, so the item-scoped
+// full read must return no law context rather than failing to resolve a home.
 func TestLawlessContractNeedsNoKnowledgeHomeInReads(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -134,19 +134,19 @@ func TestLawlessContractNeedsNoKnowledgeHomeInReads(t *testing.T) {
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("law-less approval on a homeless work refused: %v", err)
 	}
-	continuity, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	item, err := readLawContextItem(ctx, s, workID)
 	if err != nil {
-		t.Fatalf("continuity read failed on the law-less contract: %v", err)
+		t.Fatalf("item-scoped full read failed on the law-less contract: %v", err)
 	}
-	if continuity.LawContext != nil {
-		t.Fatalf("law context=%+v, want none for a law-less contract", continuity.LawContext)
+	if item.LawContext != nil {
+		t.Fatalf("law context=%+v, want none for a law-less contract", item.LawContext)
 	}
 }
 
 // Project A is the knowledge home and Project B is the dispatch repository:
 // the law context's registry and law locators must name files inside Project
 // A's checkout, and the lane must be able to open both.
-func TestContinuityQualifiesLawContextWithTheRegisteredKnowledgeHome(t *testing.T) {
+func TestLawContextQualifiesWithTheRegisteredKnowledgeHome(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -155,12 +155,12 @@ func TestContinuityQualifiesLawContextWithTheRegisteredKnowledgeHome(t *testing.
 	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, currentWorkflowPlanFixture(t, WorkflowStepPlanChange).Steps[0].ID)
 	binding := WorkflowArchitectureBinding{HomeDomainID: "product-root:product", AffectedDomainIDs: []string{"product-root:product"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveCurrentLawContextContract(t, s, workID, []string{"spec:one"}, []string{}, binding)
-	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	snapshot, err := readLawContextItem(ctx, s, workID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if snapshot.LawContext == nil {
-		t.Fatal("continuity resolved no law context for a contract that binds law")
+		t.Fatal("law context resolved nothing for a contract that binds law")
 	}
 	wantRegistry := filepath.Join(homeRepo, ".concord/docs/knowledge/domain-registry.json")
 	if snapshot.LawContext.RegistryPath != wantRegistry {
@@ -189,7 +189,7 @@ func TestContinuityQualifiesLawContextWithTheRegisteredKnowledgeHome(t *testing.
 // advertise a locator no lane can open, and must never silently drop the
 // binding. The contract is approved while the registry is committed; the
 // registry's committed retirement is the next revision the read verifies.
-func TestContinuityRefusesUnresolvableRegistrySource(t *testing.T) {
+func TestLawContextRefusesUnresolvableRegistrySource(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -203,7 +203,7 @@ func TestContinuityRefusesUnresolvableRegistrySource(t *testing.T) {
 		t.Fatal(err)
 	}
 	commitKnowledgeRepo(t, homeRepo, "retire the registry revision")
-	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	_, err := readLawContextItem(ctx, s, workID)
 	var failure *Failure
 	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent {
 		t.Fatalf("missing registry diagnosis = %v, want typed domain_registry_absent from the committed read", err)
@@ -237,7 +237,7 @@ func readLawOnlyContext(t *testing.T, s *Store, workID string, mandate []string)
 	t.Helper()
 	ctx := context.Background()
 	// The law context reads the verified snapshot; the proof is established
-	// the way the continuity route does before the read transaction opens.
+	// the way the item-scoped list route does before the read transaction opens.
 	verified, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	if err != nil {
 		return nil, err
@@ -300,7 +300,7 @@ func TestLawContextRefusesRemovedKnowledgeHomeBeforeLawOnlyRead(t *testing.T) {
 // read: the context refuses typed instead of advertising the directory. The
 // contract is approved while the registry file is committed; the committed
 // revision that replaces it with a directory is what the read verifies.
-func TestContinuityRefusesRegistryReplacedByDirectory(t *testing.T) {
+func TestLawContextRefusesRegistryReplacedByDirectory(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -318,7 +318,7 @@ func TestContinuityRefusesRegistryReplacedByDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	commitKnowledgeRepo(t, homeRepo, "replace the registry with a directory")
-	_, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	_, err := readLawContextItem(ctx, s, workID)
 	var failure *Failure
 	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent {
 		t.Fatalf("directory registry diagnosis = %v, want typed domain_registry_absent from the committed read", err)
@@ -423,7 +423,7 @@ func TestKnowledgeRegistryLocatorAbsentShapesNameRestores(t *testing.T) {
 // The law context reads the one committed registry at its existing path: a
 // leftover registry under a pre-migration layout tier never stands in for
 // the registry file the committed revision does not carry.
-func TestContinuityRegistryDoesNotFallBackAcrossTheSelectedLayout(t *testing.T) {
+func TestLawContextRegistryDoesNotFallBackAcrossTheSelectedLayout(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -445,7 +445,7 @@ func TestContinuityRegistryDoesNotFallBackAcrossTheSelectedLayout(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(legacyDir, "domain-registry.json"), []byte(registry+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	snapshot, err := readLawContextItem(ctx, s, workID)
 	var failure *Failure
 	if !failureAs(err, &failure) || failure.Kind != KindDomainRegistryAbsent {
 		t.Fatalf("selected-layout registry diagnosis = %v (context %+v), want typed domain_registry_absent", err, snapshot.LawContext)

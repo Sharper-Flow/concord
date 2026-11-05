@@ -219,19 +219,22 @@ func TestNativeExecutionStartFenceAndAtomicRefusals(t *testing.T) {
 	s := fixture.store
 	first := fixture.owner
 	second := diagnosisS1Actor(workID, "second")
-	checkpointPayload := workContextCheckpointPayload("native-start-checkpoint")
-	if err := runVerdictActionAs(t, s, workID, "checkpoint_context", checkpointPayload, 0, first); err != nil {
-		t.Fatalf("record checkpoint before start: %v", err)
+	bindHold := func(id string) {
+		t.Helper()
+		ref, producer := "artifact:"+id, "producer-"+id
+		seedWorkflowAuthority(t, s, producer, workID, "principal:hold", "request:"+id, []string{ref})
+		payload := mustJSONValue(map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": ref, "producer_id": "principal:hold", "producer_run_ref": producer, "producer_watermark": "request:" + id})
+		if err := runWorkflowActionWithIdentity(t, s, workID, "bind_evidence", payload, 0, first, id); err != nil {
+			t.Fatalf("bind evidence %s: %v", id, err)
+		}
 	}
+	bindHold("before-start")
 	if start := workflowCurrentStartAtStep(t, s, workID, "implement"); start != nil || len(workflowStartReceiptIDs(t, s, workID)) != 0 {
-		t.Fatalf("context created a start: %+v", start)
+		t.Fatalf("evidence binding created a start: %+v", start)
 	}
 	version := readWorkVersion(t, s, workID)
 	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:not-yet","delivery_state":"asserted"}`), 0, first); err == nil {
 		t.Fatal("delivery admitted at implement")
-	}
-	if err := runVerdictActionAs(t, s, workID, "checkpoint_context", json.RawMessage(`{}`), 0, first); err == nil {
-		t.Fatal("invalid context checkpoint admitted")
 	}
 	if err := runVerdictActionAs(t, s, workID, "start_execution", json.RawMessage(`{"unknown_field":true}`), 0, first); err == nil {
 		t.Fatal("start_execution admitted an unknown field")
@@ -261,14 +264,12 @@ func TestNativeExecutionStartFenceAndAtomicRefusals(t *testing.T) {
 		t.Fatalf("instance execution fence = %q %q", startedAt, actorRef)
 	}
 	receipts := workflowStartReceiptIDs(t, s, workID)
-	if err := runWorkflowActionWithIdentity(t, s, workID, "checkpoint_context", workContextCheckpointPayload("after-start-checkpoint"), 0, first, "after-start"); err != nil {
-		t.Fatalf("record checkpoint after start: %v", err)
-	}
+	bindHold("after-start")
 	if got := workflowCurrentStartAtStep(t, s, workID, "implement"); got == nil || *got != *start || !slices.Equal(receipts, workflowStartReceiptIDs(t, s, workID)) {
-		t.Fatalf("checkpoint changed the start watermark: %+v -> %+v", start, got)
+		t.Fatalf("evidence binding changed the start watermark: %+v -> %+v", start, got)
 	}
 	if gotTime, gotActor := instanceExecutionStart(t, s, workID); gotTime != startedAt || gotActor != actorRef {
-		t.Fatalf("checkpoint changed execution fence: %q %q", gotTime, gotActor)
+		t.Fatalf("evidence binding changed execution fence: %q %q", gotTime, gotActor)
 	}
 	if err := runVerdictActionAtVersion(t, s, workID, "start_execution", json.RawMessage(`{}`), version, second); err == nil {
 		t.Fatal("stale competing start was admitted")
@@ -281,8 +282,8 @@ func TestNativeExecutionStartFenceAndAtomicRefusals(t *testing.T) {
 	}
 }
 
-// A revised contract remains live through source-qualified context, a native
-// execution start, current evidence, independent verdict and completion.
+// A revised contract remains live through a native execution start, current
+// evidence, independent verdict and completion.
 func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 	t.Parallel()
 	const workID = "corrected-contract-liveness"
@@ -296,10 +297,10 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 		t.Fatalf("instance after the contract revision = %q, want implement", step)
 	}
 
-	// A held checkpoint after the contract revision keeps the step and its
-	// version current, then the revision's producer path still starts.
-	if err := runVerdictActionAs(t, s, workID, "checkpoint_context", workContextCheckpointPayload("revised-contract-checkpoint"), 0, fixture.owner); err != nil {
-		t.Fatalf("checkpoint at implement after contract revision: %v", err)
+	// Binding evidence holds the frontier after the contract revision.
+	seedWorkflowAuthority(t, s, "revised-contract-producer", workID, "principal:revision", "request:revision", []string{"artifact:revision"})
+	if err := runVerdictActionAs(t, s, workID, "bind_evidence", mustJSONValue(map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": "artifact:revision", "producer_id": "principal:revision", "producer_run_ref": "revised-contract-producer", "producer_watermark": "request:revision"}), 0, fixture.owner); err != nil {
+		t.Fatalf("bind evidence after contract revision: %v", err)
 	}
 	if err := runVerdictActionAs(t, s, workID, "start_execution", json.RawMessage(`{}`), 0, fixture.owner); err != nil {
 		t.Fatalf("start execution after contract revision: %v", err)

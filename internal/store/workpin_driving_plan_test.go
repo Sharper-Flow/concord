@@ -7,7 +7,7 @@ import (
 )
 
 // TestWorkPinDrivingSessionsPlanSeeksActors pins the driving-session read to
-// index seeks on workflow_actors. Every session boot and continuity render
+// index seeks on workflow_actors. Every session boot and mutation-result pin
 // runs this read inside a read transaction, and workflow_actors grows with
 // every session and lane. A full scan with a per-actor correlated probe of the
 // work's facts holds the WAL read mark for seconds on a production-sized

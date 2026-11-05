@@ -23,7 +23,7 @@
   #253, #254, #257
 - **Approval:** Operator accepted the drafted decision on 2026-08-21; the public
   record is [issue #257](https://github.com/Sharper-Flow/concord/issues/257)
-- **Related:** CD-0016 (context continuity and typed session identity),
+- **Related:** CD-0016 (context continuity),
   CD-0252 (core-derived session boot), CD-0061 (orchestrator identity),
   CD-0154 (host-owned numbered agents)
 
@@ -69,8 +69,8 @@ coordinating a responsibility and reimplementing it.
 
 ### D4. A session refuses to start when required identity is absent
 
-There is no degraded start. CD-0016 admits none, and a degraded start would
-reintroduce the generic-agent fallback that decision disclaims. The cost is that
+There is no degraded start. A degraded start would be a generic-agent
+fallback, and Concord provides none. The cost is that
 an operator on an incompletely installed host cannot begin work until the
 install is repaired; that cost is accepted here rather than discovered at the
 point of failure.
@@ -102,7 +102,7 @@ unsolved and is not settled here.
 ## Consequences
 
 Session preparation verifies the selected agent before managed action. It
-writes no identity assertion or workflow continuity boundary (CD-0061 D2, D4).
+writes no identity assertion (CD-0061 D4).
 
 D5 gives every client registered before it an empty agent scope, which
 authorizes nothing. Each such client must be re-registered with the agents it

@@ -187,7 +187,7 @@ func TestCommitBoundaryTruth(t *testing.T) {
 				case "workflow_replay", "workflow_normal":
 					durable = true
 					s := openTemp(t)
-					actor, version := continuityTestWorkflow(t, s, "boundary-work")
+					actor, version := seedTestWorkflow(t, s, "boundary-work")
 					version = issue31WorkflowActionWithPayload(t, s, "boundary-work", version, "record_plan", "boundary-plan", actor, []byte(testWorkflowPlanDocument))
 					if _, e := s.db.Exec("CREATE TABLE boundary_witness (value INTEGER)"); e != nil {
 						t.Fatal(e)

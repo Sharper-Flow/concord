@@ -42,11 +42,8 @@ without an instance carries explicit `workflow_instance=absent` and
 `resume=null`, never a fabricated workflow position. The pending handoff
 frontier rides beside the resume document when one exists.
 
-Boot carries neither the continuity snapshot nor a WorkPin, approved contract,
-checkpoint, boundary history, work-context projection or restart projection.
-Those facts are not copied into a second boot-only workflow view. The public
-continuity read and its other consumers retain their own current obligations
-until their separate retirement.
+Boot carries neither a WorkPin, approved contract nor work-context projection.
+Those facts are not copied into a second boot-only workflow view.
 
 ## D3. Bounds and current-read references
 

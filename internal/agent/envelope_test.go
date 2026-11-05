@@ -140,7 +140,7 @@ func TestMutationResultMalformedEnvelopeReturnsBoundedError(t *testing.T) {
 		base.EvidenceRefs[i] = agentcontract.EvidenceRef{Kind: "artifact", Authority: "test", LocatorKind: "file", Locator: strings.Repeat("x", 2048)}
 	}
 	r := runtime{Tool: base.Tool, Operation: base.Operation}
-	response := r.mutationResult(base, mutationPayload(nil, nil), nil, []agentcontract.NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "C19.Continuity", ReasonCode: "invalid-query"}})
+	response := r.mutationResult(base, mutationPayload(nil, nil), nil, []agentcontract.NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "C19.Resume", ReasonCode: "invalid-query"}})
 	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "malformed_response" {
 		t.Fatalf("response=%+v error=%+v, want malformed_response", response, response.Error)
 	}

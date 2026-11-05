@@ -3,7 +3,7 @@ package store
 // Product resolution for workflow law and architecture binding follows the
 // work item's primary Project membership: the primary Project's Product owns
 // the contract, so a secondary membership in another Product widens visibility
-// only and must never refuse a continuity read, a law check, or completion.
+// only and must never refuse a resume read, a law check, or completion.
 
 import (
 	"context"
@@ -102,18 +102,19 @@ func TestCrossProductWorkApprovesArchitectureBinding(t *testing.T) {
 }
 
 // A cross-Product work item with an approved architecture binding reads its
-// continuity, and the identity listing keeps every member Product.
-func TestContinuityReadsCrossProductWorkWithArchitectureBinding(t *testing.T) {
+// resume plan, and the identity listing keeps every member Product.
+func TestResumeReadsCrossProductWorkWithArchitectureBinding(t *testing.T) {
 	t.Parallel()
-	workID := "cross-product-continuity"
+	workID := "cross-product-resume"
 	s, actor := crossProductBindingApprovalFixture(t, workID)
 	crossProductBindingApproval(t, s, workID, actor)
-	snapshot, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: workID, Limit: 20})
+	snapshot, err := ReadSessionResume(context.Background(), s, workID, "")
 	if err != nil {
-		t.Fatalf("cross-Product continuity read refused: %v", err)
+		t.Fatalf("cross-Product resume read refused: %v", err)
 	}
-	if snapshot.ArchitectureBinding == nil || snapshot.ArchitectureBinding.HomeDomainID != "root" {
-		t.Fatalf("continuity binding = %+v, want the approved root binding", snapshot.ArchitectureBinding)
+	projection, err := readTestWorkflowFacts(context.Background(), s, workID)
+	if err != nil || projection.Contract == nil || projection.Contract.ArchitectureBinding == nil || projection.Contract.ArchitectureBinding.HomeDomainID != "root" {
+		t.Fatalf("contract binding = %+v, want the approved root binding: %v", projection.Contract, err)
 	}
 	if len(snapshot.ProductIdentity) != 2 || snapshot.ProductIdentity[0] != "product" || snapshot.ProductIdentity[1] != "product-secondary" {
 		t.Fatalf("ProductIdentity = %v, want [product product-secondary]", snapshot.ProductIdentity)

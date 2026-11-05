@@ -45,7 +45,7 @@ sessions (CD-0078) and owns worktree placement (CD-0088 D1).
 
 No Concord component creates, names, splits, focuses, or destroys a tab,
 pane, window, or session (CD-0078 D1, CD-0163). Entry into managed work
-derives workflow position from the store's canonical projection (CD-0016),
+derives workflow position from the core-derived resume plan (CD-0252),
 never from a terminal surface or a terminal session identifier.
 
 ### D3. Retired: the entry-verb feature set

@@ -124,24 +124,6 @@ func seedWorkContextFixtureWithPlan(t *testing.T, workID string, planType Workfl
 	return workContextFixture{store: s, workID: workID, owner: owner, operator: operator}
 }
 
-// workContextCheckpointPayload is one valid checkpoint_context declaration
-// other tests use as the hold action that advances the work version without
-// moving the plan frontier.
-func workContextCheckpointPayload(id string) json.RawMessage {
-	payload := map[string]any{
-		"checkpoint_id": id, "active_unit": "implementation",
-		"hypothesis": "the checked change holds", "diagnosis": "the fixture holds the step",
-		"strategy":     "hold the step and advance the version",
-		"touched_refs": []string{"internal/store/workflow.go"}, "evidence_refs": []string{"internal/store/workflow_test.go"},
-		"pending_questions": []string{}, "pending_decisions": []string{},
-	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		panic(err)
-	}
-	return raw
-}
-
 func contextFindingFixture() WorkContextFinding {
 	return WorkContextFinding{
 		Kind: "observation", Statement: "the bounded read is the only admission route",

@@ -39,7 +39,6 @@
       "description": "Trace work history and relations.",
       "operations": [
         "concord_work_trace.history",
-        "concord_work_trace.continuity",
         "concord_work_trace.resume",
         "concord_work_trace.mutation_result",
         "concord_work_trace.relations",
@@ -177,26 +176,6 @@
         "context": "explicit",
         "idempotency": "request_id",
         "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_trace.continuity",
-      "tool": "concord_work_trace",
-      "kind": "read",
-      "query_id": "C19.Continuity",
-      "input_schema": "#/schemas/work_trace_continuity_input",
-      "result_schema": "#/schemas/continuity_read_result",
-      "capability": "product_read",
-      "consequence": "read",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "request_id",
-        "pagination": "cursor",
         "output_bytes": 51200,
         "versions": [
           "1.0"
@@ -527,10 +506,6 @@
       "ref": "contracts/agent-tool-envelope.schema.json#/$defs/base",
       "closed": true
     },
-    "continuity_read_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/continuity_read_result",
-      "closed": true
-    },
     "resume_read_result": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/resume_read_result",
       "closed": true
@@ -541,10 +516,6 @@
     },
     "work_trace_resume_input": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_resume_input",
-      "closed": true
-    },
-    "continuity_snapshot": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/continuity_snapshot",
       "closed": true
     },
     "domain_detail_input": {
@@ -621,10 +592,6 @@
     },
     "work_relation_graph": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_relation_graph",
-      "closed": true
-    },
-    "work_trace_continuity_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_trace_continuity_input",
       "closed": true
     },
     "work_trace_history_input": {
@@ -714,6 +681,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:b28edd58339712ce2570a460d1361c25b1c8165e76b2fe73a64274a546bb5389",
-  "digest": "sha256:e3522e248de3202e19b5918973bae29cd51aecc72483ae3fdb33eaf735d45245"
+  "payload_digest": "sha256:be374c7a4eb5cd35adf4cbf821d1fff56e99a2918a7e06ddd034944423b847f9",
+  "digest": "sha256:404129b6f859ae6bda7cc5bd00aa725c7a35e5195c390979d64b3bc6ba934621"
 }

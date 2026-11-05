@@ -1290,7 +1290,7 @@
           "description": "Native work capture timestamp, preserved verbatim across later reads and work updates."
         },
         "pending_project_handoff": {
-          "$ref": "#/$defs/continuity_pending_project_handoff"
+          "$ref": "#/$defs/pending_project_handoff"
         },
         "law_context": {
           "$ref": "#/$defs/retained_workflow_law_context"
@@ -1375,114 +1375,6 @@
         },
         "unverified": {
           "type": "boolean"
-        }
-      }
-    },
-    "rigor_class": {
-      "type": "string",
-      "enum": [
-        "prototype_internal",
-        "prototype_trusted",
-        "prototype_public",
-        "prototype_safety_critical",
-        "production_internal",
-        "production_trusted",
-        "production_public",
-        "production_safety_critical",
-        "critical_internal",
-        "critical_trusted",
-        "critical_public",
-        "critical_safety_critical"
-      ]
-    },
-    "workflow_contract": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "version",
-        "premise",
-        "route_conventions",
-        "spec_mandate",
-        "legislative_subjects"
-      ],
-      "properties": {
-        "version": {
-          "$ref": "#/$defs/version"
-        },
-        "premise": {
-          "$ref": "#/$defs/workflow_premise"
-        },
-        "route_conventions": {
-          "type": "array",
-          "maxItems": 16,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/id"
-          }
-        },
-        "spec_mandate": {
-          "type": "array",
-          "maxItems": 32,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/law_id"
-          }
-        },
-        "law_modifies": {
-          "type": "array",
-          "maxItems": 32,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/law_id"
-          }
-        },
-        "rigor_class": {
-          "$ref": "#/$defs/rigor_class"
-        },
-        "changes_product_truth": {
-          "type": "boolean"
-        },
-        "architecture_binding": {
-          "$ref": "#/$defs/architecture_binding"
-        },
-        "approved_at": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64
-        },
-        "approved_by": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128
-        },
-        "superseded_by": {
-          "$ref": "#/$defs/version"
-        },
-        "decision_domains": {
-          "type": "array",
-          "uniqueItems": true,
-          "maxItems": 7,
-          "items": {
-            "type": "string",
-            "enum": [
-              "increased_spending",
-              "legal",
-              "preference",
-              "product",
-              "production_data",
-              "security",
-              "ui_ux"
-            ]
-          },
-          "description": "The contract's declared decision domains, sorted. Stored preference remains readable but is excluded from new authoring. Absent on a contract approved before its definition declared the fact; an empty array declares engineering work."
-        },
-        "legislative_subjects": {
-          "type": "array",
-          "maxItems": 800,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/reference"
-          }
         }
       }
     },
@@ -1705,163 +1597,6 @@
         }
       }
     },
-    "work_trace_continuity_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "page": {
-          "$ref": "#/$defs/page"
-        },
-        "limit": {
-          "$ref": "#/$defs/limit",
-          "description": "Bounds: 1..100 value inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        }
-      }
-    },
-    "continuity_checkpoint": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "checkpoint_id",
-        "work_version",
-        "sequence",
-        "step_id",
-        "attempt_epoch",
-        "active_unit",
-        "hypothesis",
-        "diagnosis",
-        "strategy",
-        "touched_refs",
-        "evidence_refs",
-        "pending_questions",
-        "pending_decisions"
-      ],
-      "properties": {
-        "checkpoint_id": {
-          "$ref": "#/$defs/id"
-        },
-        "work_version": {
-          "$ref": "#/$defs/version"
-        },
-        "sequence": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "step_id": {
-          "$ref": "#/$defs/short"
-        },
-        "attempt_epoch": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "active_unit": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 256
-        },
-        "hypothesis": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 4096
-        },
-        "diagnosis": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 4096
-        },
-        "strategy": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 4096
-        },
-        "touched_refs": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 64,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/reference"
-          }
-        },
-        "evidence_refs": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 64,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/reference"
-          }
-        },
-        "pending_questions": {
-          "type": "array",
-          "maxItems": 16,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/reference"
-          }
-        },
-        "pending_decisions": {
-          "type": "array",
-          "maxItems": 16,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/reference"
-          }
-        }
-      }
-    },
-    "continuity_boundary": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "boundary_id",
-        "sequence",
-        "kind",
-        "checkpoint_id",
-        "checkpoint_sequence",
-        "summary",
-        "recorded_at"
-      ],
-      "properties": {
-        "boundary_id": {
-          "$ref": "#/$defs/id"
-        },
-        "sequence": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "kind": {
-          "const": "summary"
-        },
-        "checkpoint_id": {
-          "$ref": "#/$defs/id"
-        },
-        "checkpoint_sequence": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "summary": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 16384
-        },
-        "recorded_at": {
-          "type": "string",
-          "maxLength": 64
-        }
-      }
-    },
     "workflow_design_decision": {
       "type": "object",
       "additionalProperties": false,
@@ -1905,48 +1640,6 @@
             "description": "Bounds: 1..1024 code points inclusive"
           },
           "description": "Bounds: <=8 items inclusive"
-        }
-      }
-    },
-    "workflow_design_record": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_version",
-        "approach",
-        "decisions",
-        "touched_refs",
-        "recorded_at"
-      ],
-      "properties": {
-        "work_version": {
-          "$ref": "#/$defs/version"
-        },
-        "approach": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 4096
-        },
-        "decisions": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 16,
-          "items": {
-            "$ref": "#/$defs/workflow_design_decision"
-          }
-        },
-        "touched_refs": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 64,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/reference"
-          }
-        },
-        "recorded_at": {
-          "type": "string",
-          "format": "date-time"
         }
       }
     },
@@ -2066,291 +1759,6 @@
         "purpose": {
           "type": "string",
           "maxLength": 4096
-        }
-      }
-    },
-    "workflow_proposal_record": {
-      "description": "The recorded proposal's problem, user outcomes, and constraints the pinned continuity projection carries. Absent when no proposal is recorded.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "problem",
-        "user_outcomes",
-        "constraints"
-      ],
-      "properties": {
-        "problem": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
-        "user_outcomes": {
-          "type": "array",
-          "maxItems": 16,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 512
-          }
-        },
-        "constraints": {
-          "type": "array",
-          "maxItems": 16,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 512
-          }
-        }
-      }
-    },
-    "continuity_snapshot": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "pinned",
-        "boundaries",
-        "typed_availability"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "pinned": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "product_identity",
-            "workflow_step",
-            "step_actions",
-            "contract",
-            "spec_mandate",
-            "latest_checkpoint",
-            "design_record"
-          ],
-          "properties": {
-            "product_identity": {
-              "type": "array",
-              "maxItems": 64,
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/id"
-              }
-            },
-            "workflow_step": {
-              "description": "The instance's current step; null when the work item holds no workflow instance (imported work).",
-              "type": [
-                "string",
-                "null"
-              ],
-              "minLength": 1,
-              "maxLength": 256
-            },
-            "step_actions": {
-              "type": "array",
-              "maxItems": 26,
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/id"
-              }
-            },
-            "contract": {
-              "oneOf": [
-                {
-                  "$ref": "#/$defs/workflow_contract"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "spec_mandate": {
-              "type": "array",
-              "maxItems": 32,
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/law_id"
-              }
-            },
-            "latest_checkpoint": {
-              "oneOf": [
-                {
-                  "$ref": "#/$defs/continuity_checkpoint"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "design_record": {
-              "oneOf": [
-                {
-                  "$ref": "#/$defs/workflow_design_record"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "work_pin": {
-              "$ref": "#/$defs/work_pin"
-            },
-            "law_context": {
-              "$ref": "#/$defs/retained_workflow_law_context"
-            },
-            "proposal_record": {
-              "$ref": "#/$defs/workflow_proposal_record"
-            },
-            "pending_project_handoff": {
-              "description": "The work's newest unconsumed Project-session handoff (CD-0182 amendment): the bounded repository job a receiving session must consume through project_handoff_consume before managed execution. Absent when no handoff stands unconsumed on the work.",
-              "$ref": "#/$defs/continuity_pending_project_handoff"
-            },
-            "workflow_instance": {
-              "description": "Typed workflow-instance absence. Present only when the work item holds no workflow instance; the packet fabricates no step for it, and a launch never creates one.",
-              "const": "absent"
-            }
-          }
-        },
-        "boundaries": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "count",
-            "items",
-            "next_cursor",
-            "watermark"
-          ],
-          "properties": {
-            "count": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "items": {
-              "type": "array",
-              "maxItems": 20,
-              "items": {
-                "$ref": "#/$defs/continuity_boundary"
-              }
-            },
-            "next_cursor": {
-              "$ref": "#/$defs/cursor_output"
-            },
-            "watermark": {
-              "$ref": "#/$defs/id"
-            }
-          }
-        },
-        "typed_availability": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "restart",
-            "reason"
-          ],
-          "properties": {
-            "restart": {
-              "const": "unavailable"
-            },
-            "reason": {
-              "$ref": "#/$defs/short"
-            }
-          }
-        }
-      }
-    },
-    "continuity_projection_page": {
-      "description": "CD-0016 as amended: the closed lossless transport for one oversized continuity projection. The identity header repeats exact scalar work, step, instance, and watermark identities only. One page never carries complete authority: a consumer joins every page of one projection digest before it uses the projection, and reconstruction precedes use.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "workflow_instance",
-        "workflow_step",
-        "watermark",
-        "projection_page",
-        "next_kind"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "work_version": {
-          "description": "The exact work-item version the captured projection was derived from, when the capture exposes it; absent otherwise.",
-          "type": "integer",
-          "minimum": 1
-        },
-        "workflow_instance": {
-          "description": "Typed workflow-instance presence, exactly the store's captured marker: \"present\" when the work item holds a workflow instance, \"absent\" when it holds none (imported work).",
-          "type": "string",
-          "enum": [
-            "present",
-            "absent"
-          ]
-        },
-        "workflow_step": {
-          "description": "The instance's current step; null when the work item holds no workflow instance (imported work).",
-          "type": [
-            "string",
-            "null"
-          ],
-          "minLength": 1,
-          "maxLength": 256
-        },
-        "watermark": {
-          "description": "The exact source watermark of the captured projection.",
-          "$ref": "#/$defs/id"
-        },
-        "projection_page": {
-          "description": "The exact byte page of one canonical continuity JSON document. encoding is fixed; digest is the SHA-256 of the complete canonical document; total_bytes is the document's exact UTF-8 byte length; offset is this fragment's starting byte; data carries the exact UTF-8 fragment text. data is not independently parseable JSON and is not a summary: a fragment cannot carry complete authority. Concatenate the decoded fragment strings by byte offset, check total length and digest, then parse the reconstructed document exactly once; reconstruction precedes use, and no consumer inspects partial contract, question, intent, or context data.",
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "encoding",
-            "digest",
-            "total_bytes",
-            "offset",
-            "data",
-            "document_complete"
-          ],
-          "properties": {
-            "encoding": {
-              "const": "json-utf8"
-            },
-            "digest": {
-              "$ref": "#/$defs/digest"
-            },
-            "total_bytes": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "offset": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "data": {
-              "description": "The exact UTF-8 fragment text of the canonical document at offset. Each page carries at least one whole code point and fills the real remaining envelope capacity; no fixed fragment cap bounds it.",
-              "type": "string",
-              "minLength": 1
-            },
-            "document_complete": {
-              "type": "boolean"
-            }
-          }
-        },
-        "next_kind": {
-          "description": "The continuation the authenticated envelope next_cursor resumes: \"projection\" continues this document's next page, \"boundaries\" resumes the original boundary-page continuation, null ends the read.",
-          "type": [
-            "string",
-            "null"
-          ],
-          "enum": [
-            "projection",
-            "boundaries",
-            null
-          ]
         }
       }
     },
@@ -2476,31 +1884,6 @@
           "uniqueItems": true
         }
       }
-    },
-    "continuity_read_result": {
-      "description": "The concord_work_trace.continuity result: the complete typed inline snapshot when the measured final envelope fits the unchanged 51,200-byte limit, or the closed lossless projection-page transport when the fixed projection does not fit. The root property list only names the keys the two closed branches own; each branch carries the full constraints and exactly one branch must match. A page cannot carry complete authority; a consumer joins the page sequence and reconstructs the document before use.",
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "work_id": {},
-        "pinned": {},
-        "boundaries": {},
-        "typed_availability": {},
-        "work_version": {},
-        "workflow_instance": {},
-        "workflow_step": {},
-        "watermark": {},
-        "projection_page": {},
-        "next_kind": {}
-      },
-      "oneOf": [
-        {
-          "$ref": "#/$defs/continuity_snapshot"
-        },
-        {
-          "$ref": "#/$defs/continuity_projection_page"
-        }
-      ]
     },
     "work_trace_relations_input": {
       "type": "object",
@@ -3368,9 +2751,6 @@
           "$ref": "#/$defs/work_transition_action_variant_bind_evidence"
         },
         {
-          "$ref": "#/$defs/work_transition_action_variant_checkpoint_context"
-        },
-        {
           "$ref": "#/$defs/work_transition_action_variant_checkpoint_execution"
         },
         {
@@ -3381,9 +2761,6 @@
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_confirm_premise"
-        },
-        {
-          "$ref": "#/$defs/work_transition_action_variant_cross_context_boundary"
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_frame_research"
@@ -3717,7 +3094,7 @@
         "pending_project_handoff": {
           "oneOf": [
             {
-              "$ref": "#/$defs/continuity_pending_project_handoff"
+              "$ref": "#/$defs/pending_project_handoff"
             },
             {
               "$ref": "#/$defs/boot_handoff_reference"
@@ -4220,12 +3597,6 @@
         1
       ]
     },
-    "workflow_premise": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 4096,
-      "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection."
-    },
     "reference": {
       "type": "string",
       "minLength": 1,
@@ -4345,9 +3716,6 @@
           "$ref": "#/$defs/work_transition_action_variant_bind_evidence"
         },
         {
-          "$ref": "#/$defs/work_transition_action_variant_checkpoint_context"
-        },
-        {
           "$ref": "#/$defs/work_transition_action_variant_checkpoint_execution"
         },
         {
@@ -4358,9 +3726,6 @@
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_confirm_premise"
-        },
-        {
-          "$ref": "#/$defs/work_transition_action_variant_cross_context_boundary"
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_frame_research"
@@ -4457,7 +3822,7 @@
         }
       }
     },
-    "continuity_pending_project_handoff": {
+    "pending_project_handoff": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -5264,156 +4629,6 @@
         }
       }
     },
-    "work_transition_action_variant_checkpoint_context": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "expected_version",
-        "action_id",
-        "idempotency_key",
-        "fields"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "action_id": {
-          "type": "string",
-          "const": "checkpoint_context"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "evidence": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/evidence"
-          },
-          "description": "Bounds: <=32 items inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "fields": {
-          "type": "object",
-          "additionalProperties": false,
-          "maxProperties": 32,
-          "properties": {
-            "checkpoint_id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "x-minBytes": 2,
-              "x-maxBytes": 128,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            },
-            "checkpoint_sequence": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 2147483647,
-              "description": "Bounds: 1..2147483647 value inclusive"
-            },
-            "active_unit": {
-              "type": "string",
-              "maxLength": 256,
-              "x-maxBytes": 256,
-              "minLength": 1,
-              "pattern": "\\S",
-              "description": "Bounds: 1..256 code points inclusive; <=256 UTF-8 bytes inclusive"
-            },
-            "hypothesis": {
-              "type": "string",
-              "maxLength": 4096,
-              "x-maxBytes": 4096,
-              "minLength": 1,
-              "pattern": "\\S",
-              "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
-            },
-            "diagnosis": {
-              "type": "string",
-              "maxLength": 4096,
-              "x-maxBytes": 4096,
-              "minLength": 1,
-              "pattern": "\\S",
-              "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
-            },
-            "strategy": {
-              "type": "string",
-              "maxLength": 4096,
-              "x-maxBytes": 4096,
-              "minLength": 1,
-              "pattern": "\\S",
-              "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
-            },
-            "touched_refs": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/reference",
-                "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-              },
-              "minItems": 1,
-              "maxItems": 64,
-              "description": "Bounds: 1..64 items inclusive"
-            },
-            "evidence_refs": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/reference",
-                "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-              },
-              "minItems": 1,
-              "maxItems": 64,
-              "description": "Bounds: 1..64 items inclusive"
-            },
-            "pending_questions": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/reference",
-                "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-              },
-              "minItems": 0,
-              "maxItems": 16,
-              "description": "Bounds: 0..16 items inclusive"
-            },
-            "pending_decisions": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/reference",
-                "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-              },
-              "minItems": 0,
-              "maxItems": 16,
-              "description": "Bounds: 0..16 items inclusive"
-            }
-          },
-          "required": [
-            "active_unit",
-            "hypothesis",
-            "diagnosis",
-            "strategy",
-            "touched_refs",
-            "evidence_refs",
-            "pending_questions",
-            "pending_decisions"
-          ],
-          "description": "Bounds: <=32 properties inclusive"
-        }
-      }
-    },
     "work_transition_action_variant_checkpoint_execution": {
       "type": "object",
       "additionalProperties": false,
@@ -5587,107 +4802,6 @@
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
-        }
-      }
-    },
-    "work_transition_action_variant_cross_context_boundary": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "expected_version",
-        "action_id",
-        "idempotency_key",
-        "fields"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "action_id": {
-          "type": "string",
-          "const": "cross_context_boundary"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "evidence": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/evidence"
-          },
-          "description": "Bounds: <=32 items inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "fields": {
-          "type": "object",
-          "additionalProperties": false,
-          "maxProperties": 32,
-          "properties": {
-            "boundary_kind": {
-              "type": "string",
-              "enum": [
-                "summary",
-                "restart"
-              ]
-            },
-            "mode": {
-              "type": "string",
-              "enum": [
-                "summary",
-                "restart"
-              ]
-            },
-            "checkpoint_id": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "x-minBytes": 2,
-              "x-maxBytes": 128,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            },
-            "boundary_sequence": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 2147483647,
-              "description": "Bounds: 1..2147483647 value inclusive"
-            },
-            "checkpoint_sequence": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 2147483647,
-              "description": "Bounds: 1..2147483647 value inclusive"
-            },
-            "summary": {
-              "type": "string",
-              "maxLength": 16384,
-              "x-maxBytes": 16384,
-              "minLength": 1,
-              "pattern": "\\S",
-              "description": "Bounds: 1..16384 code points inclusive; <=16384 UTF-8 bytes inclusive"
-            },
-            "restart": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "boundary_kind",
-            "mode",
-            "checkpoint_id",
-            "summary"
-          ],
-          "description": "Bounds: <=32 properties inclusive"
         }
       }
     },

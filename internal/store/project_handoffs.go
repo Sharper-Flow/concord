@@ -18,7 +18,7 @@ import (
 )
 
 // Project-session handoff (CD-0182 amendment): a bounded typed work-scoped
-// projection next to the shared-work continuity owners. One handoff records
+// projection next to the shared-work owners. One handoff records
 // one Project-selected session's bounded repository job and its explicit
 // receiving Project on the SAME work item and active contract, and the
 // receiving side's core consume binds the record to the work-and-Project
@@ -69,6 +69,14 @@ type ProjectHandoff struct {
 	ConsumedBySessionRef string   `json:"consumed_by_session_ref,omitempty"`
 	ConsumedAt           string   `json:"consumed_at,omitempty"`
 	RecordedAt           string   `json:"recorded_at"`
+}
+
+func selectProjectHandoffTx(ctx context.Context, tx *sql.Tx, work, project string, version int64) (*ProjectHandoff, error) {
+	handoff, err := addressedProjectHandoffFrontierTx(ctx, tx, work, project, version)
+	if err != nil || handoff != nil {
+		return handoff, err
+	}
+	return PendingProjectHandoffTx(ctx, tx, work)
 }
 
 type projectHandoffRecordedPayload struct {
@@ -238,7 +246,7 @@ type ProjectHandoffResult struct {
 // recorded event. Ordering on recorded_at text would let an RFC3339Nano
 // rendering sort a whole-second timestamp ahead of a later fractional one
 // ("...T00:00:40Z" sorts after "...T00:00:40.000000001Z"), so the boot
-// frontier, the admission gate, the consume resolution, the continuity read,
+// frontier, the admission gate, the consume resolution, the full work list,
 // and the retirement facts all order on the recording event's seq instead,
 // which the recording fold stamps on the row.
 const projectHandoffEventOrder = `project_handoffs.recorded_seq DESC`
@@ -548,7 +556,7 @@ func consumeProjectHandoffCore(ctx context.Context, tx *sql.Tx, req ConsumeProje
 		// consumer's Project in any state, so a standing bind replays as
 		// AlreadyConsumed after membership and contract validation. The
 		// recorded-event ordering matches the admission gate, the
-		// continuity read, and the retirement facts, so
+		// full work list, and the retirement facts, so
 		// every read of "the current handoff" agrees on one durable order.
 		var id string
 		idErr := tx.QueryRowContext(ctx, `SELECT handoff_id FROM project_handoffs WHERE work_id=? AND target_project_id=? ORDER BY `+projectHandoffEventOrder+` LIMIT 1`, req.WorkID, req.ConsumerProjectID).Scan(&id)
@@ -1032,7 +1040,7 @@ func workExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef s
 }
 
 // PendingProjectHandoffTx reads the newest unconsumed handoff on the work
-// for the continuity projection. Read-time visibility only: no gate consumes
+// for full work list detail. Read-time visibility only: no gate consumes
 // it here. It runs inside the caller's transaction.
 func PendingProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID string) (*ProjectHandoff, error) {
 	var id string

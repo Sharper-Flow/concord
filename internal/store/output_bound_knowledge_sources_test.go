@@ -19,60 +19,6 @@ package store
 
 func init() {
 	// ------------------------------------------------------------------
-	// workflow architecture binding (shared contract scope)
-	// ------------------------------------------------------------------
-	// The binding arrays are the admitted contract shape: approval admission
-	// validates the shape (validateWorkflowArchitectureBindingShape), the
-	// fold tables carry one row per admitted element, replay re-runs the
-	// same shape validation on every decode, and
-	// readWorkflowArchitectureBinding rebuilds each array one row per stored
-	// element. There is no independent writer beside the admitted input, so
-	// each row pairs the input-reachable node with the counting constant.
-
-	// Affected Domain IDs: at most workflowArchitectureBindingMaxDomains
-	// unique admitted IDs.
-	registerOutputBound("/$defs/architecture_binding/properties/affected_domain_ids/maxItems",
-		maxBound(
-			inputBound("/$defs/architecture_binding/properties/affected_domain_ids/maxItems"),
-			goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxDomains", boundItems),
-		))
-
-	// Domain modifications: same admitted shape, same counting constant.
-	registerOutputBound("/$defs/architecture_binding/properties/domain_modifies/maxItems",
-		maxBound(
-			inputBound("/$defs/architecture_binding/properties/domain_modifies/maxItems"),
-			goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxDomains", boundItems),
-		))
-
-	// Domain relation modifications: canonical tuples, one per admitted row.
-	registerOutputBound("/$defs/architecture_binding/properties/domain_relation_modifies/maxItems",
-		maxBound(
-			inputBound("/$defs/architecture_binding/properties/domain_relation_modifies/maxItems"),
-			goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxRelations", boundItems),
-		))
-
-	// Law additions: unique law IDs, one per admitted reservation-backed row.
-	registerOutputBound("/$defs/architecture_binding/properties/law_additions/maxItems",
-		maxBound(
-			inputBound("/$defs/architecture_binding/properties/law_additions/maxItems"),
-			goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxLawAdditions", boundItems),
-		))
-
-	// Verification obligations: unique law/obligation tuples.
-	registerOutputBound("/$defs/architecture_binding/properties/verification_obligations/maxItems",
-		maxBound(
-			inputBound("/$defs/architecture_binding/properties/verification_obligations/maxItems"),
-			goConstantBound("internal/store/workflow_architecture_binding.go", "workflowArchitectureBindingMaxObligations", boundItems),
-		))
-
-	// The canonical_note_result (PM1.Q10) and knowledge_page (PM1.Q9) output
-	// bounds retired with the knowledge search and its served-projection
-	// surface (law-folder-authority.md, Committed reads: the law index and
-	// derived projections confer no authority and are not retained); their
-	// schema definitions are no longer output-reachable and carry no
-	// registration.
-
-	// ------------------------------------------------------------------
 	// domain detail result (C22.DomainDetail)
 	// ------------------------------------------------------------------
 

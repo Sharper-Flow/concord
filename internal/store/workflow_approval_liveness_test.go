@@ -34,14 +34,14 @@ func TestWorkflowPlanConfirmationRefusesOperatorActor(t *testing.T) {
 	}
 }
 
-func TestWorkflowPlanConfirmationContinuity(t *testing.T) {
-	const workID = "plan-confirmation-continuity"
+func TestWorkflowPlanConfirmationLiveness(t *testing.T) {
+	const workID = "plan-confirmation-liveness"
 	f := qCurrentAcceptance(t, workID)
-	snapshot, err := ReadWorkflowContinuity(t.Context(), f.store, ContinuityRequest{Work: workID})
-	if err != nil || snapshot.WorkPin == nil {
-		t.Fatalf("continuity pin=%+v err=%v", snapshot.WorkPin, err)
+	pin, err := ReadWorkPin(t.Context(), f.store, workID)
+	if err != nil {
+		t.Fatalf("work pin=%+v err=%v", pin, err)
 	}
-	if snapshot.WorkPin.WorkflowType != string(WorkflowStepPlanChange) || snapshot.WorkPin.Step != "review" || !workPinContainsAction(snapshot.WorkPin.NextValidIntents, "confirm_premise") {
-		t.Fatalf("continuity pin=%+v", snapshot.WorkPin)
+	if pin.WorkflowType != string(WorkflowStepPlanChange) || pin.Step != "review" || !workPinContainsAction(pin.NextValidIntents, "confirm_premise") {
+		t.Fatalf("work pin=%+v", pin)
 	}
 }

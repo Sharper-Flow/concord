@@ -205,9 +205,11 @@ The JSON corpus is executable through a candidate adapter implementing
   items are unique, and cross-Project work is not double-counted.
 - **PM4/PM5 semantics:** lifecycle/derived views follow PM4; canonical membership,
   deduplication, and cross-Product scope follow accepted PM5.
-- **Retention semantics:** snapshots union live and applicable historical terminal
-  projections, deduplicate by work ID before counts or pagination, and return
-  `degraded`/`unreachable` when required historical-index coverage is incomplete.
+- **Retention semantics:** snapshots answer over the retained current-state
+  population with PM5 membership semantics; no historical-projection union or
+  cross-tier coverage check runs, and the answer envelope follows
+  [TS7](agent-result-envelope.md): an OK answer is authoritative over the store
+  read, and a store that cannot answer refuses as `unreachable`.
 
 ### Q3. List Product work
 
@@ -222,8 +224,10 @@ The JSON corpus is executable through a candidate adapter implementing
   authoritative empty, not missing data.
 - **PM4 semantics:** lifecycle names and terminal classification are accepted PM4
   persistence semantics; other filters retain their owning decisions.
-- **Retention semantics:** terminal listings union live and git-derived historical rows;
-  frozen historical scope is explicit and never silently rewritten by later moves.
+- **Retention semantics:** terminal listings answer over retained current-state
+  rows with PM5 derived scope; frozen scope belongs to the historical locator
+  projections these listings do not read
+  ([compaction-retention-policy](compaction-retention-policy.md)).
 
 ### Q4. Explain blocked work
 

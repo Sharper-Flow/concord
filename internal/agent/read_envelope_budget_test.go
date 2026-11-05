@@ -51,15 +51,10 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// These are the admitted intent maxima. Escaped text makes serialized bytes,
+	// This is the admitted note maximum. Escaped text makes serialized bytes,
 	// rather than string length or item count, determine the page boundary.
 	task := strings.Repeat("\"", 8192)
-	value := strings.Repeat("v", 256)
-	tags := []string{}
-	for i := range 32 {
-		tags = append(tags, fmt.Sprintf("tag-%02d-%s", i, strings.Repeat("t", 121)))
-	}
-	intentJSON, _ := json.Marshal(map[string]any{"task": task, "value_statement": value, "tags": tags, "workflow_type_ref": "workflow.break_fix"})
+	intentJSON, _ := json.Marshal(map[string]any{"task": task})
 	db := s.DatabaseForTesting()
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES (1)`); err != nil {
 		t.Fatal(err)
@@ -98,8 +93,8 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 				t.Fatalf("duplicate work ID %s", item.ID)
 			}
 			seen[item.ID] = true
-			if item.Task != task || item.ValueStatement != value || len(item.Tags) != 32 {
-				t.Fatalf("full detail lost intent for %s", item.ID)
+			if item.Task != task {
+				t.Fatalf("full detail lost the note for %s", item.ID)
 			}
 		}
 		pages++

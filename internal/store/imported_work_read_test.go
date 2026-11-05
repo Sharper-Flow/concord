@@ -48,15 +48,11 @@ func TestImportedWorkRemainsReadable(t *testing.T) {
 		t.Fatalf("work read = %+v, %v", result.Items, err)
 	}
 	w := result.Items[0]
-	if w.Lifecycle != "needed" || w.Priority != 3 || w.Version != 2 {
+	if w.Lifecycle != "needed" || w.Version != 2 {
 		t.Fatalf("imported state changed: %+v", w)
 	}
-	if w.ID != id || w.Title != "imported" || w.ValueStatement != "imported" || len(w.Tags) != 1 || w.Tags[0] != "predecessor-migrated" || len(w.Projects) != 1 || w.Projects[0].ID != "project" || w.Projects[0].Role != "primary" {
+	if w.ID != id || w.Title != "imported" || len(w.Projects) != 1 || w.Projects[0].ID != "project" || w.Projects[0].Role != "primary" {
 		t.Fatalf("import-shaped work changed: %+v", w)
-	}
-	var ref string
-	if err := s.db.QueryRowContext(t.Context(), `SELECT json_extract(intent_json,'$.external_ref') FROM work_items WHERE id=?`, id).Scan(&ref); err != nil || ref != "advance:change-1" {
-		t.Fatalf("external reference = %q, %v", ref, err)
 	}
 	summary, err := s.ReadWorkItemSummary(t.Context(), id)
 	if err != nil || summary.Kind != "task" || summary.Title != "imported" {

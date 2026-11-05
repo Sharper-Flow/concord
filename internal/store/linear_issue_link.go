@@ -58,8 +58,10 @@ func validateLinearIssueLink(link LinearIssueLink) error {
 
 // RecordLinearIssueLinkTx records one work item's Linear issue identity inside
 // the caller's transaction. Recording the identity the work item already holds
-// is a no-op. A different identity for the same work item, or the same issue
-// UUID on another work item, refuses (CD-0213 D3).
+// is a no-op. A different identity for the same work item refuses (CD-0213 D3).
+// One live work item per Linear issue: a key or issue UUID another LIVE work
+// item's link holds refuses, while a terminal item's recorded identity never
+// blocks a fresh capture (CON-1571 end state 1).
 func RecordLinearIssueLinkTx(ctx context.Context, transaction *Transaction, link LinearIssueLink) (LinearIssueLink, error) {
 	const op = "linear_link_record"
 	if err := validateLinearIssueLink(link); err != nil {
@@ -88,11 +90,22 @@ func RecordLinearIssueLinkTx(ctx context.Context, transaction *Transaction, link
 		}
 		return LinearIssueLink{}, newFailure(KindInvalidOperation, op, "the work item already records a different Linear issue identity", false, "a work item holds at most one Linear issue identity")
 	}
-	var owner string
-	if err := tx.QueryRowContext(ctx, `SELECT work_id FROM linear_issue_links WHERE remote_issue_uuid=?`, link.RemoteIssueUUID).Scan(&owner); err == nil {
-		return LinearIssueLink{}, newFailure(KindInvalidRelation, op, "another work item already records that Linear issue", false, "record an issue no other work item records")
-	} else if err != sql.ErrNoRows {
-		return LinearIssueLink{}, wrapFailure(KindUnavailable, op, "cannot inspect recorded Linear issue identities", true, "retry once the database is readable", err)
+	for _, probe := range []struct {
+		sql   string
+		value string
+		what  string
+	}{
+		{`SELECT l.work_id FROM linear_issue_links l JOIN work_items w ON w.id=l.work_id WHERE l.remote_issue_uuid=? AND w.terminal_time IS NULL AND l.work_id<>? LIMIT 1`, link.RemoteIssueUUID, "issue UUID"},
+		{`SELECT l.work_id FROM linear_issue_links l JOIN work_items w ON w.id=l.work_id WHERE l.human_key=? AND w.terminal_time IS NULL AND l.work_id<>? LIMIT 1`, link.HumanKey, "issue key"},
+	} {
+		var owner string
+		err := tx.QueryRowContext(ctx, probe.sql, probe.value, link.WorkID).Scan(&owner)
+		if err == nil {
+			return LinearIssueLink{}, newFailure(KindInvalidRelation, op, "live work item "+owner+" already holds that Linear "+probe.what, false, "one live work item per Linear issue; capture again once the holding item is terminal")
+		}
+		if err != sql.ErrNoRows {
+			return LinearIssueLink{}, wrapFailure(KindUnavailable, op, "cannot inspect recorded Linear issue identities", true, "retry once the database is readable", err)
+		}
 	}
 	scope := transaction.write
 	if scope == nil {

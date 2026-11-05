@@ -502,7 +502,7 @@
       "type": "string"
     },
     "retained_work_text": {
-      "description": "Output readback of retained work intent text: title, value_statement, and tag items the summary and pin echo. The work.created and work.intent_revised folds copy these fields verbatim with presence-only checks, work_items.title carries no length CHECK, and intent_json is unbounded text, so the readback carries no maximum; authored intent text keeps the bounded short definition.",
+      "description": "Output readback of retained work intent text: the title and captured note the summary echoes. The work.created and work.intent_revised folds copy these fields verbatim with presence-only checks, work_items.title carries no length CHECK, and intent_json is unbounded text, so the readback carries no maximum; authored intent text keeps the bounded short definition.",
       "type": "string"
     },
     "retained_project_id": {
@@ -543,13 +543,14 @@
       ]
     },
     "lifecycle_transition_target": {
-      "description": "Agent-requestable lifecycle transition targets. Strictly smaller than 'lifecycle': 'superseded' is excluded because supersession must be atomic with its 'supersedes' relation through operator-approved resolve_overlap. The runtime guard in internal/agent/mutations.go that rejects target=='superseded' is defense-in-depth behind this structural control.",
+      "description": "Agent-requestable lifecycle transition targets. The superseded state is retired: supersession beyond the one-live-item-per-Linear-issue rule is gone. reopen returns a completed or cancelled item to needed through the work.reopened fold.",
       "type": "string",
       "enum": [
         "needed",
         "in_progress",
         "completed",
-        "cancelled"
+        "cancelled",
+        "reopen"
       ]
     },
     "work_liveness": {
@@ -944,13 +945,6 @@
         "supersedes"
       ]
     },
-    "urgency": {
-      "type": "string",
-      "enum": [
-        "standard",
-        "expedite"
-      ]
-    },
     "page": {
       "type": "object",
       "additionalProperties": false,
@@ -1272,32 +1266,11 @@
           "minLength": 1,
           "maxLength": 8192
         },
-        "value_statement": {
-          "$ref": "#/$defs/retained_work_text"
-        },
-        "tags": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/retained_work_text"
-          }
-        },
-        "workflow_type_ref": {
-          "$ref": "#/$defs/retained_work_id"
-        },
         "lifecycle": {
           "$ref": "#/$defs/lifecycle"
         },
         "version": {
           "$ref": "#/$defs/version"
-        },
-        "priority": {
-          "type": "integer",
-          "minimum": -100,
-          "maximum": 100
-        },
-        "urgency": {
-          "$ref": "#/$defs/urgency"
         },
         "project_ids": {
           "type": "array",
@@ -1669,28 +1642,6 @@
         },
         "kind": {
           "$ref": "#/$defs/work_kind"
-        },
-        "tag_ids": {
-          "type": "array",
-          "maxItems": 32,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/id",
-            "description": "Bounds: 1..128 code points inclusive"
-          },
-          "description": "Bounds: <=32 items inclusive"
-        },
-        "priority_min": {
-          "type": "integer",
-          "minimum": -100,
-          "maximum": 100,
-          "description": "Bounds: -100..100 value inclusive"
-        },
-        "priority_max": {
-          "type": "integer",
-          "minimum": -100,
-          "maximum": 100,
-          "description": "Bounds: -100..100 value inclusive"
         },
         "detail": {
           "$ref": "#/$defs/detail"
@@ -3223,17 +3174,15 @@
       "additionalProperties": false,
       "required": [
         "title",
-        "value_statement",
         "kind",
         "project_ids",
+        "human_key",
+        "remote_issue_uuid",
+        "url",
         "idempotency_key"
       ],
       "properties": {
         "title": {
-          "$ref": "#/$defs/short",
-          "description": "Bounds: 1..256 code points inclusive"
-        },
-        "value_statement": {
           "$ref": "#/$defs/short",
           "description": "Bounds: 1..256 code points inclusive"
         },
@@ -3257,33 +3206,6 @@
           },
           "description": "Bounds: 1..100 items inclusive"
         },
-        "priority": {
-          "type": "integer",
-          "minimum": -100,
-          "maximum": 100,
-          "description": "Bounds: -100..100 value inclusive"
-        },
-        "urgency": {
-          "$ref": "#/$defs/urgency"
-        },
-        "tags": {
-          "type": "array",
-          "maxItems": 32,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/id",
-            "description": "Bounds: 1..128 code points inclusive"
-          },
-          "description": "Bounds: <=32 items inclusive"
-        },
-        "external_ref": {
-          "$ref": "#/$defs/short",
-          "description": "Bounds: 1..256 code points inclusive"
-        },
-        "raised_from_work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
         "idempotency_key": {
           "$ref": "#/$defs/id",
           "description": "Bounds: 1..128 code points inclusive"
@@ -3291,6 +3213,26 @@
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds",
           "description": "Bounds: >=1 value inclusive"
+        },
+        "human_key": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9]*-[1-9][0-9]*$",
+          "minLength": 3,
+          "maxLength": 64,
+          "description": "Bounds: 3..64 code points inclusive"
+        },
+        "remote_issue_uuid": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128,
+          "description": "Bounds: 2..128 code points inclusive"
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https://",
+          "minLength": 9,
+          "maxLength": 2048,
+          "description": "Bounds: 9..2048 code points inclusive"
         }
       }
     },
@@ -3301,7 +3243,6 @@
         "work_id",
         "expected_version",
         "title",
-        "value_statement",
         "kind",
         "reason",
         "idempotency_key"
@@ -3325,31 +3266,8 @@
           "maxLength": 8192,
           "description": "Bounds: 1..8192 code points inclusive"
         },
-        "value_statement": {
-          "$ref": "#/$defs/short",
-          "description": "Bounds: 1..256 code points inclusive"
-        },
         "kind": {
           "$ref": "#/$defs/work_kind"
-        },
-        "priority": {
-          "type": "integer",
-          "minimum": -100,
-          "maximum": 100,
-          "description": "Bounds: -100..100 value inclusive"
-        },
-        "urgency": {
-          "$ref": "#/$defs/urgency"
-        },
-        "tags": {
-          "type": "array",
-          "maxItems": 32,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/id",
-            "description": "Bounds: 1..128 code points inclusive"
-          },
-          "description": "Bounds: <=32 items inclusive"
         },
         "reason": {
           "$ref": "#/$defs/short",

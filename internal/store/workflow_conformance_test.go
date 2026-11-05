@@ -709,7 +709,6 @@ func createCorpusCurrentWorkflow(ctx context.Context, s *Store, workID string, a
 	if title == "" {
 		title = workID
 	}
-	value, _ := fields["value_statement"].(string)
 	projectIDs := []string{"project"}
 	if ids, present := fields["project_ids"]; present {
 		encoded, err := json.Marshal(ids)
@@ -720,8 +719,7 @@ func createCorpusCurrentWorkflow(ctx context.Context, s *Store, workID string, a
 			return err
 		}
 	}
-	priority := int64(1)
-	created := Event{EventID: workID + ":capture", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actor.PrincipalRef, OccurredAt: corpusNow, PayloadVersion: registration.CurrentVersion, Payload: mustJSONValue(workCreatedPayload{WorkID: workID, WorkKind: "task", Title: title, ValueStatement: value, Priority: &priority})}
+	created := Event{EventID: workID + ":capture", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actor.PrincipalRef, OccurredAt: corpusNow, PayloadVersion: registration.CurrentVersion, Payload: mustJSONValue(workCreatedPayload{WorkID: workID, WorkKind: "task", Title: title})}
 	if len(projectIDs) > 0 {
 		var err error
 		ctx, err = s.EstablishKnowledgeSourceSetProofForProject(ctx, projectIDs[0])

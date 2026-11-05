@@ -102,7 +102,7 @@ func TestQueryRejectsInvalidFilterAndCursorBinding(t *testing.T) {
 	}
 	_, err = s.QueryQ3(context.Background(), Q3Request{Product: "prod", LifecycleStates: []string{"in_progress"}, Limit: 1, Cursor: *page.NextCursor})
 	assertFailureKind(t, err, KindInvalidCursor)
-	malformed, err := json.Marshal(q3Cursor{Version: 1, QueryID: "PM1.Q3", Product: "prod", States: []string{"needed"}, Order: "priority:asc,relevant_time:desc,id:asc", Priority: 1, Timestamp: "not-a-timestamp", ID: "blocked"})
+	malformed, err := json.Marshal(q3Cursor{Version: 1, QueryID: "PM1.Q3", Product: "prod", States: []string{"needed"}, Order: "relevant_time:desc,id:asc", Timestamp: "not-a-timestamp", ID: "blocked"})
 	if err != nil {
 		t.Fatal(err)
 	}

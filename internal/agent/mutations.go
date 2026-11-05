@@ -1112,7 +1112,13 @@ func (r runtime) planWorkRemoval(ctx context.Context, base agentcontract.Envelop
 	}
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.scope["product_ids"] = nonEmpty(product)
-	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "audit_removed_work"}}
+	// No next intent is served. The work projection is deleted, so every
+	// read that resolves live work scope refuses the removed identity, and
+	// the retained document read (mutation_result) accepts workflow_action
+	// sources only. CD-0113 D3 bars a hand-written intent that names a work
+	// mutation, so advertising the replay is not allowed either. The
+	// retained acknowledgement this result carries is the audit record;
+	// replaying this operation re-serves it from the idempotency record.
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 		removalRequest.Actor = grant.PrincipalRef
 		if grant.MainWorktree {

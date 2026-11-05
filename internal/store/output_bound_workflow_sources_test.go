@@ -608,7 +608,7 @@ func TestOutputBoundIntentCountDirectWriters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const original = `plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "PM1.Q7", ReasonCode: "audit_removed_work"}}`
+	const original = `plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_ids", "detail"}}}`
 	for _, tc := range []struct {
 		name, replacement string
 		want              int64

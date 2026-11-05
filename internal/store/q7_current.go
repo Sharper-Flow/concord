@@ -185,14 +185,19 @@ func q7EntryHasCurrentFields(entry HistoryEntry) bool {
 	}
 }
 
+// currentQ7EntriesSQL projects the records the effect coordinate system
+// positions. Relation rows written before that system have no effect
+// receipt; migration 150 retains them with record_version 0, and the
+// relation-graph read (Q8) serves them, so history selects only
+// receipt-backed relations rather than failing the whole read.
 const currentQ7EntriesSQL = `WITH selected_work AS (SELECT * FROM work_items WHERE id=?), entries AS (
  SELECT 'lifecycle:'||id AS entry_id,'lifecycle' AS entry_kind,transition_seq AS effect_seq,transition_version AS version,id AS version_work_id,
  transition_actor AS actor,transition_reason AS reason,transition_evidence_refs AS evidence_refs,
  json_object('lifecycle',lifecycle,'from',transition_from) AS fields FROM selected_work
  UNION ALL
- SELECT 'relation:'||r.id,'relation',COALESCE(f.effect_seq,0),r.record_version,COALESCE(f.subject_id,''),COALESCE(f.actor,''),r.reason,'[]',
+ SELECT 'relation:'||r.id,'relation',f.effect_seq,r.record_version,f.subject_id,f.actor,r.reason,'[]',
  json_object('work_id_from',r.work_id_from,'work_id_to',r.work_id_to,'relation_kind',r.kind,'created_at',r.created_at,'resolution_id',r.resolution_id)
- FROM relations r LEFT JOIN effect_receipts f ON f.relation_seq=r.id
+ FROM relations r JOIN effect_receipts f ON f.relation_seq=r.id
  WHERE r.work_id_from=(SELECT id FROM selected_work) OR r.work_id_to=(SELECT id FROM selected_work)
  UNION ALL
  SELECT 'phase_exit:'||x.work_id||':'||x.action_id,'phase_exit',x.exit_seq,x.record_version,x.work_id,x.actor,'','[]',

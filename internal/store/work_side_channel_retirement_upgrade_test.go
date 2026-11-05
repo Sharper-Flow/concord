@@ -49,10 +49,11 @@ func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 	}
 	contracts := cutoverContractRows(t, db)
 	instances := cutoverInstanceExpectations(t, db, "")
+	work := historicalCaptureWorkRows(t, db, "")
 	if _, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
 		t.Fatal(err)
 	}
-	retired := map[string]bool{"work_messages": true, "work_observations": true, "workflow_law_baselines": true, "workflow_artifact_actions": true, "workflow_correction_state": true, "workflow_step_completions": true, "workflow_contract_predicates": true, "workflow_predicate_verdicts": true, "workflow_review_state": true}
+	retired := map[string]bool{"work_messages": true, "work_observations": true, "work_context_state": true, "work_context_findings": true, "project_governing_requirements": true, "workflow_law_baselines": true, "workflow_artifact_actions": true, "workflow_correction_state": true, "workflow_step_completions": true, "workflow_contract_predicates": true, "workflow_predicate_verdicts": true, "workflow_review_state": true}
 	for table, want := range retained {
 		if retirementUpgradeResearchTable(t, db, table) {
 			continue
@@ -67,6 +68,12 @@ func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 			continue
 		}
 		if table == "workflow_contracts" || table == "workflow_instances" {
+			continue
+		}
+		if table == "work_items" {
+			if got := retirementUpgradeRows(t, db, `SELECT * FROM work_items ORDER BY id`); !reflect.DeepEqual(got, work) {
+				t.Errorf("retained work changed: got %v want %v", got, work)
+			}
 			continue
 		}
 		if got := retirementUpgradeRows(t, db, `SELECT * FROM "`+table+`" ORDER BY rowid`); !reflect.DeepEqual(got, want) {

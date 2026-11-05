@@ -1,6 +1,6 @@
 # Concord Specs-as-Laws: Conflict Surfacing & Evolution
 
-> **Status:** Aligned v2 under CD-0006, CD-0015, CD-0035, CD-0036,
+> **Status:** Aligned v2 under CD-0006, CD-0015, CD-0036,
 > CD-0222, and CD-0230. Those accepted decisions are binding; this
 > companion explains them.
 > **Purpose:** How Concord makes pruned, architecture-bound specifications its
@@ -180,8 +180,7 @@ Concord does not call, mirror, or dual-write another coordination system's runti
 
 ## 8. Implementation state
 
-CD-0035 capture-time governing-requirement enforcement and CD-0036 breaking-law
-cutovers are implemented. CD-0222 is accepted constitutional law, but its Domain
+CD-0036 breaking-law cutovers are implemented. CD-0222 is accepted constitutional law, but its Domain
 identity, architecture-bound contract,
 and read-surface mechanisms remain follow-up implementation work. Issue #192 does
 not claim those runtime outcomes are complete.

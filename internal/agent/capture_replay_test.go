@@ -9,7 +9,7 @@ import (
 func TestPublicCaptureReplayRecordsNoDuplicate(t *testing.T) {
 	t.Parallel()
 	s, service, grant, scopeVersion := captureTaskFixture(t)
-	input := retryJSON(map[string]any{"title": "Checksum mismatch", "value_statement": "Uploads lose their checksum", "kind": "bug", "project_ids": []string{"project-1"}, "idempotency_key": "capture-replay"})
+	input := retryJSON(map[string]any{"title": "Checksum mismatch", "kind": "bug", "project_ids": []string{"project-1"}, "human_key": "ZZ-7003", "remote_issue_uuid": "fixture-capture-replay", "url": "https://linear.app/example/issue/ZZ-7003", "idempotency_key": "capture-replay"})
 	env := mutationEnvelope(grant, scopeVersion)
 	env.RequestID = "capture-replay-1"
 	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: input}, env)

@@ -49,10 +49,10 @@ func TestRelationIdentityIncludesWorkflowRelationEvents(t *testing.T) {
 	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES
-		('collision-from','task','From','needed',1,1,'now','now'),
-		('collision-to','task','To','needed',1,1,'now','now'),
-		('collision-successor','task','Successor','needed',1,1,'now','now')`); err != nil {
+	if _, err := tx.Exec(`INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at) VALUES
+		('collision-from','task','From','needed',1,'now','now'),
+		('collision-to','task','To','needed',1,'now','now'),
+		('collision-successor','task','Successor','needed',1,'now','now')`); err != nil {
 		t.Fatal(err)
 	}
 	overlap := Event{EventID: "collision-overlap", Kind: WorkflowOverlapResolved, SubjectType: SubjectWorkItem, SubjectID: "collision-from", Actor: "operator", OccurredAt: relationTestTime("2026-01-01T00:00:00Z"), PayloadVersion: 1, Payload: []byte(`{"resulting_version":2}`)}

@@ -47,14 +47,8 @@ func selfRelease() (root string, binary string, err error) {
 	return filepath.Dir(filepath.Dir(binary)), binary, nil
 }
 
-// writeCoreDescriptor reports the side-effect-free capability descriptor the
-// installer reads while staging a release tree: the release
-// identity, the schema this core defines, the maintenance-fence protocol it
-// speaks, and the pinned adapter manifest digest. The route prints and exits;
-// it touches no store, no lease directory, and no fence, so probing it can
-// never change readiness or admission state. Capability truth lives here, in
-// the core itself — never in an installer-origin assumption about the bytes
-// it staged.
+// writeCoreDescriptor reports the staged core's own capability without touching
+// the store, lease directory or fence, so probing cannot change admission state.
 func writeCoreDescriptor(out, errOut io.Writer) int {
 	root, binary, err := selfRelease()
 	if err != nil {
@@ -358,16 +352,9 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		plan.ActivationCommand = activationCommandFor(dataRoot)
 		return writeJSON(out, upgradePlanReport{UpgradeReadiness: plan, MaintenanceFence: fenceBefore, SnapshotRequired: maintenanceRequired}, errOut)
 	}
-	// A breaking migration requires the maintenance
-	// boundary: the fence excludes new session admission before the final
-	// lease check, and the activation that follows removes it. The command
-	// itself is the boundary, so no flag can skip the exclusion.
-	// The boundary is claimed with a pre-minted identity, so this run can
-	// close only a fence it itself opened. A fence that already existed —
-	// read at entry, or opened by a concurrent operation before EnsureFence
-	// took the admission lock — is adopted with its own identity and is
-	// never this run's to remove; removal is identity-checked so a no-op or
-	// failed run cannot delete another operation's exclusion.
+	// A breaking migration opens the admission fence before the final lease check.
+	// Activation removes it; no flag skips exclusion. A pre-minted identity lets
+	// this run close only its own fence, never an adopted or concurrent boundary.
 	boundary := upgradeFence{dataRoot: dataRoot}
 	if maintenanceRequired || request.RequireNoSessions {
 		var code int
@@ -434,14 +421,8 @@ func openUpgradeFence(dataRoot string, errOut io.Writer) (upgradeFence, int) {
 	boundary.owned = ensured.FenceID == candidate
 	boundary.id = ensured.FenceID
 	if !boundary.owned {
-		// An adopted boundary authorizes this migration only when it
-		// is provably this same command's own opening: the upgrade
-		// operation, this release root, this binary, this schema —
-		// the legitimate failed-migration and committed-migration
-		// recovery tie. Anything else — no operation, a foreign
-		// operation, another release's identity, or an uncertain
-		// hand-written record — stays untouched on disk and moves no
-		// migration.
+		// An adopted fence authorizes migration only when its operation, release
+		// root, binary and schema prove it was opened by this command.
 		if !ensured.AuthorizesNativeMigration(root, binary, store.CurrentSchemaVersion()) {
 			writeOperatorDiagnostic(errOut, "upgrade",
 				fmt.Sprintf("an open maintenance boundary at %s is not this binary's own upgrade boundary (operation %q, release root %q, core binary %q, schema %d); an unattributed or foreign boundary authorizes no migration and stays unchanged. Close it through the operator-owned offline bootstrap when no migration is in progress",
@@ -665,12 +646,8 @@ func (boundary upgradeFence) finish(report store.UpgradeReport, pendingBreaking 
 	return writeJSON(out, result, errOut)
 }
 
-// breakingCommittedAfterFailure re-reads the store read-only and reports
-// whether any migration the plan listed as pending-breaking is no longer
-// pending. An unreadable re-check is an uncertain outcome and conservatively
-// reports committed: after an error, exclusion is retained on both committed
-// and uncertain outcomes, and only a re-check that still shows every breaking
-// step pending proves nothing committed.
+// breakingCommittedAfterFailure rechecks pending breaking steps read-only.
+// An unreadable recheck is uncertain and retains exclusion as if committed.
 func breakingCommittedAfterFailure(path string, pendingBreaking []store.PendingMigration) bool {
 	if len(pendingBreaking) == 0 {
 		return false

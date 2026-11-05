@@ -632,18 +632,6 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionIntegerField("boundary_sequence", false), actionIntegerField("checkpoint_sequence", false), actionStringField("summary", true, 16384),
 		WorkflowPayloadField{Name: "restart", ValueType: PayloadBoolean},
 	),
-	// CON-887: record_work_context declares the durable working context on
-	// the workflow-action route. The action holds the step and advances the
-	// work version; its typed event is the durable action boundary, so it
-	// joins the omit-generic-completion list. The full current list of
-	// readings, the selected earlier finding references, and the new
-	// bounded findings each answer to a closed item schema the generated
-	// payload contracts carry.
-	"record_work_context": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
-		actionItemArrayField("required_reading", false, 0, WorkContextRequiredReadingMax, "work_context_reading"),
-		actionListField("finding_refs", false, 0, WorkContextFindingRefsMax),
-		actionItemArrayField("context_findings", false, 0, WorkContextActionFindingsMax, "work_context_finding"),
-	),
 	"record_delivery": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric,
 		actionRefField("delivery_artifact", true), actionEnumField("delivery_state", true, "asserted")),
 	// CON-1574: the pre-plan prelude and plan writes. record_intake records

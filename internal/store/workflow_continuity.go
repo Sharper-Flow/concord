@@ -111,9 +111,6 @@ type ContinuitySnapshot struct {
 	// against the verified committed law folder and Domain registry at read
 	// time. Nil when the contract binds no law and no Domain.
 	LawContext *WorkflowLawContext `json:"law_context,omitempty"`
-	// WorkContext and WorkContextUnavailable carry the shared projection.
-	WorkContext            *WorkContextView        `json:"work_context,omitempty"`
-	WorkContextUnavailable *WorkContextUnavailable `json:"work_context_unavailable,omitempty"`
 }
 
 type ContinuityRequest struct {
@@ -248,11 +245,6 @@ func continuityReadManagedHistoryTx(ctx context.Context, tx *sql.Tx, req Continu
 	if err := continuityReadTrailingTx(ctx, tx, req.Work, out); err != nil {
 		return err
 	}
-	view, unavailable, viewErr := readWorkContextProjection(ctx, tx, req.Work)
-	if viewErr != nil {
-		return viewErr
-	}
-	out.WorkContext, out.WorkContextUnavailable = view, unavailable
 	return nil
 }
 

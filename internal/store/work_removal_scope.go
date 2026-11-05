@@ -67,7 +67,7 @@ func checkDefaultCheckoutRemovalQ(ctx context.Context, q queryer, req WorkRemova
 		return err
 	}
 	if req.Linear != nil && req.Linear.HandoffDigest != removalHandoffDigest(req.Handoff) {
-		return refuse("Linear confirmation does not match the handoff")
+		return newFailure(KindInvalidPayload, "work_removal", "Linear confirmation does not match the handoff: check linear.handoff_digest", false, "supply the exact linear.handoff_digest for the handoff")
 	}
 	return validateRemovalGatesQ(ctx, q, req)
 }

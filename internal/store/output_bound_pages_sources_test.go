@@ -197,61 +197,6 @@ func pkLayoutRenderWidth(layout string) (int64, error) {
 	return total, nil
 }
 
-// pkTimeJSONFieldBound derives the render width of a time.Time struct field
-// the result marshals with encoding/json: the live struct declaration must
-// still type the field as time.Time, whose MarshalJSON renders through
-// appendStrictRFC3339. That path is NOT Time.Format: it validates the
-// rendered bytes and errors (never emits) for a year outside [0,9999] or a
-// numeric zone hour of 24 or more, so the admitted render is at most a
-// four-digit year plus the fixed two-digit fields, the token-bounded
-// fraction, and a two-digit zone - 4+1+2+1+2+1+2+1+2+1+2+10+6 = 35
-// characters. An out-of-range time fails the whole marshal instead of
-// widening the member.
-func pkTimeJSONFieldBound(file, structName, field string) outputBoundSource {
-	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
-		goS, err := rt.loadGo(file)
-		if err != nil {
-			return evaluatedBound{}, err
-		}
-		declared := ""
-		for _, decl := range goS.file.Decls {
-			gen, ok := decl.(*ast.GenDecl)
-			if !ok || gen.Tok != token.TYPE {
-				continue
-			}
-			for _, spec := range gen.Specs {
-				typeSpec, ok := spec.(*ast.TypeSpec)
-				if !ok || typeSpec.Name.Name != structName {
-					continue
-				}
-				structType, ok := typeSpec.Type.(*ast.StructType)
-				if !ok {
-					return evaluatedBound{}, fmt.Errorf("time JSON field: %s is not a struct in %s", structName, file)
-				}
-				for _, fieldList := range structType.Fields.List {
-					for _, name := range fieldList.Names {
-						if name.Name == field {
-							declared = ledgerExprText(fieldList.Type)
-						}
-					}
-				}
-			}
-		}
-		if declared != "time.Time" {
-			return evaluatedBound{}, fmt.Errorf("time JSON field: %s.%s is declared %q in %s, not time.Time", structName, field, declared, file)
-		}
-		describe := fmt.Sprintf("time.Time field %s.%s renders at the strict RFC3339Nano width (35) through encoding/json MarshalJSON, which errors outside year [0,9999] and zone hour [0,23]", structName, field)
-		return evaluatedBound{
-			constraints: []boundConstraint{
-				{unit: boundCharacters, value: 35, from: describe},
-				{unit: boundBytes, value: 35, from: describe + " (ASCII render)"},
-			},
-			kind:     "derived",
-			describe: describe,
-		}, nil
-	}}
-}
-
 // pkEmptyLiteralItemsBound cites a field the writer emits as one empty slice
 // literal: the function must carry exactly one key/value entry named field
 // and its value must be an empty array literal. Any second occurrence of the
@@ -893,61 +838,6 @@ func pkCountComparisons(body ast.Node, measurement string) int {
 	return total
 }
 
-// pkPathStartsWithLiteral reports whether the expression is an additive path
-// join whose first spelled term is the given string literal, as in
-// "/"+repository+suffix.
-func pkPathStartsWithLiteral(expr ast.Expr, literal string) bool {
-	add, ok := ledgerUnparen(expr).(*ast.BinaryExpr)
-	if !ok || add.Op != token.ADD {
-		return false
-	}
-	first := ledgerUnparen(add.X)
-	for firstOp, ok := first.(*ast.BinaryExpr); ok && firstOp.Op == token.ADD; firstOp, ok = first.(*ast.BinaryExpr) {
-		first = ledgerUnparen(firstOp.X)
-	}
-	return pkStringLitText(first) == literal
-}
-
-func pkLiteralPresent(fn *ast.FuncDecl, literal string) bool {
-	present := false
-	ast.Inspect(fn.Body, func(n ast.Node) bool {
-		if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
-			if value, err := strconv.Unquote(lit.Value); err == nil && value == literal {
-				present = true
-			}
-		}
-		return true
-	})
-	return present
-}
-
-func pkStructFieldType(goS *goSource, structName, field string) string {
-	for _, decl := range goS.file.Decls {
-		gen, ok := decl.(*ast.GenDecl)
-		if !ok || gen.Tok != token.TYPE {
-			continue
-		}
-		for _, spec := range gen.Specs {
-			typeSpec, ok := spec.(*ast.TypeSpec)
-			if !ok || typeSpec.Name.Name != structName {
-				continue
-			}
-			structType, ok := typeSpec.Type.(*ast.StructType)
-			if !ok {
-				return ""
-			}
-			for _, fieldList := range structType.Fields.List {
-				for _, name := range fieldList.Names {
-					if name.Name == field {
-						return ledgerExprText(fieldList.Type)
-					}
-				}
-			}
-		}
-	}
-	return ""
-}
-
 // ---------------------------------------------------------------------------
 // Registrations
 // ---------------------------------------------------------------------------
@@ -964,8 +854,7 @@ func init() {
 	registerOutputBound("/$defs/mutation_result/properties/changed_refs/maxItems", goConstantBound("internal/agentcontract/envelope.go", "MaxChangedRefs", boundItems))
 	// The delivery object is reserved and unemitted: no writer sets either
 	// member and result payloads refuse unknown members, so the published
-	// capacity is the empty set. No constructor cites a never-produced member
-	// yet; the rows stay unproved gap reports.
+	// capacity is the empty set.
 	registerOutputBound("/$defs/mutation_result/properties/delivery/properties/branch/maxLength", pkDeliveryNeverWrittenBound("internal/agent/mutations.go"))
 	registerOutputBound("/$defs/mutation_result/properties/delivery/properties/commit/maxLength", pkDeliveryNeverWrittenBound("internal/agent/mutations.go"))
 	registerOutputBound("/$defs/mutation_result/properties/next_valid_intents/items/properties/required_fields/maxItems", requiredIntentFieldsBound())
@@ -1032,9 +921,6 @@ func init() {
 	registerOutputBound("/$defs/work_relation_graph/properties/nodes/maxItems", pkEmptyLiteralItemsBound("internal/agent/runtime.go", "q8", "nodes"))
 
 	registerOutputBound("/$defs/work_summary/properties/project_ids/maxItems", unboundedOutput("internal/store/query.go:attachWorkMemberships appends one entry per work_projects row with no LIMIT; a page LIMIT does not bound per-item memberships", "internal/agent/runtime.go:readSizeRefusal"))
-	// Both intent folds copy Tags into the stored projection with no count
-	// guard, so the tag list is byte-ceiling only and the cap is redundant.
-	registerOutputBound("/$defs/work_summary/properties/tags/maxItems", unboundedOutput("internal/store/lifecycle.go:foldWorkCreated and foldWorkIntentRevised copy the payload Tags into the stored intent verbatim with no count guard, so any tag count projects into the summary", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_summary/properties/task/maxLength", maxBound(
 		pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkCreated", "len(payload.Task)"),
 		pkEmptyGuardedLenBound("internal/store/lifecycle.go", "foldWorkIntentRevised", "len(*payload.Task)"),

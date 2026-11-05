@@ -54,7 +54,7 @@ func readWorkflowPreludeTx(ctx context.Context, tx *sql.Tx, workID string) (*wor
 	if err != nil {
 		return nil, workflowProjectionError(err, "cannot read workflow prelude")
 	}
-	if state == "completed" || state == "cancelled" || state == "superseded" || lifecycle == "completed" || lifecycle == "cancelled" || lifecycle == "superseded" {
+	if state == "completed" || state == "cancelled" || lifecycle == "completed" || lifecycle == "cancelled" {
 		return nil, newFailure(KindInvalidOperation, "fold_event", "terminal workflow cannot change", false, "reread the work item")
 	}
 	if !raw.Valid {

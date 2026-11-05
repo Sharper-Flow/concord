@@ -140,7 +140,7 @@ func seedAuthorityWork(t *testing.T, s *Store, workID string) {
 			t.Errorf("remove write guard: %v", err)
 		}
 	}()
-	if _, err := db.Exec(`INSERT OR IGNORE INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?, 'task', 'Authority fixture work', 'completed', 1, 1, 'now', 'now')`, workID); err != nil {
+	if _, err := db.Exec(`INSERT OR IGNORE INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at) VALUES(?, 'task', 'Authority fixture work', 'completed', 1, 'now', 'now')`, workID); err != nil {
 		t.Fatal(err)
 	}
 }

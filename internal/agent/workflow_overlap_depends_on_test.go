@@ -48,4 +48,13 @@ func TestResolveOverlapDependsOnRecordsDirectedSequencingWithoutConsent(t *testi
 	if got := countRows(t, s2.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions WHERE resolution_kind='blocks'`); got != 1 {
 		t.Fatalf("blocks resolutions=%d, want the recorded unsigned admission hold", got)
 	}
+	if got := countRows(t, s2.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='blocks' AND work_id_from='work-1' AND work_id_to='work-2' AND resolution_id IS NOT NULL`); got != 1 {
+		t.Fatalf("blocks relation rows=%d, want the directed edge", got)
+	}
+	if got := countRows(t, s2.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='blocks' AND work_id_from='work-2' AND work_id_to='work-1'`); got != 0 {
+		t.Fatalf("reverse blocks relation rows=%d, want none", got)
+	}
+	if workVersion(t, s2, "work-1") != 3 || workVersion(t, s2, "work-2") != 3 {
+		t.Fatal("blocks resolution left the endpoints off the single-step versions")
+	}
 }

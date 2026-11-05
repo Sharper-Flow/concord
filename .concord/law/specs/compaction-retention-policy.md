@@ -39,8 +39,9 @@ stored, but have no agent read.
 Operations and effect receipts retain their retry and reconciliation consumers;
 finite verified snapshots follow CD-0242 D2 and PM10.
 
-Existing `archived_work` and historical scope edges remain disposable Git-derived
-read projections. PM6 preserves their home IDs, note path, commit OID, note
+Existing `archived_work` and historical scope edges remain retained Git-derived
+read projections; Git owns the notes, and no replacement or disposal surface
+exists (section 3). PM6 preserves their home IDs, note path, commit OID, note
 `content_hash`, `lesson_tags`, terminal state/time and frozen scope. A historical
 reader does not require a settled publication operation, closure judgement or new
 backfill. Removed execution data returns typed absence, not an inspectable step
@@ -51,20 +52,19 @@ planning handoff.
 
 ### 2. Historical population and identity
 
-Historical projections retain these fields from their verified note or stable
-canonical-home context:
+Historical projections retain these fields from their retained note record or
+stable canonical-home context:
 
 ```text
 id, type, title, completed_at, outcome_tag, lesson_tags,
 home_project_id, home_locator_id, note_path, commit_oid, content_hash,
-terminal_state, priority, summary,
-product_ids[], project_ids[], domain_ids[], tag_ids[], successor_work_id?
+terminal_state, summary,
+product_ids[], project_ids[], domain_ids[], tag_ids[]
 ```
 
 Scope is frozen at the note's recorded revision. Later memberships do not
-rewrite it. `completed_at` is the terminal timestamp for completed, cancelled
-and superseded work; PM1's `terminal_at` maps to it. A superseded historical
-item's recorded successor remains readable. Historical edges carry no mutable
+rewrite it. `completed_at` is the terminal timestamp for completed and cancelled
+work; PM1's `terminal_at` maps to it. Historical edges carry no mutable
 blocker, readiness, evidence or per-Project status.
 
 Q2/Q3 answer over the retained current-state population with PM5 membership
@@ -75,7 +75,7 @@ store read, and a store that cannot answer refuses as `unreachable` rather than
 serving stale or guessed rows.
 
 Q7 reads available current-state records, not an exact event history or process
-receipt. Q8 resolves historical supersession from verified recorded metadata.
+receipt.
 An already historical identity cannot reopen; renewed need uses a new identity
 linked to the old one without changing the historical note.
 

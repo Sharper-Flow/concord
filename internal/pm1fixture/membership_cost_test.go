@@ -7,7 +7,7 @@ import (
 
 // singleTransitionLifecycles name the declared lifecycles the fixture seeds with
 // exactly one work.transitioned event. `completed` reaches its terminal state
-// through two, and `needed` and `superseded` through none.
+// through two, and `needed` through none.
 var singleTransitionLifecycles = map[string]bool{"in_progress": true, "cancelled": true}
 
 // TestMembershipCostsOneVersionForAnyProjectCount holds the fixture to the

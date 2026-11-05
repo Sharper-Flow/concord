@@ -162,6 +162,7 @@ func TestCatalogRetirementReleasedBackupRecovery(t *testing.T) {
 	}
 	current := catalogRecoveryRows(t, path, catalogRecoveryCurrentTables)
 	currentRetained := catalogRecoveryRows(t, path, catalogRecoveryRetainedTables)
+	currentRetained["work_items"] = expectedMinimalWorkRows(t, currentRetained["work_items"])
 	snapshot := filepath.Join(root, "inventory-snapshot.db")
 	var manifest store.BackupManifest
 	if err := json.Unmarshal([]byte(run(released, "backup", map[string]any{"destination": snapshot})), &manifest); err != nil {

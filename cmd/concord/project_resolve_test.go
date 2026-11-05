@@ -28,7 +28,7 @@ func openResolveStore(t *testing.T) *store.Store {
 }
 
 // The reason project-resolve exists: a host cannot join on a directory name.
-// CD-0008 D1 makes a path replaceable evidence for a stable Project ID, so the
+// A path is replaceable evidence for a stable Project ID, so the
 // mapping is authority data and only the core can read it.
 func TestProjectResolveAnswersDirectoryToProjectAndProductHop(t *testing.T) {
 	repo := initLocatorRepo(t)
@@ -77,7 +77,7 @@ func TestProjectResolveAnswersDirectoryToProjectAndProductHop(t *testing.T) {
 }
 
 // An unregistered repository is a typed refusal, never a guess. A verb that
-// invented a Project ID would manufacture the identity CD-0008 D1 denies.
+// invented a Project ID would manufacture an identity.
 func TestProjectResolveRefusesUnregisteredRepository(t *testing.T) {
 	repo := initLocatorRepo(t)
 	s := openResolveStore(t)
@@ -94,7 +94,7 @@ func TestProjectResolveRefusesUnregisteredRepository(t *testing.T) {
 	}
 }
 
-// The verb reads. It must never become a second write authority (CD-0021).
+// The verb reads. It must never become a second write authority.
 func TestProjectResolveWritesNothing(t *testing.T) {
 	repo := initLocatorRepo(t)
 	s := openResolveStore(t)

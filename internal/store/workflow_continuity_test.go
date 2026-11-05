@@ -2,13 +2,51 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestContinuityCarriesNativeRun(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	workID := seedNativeRunFixture(t, s)
+	actor := WorkflowActor{PrincipalRef: "principal-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1", ActorClass: ActorAgent}
+	now := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	const subject = "routing://synthetic"
+	evidenceDigest := "sha256:" + repeatHex("a")
+	event, err := buildNativeRunEvent("continuity-native-run", workID, actor, now, 2, "start", "run-1", subject, "started", "https://evidence.invalid/run-1", evidenceDigest, now.Format(time.RFC3339Nano))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		_, err := applyWorkflowOperationTx(ctx, tx.tx, Operation{Events: []Event{event}}, newWriteScope(tx.tx))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID, Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(subject)))
+	want := []NativeRunReport{{
+		RunID: "run-1", Phase: "start", Status: "started", EventID: event.EventID,
+		ReportingAuthorityRef: actor.ClientRef, ActorRef: DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef),
+		NativeSubjectRef: subject, SubjectDigest: digest, EvidenceRef: "https://evidence.invalid/run-1", EvidenceDigest: evidenceDigest,
+		AssertedAt: now.Format(time.RFC3339Nano), RecordedAt: now.Format(time.RFC3339Nano),
+		ObservationID: nativeRunObservationID(digest), VerificationState: "unverified", Unverified: true,
+	}}
+	if !reflect.DeepEqual(snapshot.NativeRuns, want) {
+		t.Fatalf("native runs=%+v, want %+v", snapshot.NativeRuns, want)
+	}
+}
 
 func continuityTestWorkflow(t *testing.T, s *Store, workID string) (WorkflowActor, int64) {
 	t.Helper()

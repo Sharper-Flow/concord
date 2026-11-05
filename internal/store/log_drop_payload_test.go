@@ -8,7 +8,7 @@ func TestCurrentPayloadRejectsRetiredResizeFields(t *testing.T) {
 		kind    string
 		payload string
 	}{
-		{"creation", "work.created", `{"work_kind":"task","title":"capture","priority":0,"resize_of":"work:old"}`},
+		{"creation", "work.created", `{"work_kind":"task","title":"capture","resize_of":"work:old"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			event := Event{EventID: "effect:retired-field", Kind: tc.kind, Payload: []byte(tc.payload)}

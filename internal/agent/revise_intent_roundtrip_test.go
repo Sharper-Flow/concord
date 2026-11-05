@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"reflect"
+	"fmt"
 	"strconv"
 	"testing"
 
@@ -12,102 +12,48 @@ import (
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
-// CON-835 regression. revise_intent is complete replacement (TS4 2.1), so a
-// coordinator that revises only the task must carry every other revisable
-// value out of the authoritative typed read. external_ref stays capture-owned.
-func TestTaskOnlyRevisionCarriesCompleteTaskIntentThroughFullListRead(t *testing.T) {
-	t.Parallel()
-	s, ctx, service, env, workID := seedIntentRoundtripWork(t, map[string]any{
-		"title": "Preserve the recorded intent", "value_statement": "Unrelated intent metadata must survive a task-only revision",
-		"task": "Original recorded instruction", "kind": "task", "priority": -7, "urgency": "expedite",
-		"tags":         []string{"agent-plane", "storage"},
-		"external_ref": "linear:CON-835-1", "idempotency_key": "roundtrip-capture-1",
-	})
-
-	before := roundtripFullListItem(t, ctx, s, service, env, workID)
-	assertCompleteIntentRead(t, before, map[string]any{
-		"kind": "task", "title": "Preserve the recorded intent", "task": "Original recorded instruction",
-		"value_statement": "Unrelated intent metadata must survive a task-only revision",
-		"priority":        float64(-7), "urgency": "expedite",
-		"tags": []any{"agent-plane", "storage"},
-	})
-
-	revise := carriedTaskOnlyRevision(t, before, workID, "Replacement instruction that changes nothing else", "roundtrip-revise-1")
-	revised := roundtripDispatchOK(t, ctx, s, service, env, "roundtrip-revise-1", "concord_work_define", "revise_intent", revise)
-	if len(*revised.ChangedRefs) != 1 || (*revised.ChangedRefs)[0].Version != strconv.FormatInt(int64(before["version"].(float64))+1, 10) {
-		t.Fatalf("changed refs=%#v, want the expected version to advance by exactly one", revised.ChangedRefs)
-	}
-
-	after := roundtripFullListItem(t, ctx, s, service, env, workID)
-	assertCompleteIntentRead(t, after, map[string]any{
-		"kind": "task", "title": "Preserve the recorded intent", "task": "Replacement instruction that changes nothing else",
-		"value_statement": "Unrelated intent metadata must survive a task-only revision",
-		"priority":        float64(-7), "urgency": "expedite",
-		"tags": []any{"agent-plane", "storage"},
-	})
-	assertStoredExternalRef(t, s, workID, "linear:CON-835-1")
-}
-
-// A coordinator must be able to carry the complete revisable intent from a
-// full-detail list read into a task-only revision.
+// A task-only revision carries the complete intent from a full-detail list read.
 func TestTaskOnlyRevisionCarriesCompleteIntentThroughFullListRead(t *testing.T) {
 	t.Parallel()
-	s, ctx, service, env, workID := seedIntentRoundtripWork(t, map[string]any{
-		"title": "Preserve intent through the list read", "value_statement": "Full-detail listings carry the complete revisable intent",
-		"task": "Original list instruction", "kind": "bug", "priority": 42, "urgency": "expedite",
-		"tags":         []string{"agent-surface"},
-		"external_ref": "linear:CON-835-2", "idempotency_key": "roundtrip-capture-2",
-	})
-
-	before := roundtripFullListItem(t, ctx, s, service, env, workID)
-	assertCompleteIntentRead(t, before, map[string]any{
-		"kind": "bug", "title": "Preserve intent through the list read", "task": "Original list instruction",
-		"value_statement": "Full-detail listings carry the complete revisable intent",
-		"priority":        float64(42), "urgency": "expedite",
-		"tags": []any{"agent-surface"},
-	})
-
-	revise := carriedTaskOnlyRevision(t, before, workID, "Replacement instruction from the list read", "roundtrip-revise-2")
-	revised := roundtripDispatchOK(t, ctx, s, service, env, "roundtrip-revise-2", "concord_work_define", "revise_intent", revise)
-	if len(*revised.ChangedRefs) != 1 || (*revised.ChangedRefs)[0].Version != strconv.FormatInt(int64(before["version"].(float64))+1, 10) {
-		t.Fatalf("changed refs=%#v, want the expected version to advance by exactly one", revised.ChangedRefs)
+	for _, tc := range []struct {
+		kind, title, original, replacement, key, issue string
+	}{
+		{"task", "Preserve the recorded intent", "Original recorded instruction", "Replacement instruction that changes nothing else", "1", "ZZ-7005"},
+		{"bug", "Preserve intent through the list read", "Original list instruction", "Replacement instruction from the list read", "2", "ZZ-7006"},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			t.Parallel()
+			s, ctx, service, env, workID := seedIntentRoundtripWork(t, map[string]any{
+				"title": tc.title, "task": tc.original, "kind": tc.kind,
+				"human_key": tc.issue, "remote_issue_uuid": "fixture-roundtrip-capture-" + tc.key,
+				"url": "https://linear.app/example/issue/" + tc.issue, "idempotency_key": "roundtrip-capture-" + tc.key,
+			})
+			before := roundtripFullListItem(t, ctx, s, service, env, workID)
+			assertCompleteIntentRead(t, before, map[string]any{"kind": tc.kind, "title": tc.title, "task": tc.original})
+			key := "roundtrip-revise-" + tc.key
+			revise := carriedTaskOnlyRevision(t, before, workID, tc.replacement, key)
+			revised := roundtripDispatchOK(t, ctx, s, service, env, key, "concord_work_define", "revise_intent", revise)
+			if len(*revised.ChangedRefs) != 1 || (*revised.ChangedRefs)[0].Version != strconv.FormatInt(int64(before["version"].(float64))+1, 10) {
+				t.Fatalf("changed refs=%#v, want the expected version to advance by exactly one", revised.ChangedRefs)
+			}
+			after := roundtripFullListItem(t, ctx, s, service, env, workID)
+			assertCompleteIntentRead(t, after, map[string]any{"kind": tc.kind, "title": tc.title, "task": tc.replacement})
+		})
 	}
-
-	after := roundtripFullListItem(t, ctx, s, service, env, workID)
-	assertCompleteIntentRead(t, after, map[string]any{
-		"kind": "bug", "title": "Preserve intent through the list read", "task": "Replacement instruction from the list read",
-		"value_statement": "Full-detail listings carry the complete revisable intent",
-		"priority":        float64(42), "urgency": "expedite",
-		"tags": []any{"agent-surface"},
-	})
-	assertStoredExternalRef(t, s, workID, "linear:CON-835-2")
 }
 
-// Lawful zero, empty, and absent states must survive unchanged: an omitted
-// priority stays zero, a default urgency stays standard, an explicitly empty
-// tag array stays an empty array rather than becoming an invented value or a
-// null, and an absent optional intent field stays absent.
+// An absent task stays absent until a revision supplies it.
 func TestTaskOnlyRevisionPreservesZeroEmptyAndAbsentIntentStates(t *testing.T) {
 	t.Parallel()
 	s, ctx, service, env, workID := seedIntentRoundtripWork(t, map[string]any{
-		"title": "Default states survive", "value_statement": "Zero and empty intent states are lawful",
-		"kind": "bug", "tags": []string{}, "external_ref": "linear:CON-835-3", "idempotency_key": "roundtrip-capture-3",
+		"title":     "Default states survive",
+		"kind":      "bug",
+		"human_key": "ZZ-7007", "remote_issue_uuid": "fixture-roundtrip-capture-3",
+		"url":             "https://linear.app/example/issue/ZZ-7007",
+		"idempotency_key": "roundtrip-capture-3",
 	})
 
 	before := roundtripFullListItem(t, ctx, s, service, env, workID)
-	if got := before["urgency"]; got != "standard" {
-		t.Fatalf("default urgency = %v, want standard", got)
-	}
-	if got, ok := before["priority"]; ok && got != float64(0) {
-		t.Fatalf("omitted priority = %v, want zero", got)
-	}
-	tags, ok := before["tags"].([]any)
-	if !ok || len(tags) != 0 {
-		t.Fatalf("recorded empty tags = %#v, want an empty array", before["tags"])
-	}
-	if _, ok := before["workflow_type_ref"]; ok {
-		t.Fatalf("scope read substituted a workflow_type_ref the intent never recorded: %#v", before["workflow_type_ref"])
-	}
 	if _, ok := before["task"]; ok {
 		t.Fatalf("absent task = %#v, want the field to stay absent", before["task"])
 	}
@@ -123,30 +69,9 @@ func TestTaskOnlyRevisionPreservesZeroEmptyAndAbsentIntentStates(t *testing.T) {
 	roundtripDispatchOK(t, ctx, s, service, env, "roundtrip-revise-3", "concord_work_define", "revise_intent", revise)
 
 	after := roundtripFullListItem(t, ctx, s, service, env, workID)
-	if got := after["urgency"]; got != "standard" {
-		t.Fatalf("urgency after revision = %v, want standard", got)
-	}
-	if got, ok := after["priority"]; ok && got != float64(0) {
-		t.Fatalf("priority after revision = %v, want zero", got)
-	}
-	tags, ok = after["tags"].([]any)
-	if !ok || len(tags) != 0 {
-		t.Fatalf("tags after revision = %#v, want the empty array preserved", after["tags"])
-	}
-	if _, ok := after["workflow_type_ref"]; ok {
-		t.Fatalf("workflow_type_ref appeared from a task-only revision: %#v", after["workflow_type_ref"])
-	}
 	if after["task"] != "First recorded instruction" {
 		t.Fatalf("task after revision = %v, want the replacement", after["task"])
 	}
-	var tagType string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_type(intent_json, '$.tags') FROM work_items WHERE id=?`, workID).Scan(&tagType); err != nil {
-		t.Fatal(err)
-	}
-	if tagType != "array" {
-		t.Fatalf("stored tags json_type = %q, want array (an explicitly empty tag set must not decay to null)", tagType)
-	}
-	assertStoredExternalRef(t, s, workID, "linear:CON-835-3")
 }
 
 // external_ref is capture-owned (TS4 2.1): the closed revise_intent input
@@ -154,7 +79,7 @@ func TestTaskOnlyRevisionPreservesZeroEmptyAndAbsentIntentStates(t *testing.T) {
 // and the fold's carry-forward is the only path it survives by.
 func TestReviseIntentRefusesTheCaptureOwnedExternalRef(t *testing.T) {
 	t.Parallel()
-	payload := []byte(`{"work_id":"work-1","expected_version":2,"title":"T","value_statement":"V","kind":"task","external_ref":"linear:CON-835-4","reason":"probe","idempotency_key":"probe"}`)
+	payload := []byte(`{"work_id":"work-1","expected_version":2,"title":"T","kind":"task","external_ref":"linear:CON-835-4","reason":"probe","idempotency_key":"probe"}`)
 	if err := agentcontract.ValidateOperationPayload("concord_work_define", "revise_intent", payload, false); err == nil {
 		t.Fatal("revise_intent input must refuse the capture-owned external_ref field")
 	}
@@ -177,7 +102,7 @@ func TestReviseIntentStaysBehindTheWorkDefineCapability(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := CallEnvelope{SchemaVersion: "1.0", RequestID: "roundtrip-unauthorized", ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
-	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: json.RawMessage(`{"work_id":"work-1","expected_version":1,"title":"T","value_statement":"V","kind":"task","reason":"probe","idempotency_key":"probe"}`)}, env)
+	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: json.RawMessage(`{"work_id":"work-1","expected_version":1,"title":"T","kind":"task","reason":"probe","idempotency_key":"probe"}`)}, env)
 	if err == nil && response.Outcome == agentcontract.OutcomeOK {
 		t.Fatal("a product_read client must not revise intent; work_define still owns the mutation")
 	}
@@ -217,8 +142,8 @@ func seedIntentRoundtripWork(t *testing.T, capture map[string]any) (*store.Store
 	env := CallEnvelope{SchemaVersion: "1.0", RequestID: "roundtrip-capture", ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
 	capture["project_ids"] = []string{"project-1"}
 	response := roundtripDispatchOK(t, ctx, s, service, env, capture["idempotency_key"].(string), "concord_work_define", "capture", capture)
-	if len(*response.ChangedRefs) != 1 {
-		t.Fatalf("capture changed refs=%#v, want one work item", response.ChangedRefs)
+	if len(*response.ChangedRefs) != 2 {
+		t.Fatalf("capture changed refs=%#v, want the work item and its Linear link", response.ChangedRefs)
 	}
 	return s, ctx, service, env, (*response.ChangedRefs)[0].ID
 }
@@ -258,7 +183,7 @@ func carriedTaskOnlyRevision(t *testing.T, read map[string]any, workID, replacem
 	t.Helper()
 	revise := map[string]any{
 		"work_id": workID, "expected_version": int64(read["version"].(float64)),
-		"title": read["title"], "value_statement": read["value_statement"], "kind": read["kind"],
+		"title": read["title"], "kind": read["kind"],
 		"task": replacementTask, "reason": "task-only revision carrying the recorded intent",
 		"evidence":        []map[string]any{{"kind": "commit", "authority": "git", "locator_kind": "commit", "locator": "commit:7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"}},
 		"idempotency_key": idempotencyKey,
@@ -275,30 +200,13 @@ func carriedTaskOnlyRevision(t *testing.T, read map[string]any, workID, replacem
 // value exactly as recorded, without inventing or resetting metadata.
 func assertCompleteIntentRead(t *testing.T, read map[string]any, want map[string]any) {
 	t.Helper()
-	for field, expected := range want {
+	for field, value := range want {
 		got, ok := read[field]
 		if !ok {
-			t.Fatalf("typed read omitted the revisable field %q; a task-only revision would reset it (read=%#v)", field, read)
+			t.Fatalf("typed read omitted the revisable field %q; a revision would reset it (read=%#v)", field, read)
 		}
-		if field == "tags" {
-			if !reflect.DeepEqual(got, expected) {
-				t.Fatalf("read %s = %#v, want %#v", field, got, expected)
-			}
-			continue
+		if fmt.Sprint(got) != fmt.Sprint(value) {
+			t.Fatalf("typed read changed %q: got %#v, want %#v", field, got, value)
 		}
-		if got != expected {
-			t.Fatalf("read %s = %#v, want %#v", field, got, expected)
-		}
-	}
-}
-
-func assertStoredExternalRef(t *testing.T, s *store.Store, workID, want string) {
-	t.Helper()
-	var stored any
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(intent_json, '$.external_ref') FROM work_items WHERE id=?`, workID).Scan(&stored); err != nil {
-		t.Fatal(err)
-	}
-	if stored != want {
-		t.Fatalf("stored external_ref = %v, want %q preserved by the revision fold", stored, want)
 	}
 }

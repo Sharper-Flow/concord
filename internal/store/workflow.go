@@ -19,21 +19,22 @@ import (
 
 // Workflow event names are deliberately closed. Adding one is a contract change.
 const (
-	WorkflowDefinitionSelected       = "workflow.definition_selected"
-	WorkflowContractApproved         = "workflow.contract_approved"
-	WorkflowOverlapResolved          = "workflow.overlap_resolved"
-	WorkflowContractSuperseded       = "workflow.contract_superseded"
-	WorkflowCandidateSetRevised      = "workflow.candidate_set_revised"
-	WorkflowActorRecorded            = "workflow.actor_recorded"
-	WorkflowActionStarted            = "workflow.action_started"
-	WorkflowActionCheckpointed       = "workflow.action_checkpointed"
-	WorkflowActionCompleted          = "workflow.action_completed"
-	WorkflowActionFailed             = "workflow.action_failed"
-	WorkflowEvidenceBound            = "workflow.evidence_bound"
-	WorkflowPremiseConfirmed         = "workflow.premise_confirmed"
-	WorkflowSuccessorLinked          = "workflow.successor_linked"
-	WorkflowContextCheckpointed      = "workflow.context_checkpointed"
-	WorkflowContextBoundaryCrossed   = "workflow.context_boundary_crossed"
+	WorkflowDefinitionSelected     = "workflow.definition_selected"
+	WorkflowContractApproved       = "workflow.contract_approved"
+	WorkflowOverlapResolved        = "workflow.overlap_resolved"
+	WorkflowContractSuperseded     = "workflow.contract_superseded"
+	WorkflowCandidateSetRevised    = "workflow.candidate_set_revised"
+	WorkflowActorRecorded          = "workflow.actor_recorded"
+	WorkflowActionStarted          = "workflow.action_started"
+	WorkflowActionCheckpointed     = "workflow.action_checkpointed"
+	WorkflowActionCompleted        = "workflow.action_completed"
+	WorkflowActionFailed           = "workflow.action_failed"
+	WorkflowEvidenceBound          = "workflow.evidence_bound"
+	WorkflowPremiseConfirmed       = "workflow.premise_confirmed"
+	WorkflowSuccessorLinked        = "workflow.successor_linked"
+	WorkflowContextCheckpointed    = "workflow.context_checkpointed"
+	WorkflowContextBoundaryCrossed = "workflow.context_boundary_crossed"
+	// WorkflowWorkContextRecorded is read only by frozen migration replay.
 	WorkflowWorkContextRecorded      = "workflow.work_context_recorded"
 	WorkflowProposalRecorded         = "workflow.proposal_recorded"
 	WorkflowDesignRecorded           = "workflow.design_recorded"
@@ -158,7 +159,6 @@ type workflowOverlapResolvedPayload struct {
 	ToContractVersion   int64  `json:"to_contract_version"`
 	ResolutionKind      string `json:"resolution_kind"`
 	Reason              string `json:"reason"`
-	CrossScope          bool   `json:"cross_scope"`
 }
 
 func (p workflowOverlapResolvedPayload) workflowVersionFields() WorkflowVersionFields {
@@ -1945,7 +1945,7 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *
 	}
 	// evidence_count derives from the item's total workflow.evidence_bound
 	// history, so any non-negative count the constructor produces is valid.
-	if p.TerminalState != "completed" && p.TerminalState != "cancelled" && p.TerminalState != "superseded" || p.EvidenceCount < 0 || !workflowDigest(p.ChangedRefsDigest) || !slices.Contains([]string{"breaking", "non-breaking"}, p.ImpactVerdict) || !workflowList(p.Warnings, 16, 0) {
+	if p.TerminalState != "completed" && p.TerminalState != "cancelled" || p.EvidenceCount < 0 || !workflowDigest(p.ChangedRefsDigest) || !slices.Contains([]string{"breaking", "non-breaking"}, p.ImpactVerdict) || !workflowList(p.Warnings, 16, 0) {
 		return newFailure(KindInvalidPayload, "fold_event", "completed has invalid terminal metadata", false, "supply closed terminal metadata including impact_verdict")
 	}
 	plan, err := readWorkflowPlanTx(ctx, tx, event.SubjectID)
@@ -1970,7 +1970,7 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?,completed_at=?,completion_payload=?,completion_occurred_at=? WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded')`, p.TerminalState, event.OccurredAt.UTC().Format(time.RFC3339Nano), string(event.Payload), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
+	result, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?,completed_at=?,completion_payload=?,completion_occurred_at=? WHERE work_id=? AND instance_state NOT IN ('completed','cancelled')`, p.TerminalState, event.OccurredAt.UTC().Format(time.RFC3339Nano), string(event.Payload), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
 	if err != nil {
 		return err
 	}

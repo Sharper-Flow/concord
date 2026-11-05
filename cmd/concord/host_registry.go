@@ -9,10 +9,7 @@ import (
 	"time"
 )
 
-// hostRegistryProbeTimeout bounds each probe. The host resolves plugins and
-// providers before it prints, so this is generous relative to the measured
-// cost; it exists to turn a hung host into a typed, retryable
-// hostProbeInterruptedError rather than a probe that never returns.
+// hostRegistryProbeTimeout turns a hung host into a typed, retryable interruption.
 const hostRegistryProbeTimeout = 60 * time.Second
 
 // defaultHostCommand names the calling host binary the registry probe runs.
@@ -36,13 +33,8 @@ type sessionHostCommandFunc func(ctx context.Context, dir string) (hostCommandRe
 // supply documents without starting a host process.
 type hostConfigProbeFunc func(ctx context.Context, argv []string, dir string) ([]byte, error)
 
-// hostProbeInterruptedError reports a host registry probe that ended before
-// the host printed a configuration document: the probe deadline passed, or a
-// signal ended the host process. Nothing about the host's configuration
-// refused — the same request passes once the host answers — so the failure
-// is transient, and session-prepare reports it with the ordinary failure
-// status instead of the refusal status. The diagnostic names the deadline or
-// the signal that ended the probe.
+// hostProbeInterruptedError covers a probe ended by its deadline or a signal.
+// session-prepare reports ordinary failure, not a configuration refusal.
 type hostProbeInterruptedError struct {
 	DeadlinePassed bool
 	Cause          error
@@ -79,11 +71,8 @@ func hostProbeArgv(command []string) []string {
 	return append(append([]string(nil), command...), "debug", "config")
 }
 
-// hostSessionPrepareRegistry is the production wiring for session-prepare's
-// registry. session-prepare launches nothing: the session it prepares keeps
-// running in the host process that called it, and the call inherits that
-// process's environment. One bare probe in dir under that environment
-// resolves the registry the calling host resolves there (CD-0189 D4).
+// hostSessionPrepareRegistry probes in dir under the calling host's inherited
+// environment; session-prepare does not launch a new session.
 func hostSessionPrepareRegistry(ctx context.Context, dir string) (hostCommandResolution, error) {
 	return sessionPrepareRegistryProbe(ctx, dir, probeHostConfig)
 }
@@ -103,12 +92,8 @@ func sessionPrepareRegistryProbe(ctx context.Context, dir string, probe hostConf
 	return hostCommandResolution{Command: append([]string(nil), defaultHostCommand...), Registry: document}, nil
 }
 
-// probeHostConfig runs the supplied host argv in dir and returns the
-// configuration document the host prints. The document goes to a temporary
-// file rather than a pipe. The host exits without draining stdout, so a
-// pipe returns exactly one buffer — 65536 bytes of a document measured at
-// 584613 here — and the truncation surfaces as a JSON parse error rather
-// than as a short read. A regular file has no such boundary.
+// probeHostConfig uses a temporary file because the host may exit without
+// draining stdout, truncating a pipe and producing a JSON parse error.
 func probeHostConfig(ctx context.Context, argv []string, dir string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, hostRegistryProbeTimeout)
 	defer cancel()

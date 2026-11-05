@@ -27,7 +27,7 @@ func startWorkflowInstanceStepTx(ctx context.Context, tx *sql.Tx, workID, stepID
 		return newFailure(KindIllegalLifecycleTransition, "workflow_step", "step is not on the workflow plan frontier", false, "start a frontier step")
 	}
 	now := at.UTC().Format(time.RFC3339Nano)
-	result, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',execution_actor_ref=?,execution_model=?,started_at=coalesce(started_at,?),execution_started_at=CASE WHEN ? THEN coalesce(execution_started_at,?) ELSE execution_started_at END WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded')`, actorRef, executionModel, now, step.ID == "implement" || step.Reviewed, now, workID)
+	result, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running',execution_actor_ref=?,execution_model=?,started_at=coalesce(started_at,?),execution_started_at=CASE WHEN ? THEN coalesce(execution_started_at,?) ELSE execution_started_at END WHERE work_id=? AND instance_state NOT IN ('completed','cancelled')`, actorRef, executionModel, now, step.ID == "implement" || step.Reviewed, now, workID)
 	if err != nil {
 		return workflowProjectionError(err, "cannot start workflow action")
 	}
@@ -39,5 +39,5 @@ func startWorkflowInstanceStepTx(ctx context.Context, tx *sql.Tx, workID, stepID
 
 // workflowCompletedInstanceActionImmutable reports terminal workflow instances.
 func workflowCompletedInstanceActionImmutable(state string) bool {
-	return state == "completed" || state == "cancelled" || state == "superseded"
+	return state == "completed" || state == "cancelled"
 }

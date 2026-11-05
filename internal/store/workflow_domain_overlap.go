@@ -13,10 +13,8 @@ import (
 // The closed work-relation kinds resolve_overlap records between two items
 // that each hold an approved Product-changing contract (CD-0222, CD-0013 D11).
 const (
-	ResolutionDependsOn  = "depends_on"
-	ResolutionBlocks     = "blocks"
-	ResolutionMergedInto = "merged_into"
-	ResolutionSupersedes = "supersedes"
+	ResolutionDependsOn = "depends_on"
+	ResolutionBlocks    = "blocks"
 )
 
 type WorkflowDomainOverlapResolutionRequest struct {
@@ -29,7 +27,6 @@ type WorkflowDomainOverlapResolutionRequest struct {
 	ToContractVersion   int64
 	ResolutionKind      string
 	Reason              string
-	CrossScope          bool
 	// RequestedBudgetSeconds is the caller's actual parsed effect budget;
 	// 0 means absent under this input contract. It is request metadata,
 	// not authorization, and never supplies Product context.
@@ -53,15 +50,11 @@ func ResolveWorkflowDomainOverlapTx(ctx context.Context, tx *Transaction, reques
 	if request.Actor == "" {
 		return ApplyOperationResult{}, overlapResolutionFailure("overlap resolution requires an authenticated actor")
 	}
-	if err := checkOverlapGoverningScope(ctx, sqlTx, request.FromWorkID, request.ToWorkID, request.ResolutionKind, request.CrossScope); err != nil {
-		return ApplyOperationResult{}, err
-	}
 	payload, err := json.Marshal(map[string]any{
 		"work_id": request.FromWorkID, "expected_version": request.FromExpectedVersion, "resulting_version": request.FromExpectedVersion + 1,
 		"to_work_id": request.ToWorkID, "to_expected_version": request.ToExpectedVersion, "to_resulting_version": request.ToExpectedVersion + 1,
 		"from_contract_version": request.FromContractVersion, "to_contract_version": request.ToContractVersion,
 		"resolution_kind": request.ResolutionKind, "reason": request.Reason,
-		"cross_scope": request.CrossScope,
 	})
 	if err != nil {
 		return ApplyOperationResult{}, err
@@ -70,12 +63,12 @@ func ResolveWorkflowDomainOverlapTx(ctx context.Context, tx *Transaction, reques
 }
 
 func validateWorkflowOverlapResolutionKind(kind string) bool {
-	return kind == ResolutionDependsOn || kind == ResolutionBlocks || kind == ResolutionMergedInto || kind == ResolutionSupersedes
+	return kind == ResolutionDependsOn || kind == ResolutionBlocks
 }
 
 func workflowOverlapResolutionRelationKind(kind string) string {
 	switch kind {
-	case ResolutionDependsOn, ResolutionBlocks, ResolutionMergedInto, ResolutionSupersedes:
+	case ResolutionDependsOn, ResolutionBlocks:
 		return kind
 	default:
 		return ""
@@ -118,8 +111,7 @@ func invalidateWorkflowOverlapResolutionPairTx(ctx context.Context, tx *sql.Tx, 
 
 // invalidateWorkflowOverlapResolutionsForWorkTx retires every current
 // resolution an endpoint holds when that endpoint reopens, with the relation
-// each one derived, so a reopened item carries no stale merger, supersession,
-// or sequencing edge.
+// each one derived, so a reopened item carries no stale sequencing edge.
 func invalidateWorkflowOverlapResolutionsForWorkTx(ctx context.Context, tx *sql.Tx, eventID string, workIDs ...string) error {
 	if len(workIDs) == 0 {
 		return nil
@@ -153,15 +145,6 @@ func eventSequenceTx(ctx context.Context, tx *sql.Tx, eventID string) (int64, er
 	return seq, nil
 }
 
-func terminalizeWorkflowOverlapWork(ctx context.Context, tx *sql.Tx, event Event, workID string, current, resulting int64) error {
-	terminalEvent := event
-	terminalEvent.SubjectID = workID
-	if err := updateWorkLifecycle(ctx, tx, terminalEvent, "superseded", current, resulting); err != nil {
-		return err
-	}
-	return nil
-}
-
 func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) error {
 	var payload workflowOverlapResolvedPayload
 	if err := decodeWorkflowPayload(event, &payload); err != nil {
@@ -173,12 +156,9 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 	if payload.ToWorkID == "" || payload.ToWorkID == event.SubjectID || payload.ExpectedVersion == nil || payload.ResultingVersion == nil || payload.FromContractVersion <= 0 || payload.ToContractVersion <= 0 || payload.ToExpectedVersion <= 0 || payload.ToResultingVersion != payload.ToExpectedVersion+1 || payload.ResolutionKind == "" || !validateWorkflowOverlapResolutionKind(payload.ResolutionKind) || !workflowString(payload.Reason, 4096) {
 		return overlapResolutionFailure("overlap resolution has invalid endpoint, version, kind, or reason")
 	}
-	fromExpected, fromResulting := *payload.ExpectedVersion, *payload.ResultingVersion
+	fromResulting := *payload.ResultingVersion
 	from, to, err := readWorkflowOverlapResolutionWorks(ctx, tx, event, payload)
 	if err != nil {
-		return err
-	}
-	if err := checkOverlapGoverningScope(ctx, tx, event.SubjectID, payload.ToWorkID, payload.ResolutionKind, payload.CrossScope); err != nil {
 		return err
 	}
 	productID, err := readWorkflowOverlapResolutionProductTx(ctx, tx, event, payload)
@@ -189,9 +169,6 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 	if err := invalidateWorkflowOverlapResolutionPairTx(ctx, tx, event.EventID, event.SubjectID, payload.ToWorkID); err != nil {
 		return err
 	}
-	if err := workflowOverlapResolutionConflictsTx(ctx, tx, event, payload); err != nil {
-		return err
-	}
 	if relationKind := workflowOverlapResolutionRelationKind(payload.ResolutionKind); relationKind != "" {
 		if cycle, err := relationWouldCycle(ctx, tx, resolutionFromWorkID, resolutionToWorkID, relationKind); err != nil {
 			return err
@@ -199,7 +176,7 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 			return cycleFailure("workflow_domain_overlap", "overlap resolution would create a relation cycle", "choose a non-cyclic resolution direction", relationKind, resolutionFromWorkID, resolutionToWorkID)
 		}
 	}
-	return recordWorkflowOverlapResolutionTx(ctx, tx, event, payload, productID, from, to, fromExpected, fromResulting, resolutionFromWorkID, resolutionToWorkID, payload.FromContractVersion, payload.ToContractVersion)
+	return recordWorkflowOverlapResolutionTx(ctx, tx, event, payload, productID, from, to, fromResulting, resolutionFromWorkID, resolutionToWorkID, payload.FromContractVersion, payload.ToContractVersion)
 }
 
 // readWorkflowOverlapResolutionWorks reads both endpoint work items and
@@ -258,7 +235,7 @@ func readWorkflowOverlapEndpointProductTx(ctx context.Context, tx *sql.Tx, workI
 		JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version
 		JOIN work_items w ON w.id=c.work_id
 		WHERE c.work_id=? AND c.contract_version=? AND c.superseded_by IS NULL
-		  AND w.lifecycle NOT IN ('completed','cancelled','superseded')`, workID, contractVersion).Scan(&productID)
+		  AND w.lifecycle NOT IN ('completed','cancelled')`, workID, contractVersion).Scan(&productID)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -268,36 +245,9 @@ func readWorkflowOverlapEndpointProductTx(ctx context.Context, tx *sql.Tx, workI
 	return productID, nil
 }
 
-// workflowOverlapResolutionConflictsTx refuses a second supersession
-// successor for the target and a second merger target for the declarer.
-func workflowOverlapResolutionConflictsTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowOverlapResolvedPayload) error {
-	if payload.ResolutionKind == ResolutionSupersedes {
-		var existingSuccessor string
-		err := tx.QueryRowContext(ctx, `SELECT work_id_from FROM relations WHERE work_id_to=? AND kind='supersedes'`, payload.ToWorkID).Scan(&existingSuccessor)
-		if err == nil {
-			return newFailure(KindSupersessionSecondSuccessor, "workflow_domain_overlap", "supersession target already has a direct successor", false, "reopen the target and replace its existing successor explicitly")
-		}
-		if err != sql.ErrNoRows {
-			return wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot inspect supersession successors", true, "retry once the relation projection is readable", err)
-		}
-	}
-	if payload.ResolutionKind == ResolutionMergedInto {
-		var existingTarget string
-		err := tx.QueryRowContext(ctx, `SELECT work_id_to FROM relations WHERE work_id_from=? AND kind='merged_into'`, event.SubjectID).Scan(&existingTarget)
-		if err == nil {
-			return newFailure(KindRelationConflict, "workflow_domain_overlap", "merged work already has a direct target", false, "restore the merged work before choosing another target")
-		}
-		if err != sql.ErrNoRows {
-			return wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot inspect merger targets", true, "retry once the relation projection is readable", err)
-		}
-	}
-	return nil
-}
-
 // recordWorkflowOverlapResolutionTx writes the resolution row, its derived
-// relation, the terminal transition a supersession or merger closes with,
-// and both endpoints' version bumps.
-func recordWorkflowOverlapResolutionTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowOverlapResolvedPayload, productID string, from, to workProjection, fromExpected, fromResulting int64, resolutionFromWorkID, resolutionToWorkID string, resolutionFromContractVersion, resolutionToContractVersion int64) error {
+// relation, and both endpoints' version bumps.
+func recordWorkflowOverlapResolutionTx(ctx context.Context, tx *sql.Tx, event Event, payload workflowOverlapResolvedPayload, productID string, from, to workProjection, fromResulting int64, resolutionFromWorkID, resolutionToWorkID string, resolutionFromContractVersion, resolutionToContractVersion int64) error {
 	seq, err := eventSequenceTx(ctx, tx, event.EventID)
 	if err != nil {
 		return err
@@ -310,28 +260,8 @@ func recordWorkflowOverlapResolutionTx(ctx context.Context, tx *sql.Tx, event Ev
 			return err
 		}
 	}
-	if payload.ResolutionKind == ResolutionMergedInto || payload.ResolutionKind == ResolutionSupersedes {
-		terminalID := payload.ToWorkID
-		if payload.ResolutionKind == ResolutionMergedInto {
-			terminalID = event.SubjectID
-		}
-		terminalWork, terminalVersion := to, payload.ToExpectedVersion
-		if terminalID == event.SubjectID {
-			terminalWork, terminalVersion = from, fromExpected
-		}
-		if err := terminalizeWorkflowOverlapWork(ctx, tx, event, terminalID, terminalWork.version, terminalVersion+1); err != nil {
-			return err
-		}
+	if err := updateWorkVersionByID(ctx, tx, event.SubjectID, from.version, fromResulting, event.OccurredAt); err != nil {
+		return err
 	}
-	if payload.ResolutionKind != ResolutionMergedInto && payload.ResolutionKind != ResolutionSupersedes {
-		if err := updateWorkVersionByID(ctx, tx, event.SubjectID, from.version, fromResulting, event.OccurredAt); err != nil {
-			return err
-		}
-		return updateWorkVersionByID(ctx, tx, payload.ToWorkID, to.version, payload.ToResultingVersion, event.OccurredAt)
-	}
-	otherID, otherWork, otherVersion := payload.ToWorkID, to, payload.ToResultingVersion
-	if payload.ResolutionKind == ResolutionSupersedes {
-		otherID, otherWork, otherVersion = event.SubjectID, from, fromResulting
-	}
-	return updateWorkVersionByID(ctx, tx, otherID, otherWork.version, otherVersion, event.OccurredAt)
+	return updateWorkVersionByID(ctx, tx, payload.ToWorkID, to.version, payload.ToResultingVersion, event.OccurredAt)
 }

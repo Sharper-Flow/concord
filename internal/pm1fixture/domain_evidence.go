@@ -112,7 +112,8 @@ func SeedProductAndProject(ctx context.Context, s *store.Store, productID, proje
 // SeedWorkItem creates one work item and its primary Project membership through
 // the event log.
 func SeedWorkItem(ctx context.Context, s *store.Store, projectID, workID, title string, priority int) error {
-	created := fmt.Sprintf(`{"work_kind":"task","title":%q,"priority":%d}`, title, priority)
+	_ = priority
+	created := fmt.Sprintf(`{"work_kind":"task","title":%q}`, title)
 	membership := fmt.Sprintf(`{"memberships":[{"project_id":%q,"role":"primary"}],"expected_version":1,"resulting_version":2}`, projectID)
 	events := []store.Event{
 		{EventID: "domain-evidence-work-" + workID, Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: DomainEvidenceTime, PayloadVersion: 4, Payload: json.RawMessage(created)},

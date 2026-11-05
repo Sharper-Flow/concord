@@ -38,8 +38,13 @@ func TestInitiativeRetirementTerminalAlignment(t *testing.T) {
 		t.Run(test.lifecycle+"_"+test.instance, func(t *testing.T) {
 			db, path := initiativeRetirementAlignmentFixture(t, test.lifecycle, test.instance, true)
 			before := retirementUpgradeSnapshot(t, db)
-			beforeWork := retirementUpgradeRows(t, db, `SELECT * FROM work_items WHERE kind<>'initiative' ORDER BY rowid`)
+			beforeWork := historicalCaptureWorkRows(t, db, `WHERE kind<>'initiative'`)
 			instances := cutoverInstanceExpectations(t, db, "")
+			for _, row := range instances {
+				if row[4] == "superseded" {
+					row[4] = "cancelled"
+				}
+			}
 			alignment := retirementUpgradeRows(t, db, `SELECT * FROM workflow_backlog_alignment WHERE related_work_id IS NULL OR related_work_id<>'initiative-old' ORDER BY related_work_id`)
 			snapshot := filepath.Join(t.TempDir(), "before.db")
 			if _, err := BackupDatabase(t.Context(), path, snapshot); err != nil {
@@ -53,7 +58,7 @@ func TestInitiativeRetirementTerminalAlignment(t *testing.T) {
 			if got := retirementUpgradeRows(t, archived, `SELECT * FROM workflow_backlog_alignment ORDER BY rowid`); !reflect.DeepEqual(got, before["workflow_backlog_alignment"]) {
 				t.Fatal("predecessor snapshot changed the original alignment")
 			}
-			if _, err := Upgrade(t.Context(), path, nil); err != nil {
+			if _, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
 				t.Fatalf("terminal alignment blocks retirement: %v", err)
 			}
 			for _, table := range []string{"effect_receipts", "durable_operations", "idempotency_records"} {
@@ -64,7 +69,7 @@ func TestInitiativeRetirementTerminalAlignment(t *testing.T) {
 			if got := retirementUpgradeRows(t, db, `SELECT * FROM workflow_instances ORDER BY rowid`); !reflect.DeepEqual(got, instances) {
 				t.Errorf("workflow instances changed beyond cutover: got %v, want %v", got, instances)
 			}
-			if got := retirementUpgradeRows(t, db, `SELECT * FROM work_items WHERE kind<>'initiative' ORDER BY rowid`); !reflect.DeepEqual(got, beforeWork) {
+			if got := retirementUpgradeRows(t, db, `SELECT * FROM work_items WHERE kind<>'initiative' ORDER BY id`); !reflect.DeepEqual(got, beforeWork) {
 				t.Error("surviving work changed")
 			}
 			if got := retirementUpgradeRows(t, db, `SELECT * FROM workflow_backlog_alignment ORDER BY related_work_id`); !reflect.DeepEqual(got, alignment) {

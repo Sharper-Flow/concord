@@ -6,7 +6,7 @@
 > **Codename:** Concord (concordance: bringing scattered work into one view).
 > **Created:** 2026-07-25, from product-design work.
 > **Repository:** [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord); Go module [`github.com/sharper-flow/concord`](https://pkg.go.dev/github.com/sharper-flow/concord).
-> **Goals (guidance):** [`product-vision.md`](./product-vision.md)
+> **Product vision (guidance):** [`product-vision.md`](./product-vision.md)
 > **Operating envelope, constraints, conflict rules, and standing law:** [`../law/constitution/priorities.md`](../law/constitution/priorities.md)
 
 Concord is a set of tools and infrastructure for one operator and many
@@ -34,7 +34,7 @@ conflict rules, and standing law are in [`../law/constitution/priorities.md`](..
 
 | Document | What it owns |
 |---|---|
-| [`product-vision.md`](./product-vision.md) | The operator's goals and their measures. **Guidance, not law.** |
+| [`product-vision.md`](./product-vision.md) | The operator's vision: purpose, goals and their measures, and non-goals. **Guidance, not law;** changes need operator approval ([CD-0254](../law/decisions/CD-0254-product-vision-documents.md)). |
 | [`../law/constitution/priorities.md`](../law/constitution/priorities.md) | Operating envelope, constraints, conflict rules, and the standing law that serves each goal. **Accepted law, ranked first.** |
 | [`reachability-exceptions.v1.json`](./reachability-exceptions.v1.json) | **Authorizing exception record:** functions no `cmd/concord` invocation reaches that the repository has decided to keep; reachability itself is computed, so an undeclared unreachable function is a validator finding (CD-0249). |
 | [`core-architecture.md`](./core-architecture.md) | Go-core direction, state authority (CD-0002), consolidated resilience invariants. |

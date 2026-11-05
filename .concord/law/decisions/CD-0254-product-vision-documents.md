@@ -5,7 +5,7 @@
   "authority": {"tier": "derived"},
   "home_domain_id": "product-root:concord",
   "applies_to_domain_ids": [],
-  "product_wide_rationale": "The vision document and its change rule bind every Domain of every Concord Product, so no child Domain owns them."
+  "product_wide_rationale": "It sets who decides Product direction and how the operator's approval boundary applies to the vision, which govern every agent and Domain. Product memory stores and places knowledge; it does not own direction authority."
 }
 ---
 # CD-0254: Product vision documents
@@ -24,7 +24,7 @@
 ## Context
 
 Agents need the operator's vision for a Product to check direction and settle
-questions it answers. Concord's goals guidance and constitutional law have
+questions it answers. Concord's vision guidance and its constitutional law have
 separate authority; moving the law into guidance would remove that authority.
 
 ## Decision
@@ -41,14 +41,15 @@ CD-0243 D2.
 
 ### D2. Agents use the vision for direction
 
-Agents read the Product vision before direction calls. When an agent settles a
-direction question without asking the operator, it cites the vision.
+Agents read the Product vision before they decide a direction question. When an
+agent settles a direction question without asking the operator, it cites the
+vision.
 
 ### D3. Concord retains its constitutional law
 
-Concord's [product vision](../../docs/product-vision.md) replaces its former
-goals document. [Priorities](../constitution/priorities.md) keeps the operating
-envelope, constraints, standing law and Appendix A conflict rules as law.
+Concord's [product vision](../../docs/product-vision.md) is its D1 document.
+[Priorities](../constitution/priorities.md) keeps the operating envelope,
+constraints, standing law and Appendix A conflict rules as law.
 
 ## Verification
 

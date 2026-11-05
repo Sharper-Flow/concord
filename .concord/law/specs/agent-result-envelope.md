@@ -270,7 +270,7 @@ retrieve bounded evidence from its authority only when needed.
 - Relation graphs: depth maximum 3, 100 nodes, 200 edges.
 - Serialized envelope: hard maximum 51,200 bytes.
 - Warnings: 16; omissions: 16; evidence refs: 32; changed refs: 32; next valid
-  intents: 83; error candidates/violations: 20 each; error options: 3. The
+  intents: 83; error candidates/violations: 20 each. The
   intent bound covers the current finite producer: 16 step actions, 64
   registered declarations, and 3 single-fire appends.
 

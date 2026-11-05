@@ -79,12 +79,17 @@ DELETE FROM write_guard;`, actor)
 
 func TestCaptureRetirementPreservesSeededRows(t *testing.T) {
 	db := captureRetirementFixture(t)
+	// A superseded holder's link survives beside a live holder of the same key,
+	// as a cancelled holder's link must after migration 186.
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET lifecycle='needed' WHERE id='work-two'; INSERT INTO linear_issue_links VALUES('work-one','uuid:terminal','TEST-7','https://example.com/7','t','t'),('work-two','uuid:live','TEST-7','https://example.com/7','t','t'); DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
 	before := retirementUpgradeSnapshot(t, db)
 	workQuery := `SELECT id,kind,title,version,created_at,updated_at,terminal_time,narrative,effect_seq,last_progress_at,version_actions_floor,transition_reason,transition_actor,transition_evidence_refs,transition_seq,transition_version FROM work_items ORDER BY id`
 	instanceQuery := `SELECT work_id,workflow_type,step_plan,prelude_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY work_id`
 	workBefore := retirementUpgradeRows(t, db, workQuery)
 	instanceBefore := retirementUpgradeRows(t, db, instanceQuery)
-	for _, table := range []string{"workflow_step_epochs", "workflow_phase_exits", "workflow_evidence_bindings", "work_version_actions", "workflow_completed_exits", "workflow_coordinator_actions", "workflow_delivery_state", "idempotency_records", "effect_receipts", "workflow_contracts", "work_projects", "product_projects"} {
+	for _, table := range []string{"workflow_step_epochs", "workflow_phase_exits", "workflow_evidence_bindings", "work_version_actions", "workflow_completed_exits", "workflow_coordinator_actions", "workflow_delivery_state", "idempotency_records", "effect_receipts", "workflow_contracts", "work_projects", "product_projects", "linear_issue_links"} {
 		if len(before[table]) == 0 {
 			t.Fatalf("empty fixture table %s", table)
 		}

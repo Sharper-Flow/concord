@@ -10,7 +10,7 @@ func discardTerminalWorkflowStepsTx(ctx context.Context, q migrationRunner, work
 		"workflow_completed_exits", "workflow_checkpoints", "workflow_context_checkpoints",
 		"workflow_context_boundaries", "workflow_coordinator_actions",
 	} {
-		if _, err := q.ExecContext(ctx, "DELETE FROM "+table+" WHERE work_id=? AND EXISTS(SELECT 1 FROM work_items WHERE id=? AND lifecycle IN ('completed','cancelled','superseded'))", workID, workID); err != nil {
+		if _, err := q.ExecContext(ctx, "DELETE FROM "+table+" WHERE work_id=? AND EXISTS(SELECT 1 FROM work_items WHERE id=? AND lifecycle IN ('completed','cancelled'))", workID, workID); err != nil {
 			return workflowProjectionError(err, "cannot discard terminal workflow steps")
 		}
 	}

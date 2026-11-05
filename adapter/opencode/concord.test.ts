@@ -446,7 +446,7 @@ test("a read answered by a newer core contract is typed as version skew", async 
 
 test("a mutation answered by a newer core contract reports unknown effect and names the remedy", async () => {
   adapter.configureConcordAdapter({ runner: runnerWithContext(foreignDigest(coreEnvelope("concord_work_define", "capture", "ok", { changed_refs: [] }))) })
-  const result: any = await rawHostResult(adapter.work_define.execute(hostCall("capture", { title: "t", value_statement: "v", kind: "task", project_ids: ["p"], idempotency_key: "k" }), contextFor()))
+  const result: any = await rawHostResult(adapter.work_define.execute(hostCall("capture", { title: "t", kind: "task", project_ids: ["p"], human_key: "ZZ-1", remote_issue_uuid: "u", url: "https://linear.app/example/issue/ZZ-1", idempotency_key: "k" }), contextFor()))
   assertAdapterEnvelope(result)
   expect(result.error.kind).toBe("operation_conflict")
   expect(result.error.adapter_reason).toBe("unknown_effect")

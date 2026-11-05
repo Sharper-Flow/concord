@@ -8,13 +8,10 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// Bounded summary and preview reads stay bounded: the
-// recorded intent detail (task, value statement and tags) rides only the
-// full-detail list read. Snapshot previews and summary-detail listings must not
-// carry it. Urgency is not intent detail: CD-0018
-// already declares it on work_summary, so every read that carries a work
-// summary carries the declared band.
-func TestBoundedWorkReadsOmitIntentDetailButCarryUrgency(t *testing.T) {
+// Bounded summary and preview reads stay bounded: the recorded note (task)
+// rides only the full-detail list read. Snapshot previews and summary-detail
+// listings must not carry it.
+func TestBoundedWorkReadsOmitIntentDetail(t *testing.T) {
 	t.Parallel()
 	s, ctx, service, env, workID := seedIntentRoundtripWork(t, map[string]any{
 		"title": "Bounded reads stay bounded",

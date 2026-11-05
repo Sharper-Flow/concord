@@ -69,8 +69,9 @@ OpenCode calls; typed-agent injection on restart belongs to issue #120.
 
 An explicit work reopen returns an existing terminal workflow instance to
 `running`, preserves its step plan, and clears completion metadata in the same
-transaction. The resumed instance admits `insert_step`; it does not require a
-new capture. PM4 and CD-0146 govern the lifecycle and Linear collision checks.
+transaction. An instance that ended before any plan was written returns to
+`intake` instead. The resumed instance admits `insert_step`; it does not require
+a new capture. PM4 and CD-0146 govern the lifecycle and Linear collision checks.
 
 [CD-0243 D7](../decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
@@ -171,10 +172,11 @@ the new type's missing required steps; it never removes a step.
 | `running` | `verifying` | execution steps are complete and verification begins | internal-inline |
 | `verifying` | `completed` | ordered completion gate succeeds | one internal transaction |
 | `running`, `blocked`, `verifying` | `cancelled` | explicit authorized cancellation | one expected-version-checked transaction |
+| `completed`, `cancelled` | `running`, or `intake` when no plan exists | explicit work reopen | the reopen's expected-version-checked transaction |
 
 An action failure records its typed failure result; it does not invent a state.
 Recoverable failures leave the instance in `running` or `blocked`.
-A completed or cancelled instance is immutable.
+A completed or cancelled instance changes only through an explicit work reopen.
 Each action is one expected-version-checked, idempotent domain
 transaction with its operation result and effect receipts. There is no separate
 step claim, takeover or claim/settle protocol. Native authorities own external

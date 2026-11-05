@@ -662,14 +662,7 @@ func storeFailureEnvelope(base agentcontract.Envelope, sf *store.Failure) agentc
 		out.Error.EffectState = agentcontract.EffectPossible
 		out.ChangedRefs = committedChangedRefs(sf.CommittedRefs)
 	}
-	projectStoreFailureDetails(&out, sf)
 	return out
-}
-
-func projectStoreFailureDetails(out *agentcontract.Envelope, sf *store.Failure) {
-	if sf.ExternalRefConflict != nil {
-		out.Error.ExternalRefConflict = &agentcontract.ExternalRefConflict{ExistingWorkID: sf.ExternalRefConflict.ExistingWorkID, ExternalRef: sf.ExternalRefConflict.ExternalRef}
-	}
 }
 
 func committedChangedRefs(refs []store.SubjectCurrentVersion) *[]agentcontract.ChangedRef {

@@ -155,11 +155,26 @@ func TestReopenDispatch(t *testing.T) {
 				if lifecycle != "needed" || actual != 5 || evidence != `["README.md"]` {
 					t.Fatalf("lifecycle=%s version=%d evidence=%s", lifecycle, actual, evidence)
 				}
+				// The workflow never left intake, so reopen returns it there.
 				var state string
-				if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, id).Scan(&state); err != nil {
+				var plan *string
+				if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state,step_plan FROM workflow_instances WHERE work_id=?`, id).Scan(&state, &plan); err != nil {
 					t.Fatal(err)
 				}
-				t.Logf("workflow instance after reopen: %s", state)
+				if state != "intake" || plan != nil {
+					t.Fatalf("workflow instance after reopen: state=%s plan=%v, want intake without a plan", state, plan)
+				}
+				pin, err := store.ReadWorkPin(context.Background(), s, id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				found := false
+				for _, intent := range pin.NextValidIntents {
+					found = found || intent.ActionID == "record_intake"
+				}
+				if !found {
+					t.Fatalf("reopened intake intents missing record_intake: %+v", pin.NextValidIntents)
+				}
 			} else {
 				if response.Error == nil || response.Outcome != agentcontract.OutcomeError {
 					t.Fatalf("expected refusal: %+v", response)

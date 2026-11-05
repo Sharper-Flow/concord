@@ -124,7 +124,8 @@ cancelled   → needed       (explicit reopen)
   the same Linear issue key or UUID.
 - In the same transaction, reopen returns an existing workflow instance to `running`,
   keeps its plan, and clears its terminal completion metadata. The agent can then
-  insert the next step without recapturing the item.
+  insert the next step without recapturing the item. An instance with no plan
+  returns to `intake`.
 - `in_progress → needed` means intentionally paused/returned to the queue; it is
   not a hidden blocked state.
 - Terminal reason/evidence fields required by the accepted operation commit in the

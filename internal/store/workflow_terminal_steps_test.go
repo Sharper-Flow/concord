@@ -183,6 +183,12 @@ func TestReopenedWorkflowRequiresWorkflowCompletion(t *testing.T) {
 	if readWorkVersion(t, s, workID) != version || !reflect.DeepEqual(workBefore, retirementUpgradeRows(t, s.db, `SELECT * FROM work_items`)) || !reflect.DeepEqual(instanceBefore, retirementUpgradeRows(t, s.db, `SELECT * FROM workflow_instances`)) || !reflect.DeepEqual(receiptsBefore, retirementUpgradeRows(t, s.db, `SELECT * FROM effect_receipts ORDER BY effect_seq`)) {
 		t.Fatal("refused direct completion changed work, workflow, version, or receipts")
 	}
+	// The reopened work continues as an inserted step on the retained plan.
+	last := completedPlan.Steps[len(completedPlan.Steps)-1].ID
+	if err := runVerdictAction(t, s, workID, "insert_step", json.RawMessage(`{"id":"follow_up","after":["`+last+`"],"reason":"reopened work"}`)); err != nil {
+		t.Fatalf("insert step after reopen: %v", err)
+	}
+	completeReviewedPlanForTerminalTest(t, s, workID, workflowActorForRef(t, s, completion.Actor))
 	if err := runVerdictAction(t, s, workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`)); err != nil {
 		t.Fatalf("workflow completion: %v", err)
 	}

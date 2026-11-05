@@ -936,12 +936,9 @@
         "forward_link",
         "implemented_by",
         "implements",
-        "merged_into",
         "parent",
         "raised",
-        "raised_from",
-        "superseded_by",
-        "supersedes"
+        "raised_from"
       ]
     },
     "page": {

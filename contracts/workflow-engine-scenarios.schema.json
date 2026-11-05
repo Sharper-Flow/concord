@@ -118,7 +118,7 @@
     "requestFields": {
       "type": "object", "additionalProperties": false,
       "properties": {
-        "payload": {"$ref": "#/$defs/jsonObject"}, "title": {"$ref": "#/$defs/short"}, "value_statement": {"$ref": "#/$defs/short"},
+        "payload": {"$ref": "#/$defs/jsonObject"}, "title": {"$ref": "#/$defs/short"},
         "project_ids": {"type": "array", "minItems": 0, "maxItems": 32, "items": {"$ref": "#/$defs/id"}},
         "premise": {"$ref": "#/$defs/short"},
         "current_commit": {"type": "string", "minLength": 40, "maxLength": 64, "pattern": "^[0-9a-f]+$"},

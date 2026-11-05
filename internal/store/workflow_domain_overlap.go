@@ -111,8 +111,7 @@ func invalidateWorkflowOverlapResolutionPairTx(ctx context.Context, tx *sql.Tx, 
 
 // invalidateWorkflowOverlapResolutionsForWorkTx retires every current
 // resolution an endpoint holds when that endpoint reopens, with the relation
-// each one derived, so a reopened item carries no stale merger, supersession,
-// or sequencing edge.
+// each one derived, so a reopened item carries no stale sequencing edge.
 func invalidateWorkflowOverlapResolutionsForWorkTx(ctx context.Context, tx *sql.Tx, eventID string, workIDs ...string) error {
 	if len(workIDs) == 0 {
 		return nil

@@ -195,6 +195,48 @@ func TestInterruptedRestoreRemovesStagingAndLeavesDestinationAbsent(t *testing.T
 	}
 }
 
+// TestBackupDeletesForeignKeyCorruptCandidate runs Backup over a live store
+// whose only defect is a foreign-key violation. Candidate verification must
+// refuse it on foreign_key_check alone, and Backup must delete the failed
+// candidate, its sidecars, its manifest and any verification staging file
+// (PM10 section 3).
+func TestBackupDeletesForeignKeyCorruptCandidate(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "live.db")
+	s := openTempAtPath(t, path)
+	defer s.Close()
+	db, err := sql.Open(driverName, SQLiteFileURI(path)+"?_pragma=foreign_keys(0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('missing-from','missing-to','blocks','2026-01-01T00:00:00Z'); DELETE FROM write_guard`); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	destination := filepath.Join(dir, "snapshot.db")
+	_, err = Backup(ctx, s, destination)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvariantViolation || !strings.Contains(failure.Detail, `integrity_check="ok" quick_check="ok" foreign_key_check=[relations:`) {
+		t.Fatalf("Backup() error = %v, want the typed foreign-key-only verification refusal", err)
+	}
+	for _, candidate := range []string{destination, destination + "-wal", destination + "-shm", manifestPath(destination)} {
+		if _, statErr := os.Stat(candidate); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("failed backup left %s: %v", candidate, statErr)
+		}
+	}
+	if matches, globErr := filepath.Glob(filepath.Join(dir, ".concord-backup-verify-*")); globErr != nil || len(matches) != 0 {
+		t.Fatalf("failed backup left verification staging files = %v (err=%v)", matches, globErr)
+	}
+}
+
 func TestBackupRejectsForeignKeyOnlyCorruption(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

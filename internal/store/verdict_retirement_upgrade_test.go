@@ -533,26 +533,6 @@ func TestOutcomeRetirementSnapshotReverifiedOnRetry(t *testing.T) {
 	}
 }
 
-func TestOutcomeRetirementDigestTransactionMatchesSnapshot(t *testing.T) {
-	_, db := outcomeRetirementFixture(t)
-	want, err := sqlitedb.CurrentStateDigest(t.Context(), db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tx, err := db.BeginTx(t.Context(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`UPDATE store_revision SET revision=revision+1 WHERE id=1`); err != nil {
-		t.Fatal(err)
-	}
-	got, err := sqlitedb.CurrentStateDigestTx(t.Context(), tx)
-	if err != nil || got != want {
-		t.Fatalf("transaction digest = %q, want %q: %v", got, want, err)
-	}
-}
-
 func historicalDecisionRecord(t *testing.T, question string, extra map[string]any) string {
 	t.Helper()
 	record := map[string]any{

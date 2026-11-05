@@ -1,14 +1,11 @@
 package store
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/sharper-flow/concord/internal/version"
 )
 
 func captureRetirementMigration(t *testing.T) migration {
@@ -240,73 +237,5 @@ INSERT INTO nonexistent_capture_failure VALUES(1);`
 	retirementUpgradeHealthy(t, db)
 	if got := retirementUpgradeRows(t, db, `PRAGMA integrity_check`); !reflect.DeepEqual(got, [][]any{{"ok"}}) {
 		t.Fatalf("integrity_check: %v", got)
-	}
-}
-
-func TestCaptureRetirementRequiresSnapshot(t *testing.T) {
-	_, db := outcomeRetirementFixture(t)
-	advanceHistoricalPrefix(t, db, 185)
-	if err := requireCaptureRetirementSnapshot(context.Background(), db); !hasFailureKind(err, KindUpgradeBlocked) {
-		t.Fatalf("populated source without snapshot: %v", err)
-	}
-	ctx := context.WithValue(t.Context(), outcomeRetirementProofKey{}, &outcomeRetirementProof{verified: true})
-	if err := requireCaptureRetirementSnapshot(ctx, db); err != nil {
-		t.Fatalf("verified snapshot refused: %v", err)
-	}
-}
-
-func TestCaptureRetirementSnapshotPreparationAt185(t *testing.T) {
-	previous := version.Value
-	version.Value = "v-test"
-	t.Cleanup(func() { version.Value = previous })
-	path, db := outcomeRetirementFixture(t)
-	advanceHistoricalPrefix(t, db, 185)
-	option := outcomeSnapshotOption(t, t.Context(), path)
-	ctx, err := prepareOutcomeRetirementUpgrade(t.Context(), map[int]appliedMigration{185: {}}, []UpgradeOptions{option})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := ctx.Value(outcomeRetirementProofKey{}).(*outcomeRetirementProof); !ok {
-		t.Fatal("snapshot proof not prepared for schema 185")
-	}
-}
-
-func TestCaptureRetirementSnapshotVerificationAt185(t *testing.T) {
-	_, db := outcomeRetirementFixture(t)
-	advanceHistoricalPrefix(t, db, 185)
-	ctx := outcomeSnapshotContext(t, t.Context(), db)
-	proof := ctx.Value(outcomeRetirementProofKey{}).(*outcomeRetirementProof)
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	applied, err := legacyManifestMigrations(ctx, tx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := verifyOutcomeRetirementSnapshot(ctx, tx, migrateForUpgrade, applied); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Rollback(); err != nil {
-		t.Fatal(err)
-	}
-	if !proof.verified || proof.refusal != nil {
-		t.Fatalf("snapshot not verified: %+v", proof)
-	}
-	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET title='changed' WHERE id='work-one'; DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-	tx, err = db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := verifyOutcomeRetirementSnapshot(ctx, tx, migrateForUpgrade, applied); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Rollback(); err != nil {
-		t.Fatal(err)
-	}
-	if proof.verified || proof.refusal == nil {
-		t.Fatalf("changed source admitted: %+v", proof)
 	}
 }

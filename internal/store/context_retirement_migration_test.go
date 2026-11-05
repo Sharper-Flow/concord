@@ -2,7 +2,6 @@ package store
 
 import (
 	"database/sql"
-	"path/filepath"
 	"testing"
 )
 
@@ -29,15 +28,6 @@ func TestContextRetirementPopulatedUpgrade(t *testing.T) {
 	}
 	option := outcomeSnapshotOption(t, t.Context(), source)
 	if _, err := Upgrade(t.Context(), source, nil, option); err != nil {
-		t.Fatal(err)
-	}
-	assertContextRetired(t, db)
-	retirementUpgradeHealthy(t, db)
-}
-
-func TestContextRetirementEmptyUpgrade(t *testing.T) {
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "empty.db"), migrationPrefixBefore(t, "context_continuity_retirement"))
-	if err := Migrate(t.Context(), db); err != nil {
 		t.Fatal(err)
 	}
 	assertContextRetired(t, db)

@@ -153,8 +153,8 @@ the new type's missing required steps; it never removes a step.
 
 ### 2.4 Step helpers are the default delegates
 
-A step's `helper` names the step subagent that does that step's work. At a plan
-step that carries a helper, the driving agent hands the step's work to that
+A step's `helper` names the step subagent that does that step's work. At a step
+that carries a helper, the driving agent hands the step's work to that
 helper through native Task and records the outcome. The driving agent keeps the
 plan, the commits, and the workflow records. The exception is a tiny edit: a
 change small enough that writing the assignment costs more than doing it. A

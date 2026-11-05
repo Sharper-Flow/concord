@@ -87,8 +87,8 @@ func (e *agentIdentityAbsentError) Error() string {
 	)
 }
 
-// agentSearchDirectories searches nearest last. dir is the resolved Project
-// directory or verified worktree; an empty result resolves nothing.
+// agentSearchDirectories lists definition directories, nearest last. dir is the
+// resolved Project directory or verified worktree; an empty result resolves nothing.
 func agentSearchDirectories(home, dir string) []string {
 	dirs := make([]string, 0, 2)
 	if home != "" {

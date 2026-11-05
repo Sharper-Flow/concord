@@ -51,7 +51,7 @@ func HasIn(root map[string]any, name string) bool {
 	return ok
 }
 
-// DescribesArrayIn checks the schema itself, not an element of the array.
+// DescribesArrayIn reports whether the named schema is itself an array, not one element.
 func DescribesArrayIn(root map[string]any, name string) bool {
 	defs, ok := root["$defs"].(map[string]any)
 	if !ok {
@@ -801,7 +801,7 @@ func validateStringKeywords(text string, schema map[string]any, path string) err
 	if n, ok := schema["maxLength"].(json.Number); ok && codePoints > numberInt(n) {
 		return withGuidance(fmt.Errorf("maxLength at %s: carries %d Unicode code points against a limit of %d", path, codePoints, numberInt(n)), schema)
 	}
-	// The store also enforces UTF-8 byte bounds through x-maxBytes/x-minBytes.
+	// x-maxBytes/x-minBytes carry the store's UTF-8 byte bounds, which maxLength alone can admit past.
 	if n, ok := schema["x-maxBytes"].(json.Number); ok && len(text) > numberInt(n) {
 		return withGuidance(fmt.Errorf("x-maxBytes at %s: carries %d UTF-8 bytes against a limit of %d", path, len(text), numberInt(n)), schema)
 	}
@@ -871,7 +871,7 @@ func schemaVariantDescriptions(branches []any, root map[string]any) []string {
 }
 
 // composedSchemaFrames includes unconditional allOf frames and local refs.
-// Conditional requirements are excluded; the depth bound prevents cyclic refusal descriptions.
+// Conditional requirements are excluded; the depth bound keeps a cyclic schema from failing the description.
 func composedSchemaFrames(branch map[string]any, root map[string]any, depth int) []map[string]any {
 	frames := []map[string]any{branch}
 	if depth >= 8 {

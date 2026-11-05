@@ -114,7 +114,8 @@ func invokeOperationEnums() string {
 	return "tool.operation: " + strings.Join(operations, " | ")
 }
 
-// commandSpecs defines exact hyphenated and two-word forms without aliases.
+// commandSpecs is the single source for operator tokenization and help; its
+// hyphenated and two-word forms are exact, with no aliases.
 // Setup fields live here; generated transport contracts own agent invoke fields.
 var commandSpecs = []commandSpec{
 	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest; pre-dispatch decode refusals exit 64; exact fields and exclusions follow the generated agent contracts", Enums: invokeOperationEnums()},

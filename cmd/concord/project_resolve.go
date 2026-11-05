@@ -9,9 +9,8 @@ import (
 
 // runProjectResolve maps replaceable path or remote evidence to a stable Project ID;
 // only the core reads registered locators, never a host directory heuristic.
-// Terminal placement is host-owned. The Product hop names the Product for host
-// launchers; scope_version lets a cache
-// distinguish a moved repository from changed Product-to-Project membership.
+// The Product hop names the Product for host launchers; scope_version lets a
+// cache distinguish a moved repository from changed Product-to-Project membership.
 // The read is unauthenticated: filesystem access to the authority database is the
 // trust boundary. It appends no event and must not become a second write authority.
 func runProjectResolve(raw []byte, s *store.Store, out, errOut io.Writer) int {

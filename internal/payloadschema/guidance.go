@@ -672,8 +672,8 @@ func guidanceNodeType(schema map[string]any) string {
 	return ""
 }
 
-// guidancePatternCandidates bounds repeats, prefers letters and returns only
-// candidates matching the compiled pattern; expandable constructs try up to three extras.
+// guidancePatternCandidates returns only candidates matching the compiled pattern.
+// Optional constructs also try one to three extra instances so a minLength floor can be met.
 func guidancePatternCandidates(pattern string) []string {
 	parsed, err := syntax.Parse(pattern, syntax.Perl)
 	if err != nil {

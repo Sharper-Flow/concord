@@ -377,7 +377,7 @@ func dirIdentity(info os.FileInfo) (uint64, uint64, bool) {
 	return stat.Dev, stat.Ino, true
 }
 
-// acquireMaintenanceLock exposes open and flock primitives with standard-library signatures.
+// acquireMaintenanceLock takes open and flock as parameters so tests can act between them.
 func acquireMaintenanceLock(
 	dataRoot string,
 	open func(string) (*os.File, error),

@@ -2,9 +2,9 @@ package main
 
 import "testing"
 
-// The knowledge-home verbs are the production producer for PM6 §2: a fresh
-// installation can designate and clear a Product's durable knowledge home
-// without any fixture seeding.
+// The knowledge-home verbs are the production producer of knowledge-home
+// designation: a fresh installation can designate and clear a Product's
+// durable knowledge home without any fixture seeding.
 func TestCLIDesignatesAndClearsProductKnowledgeHome(t *testing.T) {
 	repo := t.TempDir()
 	t.Setenv(dbOverrideEnv, freshMigratedCLIDatabase(t))

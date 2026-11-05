@@ -590,7 +590,7 @@ ORDER BY 1`)
 	return snapshot.String()
 }
 
-// TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions proves
+// TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions exercises
 // the current breaking migration, not a relabeled binary:
 // a live released adapter/core pair blocks all migration effects, including
 // the additive tail. Only after the operator ends the legacy session and

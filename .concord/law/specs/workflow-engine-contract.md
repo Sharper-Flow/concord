@@ -151,7 +151,10 @@ step it comes after, or alters a completed step. A repeated step adds another
 attempt instead of altering it. A type switch keeps completed steps and adds
 the new type's missing required steps; it never removes a step. A switch adds no
 Clarify step to a stored plan that never held one: a copied plan never changes
-when a template changes, and plans carry no template-version marker.
+when a template changes, and plans carry no template-version marker. When a
+switch skips Clarify that way, each step it appends takes Clarify's template
+predecessors in place of Clarify, so every appended edge names a step the plan
+holds; stored `after` edges of existing steps never change.
 
 ### 2.4 Step helpers are the default delegates
 

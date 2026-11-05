@@ -915,14 +915,10 @@ func TestCLIEndToEndRegistersClientAndInvokesRead(t *testing.T) {
 	}
 }
 
-// The verb surfaces the store's refusal to publish a manifest no VerifyBackup
-// consumer can parse. CON-1687 removed the verb's trailing verification pass;
-// this wrong-clock fixture is the seam where that pass used to fail after
-// publication. CON-1706 made Backup validate its manifest identity fields
-// before publication, so the same five-digit-year clock now fails the verb
-// before anything is written, and neither snapshot nor manifest remains. A
-// healthy clock publishing without re-verification is covered by the CLI
-// backup-and-restore round trip below.
+// The verb surfaces Backup's typed refusal of a manifest no VerifyBackup
+// consumer can parse: a store clock past year 9999 renders CreatedAt as a
+// five-digit year that fails the RFC3339Nano round trip, the verb exits
+// nonzero with the typed diagnostic, and nothing is published.
 func TestBackupVerbRefusesUnreadableManifestClock(t *testing.T) {
 	dbPath := freshMigratedCLIDatabase(t)
 	s, err := store.Open(context.Background(), dbPath)

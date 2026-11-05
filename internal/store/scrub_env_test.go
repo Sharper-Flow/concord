@@ -1,10 +1,12 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"testing"
+	"time"
 
 	"github.com/sharper-flow/concord/internal/gittest"
 	"github.com/sharper-flow/concord/internal/testenv"
@@ -46,7 +48,12 @@ func TestConformanceControlsAreConsumed(t *testing.T) {
 }
 
 func TestConformanceConfigurationSurvivesScrub(t *testing.T) {
-	command := exec.Command(os.Args[0], "-test.run=^TestConformanceControlsAreConsumed$")
+	// The child must self-terminate if this parent dies abnormally: its own
+	// test timeout bounds it past the parent, the process context within it.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, os.Args[0],
+		"-test.run=^TestConformanceControlsAreConsumed$", "-test.timeout=10s")
 	command.Env = append(os.Environ(), "TEST_CONCORD_EXPECT_CONFIG=1",
 		conformanceLongEnv+"=1", conformanceAcceptanceRunnerEnv+"=1")
 	if output, err := command.CombinedOutput(); err != nil {

@@ -72,6 +72,32 @@ func TestInterruptedBackupRemovesPartialSnapshotAndManifest(t *testing.T) {
 	}
 }
 
+// TestBackupRefusesClockWhoseManifestTimeCannotRoundTrip proves Backup never
+// publishes a manifest its own verification rules reject: a store clock past
+// year 9999 renders CreatedAt as a five-digit year that time.Parse with
+// time.RFC3339Nano refuses, so Backup must fail typed and leave neither
+// snapshot nor manifest behind for a consumer to refuse later.
+func TestBackupRefusesClockWhoseManifestTimeCannotRoundTrip(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	defer s.Close()
+	s.Clock = func() time.Time {
+		return time.Date(10000, time.January, 1, 0, 0, 0, 0, time.UTC)
+	}
+	destination := filepath.Join(t.TempDir(), "wrong-clock.db")
+	_, err := Backup(context.Background(), s, destination)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "creation time") {
+		t.Fatalf("Backup() error = %v, want a typed refusal naming the manifest creation time", err)
+	}
+	if _, statErr := os.Stat(destination); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("refused backup snapshot must be absent: %v", statErr)
+	}
+	if _, statErr := os.Stat(manifestPath(destination)); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("refused backup manifest must be absent: %v", statErr)
+	}
+}
+
 func TestRestoreBackupUsesCleanOnlineRestoreAndPromotesVerifiedDatabase(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

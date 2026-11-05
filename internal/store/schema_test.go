@@ -2070,13 +2070,12 @@ func readTableSQL(t *testing.T, ctx context.Context, db *sql.DB, name string) st
 	return sql
 }
 
-// TestMigrationReplayFromScratchReachesHead proves every migration (including
-// the CD-0061 D3 reservation removal) replays in order to the head version on
-// a fresh database, with no step that depends on a column or CHECK constraint
-// removed by a later step.
+// TestMigrationReplayFromScratchReachesHead proves every migration replays in
+// order to the head version on a fresh database, with no step that depends on
+// a table, column or CHECK constraint removed by a later step.
 func TestMigrationReplayFromScratchReachesHead(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "concord-replay-cd0061.db")
+	path := filepath.Join(t.TempDir(), "concord-replay.db")
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
 	if err != nil {

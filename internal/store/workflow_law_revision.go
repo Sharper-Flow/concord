@@ -183,12 +183,15 @@ func workflowLawHomeRepo(ctx context.Context, q queryer, homeProjectID, homeLoca
 // open. Domain organization resolves against that one committed file; a home
 // carrying no registry, a non-regular registry file, or an unreadable path
 // refuses typed, so the packet never advertises a locator no lane can read
-// or silently drops the Domain binding.
+// or silently drops the Domain binding. The locator runs after the committed
+// registry was read, so both absent-file shapes mean the checkout disagrees
+// with a commit that carries the registry: their recoveries restore the
+// checkout, they do not ask for a commit that already exists.
 func knowledgeRegistryLocator(homeRepo string) (string, error) {
 	root, err := os.OpenRoot(homeRepo)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return "", newFailure(KindDomainRegistryAbsent, "read_workflow_law_context", "the Product knowledge home repository carries no Domain registry", false, "commit the independent domain-registry.json before reading law")
+			return "", newFailure(KindDomainRegistryAbsent, "read_workflow_law_context", "the Product knowledge home checkout is missing: "+homeRepo, false, "restore the Product knowledge home checkout from its default branch and retry; the verified snapshot commit already carries the Domain registry")
 		}
 		return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot open the knowledge home checkout", true, "restore access to the Product knowledge home and retry", err)
 	}
@@ -196,7 +199,7 @@ func knowledgeRegistryLocator(homeRepo string) (string, error) {
 	registry := filepath.Join(homeRepo, filepath.FromSlash(knowledgeRegistryPath))
 	info, err := root.Stat(knowledgeRegistryPath)
 	if errors.Is(err, os.ErrNotExist) || (err == nil && !info.Mode().IsRegular()) {
-		return "", newFailure(KindDomainRegistryAbsent, "read_workflow_law_context", "the knowledge home carries no Domain registry file: "+registry, false, "commit the independent domain-registry.json at the Product knowledge home")
+		return "", newFailure(KindDomainRegistryAbsent, "read_workflow_law_context", "the knowledge home checkout carries no Domain registry file: "+registry, false, "restore the Domain registry in the knowledge home checkout from its default-branch commit")
 	}
 	if err != nil {
 		return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot inspect the Domain registry", true, "restore access to the Product knowledge home and retry", err)

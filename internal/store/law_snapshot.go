@@ -196,10 +196,15 @@ func (s *lawFolderSnapshot) Registry() (KnowledgeDomainRegistry, error) {
 	return copyLawFolderRegistry(*s.registry), nil
 }
 
+// domainRegistryAbsent refuses a committed home that carries law but no
+// Domain registry. The remedy names the only owner who can act: the registry
+// is Product law (CD-0222 D2), so neither the reading agent nor the store
+// may write it — the Product's law owner enacts it through the ordinary
+// reviewed pull request route at the knowledge home.
 func domainRegistryAbsent() error {
 	return newFailure(KindDomainRegistryAbsent, lawSnapshotOp,
 		"the committed home carries no Domain registry at "+knowledgeRegistryPath,
-		false, "commit the independent domain-registry.json before reading law")
+		false, "the Product's law owner commits the independent domain-registry.json at the Product knowledge home through an ordinary reviewed pull request")
 }
 
 func copyLawFolderRecord(record KnowledgeRecord) KnowledgeRecord {

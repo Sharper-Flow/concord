@@ -86,6 +86,9 @@ func TestMigrateLawAdditionReservationsToCanonicalIdentity(t *testing.T) {
 			}
 			count++
 		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
 		return owner, count
 	}
 	if owner, count := reservation("law:dual"); count != 1 || owner != "reservation-early" {

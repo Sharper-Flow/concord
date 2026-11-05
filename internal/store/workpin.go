@@ -232,34 +232,11 @@ func workPinReadExistingPlanTx(ctx context.Context, tx *sql.Tx, workID string, p
 	ids := []string{"insert_step", "pick_type"}
 	if WorkflowStepPlanComplete(*plan) {
 		ids = append(ids, "complete")
-		// A pin must remain readable when active contracts are ambiguous.
-		versions, err := activeWorkflowContractVersions(ctx, tx, workID)
+		completed, err := workPinCompletedPlanIntentsTx(ctx, tx, workID, plan)
 		if err != nil {
 			return "", err
 		}
-		if len(versions) <= 1 {
-			owner, recorded, _, err := workflowPlanCompletePrerequisiteTx(ctx, tx, workID, plan, "approve_contract")
-			if err != nil {
-				return "", err
-			}
-			if owner != "" && !recorded {
-				ids = append(ids, "approve_contract")
-			}
-			confirmOwner, confirmed, err := workflowPlanCompleteConfirmationTx(ctx, tx, workID, plan, "confirm_premise")
-			if err != nil {
-				return "", err
-			}
-			if confirmOwner != "" && !confirmed {
-				ids = append(ids, "confirm_premise")
-			}
-		}
-		owner, recorded, _, err := workflowPlanCompletePrerequisiteTx(ctx, tx, workID, plan, "record_delivery")
-		if err != nil {
-			return "", err
-		}
-		if owner != "" && !recorded {
-			ids = append(ids, "record_delivery")
-		}
+		ids = append(ids, completed...)
 	}
 	for _, step := range frontier {
 		actions := WorkflowStepPlanTemplateActions(plan.Type, step.ID)
@@ -273,6 +250,29 @@ func workPinReadExistingPlanTx(ctx context.Context, tx *sql.Tx, workID string, p
 		}
 	}
 	return state, workPinAddCatalogIntents(pin, ids)
+}
+
+func workPinCompletedPlanIntentsTx(ctx context.Context, tx *sql.Tx, workID string, plan *WorkflowStepPlan) ([]string, error) {
+	// Ambiguous contracts must not make the pin unreadable.
+	versions, err := activeWorkflowContractVersions(ctx, tx, workID)
+	if err != nil {
+		return nil, err
+	}
+	actions := []string{"record_delivery"}
+	if len(versions) <= 1 {
+		actions = []string{"approve_contract", "confirm_premise", "record_delivery"}
+	}
+	var ids []string
+	for _, action := range actions {
+		owner, err := workflowPlanCompleteActionTx(ctx, tx, workID, plan, action, false)
+		if err != nil {
+			return nil, err
+		}
+		if owner != "" {
+			ids = append(ids, action)
+		}
+	}
+	return ids, nil
 }
 
 func workPinReadPreludeTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin, state string) (string, error) {

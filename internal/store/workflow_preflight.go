@@ -303,6 +303,26 @@ func workflowPlanCompletePrerequisiteTx(ctx context.Context, q queryer, workID s
 	return workflowPlanDeclaringStep(plan, actionID), recorded, afterAdmission, nil
 }
 
+// workflowPlanCompleteActionTx shares the completed-plan admission state
+// between preflight, projection and folding. Paired events record the contract
+// and confirmation before action completion; delivery is recorded afterwards.
+func workflowPlanCompleteActionTx(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, actionID string, folding bool) (string, error) {
+	owner, recorded, afterAdmission, err := workflowPlanCompletePrerequisiteTx(ctx, q, workID, plan, actionID)
+	if err != nil {
+		return "", err
+	}
+	if actionID == "confirm_premise" {
+		owner, recorded, err = workflowPlanCompleteConfirmationTx(ctx, q, workID, plan, actionID)
+		if err != nil {
+			return "", err
+		}
+	}
+	if owner != "" && recorded == (folding && !afterAdmission) {
+		return owner, nil
+	}
+	return "", nil
+}
+
 func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, actionID, step string, plan *WorkflowStepPlan, fields map[string]json.RawMessage) (string, error) {
 	switch actionID {
 	case "record_intake", "record_clarify", "pick_type", "insert_step":
@@ -322,18 +342,11 @@ func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 		}
 	default:
 		if !workflowPlanAllowsAction(plan, step, actionID) {
-			owner, recorded, _, err := workflowPlanCompletePrerequisiteTx(ctx, tx, workID, plan, actionID)
+			owner, err := workflowPlanCompleteActionTx(ctx, tx, workID, plan, actionID, false)
 			if err != nil {
 				return step, err
 			}
-			if owner != "" && !recorded {
-				return owner, nil
-			}
-			owner, confirmed, err := workflowPlanCompleteConfirmationTx(ctx, tx, workID, plan, actionID)
-			if err != nil {
-				return step, err
-			}
-			if owner != "" && !confirmed {
+			if owner != "" {
 				return owner, nil
 			}
 			owner = ""

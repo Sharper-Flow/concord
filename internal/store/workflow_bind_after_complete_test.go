@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-// TestPlanCompleteItemStillBindsEvidence reproduces CON-1738: the engine
-// contract (§4.2) keeps ordinary bind_evidence available after the workflow
-// reaches or passes a step declaring it, under one active contract, but a
-// completed plan has no frontier step, so the final reviewed step's
-// completion closed the only admitted route before the evidence that exists
-// only after publication (merged commit, CI run) could be bound.
+// TestPlanCompleteItemStillBindsEvidence holds the engine contract (§4.2):
+// ordinary bind_evidence stays available after the workflow passes a step
+// declaring it, under one active contract. A completed plan has no frontier
+// step, yet evidence that exists only after publication (merged commit, CI
+// run) must still bind through actual dispatch, repeatedly, without blocking
+// completion.
 func TestPlanCompleteItemStillBindsEvidence(t *testing.T) {
 	t.Parallel()
 	const id = "bind-after-complete"

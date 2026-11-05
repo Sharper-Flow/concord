@@ -1,7 +1,12 @@
 # Generated Concord agent tool surface
 
+<<<<<<< HEAD
 Manifest digest: `sha256:aae7f5479d895a1abca94384a956be16f2592952519fce867d9771069d92b3b5`
 Payload schema digest: `sha256:c28eb92fbb1dbfda7413ff1c5577c9b539eaf6c038191f923edf63eac5b3586f`
+=======
+Manifest digest: `sha256:5efe42b21bb323a37391068a9c29b1bedb19bd394ea4d6e54b55c026bb61edc1`
+Payload schema digest: `sha256:3bc08ba6fb7a9b61063c3c7ce854622b367f8292fe08699541ceff4624d3963b`
+>>>>>>> 7d719c31f (chore(contracts): regenerate agent tool surface after CON-1738 rebase)
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |

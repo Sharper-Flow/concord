@@ -40,8 +40,8 @@ Operations and effect receipts retain their retry and reconciliation consumers;
 finite verified snapshots follow CD-0242 D2 and PM10.
 
 Existing `archived_work` and historical scope edges remain retained Git-derived
-read rows; Git owns the notes, and no replacement or disposal surface exists
-(section 3). PM6 preserves their home IDs, note path, commit OID, note
+read projections; Git owns the notes, and no replacement or disposal surface
+exists (section 3). PM6 preserves their home IDs, note path, commit OID, note
 `content_hash`, `lesson_tags`, terminal state/time and frozen scope. A historical
 reader does not require a settled publication operation, closure judgement or new
 backfill. Removed execution data returns typed absence, not an inspectable step

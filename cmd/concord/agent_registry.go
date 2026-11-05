@@ -6,9 +6,7 @@ import (
 	"strings"
 )
 
-// hostAgentEntry is the part of a resolved agent record Concord reads. The
-// host's document carries more; naming only these three keeps the coupling to
-// what the decision actually needs.
+// hostAgentEntry contains only the resolved agent fields Concord reads.
 type hostAgentEntry struct {
 	Mode    string `json:"mode"`
 	Disable bool   `json:"disable"`
@@ -45,20 +43,10 @@ func (e *hostRegistrationError) Error() string {
 
 func (e *hostRegistrationError) Unwrap() error { return e.Cause }
 
-// verifyHostRegistersHandle establishes that the host will resolve handle to a
-// startable session agent before the session selects it. The registry it
-// reads is the document the bare registry probe carried back, so the
-// verification constrains the registry that governs the session.
-//
-// A resolvable definition file is not proof of registration. Frontmatter
-// `name:` renames the handle rather than aliasing it, `disable: true` removes
-// the agent, `mode: subagent` demotes it, and configuration layers can do any
-// of these without touching the file. None of those states are visible on
-// disk, and the host reports none of them at startup, so the registry is the
-// only place the property can be established (issue #430).
-//
-// Every failure refuses. CD-0049 D4 admits no degraded start, and a probe that
-// cannot be read leaves the property unestablished rather than satisfied.
+// verifyHostRegistersHandle checks the host's resolved registry. A definition
+// alone cannot prove registration: configuration can rename, disable or demote
+// an agent without changing its file. Unreadable or unsuitable registrations
+// refuse; the host otherwise silently substitutes its default agent.
 func verifyHostRegistersHandle(host hostCommandResolution, handle string) error {
 	printed := strings.Join(hostProbeArgv(host.Command), " ")
 	document := host.Registry

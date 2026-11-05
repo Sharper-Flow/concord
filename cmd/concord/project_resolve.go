@@ -7,25 +7,13 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// runProjectResolve answers "which Project owns this directory", the question
-// CD-0008 D1 makes unanswerable from the filesystem alone: a path or remote is
-// replaceable evidence for a stable Project ID, never the identity itself. A
-// host that joins on a directory basename invents an identity Concord does not
-// have, so the mapping is authority data and only the core can read it.
-//
-// The answer carries the Product hop as well. CD-0078 places terminal
-// placement in the host and expects host launchers to show Concord state, and
-// a Project ID alone does not name the Product that state belongs to.
-// scope_version is the membership watermark, so a host cache can tell a moved
-// repository from changed Product↔Project authority.
-//
-// Registered locators belong to the core, not a host-side directory heuristic
-// (.concord/docs/capability-placement.md §6 and CD-0079).
-//
-// The verb is unauthenticated. CD-0079 D2 records why:
-// the trust boundary is filesystem access to the authority database, which a
-// caller able to exec this verb already holds. This is a read. It appends no
-// event, and CD-0021's rejection of a second write authority still binds.
+// runProjectResolve maps replaceable path or remote evidence to a stable Project ID;
+// only the core reads registered locators, never a host directory heuristic.
+// Terminal placement is host-owned. The Product hop names the Product for host
+// launchers; scope_version lets a cache
+// distinguish a moved repository from changed Product-to-Project membership.
+// The read is unauthenticated: filesystem access to the authority database is the
+// trust boundary. It appends no event and must not become a second write authority.
 func runProjectResolve(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	var request struct {
 		Directory string `json:"directory"`
@@ -39,9 +27,7 @@ func runProjectResolve(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		writeOperatorDiagnostic(errOut, "project-resolve", "directory is required")
 		return 1
 	}
-	// A caller that names only the directory is asking about that directory.
-	// Defaulting the worktree keeps the common host call a single field while
-	// preserving the linked-worktree distinction CD-0008 D1 needs.
+	// Defaulting the worktree preserves linked-worktree distinctions.
 	worktree := request.Worktree
 	if worktree == "" {
 		worktree = request.Directory

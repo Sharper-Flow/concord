@@ -1,14 +1,6 @@
-// Package hostlease records which release each live host session runs on.
-// The installer reads the lease set to decide which release directories it
-// may remove (CD-0111 D2), and concord upgrade reads it to refuse while a
-// live session predates a pending breaking migration (CD-0111 D3). Both
-// decisions belong to callers; this package only writes, reads, and prunes
-// the leases themselves, and owns the maintenance fence that excludes new
-// session admission across an incompatible maintenance boundary.
-//
-// A lease is live when its process exists and started when the lease says it
-// did. The start time separates a live pid from a recycled one. Liveness
-// reads /proc, so the package operates on Linux, the only release platform.
+// Package hostlease records session release leases and owns the maintenance
+// fence. Callers decide release cleanup and breaking-migration admission.
+// Liveness uses Linux /proc and compares process start time to reject recycled pids.
 package hostlease
 
 import (
@@ -34,65 +26,44 @@ type Lease struct {
 	SchemaVersion  int    `json:"schema_version"`
 	ManifestDigest string `json:"manifest_digest"`
 	RecordedAt     string `json:"recorded_at"`
-	// FenceProtocol is the maintenance-boundary protocol the core that
-	// wrote this lease speaks. A writer at the current protocol
-	// refuses admission while a fence is open, so its sessions can be
-	// excluded across a boundary. A lease that carries no protocol was
-	// written by a legacy core that admits sessions without looking at the
-	// fence: an unfenceable participant a boundary must fail closed on.
+	// FenceProtocol identifies the writer's admission protocol. A missing
+	// protocol identifies an unfenceable participant; the boundary fails closed.
 	FenceProtocol int `json:"fence_protocol"`
-	// Directory and Worktree locate the host session that holds the lease.
-	// A breaking-migration outage names them so the operator can end the
-	// right sessions without correlating pids by hand. Both are optional:
-	// a lease file written before they existed still reads with both empty.
+	// Directory and Worktree locate the session in migration refusals. Both are
+	// optional; older leases can omit them.
 	Directory string `json:"directory,omitempty"`
 	Worktree  string `json:"worktree,omitempty"`
 }
 
-// CurrentFenceProtocol is the maintenance-boundary protocol this package
-// speaks: a writer at this protocol checks the fence before admitting a
-// session, under the shared admission lock. Recognition is exact: only this
-// number names semantics this package implements, so a lease or release
-// tree carrying any other number — higher included — is an unknown
-// participant the boundary fails closed on, never a capability.
+// Writers using CurrentFenceProtocol check the fence under the admission lock.
+// Recognition is exact: any other number, including a higher one, fails closed.
 const CurrentFenceProtocol = 1
 
-// FenceOperationUpgrade names the one operation this package records as the
-// authorized opener of a maintenance boundary: the core's incompatible-
-// migration command. A boundary that names no operation, or any
-// other operation, is unattributed or foreign: it stays unchanged and
-// authorizes no migration or activation.
+// FenceOperationUpgrade identifies the incompatible-migration command; an absent
+// or foreign operation authorizes neither migration nor activation.
 const FenceOperationUpgrade = "concord-upgrade-incompatible-migration"
 
 // ErrStaleLease marks a lease whose process no longer matches. Write uses it
 // so a session cannot claim liveness for a process that already ended.
 var ErrStaleLease = errors.New("hostlease: the process is not live with the recorded start time")
 
-// ErrMaintenanceExcluded marks a session admission refused because a
-// maintenance fence is open. New sessions fail closed until the boundary
-// completes: the fence exists precisely so the final lease check, the
-// incompatible migration, and the activation observe one admission set.
+// ErrMaintenanceExcluded refuses session admission while a fence is open,
+// preserving one admission set across final lease check, migration and activation.
 var ErrMaintenanceExcluded = errors.New("hostlease: session admission is excluded by an open maintenance boundary")
 
 // ErrReleaseRemoved marks a session admission refused because the core the
 // lease pins no longer exists: release cleanup removed its tree.
 var ErrReleaseRemoved = errors.New("hostlease: the pinned release was removed; start a new session on the active release")
 
-// Fence is the durable session-admission exclusion record. The
-// migration command opens it before its final lease check, and the
-// installer's activation removes it after the prepared candidate commits
-// and release cleanup finishes. Between those instants no new session may
-// claim a lease, which is what makes a lease observation under the fence
-// more than a snapshot.
+// Fence excludes admission from before the final lease check through migration
+// and release cleanup; the installer's activation removes it.
 type Fence struct {
 	// FenceID identifies this boundary opening; a random 16-byte hex.
 	FenceID string `json:"fence_id"`
 	// CreatedAt is when the boundary opened, RFC 3339 UTC.
 	CreatedAt string `json:"created_at"`
-	// Operation attributes the boundary to the operation that opened it:
-	// FenceOperationUpgrade for the core's incompatible-migration command.
-	// An existing fence naming no operation, or a different one, is
-	// unattributed or foreign: it authorizes no migration.
+	// Operation attributes the fence to its opener. A missing or foreign
+	// operation authorizes no migration.
 	Operation string `json:"operation,omitempty"`
 	// ReleaseRoot and CoreBinary name the binary that opened the boundary.
 	ReleaseRoot string `json:"release_root"`
@@ -103,13 +74,8 @@ type Fence struct {
 	Notice string `json:"notice"`
 }
 
-// AuthorizesNativeMigration reports whether an existing fence names exactly
-// this binary's own incompatible-migration operation: the upgrade operation,
-// this release root and core binary, and the schema this binary defines. A
-// boundary meeting all of them is the one this same command opened — the
-// legitimate failed-migration or committed-migration recovery tie — and any
-// other boundary, whatever it carries, stays unchanged and authorizes no
-// migration.
+// AuthorizesNativeMigration requires the upgrade operation, this release root,
+// core binary and schema; any other fence stays unchanged and authorizes no migration.
 func (f Fence) AuthorizesNativeMigration(releaseRoot, coreBinary string, schemaVersion int) bool {
 	return f.Operation == FenceOperationUpgrade &&
 		f.ReleaseRoot == releaseRoot &&
@@ -117,32 +83,19 @@ func (f Fence) AuthorizesNativeMigration(releaseRoot, coreBinary string, schemaV
 		f.SchemaVersion == schemaVersion
 }
 
-// Directory returns the lease directory for a data root. The database path
-// and the releases live under the same root, so the caller derives both from
-// one XDG data home.
+// Directory returns the lease directory under the same data root as the store and releases.
 func Directory(dataRoot string) string {
 	return filepath.Join(dataRoot, "hosts")
 }
 
-// FencePath returns the maintenance fence path for a data root. It sits
-// beside the lease directory, never inside it: List must not mistake it for
-// a lease, and pruning must never remove it.
+// FencePath sits outside the lease directory so listing or pruning cannot remove it.
 func FencePath(dataRoot string) string {
 	return filepath.Join(dataRoot, "maintenance.json")
 }
 
-// EnsureFence opens the maintenance boundary when it is not already open and
-// returns the fence in effect. An existing fence is adopted unchanged: the
-// boundary is shared by the migration and the activation, so the second
-// participant must not rewrite the first one's record. A fence file that
-// cannot be read or parsed fails closed rather than guessing.
-//
-// The check and the write run under the shared admission lock, and the record
-// is fsynced with its directory before the call returns: once EnsureFence
-// reports the boundary open, the exclusion is durable, and no admission that
-// had already passed the fence check can still land after it — that admission
-// either completed before the lock was taken or waits, re-reads the fence,
-// and refuses.
+// EnsureFence opens or adopts a fence unchanged. An unreadable fence fails closed.
+// The check and write hold the shared admission lock; file and directory fsync
+// make exclusion durable before return, with no admission able to land while open.
 func EnsureFence(dataRoot string, fence Fence) (Fence, error) {
 	acquired, err := withAdmissionLock(dataRoot, func() (Fence, error) {
 		if existing, err := ReadFence(dataRoot); existing != nil || err != nil {
@@ -182,10 +135,8 @@ func EnsureFence(dataRoot string, fence Fence) (Fence, error) {
 	return acquired, nil
 }
 
-// ReadFence returns the open maintenance fence, or nil when the boundary is
-// closed. A fence file that exists but cannot be read or parsed is an error:
-// an unreadable exclusion record may be an open boundary, and admission must
-// fail closed instead of treating it as absent.
+// ReadFence returns nil when closed; an unreadable or malformed fence is an
+// error because admission must fail closed.
 func ReadFence(dataRoot string) (*Fence, error) {
 	encoded, err := os.ReadFile(FencePath(dataRoot))
 	if err != nil {
@@ -204,13 +155,8 @@ func ReadFence(dataRoot string) (*Fence, error) {
 	return &fence, nil
 }
 
-// RemoveFenceOwned closes the maintenance boundary only when the fence in
-// effect still carries fenceID. Removal by position — unlink whatever sits
-// at the path — lets an operation that observed no fence on entry delete a
-// boundary a concurrent operation opened in between; removal by identity
-// makes the closer prove it owns what it closes. Removing an absent fence
-// is a no-op so completion stays idempotent; a fence with a different
-// identity is left in place untouched.
+// RemoveFenceOwned closes only the matching fence. An absent fence is a no-op;
+// a different identity remains untouched, protecting concurrent boundaries.
 func RemoveFenceOwned(dataRoot string, fenceID string) error {
 	_, err := withAdmissionLock(dataRoot, func() (struct{}, error) {
 		existing, err := ReadFence(dataRoot)
@@ -228,11 +174,8 @@ func RemoveFenceOwned(dataRoot string, fenceID string) error {
 	return err
 }
 
-// NewFenceID mints the identity a boundary opener claims before it calls
-// EnsureFence. Pre-minting lets the opener learn afterwards whether the
-// fence in effect is the one it opened (EnsureFence returns the same id) or
-// a boundary a concurrent operation opened first (a different id, never
-// this caller's to close).
+// NewFenceID pre-mints an identity so an opener can distinguish its own fence
+// from a concurrent boundary it must not close.
 func NewFenceID() (string, error) {
 	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err != nil {
@@ -248,14 +191,8 @@ func derefFence(fence *Fence) Fence {
 	return *fence
 }
 
-// Write records the lease for the process, replacing any earlier lease the
-// same process wrote. It fails when the process is not live as described,
-// and when a maintenance fence is open it refuses with ErrMaintenanceExcluded:
-// admitting a session mid-boundary would strand it on a release the
-// incompatible migration is about to make unusable. The fence check and the
-// lease write run under the shared admission lock, so a boundary opening
-// concurrently cannot interleave between them: the admission either lands
-// before the fence or observes it and refuses.
+// Write replaces the process's earlier lease. It refuses stale processes and
+// returns ErrMaintenanceExcluded for open fences; checks and write share the lock.
 func Write(dataRoot string, lease Lease) error {
 	if lease.PID <= 0 {
 		return fmt.Errorf("hostlease: lease pid %d is invalid", lease.PID)
@@ -271,9 +208,7 @@ func Write(dataRoot string, lease Lease) error {
 			return struct{}{}, fmt.Errorf("%w: %s opened it at %s; %s",
 				ErrMaintenanceExcluded, fence.CoreBinary, fence.CreatedAt, notice)
 		}
-		// Release cleanup deletes trees while holding this lock, so a claim
-		// queued behind it must confirm its pinned core survived: admitting
-		// it otherwise strands the session on a deleted release.
+		// Cleanup holds this lock; queued claims must verify their core survived.
 		if info, err := os.Stat(lease.CoreBinary); err != nil || !info.Mode().IsRegular() {
 			return struct{}{}, fmt.Errorf("%w: %s", ErrReleaseRemoved, lease.CoreBinary)
 		}
@@ -309,18 +244,14 @@ func Write(dataRoot string, lease Lease) error {
 	return err
 }
 
-// admissionLockName is the shared lock file serializing session admission
+// admissionLockPath names the shared lock file serializing session admission
 // against maintenance-boundary changes. It holds no state: only the flock.
 func admissionLockPath(dataRoot string) string {
 	return filepath.Join(dataRoot, "admission.lock")
 }
 
-// withAdmissionLock runs fn while holding the exclusive admission lock for
-// the data root. Admission (Write) and boundary changes (EnsureFence,
-// RemoveFenceOwned) take the same lock, which is what makes the fence exclusion
-// shared: a lease cannot land between a boundary's check and its record, and
-// a boundary cannot open between a lease's fence check and its write. The
-// lock is advisory and Linux-only, matching the release platform.
+// withAdmissionLock runs fn under the exclusive shared admission lock. Write,
+// EnsureFence and RemoveFenceOwned use it; the advisory lock is Linux-only.
 func withAdmissionLock[T any](dataRoot string, fn func() (T, error)) (T, error) {
 	if err := os.MkdirAll(dataRoot, 0o700); err != nil { //nolint:gosec // dataRoot is the operator's data root; the admission path creates its missing levels.
 		var zero T
@@ -349,43 +280,18 @@ var ErrMaintenanceBusy = errors.New("hostlease: another maintenance command is i
 // while the lock was being taken.
 var ErrMaintenanceRootReplaced = errors.New("hostlease: the data root kept changing while the maintenance lock was taken")
 
-// maintenanceAcquireAttempts bounds the local acquisition sequence after a
-// stale descriptor: the root was replaced between the open and the flock, so
-// the next attempt re-opens what the path now names. The bound keeps a
-// churning root from turning the acquisition into a wait; the operator
-// re-runs the command instead.
+// maintenanceAcquireAttempts bounds retries when root replacement leaves a stale
+// descriptor; a churning root refuses without waiting, so the operator retries.
 const maintenanceAcquireAttempts = 3
 
-// AcquireMaintenance takes the exclusive maintenance lock for the data root
-// and returns its release. One maintenance command runs at a time: a run
-// decides whether to close the boundary it opened from what it alone could
-// have committed, and that decision is only sound when no other run can
-// migrate under the same boundary meanwhile. The lock is a flock
-// on the data root directory itself, so it leaves no file behind, and the
-// installer's commands take the same lock (scripts/install.py
-// maintenance_lock): no installer recovery or boundary close overlaps a
-// migration. The lock does not wait: a second command refuses with
-// ErrMaintenanceBusy and the operator re-runs it after the first finishes.
-//
-// A first-install bootstrap locks the same way an established root does:
-// the root is created before it is opened, so an absent root is never an
-// unlocked window another command could recover a live transaction through.
-// The lock identity is the directory the path names at admission: the root
-// is opened without following symlinks, and after the flock the open
-// descriptor's device and inode are compared with what the path names now,
-// read with lstat so a replaced symlink is never followed. A root that was
-// removed or replaced in between releases the stale descriptor and the
-// next attempt re-opens the current path; the bounded sequence never
-// sleeps.
-//
-// The release removes nothing (obs:1ca149d633e69626): a held
-// directory flock cannot make a later path-based removal conditional on
-// the inode the holder once observed, so no cleanup removes the data root
-// at all. The empty root an acquisition created, its ancestors, a root
-// another participant created or recreated, and any state in them all
-// survive the release. Retained disk space is the accepted cost; exclusion
-// against an arbitrary external replacement of the root is explicitly not
-// promised.
+// AcquireMaintenance takes the exclusive non-waiting flock on the data root,
+// shared with the installer; a competing command receives ErrMaintenanceBusy.
+// Bootstrap creates the root before opening it. The open rejects symlinks;
+// after flock, lstat confirms the path still names the descriptor's device and
+// inode. A replaced root is reopened within a bounded sequence without sleeping.
+// The release removes nothing: the root, ancestors, and their state remain because
+// a path-based cleanup cannot safely exclude a replacement holder. Retained disk
+// space is the cost; exclusion against arbitrary external replacement is not promised.
 func AcquireMaintenance(dataRoot string) (func(), error) {
 	file, err := acquireMaintenanceLock(dataRoot, openMaintenanceDirectory, syscall.Flock)
 	if err != nil {
@@ -397,11 +303,9 @@ func AcquireMaintenance(dataRoot string) (func(), error) {
 	}, nil
 }
 
-// AcquireMaintenanceInherited shares the installer's open directory lock with
-// its upgrade child. It validates the descriptor before flocking and reuses the
-// normal post-flock root checks. Closing the duplicate must not LOCK_UN: Linux
-// flock ownership belongs to the shared open file description, including the
-// parent's descriptor, which excludes commands until the whole cutover exits.
+// AcquireMaintenanceInherited validates and shares the installer's lock with its
+// upgrade child, using the normal post-flock checks. Closing the duplicate must
+// not LOCK_UN: Linux shares flock ownership with the parent until cutover exits.
 func AcquireMaintenanceInherited(dataRoot string, descriptor int) (func(), error) {
 	file, err := acquireMaintenanceLock(dataRoot, func(path string) (*os.File, error) {
 		duplicate, err := syscall.Dup(descriptor)
@@ -464,9 +368,7 @@ func openMaintenanceDirectory(path string) (*os.File, error) {
 	return os.OpenFile(path, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0) //nolint:gosec // path is the operator's data root; the lock opens the directory itself.
 }
 
-// dirIdentity reads a directory's device and inode, failing closed when the
-// platform stat data is unavailable: an identity that cannot be proven
-// cannot admit a lock.
+// dirIdentity fails closed if platform stat data cannot prove the directory identity.
 func dirIdentity(info os.FileInfo) (uint64, uint64, bool) {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
@@ -475,21 +377,15 @@ func dirIdentity(info os.FileInfo) (uint64, uint64, bool) {
 	return stat.Dev, stat.Ino, true
 }
 
-// acquireMaintenanceLock is AcquireMaintenance over its two primitives, so
-// the acquisition sequence is testable between the open and the flock. Both
-// primitives match the standard-library signatures the production call uses.
+// acquireMaintenanceLock exposes open and flock primitives with standard-library signatures.
 func acquireMaintenanceLock(
 	dataRoot string,
 	open func(string) (*os.File, error),
 	flock func(int, int) error,
 ) (*os.File, error) {
 	for attempt := 1; attempt <= maintenanceAcquireAttempts; attempt++ {
-		// The root is created before it is opened: the bootstrap of a
-		// first install holds the same lock an established root holds.
-		// The creation is a plain mkdir, and what it created is retained
-		// at release: no attribution machinery may follow it,
-		// because attribution existed only to authorize deletion, and no
-		// deletion is safe against a replacement holder.
+		// Bootstrap takes the same lock as an established root. Release retains
+		// the directory because deletion could remove a replacement holder's root.
 		if err := os.MkdirAll(dataRoot, 0o700); err != nil { //nolint:gosec // dataRoot is the operator's data root; the acquisition creates its missing levels.
 			return nil, fmt.Errorf("hostlease: cannot create %s: %w", dataRoot, err)
 		}
@@ -546,9 +442,7 @@ func maintenanceRootOpenRefusal(dataRoot string) error {
 	return fmt.Errorf("hostlease: refusing data root %s: it is not a directory", dataRoot)
 }
 
-// sameFile compares two file identities by device and inode, the pair that
-// names one directory on one filesystem. Stat data that is not the kernel's
-// own never compares equal: an identity that cannot be proven is not one.
+// sameFile compares kernel device and inode identities; unavailable stat data never matches.
 func sameFile(a, b os.FileInfo) bool {
 	leftDev, leftIno, lok := dirIdentity(a)
 	rightDev, rightIno, rok := dirIdentity(b)
@@ -586,11 +480,8 @@ func syncDir(path string) error {
 	return dir.Close()
 }
 
-// List returns the live leases under the data root and prunes the stale
-// ones. A lease whose process ended or was recycled is stale. A lease file
-// this package cannot interpret is an error, not a stale entry: deleting an
-// unreadable lease could remove a release a newer release's session still
-// holds, so the caller must observe the failure instead of guessing.
+// List prunes stale leases. An unreadable lease is an error, not a stale entry:
+// deleting it could remove a release still held by a newer session.
 func List(dataRoot string) ([]Lease, error) {
 	return list(dataRoot, true)
 }
@@ -638,9 +529,8 @@ func list(dataRoot string, prune bool) ([]Lease, error) {
 	return live, nil
 }
 
-// ProcessStart reads the process start time from /proc: field 22 of
-// /proc/<pid>/stat, in clock ticks. The comm field can contain spaces and
-// parentheses, so the field is counted after its closing parenthesis.
+// ProcessStart reads field 22 of /proc/<pid>/stat in clock ticks. Count after
+// comm's closing parenthesis because comm can contain spaces and parentheses.
 func ProcessStart(pid int) (uint64, error) {
 	raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {

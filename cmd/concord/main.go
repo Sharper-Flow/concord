@@ -26,7 +26,7 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-// run handles the deliberately small bootstrap CLI surface.
+// run handles the bootstrap CLI surface.
 func run(args []string, out, errOut io.Writer) int {
 	return runWithInput(args, os.Stdin, out, errOut)
 }
@@ -36,10 +36,8 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 		_, _ = fmt.Fprintln(out, version.Value)
 		return 0
 	}
-	// The JSON descriptor is the same bootstrap surface as plain --version:
-	// it answers before any stdin read, store open, or lease write, so the
-	// installer can learn a staged core's capability without side effects
-	// (CON-807). Plain --version output stays exactly the version string.
+	// The descriptor reads no stdin and opens no store or lease; plain --version
+	// prints only the version string.
 	if len(args) == 2 && args[0] == "--version" && args[1] == "--json" {
 		return writeCoreDescriptor(out, errOut)
 	}
@@ -58,8 +56,7 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	}
 	// The release verbs route around the store open: host-lease and
 	// host-leases touch only the lease directory, and upgrade must be the one
-	// command that applies a pending breaking migration an open refuses
-	// (CD-0111 D3).
+	// command that applies a pending breaking migration an open refuses.
 	if len(args) > 0 && args[0] == "host-lease" {
 		return runHostLeaseCommand(args[1:], in, out, errOut)
 	}
@@ -117,13 +114,8 @@ func invokeOperationEnums() string {
 	return "tool.operation: " + strings.Join(operations, " | ")
 }
 
-// commandSpecs is the single source of truth for operator tokenization and
-// help. The hyphenated and two-word forms are deliberate, exact forms; no
-// other aliases are accepted.
-// Operator setup commands predate a standalone JSON schema, so their field
-// lists are kept beside the command boundary and exercised by the README
-// bootstrap test. Agent invoke fields remain owned by their generated
-// transport contracts.
+// commandSpecs defines exact hyphenated and two-word forms without aliases.
+// Setup fields live here; generated transport contracts own agent invoke fields.
 var commandSpecs = []commandSpec{
 	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest; pre-dispatch decode refusals exit 64; exact fields and exclusions follow the generated agent contracts", Enums: invokeOperationEnums()},
 	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | cross_scope; public_key: base64 Ed25519; agent_scope: the agent references this client may present"},
@@ -152,9 +144,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "upgrade", RequiredFields: requiredFields(), Optional: "plan: read-only readiness report; confirm_sessions_stopped: no session runs on an unfenceable release tree; require_no_sessions: refuse every live session behind the maintenance fence for a prepared cutover; maintenance_fd: inherited data-root directory descriptor, validated and flocked by the native lock owner", Enums: "applies pending migrations; a breaking step runs only inside the maintenance boundary, which excludes session admission until activation and refuses under a live older session (CD-0111 D3)"},
 }
 
-// matchCommandSpec resolves the leading tokens against commandSpecs' canonical
-// and two-word forms. It returns the matched spec and the arguments left after
-// the command form.
+// matchCommandSpec resolves canonical and two-word forms and returns remaining arguments.
 func matchCommandSpec(args []string) (*commandSpec, []string, bool) {
 	if len(args) == 0 {
 		return nil, nil, false
@@ -179,10 +169,7 @@ func routeCommand(args []string) (string, []string, bool) {
 	return spec.Canonical, rest, true
 }
 
-// verbUsages lists the verbs that route before the JSON-stdin command table,
-// in top-level usage order, with their usage lines. A verb that commandSpecs
-// also declares answers --help with its command section; the others answer
-// with these lines.
+// verbUsages lists early-routing verbs; declared command verbs use their command section for help.
 var verbUsages = []struct {
 	Verb  string
 	Lines []string
@@ -192,7 +179,7 @@ var verbUsages = []struct {
 	{"upgrade", []string{"upgrade < JSON stdin      # apply pending migrations; {\"plan\":true} reports readiness"}},
 }
 
-// isHelpFlag reports whether an argument asks for help; -h is an alias of
+// isHelpFlag reports whether an argument asks for help; -h is an alias for
 // --help on every help route.
 func isHelpFlag(arg string) bool { return arg == "--help" || arg == "-h" }
 
@@ -253,9 +240,7 @@ func writeCommandUsageSection(out io.Writer, canonical string) {
 	}
 }
 
-// commandGroups returns the bare words that name a command family rather than
-// one command: the first word of every two-word form in commandSpecs, in
-// first-appearance order.
+// commandGroups returns two-word command prefixes in first-appearance order.
 func commandGroups() []string {
 	var groups []string
 	for _, spec := range commandSpecs {
@@ -285,14 +270,8 @@ func writeGroupSections(out io.Writer, group string) {
 	}
 }
 
-// runCommandHelpRoute resolves '<command> --help', '<verb> --help', and the
-// group words before any stdin read or store open; -h is the same flag.
-// '<command> --help' prints one section and '<verb> --help' its usage lines,
-// both to stdout with exit 0. A bare group word, or a group word followed by
-// a word that names none of its commands, is a usage error that names the
-// group and lists its commands on stderr with exit 2; '<group> --help' prints
-// the same sections to stdout. It reports whether it handled the arguments,
-// with the exit code to return.
+// runCommandHelpRoute handles command, verb and group help before stdin or store access.
+// Bare or unknown groups are usage errors; group help prints the group's sections.
 func runCommandHelpRoute(args []string, out, errOut io.Writer) (int, bool) {
 	if len(args) == 0 {
 		return 0, false
@@ -456,7 +435,7 @@ func validateRequiredCommandFields(command string, raw []byte) error {
 
 // databasePath resolves the store every command route uses. It admits the
 // path before any route reads or writes the data root's leases, locks,
-// fences, or store (CD-0240 D1).
+// fences, or store.
 func databasePath() (string, error) {
 	path, err := resolveDatabasePath()
 	if err != nil {
@@ -579,9 +558,7 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 	}
 }
 
-// runOperatorRequest decodes raw into the command's request object, applies
-// it, and writes the operator result for the returned events and changed
-// refs. A decode or apply failure is an operator diagnostic with status 1.
+// runOperatorRequest reports decode or apply failures as operator diagnostics with status 1.
 func runOperatorRequest[T any](command string, raw []byte, s *store.Store, out, errOut io.Writer, apply func(T) ([]string, []operatorRef, error)) int {
 	var request T
 	if err := decodeObject(raw, &request); err != nil {
@@ -809,12 +786,8 @@ func runBackup(command string, raw []byte, s *store.Store, out, errOut io.Writer
 		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 		return 1
 	}
-	// Backup verified the destination (SQLite triple) and promoted it through
-	// the PM10 disposable-clone gate before publishing the snapshot and
-	// manifest, and its failure path removes partial output. The verb does not
-	// re-verify the published artifact: a trailing pass could only fail after
-	// publication and report failure while the verified snapshot remains on
-	// disk. Consumers apply VerifyBackup on use.
+	// Backup has already verified the published snapshot. Re-verifying after
+	// publication could report failure despite success; consumers verify on use.
 	return writeJSON(out, manifest, errOut)
 }
 
@@ -886,10 +859,8 @@ func writeDiagnostic(out io.Writer, message string) {
 	_, _ = fmt.Fprintln(out, message)
 }
 
-// diagnosticText renders an error for stderr. Failure.Error omits the recovery
-// the store decided, so a store refusal's recovery is added here as the last
-// line, once, however the refusal was wrapped. A route that has no refusal to
-// carry its recovery formats the line with recoveryLine.
+// diagnosticText adds a wrapped store refusal's recovery once, as the last line.
+// Routes without a refusal use recoveryLine.
 func diagnosticText(err error) string {
 	var failure *store.Failure
 	if errors.As(err, &failure) && failure.RecoveryAction != "" {

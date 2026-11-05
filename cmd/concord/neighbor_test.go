@@ -31,14 +31,8 @@ type cliNeighborOperation struct {
 	prepare func(t *testing.T) cliNeighborFixture
 }
 
-// TestCLIWritersWithNeighborProcess runs the CLI's durable write surfaces
-// against a real neighbor process that holds a WAL read snapshot (reader) or
-// the write lock (writer) in a separate OS process. Each row prepares before
-// the neighbor starts and verifies committed identities and results after the
-// command returns: CD-0050 commits sync the write-ahead log themselves, so
-// neither neighbor can turn a committed write into a failure. A writer row
-// waits out the bounded hold inside the production busy timeout, and a reader
-// row must not wait at all.
+// Session preparation under reader and writer neighbor locks leaves effect
+// receipts unchanged.
 func TestCLIWritersWithNeighborProcess(t *testing.T) {
 	for _, mode := range []neighbor.Mode{neighbor.Reader, neighbor.Writer} {
 		for _, row := range cliNeighborOperations() {

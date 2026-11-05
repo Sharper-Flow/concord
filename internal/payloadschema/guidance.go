@@ -23,7 +23,7 @@ const guidanceMarker = "Accepted shape:"
 // constraint prefix cannot overrun. The shape is rendered compactly from the
 // schema's structural constraints and is never chopped; an example may be as
 // large as the segment budget admits. Generation that cannot stay inside the
-// budgets fails explicitly instead of publishing partial teaching.
+// budgets fails instead of publishing partial teaching.
 const (
 	guidanceExampleMaxBytes = 450
 	guidanceSegmentMaxBytes = 700
@@ -42,26 +42,12 @@ type pendingGuidance struct {
 	segment  string
 }
 
-// AnnotateGuidance mutates the named definitions in root, and every schema
-// they reach through properties, items, composition, references, and
-// conditional or forbidden branches, to carry one schema-derived example and
-// an appended description of the accepted shape. The only writes are the
-// schema-standard examples and description annotations. Every generated
-// example is validated against its own effective schema before anything is
-// attached, and planning completes before the first write, so a failure
-// returns an error and mutates nothing.
-//
-// A constrained node that cannot yield a schema-valid, in-budget example is a
-// hard error: guidance is never silently skipped. Two node classes are exempt
-// because they carry no authored field to teach: pure combinator containers,
-// and nodes that only name fields of an enclosing object — the shape of
-// oneOf branches and of forbidden (not) and conditional (if/then/else) frames
-// that declare no value constraints of their own.
-//
-// boundNames select additional inputs for bounds-only annotation through the
-// same walker, without an example obligation. Both selections share one atomic
-// plan and deduplicate overlapping nodes. Bounds traversal refuses excessive
-// depth or unresolved references instead of silently dropping their teaching.
+// AnnotateGuidance traverses named definitions and reachable schemas, writing
+// only examples and descriptions. Examples must validate against their effective
+// schema and fit the budget; planning completes before any write, so errors are
+// atomic. Pure combinators and nodes naming only enclosing fields are exempt.
+// boundNames selects bounds-only traversal without examples, sharing the deduplicated
+// plan. Bounds traversal refuses excessive depth or unresolved references.
 func AnnotateGuidance(root map[string]any, names []string, boundNames ...string) error {
 	if _, ok := root["$defs"].(map[string]any); !ok {
 		return fmt.Errorf("payload schema definitions missing")
@@ -361,7 +347,7 @@ func guidanceHasValueConstraints(source map[string]any) bool {
 // guidanceExample builds one minimal example from the keywords the node
 // declares: const and enum first, then one composition branch, then type and
 // bounds. Nothing is looked up by field name. An ungeneratable constrained
-// node is an error, never a silent gap.
+// node is an error, not a silent gap.
 func guidanceExample(schema map[string]any, root map[string]any, depth int) (any, error) {
 	if depth > guidanceDepthMax {
 		return nil, fmt.Errorf("schema nesting exceeds the %d-level guidance depth", guidanceDepthMax)
@@ -422,10 +408,8 @@ func guidanceCombinatorExample(schema map[string]any, branches []any, root map[s
 	return nil, fmt.Errorf("no alternative yields an example")
 }
 
-// guidanceAllOfExample merges the frames' declarations into one pseudo-schema
-// so an example satisfies every frame at once, then proves it against the
-// real composition. Frame property tables are copied, never aliased: the
-// pseudo-schema is discarded and the real schema must stay untouched.
+// guidanceAllOfExample copies frames into a temporary schema without mutation,
+// then validates the resulting example against the real composition.
 func guidanceAllOfExample(schema map[string]any, composed []any, root map[string]any, depth int) (any, error) {
 	merged := map[string]any{}
 	for key, value := range schema {
@@ -503,10 +487,8 @@ func guidanceUnionStrings(present any, additions any) any {
 	return raw
 }
 
-// guidanceObjectExample builds the minimal object: exactly the required
-// fields, and nothing optional. A required name must resolve to a declared
-// schema, the additionalProperties schema, or a pattern property; otherwise
-// the shape is not teachable and generation fails explicitly.
+// guidanceObjectExample includes only required fields, each resolved through a
+// declared schema, additionalProperties or a pattern; otherwise it fails.
 func guidanceObjectExample(schema map[string]any, root map[string]any, depth int) (any, error) {
 	object := map[string]any{}
 	properties, _ := schema["properties"].(map[string]any)
@@ -690,14 +672,8 @@ func guidanceNodeType(schema map[string]any) string {
 	return ""
 }
 
-// guidancePatternCandidates synthesizes minimal literals from a regular
-// expression's syntax tree: literals and classes become characters, minimum
-// repetitions expand in full up to a bounded repeat, and optional constructs
-// (quest, star, an expandable repeat) are emitted collapsed and then with one
-// to three extra instances, so a minLength floor beside the pattern can be
-// met by the pattern's own structure. Class characters prefer ordinary
-// letters. The compiled pattern has the final word: only candidates that
-// match it are returned.
+// guidancePatternCandidates bounds repeats, prefers letters and returns only
+// candidates matching the compiled pattern; expandable constructs try up to three extras.
 func guidancePatternCandidates(pattern string) []string {
 	parsed, err := syntax.Parse(pattern, syntax.Perl)
 	if err != nil {
@@ -974,7 +950,7 @@ func guidanceNote(schema map[string]any) string {
 }
 
 // withGuidance appends the schema's teaching segment to a leaf refusal.
-// Unannotated schemas keep today's exact message.
+// Unannotated schemas keep the message unchanged.
 func withGuidance(err error, schema map[string]any) error {
 	if err == nil {
 		return nil
@@ -1018,7 +994,7 @@ func unknownPropertyError(path, key string, schema map[string]any) error {
 
 // joinSchemaFailures budgets whole errors, never substrings. A long guided
 // refusal keeps its first complete field/constraint/shape/example and states
-// how many other errors remain. Unguided structural messages stay unchanged.
+// how many other errors remain. Unguided structural messages pass through unchanged.
 func joinSchemaFailures(prefix string, failures []error, suffix ...string) error {
 	parts := errorStrings(failures)
 	message := prefix + strings.Join(parts, "; ") + strings.Join(suffix, "")

@@ -8,20 +8,10 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// runCDReservations answers "which CD law ids does this checkout's Product
-// hold reserved, and for whom": the folded law-addition reservations an agent
-// must treat as taken when it allocates the next CD id or checks a branch's
-// records. Git alone cannot answer this — a reservation lives in the store
-// from contract approval until the reservation is released, so an unmerged
-// branch's claim is invisible to every peer-ref comparison.
-//
-// Placement: a core CLI verb rather than a host script, the same rationale
-// project-resolve carries — the reservation table and Project membership
-// are authority data only the core can read. The verb is unauthenticated, as
-// project-resolve is (CD-0079 D2): the trust
-// boundary is filesystem access to the authority database, which a caller
-// able to exec this verb already holds. This is a read. It appends no event,
-// and CD-0021's rejection of a second write authority still binds.
+// runCDReservations reads reservations and their holders from core-owned authority
+// data. Unreleased claims in the store may not be visible in peer Git refs.
+// The unauthenticated read relies on filesystem access to the authority database;
+// it appends no event and must not become a second write authority.
 func runCDReservations(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	var request struct {
 		Directory string `json:"directory"`

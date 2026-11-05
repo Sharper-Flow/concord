@@ -1,26 +1,13 @@
-// Package schemawire is test support for input-budget derivations: it
-// computes the maximum serialized UTF-8 JSON size of one generated-schema
-// node so a capacity test can prove a limit against declared maxima. It has
+// Package schemawire derives maximum JSON wire sizes for capacity tests; it has
 // no production caller and validates nothing.
-//
-// Wire rules. maxLength bounds code points, not serialized bytes: every
-// permitted code point takes six encoded bytes — the encoder's own worst
-// cost per scalar (control escapes, Go HTML escapes of < > &, and raw
-// astral UTF-8 all stay at or under six) — and the two quotes are counted.
-// No pattern analysis cheapens that figure: an unanchored pattern admits
-// scalars it never names, an ASCII alphabet can still escape, and a class
-// escape can cost more than one byte. Integers take the widest of their
-// declared minimum and maximum, or the signed int64 worst case when the
-// schema declares no bound. A format=date-time member needs a caller-pinned
-// writer-derived bound; an unmapped one is a source finding, never an
-// invented default. A pattern-only finding reference derives from its owner
-// condition: the event sequence is a non-negative int64 (nineteen digits)
-// and at most sixteen declared findings per anchor keep the ordinal at two
-// digits; the quotes are counted. Excluded properties drop from the walk
-// entirely — name, colon, and delimiters — so a caller can inject one
-// precomputed term (the context aggregate minus its own two braces, plus
-// the one comma the dropped members surrender) without double-counting
-// names.
+// maxLength counts code points: the wire bound uses six bytes per scalar plus
+// quotes, without reducing the bound for patterns. Integers use the widest
+// declared bound or the signed int64 worst case. Date-time bounds must come
+// from the caller's writer; missing bounds are findings, not defaults.
+// Pattern-only finding references use a nineteen-digit non-negative int64
+// sequence and a two-digit ordinal for at most sixteen findings, plus quotes.
+// Excluded properties omit names, colons and delimiters, allowing callers to
+// inject a precomputed term without double-counting.
 package schemawire
 
 import (

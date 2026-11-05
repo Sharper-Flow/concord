@@ -16,7 +16,7 @@ func stubResolution(document string) hostCommandResolution {
 
 // A registry that lists the handle as an enabled primary agent is the only
 // state that lets a session proceed. The host answers an unregistered name
-// with the operator's default agent and exits zero (CD-0049 D2), so the
+// with the operator's default agent and exits zero, so the
 // selection Concord is about to make has to be proved registered before the
 // session starts, not after.
 func TestHostRegistrationAcceptsAnEnabledPrimaryHandle(t *testing.T) {
@@ -32,8 +32,8 @@ func TestHostRegistrationAcceptsAnEnabledPrimaryHandle(t *testing.T) {
 
 // Each row here is a way a definition resolves on disk while the handle the
 // session would select is not startable. Every one must refuse, and the
-// diagnostic must name the handle and what was observed, because CD-0049 D4
-// admits no degraded start and the operator cannot see the substitution.
+// diagnostic must name the handle and what was observed, because there is no
+// degraded start and the operator cannot see the substitution.
 func TestHostRegistrationRefusesUnstartableHandles(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -94,7 +94,7 @@ func TestHostRegistrationRefusesAHandleTheScanReadDifferently(t *testing.T) {
 
 // An unreadable registry is not an absent constraint. The resolution
 // carrying no document means Concord cannot establish the property, and
-// CD-0049 D4 gives no degraded start, so the session refuses and says why.
+// there is no degraded start, so the session refuses and says why.
 // Each row models the resolution a failed probe leaves behind: no document to
 // read.
 func TestHostRegistrationRefusesWhenTheRegistryCannotBeRead(t *testing.T) {
@@ -122,7 +122,7 @@ func TestHostRegistrationRefusesWhenTheRegistryCannotBeRead(t *testing.T) {
 // The registration check reads the document the configured command resolved,
 // not the bare host's. A wrapper whose own registry does not register the
 // handle refuses even when the bare host's registry would have admitted it —
-// the verified registry is the executing registry (CD-0093 D2, CD-0189).
+// the verified registry is the executing registry.
 func TestHostRegistrationReadsTheDocumentTheConfiguredCommandResolved(t *testing.T) {
 	bareRegistersOnly := stubResolution(`{"agent":{"concord-orchestrator":{"mode":"primary"}}}`)
 	configuredDoesNot := hostCommandResolution{

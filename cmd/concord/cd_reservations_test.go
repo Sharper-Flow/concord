@@ -146,7 +146,7 @@ func TestCDReservationsListsMainCheckoutReservations(t *testing.T) {
 	}
 }
 
-// The verb reads. It must never become a second write authority (CD-0021).
+// The verb reads. It must never become a second write authority.
 func TestCDReservationsWritesNothing(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not available")

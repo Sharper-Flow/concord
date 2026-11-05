@@ -1,6 +1,5 @@
 // Package gittest owns process-wide git configuration for test binaries that
-// create fixture repositories. It exists so the background-maintenance guard
-// has one authority instead of fourteen per-fixture copies.
+// create fixture repositories, including their background-maintenance guard.
 package gittest
 
 import (
@@ -70,19 +69,8 @@ func repositoryEnvironmentKeys(output []byte) (map[string]bool, error) {
 	return keys, nil
 }
 
-// DisableBackgroundMaintenance configures every git invocation made by the
-// calling test binary to never start background work in a fixture repository.
-//
-// The race it closes: porcelain commands (commit, fetch, merge) can invoke
-// `git gc --auto` at exit, and a detached gc still writing into
-// `.git/objects/pack` while `t.TempDir` cleanup walks the tree fails with
-// `unlinkat .../.git/objects/pack: directory not empty` — the test body has
-// already passed.
-//
-// The configuration travels through git's environment variables rather than
-// per-repo `git config` calls, so it covers every fixture, present and future,
-// without each fixture knowing about it. Setting these keys is harmless on git
-// versions that predate them: unknown or irrelevant keys are ignored.
+// DisableBackgroundMaintenance prevents detached Git maintenance from racing
+// fixture cleanup. Environment configuration covers every Git invocation.
 func DisableBackgroundMaintenance() {
 	// Merge with an existing GIT_CONFIG_COUNT rather than replacing it, so a
 	// caller that already declared environment config keeps it.

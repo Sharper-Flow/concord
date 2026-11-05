@@ -160,9 +160,7 @@ func buildCoreFrom(t *testing.T, directory, release string) string {
 
 // installReleaseTree lays a built core out as an installed release tree
 // under dataRoot, the shape the installer stages (bin/concord inside a
-// release root). The fence-protocol marker is stamped only when wanted: a
-// released tree from before CON-807 carries none, which is exactly the
-// legacy demonstration the pair test asserts beside coexistence.
+// release root). An unmarked tree demonstrates the legacy case beside coexistence.
 func installReleaseTree(t *testing.T, dataRoot, release, binary string, fenceable bool) string {
 	t.Helper()
 	tree := filepath.Join(dataRoot, release)
@@ -205,8 +203,7 @@ func runRelease(t *testing.T, binary, dbPath, verb, stdin string) (int, string, 
 }
 
 // coreDescriptor reads a built core's side-effect-free --version --json
-// descriptor: the identity evidence the installer's staging probe uses
-// (CON-807).
+// descriptor: the identity evidence the installer's staging probe uses.
 func coreDescriptor(t *testing.T, binary string) map[string]any {
 	t.Helper()
 	var out bytes.Buffer
@@ -229,7 +226,7 @@ func coreAnswersRoute(binary string, args ...string) bool {
 	return exec.Command(binary, args...).Run() == nil
 }
 
-// TestDistinctReleasedCoresCoexistOnOneStore proves CD-0111 D1/D3 with
+// TestDistinctReleasedCoresCoexistOnOneStore uses
 // each released source's real adapter and core on one temporary store.
 // Schema 114 and 116 coexist across additive migrations; the distinct
 // candidate must refuse its breaking migration while either session lives.
@@ -256,7 +253,7 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 	newBinary := filepath.Join(newRoot, "bin", "concord")
 	// Each release's own adapter runtime, stamped to its own tree exactly
 	// the way the installer stamps it: the sessions below call their own
-	// pinned cores (CD-0111 D1).
+	// pinned cores.
 	oldAdapter := stampAdapterRuntime(t, filepath.Join(releasedSource, "adapter", "opencode"), oldRoot)
 	newAdapter := stampAdapterRuntime(t, filepath.Join(compatibleSource, "adapter", "opencode"), newRoot)
 
@@ -309,7 +306,7 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 	}
 
 	// The old session is a real released-adapter operation: the released
-	// adapter claims its lease by running its own pinned core (CD-0111 D1).
+	// adapter claims its lease by running its own pinned core.
 	oldSession := startAdapterSessionOperation(t, oldAdapter, path, "/srv/old-session")
 
 	// The compatible core advances the store by its actual additive tail.
@@ -401,8 +398,7 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 	}
 	// The fail-closed legacy rule holds beside coexistence: the boundary's
 	// own enumeration names the released tree, because its core predates
-	// the fence protocol (CON-807, the operator-owned offline bootstrap's
-	// subject).
+	// the fence protocol used by the operator-owned offline bootstrap.
 	unfenceable, err := unfenceableReleaseRoots(dataRoot, newRoot)
 	if err != nil {
 		t.Fatal(err)
@@ -595,7 +591,7 @@ ORDER BY 1`)
 }
 
 // TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions proves
-// CD-0111 D3 against the current breaking migration, not a relabeled binary:
+// the current breaking migration, not a relabeled binary:
 // a live released adapter/core pair blocks all migration effects, including
 // the additive tail. Only after the operator ends the legacy session and
 // confirms its unfenceable tree is idle may the current core raise the floor.
@@ -1328,7 +1324,7 @@ DELETE FROM fold_guard;`); err != nil {
 // private directory and stamps the release constants exactly the way
 // scripts/install.py stamps them at install time: absolute paths into the
 // release the adapter is pinned to. A session that runs from the copy calls
-// exactly that release's core binary, never through PATH (CD-0111 D1).
+// exactly that release's core binary, never through PATH.
 func stampAdapterRuntime(t *testing.T, sourceAdapterDir, releaseRoot string) string {
 	t.Helper()
 	runDir := filepath.Join(t.TempDir(), "adapter")
@@ -1364,11 +1360,11 @@ func stampAdapterRuntime(t *testing.T, sourceAdapterDir, releaseRoot string) str
 }
 
 // adapterSessionDriver is the program a representative pinned session runs:
-// the plugin factory's lease claim (CD-0111 D1) through the release's own
+// the plugin factory's lease claim through the release's own
 // adapter code and its own stamped core, then store-backed reads through
 // the same adapter dispatch runner and the same pinned core — the transport
 // every adapter operation uses — holding the session and its lease open
-// until released. The store-backed leg answers the CON-807 evidence bar:
+// until released. The store-backed leg answers the evidence bar:
 // lease metadata alone never opens the shared store, while this read does.
 const adapterSessionDriver = `import { claimHostLease, hostLeaseFault } from "./host-lease"
 import { concordBinaryPath, defaultRunner } from "./dispatch"
@@ -1436,7 +1432,7 @@ type adapterSession struct {
 }
 
 // startAdapterSessionOperation starts one representative released
-// adapter/session operation (CON-807): the adapter code that release
+// adapter/session operation: the adapter code that release
 // actually ships claims the host lease by calling its own pinned core —
 // no CLI substitution, no synthetic pid. The bun process is the session.
 func startAdapterSessionOperation(t *testing.T, adapterDir, dbPath, directory string) *adapterSession {
@@ -1564,7 +1560,7 @@ func unmarkedInstalledReleaseTree(t *testing.T, root string) {
 // An installed release tree without a fence-protocol marker names a legacy
 // core the maintenance boundary cannot exclude. Without the operator's
 // confirmation the incompatible migration refuses before effect, names the
-// tree and the confirmation, and closes the boundary it opened (CON-807).
+// tree and the confirmation, and closes the boundary it opened.
 func TestUpgradeRefusesAnUnmarkedInstalledReleaseTree(t *testing.T) {
 	previous := version.Value
 	version.Value = "v-test"
@@ -1596,7 +1592,7 @@ func TestUpgradeRefusesAnUnmarkedInstalledReleaseTree(t *testing.T) {
 // The operator's confirmation that no session runs on an unmarked tree lets
 // the incompatible migration proceed inside the boundary: the command names
 // the tree it proceeded past, applies the breaking tail, and keeps the fence
-// for the activation (CON-807).
+// for the activation.
 func TestUpgradeProceedsPastAnUnmarkedTreeOnOperatorConfirmation(t *testing.T) {
 	previous := version.Value
 	version.Value = "v-test"

@@ -34,8 +34,8 @@ func TestCaptureCollisionDispatchRollsBack(t *testing.T) {
 			if err != nil || refused.Error == nil || refused.Outcome != agentcontract.OutcomeError {
 				t.Fatalf("collision: %+v, %v", refused, err)
 			}
-			if refused.Error.EffectState != "none" || strings.Contains(refused.Error.Message, holderID) {
-				t.Fatalf("collision must have no effect and must not disclose an unscoped holder: %+v", refused.Error)
+			if refused.Error.EffectState != "none" || !strings.Contains(refused.Error.Message, holderID) {
+				t.Fatalf("collision must have no effect and must identify the same-product holder: %+v", refused.Error)
 			}
 			after := captureStateSnapshot(t, s)
 			if !reflect.DeepEqual(before, after) {

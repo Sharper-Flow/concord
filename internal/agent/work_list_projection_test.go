@@ -133,7 +133,7 @@ func TestFullWorkListProjectionCursorIntegrity(t *testing.T) {
 			t.Fatalf("cursor emitted content: %+v", out)
 		}
 	}
-	for _, change := range []map[string]any{{"detail": "summary"}, {"work_ids": []string{"work-1"}}, {"limit": 2}, {"product_id": "product-other"}} {
+	for _, change := range []map[string]any{{"detail": "summary"}, {"work_ids": []string{"work-1"}}, {"linear_issue_key": "CON-123"}, {"limit": 2}, {"product_id": "product-other"}} {
 		in := map[string]any{"product_id": "product-1", "detail": "full", "limit": 1, "page": map[string]any{"cursor": *first.NextCursor}}
 		for k, v := range change {
 			in[k] = v

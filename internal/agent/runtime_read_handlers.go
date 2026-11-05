@@ -79,7 +79,7 @@ func (r runtime) readWorkList(ctx context.Context, base agentcontract.Envelope, 
 	}
 	binding := pageBinding(in, func(p *workListInput) { p.Page.Cursor = nil })
 	request := func(inner string, limit int) store.Q3Request {
-		return store.Q3Request{Product: in.ProductID, AmbientProject: r.Envelope.AmbientProjectID, LifecycleStates: nonEmpty(in.Lifecycle), Limit: limit, Cursor: inner, Kind: in.Kind, ProjectIDs: in.ProjectIDs, WorkIDs: in.WorkIDs, TerminalSince: in.TerminalSince, Detail: in.Detail}
+		return store.Q3Request{Product: in.ProductID, AmbientProject: r.Envelope.AmbientProjectID, LifecycleStates: nonEmpty(in.Lifecycle), Limit: limit, Cursor: inner, Kind: in.Kind, ProjectIDs: in.ProjectIDs, WorkIDs: in.WorkIDs, LinearIssueKey: in.LinearIssueKey, TerminalSince: in.TerminalSince, Detail: in.Detail}
 	}
 	inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), binding, "summary")
 	if err != nil {

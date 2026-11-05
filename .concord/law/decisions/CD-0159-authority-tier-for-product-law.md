@@ -238,6 +238,12 @@ this correction. Promotion still requires D2. The D5 cohort stays closed.
   contract revision line and raises no operator approval requirement.
 - A store test proves that a conflict a `legislated` record declares still raises
   the legislative moment at approval.
-- A validator run checks every current tier and each legislative reference.
-  A history-derived test proves that every cohort member was present at the
-  pinned application commit and that the cohort lists every surviving one.
+- The store's committed-law read enforces the authority grammar and the D5
+  vehicle claim on every record, and resolves every other declared
+  legislative reference through D2 when it verifies a law folder before a
+  consequential transaction; the AuthorityGrammar, LawEstablishment and
+  KnowledgeAuthorityDefault store test families prove it.
+- No automated census compares the committed cohort asset against the law
+  folder: the knowledge index that carried it retired with #2215. Membership
+  removals since then rode the retiring pull requests; the dedicated repairs
+  #2266 and #2312 each recorded a full-member census run at review.

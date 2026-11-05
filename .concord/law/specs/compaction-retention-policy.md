@@ -39,8 +39,9 @@ stored, but have no agent read.
 Operations and effect receipts retain their retry and reconciliation consumers;
 finite verified snapshots follow CD-0242 D2 and PM10.
 
-Existing `archived_work` and historical scope edges remain disposable Git-derived
-read projections. PM6 preserves their home IDs, note path, commit OID, note
+Existing `archived_work` and historical scope edges remain retained Git-derived
+read rows; Git owns the notes, and no replacement or disposal surface exists
+(section 3). PM6 preserves their home IDs, note path, commit OID, note
 `content_hash`, `lesson_tags`, terminal state/time and frozen scope. A historical
 reader does not require a settled publication operation, closure judgement or new
 backfill. Removed execution data returns typed absence, not an inspectable step
@@ -51,8 +52,8 @@ planning handoff.
 
 ### 2. Historical population and identity
 
-Historical projections retain these fields from their verified note or stable
-canonical-home context:
+Historical projections retain these fields from their retained note record or
+stable canonical-home context:
 
 ```text
 id, type, title, completed_at, outcome_tag, lesson_tags,
@@ -75,7 +76,7 @@ store read, and a store that cannot answer refuses as `unreachable` rather than
 serving stale or guessed rows.
 
 Q7 reads available current-state records, not an exact event history or process
-receipt. Q8 resolves historical supersession from verified recorded metadata.
+receipt. Q8 resolves historical supersession from retained recorded metadata.
 An already historical identity cannot reopen; renewed need uses a new identity
 linked to the old one without changing the historical note.
 

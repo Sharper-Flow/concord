@@ -92,8 +92,8 @@ invent a Git note, GitHub adapter, second database, or generic provider layer.
 
 Operational lists, exact-ID reads, continuity, workflow actions,
 and overlap computation exclude a removed ID. Audit reads return only
-the explicit historical receipt. Snapshot restore, restart, migration, and
-knowledge rebuild preserve the absence; recovery restores verified snapshots and reconciles current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). A retry with the original identity returns the
+the explicit historical receipt. Snapshot restore, restart, and migration
+preserve the absence; recovery restores verified snapshots and reconciles current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). A retry with the original identity returns the
 same committed receipt and records no second removal.
 
 Renewed work starts with a new Concord identity and contract. It may reuse the

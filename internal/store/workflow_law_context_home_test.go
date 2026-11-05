@@ -100,9 +100,6 @@ func seedCrossRepositoryLawFixture(t *testing.T, s *Store, workID string) string
 	return homeRepo
 }
 
-// Project A is the knowledge home and Project B is the dispatch repository:
-// the law context's registry and law locators must name files inside Project
-// A's checkout, and the lane must be able to open both.
 // A contract that binds no law needs no knowledge home: works without a
 // designated home legitimately approve law-less contracts, so the continuity
 // read must return no law context rather than failing to resolve a home.
@@ -146,6 +143,9 @@ func TestLawlessContractNeedsNoKnowledgeHomeInReads(t *testing.T) {
 	}
 }
 
+// Project A is the knowledge home and Project B is the dispatch repository:
+// the law context's registry and law locators must name files inside Project
+// A's checkout, and the lane must be able to open both.
 func TestContinuityQualifiesLawContextWithTheRegisteredKnowledgeHome(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

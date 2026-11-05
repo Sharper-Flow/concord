@@ -230,8 +230,8 @@ caveated, and no private SaaS storage internals are inferred.
 
 - Given the store's current rows and finite verified snapshots
   When recovery opens the store after an interruption
-  Then current rows and derived indexes are reconciled against Git, worktrees,
-  and artifacts, with no replay
+  Then current rows are reconciled against Git, worktrees, and artifacts,
+  with no replay
   ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 - Given the typed relational core

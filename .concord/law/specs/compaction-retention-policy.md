@@ -85,7 +85,7 @@ linked to the old one without changing the historical note.
 |---|---|---|
 | terminal current-state identity and reported delivery link | exact work readers and retained delivery state | explicit work removal under its owning contract |
 | operation results and effect receipts | retries and reconciliation of the original intent | CD-0242 D2's documented end of the retry/reconciliation consumer |
-| historical notes and locator projections | historical readers return the recorded locator and authorize it through frozen scope | Git owns notes; projections may be replaced from the same authority |
+| historical notes and locator projections | historical readers return the recorded locator and authorize it through frozen scope | Git owns notes; retained projections restore as current state ([PM6 §3](canonical-git-note-placement.md#3-historical-locator)), with no replacement surface |
 | verified snapshots | PM10 restore and unfinished recovery | documented count/age bound, never the newest verified snapshot or one recovery needs |
 | logs, traces, screenshots and raw reports | producer-owned, not Concord authority | the producer's own policy |
 

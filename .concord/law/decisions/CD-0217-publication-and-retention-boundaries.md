@@ -35,7 +35,7 @@ handoff.
 | Store state | current rows and finite verified snapshots under CD-0242 D2 |
 | Operations and effect receipts | retry and reconciliation identity remains attributable and idempotent |
 | Historical projections | existing Git-derived locators and frozen scope remain readable |
-| Live/historical queries | deduplicate by work ID and compose authority |
+| Live/historical queries | live queries answer from retained current state with PM5 membership semantics; historical readers return the retained locator without a Git probe or cross-tier authority composition ([PM1 Q2/Q3](../specs/product-memory-query-contract.md), [PM6 §4](../specs/canonical-git-note-placement.md#4-read-outcomes-and-authority)) |
 
 ### D3. Retention follows the consuming category
 

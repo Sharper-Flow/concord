@@ -32,7 +32,7 @@ func TestEvidenceBindExternalProducerRoute(t *testing.T) {
 			if !errors.As(err, &failure) || failure.Kind != KindInvariantViolation || failure.EffectPossible {
 				t.Fatalf("want a no-effect invariant refusal, got %v", err)
 			}
-			for _, part := range []string{"evidence", "otherwise admitted", "operation_id", "request_id", "principal", "producer_run_ref", "producer_watermark", "producer_id"} {
+			for _, part := range []string{"evidence", "otherwise admitted", "operation_id", "request_id", "principal", "producer_run_ref", "producer_watermark", "producer_id", "omit producer_id"} {
 				if !strings.Contains(failure.RecoveryAction, part) {
 					t.Errorf("recovery %q does not name %q", failure.RecoveryAction, part)
 				}

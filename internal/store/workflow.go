@@ -1728,11 +1728,12 @@ func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event, scop
 func producerBindingMismatch(ctx context.Context, tx *sql.Tx, workID string, p workflowEvidenceBoundPayload) error {
 	producer := workflowRefExcerpt(p.ProducerRunRef)
 	const repair = "name the producer operation that recorded the evidence reference"
+	const externalRecovery = "submit the external locator in evidence on an otherwise admitted workflow action, then bind it with that action's returned operation_id as producer_run_ref, envelope request_id as producer_watermark, and recording principal as producer_id; omit producer_id when that principal binds"
 	var recordedWork, principal, requestID, result string
 	err := tx.QueryRowContext(ctx, `SELECT work_id, COALESCE(principal_ref,''), COALESCE(request_id,''), COALESCE(result_kind,'') FROM durable_operations WHERE op_id=? ORDER BY (work_id=?) DESC, (result_kind='completed') DESC, attempt_epoch DESC LIMIT 1`, p.ProducerRunRef, workID).Scan(&recordedWork, &principal, &requestID, &result)
 	switch {
 	case err == sql.ErrNoRows:
-		return newFailure(KindInvariantViolation, "fold_event", "named producer operation "+producer+" has no durable operation record", false, "submit the external locator in evidence on an otherwise admitted workflow action, then bind it with that action's returned operation_id as producer_run_ref, envelope request_id as producer_watermark, and recording principal as producer_id")
+		return newFailure(KindInvariantViolation, "fold_event", "named producer operation "+producer+" has no durable operation record", false, externalRecovery)
 	case err != nil:
 		return wrapFailure(KindUnavailable, "fold_event", "cannot verify evidence authority", true, "retry once the evidence authority is readable", err)
 	case recordedWork != workID:
@@ -1742,7 +1743,7 @@ func producerBindingMismatch(ctx context.Context, tx *sql.Tx, workID string, p w
 	case principal != p.ProducerID:
 		return newFailure(KindInvariantViolation, "fold_event", "producer_id "+workflowRefExcerpt(p.ProducerID)+" does not match producer operation "+producer+", which recorded producer_id "+workflowRefExcerpt(principal), false, "set producer_id to the value the producer operation recorded")
 	case requestID != p.ProducerWatermark:
-		return newFailure(KindInvariantViolation, "fold_event", "producer_watermark "+workflowRefExcerpt(p.ProducerWatermark)+" does not match producer operation "+producer+", which recorded producer_watermark "+workflowRefExcerpt(requestID), false, "set producer_watermark to the value the producer operation recorded")
+		return newFailure(KindInvariantViolation, "fold_event", "producer_watermark "+workflowRefExcerpt(p.ProducerWatermark)+" does not match producer operation "+producer+", which recorded producer_watermark "+workflowRefExcerpt(requestID), false, "set producer_watermark to the value the producer operation recorded; or "+externalRecovery)
 	}
 	return newFailure(KindInvariantViolation, "fold_event", "named producer operation "+producer+" is not a completed durable operation for this work and actor", false, repair)
 }

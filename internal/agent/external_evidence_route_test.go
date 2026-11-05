@@ -56,19 +56,23 @@ func TestExternalEvidenceRecordingAndBinding(t *testing.T) {
 		{"fabricated", "github", "https://github.com/example/project/actions/runs/123", "github-run:123", locator, "no durable operation record"},
 		{"principal", "github", result.OperationID, recorded.RequestID, locator, "producer_id"},
 		{"watermark", env.PrincipalRef, result.OperationID, "wrong-request", locator, "producer_watermark"},
+		{"omitted-run", env.PrincipalRef, "", "github-run:123", locator, "producer_watermark"},
 		{"locator", env.PrincipalRef, result.OperationID, recorded.RequestID, "https://github.com/example/project/actions/runs/456", "locator mismatch"},
 	} {
 		fields := map[string]any{"evidence_kind": "verification", "immutable_subject_ref": tc.subject, "producer_id": tc.producer, "producer_run_ref": tc.op, "producer_watermark": tc.watermark}
+		if tc.name == "omitted-run" {
+			delete(fields, "producer_run_ref")
+		}
 		refused, after := ekbDispatch(t, s, service, env, work, version, "bind_evidence", fields, nil, "external-refuse-"+tc.name)
 		if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || !strings.Contains(refused.Error.Message, tc.message) || refused.Error.EffectState != "none" || after != version || len(ekbEvidenceBoundEvents(t, s, work)) != 0 {
 			t.Fatalf("%s refusal=%+v version=%d want %d", tc.name, refused.Error, after, version)
 		}
-		if tc.name == "fabricated" {
+		if tc.name == "fabricated" || tc.name == "omitted-run" {
 			detail, ok := refused.Error.Details["recovery_detail"].(string)
 			if !ok {
 				t.Fatalf("missing recovery_detail: %+v", refused.Error.Details)
 			}
-			for _, instruction := range []string{"external locator in evidence on an otherwise admitted workflow action", "operation_id as producer_run_ref", "request_id as producer_watermark", "recording principal as producer_id"} {
+			for _, instruction := range []string{"external locator in evidence on an otherwise admitted workflow action", "operation_id as producer_run_ref", "request_id as producer_watermark", "recording principal as producer_id", "omit producer_id when that principal binds"} {
 				if !strings.Contains(detail, instruction) {
 					t.Errorf("recovery_detail %q omits %q", detail, instruction)
 				}
@@ -78,7 +82,9 @@ func TestExternalEvidenceRecordingAndBinding(t *testing.T) {
 			t.Fatalf("%s refusal changed operations %d -> %d or receipts %d -> %d", tc.name, operations, gotOperations, receipts, gotReceipts)
 		}
 	}
-	fields := map[string]any{"evidence_kind": "verification", "immutable_subject_ref": locator, "producer_id": env.PrincipalRef, "producer_run_ref": result.OperationID, "producer_watermark": recorded.RequestID}
+	// The recording response does not show the principal; an omitted
+	// producer_id defaults to the binding caller's principal.
+	fields := map[string]any{"evidence_kind": "verification", "immutable_subject_ref": locator, "producer_run_ref": result.OperationID, "producer_watermark": recorded.RequestID}
 	bound, after := ekbDispatch(t, s, service, env, work, version, "bind_evidence", fields, nil, "external-bind")
 	if bound.Outcome != agentcontract.OutcomeOK || after <= version || len(ekbEvidenceBoundEvents(t, s, work)) != 1 {
 		t.Fatalf("bind: %+v version=%d", bound.Error, after)

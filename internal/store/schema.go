@@ -8916,8 +8916,8 @@ DROP TABLE workflow_overlap_resolutions_v185_backup;
 `,
 	},
 	{
-		// Version 186 belongs to another in-flight migration step (CON-1571
-		// O3) that merges before this one, so this step takes the next number.
+		// Version 186 is reserved for another migration step that merges
+		// before this one, so this step takes the next number.
 		Version: 187, Name: "law_addition_reservation_identity", Breaking: false,
 		SQL: `
 -- Law-addition reservations and contract law additions keyed law identities
@@ -8949,6 +8949,7 @@ FROM (
     SELECT r.product_id, r.owner_work_id, r.owner_contract_version, r.home_domain_id,
         CASE
             WHEN h.project_id IS NOT NULL
+                 AND instr(h.project_id, '/') = 0
                  AND substr(r.law_id, 1, length(h.project_id) + 1) = h.project_id || '/'
                  AND length(r.law_id) >= length(h.project_id) + 3
                  AND instr(substr(r.law_id, length(h.project_id) + 2), '/') = 0
@@ -8959,6 +8960,7 @@ FROM (
             PARTITION BY r.product_id,
                 CASE
                     WHEN h.project_id IS NOT NULL
+                         AND instr(h.project_id, '/') = 0
                          AND substr(r.law_id, 1, length(h.project_id) + 1) = h.project_id || '/'
                          AND length(r.law_id) >= length(h.project_id) + 3
                          AND instr(substr(r.law_id, length(h.project_id) + 2), '/') = 0
@@ -8978,6 +8980,7 @@ FROM (
     SELECT a.work_id, a.contract_version, a.product_id, a.home_domain_id,
         CASE
             WHEN h.project_id IS NOT NULL
+                 AND instr(h.project_id, '/') = 0
                  AND substr(a.law_id, 1, length(h.project_id) + 1) = h.project_id || '/'
                  AND length(a.law_id) >= length(h.project_id) + 3
                  AND instr(substr(a.law_id, length(h.project_id) + 2), '/') = 0
@@ -8988,6 +8991,7 @@ FROM (
             PARTITION BY a.work_id, a.contract_version,
                 CASE
                     WHEN h.project_id IS NOT NULL
+                         AND instr(h.project_id, '/') = 0
                          AND substr(a.law_id, 1, length(h.project_id) + 1) = h.project_id || '/'
                          AND length(a.law_id) >= length(h.project_id) + 3
                          AND instr(substr(a.law_id, length(h.project_id) + 2), '/') = 0

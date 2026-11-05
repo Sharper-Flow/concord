@@ -103,6 +103,49 @@ func seedCrossRepositoryLawFixture(t *testing.T, s *Store, workID string) string
 // Project A is the knowledge home and Project B is the dispatch repository:
 // the law context's registry and law locators must name files inside Project
 // A's checkout, and the lane must be able to open both.
+// A contract that binds no law needs no knowledge home: works without a
+// designated home legitimately approve law-less contracts, so the continuity
+// read must return no law context rather than failing to resolve a home.
+func TestLawlessContractNeedsNoKnowledgeHomeInReads(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	const workID = "lawless-homeless-contract"
+	seedWork(t, s, workID)
+	actor := WorkflowActor{PrincipalRef: "principal:lawless", ClientRef: "client:lawless", AgentRef: "agent:lawless", SessionRef: "session:lawless", ActorClass: ActorAgent}
+	proofCtx, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(proofCtx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeWorkflowRawTx(proofCtx, tx, WorkflowInitializationRequest{WorkID: workID, Actor: actor, Now: time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC)}); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanResearch, "frame")
+	version := readWorkVersion(t, s, workID)
+	event := workflowEventWithActor("lawless-homeless-approval", WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "premise": "law-less contract on a work without a knowledge home", "legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+	})
+	event = pOverlapContractFacts(t, s, event)
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		t.Fatalf("law-less approval on a homeless work refused: %v", err)
+	}
+	continuity, err := ReadWorkflowContinuity(ctx, s, ContinuityRequest{Work: workID})
+	if err != nil {
+		t.Fatalf("continuity read failed on the law-less contract: %v", err)
+	}
+	if continuity.LawContext != nil {
+		t.Fatalf("law context=%+v, want none for a law-less contract", continuity.LawContext)
+	}
+}
+
 func TestContinuityQualifiesLawContextWithTheRegisteredKnowledgeHome(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

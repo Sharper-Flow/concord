@@ -92,7 +92,7 @@ func guidanceNodeAtPath(t *testing.T, root map[string]any, path ...any) map[stri
 	return node
 }
 
-var approveVariantPath = []any{"$defs", "work_transition_action_variant_approve_contract", "properties", "fields", "properties", "decision_domains"}
+var approveVariantPath = []any{"$defs", "work_transition_action_variant_approve_contract", "properties", "fields", "properties", "legislative_subjects"}
 
 // AnnotateGuidance carries one schema-derived example and an appended bounded
 // description on the reachable property and ref schemas of the named

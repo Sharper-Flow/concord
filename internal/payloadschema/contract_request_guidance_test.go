@@ -100,24 +100,8 @@ func TestContractRevisionFailureSelectsTheApplicableVariant(t *testing.T) {
 
 // A genuinely invalid decision_domains member is refused through the variant
 // that declares the field, not through the legacy alternative that forbids it.
-func TestInvalidDecisionDomainsNamesItsEnumThroughTheDeclaringVariant(t *testing.T) {
-	fields := `{
-		"decision_domains": ["bogus"]
-	}`
-	data := contractGuidanceInput(t, "select-domains-1", fields)
-
-	err := ValidateInDocument(Document(), "work_transition_action_input", data)
-	if err == nil {
-		t.Fatal("an unknown decision domain was accepted")
-	}
-	got := err.Error()
-	if !strings.Contains(got, `enum mismatch at $.fields.decision_domains[0]: accepted values are ["increased_spending","legal","product","production_data","security","ui_ux"]`) {
-		t.Errorf("refusal does not name the invalid decision domain through its declaring variant: %s", got)
-	}
-	if strings.Contains(got, "unknown property $.fields.decision_domains") {
-		t.Errorf("a branch-local unknown-property refusal reached the caller as global: %s", got)
-	}
-}
+// TestInvalidDecisionDomainsNamesItsEnumThroughTheDeclaringVariant retired by
+// CON-1710 under CD-0243 D3: the decision_domains field is retired.
 
 // Two alternatives with no discriminator between them genuinely remain: the
 // refusal labels both variants instead of promoting one branch's local
@@ -125,22 +109,22 @@ func TestInvalidDecisionDomainsNamesItsEnumThroughTheDeclaringVariant(t *testing
 func TestNonDiscriminatedAlternativesStayLabeled(t *testing.T) {
 	root := decodeSchema(t, `{
 		"$defs": {
-			"legacy": {"type": "object", "additionalProperties": false, "required": ["premise"], "properties": {"premise": {"type": "string"}}},
-			"extended": {"type": "object", "additionalProperties": false, "required": ["decision_domains"], "properties": {"b"], "type": "string"}, "type": "array"}}}
+			"legacy": {"type": "object", "additionalProperties": false, "required": ["subject"], "properties": {"subject": {"type": "string"}}},
+			"extended": {"type": "object", "additionalProperties": false, "required": ["labels"], "properties": {"labels": {"items": {"enum": ["a", "b"], "type": "string"}, "type": "array"}}}
 		},
 		"oneOf": [{"$ref": "#/$defs/legacy"}, {"$ref": "#/$defs/extended"}]
 	}`)
-	value := decodeValue(t, `{"decision_domains": ["bogus"]}`)
+	value := decodeValue(t, `{"labels": ["bogus"]}`)
 
 	err := ValidateValue(value, root, root, "$")
 	if err == nil {
 		t.Fatal("a fieldset matching no variant was accepted")
 	}
 	got := err.Error()
-	if !strings.Contains(got, "enum mismatch at $.decision_domains[0]: accepted values are [\"a\",\"b\"]") {
+	if !strings.Contains(got, "enum mismatch at $.labels[0]: accepted values are [\"a\",\"b\"]") {
 		t.Errorf("the closed fieldset's declaring variant does not carry the refusal: %s", got)
 	}
-	if strings.Contains(got, "missing required $.premise") || strings.Contains(got, "unknown property $.decision_domains") {
+	if strings.Contains(got, "missing required $.subject") || strings.Contains(got, "unknown property $.labels") {
 		t.Errorf("the forbidden alternative's local refusal reached the caller: %s", got)
 	}
 }
@@ -150,7 +134,7 @@ func TestNonDiscriminatedAlternativesStayLabeled(t *testing.T) {
 func TestUnfilteredOneOfKeepsItsVariantList(t *testing.T) {
 	root := decodeSchema(t, `{
 		"$defs": {
-			"left": {"type": "object", "additionalProperties": false, "required": ["premise"], "properties": {"premise": {"type": "string"}}},
+			"left": {"type": "object", "additionalProperties": false, "required": ["subject"], "properties": {"subject": {"type": "string"}}},
 			"right": {"type": "object", "additionalProperties": false, "required": ["digest"], "properties": {"digest": {"type": "string"}}}
 		},
 		"oneOf": [{"$ref": "#/$defs/left"}, {"$ref": "#/$defs/right"}]

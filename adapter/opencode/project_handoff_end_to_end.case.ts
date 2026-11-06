@@ -262,15 +262,12 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
   })
   const domainList = await invoke("concord_domain", "list", { product_id: PRODUCT_ID, page: { cursor: null, limit: 10 } }, sourceContext)
   expect(domainList.outcome).toBe("ok")
+  // premise, route_conventions and decision_domains retired by CON-1710
+  // under CD-0243 D3 (confirmed readerless).
   await walk("approve_contract", {
-    premise: "Deliver the bounded cross-Project handoff.",
     legislative_subjects: [],
-    route_conventions: [],
     spec_mandate: [],
     law_modifies: [],
-    // The consequence_v1 head requires the decision fact; none declares
-    // engineering work, which records without a consent question.
-    decision_domains: [],
     architecture_binding: {
       home_domain_id: `product-root:${PRODUCT_ID}`,
       affected_domain_ids: [`product-root:${PRODUCT_ID}`],

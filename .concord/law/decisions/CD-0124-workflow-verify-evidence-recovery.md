@@ -33,8 +33,8 @@ Evidence may be bound without advancing the current workflow step.
 
 ### D1. Declaring steps admit ordinary evidence binding
 
-The workflow step templates declare `bind_evidence` on the execution and
-closing steps of every type. The action has hold execution
+The workflow step templates declare which steps carry `bind_evidence`. The
+action has hold execution
 mode and no approval requirement. An authenticated actor may bind evidence once
 the workflow reaches or passes a step declaring the action. While the plan is
 incomplete, a missing active contract does not block the binding; an ambiguous
@@ -43,7 +43,7 @@ requires exactly one active contract. The binding must satisfy ordinary
 payload, producer, subject and evidence-kind checks and include the producer
 watermark. A prior binding does not prevent a fresh binding.
 
-### D2. Confirmation remains the advancing gate
+### D2. Confirmation remains a separate gate
 
 `bind_evidence` never advances a step. `confirm_premise` remains the
 premise-confirmation action. Binding is not a premise-confirmation gate.
@@ -66,8 +66,9 @@ deployment or stranded-work recovery.
 
 ## Verification
 
-- The workflow step templates declare `bind_evidence` with hold
-  execution mode; `confirm_premise` remains the premise-confirmation action.
+- The step templates declare which steps carry `bind_evidence`; its action
+  policy gives it hold execution mode, and `confirm_premise` remains the
+  premise-confirmation action.
 - Each refusal leg has an executable witness: invalid and stale requests —
   `internal/store.TestLateBindingRefusesUndeclaredEvidenceKind` and
   `internal/store.TestExternalCheckRecoveryPreservesEvidenceRefusals` refuse

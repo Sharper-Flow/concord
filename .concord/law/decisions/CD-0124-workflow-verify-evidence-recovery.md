@@ -33,8 +33,8 @@ Evidence may be bound without advancing the current workflow step.
 
 ### D1. Declaring steps admit ordinary evidence binding
 
-The workflow step templates declare which steps carry `bind_evidence`. The
-action has hold execution
+The workflow step templates declare which required steps carry `bind_evidence`.
+The action has hold execution
 mode and no approval requirement. An authenticated actor may bind evidence once
 the workflow reaches or passes a step declaring the action. While the plan is
 incomplete, a missing active contract does not block the binding; an ambiguous
@@ -66,7 +66,8 @@ deployment or stranded-work recovery.
 
 ## Verification
 
-- The step templates declare which steps carry `bind_evidence`; its action
+- The step templates declare which required steps carry `bind_evidence`; its
+  action
   policy gives it hold execution mode, and `confirm_premise` remains the
   premise-confirmation action.
 - Each refusal leg has an executable witness: invalid and stale requests —

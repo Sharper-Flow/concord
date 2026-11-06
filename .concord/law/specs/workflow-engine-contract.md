@@ -688,13 +688,13 @@ and action table above is the contract's chosen implementation fill; these items
 remain deferred for extensions, catalogs, and runtime policy not required to
 interpret the v1 carriers:
 
-1. **Per-family action enumeration.** Each family's available action list and the
+1. **Per-type action enumeration.** Each type's available action list and the
    exact step graph are implementation work, not part of this decision. The
    decision fixes the shape; the implementation fills it.
 2. **Audience commitment storage.** Runtime audience band storage and the
    effective-rigor evaluation routine are implementation work.
 
-The contract does not invent audience storage or a new family.
+The contract does not invent audience storage or a new workflow type.
 
 ## Acceptance criteria
 

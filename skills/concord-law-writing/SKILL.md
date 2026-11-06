@@ -7,7 +7,7 @@ description: Place or author Product knowledge held by Concord, and draft, amend
 
 Work on one selected Product and agreed change. This skill operates Concord's
 knowledge structure; it supplies neither law nor approval and does not prescribe
-a worker's lane methodology. Keep proposed wording distinct from accepted law.
+host-owned procedure. Keep proposed wording distinct from accepted law.
 
 ## Canonical references
 

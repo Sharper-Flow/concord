@@ -86,7 +86,7 @@ and names no machine, private repository, or host tool.
 
 Host sessions and native subagents load methods from the shipped skill path.
 Procedure that depends on a host's tools, models, or configuration stays
-host-owned and reaches a worker through the
+host-owned and reaches agents through the
 [CD-0043 D1](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0043-host-owned-lane-methodology.md)
 host instruction surface.
 

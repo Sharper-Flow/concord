@@ -42,14 +42,7 @@ Item owners publish without RTE acceptance or an internal milestone.
 Tools confer no ownership of another session's item. Repository-local owners
 drive their worktrees; the host owns native Task execution.
 
-When an investigation depends on Product-law status or authority, resolve it
-through the workflow's resolved law context before delegating source work to
-explore or advisor. Pass that resolved context; these utilities cannot
-establish law state from repository text. Resolve any law-state gap they
-return before relying on that part of the answer.
-
-The operator decides product direction, UI/UX, production application data,
-security, increased spending, and legal obligations under the shared asking
+The operator decides the six approval classes named in the shared asking
 instructions. Each owner decides within its assigned item outside those classes
 and may consult an advisor. Item owners ask the operator directly in conversation.
 Do not answer another session's permission request or operator-reserved question.
@@ -58,11 +51,11 @@ Relay it unchanged, without inventing an actor, approval, or evidence.
 Apply current accepted CD-0243 D2-D3 before asking for consent. Outside the six
 classes, proceed with engineering and work management within the assigned scope.
 Apply D3's Concord deletion exemption before directing an owner to seek
-product-direction, UI/UX or governed-scope-cut approval for a removal. Its
-delivery duties, exclusions and current gates remain; the RTE supplies no approval.
-Assigning a worker to an in-scope dependency repair, and that worker publishing or
-merging its PR, do not independently require operator approval. A repair restoring existing
-security protections is not a request to waive a security gate or accept its risk.
+product-direction, UI/UX or governed-scope-cut approval for a removal. The RTE
+supplies no approval. Assigning an owner to an in-scope dependency repair, and
+that owner publishing or merging its PR, do not independently require operator
+approval. A repair restoring existing security protections is not a request to
+waive a security gate or accept its risk.
 
 For an approval request, identify the applicable class and concrete consequence,
 or the existing operator-only reservation under the shared asking instructions.
@@ -229,7 +222,7 @@ speed.
 
 Record each stream's brief on its delivery issue: objective, write set,
 exclusions, consumed interface, checks, stop conditions, and return point.
-Require workers to return coherent, committed change sets to their owner.
+Require each stream to return coherent, committed change sets to the item owner.
 Report per-stream time to a reviewed result, integration conflicts and rework,
 findings routed back to the owner, and token use from existing records, not
 agent self-report. State when evidence is unavailable, including timing or token
@@ -250,7 +243,7 @@ agent-definition manifests.
 
 Keep Linear current through its MCP server. Reconcile assigned Linear issues during each pass.
 Keep status, execution owner, blockers, next actions, and evidence links current.
-Workers own delivery decisions; correct only stale planning facts established
+Item owners make delivery decisions; correct only stale planning facts established
 by evidence. An idle session, finished turn, or merged PR alone does not prove the item is Done.
 Correct stale status and links, and never change scope (CD-0243 D1).
 Check the full acceptance, including required release/install and partial scope.
@@ -260,9 +253,9 @@ of the actual state field. A comment does not change status. Read the issue,
 change only stale fields, and read back the result. If the write fails, record
 that failure and its reconciliation owner rather than substitute a status comment.
 Never infer that another writer reconciled the state.
-Use the host's Linear MCP skill for tool procedures; shared coordination instructions
-own worker and issue-state rules. Concord owns explicitly managed execution,
-not a second planning system.
+Use the host's Linear MCP skill for tool procedures; shared coordination
+instructions own the rules for item owners and issue state. Concord owns
+explicitly managed execution, not a second planning system.
 
 ## Before idle
 
@@ -279,16 +272,16 @@ Before going idle, confirm all of the following:
   event or decision that lets that owner continue.
 
 After acting, recheck only the affected streams and handle newly arrived notices.
-Do not repeatedly scan unchanged state or prompt workers already doing permitted work.
+Do not repeatedly scan unchanged state or prompt owners already doing permitted work.
 Missing evidence is an explicit blocker, not proof that the idle conditions passed.
 Use the existing CI watcher, with the pushed `head_sha` after a push. Continue
-other admitted work while it waits. Wait for worker notices, CI results, or operator input
+other admitted work while it waits. Wait for owner notices, CI results, or operator input
 when no permitted action remains. Add no timer or self-wakeup loop.
 
 ## Provider and host boundaries
 
 Quota samples or exhaustion notices alone do not establish a coordination blocker.
-Model selection belongs to operator host configuration; do not pin workers or
+Model selection belongs to operator host configuration; do not pin owners or
 reviewers to models or ask for provider top-ups. Model identity does not prove
 independent review, distinct actors, scope, or exact reviewed subject.
 
@@ -298,7 +291,7 @@ action and effect state if recovery fails, then continue other admitted work.
 
 ## Communicate outcomes
 
-Workers send one-line start (branch and owners), publication/merge, and cross-stream
+Item owners send one-line start (branch and owners), publication/merge, and cross-stream
 blocker notices. These request sequencing, never acceptance.
 Send a bounded assignment or changed fact, not a transcript or duplicate evidence.
 Host messages do not replace managed handoff records or verified repository landing.

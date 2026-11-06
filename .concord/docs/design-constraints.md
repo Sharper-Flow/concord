@@ -39,12 +39,13 @@ snapshots never masquerade as current authority.
 
 **Implication.** CD-0006 R3 retains hard/soft `depends_on` edges and bounded
 freshness checks. CD-0222 adds a typed architecture binding to every
-Product-changing contract. Intersecting affected Domains require a resolution
-pinned to both contract versions before both items hold execution authority;
-exact law/Domain/relation writes are marked as write overlap. The check reruns
-inside every consequential mutation. Version stamps supply deterministic
-fallback. Polling, timers, automatic downstream rewrites, and heuristic
-authority are forbidden.
+Product-changing contract. Intersecting affected Domains block neither item:
+Concord records the relation, and the later merge reconciles through Git
+([CD-0222 D6](../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md#d6-concurrent-work-reconciles-through-git));
+exact law/Domain/relation writes are marked as write overlap. Architecture and
+law checks rerun inside every consequential mutation. Version stamps supply
+deterministic fallback. Polling, timers, automatic downstream rewrites, and
+heuristic authority are forbidden.
 
 ---
 
@@ -260,7 +261,7 @@ The cited decisions govern implementation conformance.
    CD-0008 D3 owns dependency-aware unreadable isolation.
 6. **Evidence-resolution completeness** (#325). **Resolved by CD-0008 D2 (2026-08-06):** verification, review, approval, commit, native-run, and durable-knowledge evidence binds to an immutable subject and an attributable producer record. The producer remains verdict authority. Concord atomically records the typed binding, and returns typed missing, unreachable, or degraded results when re-resolution cannot complete. Accepted mechanism: [`../law/decisions/CD-0008-concord-mechanism-hardening.md`](../law/decisions/CD-0008-concord-mechanism-hardening.md) §D2.
 7. **Validation-failure isolation** (#349). **Resolved by CD-0008 D3 (2026-08-06):** unreadable records contribute unknown, and independently provable positive reads may return typed degraded omissions. Negative and safety conclusions fail closed only when the unreadable record lies within the bounded closure needed for that conclusion. The unreadable set is explicit and unrelated operations are not globally blocked. Accepted mechanism: [`../law/decisions/CD-0008-concord-mechanism-hardening.md`](../law/decisions/CD-0008-concord-mechanism-hardening.md) §D3.
-8. **State-authority engine for a single-operator local orchestrator** (operator decision D1, 2026-08-05). **✅ Resolved-by-CD-0002 + PM2–PM5** — SQLite is the sole authority per [`../law/decisions/CD-0002-concord-state-authority.md`](../law/decisions/CD-0002-concord-state-authority.md). Four records refine it:
+8. **State-authority engine for a single-operator local orchestrator** (operator decision D1, 2026-08-05). **Resolved-by-CD-0002 + PM2–PM5** — SQLite is the sole authority per [`../law/decisions/CD-0002-concord-state-authority.md`](../law/decisions/CD-0002-concord-state-authority.md). Four records refine it:
    - **one global local authority** per [`../law/specs/product-memory-authority-scope.md`](../law/specs/product-memory-authority-scope.md);
    - one authoritative current-state store per [`../law/specs/product-memory-domain-schema.md`](../law/specs/product-memory-domain-schema.md);
    - lifecycle and relation invariants per [`../law/specs/product-memory-lifecycle-relations.md`](../law/specs/product-memory-lifecycle-relations.md);

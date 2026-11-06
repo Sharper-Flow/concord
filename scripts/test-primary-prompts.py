@@ -328,6 +328,21 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         findings = self.findings()
         self.assertTrue(any("duplicates the technical-unknown" in finding for finding in findings))
 
+    def test_law_context_obligation_missing_from_evidence_reports(self) -> None:
+        path = self.root / ".concord/instructions/evidence.md"
+        text = path.read_text(encoding="utf-8")
+        marker = check_primary_prompts.LAW_CONTEXT_MARKERS[0]
+        self.assertIn(marker, text)
+        path.write_text(text.replace(marker, "removed"), encoding="utf-8")
+        self.assertTrue(any("missing the law-context obligation marker" in finding for finding in self.findings()))
+
+    def test_law_context_obligation_duplicated_in_named_profiles_reports(self) -> None:
+        marker = check_primary_prompts.LAW_CONTEXT_MARKERS[0]
+        for name in check_primary_prompts.NAMED_PROFILE_FILES:
+            with self.subTest(name=name):
+                self.rewrite(name, lambda text: text + "\n" + marker + "\n")
+                self.assertTrue(any(name in finding and "duplicates the law-context" in finding for finding in self.findings()))
+
     def test_intake_retains_exact_permissions_without_launcher_requirements(self) -> None:
         text = check_primary_prompts.read_prompt(ROOT, "concord-0.md")
         self.assertEqual(check_primary_prompts.split_frontmatter(text), """# Example only. Concord never installs or manages this file.

@@ -10,7 +10,7 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "exemption": "No corpus scenario can express criterion 1's violating plan writes because dispatched actions compose well-formed writes. The production plan-write validator ValidateStepPlanWrite is covered by TestWorkflowStepPlanCompletionOrderingAndImmutability in internal/store/workflow_step_plan_test.go. The frontier admission refusal of a step neither on the plan frontier nor completed, shared by complete_step and record_review, is covered by TestWorkflowReviewFrontierAdmission in internal/store/workflow_review_attempt_test.go."
+      "exemption": "No corpus scenario can express criterion 1's violating plan writes because dispatched actions compose well-formed writes. The production plan-write validator ValidateStepPlanWrite is covered by TestWorkflowStepPlanCompletionOrderingAndImmutability in internal/store/workflow_step_plan_test.go. The frontier admission refusal of a non-frontier incomplete step, shared by complete_step and record_review, is covered by TestWorkflowReviewFrontierAdmission in internal/store/workflow_review_attempt_test.go."
     },
     {
       "criterion": 2,

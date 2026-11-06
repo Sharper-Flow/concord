@@ -754,7 +754,7 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "unauthorized"
 	case store.KindOutcomeMismatch:
 		return "outcome_mismatch"
-	case store.KindInvalidDefinition, store.KindDefinitionActionOrStepUnknown:
+	case store.KindDefinitionActionOrStepUnknown:
 		return "invariant_violation"
 	case store.KindInvariantViolation, store.KindSchemaUnsupported:
 		return "invariant_violation"

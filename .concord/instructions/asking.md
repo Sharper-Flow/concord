@@ -24,6 +24,11 @@ the decision and its evidence in the existing work record, then continue.
 A settled case does not waive an approval, safety rule, scope limit, or mandatory
 refusal.
 
+Before deciding a direction question, read the Product's vision document at
+`.concord/docs/product-vision.md` (CD-0254). When it settles the question,
+decide by it instead of asking the operator. When you settle a direction
+question without asking, cite the vision in the work record.
+
 Ask the operator directly for the six approval classes:
 product direction, UI/UX, production application data, security, increased
 spending, and legal obligations. Apply their stated boundaries: ordinary

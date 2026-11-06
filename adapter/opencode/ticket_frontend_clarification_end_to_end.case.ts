@@ -17,6 +17,7 @@ const name = "resumes clarification after a ticket exchange"
 const productID = "product-ticket-e2e"
 const projectID = "project-ticket-e2e"
 const issueKey = "CON-7360"
+const neighborKey = "CON-7361"
 const author = "Shared identity"
 const question = { issue_key: issueKey, author, body: "Which output should be retained?\nWhich format should it use?" }
 const changes = {
@@ -25,15 +26,18 @@ const changes = {
   description: { author, body: "The output must fit on one page." },
 }
 
+// The Linear exchange is a stub: no client, credential or network module
+// exists in this fixture, so no Linear call can occur (CD-0213 D7). The
+// changed set below stands in for what the frontend hands the resuming
+// session; every entry carries the same author, as agent and operator
+// comments do while agents post under the operator's identity.
 function ticketStub(path: string) {
   return {
     async publish() {
-      await Bun.write(path, JSON.stringify({ question, calls: { publish: 1, read: 0 }, networkCalls: 0 }))
+      await Bun.write(path, JSON.stringify({ question }))
     },
     async readChanges() {
-      const saved = await Bun.file(path).json()
-      saved.calls.read++
-      return { ...saved, changes }
+      return { question, changes }
     },
   }
 }
@@ -99,6 +103,7 @@ if (!process.env.TEST_CONCORD_TICKET_CASE || new RegExp(process.env.TEST_CONCORD
     const capture = await invoke("concord_work_define", "capture", { title: "Synthetic clarification", kind: "task", task: "Exercise clarification.", project_ids: [projectID], human_key: issueKey, remote_issue_uuid: "00000000-0000-4000-8000-000000007360", url: "https://linear.app/example/issue/CON-7360/fixture", idempotency_key: "ticket-capture" })
     const workID = (capture.changed_refs as JSONRecord[]).find((ref) => ref.entity_kind === "work_item")?.id
     expect(workID).toBeTruthy()
+    await invoke("concord_work_define", "capture", { title: "Synthetic neighbor", kind: "task", task: "A second live item proves the key filter narrows.", project_ids: [projectID], human_key: neighborKey, remote_issue_uuid: "00000000-0000-4000-8000-000000007361", url: "https://linear.app/example/issue/CON-7361/fixture", idempotency_key: "ticket-capture-neighbor" })
     await git(repo, "worktree", "add", "-b", `work/${workID}`, worktree)
     directory = worktree
     context.directory = worktree
@@ -110,40 +115,36 @@ if (!process.env.TEST_CONCORD_TICKET_CASE || new RegExp(process.env.TEST_CONCORD
     const state = resume.result as JSONRecord
     expect(state).toMatchObject({ type: "change", state: "running", next_steps: ["clarify"] })
     expect(state.steps.find((step: JSONRecord) => step.id === "clarify").attempts ?? []).toEqual([])
-    await Bun.write(snapshot, JSON.stringify({ type: state.type, state: state.state, version: state.version, steps: state.steps, next_steps: state.next_steps }))
+    await Bun.write(snapshot, JSON.stringify({ workID, type: state.type, state: state.state, version: state.version, steps: state.steps, next_steps: state.next_steps }))
     await ticketStub(ticket).publish()
     return
   }
 
   expect(phase).toBe("resume")
   expect(await sessionDirectoryReader().sessionDirectory(sessionID)).toBe(worktree)
+  const snapshotState = await Bun.file(snapshot).json()
+  const unfiltered = await invoke("concord_work_browse", "list", { product_id: productID })
+  expect(unfiltered.result.items).toHaveLength(2)
   const listing = await invoke("concord_work_browse", "list", { linear_issue_key: issueKey, product_id: productID })
   expect(captured.invoke?.input).toEqual({ linear_issue_key: issueKey, product_id: productID })
-  expect(listing.result.items).toHaveLength(1)
-  expect(listing.result.items[0].linear_issue_key).toBe(issueKey)
+  expect(listing.result.items.map((item: JSONRecord) => item.linear_issue_key)).toEqual([issueKey])
   const workID = listing.result.items[0].id
+  expect(workID).toBe(snapshotState.workID)
   const resume = await invoke("concord_work_trace", "resume", { work_id: workID })
   const state = resume.result as JSONRecord
-  expect({ type: state.type, state: state.state, version: state.version, steps: state.steps, next_steps: state.next_steps }).toEqual(await Bun.file(snapshot).json())
+  expect({ type: state.type, state: state.state, version: state.version, steps: state.steps, next_steps: state.next_steps }).toEqual({ type: snapshotState.type, state: snapshotState.state, version: snapshotState.version, steps: snapshotState.steps, next_steps: snapshotState.next_steps })
   expect(state).toMatchObject({ type: "change", state: "running", next_steps: ["clarify"] })
   expect(state.steps.find((step: JSONRecord) => step.id === "clarify").attempts ?? []).toEqual([])
   const stub = await ticketStub(ticket).readChanges()
-  expect(stub.question).toEqual(question)
-  expect(stub.changes).toEqual(changes)
-  expect([stub.question.author, stub.changes.answer.author, stub.changes.discussion.author, stub.changes.description.author]).toEqual([author, author, author, author])
   const fields = { resolved_questions: ["Retain the summary.", "Use plain text."], note: `Answer: "${stub.changes.answer.body}" Discussion: "${stub.changes.discussion.body}" Description: "${stub.changes.description.body}"` }
   await walk(workID, "record_clarify", fields)
   expect((captured.invoke?.input as JSONRecord).fields).toEqual(fields)
   const record = JSON.parse(dbValue(dbPath, "SELECT payload FROM workflow_clarify_records WHERE work_id=?", workID).payload)
   expect(record).toEqual(fields)
-  expect(Object.keys(fields).sort()).toEqual(["note", "resolved_questions"])
   expect(Object.keys(record).sort()).toEqual(["note", "resolved_questions"])
   const published = payloadSchemas.work_transition_action_variant_record_clarify.properties.fields
   expect(published.additionalProperties).toBe(false)
   expect(Object.keys(published.properties).sort()).toEqual(["note", "resolved_questions"])
-  expect(fields.resolved_questions.join(" ")).toBe(stub.changes.answer.body)
-  expect(stub.calls).toEqual({ publish: 1, read: 1 })
-  expect(stub.networkCalls).toBe(0)
   await walk(workID, "complete_step", { step_id: "clarify", note: "Clarification complete." })
   await walk(workID, "record_plan", { outcomes: "Retain a one-page summary.", approach: "Produce a plain text summary.", decisions: [{ id: "decision:format", question: "What format?", choice: "Plain text.", rationale: "The answer chose it.", rejected: [] }], touches: ["output"], merge_split: "One bounded item.", risks: "The summary may exceed one page." })
 }, { timeout: 300000 })

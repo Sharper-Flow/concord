@@ -9,14 +9,15 @@ of finished steps does not need a reply. Continue until an operator decision is
 required, a boundary refuses, or the agreed end state is reached.
 
 A blocking operator question is such a stop. On a ticket frontend the stop is
-durable: the question comment, the incomplete step and the stored work record
-are the wait, and the agent may end its process. A fresh session resumes the
+durable: the published comment, the incomplete step and the resume read are
+the wait, and the agent may end its process. A fresh session resumes the
 same work from those records and the linked ticket, never from chat history:
 it reads everything that changed on the linked issue since its questions were
 posted — comments, including discussion among users, and description edits —
 relates answers to the outstanding questions, and records the resulting
-decisions before advancing. A posted answer is context until the frontend
-attributes it to the operator; treat what it does not resolve as unresolved.
+decisions before advancing. A posted answer is context only until agents post
+under their own identity and the frontend attributes the answer to the
+operator; treat what it does not resolve as unresolved.
 
 Context size alone does not justify a stop, handoff, or restart. Preserve work
 on disk as it proceeds, through commits, checkpoints, reports, and logs. After

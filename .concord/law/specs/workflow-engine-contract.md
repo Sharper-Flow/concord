@@ -515,8 +515,8 @@ questions that depend on earlier answers stay sequential. Questions are
 published on the work item's linked Linear issue through the frontend's
 tools; the affected step stays incomplete and the agent may end its process,
 because the published comment, the incomplete step and the resume read are
-the durable wait. A retrigger reaches the item's coordinator, which assigns
-the resuming session. The resuming session reads everything that changed on
+the durable wait. A retrigger reaches the RTE, which assigns the resuming
+driving session. The resuming session reads everything that changed on
 the linked issue since its questions were posted — comments, including
 discussion among users, and description edits — through the frontend's tools,
 relates answers to the outstanding questions, and records the resulting
@@ -528,7 +528,8 @@ may be decided through the frontend only when the frontend attributes the
 answer to the operator's own identity, which requires agents to post under
 their own identity; that identity is host-side work, the core builds no
 author-verification path, and until it lands reserved-approval questions and
-their answers stay in the pane whatever route the item uses. No adapter or
+their answers stay with the host question tool whatever route the item uses.
+No adapter or
 store question route substitutes for either admitted route, and the core adds
 no question projection, pause state or selection envelope for either.
 

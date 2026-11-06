@@ -133,7 +133,7 @@ func SeedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidence
 	if err := opts.validate(); err != nil {
 		return err
 	}
-	repo, registry, err := DomainEvidenceRepo(opts.Dir)
+	repo, registry, err := domainEvidenceRepo(opts.Dir)
 	if err != nil {
 		return err
 	}
@@ -169,11 +169,11 @@ func seedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidence
 	return nil
 }
 
-// DomainEvidenceRepo commits the single-Domain registry with an empty
+// domainEvidenceRepo commits the single-Domain registry with an empty
 // architecture relation set, plus the accepted decision homed to that Domain.
 // The registry is returned because the architecture binding records its
 // content fingerprint, not a projection row.
-func DomainEvidenceRepo(dir string) (string, store.KnowledgeDomainRegistry, error) {
+func domainEvidenceRepo(dir string) (string, store.KnowledgeDomainRegistry, error) {
 	repo, err := initKnowledgeRepo(dir)
 	if err != nil {
 		return "", store.KnowledgeDomainRegistry{}, fmt.Errorf("pm1fixture: init Domain evidence repo: %w", err)

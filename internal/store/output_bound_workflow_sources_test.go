@@ -252,14 +252,9 @@ func TestOutputBoundProposalListItemSource(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Family-local derived sources
-//
 // Each constructor below returns one derived source whose evaluator inspects
 // one exact live AST shape and refuses every unsupported writer, including
-// any second writer of the counted field. None of them reads a filesystem
-// limit.
-// ---------------------------------------------------------------------------
+// any second writer of the counted field. None reads a filesystem limit.
 
 // workflowDerived wraps one evaluator as a derived output bound source.
 func workflowDerived(derive func(*ledgerRuntime, *boundCensus) (evaluatedBound, error)) outputBoundSource {

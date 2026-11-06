@@ -18,10 +18,6 @@ package store
 // schema maxima are redundant caps the parent removes.
 
 func init() {
-	// ------------------------------------------------------------------
-	// domain detail result (C22.DomainDetail)
-	// ------------------------------------------------------------------
-
 	// Current law appends every accepted law homed in the domain with no
 	// read-side LIMIT. The projection admits at most maxManifestRecords
 	// accepted law records and law_domain_homes holds one home per law, so
@@ -48,18 +44,10 @@ func init() {
 			goConstantBound("internal/store/knowledge_record.go", "maxManifestRelations", boundItems),
 		))
 
-	// ------------------------------------------------------------------
-	// domain ID primitive
-	// ------------------------------------------------------------------
-
 	// Every store producer of a domain_id-typed value enforces the same
 	// 256-character bound through registry and storage validation.
 	registerOutputBound("/$defs/domain_id/maxLength",
 		goInlineBound("internal/store/knowledge_record.go", "validManifestID", "utf8.RuneCountInString(value)", boundCharacters))
-
-	// ------------------------------------------------------------------
-	// domain law record (embedded in C22.DomainDetail current law)
-	// ------------------------------------------------------------------
 
 	// Applicability rows project 1:1 from the manifest record's
 	// applies_to_domain_ids, which validateManifestStringArray bounds at
@@ -77,19 +65,13 @@ func init() {
 	registerOutputBound("/$defs/domain_law_record/properties/title/maxLength",
 		goConstantBound("internal/store/knowledge_record.go", "maxManifestTitle", boundCharacters))
 
-	// ------------------------------------------------------------------
-	// domain list result (C22.DomainList)
-	// ------------------------------------------------------------------
-
 	// The page is sliced to the admitted limit; domainListMaxLimit refuses
 	// anything outside 1..100 before the query, and the registry itself
 	// holds at most maxManifestDomains Domains.
 	registerOutputBound("/$defs/domain_list_result/properties/domains/maxItems",
 		goConstantBound("internal/store/domain_reads.go", "domainListMaxLimit", boundItems))
 
-	// ------------------------------------------------------------------
 	// domain observation (CD-0068, write-seam-only table)
-	// ------------------------------------------------------------------
 
 	// Ref items ride the fold validation only: validateObservationBounds
 	// admits each ref up to 256 code points through its inline comparison pair,
@@ -110,10 +92,6 @@ func init() {
 
 	// The tags array is folded under the same count guard.
 	registerOutputBound("/$defs/domain_observation/properties/tags/maxItems", goInlineBound("internal/store/domain_observations.go", "validateObservationBounds", "len(tags)", boundItems))
-
-	// ------------------------------------------------------------------
-	// domain registry (embedded in C22 results)
-	// ------------------------------------------------------------------
 
 	// The registry content hash is stored under CHECK length 71 with the
 	// sha256 prefix in the final DDL.
@@ -141,20 +119,12 @@ func init() {
 	registerOutputBound("/$defs/domain_registry/properties/scanned_commit_oid/maxLength",
 		pkLengthSetBound("internal/store/git_knowledge.go", "validateCommitOID", "len(oid)"))
 
-	// ------------------------------------------------------------------
-	// domain relation (embedded in C22.DomainDetail)
-	// ------------------------------------------------------------------
-
 	// Governing law IDs project one row per manifest relation entry, each
 	// resolving to exactly one accepted law, and the manifest bounds each
 	// relation's array at maxManifestArray entries; the consumer maximum
 	// below must rise to admit it.
 	registerOutputBound("/$defs/domain_relation/properties/governing_law_ids/maxItems",
 		goConstantBound("internal/store/knowledge_record.go", "maxManifestArray", boundItems))
-
-	// ------------------------------------------------------------------
-	// domain summary (embedded in C22 results)
-	// ------------------------------------------------------------------
 
 	// Domain names are stored under CHECK length 1..256 characters; the
 	// manifest parse guard (maxManifestTitle code points) applies the same

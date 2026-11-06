@@ -47,10 +47,6 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// goInlineBound
-// ---------------------------------------------------------------------------
-
 // goInlineBound derives an upper guard from an inline Go comparison on the
 // exact measured expression inside function in file. The guard is selected
 // from the comparisons the function actually performs:
@@ -636,10 +632,6 @@ func ledgerExprText(expr ast.Expr) string {
 	return out.String()
 }
 
-// ---------------------------------------------------------------------------
-// goPatternBound
-// ---------------------------------------------------------------------------
-
 // ledgerPatternCharacterLimit caps a derived pattern length: a published
 // output bound far above this is a derivation error, not a bound.
 const ledgerPatternCharacterLimit int64 = 1 << 20
@@ -816,10 +808,6 @@ func ledgerCheckedMul(a, b int64) (int64, error) {
 	return a * b, nil
 }
 
-// ---------------------------------------------------------------------------
-// goSliceBound
-// ---------------------------------------------------------------------------
-
 // goSliceBound counts a declared slice or array composite literal named
 // symbol in file, in items. A slice contributes its spelled element count;
 // an array contributes its declared constant length, which must not be
@@ -928,10 +916,6 @@ func ledgerSliceElement(elt ast.Expr, consts map[string]ledgerConstDef) error {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// base64Bound
-// ---------------------------------------------------------------------------
-
 // base64Bound derives the encoded length of a finite member: the padded
 // standard encoding emits 4 characters per complete or partial 3-byte group.
 // An unpadded encoder emits less, so the padded length is the safe maximum.
@@ -977,10 +961,6 @@ func ledgerBase64Characters(bytes int64) (int64, error) {
 	}
 	return groups * 4, nil
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 func TestDerivationGoInlineBound(t *testing.T) {
 	t.Parallel()

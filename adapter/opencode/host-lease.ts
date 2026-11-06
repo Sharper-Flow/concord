@@ -54,7 +54,7 @@ let claimedReleaseRoot: string = releaseRoot
 
 /** Session location named in the lease so a breaking-migration refusal can
  * point the operator at the exact terminal to end. */
-export type LeaseLocation = { directory?: string; worktree?: string }
+type LeaseLocation = { directory?: string; worktree?: string }
 
 export async function claimHostLease(pid: number, location: LeaseLocation = {}): Promise<void> {
   try {

@@ -14,17 +14,6 @@ import (
 	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
-func TestOperatorApprovalStorageAbsent(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, err := Open(ctx, filepath.Join(t.TempDir(), "concord.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	assertOperatorApprovalStorageAbsent(t, s.db)
-}
-
 func assertOperatorApprovalStorageAbsent(t *testing.T, db *sql.DB) {
 	t.Helper()
 	for _, table := range []string{"agent_approvals", "agent_approval_challenges"} {

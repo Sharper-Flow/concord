@@ -16,10 +16,6 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// ---------------------------------------------------------------------------
-// Typed corpus structs — decode .concord/scenarios/agent-jobs.v1.json
-// ---------------------------------------------------------------------------
-
 type jobCorpus struct {
 	SchemaVersion     string   `json:"schema_version"`
 	Contract          string   `json:"contract"`
@@ -60,10 +56,6 @@ type jobScenario struct {
 	// outside the runner.
 	overrides *overrideTracker
 }
-
-// ---------------------------------------------------------------------------
-// fixture_override consumption
-// ---------------------------------------------------------------------------
 
 // overrideTracker records which initial_state.fixture_override keys a binding
 // read. A declared override that no binding reads is a false precondition: it
@@ -161,10 +153,6 @@ type assertReporter interface {
 	Fatalf(format string, args ...any)
 }
 
-// ---------------------------------------------------------------------------
-// Observation — the result of executing a scenario binding
-// ---------------------------------------------------------------------------
-
 type jobObservation struct {
 	State         map[string]any
 	Result        map[string]any
@@ -173,18 +161,10 @@ type jobObservation struct {
 	Authority     map[string]any
 }
 
-// ---------------------------------------------------------------------------
-// Registry + no-silent-skip
-// ---------------------------------------------------------------------------
-
 var jobBindings = map[string]func(t *testing.T, sc jobScenario) jobObservation{}
 var jobDeferrals = map[string]string{}
 
 const agentJobsCorpusPath = "../../.concord/scenarios/agent-jobs.v1.json"
-
-// ---------------------------------------------------------------------------
-// Shared invariants
-// ---------------------------------------------------------------------------
 
 // implementedInvariants are mechanically checked by the test harness.
 var implementedInvariants = map[string]func(t *testing.T, obs jobObservation){
@@ -385,10 +365,6 @@ func invariantHonestRecovery(t *testing.T, obs jobObservation) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Evaluator — (target, path, op, value) with dot-path traversal
-// ---------------------------------------------------------------------------
-
 func evaluateAssertion(t assertReporter, obs jobObservation, a jobAssertion) {
 	t.Helper()
 
@@ -572,10 +548,6 @@ func toSlice(v any) []any {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Absent-operator guard — regression harness
-// ---------------------------------------------------------------------------
-//
 // The five TS1 mutation scenarios plus three AJ1 read scenarios carry
 // "absent" assertions whose previous behaviour (a nil path resolving to
 // nil means "pass") was a vacuous-pass defect: a binding that simply
@@ -801,10 +773,6 @@ func TestEvaluateProbeSentinelRejectsOtherOps(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Corpus loader
-// ---------------------------------------------------------------------------
-
 func loadAgentJobsCorpus(t *testing.T) jobCorpus {
 	t.Helper()
 	raw, err := os.ReadFile(agentJobsCorpusPath)
@@ -819,10 +787,6 @@ func loadAgentJobsCorpus(t *testing.T) jobCorpus {
 	}
 	return corpus
 }
-
-// ---------------------------------------------------------------------------
-// Scenario drivers — how external or human authority responds during a run
-// ---------------------------------------------------------------------------
 
 // scenarioDriver is a scenario's declared external-authority response. A driver
 // is resolved through a closed vocabulary and unknown kinds fail: a scenario
@@ -858,11 +822,6 @@ func resolveDriver(t *testing.T, sc jobScenario) scenarioDriver {
 func (d scenarioDriver) approvalWithheld() bool {
 	return d.Kind == "human_checkpoint" && d.Response == "pending"
 }
-
-// ---------------------------------------------------------------------------
-// Top-level test — iterates every scenario, fails if any is missing or
-// double-registered, and checks deferral format.
-// ---------------------------------------------------------------------------
 
 func TestAgentJobsCorpus(t *testing.T) {
 	t.Parallel()
@@ -944,10 +903,6 @@ func runAgentJobScenario(t *testing.T, sc jobScenario) {
 func isValidDeferral(s string) bool {
 	return len(s) > 0 && s[0] == '#' && len(strings.Fields(s)) >= 2
 }
-
-// ---------------------------------------------------------------------------
-// PM1 dispatch fixture (modelled on mutationDispatchFixture)
-// ---------------------------------------------------------------------------
 
 func agentJobsPM1Fixture(t *testing.T) (*store.Store, *Service, Authority, pm1fixture.Corpus) {
 	t.Helper()
@@ -1067,10 +1022,6 @@ func envelopeToObservation(resp agentcontract.Envelope) jobObservation {
 	return obs
 }
 
-// ---------------------------------------------------------------------------
-// Authority probes — prove no stored ready/blocked column is consulted
-// ---------------------------------------------------------------------------
-
 // probeNoStoredReadyFlag proves readiness is derived at read time by:
 //  1. PRAGMA table_info(work_items) confirming no 'ready' column exists;
 //  2. Deriving readiness from lifecycle + relations for a known-needed item
@@ -1176,10 +1127,6 @@ func tableColumns(t *testing.T, db *sql.DB) []string {
 	}
 	return cols
 }
-
-// ---------------------------------------------------------------------------
-// Scenario bindings
-// ---------------------------------------------------------------------------
 
 func init() {
 	jobBindings["AJ1-ambient-ready-work"] = bindAJ1AmbientReadyWork

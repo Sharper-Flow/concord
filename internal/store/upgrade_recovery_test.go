@@ -49,10 +49,8 @@ func storePathForTest(t *testing.T) string {
 }
 
 // A migration whose SQL collides with the live schema fails inside its one
-// transaction and commits nothing: the manifest keeps recording the exact
-// applied set it had, the store still reads, and the active release keeps
-// operating it. This is the failure half of CON-807 recovery: nothing about
-// a failed migration damages the usable active release (CON-807).
+// transaction and commits nothing: the manifest keeps the exact applied set,
+// the store still reads, and the active release keeps operating it.
 func TestUpgradeFailureCommitsNothingAndKeepsTheStoreReadable(t *testing.T) {
 	useStampedBuild(t)
 	path := migratedStoreWithTailRemoved(t, 112)

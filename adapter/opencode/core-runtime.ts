@@ -1,6 +1,6 @@
 import { coreBinary } from "./generated-release"
 
-export interface CoreRunnerResult { exitCode: number; stdout: string; stderr: string; signal_state?: string | null }
+interface CoreRunnerResult { exitCode: number; stdout: string; stderr: string; signal_state?: string | null }
 export interface CoreRunner { run(argv: string[], input: string, signal: AbortSignal): Promise<CoreRunnerResult> }
 
 export const defaultRunner: CoreRunner = {
@@ -18,7 +18,7 @@ export const defaultRunner: CoreRunner = {
 }
 
 let coreBinaryOverride: string | null = null
-export function resolveCoreBinary(override: string | undefined, bound: string | null, stamped: string): string {
+function resolveCoreBinary(override: string | undefined, bound: string | null, stamped: string): string {
   return override ?? bound ?? stamped
 }
 export function concordBinaryPath(override?: string): string {

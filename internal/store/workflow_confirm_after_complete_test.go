@@ -15,10 +15,9 @@ func removeFixturePremiseConfirmation(t testing.TB, s *Store, workID string) {
 	}
 }
 
-// TestPlanCompleteUnconfirmedItemHasConfirmationRoute reproduces CON-1701 and
-// holds its end state: an item whose required steps are all complete but whose
-// active contract is unconfirmed keeps the completion refusal, gains one
-// admitted route to record the missing confirmation, and then completes.
+// An item with all plan steps complete but an unconfirmed contract keeps the
+// completion refusal, gains one admitted route to record confirmation, then
+// completes.
 func TestPlanCompleteUnconfirmedItemHasConfirmationRoute(t *testing.T) {
 	t.Parallel()
 	const id = "confirm-after-complete"

@@ -66,12 +66,12 @@ type Layout struct {
 	Columns []string
 }
 
-// HashLayouts encodes each layout's rows: the table marker, then per row the
+// hashLayouts encodes each layout's rows: the table marker, then per row the
 // per-column name and value encoding in column order. Empty tables still
 // contribute their marker. The encoding is byte-stable across discovered and
 // pinned layouts, so a frozen baseline captured on a pinned layout still
 // binds the discovered encoding.
-func HashLayouts(ctx context.Context, db *sql.DB, layouts []Layout) (string, error) {
+func hashLayouts(ctx context.Context, db *sql.DB, layouts []Layout) (string, error) {
 	if db == nil {
 		return "", fmt.Errorf("projection hash: the authority database is not open")
 	}
@@ -128,7 +128,7 @@ func Hash(ctx context.Context, db *sql.DB) (string, error) {
 		}
 		layouts = append(layouts, Layout{Table: table, Columns: columns})
 	}
-	return HashLayouts(ctx, db, layouts)
+	return hashLayouts(ctx, db, layouts)
 }
 
 func quoteSQLiteIdentifier(identifier string) string {

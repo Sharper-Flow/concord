@@ -1,4 +1,4 @@
-# Concord pre-push preflight gates (CON-893).
+# Concord pre-push preflight gates.
 #
 # Preflight, not full-suite proof: these gates stop an obviously broken push
 # before it reaches CI. CI remains the verification owner; the full Go test

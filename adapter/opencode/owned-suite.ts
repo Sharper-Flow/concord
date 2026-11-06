@@ -8,7 +8,7 @@
 // after a passing inner run must fail the launcher instead.
 import { join } from "node:path"
 
-export interface OwnedSuiteResult {
+interface OwnedSuiteResult {
   exitCode: number
   stdout: string
   stderr: string

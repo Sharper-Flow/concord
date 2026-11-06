@@ -26,9 +26,7 @@ import (
 	"unicode/utf8"
 )
 
-// ---------------------------------------------------------------------------
 // Family-local derivations (shared with output_bound_knowledge_sources_test.go)
-// ---------------------------------------------------------------------------
 
 // pkGuardArgBound derives the limit argument of the single guard call in
 // function that measures the exact value expression: boundedString(value,
@@ -779,10 +777,6 @@ func pkSprintfDigestRefBound() outputBoundSource {
 	}}
 }
 
-// ---------------------------------------------------------------------------
-// Small AST helpers for the pk* derivations
-// ---------------------------------------------------------------------------
-
 // pkNotALiteral marks an expression that is not a string literal.
 const pkNotALiteral = "\x00notaliteral"
 
@@ -837,10 +831,6 @@ func pkCountComparisons(body ast.Node, measurement string) int {
 	})
 	return total
 }
-
-// ---------------------------------------------------------------------------
-// Registrations
-// ---------------------------------------------------------------------------
 
 func init() {
 
@@ -931,10 +921,6 @@ func init() {
 	registerOutputBound("/$defs/work_summary/properties/terminal_at/maxLength", pkTimeLayoutWidthBound("internal/store/lifecycle.go", "updateWorkLifecycle", "time.RFC3339Nano"))
 
 }
-
-// ---------------------------------------------------------------------------
-// Construction and intent derivations
-// ---------------------------------------------------------------------------
 
 // pkFieldKeyName returns the field name a composite-literal key denotes: a
 // string literal unquotes, an identifier names itself.
@@ -2041,10 +2027,6 @@ func pkFieldTextBound(file, function, structName string) outputBoundSource {
 		}, nil
 	}}
 }
-
-// ---------------------------------------------------------------------------
-// Self-tests for the pk* derivations (synthetic sources; the parent runs them)
-// ---------------------------------------------------------------------------
 
 // TestPkDerivations pins each family-local evaluator against synthetic live
 // sources: the traced shape derives its bound, and a changed shape fails

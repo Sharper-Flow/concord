@@ -287,10 +287,6 @@ func requiredIntentFieldsBound() outputBoundSource {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// Shared derivation: the workflow actor session-ref fold guard
-// ---------------------------------------------------------------------------
-
 // sharedSessionRefFoldBound derives the full-string bound the workflow actor
 // fold applies to the stored workflow_actors.session_ref. Four live facts
 // must hold together, and each fails closed:
@@ -454,10 +450,6 @@ func sharedIdentType(expr ast.Expr, want string) bool {
 	ident, ok := expr.(*ast.Ident)
 	return ok && ident.Name == want
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 func TestOutputBoundRequiredFieldsCatalog(t *testing.T) {
 	var largest int64

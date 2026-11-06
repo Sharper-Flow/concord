@@ -83,8 +83,8 @@ type JSONSchema = Record<string, unknown>
 type CoreConcordEnvelope = Record<string, unknown>
 type HostConcordEnvelope = CoreConcordEnvelope
 
-export interface ChildRunnerOptions { cwd?: string; env?: Record<string, string> }
-export interface ChildRunner { run(argv: string[], input: string, signal: AbortSignal, options?: ChildRunnerOptions): Promise<{ exitCode: number; stdout: string; stderr: string }> }
+interface ChildRunnerOptions { cwd?: string; env?: Record<string, string> }
+interface ChildRunner { run(argv: string[], input: string, signal: AbortSignal, options?: ChildRunnerOptions): Promise<{ exitCode: number; stdout: string; stderr: string }> }
 const MAX_OUTPUT_BYTES = 65_536
 
 function appendOutputTail(current: string, text: string): string {
@@ -165,11 +165,9 @@ function publishClosedSchema(value: unknown, resolving = new Set<string>()): JSO
     const next = new Set(resolving)
     next.add(name)
     const resolved = publishClosedSchema((payloadSchemas as Record<string, unknown>)[name], next)
-    // Sibling keywords alongside a $ref apply in the authored contract, so
-    // publication merges them into the resolved target instead of dropping
-    // any: required sets union, properties overlay, annotations win. A
-    // dropped structural sibling would silently loosen the published bound
-    // (CON-412).
+    // Sibling keywords alongside a $ref apply in the authored contract: required
+    // sets union, properties overlay, and every other sibling key overrides the
+    // resolved target's. Dropping structural siblings would loosen the bounds.
     const siblings = Object.fromEntries(Object.entries(schema).filter(([key]) => key !== "$ref" && !(key === "examples" && typeof schema.description === "string" && schema.description.includes("Accepted shape:"))))
     if (Object.keys(siblings).length === 0) return resolved
     const merged: Record<string, unknown> = { ...resolved }
@@ -432,15 +430,15 @@ export const adapterErrorTuples = {
   invalid_tool_input: { kind: "invalid_input", adapter_reason: "invalid_tool_input", effect_state: "none", recovery: "correct_request" },
 } as const
 
-export type AdapterErrorKey = keyof typeof adapterErrorTuples
-export type GenericAdapterErrorKey = AdapterErrorKey
+type AdapterErrorKey = keyof typeof adapterErrorTuples
+type GenericAdapterErrorKey = AdapterErrorKey
 
 type AdapterErrorTuple = (typeof adapterErrorTuples)[AdapterErrorKey]
 
 // The typed shape the factories return: the closed base members plus the
 // error member the tuple drives, so producers and tests read the tuple
 // members without casts.
-export type AdapterErrorEnvelope = {
+type AdapterErrorEnvelope = {
   schema_version: "1.0"
   manifest_digest: string
   request_id: string

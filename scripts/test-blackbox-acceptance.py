@@ -48,7 +48,7 @@ from pathlib import Path
 
 import git_environment
 
-# CON-896: this harness builds temporary Git repositories, so a hook that
+# This harness builds temporary Git repositories, so a hook that
 # launched it must not keep a redirecting Git namespace in place.
 git_environment.scrub_inherited(fixture=True)
 
@@ -87,10 +87,8 @@ def _preferred_temp_root() -> str:
     return '/tmp'
 
 
-# ---------------------------------------------------------------------------
 # Pure-Python Ed25519 public-key derivation. The harness registers a client
 # key without importing the Go key helpers.
-# ---------------------------------------------------------------------------
 
 _P = 2**255 - 19
 _L = (2**252) + 27742317777372353535851937790883648493
@@ -179,10 +177,8 @@ def _publickey(seed: bytes) -> bytes:
     return _encodepoint(A)
 
 
-# ---------------------------------------------------------------------------
 # Concord CLI driver. Each invocation is its own subprocess so the restart /
 # reopen property (CD-0017 D4, stored-event survival) is exercised end-to-end.
-# ---------------------------------------------------------------------------
 
 
 class HarnessError(RuntimeError):
@@ -337,11 +333,6 @@ def _step(name: str, fn) -> bool:
     except Exception as exc:  # noqa: BLE001 — surface unexpected failure modes
         return _report('FAIL', name, f"{type(exc).__name__}: {exc}")
     return _report('PASS', name)
-
-
-# ---------------------------------------------------------------------------
-# The end-to-end sequence. Each helper carries the #187 requirement it covers.
-# ---------------------------------------------------------------------------
 
 
 def step_a_version(binary: Path, env: dict) -> None:
@@ -793,13 +784,11 @@ def step_i_upgrade(binary: Path, env: dict, work: Path, repo: Path, seed: bytes,
     _upgrade_probe(binary, env, work, 'upgrade-old', UPGRADE_PROBE_OLD_TAG, seed, public_key)
 
 
-# ---------------------------------------------------------------------------
 # Opt-in neighbor mode. N background reader processes and N
 # ordinary writer processes run real ``concord`` CLI invocations against the
 # same temporary store while the suite steps run. The mode is off unless
 # --neighbors is given. Neighbors never open the SQLite file; every check is
 # derived from CLI responses and CLI read-back.
-# ---------------------------------------------------------------------------
 
 NEIGHBOR_MAX_NEIGHBORS = 8
 NEIGHBOR_MAX_WRITES = 50
@@ -1230,11 +1219,6 @@ def step_j_neighbor_concurrency(binary: Path, env: dict, repo: Path, context: di
         aggregate['expected_ids'], observed, 1 + neighbors_count * writes)
     if findings:
         raise HarnessError('; '.join(findings[:10]))
-
-
-# ---------------------------------------------------------------------------
-# Top-level driver.
-# ---------------------------------------------------------------------------
 
 
 def main() -> int:

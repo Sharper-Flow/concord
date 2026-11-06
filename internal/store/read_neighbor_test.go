@@ -55,6 +55,8 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 	seedWork(t, s, "work-1")
 	actor, version := seedTestWorkflow(t, s, "neighbor-work")
 	seedWorkflowLaw(t, s)
+	// approve first: CD-0203 D1 forbids closing the contract step without a contract
+	version = issue31WorkflowActionWithPayload(t, s, "neighbor-work", version, "approve_contract", "read-neighbor-approve", actor, []byte(contractStepApprovalPayload))
 	if _, err := s.db.Exec(`INSERT INTO durable_operations(op_id,work_id,workflow_type_ref,step_id,accepted_inputs_digest,principal_ref,request_id,observed_at,contract_digest) VALUES('neighbor-result','work-1','fixture.atomic','execute',?,'agent-1','request:neighbor','2026-08-07T00:00:00Z',?)`, testDigest("inputs"), testManifestDigest); err != nil {
 		t.Fatal(err)
 	}
@@ -218,8 +220,8 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if len(versions) != 0 {
-				return fmt.Errorf("versions=%v, want none", versions)
+			if len(versions) != 1 || versions[0] != 1 {
+				return fmt.Errorf("versions=%v, want the approved contract v1", versions)
 			}
 			return nil
 		}},

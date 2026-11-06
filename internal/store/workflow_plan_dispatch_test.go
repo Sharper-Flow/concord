@@ -12,7 +12,8 @@ const testWorkflowPlanDocument = `{"outcomes":"working outcome","approach":"boun
 func TestWorkflowPlanActionDispatch(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
-	seedStepWork(t, s, "work-plan-dispatch")
+	seedWork(t, s, "work-plan-dispatch")
+	seedWorkflowLaw(t, s)
 	ctx := t.Context()
 	if err := s.Transact(ctx, func(tx *Transaction) error {
 		scope := newWriteScope(tx.tx)
@@ -33,11 +34,15 @@ func TestWorkflowPlanActionDispatch(t *testing.T) {
 	seq := 0
 	apply := func(action, payload string, expected int64) (WorkflowActionExecutionResult, error) {
 		seq++
+		actionCtx, err := s.PrepareWorkflowActionProof(ctx, action, "work-plan-dispatch")
+		if err != nil {
+			return WorkflowActionExecutionResult{}, err
+		}
 		r := WorkflowActionExecutionRequest{WorkID: "work-plan-dispatch", ExpectedVersion: expected, ActionID: action, Payload: json.RawMessage(payload), Actor: stepFixtureActor(), OperationID: fmt.Sprintf("plan-op-%d", seq), IdempotencyIdentity: fmt.Sprintf("plan-key-%d", seq), PrincipalRef: "principal-1", RequestID: fmt.Sprintf("request-%d", seq), AcceptedInputsDigest: testDigest("inputs"), ContractDigest: testManifestDigest, Now: time.Unix(100, 0).UTC()}
 		var result WorkflowActionExecutionResult
-		err := s.Transact(ctx, func(tx *Transaction) error {
+		err = s.Transact(actionCtx, func(tx *Transaction) error {
 			var err error
-			result, err = ApplyWorkflowActionTx(ctx, tx, r)
+			result, err = ApplyWorkflowActionTx(actionCtx, tx, r)
 			return err
 		})
 		return result, err
@@ -106,6 +111,12 @@ func TestWorkflowPlanActionDispatch(t *testing.T) {
 	}
 	version = result.ResultingVersion
 	result, err = apply("record_plan", testWorkflowPlanDocument, version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version = result.ResultingVersion
+	// approve first: CD-0203 D1 forbids closing the contract step without a contract
+	result, err = apply("approve_contract", contractStepApprovalPayload, version)
 	if err != nil {
 		t.Fatal(err)
 	}

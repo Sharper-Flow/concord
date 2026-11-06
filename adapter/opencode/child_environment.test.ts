@@ -8,6 +8,8 @@ import { dirname, join } from "node:path"
 const gateFiles = [
   "project_handoff_end_to_end.test.ts",
   "project_handoff_end_to_end.case.ts",
+  "ticket_frontend_clarification_end_to_end.test.ts",
+  "ticket_frontend_clarification_end_to_end.case.ts",
 ]
 
 const envQueryArgv = ["env", "-json", "GOPATH", "GOMODCACHE", "GOCACHE", "GOENV"]

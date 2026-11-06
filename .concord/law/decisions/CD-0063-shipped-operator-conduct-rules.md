@@ -47,10 +47,12 @@ host sessions. Merely storing its source does not load it.
 ### D1. Concord owns agent conduct, not agent methodology
 
 Conduct is how an agent addresses the operator and what it must establish
-before it asserts. Ask one question at a time. Write so the question stands
-alone. Verify before claiming a thing is done. Remove now what an approved
-plan retires. These hold for any project, need no host tooling, and change
-rarely.
+before it asserts. Ask one question at a time; a ticket-frontend comment may
+carry one step's independent questions
+([workflow-engine-contract §8.1](../specs/workflow-engine-contract.md#81-operator-decisions-stay-in-conversation)).
+Write so the question stands alone. Verify before claiming a thing is done.
+Remove now what an approved plan retires. These hold for any project, need no
+host tooling, and change rarely.
 
 Methodology remains what CD-0043 D1 made it: how a reviewer chooses what to
 look at, how a verifier chooses which commands constitute proof. Procedure that

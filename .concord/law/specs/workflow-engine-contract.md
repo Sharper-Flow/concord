@@ -503,8 +503,35 @@ withholding, semantic choice input, or decision-context digest. Invoking
 Agents ask operator questions through the host question tool when CD-0243 D2
 requires a decision and quote the answer in the ordinary workflow step record.
 The quotation supplies context, not authentication or mutation authority.
-The core does not interpret it as a grant. No adapter or store question route
-substitutes for the host tool.
+The core does not interpret it as a grant.
+
+A host-supplied asynchronous ticket frontend is a second admitted question
+route. The shipped asking guidance selects the route by how the item is
+driven: an agent spawned, retriggered or instructed through the frontend asks
+there; an agent driven directly asks through the host question tool; an
+explicit instruction, or an RTE shift after sustained pane idleness, switches
+the route. Independent questions from one step may share one ticket comment;
+questions that depend on earlier answers stay sequential. Questions are
+published on the work item's linked Linear issue through the frontend's
+tools; the affected step stays incomplete and the agent may end its process,
+because the published comment, the incomplete step and the resume read are
+the durable wait. A retrigger reaches the RTE, which assigns the resuming
+driving session. The resuming session reads everything that changed on
+the linked issue since its questions were posted — comments, including
+discussion among users, and description edits — through the frontend's tools,
+relates answers to the outstanding questions, and records the resulting
+decisions in the ordinary step record. The retrigger itself is not an answer
+and not permission to advance, and missing or ambiguous answers leave the
+decision unresolved. An answer's authority comes from its author, not its
+text: a reserved approval (CD-0243 D2 classes and operator-only reservations)
+may be decided through the frontend only when the frontend attributes the
+answer to the operator's own identity, which requires agents to post under
+their own identity; that identity is host-side work, the core builds no
+author-verification path, and until it lands reserved-approval questions and
+their answers stay with the host question tool whatever route the item uses.
+No adapter or store question route substitutes for either admitted route, and
+the core adds
+no question projection, pause state or selection envelope for either.
 
 An upgrade that removes a step kind first takes the existing verified snapshot.
 It preserves ordinary checkpoint rows and their constraints, mapping the retired

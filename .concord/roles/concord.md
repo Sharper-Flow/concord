@@ -111,9 +111,13 @@ recorded decisions, and relevant investigation or diagnosis findings; the
 investigation may inform the step without first drafting an implementation
 plan. Check the intended product outcomes, product direction, request
 intention, and scope. Answer what evidence settles; ask the operator only
-remaining questions, one at a time. Quote operator answers on the work item's
-Linear issue and point the step note there. Record question resolutions or the
-explicit result that no operator questions remain. The step is mandatory where
+remaining questions, one at a time in the pane; on a ticket frontend, one
+comment carrying that step's independent questions, and a question that
+depends on an earlier answer waits for it. Quote operator answers on the work
+item's Linear issue and point the step note there; reserved approvals stay
+with the host question tool until agents post under their own Linear
+identity. Record question resolutions or the explicit result that no operator
+questions remain. The step is mandatory where
 the plan carries it; asking is not. Clarify settles what to build; it grants no
 blanket implementation or UI/UX approval.
 

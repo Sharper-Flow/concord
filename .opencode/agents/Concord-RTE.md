@@ -148,6 +148,16 @@ session and act within its assignment boundary:
   name the access or actor needed. Continue other permitted work instead of
   treating uncertainty as completion.
 
+After more than 30 minutes of pane idleness with no operator activity, you may
+conclude no user is watching that pane and direct the session onto the
+ticket-frontend route: its questions then go to the work item's linked Linear
+issue. Your directive switches the route only. It does not answer a presented
+question, and a
+presented question stays with its owner; the shift takes effect at the agent's
+next actionable moment. Reserved-approval questions stay with the host
+question tool until agents post under their own Linear identity, whatever
+route the session uses.
+
 Continue the assigned outcome across partial deliveries. A merged slice does
 not complete a larger item or require another allocation to continue it. When
 the next step needs a decision, the owner prepares a concrete proposal and asks

@@ -199,7 +199,7 @@ func workflowPlanActionAdmissionTx(ctx context.Context, tx *sql.Tx, workID strin
 		return action, plan, step, err
 	}
 	if actionID == "bind_evidence" {
-		if _, err := activeWorkflowContractVersion(ctx, tx, workID, "workflow_action"); err != nil {
+		if _, err := activeWorkflowContractVersion(ctx, tx, workID, "workflow_action"); err != nil && err != sql.ErrNoRows {
 			return action, plan, step, err
 		}
 	}

@@ -2,9 +2,7 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -259,7 +257,7 @@ func TestOrdinaryEvidenceBindingStageAndLifecycle(t *testing.T) {
 		}{
 			{"plan", "running", "in_progress", 1, false},
 			{"review", "running", "in_progress", 1, true},
-			{"review", "running", "in_progress", 0, false},
+			{"review", "running", "in_progress", 0, true},
 			{"review", "completed", "completed", 1, false},
 			{"review", "running", "cancelled", 1, false},
 		} {
@@ -329,9 +327,9 @@ func TestOrdinaryEvidenceBindingStageAndLifecycle(t *testing.T) {
 			}
 			preflight := planAdmissionPreflight(t, s, request)
 			dispatch := planAdmissionDispatch(t, s, request)
-			if contracts == 1 {
+			if contracts <= 1 {
 				if preflight != nil || dispatch != nil {
-					t.Fatalf("single contract: preflight=%v dispatch=%v", preflight, dispatch)
+					t.Fatalf("contracts=%d: preflight=%v dispatch=%v", contracts, preflight, dispatch)
 				}
 				var after int
 				if err := s.db.QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=?`, workID).Scan(&after); err != nil || after != beforeBindings+1 {
@@ -339,11 +337,7 @@ func TestOrdinaryEvidenceBindingStageAndLifecycle(t *testing.T) {
 				}
 				return
 			}
-			if contracts == 0 {
-				if !errors.Is(preflight, sql.ErrNoRows) || !errors.Is(dispatch, sql.ErrNoRows) {
-					t.Fatalf("missing contract: preflight=%v dispatch=%v", preflight, dispatch)
-				}
-			} else if !hasFailureKind(preflight, KindInvariantViolation) || !hasFailureKind(dispatch, KindInvariantViolation) {
+			if !hasFailureKind(preflight, KindInvariantViolation) || !hasFailureKind(dispatch, KindInvariantViolation) {
 				t.Fatalf("ambiguous contract: preflight=%v dispatch=%v", preflight, dispatch)
 			}
 			var afterBindings, afterReceipts int

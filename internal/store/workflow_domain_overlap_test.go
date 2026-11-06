@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -301,6 +302,21 @@ func TestResolveOverlapRecordsRoutineRelations(t *testing.T) {
 	s, actor := seedOverlapProjection(t, "retired-compatible-left", "retired-compatible-right", false)
 	err := resolve(s, actor, "retired-compatible", "compatible_with", "retired-compatible-left", "retired-compatible-right")
 	assertFailureKind(t, err, KindInvalidPayload)
+}
+
+func TestResolveOverlapInvalidPayloadRecoveryHint(t *testing.T) {
+	t.Parallel()
+	s, actor := seedOverlapProjection(t, "invalid-hint-left", "invalid-hint-right", false)
+	err := resolveApprovedOverlap(t, s, "invalid-hint", "invalid-hint-left", "invalid-hint-right", 2, 2, "invalid", "agent sequencing", actor)
+	assertFailureKind(t, err, KindInvalidPayload)
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("expected typed failure, got %v", err)
+	}
+	const want = "correct the actor, endpoints, contract versions, kind or reason and record the relation again"
+	if failure.RecoveryAction != want {
+		t.Fatalf("recovery action = %q, want %q", failure.RecoveryAction, want)
+	}
 }
 
 // merged_into and supersedes terminalize one endpoint atomically;

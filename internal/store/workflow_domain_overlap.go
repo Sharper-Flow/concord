@@ -76,7 +76,7 @@ func workflowOverlapResolutionRelationKind(kind string) string {
 }
 
 func overlapResolutionFailure(detail string) error {
-	return newFailure(KindInvalidPayload, "workflow_domain_overlap", detail, false, "supply a current operator-approved overlap resolution")
+	return newFailure(KindInvalidPayload, "workflow_domain_overlap", detail, false, "correct the actor, endpoints, contract versions, kind or reason and record the relation again")
 }
 
 func workflowOverlapResolutionProjectionError(err error) error {

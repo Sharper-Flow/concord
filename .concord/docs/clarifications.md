@@ -213,8 +213,8 @@ re-litigate them silently.
 - **Decision:** Concord owns full workflow coordination. New execution picks one
   of four workflow types (`change`, `fix`, `research`, `removal`) whose required
   steps live once in the step-template contract; the work kind is capture metadata
-  ([CD-0218 D1](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution),
-  [CD-0229 D1](../law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md#d1-workflows-use-one-template-contract-and-per-item-plans)).
+  ([CD-0218 D1](../law/decisions/CD-0218-the-live-workflow-catalog-retains-its-execution-types.md#d1-four-workflow-types-own-new-execution),
+  [CD-0229 D1](../law/decisions/CD-0229-plain-workflow-definitions-without-work-item-size-classification.md#d1-workflows-use-one-template-contract-and-per-item-plans)).
   CD-0006 R1 accepts forward-linked successors with independent authority/recovery;
   no nested child execution or parent waiting.
 

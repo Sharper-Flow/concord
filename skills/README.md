@@ -1,6 +1,6 @@
 # Skills
 
-[CD-0245](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md)
+[CD-0245](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md)
 D1 admits a skill when it operates a structure that accepted Concord law defines,
 and Concord's checks verify the result. CD-0246 D3 also admits a skill that
 carries a portable engineering method: one that names no host tool, machine,
@@ -87,7 +87,7 @@ and names no machine, private repository, or host tool.
 Host sessions and native subagents load methods from the shipped skill path.
 Procedure that depends on a host's tools, models, or configuration stays
 host-owned and reaches agents through the
-[CD-0043 D1](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0043-host-owned-lane-methodology.md)
+[CD-0043 D1](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0043-host-specific-methodology-stays-host-owned.md)
 host instruction surface.
 
 Admission does not establish implementation or conformance. A shipped skill

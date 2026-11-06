@@ -28,7 +28,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-27
 - **Scope:** Admission and delivery of portable engineering methods
-- **Related:** [CD-0043](CD-0043-host-owned-lane-methodology.md), [CD-0063](CD-0063-shipped-operator-conduct-rules.md), [CD-0245](CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md)
+- **Related:** [CD-0043](CD-0043-host-specific-methodology-stays-host-owned.md), [CD-0063](CD-0063-shipped-operator-conduct-rules.md), [CD-0245](CD-0245-concord-ships-release-versioned-portable-skills.md)
 - **Approval:** [Concord issue 1367](https://linear.app/sharper-flow/issue/CON-1367/integrate-six-matt-pocock-skill-methods-into-concord-agents-and) records the operator's portable-method approval.
 
 ## Context

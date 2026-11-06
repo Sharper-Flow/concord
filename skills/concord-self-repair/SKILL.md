@@ -7,7 +7,7 @@ description: Repair a Concord defect that blocks your own managed item. Use when
 
 Under [CD-0122 D2](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md#d2-defect-repair-has-an-outside-work-application),
 carry out the authorized repair outside workflow. This method is shipped under
-[skill admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md);
+[skill admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md);
 it grants no repair authority.
 
 Use the repair's own isolated branch and worktree. Deliver an ordinary

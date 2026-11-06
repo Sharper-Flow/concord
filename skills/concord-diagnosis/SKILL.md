@@ -13,7 +13,7 @@ what you may touch.
 
 ## Canonical references
 
-- [Shipped skill delivery and portability](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
+- [Shipped skill delivery and portability](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md).
 
 Redact every secret before you show a command, its output, or a captured
 artifact. Quote only the lines that carry the signal.

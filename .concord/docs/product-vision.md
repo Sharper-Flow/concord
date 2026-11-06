@@ -62,7 +62,7 @@ the case ([`../law/constitution/priorities.md`](../law/constitution/priorities.m
 
 ### C. Plain workflow definitions and reusable implementations
 - Each live workflow type's required steps live once in the step-template contract. Common runtime action and payload implementations stay shared,
-  without a parts catalog or composition compiler ([CD-0229 D1](../law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md#d1-workflows-use-one-template-contract-and-per-item-plans)).
+  without a parts catalog or composition compiler ([CD-0229 D1](../law/decisions/CD-0229-plain-workflow-definitions-without-work-item-size-classification.md#d1-workflows-use-one-template-contract-and-per-item-plans)).
 - Work items compose through forward-linked successors. Each keeps its own authority and recovery.
 - Measure: picking a type copies its complete required steps into the item's stored plan, and public projections derive from the
   step-template contract.

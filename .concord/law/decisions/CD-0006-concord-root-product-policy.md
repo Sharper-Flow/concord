@@ -61,7 +61,7 @@ New execution picks one of four workflow types — `change`, `fix`, `research`, 
 `removal` — whose required steps live once in the template contract
 [`contracts/workflow-step-templates.v1.json`](../../../contracts/workflow-step-templates.v1.json);
 the work kind stays capture metadata and does not classify
-([CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution)).
+([CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-its-execution-types.md#d1-four-workflow-types-own-new-execution)).
 Arbitrary inline workflow languages are not accepted.
 
 Workflow composition is accepted in §Resolved research R1.

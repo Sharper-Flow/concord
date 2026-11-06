@@ -43,7 +43,7 @@ session's directory.
 
 ## Decision
 
-### D1. Retired: the configured launch command
+### D1. The host owns session placement
 
 The host owns session placement. Concord starts no host process.
 
@@ -55,13 +55,13 @@ registry the calling session runs with, so the verification constrains the
 host that executes. The probe is bounded: one probe, one document, no second
 probe through any configured command, because no configured command exists.
 
-### D3. Retired: the argv value and its launch refusals
+### D3. Probe and registry refusals stay typed
 
 Probe and registry refusals stay
 typed: an unreadable registry document refuses deterministically before
 managed action.
 
-### D4. Retired: the launch surfaces
+### D4. session-prepare launches nothing
 
 session-prepare launches nothing. Native Task execution is not a Concord
 session launcher.

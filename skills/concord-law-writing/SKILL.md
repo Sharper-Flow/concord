@@ -16,7 +16,7 @@ adopting Product's behavior. Read that Product's own accepted law for its rules.
 Concord's decision-number conventions and repository-development checks do not
 automatically apply to another Product.
 
-- [Skill admission and portability](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
+- [Skill admission and portability](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md).
 - [Domain ownership](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md).
 - [Compatible amendment and breaking replacement](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0036-breaking-law-cutovers.md).
 - [Law-change authority and conflict rules](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md).

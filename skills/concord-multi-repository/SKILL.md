@@ -8,7 +8,7 @@ description: Drive a work item that must edit a second Project in another Git re
 This method operates [repository-local sessions](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0178-each-repository-gets-its-own-coordinator-session.md),
 [host-owned isolation](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md),
 and [Project handoff](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0182-session-opener.md)
-under [skill admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
+under [skill admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md).
 It grants no workflow authority.
 
 Keep a work-item session in each repository. First record the second Project

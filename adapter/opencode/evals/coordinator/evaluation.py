@@ -81,7 +81,7 @@ def final_matches(final, expected, receipts, case):
 # boundary. Correcting the request cannot cross them, so they earn no
 # correction credit even with effect_state none (TS7 section 9).
 AUTHORITY_REFUSAL_KINDS = frozenset({"unauthorized", "unknown_scope"})
-AUTHORITY_REFUSAL_REASONS = frozenset({"authorization_denied", "lane_tool_refusal"})
+AUTHORITY_REFUSAL_REASONS = frozenset({"authorization_denied"})
 AUTHORITY_RECOVERY_KINDS = frozenset({"contact_operator"})
 
 

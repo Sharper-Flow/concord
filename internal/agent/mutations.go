@@ -309,7 +309,7 @@ func preflightWorkflowActionRequest(ctx context.Context, s *store.Store, raw []b
 // never disagree about which actions they govern.
 func evidenceBindingFamily(actionID string) bool {
 	switch actionID {
-	case "bind_evidence", "record_research", "record_report", "approve_operation":
+	case "bind_evidence", "record_report", "approve_operation":
 		return true
 	default:
 		return false

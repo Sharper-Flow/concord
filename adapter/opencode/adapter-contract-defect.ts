@@ -4,11 +4,10 @@
 // the factory and at every adapter-origin host exit, rethrown unchanged by
 // every catch that can receive it, and never serialized, relabeled as a
 // transport failure, or mapped to a no-effect fallback. The class lives in
-// its own import-free module so concord.ts and lane_dispatch.ts can both
-// `instanceof` it without an import cycle (concord.ts → lane_dispatch.ts →
-// dispatch.ts), and it is deliberately not an AdapterFailure: the failure
-// classes feed envelope construction, while this defect reports that
-// construction itself broke its contract.
+// its own import-free module, which concord.ts imports and re-exports for
+// consumers to identify the same defect type. It is deliberately not an
+// AdapterFailure: the failure classes feed envelope construction, while this
+// defect reports that construction itself broke its contract.
 export class AdapterContractDefect extends Error {
   constructor(message: string) {
     super(message)

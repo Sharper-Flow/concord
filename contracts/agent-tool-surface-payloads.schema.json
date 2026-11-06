@@ -1677,7 +1677,7 @@
           }
         },
         "registry_path": {
-          "description": "The repository path of the Domain registry shard. Present when the context binds at least one Domain, so a dispatched lane reads Domain structure from the file instead of a Concord tool.",
+          "description": "The repository path of the Domain registry shard. Present when the context binds at least one Domain, so the reading agent reads Domain structure from the file instead of a Concord tool.",
           "type": "string",
           "minLength": 1,
           "maxLength": 1024
@@ -6205,7 +6205,7 @@
           }
         },
         "registry_path": {
-          "description": "The repository path of the Domain registry shard. Present when the context binds at least one Domain, so a dispatched lane reads Domain structure from the file instead of a Concord tool.",
+          "description": "The repository path of the Domain registry shard. Present when the context binds at least one Domain, so the reading agent reads Domain structure from the file instead of a Concord tool.",
           "type": "string",
           "minLength": 1
         }

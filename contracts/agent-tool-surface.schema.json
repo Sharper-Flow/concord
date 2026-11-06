@@ -182,7 +182,6 @@
               "workflow_action",
               "scope",
               "relation",
-              "supersession",
               "recovery"
             ],
             "type": "string"
@@ -232,14 +231,13 @@
           "workflow_action",
           "scope",
           "relation",
-          "supersession",
           "recovery"
         ],
         "type": "string"
       },
       "uniqueItems": true,
-      "minItems": 8,
-      "maxItems": 8
+      "minItems": 7,
+      "maxItems": 7
     },
     "bounds": {
       "$ref": "#/$defs/bounds"

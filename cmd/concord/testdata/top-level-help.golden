@@ -87,9 +87,6 @@ Commands read one strict JSON object from stdin:
   concord backup < JSON stdin
     required: destination
     accepted values: destination: absolute clean path that does not yet exist; a manifest is written beside it
-  concord research-export < JSON stdin
-    required: destination
-    accepted values: destination: absolute clean directory path, absent or empty; writes one JSON file per research pack without changing the source database
   concord session-prepare < JSON stdin
     required: product_id, work_id, agent
     optional: task (max 8192 bytes; none on resume); agent is the active agent; handler refusals exit 2; required-field refusals exit 64

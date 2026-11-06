@@ -137,17 +137,12 @@ const (
 	// another session holds. The retry is safe and there is nothing to
 	// reconcile, which is what separates it from KindOperationConflict.
 	KindResourceBusy FailureKind = "resource_busy"
-	// KindDefinitionActionOrStepUnknown marks a workflow action the action
+	// KindDefinitionActionUnknown marks a workflow action the action
 	// catalog cannot resolve: the action is absent from the catalog or has no
 	// policy. It is distinct from workflow action refusals so callers cannot
 	// mistake it for a retryable action failure.
-	KindDefinitionActionOrStepUnknown FailureKind = "definition_action_or_step_unknown"
-	// Lane failures are closed registry errors. They fail before a worker can
-	// create any workflow authority or external effect.
-	KindLaneDefinitionNotRegistered  FailureKind = "lane_definition_not_registered"
-	KindLaneDefinitionDigestMismatch FailureKind = "lane_definition_digest_mismatch"
-	KindLaneDefinitionInvalid        FailureKind = "lane_definition_invalid"
-	KindUnauthorized                 FailureKind = "unauthorized"
+	KindDefinitionActionUnknown FailureKind = "definition_action_unknown"
+	KindUnauthorized            FailureKind = "unauthorized"
 	// KindUnauthorizedDispatch marks a worker-dispatch evidence write that
 	// names a work item with no authorized, unconsumed dispatch window at
 	// the current step epoch. The refusal is structural: one

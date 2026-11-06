@@ -30,7 +30,7 @@ Linux amd64 is the only release platform.
 ## Prohibitions
 
 - Do not hand-edit generated files. Regenerate them. Every generated Go, TS, and
-  Markdown artifact carries a `DO NOT EDIT` header; the lane agent definitions
+  Markdown artifact carries a `DO NOT EDIT` header; the subagent definitions
   under [`.opencode/agents/`](.opencode/agents/) carry frontmatter instead but
   are equally generated. Change the manifest or schema, then re-run the
   generator.

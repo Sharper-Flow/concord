@@ -55,10 +55,10 @@ type workflowActionCatalog map[string][]workflowActionRevision
 func (catalog workflowActionCatalog) action(actionID string) (WorkflowActionDefinition, error) {
 	revisions, ok := catalog[actionID]
 	if !ok {
-		return WorkflowActionDefinition{}, definitionFailure(KindDefinitionActionOrStepUnknown, fmt.Sprintf("action %s is not in the action catalog", actionID))
+		return WorkflowActionDefinition{}, definitionFailure(KindDefinitionActionUnknown, fmt.Sprintf("action %s is not in the action catalog", actionID))
 	}
 	if _, ok := builtinActionPolicies[actionID]; !ok {
-		return WorkflowActionDefinition{}, definitionFailure(KindDefinitionActionOrStepUnknown, fmt.Sprintf("action %s has no policy", actionID))
+		return WorkflowActionDefinition{}, definitionFailure(KindDefinitionActionUnknown, fmt.Sprintf("action %s has no policy", actionID))
 	}
 	action := cloneWorkflowAction(currentActionDefinition(actionID, true))
 	for _, revise := range revisions {

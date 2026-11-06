@@ -411,10 +411,10 @@ def single_variant(action: dict) -> dict:
 
 
 # Authoring guidance for a workflow action field whose bound units an author
-# cannot infer from the schema. The approval premise is the objective every
-# worker packet carries; its guidance states the count units.
+# cannot infer from the schema. The approval premise is the objective an
+# approved contract carries; its guidance states the count units.
 FIELD_GUIDANCE = {
-    "premise": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+    "premise": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair contract projection.",
 }
 
 
@@ -517,23 +517,20 @@ def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict 
     return schema
 
 
-# Read outputs that replay stored values verbatim share some definitions with
-# worker packets, and dispatch admission validates packets against those
-# definitions (internal/store/workflow_preflight.go validates every payload
-# field against its declared schema). The packet copies keep the admission
-# caps; each read parent here points at a retained twin that drops only the
-# caps no store writer enforces. A twin that drops nothing exists because a
-# packet also embeds it (worker_packet embeds work_context_view), so the read
-# parents need their own copy to reach the other twins. The output bound
-# ledger proves every dropped cap unbounded and every kept cap finite.
+# Read outputs that replay stored values verbatim share definitions with
+# admitted write payloads. Payload admission validates each field against its
+# declared schema (internal/store/workflow_preflight.go). Each read parent
+# points at a retained twin that drops only caps no store writer enforces;
+# twins also point at other twins where needed. The output bound ledger proves
+# every dropped cap unbounded and every kept cap finite.
 RETAINED_OUTPUT_TWINS = {
     "workflow_law_context": ("/properties/registry_path/maxLength",),
     "workflow_law_context_law": ("/properties/path/maxLength",),
 }
 # Caps a retained twin raises: the store's retained producer exceeds the cap
-# dispatch admission enforces on the shared packet definition, so the read
+# admission enforces on the shared admitted definition, so the read
 # copy carries the producer's finite maximum, which the output bound ledger
-# proves, while the packet keeps the admitted cap.
+# proves, while the shared definition keeps the admitted cap.
 RETAINED_OUTPUT_RAISES = {}
 RETAINED_OUTPUT_RETYPES = {}
 # The read parents that replay stored values, each with the twinned
@@ -1539,7 +1536,7 @@ def main() -> int:
         projected_payload = project_schema_guidance(projected_payload, input_names, bounds_only=True)
         if payload != projected_payload:
             if check:
-                fail("generated payload contract drift (workflow action or worker packet projection): contracts/agent-tool-surface-payloads.schema.json")
+                fail("generated payload contract drift (workflow action projection): contracts/agent-tool-surface-payloads.schema.json")
             PAYLOAD.write_text(json.dumps(projected_payload, ensure_ascii=False, indent=2) + "\n")
             payload = projected_payload
         envelope = json.loads(ENVELOPE.read_text())

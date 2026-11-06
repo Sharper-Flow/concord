@@ -856,7 +856,7 @@ def main(argv: list[str] | None = None) -> int:
     # The adapter is the agent-facing surface, so "Bun was unavailable" is a
     # tolerable answer on a contributor laptop and an unacceptable one in CI:
     # the fallback below checks generated-file markers, which cannot fail for
-    # any behavioural change to concord.ts or dispatch.ts. CONCORD_REQUIRE_BUN
+    # any behavioural change to concord.ts or core-runtime.ts. CONCORD_REQUIRE_BUN
     # makes the required check fail closed if the toolchain step is ever
     # dropped, rather than passing while verifying nothing.
     if not bun and os.environ.get("CONCORD_REQUIRE_BUN") == "1":

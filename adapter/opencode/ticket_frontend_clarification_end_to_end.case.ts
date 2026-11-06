@@ -125,11 +125,12 @@ if (!process.env.TEST_CONCORD_TICKET_CASE || new RegExp(process.env.TEST_CONCORD
   expect(await sessionDirectoryReader().sessionDirectory(sessionID)).toBe(worktree)
   const snapshotState = await Bun.file(snapshot).json()
   const unfiltered = await invoke("concord_work_browse", "list", { product_id: productID })
-  expect(unfiltered.result.items).toHaveLength(2)
+  expect((unfiltered.result as JSONRecord).items).toHaveLength(2)
   const listing = await invoke("concord_work_browse", "list", { linear_issue_key: issueKey, product_id: productID })
   expect(captured.invoke?.input).toEqual({ linear_issue_key: issueKey, product_id: productID })
-  expect(listing.result.items.map((item: JSONRecord) => item.linear_issue_key)).toEqual([issueKey])
-  const workID = listing.result.items[0].id
+  const items = (listing.result as JSONRecord).items as JSONRecord[]
+  expect(items.map((item: JSONRecord) => item.linear_issue_key)).toEqual([issueKey])
+  const workID = items[0].id
   expect(workID).toBe(snapshotState.workID)
   const resume = await invoke("concord_work_trace", "resume", { work_id: workID })
   const state = resume.result as JSONRecord

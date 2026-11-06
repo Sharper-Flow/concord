@@ -302,9 +302,12 @@ These existing records remain editable after their producing step has passed.
 Research control markers (`frame_research`, `record_finding`, `record_report`,
 and `record_conclusion`), checkpoints and native jobs are not record edits.
 Ordinary `bind_evidence` also remains available after the workflow reaches or
-passes a step declaring it, under one active contract and the same evidence,
-membership, actor, lifecycle, version and idempotency checks. Prior bindings do
-not prevent binding fresh independent evidence.
+passes a step declaring it, under the same evidence, membership, actor,
+lifecycle, version and idempotency checks. While the plan is incomplete, a
+missing active contract does not block binding; an ambiguous active-contract
+projection still refuses. After the plan completes, the route requires exactly
+one active contract. Prior bindings do not prevent binding fresh independent
+evidence.
 `confirm_premise` also remains available once the plan completes while the
 active contract's confirmation is missing: a completed plan has no frontier
 step to declare it, yet completion requires that confirmation, so its

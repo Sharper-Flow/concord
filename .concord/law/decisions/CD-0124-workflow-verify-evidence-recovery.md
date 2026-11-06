@@ -34,11 +34,12 @@ Evidence may be bound without advancing the current workflow step.
 ### D1. Verify admits ordinary evidence binding
 
 Break-fix declares `bind_evidence` on `verify`. The action has hold execution
-mode and no approval requirement. An authenticated actor may bind evidence for
-an active contract once the workflow reaches or passes a step declaring the
-action. The binding must satisfy ordinary payload, producer, subject and
-evidence-kind checks and include the producer watermark. A prior binding does
-not prevent a fresh binding.
+mode and no approval requirement. An authenticated actor may bind evidence once
+the workflow reaches or passes a step declaring the action. While the plan is
+incomplete, a missing active contract does not block the binding; an ambiguous
+active-contract projection still refuses. The binding must satisfy ordinary
+payload, producer, subject and evidence-kind checks and include the producer
+watermark. A prior binding does not prevent a fresh binding.
 
 ### D2. Confirmation remains the advancing gate
 

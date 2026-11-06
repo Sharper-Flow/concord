@@ -10,7 +10,7 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "exemption": "No corpus scenario can express criterion 1's violating plan writes because dispatched actions compose well-formed writes. The production plan-write validator ValidateStepPlanWrite is covered by TestWorkflowStepPlanCompletionOrderingAndImmutability in internal/store/workflow_step_plan_test.go. The frontier admission refusal of a dispatched complete_step naming a non-frontier step is covered by TestWorkflowReviewFrontierAdmission in internal/store/workflow_review_attempt_test.go."
+      "exemption": "No corpus scenario can express criterion 1's violating plan writes because dispatched actions compose well-formed writes. The production plan-write validator ValidateStepPlanWrite is covered by TestWorkflowStepPlanCompletionOrderingAndImmutability in internal/store/workflow_step_plan_test.go. The frontier admission refusal of a step neither on the plan frontier nor completed, shared by complete_step and record_review, is covered by TestWorkflowReviewFrontierAdmission in internal/store/workflow_review_attempt_test.go."
     },
     {
       "criterion": 2,
@@ -712,9 +712,9 @@ The contract does not invent audience storage or a new workflow type.
   completed step
   When the write reaches the plan-write check (§2.3, `ValidateStepPlanWrite`)
   Then the engine refuses with invalid_input, records no plan change, and the
-  stored plan is unchanged. A dispatched `complete_step` naming a step outside
-  the plan frontier never reaches that check: §11 action preflight refuses it
-  with invalid_transition.
+  stored plan is unchanged. A dispatched `complete_step` naming a step that is
+  neither on the plan frontier nor completed never reaches that check: the §11
+  dispatcher's frontier admission refuses it with invalid_transition.
 
 - Given a completion that satisfies the ordered completion gate
   When the completion transaction commits
@@ -740,9 +740,10 @@ workflow actions and reading prepared state for capture.
   `TestWorkflowReviewFrontierAdmission`
   (`internal/store/workflow_review_attempt_test.go`) drives the admission
   `complete_step` shares with `record_review`
-  (`internal/store/workflow_preflight.go`) and asserts a step outside the
-  frontier refuses; the refusal kind is `KindIllegalLifecycleTransition`, which
-  surfaces as `invalid_transition` at the agent boundary.
+  (`internal/store/workflow_preflight.go`) and asserts a step neither on the
+  frontier nor completed refuses; the refusal kind is
+  `KindIllegalLifecycleTransition`, which surfaces as `invalid_transition` at
+  the agent boundary.
 - `WF37-action-availability-before-register` proves the separate refusal of an
   action before a workflow type is picked, with `invalid_transition` and no
   fallback; it does not prove criterion 1.

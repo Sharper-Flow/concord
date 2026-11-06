@@ -221,6 +221,9 @@ Keep status, execution owner, blockers, next actions, and evidence links current
 Item owners make delivery decisions; correct only stale planning facts established
 by evidence. An idle session, finished turn, or merged PR alone does not prove the item is Done.
 Correct stale status and links, and never change scope (CD-0243 D1).
+An In Progress issue with no live working owner session is stale: move it to
+Todo with a reason, or to In Review when its pull request is open. Never move
+an issue whose owner session is working.
 Check the full acceptance, including required release/install and partial scope.
 
 A merge, cancellation, approval, or completion notice requires a same-pass check

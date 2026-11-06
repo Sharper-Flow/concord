@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -205,6 +207,126 @@ func TestWorkRemovalDeletesCurrentAndMigratedClarification(t *testing.T) {
 			}
 		})
 	}
+}
+
+// drivePlanDocumentForTest advances one work item through the real workflow
+// folds until the named document action records its row, the way the workflow
+// dispatcher does in production.
+func drivePlanDocumentForTest(t *testing.T, s *Store, workID, typ, action, document string) {
+	t.Helper()
+	ctx := t.Context()
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		scope := newWriteScope(tx.tx)
+		if err := scope.enter(ctx); err != nil {
+			return err
+		}
+		if _, err := tx.tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,instance_state) VALUES(?,'intake')`, workID); err != nil {
+			return err
+		}
+		return scope.close(ctx)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var version int64
+	if err := s.db.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	seq := 0
+	apply := func(action, payload string) {
+		t.Helper()
+		seq++
+		request := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: json.RawMessage(payload), Actor: stepFixtureActor(), OperationID: fmt.Sprintf("removal-doc-op-%d", seq), IdempotencyIdentity: fmt.Sprintf("removal-doc-key-%d", seq), PrincipalRef: "principal-1", RequestID: fmt.Sprintf("removal-doc-request-%d", seq), AcceptedInputsDigest: testDigest("inputs"), ContractDigest: testManifestDigest, Now: time.Unix(100, 0).UTC()}
+		var result WorkflowActionExecutionResult
+		err := s.Transact(ctx, func(tx *Transaction) error {
+			var err error
+			result, err = ApplyWorkflowActionTx(ctx, tx, request)
+			return err
+		})
+		if err != nil {
+			t.Fatalf("apply %s: %v", action, err)
+		}
+		version = result.ResultingVersion
+	}
+	apply("record_intake", `{"outcome":"proceed"}`)
+	apply("pick_type", fmt.Sprintf(`{"type":%q,"reason":"initial choice"}`, typ))
+	apply("record_clarify", `{"resolved_questions":[],"note":"No operator questions remain."}`)
+	apply("complete_step", `{"step_id":"clarify","note":"Clarification complete."}`)
+	apply(action, document)
+}
+
+func TestWorkRemovalDeletesPlanAndRemovalScopeRecords(t *testing.T) {
+	for _, tc := range []struct{ typ, action, table, document string }{
+		{"change", "record_plan", "workflow_plan_records", `{"outcomes":"working outcome","approach":"bounded change","decisions":[{"id":"decision:one","question":"which?","choice":"one","rationale":"fits","rejected":[]}],"touches":["file:one"],"merge_split":"one item","risks":"bounded risk"}`},
+		{"removal", "record_removal_scope", "workflow_removal_scopes", `{"removed":["file:one"],"retiring_clauses":[],"note":"retire this"}`},
+	} {
+		t.Run(tc.typ, func(t *testing.T) {
+			s := openTemp(t)
+			defer s.Close()
+			work := "plan-removal-" + tc.typ
+			seedWork(t, s, work)
+			drivePlanDocumentForTest(t, s, work, tc.typ, tc.action, tc.document)
+			// The reported failure: a cancelled item that already recorded its
+			// plan document cannot be removed.
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard VALUES(1); UPDATE work_items SET lifecycle='cancelled' WHERE id=?; DELETE FROM write_guard`, work); err != nil {
+				t.Fatal(err)
+			}
+			var recorded int
+			if err := s.db.QueryRow(`SELECT count(*) FROM `+tc.table+` WHERE work_id=?`, work).Scan(&recorded); err != nil || recorded != 1 {
+				t.Fatalf("%s rows=%d err=%v", tc.table, recorded, err)
+			}
+			req := removalTestRequest()
+			req.OperationID, req.IdempotencyKey = "remove-"+tc.typ, "key-"+tc.typ
+			req.WorkID = work
+			req.ExpectedVersion, req.Reason = readWorkVersion(t, s, work), "cancelled"
+			confirmRemovalHandoff(t, s, &req)
+			if err := removeWorkForTest(t.Context(), s, req); err != nil {
+				t.Fatalf("remove: %v", err)
+			}
+			var remaining int
+			if err := s.db.QueryRow(`SELECT (SELECT count(*) FROM work_items WHERE id=?) + (SELECT count(*) FROM `+tc.table+` WHERE work_id=?)`, work, work).Scan(&remaining); err != nil || remaining != 0 {
+				t.Fatalf("remaining rows=%d err=%v", remaining, err)
+			}
+		})
+	}
+	t.Run("migrated", func(t *testing.T) {
+		// Rows written by an earlier binary survive the upgrade; removal must
+		// clear them in the same transaction as the work item.
+		useStampedBuild(t)
+		db := openMigratedTo(t, filepath.Join(t.TempDir(), "removal.db"), 188)
+		ctx := t.Context()
+		retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
+		retirementUpgradeExec(t, db, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project','Project',1,'now','now')`)
+		retirementUpgradeExec(t, db, `INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product','Product','prototype','operator_only',1,'now','now')`)
+		retirementUpgradeExec(t, db, `INSERT INTO product_projects(product_id,project_id,role) VALUES('product','project','primary')`)
+		retirementUpgradeExec(t, db, `INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at) VALUES('migrated-plan','task','Migrated','cancelled',1,'now','now')`)
+		retirementUpgradeExec(t, db, `INSERT INTO work_projects(work_id,project_id,role) VALUES('migrated-plan','project','primary')`)
+		actor := "actor:" + strings.Repeat("a", 64)
+		retirementUpgradeExec(t, db, `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'principal','client','agent','session','agent','now')`, actor)
+		retirementUpgradeExec(t, db, `INSERT INTO workflow_plan_records(work_id,work_version,payload,recorded_at,actor,event_ref) VALUES('migrated-plan',1,'{"outcomes":"recorded before the fix"}','now',?,'event:migrated-plan')`, actor)
+		retirementUpgradeExec(t, db, `INSERT INTO workflow_removal_scopes(work_id,work_version,payload,recorded_at,actor,event_ref) VALUES('migrated-plan',1,'{"removed":["file:one"]}','now',?,'event:migrated-plan')`, actor)
+		retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
+		if err := Migrate(ctx, db); err != nil {
+			t.Fatal(err)
+		}
+		s := &Store{db: db, Clock: time.Now}
+		for _, table := range []string{"workflow_plan_records", "workflow_removal_scopes"} {
+			var count int
+			if err := db.QueryRowContext(ctx, `SELECT count(*) FROM `+table+` WHERE work_id='migrated-plan'`).Scan(&count); err != nil || count != 1 {
+				t.Fatalf("%s count=%d err=%v", table, count, err)
+			}
+		}
+		req := removalTestRequest()
+		req.WorkID, req.OperationID, req.IdempotencyKey = "migrated-plan", "remove-migrated-plan", "key-migrated-plan"
+		req.ExpectedVersion, req.Reason = readWorkVersion(t, s, "migrated-plan"), "cancelled"
+		confirmRemovalHandoff(t, s, &req)
+		if err := removeWorkForTest(ctx, s, req); err != nil {
+			t.Fatalf("remove: %v", err)
+		}
+		var remaining int
+		if err := db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM work_items WHERE id='migrated-plan') + (SELECT count(*) FROM workflow_plan_records WHERE work_id='migrated-plan') + (SELECT count(*) FROM workflow_removal_scopes WHERE work_id='migrated-plan')`).Scan(&remaining); err != nil || remaining != 0 {
+			t.Fatalf("remaining rows=%d err=%v", remaining, err)
+		}
+	})
 }
 
 func TestWorkLivenessKeepsDecisionAndProgressEvidence(t *testing.T) {

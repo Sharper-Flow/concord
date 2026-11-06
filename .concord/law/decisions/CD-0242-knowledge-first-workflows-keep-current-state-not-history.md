@@ -182,9 +182,9 @@ when an exit is missing, rejected, stale, or recorded by an actor without
 authority, and the refusal names the requirement and an admitted next action.
 
 The core decides structural requirements. A semantic judgment, such as whether
-an architecture meets its criteria, needs an attributed reviewed-step result. Schema validity is not semantic adequacy. A common requirement has one implementation that every family reuses.
+an architecture meets its criteria, needs an attributed reviewed-step result. Schema validity is not semantic adequacy. A common requirement has one implementation that every type reuses.
 
-### D4. Families compose shared stages, and rules set the minimum
+### D4. Types compose shared stages, and rules set the minimum
 
 The workflow types are change, fix, research, and removal. For
 architecture-bearing change work the dependency order is: accepted

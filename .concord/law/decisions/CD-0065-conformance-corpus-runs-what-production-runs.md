@@ -27,10 +27,10 @@
 
 ## Context
 
-A conformance corpus that runs a definition production never emits proves
+A conformance corpus that runs a workflow type production never offers proves
 nothing about production. A corpus that runs only non-Product-changing
-definitions leaves Product-truth enforcement without conformance coverage, while
-the evidence records citing it stay green.
+workflow types leaves Product-truth enforcement without conformance coverage,
+while the evidence records citing it stay green.
 
 ## Decision
 
@@ -85,7 +85,7 @@ action boundary. Each keeps its stable ID.
 
 ## Rejected alternatives
 
-**Re-pin Product-changing scenarios to a non-Product-changing family.** This is
+**Re-pin Product-changing scenarios to a non-Product-changing workflow type.** This is
 the smallest change, and it alters what each scenario tests. The outcome
 contract would be tested where production never enforces Product truth, leaving
 its records green while proving less than their text claims.

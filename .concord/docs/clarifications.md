@@ -214,6 +214,13 @@ re-litigate them silently.
   one-offs. Repeated generic patterns graduate into built-ins. CD-0006 R1 accepts
   forward-linked successors with independent authority/recovery; no nested child
   execution or parent waiting.
+- **Superseded (2026-11-06):** the registered/versioned type model and the generic
+  one-off type are retired. New execution picks one of four workflow types
+  (`change`, `fix`, `research`, `removal`) whose required steps live once in the
+  step-template contract; the work kind is capture metadata
+  ([CD-0218 D1](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution),
+  [CD-0229 D1](../law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md#d1-workflows-use-one-template-contract-and-per-item-plans)).
+  The CD-0006 R1 sentence above still stands.
 
 ### C7. Research trackable ✅ Accepted 2026-08-07
 - **Question:** Option A (reframe backlog items as investigations) or Option B

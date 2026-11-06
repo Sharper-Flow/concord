@@ -54,7 +54,7 @@ scenario corpus that judges every later surface candidate.
 Recorded workflow effects are current-row mutations; no event log or replay exists
 ([CD-0242](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2).
 
-AJ8 and Domain-overlap job scenarios use CD-0243 D2's consent classes. Routine compatibility, blocking, and dependency answers prove admission while retaining both work and judged contract pins. Workflow scenarios bind the one generated current definition ([CD-0242 D14](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)); a missing review verdict is never a consent question.
+AJ8 and Domain-overlap job scenarios use CD-0243 D2's consent classes. Routine compatibility, blocking, and dependency answers prove admission while retaining both work and judged contract pins. Workflow scenarios bind the one generated current contract ([CD-0242 D14](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)); a missing review verdict is never a consent question.
 
 
 The binding contract is sections 1 through 4: the decision boundary, the

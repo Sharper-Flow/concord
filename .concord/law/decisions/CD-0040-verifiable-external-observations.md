@@ -273,8 +273,10 @@ omissions, watermarks, and stale/degraded refusals carry read status; no new
 success/error vocabulary is needed.
 
 Strict new input/output fields cannot be shown to old clients when omission
-would make an unverified record look ordinary. The first implementation joins
-the major surface amendment already required by CD-0039. Old clients
+would make an unverified record look ordinary. The first implementation joined
+the major surface amendment carried by CD-0039's ops-action clauses, retired
+with those clauses under CD-0218 D1; the typed-field strictness lives on in
+CD-0039 D3's record shape. Old clients
 fail negotiation; there is no prose or untyped compatibility alias.
 
 Recorded observations read back unchanged and never acquire external provenance retroactively ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).

@@ -26,7 +26,7 @@
   CD-0198
 
 [CD-0243 D6](CD-0243-four-roles-and-six-operator-approval-classes.md#d6-existing-approval-requirements-follow-these-classes)
-governs D1: Product-law changes require approval only under its six classes. Workflow-family and repository-law-route requirements remain required.
+governs D1: Product-law changes require approval only under its six classes. Workflow-type and repository-law-route requirements remain required.
 
 [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
@@ -35,7 +35,7 @@ requirements remain required.
 
 ## Context
 
-The live workflow catalog requires seven families. Four families repeat bounded
+The live workflow catalog then required seven families. Four families repeated bounded
 job, independent evidence, and delivery duties that the retained execution owners
 already carry. Their public authoring can retire; the store keeps current state and finite snapshots, and the one documented cutover retires what the migration discards ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) and [D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 
@@ -142,9 +142,9 @@ than publish competing overrides.
 ```
 
 ```gherkin
-  Given a completed item recorded under a retired-family definition
+  Given a completed item recorded before the workflow-type cutover
   When the store reads that item back
-  Then any retained digest, actor, subject and evidence remain unchanged
+  Then every retained actor, subject and evidence remain unchanged
   And execution state collected under CD-0242 D2 returns typed absence with the canonical outcome locator
   And the reader never fabricates historical evidence or a live artifact reference
 ```
@@ -156,7 +156,7 @@ than publish competing overrides.
 ```
 
 ```gherkin
-  Given a running retained-family item needs an ordinary contract update
+  Given a running item on a current workflow type needs an ordinary contract update
   When the authenticated coordinator supplies its complete contract through revise_intent
   Then the update commits without moving the step or discarding retained evidence
 ```
@@ -210,9 +210,9 @@ set at the D5 boundary.
   `go test ./internal/store/ -run TestCombinedRejectRetryDispatchesThroughTheDispatchOwner`
   and `go test ./internal/store/ -run TestRetryLaunchFailureAfterCommittedIntentStaysTruthful`.
 - Criterion4 distinguishes retained-state readback from collected-state absence under CD-0242 D2 and D14.
-  Retained definitions, digests, actors, subjects and evidence are read as recorded, without replay or relabeling.
+  Retained actors, subjects and evidence are read as recorded, without replay or relabeling.
   Collected execution state returns typed absence and its canonical outcome locator.
-  `internal/store.TestPublishedExecutionAbsenceReaders` and `internal/store.TestDefectRetirementCollectedAbsenceReaders` bind the collected-state witnesses; retained-definition witnesses remain required.
+  `internal/store.TestPublishedExecutionAbsenceReaders` and `internal/store.TestDefectRetirementCollectedAbsenceReaders` bind the collected-state witnesses.
 - For the current plan cutover, see
   [`workflow_step_plan_migration_test.go`](../../../internal/store/workflow_step_plan_migration_test.go).
   This pointer does not assert proof of the historical-pin readiness scenario.

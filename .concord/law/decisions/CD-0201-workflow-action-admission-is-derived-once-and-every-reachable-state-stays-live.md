@@ -75,10 +75,10 @@ record and does not change this record's law.
 
 ### D2. The liveness law
 
-The same derivation derives confirmation authority. Actions must be genuinely admitted before the model counts their exit. No confirmation clears an unmet requirement. Both liveness checks and real conformance witnesses cover the registered current definitions
+The same derivation derives confirmation authority. Actions must be genuinely admitted before the model counts their exit. No confirmation clears an unmet requirement. Both liveness checks and real conformance witnesses cover each workflow type's derived admission space
 ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
-For every registered definition:
+For every workflow type:
 
 - Every well-formed nonterminal abstract state admits at least one action
   that moves the work out of the state. A hold action whose successor equals
@@ -87,8 +87,8 @@ For every registered definition:
   reachable through admitted actions. Operator-approvable routes count as
   admitted.
 
-Both checks run over the abstract state space of the registered definitions,
-because every definition a stranded item could run is registered current law
+Both checks run over the abstract state space of the workflow types,
+because every plan a stranded item could run derives from the template contract
 ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 The checks fail with a
 witness and never skip. A conformance test replays the real engine on
@@ -110,7 +110,7 @@ retain ordinary record writes, contract updates and operator-stop recovery as
 applicable. Recovery never erases open blockers, and no attempt
 count, limit, or reset exists
 ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)).
-Each family extends the same admission owner; liveness checks count
+Each admission family extends the same admission owner; liveness checks count
 only the oracle dimensions their model actually derives.
 
 ### D4. Admission and definitions have separate owners
@@ -141,7 +141,7 @@ a reachable state fails the
 liveness checks with a witness before merge.
 
 The checks count only exits the derived state proves, so a future strand
-surfaces as a failing check rather than a silent pass. Each later family
+surfaces as a failing check rather than a silent pass. Each later admission family
 grows the same derivation and the same pure function
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
@@ -149,12 +149,12 @@ grows the same derivation and the same pure function
 
 ```gherkin
 Scenario: A well-formed nonterminal state keeps an exit
-  Given the registered definitions
+  Given the workflow types
   When the check enumerates each well-formed nonterminal abstract state
   Then each state admits at least one action that moves the work out of it
 
 Scenario: Every reachable nonterminal state reaches a terminal step
-  Given the registered definitions
+  Given the workflow types
   When the check walks the abstract successor from the start state
   Then every reachable nonterminal state reaches a terminal step through admitted actions
 

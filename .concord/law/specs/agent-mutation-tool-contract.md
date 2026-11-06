@@ -38,7 +38,7 @@
 > rule.
 > **Does not decide:** request context/authorization/idempotency envelope (TS5),
 > transport (TS6), shared result/error schema (TS7), surface evolution (TS8),
-> measurement evidence (TS9), or workflow-type registration/gate vocabulary.
+> measurement evidence (TS9), or workflow-type and gate vocabulary.
 
 ## Context
 
@@ -84,8 +84,7 @@ that permits collapsing future authority or consequence boundaries.
 External native authorities—GitHub, CI, databases, cloud providers, service
 managers, and git itself—retain execution authority. Concord records work intent,
 references, evidence, and status; it does not expose a generic external
-`execute` tool or proxy provider APIs. An ops runbook uses these Concord tools
-for durable coordination and the accepted native tool for the real effect.
+`execute` tool or proxy provider APIs.
 
 ## 2. Tool contracts
 
@@ -116,20 +115,22 @@ calls so each receives independent identity, value, scope, and conflict handling
 ### 2.2 `concord_work_transition`
 
 **Use when:** an agent must change canonical work lifecycle or perform one action
-offered by the work item's accepted workflow definition.
+currently admitted for the work item: the intake prelude before a type is
+picked, then its plan frontier.
 
 | Operation | Required domain input | Core effect |
 |---|---|---|
 | `lifecycle` | work ID, expected version, target `needed|in_progress|completed|cancelled|reopen`, reason, required evidence | Validate PM4 transition and workflow obligations; write the current rows atomically. |
-| `workflow_action` | work ID, expected version, stable action ID offered by the current workflow version, required fields/evidence | Execute the workflow-defined domain action atomically or reject it; action ID is authoritative data, not a caller-invented command. |
+| `workflow_action` | work ID, expected version, stable action ID admitted for the work item (intake prelude before the type pick, then the plan frontier), required fields/evidence | Execute the workflow-defined domain action atomically or reject it; action ID is authoritative data, not a caller-invented command. |
 
 Completed or cancelled work may be reopened to `needed` with a reason, subject
 to the one-live-Linear-issue rule in CD-0146. Contract changes use
 `concord_work_define.revise_intent`.
 
-`workflow_action` does not decide workflow registration or gate vocabulary. It is a
-stable indirection to an action already declared by the work item's pinned workflow
-version. The core—not tool prose—validates whether the action is currently offered
+`workflow_action` does not decide workflow admission or gate vocabulary. It is a
+stable indirection to an action already declared for the work item: an intake
+prelude action before the type pick, then an action declared by the plan
+frontier. The core—not tool prose—validates whether the action is currently offered
 and which evidence it requires.
 
 ### 2.3 `concord_work_relate`

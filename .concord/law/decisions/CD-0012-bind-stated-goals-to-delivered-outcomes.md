@@ -21,7 +21,7 @@
 **Amended:** 2026-10-18. [CD-0236](CD-0236-vacuity-is-judged-at-review.md) places vacuity judgment at Review.
 [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5 amends
 D7: Main's review loop replaces a distinct final evaluator. [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
-D2 and D14 govern current state and generated definitions:
+D2 and D14 govern current state and generated contracts:
 the store keeps current state in current rows, and no historical pins are retained.
 **Research:** [`R5-goal-to-outcome-binding.md`](https://github.com/Sharper-Flow/concord/blob/a98dfe5db3fa2af53bd2d82829aec840e94e64c4/.concord/docs/research/R5-goal-to-outcome-binding.md)
 **Issue:** <https://github.com/Sharper-Flow/concord/issues/22>

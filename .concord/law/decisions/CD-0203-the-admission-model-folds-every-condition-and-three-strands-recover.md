@@ -36,7 +36,7 @@ exit that the subset could not prove was not counted, and a state that the
 subset could not reach was not checked.
 
 The checks now derive every condition `workflowAdmit` reads, over the
-registered definitions
+workflow types
 ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 Research declares `frame_research` in advance mode beside `approve_contract`
 on its frame step. A contractless advance can move the work past the only
@@ -68,7 +68,7 @@ use the same folded prerequisites.
 The liveness and well-formed-exit checks enumerate the abstract states over
 every condition `workflowAdmit` reads. The conformance replay compares the
 loaded state with the abstract successor on the fields `workflowAdmit`
-reads. The step-kind checks cover every registered definition and the
+reads. The step-kind checks cover every workflow type and the
 confirmation action uses the same folded prerequisites as the engine.
 
 Admission code and definition content have separate owners.
@@ -87,7 +87,7 @@ Admission code and definition content have separate owners.
 ## Consequences
 
 Research cannot skip its contract. A future change that
-strands any registered definition fails the widened checks with a witness.
+strands any workflow type fails the widened checks with a witness.
 
 ## Verification
 
@@ -98,8 +98,8 @@ Scenario: A contractless advance at the contract step refuses
   Then admission refuses with an illegal lifecycle transition
   And approve_contract stays admitted
 
-Scenario: Every registered definition stays live under the full model
-  Given the registered definitions
+Scenario: Every workflow type stays live under the full model
+  Given the workflow types
   When the checks enumerate the full abstract admission state
   Then each well-formed nonterminal state has an exit and each reachable state reaches a terminal step
 ```

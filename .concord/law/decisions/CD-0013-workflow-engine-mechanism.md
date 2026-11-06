@@ -25,7 +25,7 @@ CD-0008 D2 (evidence), D4 (checkpoints), D6 (schema evolution);
 CD-0012 D1–D11 (outcome contract).
 **Amended:** 2026-10-18. These 2026-10-17 records amend this one:
 [CD-0229](CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md)
-amends this record's D1 (plain Go workflow definitions);
+amends this record's D1 (its former plain-Go workflow definitions);
 [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
 amends D9 (law-change approval follows CD-0243 D2).
 **Amended by:** [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D5, D7, D11, D13, D14
@@ -133,7 +133,7 @@ D11 and TS8 govern changes to the current generated surface.
 
 ### D11. Workflow actions use the current generated agent surface
 
-Definitions generate from one canonical source, and the identities active work needs are derived at the integration boundary ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+Generated contracts derive from one canonical source, and the identities active work needs are derived at the integration boundary ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 
 Operator decisions follow CD-0230 D5 and
 [CD-0243 D2](CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision).

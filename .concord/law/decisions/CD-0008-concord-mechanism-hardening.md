@@ -159,7 +159,7 @@ Examples:
 
 ## D4. Current workflow state and atomic mutations
 
-Every work item pins its workflow definition. Each admitted mutation checks the
+Every work item picks one workflow type and carries its own step plan. Each admitted mutation checks the
 expected entity version and commits current state, its operation result, and
 effect receipts in one SQLite transaction. TS5 idempotency returns the committed
 result without a second effect. Concord has no separate step claim,

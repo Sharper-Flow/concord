@@ -55,9 +55,10 @@ host context responsibilities.
 Every recorded write is one current-row mutation; no event append exists
 ([CD-0242](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2).
 
-Operator questions use the host question tool under CD-0243, not a Concord
-projection or selection envelope. Missing required context transport still
-fails closed.
+Operator questions use the host question tool under CD-0243, or the
+host-supplied asynchronous ticket frontend the asking guidance admits;
+neither is a Concord projection or selection envelope. Missing required
+context transport still fails closed.
 
 The binding contract is sections 1 through 5: the adapter boundary and its
 host responsibilities, the process and transport rules including client

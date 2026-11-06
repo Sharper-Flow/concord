@@ -47,9 +47,12 @@ switch. Synthesize instructions, the ticket, recorded decisions,
 and relevant investigation or diagnosis findings; the investigation may inform
 the step without first drafting an implementation plan. Check intended product
 outcomes, product direction, request intention, and scope. Answer from evidence
-first, citing where; ask the operator only remaining questions, one at a time.
-Quote operator answers on the work item's Linear issue and point the step note
-there. Record question resolutions or the explicit result that no operator
+first, citing where; ask the operator only remaining questions, through the
+item's driving route: one at a time in the pane, or one comment per step on the
+ticket frontend. Quote operator answers on the work item's Linear issue and
+point the step note there; reserved approvals stay in the pane until agents
+post under their own Linear identity. Record question resolutions or the
+explicit result that no operator
 questions remain. Running the step is mandatory; asking is not. Clarify grants
 no blanket implementation or UI/UX approval. Reuse settled answers;
 ask later questions where they arise.

@@ -186,7 +186,7 @@ details; this table does not duplicate them.
 | [`clarifications.md`](./clarifications.md) | Build-authorizing decisions | The product-memory contracts shape Product memory; TS1–TS9 shape the current agent tool surface; CD-0006/CD-0007/CD-0008/CD-0222 settle root policy, repository boundary, mechanism hardening, and Product-law architecture. |
 | [`rollout-plan.md`](./rollout-plan.md) | Entry conditions | Go-core direction is not an entry condition. |
 | [`capability-placement.md`](./capability-placement.md) | Placement rubric | Places capabilities under CD-0005; TS6 selects the plugin-entry adapter and rejects MCP v1. |
-| [`workflows.md`](./workflows.md) | Workflow families | Three retained execution families (§4), authored as plain Go definitions (§7). |
+| [`workflows.md`](./workflows.md) | Workflow types | The four-type catalog and composition model (§4, §7), anchored to the step-template contract. |
 
 ---
 

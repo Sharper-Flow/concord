@@ -57,9 +57,10 @@ authority are forbidden.
 [CD-0242 D13–D14](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot),
 not retained historical definitions.
 
-**Direction.** [`workflows.md`](./workflows.md) owns the current family and
-composition model. [CD-0218 D1](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution)
-owns the live family boundary; CD-0242 D14 owns generated definitions.
+**Direction.** [`workflows.md`](./workflows.md) describes the current workflow
+types and composition model. [CD-0218 D1](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution)
+owns the type catalog and its step-template contract; CD-0242 D14 owns
+generated definitions.
 
 ---
 
@@ -247,7 +248,7 @@ path-confirmation plumbing is the recorded anti-pattern.
 The cited decisions govern implementation conformance.
 
 1. **Storage model for Concord-owned state** (§4, §14). CD-0002 governs storage authority.
-2. **Workflow evolution semantics** (§3). [`workflows.md`](./workflows.md) owns the current family and composition model under CD-0218 and CD-0242 D13–D14.
+2. **Workflow evolution semantics** (§3). [`workflows.md`](./workflows.md) describes the current workflow types and composition model under CD-0218 and CD-0242 D13–D14.
 3. **Read-path implementation language** (§5, §7). Resolved — Go; see [`core-architecture.md`](./core-architecture.md).
 4. **Ambient Product context propagation** (§13). **Resolved by TS5/CD-0005:** trusted hidden call envelope, core re-resolution, explicit cross-scope intent, and inherited Product/workspace context.
 5. **Recovery-path taxonomy** (§19). [CD-0242 D2](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)

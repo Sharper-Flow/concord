@@ -42,10 +42,12 @@ non-Product-changing target.
 
 ### D2. Scenarios select what production runs
 
-Every conformance scenario selects a current production definition by
-reference. A scenario carries no definition version pin and may not select a
-definition production cannot run
+A conformance scenario that exercises a picked workflow type selects a
+current production definition by reference. A scenario carries no definition
+version pin and may not select a definition production cannot run
 ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
+A scenario that proves a boundary before type selection — capture before a
+plan exists, or an unpicked plan's action refusal — selects none.
 
 ### D3. Product truth is declared, never defaulted
 

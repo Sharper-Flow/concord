@@ -30,10 +30,6 @@ identity belongs to one work unit; a second claim refuses. Resume reports the
 recorded key and URL. Read current issue state through Linear MCP.
 See [CD-0213](../../.concord/law/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md).
 
-`concord upgrade` takes a verified snapshot before any breaking migration applies.
-The [upgrade note](../../README.md#planning-retirement-upgrade) describes the
-intentional removal of unsent mirror writes and incomplete issue links.
-
 ## Operator bootstrap CLI
 
 `concord --help` is the bounded operator usage surface. Every listed command

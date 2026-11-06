@@ -3,9 +3,7 @@
   "id": "CD-0007",
   "title": "Concord repository bootstrap",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "product-root:concord",
   "applies_to_domain_ids": [],
@@ -105,9 +103,11 @@ private history, and local-only precedent are excluded from this snapshot.
 ### D6. Retired: the readiness workflow catalog and conformance floor
 
 The pre-release readiness catalog and its scenario-family list are retired with
-the readiness claim that required them (CD-0006 D1). Workflow families and their
-composition are owned by [`workflows.md`](../../docs/workflows.md); conformance
-coverage is owned by
+the readiness claim that required them (CD-0006 D1). Workflow types and their
+required steps are owned by the step-template contract
+[`contracts/workflow-step-templates.v1.json`](../../../contracts/workflow-step-templates.v1.json)
+(CD-0218 D1), and [`workflows.md`](../../docs/workflows.md) describes them;
+conformance coverage is owned by
 [CD-0065](CD-0065-conformance-corpus-runs-what-production-runs.md).
 
 ### D7. Skill/methodology boundary

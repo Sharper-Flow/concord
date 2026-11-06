@@ -14,7 +14,7 @@ Concord's current direction is in [`product-vision.md`](./product-vision.md) and
 
 1. The operator can see, plan, and act across the full Product scope through Product → Domain context. Per CD-0021, "across the full Product scope" means every Product is reachable, not that a result set spans Products. The host starts operator sessions and owns worktree placement under CD-0088 D1. Concord derives managed context under [CD-0219 D4](../law/decisions/CD-0219-the-terminal-launcher-tui-is-retired.md#d4-kept-clauses-keep-their-surviving-owners). Planning stays in Linear through the Linear MCP server under [CD-0213 D1](../law/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d1-linear-is-the-only-planning-authority); managed work creation keeps one write authority.
 2. Agents can read, write, and execute within that Product and Domain context through tools.
-3. Every supported workflow family (implementation, break-fix, research) has a defined workflow type and completion evidence.
+3. Every workflow type the step-template catalog declares ([`contracts/workflow-step-templates.v1.json`](../../contracts/workflow-step-templates.v1.json)) has defined required steps and completion evidence.
 4. Required authority/freshness is explicit and CD-0006 R3's accepted cross-workflow impact policy is enforced.
 5. Concord-owned data and workflow boundaries preserve data safety ([concurrent-writer correctness](../law/decisions/CD-0045-writer-admission-invariant.md), no hand-repair, safe evolution).
 

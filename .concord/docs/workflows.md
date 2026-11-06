@@ -8,8 +8,8 @@
 > Companion to [`README.md`](./README.md),
 > [`specs-as-laws.md`](./specs-as-laws.md),
 > [`product-data-model.md`](./product-data-model.md).
-> **Purpose:** New execution selects one of three retained workflow families
-> (CD-0218 D1); §4 lists them. Each family has a plain Go definition;
+> **Purpose:** New execution picks one of four workflow types
+> (CD-0218 D1); §4 lists them. Each type has a plain Go definition;
 > work has no size class (§7; CD-0229).
 > **Primary surface:** Defined by [`../law/constitution/priorities.md`](../law/constitution/priorities.md); an admin
 > panel or web UI is optional and secondary.
@@ -22,7 +22,7 @@ existing requirements.
 
 ## TL;DR
 
-The live workflow catalog retains three execution families for new work
+The live workflow catalog holds four workflow types for new work
 (CD-0218 D1; §4). Workflows are plain Go definitions, and
 work has no size class (§7; CD-0229). Public projections
 are generated from those definitions, and no released workflow-definition
@@ -62,13 +62,13 @@ follows them without restating them.
 ## 1. The shift: from one workflow to a plurality
 
 Concord owns durable progression, branching, attempts, evidence, and recovery
-across its workflow families; each launch is one admitted attempt with its own
+across its workflow types; each launch is one admitted attempt with its own
 authority (CD-0242 D6). Native systems still execute git, CI, cloud,
 database, and other external effects. Arbitrary inline workflow languages are
 out of scope.
 
-- **Families:** new execution selects one of three retained families; a
-  retired ref refuses before any capture or contract write (CD-0218 D1).
+- **Types:** new execution picks one of the four workflow types; a
+  retired family ref refuses before any capture or contract write (CD-0218 D1).
   §4 lists them.
 - **Canonical definitions:** plain Go definitions own the generated public
   projections, and no released workflow-definition version, pin, or catalog list is
@@ -79,13 +79,13 @@ out of scope.
 
 ## 2. The workflow-type model
 
-A **workflow family** is a code-defined execution type in the registry. Its
+A **workflow type** is a code-defined execution type in the registry. Its
 definitions are plain Go values (§7; CD-0229 D1), and the live
-catalog retains exactly three families (CD-0218 D1). What a definition fixes:
+catalog holds four types (CD-0218 D1). What a definition fixes:
 
 | Aspect | Meaning |
 |---|---|
-| **Steps** | The steps the family's definition declares (CD-0229 D1). |
+| **Steps** | The type's ordered required steps, declared once in the step-template contract (§4; CD-0218 D1). |
 | **Artifacts** | What it produces (a spec delta? a report? findings? nothing durable?). |
 | **Completion criteria** | How it's "done" (a contract satisfied? a report submitted? a signal fired?). |
 | **Value statement** | One sentence stating the work value: what it delivers and why it matters. |
@@ -173,7 +173,7 @@ changes or external planning groups.
 ## 3. Complete work-kind taxonomy
 
 Concord covers the full spectrum of work a Product accumulates:
-implementation, operations, database work, break-fix, configuration,
+feature delivery, operations, database work, defect repair, configuration,
 infrastructure, options research, evidence research, architectural decisions,
 RCA, and static-analysis runs. These are business work categories, not the
 operator-kind vocabulary.
@@ -185,7 +185,7 @@ metadata: after intake the driving agent picks the type — `change`, `fix`,
 the template contract (CD-0218 D1; CD-0229 D1). Work has no size class.
 
 A single workflow can spawn another: research may surface a defect, which
-matures into a break-fix workflow, which may become an implementation change.
+matures into fix work, which may grow into a change.
 
 ---
 
@@ -208,7 +208,7 @@ successor set. Research reports do not enact legislation (CD-0218 D1).
 
 External analysis covers architecture-inconsistency detection, AI-slop
 detection, and spec/implementation drift audit, among others. The host
-selects and runs the external tool; a retained family's tracked work records
+selects and runs the external tool; tracked work in a workflow type records
 the declared scope, report, and evidence (§5).
 
 ---
@@ -230,7 +230,8 @@ and [CD-0055 D4](../law/decisions/CD-0055-repository-check-authority.md#d4-heuri
 
 - **Business work categories** (ideas / bugs / optimization;
   the taxonomy in §3) describe *what the work is*.
-- **Workflow families** describe *how that work executes*; §3 maps operator kinds to families.
+- **Workflow types** describe *how that work executes*; §3 keeps business
+  categories and operator kinds separate from the type vocabulary.
 
 ---
 
@@ -244,7 +245,7 @@ status.
    workflow/work item, then let the current workflow finish. Each retains
    independent authority and recovery. No nested child execution or parent
    waiting (CD-0006 R1).
-2. **Plain definitions:** each family directly declares its step graph, actions,
+2. **Plain definitions:** each type directly declares its step graph, actions,
    evidence and outcomes in a Go value. The registry validates
    it and derives its canonical manifest and digest. Public schemas and tool
    contracts generate from those definitions, without a parts catalog or
@@ -253,7 +254,7 @@ status.
    of an existing record after its step has passed. Record-only writes hold the
    step and lifecycle; completed delivery-link edits do not reopen work
    ([workflow-engine contract §4.2](../law/specs/workflow-engine-contract.md#42-ordinary-retry-and-record-correction)).
-3. **Mandatory stages:** each live family's definition supplies its stages.
+3. **Mandatory stages:** each live type's definition supplies its stages.
    Work has no size classification or size-derived review gate (CD-0229 D4).
    Main may add research, architecture or planning depth but cannot waive a
    mandatory stage or operator approval (CD-0242 D4).
@@ -267,10 +268,10 @@ status.
 | `product-data-model.md` §6 | Product → Domain navigation. |
 | `specs-as-laws.md` | Workflow evolution couples to spec evolution. |
 | `design-constraints.md` §3 | Workflow evolution constraints; public projections derive from the canonical Go definitions (§7; CD-0229 D1; CD-0242 D14). |
-| [CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) | The three retained execution families (CD-0218 D1); the store keeps current state, and the cutover is one documented migration (CD-0242 D2, D13). |
+| [CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) | Four workflow types own new execution (CD-0218 D1); the store keeps current state, and the cutover is one documented migration (CD-0242 D2, D13). |
 | [CD-0229](../law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md) | Plain workflow definitions without size classification. |
 
 ---
 
-*New execution runs in one of the three retained families (§4), with plain Go
-definitions (§7) that own generated public projections (CD-0242 D14).*
+*New execution picks one of the four workflow types (§4); plain Go
+definitions (§7) own generated public projections (CD-0242 D14).*

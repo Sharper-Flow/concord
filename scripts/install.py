@@ -289,7 +289,7 @@ def stamp_release_constants(adapter_dir: Path, version_root: Path) -> None:
     target.write_text(release_constants_source(version_root), encoding="utf-8")
 
 
-# The maintenance-fence protocol marker (CON-807). The core's
+# The maintenance-fence protocol marker. The core's
 # unfenceable-participant check reads this file from every installed
 # release tree: a tree whose core honors the shared session-admission
 # exclusion carries the protocol number it speaks, and a tree without a
@@ -298,7 +298,7 @@ def stamp_release_constants(adapter_dir: Path, version_root: Path) -> None:
 # (internal/hostlease.CurrentFenceProtocol) owns what counts as recognized.
 FENCE_PROTOCOL_MARKER_NAME = "fence-protocol"
 
-# The fence protocols this installer recognizes (CON-807). Recognition is
+# The fence protocols this installer recognizes. Recognition is
 # explicit, never a range: a higher number names semantics this installer has
 # not implemented, so it grants no maintenance capability.
 SUPPORTED_FENCE_PROTOCOLS = frozenset({1})
@@ -454,7 +454,7 @@ def describe_release_holders(holders: list[dict[str, object]]) -> str:
     return "; ".join(parts)
 
 
-# CON-807: the installer prepares a candidate release durably when the core's
+# The installer prepares a candidate release durably when the core's
 # read-only readiness plan blocks activation, and activates the prepared
 # candidate only after the operator runs the recorded migration command and
 # this activation command. The prepared record is the durable
@@ -588,10 +588,10 @@ def admission_lock(paths: Paths):
 
 # The acquisition retries only this many times when the data root is removed
 # or replaced between the open and the flock. The bound keeps a churning root
-# from turning the lock into a wait; the operator re-runs the command (CON-807).
+# from turning the lock into a wait; the operator re-runs the command.
 MAINTENANCE_ACQUIRE_ATTEMPTS = 3
 
-# Every level the bootstrap creates is private to the operator (CON-868): the
+# Every level the bootstrap creates is private to the operator: the
 # Go acquisition creates missing levels with MkdirAll(dataRoot, 0o700)
 # (internal/hostlease.AcquireMaintenance), and the two bootstraps must leave
 # the same permissions behind whatever the umask is.
@@ -771,8 +771,8 @@ def maintenance_lock(paths: Paths):
         os.close(descriptor)
 
 
-# The operations that open a boundary on the prepare-migrate-activate path
-# (CON-807). The core's incompatible migration writes the first
+# The operations that open a boundary on the prepare-migrate-activate path.
+# The core's incompatible migration writes the first
 # (internal/hostlease.FenceOperationUpgrade); an activation that finds no
 # boundary open writes the second. A boundary naming any other operation
 # belongs to another maintenance step, which this path never adopts or closes.
@@ -2160,7 +2160,7 @@ TRANSACTION_PHASES = (
     "manifest_committed",
     "cleanup",
     "rollback",
-    # CON-807: the transaction stopped because the readiness plan blocked
+    # The transaction stopped because the readiness plan blocked
     # activation. The candidate tree and the prepared-release record are the
     # committed state; recovery only cleans the transaction scaffolding.
     "prepared",
@@ -2313,7 +2313,7 @@ def validate_transaction(journal: dict[str, object], transaction_root: Path, pat
         "version_backup",
         "live_version_backup",
     }
-    # prepared_activation marks the CON-807 activation of a prepared
+    # prepared_activation marks the activation of a prepared
     # candidate: the incompatible migration already committed, so recovery
     # resumes the candidate forward and never restores the older release.
     # maintenance_fence_id records which open boundary this transaction
@@ -2695,7 +2695,7 @@ def apply_agents(transaction_root: Path, journal: dict[str, object], paths: Path
                 raise InstallerError("transaction has malformed agent record")
             target = paths.agents_dir / name
             if not target.exists() and not target.is_symlink():
-                # A replayed transaction (CON-807 forward recovery) reaches
+                # A replayed transaction during forward recovery reaches
                 # this step with the removal already done; a target that is
                 # absent cannot conflict, and the transaction was going to
                 # remove it anyway.
@@ -2970,9 +2970,8 @@ def cleanup_transaction(transaction_root: Path, journal: dict[str, object], path
     # The replaced release and every retained one leave through the one
     # lease-aware path (CD-0111 D2); nothing here removes a version root by
     # itself anymore. The data root itself is never touched here: it is the
-    # maintenance lock's root, and no cleanup removes it (CON-807,
-    # obs:1ca149d633e69626). A mid-command rmdir would delete a directory
-    # the command never created and keep making state effects after it.
+    # maintenance lock's root, and no cleanup removes it. A mid-command rmdir
+    # would delete a directory the command never created and keep making state effects after it.
     if remove_old_version:
         remove_unheld_releases(journal, paths)
         if journal.get("operation") == "uninstall":
@@ -3081,7 +3080,7 @@ def unfenceable_installed_trees(paths: Paths) -> list[str] | None:
             unfenceable.append(str(entry.resolve()))
             continue
         if protocol not in SUPPORTED_FENCE_PROTOCOLS:
-            # Recognition is explicit here too (CON-807): a higher protocol
+            # Recognition is explicit here too: a higher protocol
             # names semantics this installer has not implemented, so the
             # tree grants no cleanup capability and stays retained.
             unfenceable.append(str(entry.resolve()))
@@ -3164,8 +3163,8 @@ def remove_unheld_releases(journal: dict[str, object], paths: Paths) -> set[str]
         return set()
     removed: set[str] = set()
     with admission_lock(paths):
-        # One held exclusion across the final observation and every deletion
-        # (CON-807). A compliant session lands its lease under this same
+        # One held exclusion across the final observation and every deletion.
+        # A compliant session lands its lease under this same
         # lock, so it either landed before the section — and the record read
         # below names it — or it waits until the section ends, after the
         # unreferenced trees are already gone.
@@ -3398,7 +3397,7 @@ def recover_transaction(transaction_root: Path, paths: Paths, *, prepared_cutove
     current_manifest_state(paths)
     # A committed prepared state recovers by cleaning the scaffolding only:
     # the candidate tree and the prepared-release record are the committed
-    # state, and no activation swap may follow (CON-807).
+    # state, and no activation swap may follow.
     if phase == "prepared":
         if not prepared_record_matches(journal, paths):
             raise InstallerError("prepared transaction does not match the prepared-release record; refusing recovery")
@@ -3427,14 +3426,14 @@ def recover_transaction(transaction_root: Path, paths: Paths, *, prepared_cutove
         return
     # A prepared activation never rolls back: the incompatible migration
     # already committed, and the older release it would restore cannot open
-    # the store. Recovery resumes the candidate forward instead (CON-807).
+    # the store. Recovery resumes the candidate forward instead.
     # The authorization is the transaction's own durable prepared-activation
     # phase, written by the operation itself only once it owns this upgrade
     # path — claimed boundary or superseding prepared record — and always
     # before the first activation effect. A boundary merely observed in
     # place authorizes nothing: a fence a refused or uncertain transaction
     # never recorded is foreign or of no provable owner, and a pre-effect
-    # refusal must never later activate (CON-807).
+    # refusal must never later activate.
     if activating(str(journal["operation"])) and journal.get("prepared_activation") is True:
         resume_forward(transaction_root, journal, paths)
         return
@@ -3542,8 +3541,8 @@ def install(args: argparse.Namespace) -> int:
         # install skipped: a held release stays a candidate, so the removal
         # is retried at the next install (CD-0111 D2). The retry runs through
         # the one lease-aware cleanup path, so the same held admission
-        # exclusion covers the final observation and the deletion here too
-        # (CON-807): a same-version reinstall deletes nothing a concurrent
+        # exclusion covers the final observation and the deletion here too:
+        # a same-version reinstall deletes nothing a concurrent
         # or later admission holds. The manifest keeps the entries whose
         # directory survives.
         retained = retained_release_records(manifest)
@@ -3565,7 +3564,7 @@ def install(args: argparse.Namespace) -> int:
         # the recorded boundary owner — means an activation committed and
         # only its discharge crashed: the durable record closes its own
         # boundary by its recorded identity, and a fence no record names is
-        # foreign and stays for the operator (CON-807).
+        # foreign and stays for the operator.
         if prepared is not None and (
             manifest.get("version") == prepared.get("version")
             or manifest.get("version") == prepared.get("boundary_owner_version")
@@ -3605,8 +3604,8 @@ def install(args: argparse.Namespace) -> int:
         version_root = paths.data_root / version
         stamp_release_constants(source_stage / "adapter" / "opencode", version_root.resolve())
         # The staged tree declares the fence protocol its core speaks, so
-        # the migration's boundary can exclude sessions this tree admits
-        # (CON-807). The marker is a managed version file like any other.
+        # the migration's boundary can exclude sessions this tree admits.
+        # The marker is a managed version file like any other.
         stamp_fence_protocol(source_stage, version)
         # skills, instructions, and agents are copied only when the archive
         # carries them. The three branches share the helper so a future
@@ -3683,7 +3682,7 @@ def install(args: argparse.Namespace) -> int:
             retained,
             reinstalled_records,
         )
-        # CON-807 readiness gate: the candidate's own core reports, by
+        # The readiness gate: the candidate's own core reports, by
         # reading the store from the transaction stage, whether this
         # activation may proceed — before any placement touches the active
         # release. A blocked or unknown plan places the candidate tree
@@ -3732,13 +3731,13 @@ def install(args: argparse.Namespace) -> int:
         # prepared activation by another route: whether the operator runs
         # the recorded activate command or re-runs install after the
         # migration, recovery resumes the candidate forward and never
-        # restores the older release (CON-807).
+        # restores the older release.
         #
         # An open boundary is claimable only through the prepared record
         # that owns its upgrade path. With no record, an open fence is
         # another operation's or an orphan: the install refuses rather than
         # adopt an exclusion it may never close, and the operator closes an
-        # orphan through the documented offline bootstrap (CON-807).
+        # orphan through the documented offline bootstrap.
         adopted_fence = None
         if maintenance_fence_path(paths).exists() or maintenance_fence_path(paths).is_symlink():
             if prepared is None:
@@ -3758,8 +3757,8 @@ def install(args: argparse.Namespace) -> int:
             assert adopted_fence is not None
             # The durable owner is written before the transaction starts:
             # cleanup removes the journal inside this same flow, so the
-            # record is the only owner a post-cleanup crash can recover
-            # (CON-807). boundary_owner_version names this install's
+            # record is the only owner a post-cleanup crash can recover.
+            # boundary_owner_version names this install's
             # release, whose committed activation discharges the boundary.
             prepared = record_boundary_ownership(paths, prepared, str(adopted_fence["fence_id"]), version)
         if prepared is not None and prepared.get("version") == version:
@@ -3769,7 +3768,7 @@ def install(args: argparse.Namespace) -> int:
             # as well, including when it supersedes the prepared candidate
             # the migration belonged to: the store may already be past the
             # older release's last compatible step, so rollback has no
-            # provably usable target (CON-807).
+            # provably usable target.
             journal["prepared_activation"] = True
             journal["maintenance_fence_id"] = adopted_fence["fence_id"]
         if "prepared_activation" in journal or "maintenance_fence_id" in journal:
@@ -3791,7 +3790,7 @@ def install(args: argparse.Namespace) -> int:
         cleanup_transaction(transaction_root, journal, paths)
     # This activation completes whatever prepared boundary was open: the
     # record is discharged or superseded, and session admission reopens
-    # with a usable active release (CON-807). Closing is by the durable
+    # with a usable active release. Closing is by the durable
     # recorded identity only; a fence the record never named is retained.
     if prepared is not None:
         complete_prepared_boundary(paths)
@@ -3904,7 +3903,7 @@ def activate(args: argparse.Namespace, *, require_quiet: bool = False) -> int:
         # boundary still open after that carries no recorded owner this
         # command can prove: it is foreign or uncertain, so it is retained
         # for the operator (the offline bootstrap closes it), never closed
-        # by position (CON-807).
+        # by position.
         requested = parse_version(args.version) if args.version else None
         if requested is not None and manifest is not None and manifest.get("version") == requested:
             if maintenance_fence_path(paths).exists() or maintenance_fence_path(paths).is_symlink():
@@ -3924,7 +3923,7 @@ def activate(args: argparse.Namespace, *, require_quiet: bool = False) -> int:
         # activation, or the operator activated it by reinstalling. The
         # record discharges and closes the boundary it owns by identity; a
         # fence no record of this discharge owns is foreign and stays in
-        # place (CON-807).
+        # place.
         complete_prepared_boundary(paths)
         if maintenance_fence_path(paths).exists() or maintenance_fence_path(paths).is_symlink():
             print(
@@ -3949,10 +3948,10 @@ def activate(args: argparse.Namespace, *, require_quiet: bool = False) -> int:
     # final lease observation, and closes only after commit and cleanup.
     # A boundary attributed to a different release root belongs to another
     # operation's upgrade path: the activation refuses rather than adopt an
-    # exclusion it may never close (CON-807). Its identity is recorded in
+    # exclusion it may never close. Its identity is recorded in
     # the prepared record before the transaction starts, so any crash
     # afterward recovers an owner for the fence it must close — never a
-    # foreign one (CON-807).
+    # foreign one.
     version_root_resolved = str(version_root.resolve())
     activation_fence_id = uuid.uuid4().hex
     fence = ensure_maintenance_fence(
@@ -4156,7 +4155,7 @@ def repair(args: argparse.Namespace) -> int:
     manifest = load_manifest(paths)
     if manifest is None:
         raise InstallerError(f"no installer manifest at {paths.data_root / MANIFEST_NAME}; run install")
-    # CON-807: after a committed incompatible migration the prepared
+    # After a committed incompatible migration the prepared
     # candidate is the only forward route. Repairing the installed older
     # release would restore a release the store can no longer open, so it
     # refuses and names the activation command instead.
@@ -4198,7 +4197,7 @@ def repair(args: argparse.Namespace) -> int:
             shutil.copy2(extracted / "adapter" / "opencode" / name, source_stage / "adapter" / "opencode" / name)
         stamp_release_constants(source_stage / "adapter" / "opencode", version_root.resolve())
         # Repair restages the tree exactly as install staged it, fence
-        # protocol marker included (CON-807).
+        # protocol marker included.
         stamp_fence_protocol(source_stage, installed)
         copy_tree_if_present(extracted / "skills", source_stage / "skills")
         copy_tree_if_present(extracted / "instructions", source_stage / "instructions")
@@ -4280,7 +4279,7 @@ def uninstall(args: argparse.Namespace) -> int:
     if manifest is None:
         print("No Concord installer manifest found; nothing was changed.")
         return 0
-    # CON-807: removing releases mid-boundary could delete the only usable
+    # Removing releases mid-boundary could delete the only usable
     # candidate, and an uninstalled active release strands every session
     # the fence is excluding for the prepared activation.
     prepared = load_prepared_release(paths)
@@ -4360,8 +4359,7 @@ def uninstall(args: argparse.Namespace) -> int:
     cleanup_transaction(transaction_root, journal, paths)
     # The data root is the maintenance lock's root and is retained: an
     # uninstall removes the intended installed content only, and no cleanup
-    # may remove a directory a replacement holder could own (CON-807,
-    # obs:1ca149d633e69626).
+    # may remove a directory a replacement holder could own.
     for directory in (paths.tools_dir, paths.agents_dir, paths.bin_dir):
         try:
             directory.rmdir()
@@ -4381,7 +4379,7 @@ def status(args: argparse.Namespace) -> int:
         manifest.get("version") == prepared.get("version")
         or manifest.get("version") == prepared.get("boundary_owner_version")
     ):
-        # The final crash phase (CON-807): the activation — of the prepared
+        # The final crash phase: the activation — of the prepared
         # release or of a superseding release that adopted its boundary —
         # committed, its transaction journal is gone, and the prepared
         # record with the boundary identity it recorded survived the crash
@@ -5268,7 +5266,7 @@ def main() -> int:
         # Every command recovers transactions first, so every command is a
         # maintenance command and runs alone. The release removes nothing:
         # the lock root is retained through failed installation, normal
-        # release, and uninstall (CON-807, obs:1ca149d633e69626).
+        # release, and uninstall.
         with maintenance_lock(paths_for(args.root)):
             return commands[args.command](args)
     except InstallerError as error:

@@ -32,14 +32,14 @@ function refusalReason(toolID: string, agent: unknown): string | null {
 // one field the guard reads: the host execution context agent. The host may
 // omit agent, and the runtime already refuses a step with no identity, so the
 // guarded context accepts agent as optional unknown.
-export type GuardedPrimaryTool<T extends { execute: (args: any, context: any) => Promise<any> }> = Omit<T, "execute"> & {
+type GuardedPrimaryTool<T extends { execute: (args: any, context: any) => Promise<any> }> = Omit<T, "execute"> & {
   execute: (
     args: Parameters<T["execute"]>[0],
     context: Parameters<T["execute"]>[1] & { agent?: unknown },
   ) => Promise<Awaited<ReturnType<T["execute"]>>>
 }
 
-export type GuardedPrimaryTools<T extends Record<string, { execute: (args: any, context: any) => Promise<any> }>> = {
+type GuardedPrimaryTools<T extends Record<string, { execute: (args: any, context: any) => Promise<any> }>> = {
   [K in keyof T]: GuardedPrimaryTool<T[K]>
 }
 

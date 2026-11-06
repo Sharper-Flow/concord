@@ -29,7 +29,7 @@ from pathlib import Path
 
 import git_environment
 
-# CON-896: this suite drives the real Git binary through an absolute
+# This suite drives the real Git binary through an absolute
 # `shutil.which` resolution with an environment copied from this process, so
 # a hook that launched it must not keep a redirecting Git namespace in place.
 # The scrub runs before the in-process installer helper loads.
@@ -236,7 +236,7 @@ class InstallerTests(unittest.TestCase):
         binary = (source / "bin" / "concord")
         # The staged core is a shell script so the installer can ask it which
         # releases live sessions hold (CD-0111 D2), whether activation is
-        # ready (CON-807), and which capability it carries (CON-807 descriptor
+        # ready, and which capability it carries (descriptor
         # probe). A test controls the answers through CONCORD_TEST_HOST_LEASES
         # (a file holding the JSON report) or CONCORD_TEST_HOST_LEASES_FAIL (a
         # failed observation), through CONCORD_TEST_UPGRADE_PLAN or
@@ -248,7 +248,7 @@ class InstallerTests(unittest.TestCase):
         # CONCORD_TEST_CORE_DESCRIPTOR (a file the core prints instead of its
         # descriptor). The default descriptor is truthful identity, not a
         # silent default: the core names the tree it actually sits in and the
-        # digest the staged adapter actually pins (CON-807).
+        # digest the staged adapter actually pins.
         synthetic_digest = self.synthetic_pair_digest(version)
         cutover_upgrade = '''import json, os, pathlib, sys
 request = json.load(sys.stdin)
@@ -303,7 +303,7 @@ else:
         for name in installer.ADAPTER_FILES:
             (source / "adapter" / "opencode" / name).write_text(f"{name}:{marker or version}\n", encoding="utf-8")
         # The staged adapter's contracts file carries the pinned-pair digest
-        # the truthful core descriptor reports (CON-807): written after the
+        # the truthful core descriptor reports: written after the
         # bulk loop so the digest constant is the file's content, with the
         # release marker kept so upgrade assertions still see provenance.
         (source / "adapter" / "opencode" / "generated-contracts.ts").write_text(
@@ -674,8 +674,6 @@ esac''',
         self.assertTrue((self.root / "data" / "concord" / "v1.1.0").exists(), "the replaced release was removed without an observation")
         self.assertFalse((self.root / "data" / "concord" / "v1.0.0").exists(), "an older candidate was kept without an observation")
         self.assertIn("no host observation", third.stderr)
-
-    # ---- CON-807: prepare-then-activate, the maintenance fence, recovery ---
 
     @property
     def data_root(self) -> Path:
@@ -1642,7 +1640,7 @@ esac''',
                 stopped = self.run_installer("activate", "--version", "v1.1.0", env=environment)
                 self.assertEqual(stopped.returncode, 97)
                 # Status recovery finishes the committed activation forward;
-                # a re-run activate is not required (CON-807).
+                # a re-run activate is not required.
                 recovered = self.run_installer("status", env=self.plan_env(blocked=False))
                 self.assertEqual(recovered.returncode, 0, recovered.stderr)
                 self.assert_active_release("v1.1.0", "v1.1.0")
@@ -3970,9 +3968,6 @@ esac''',
             "install", "--version", "v7.10.2", "--artifact-dir", str(self.artifacts), env=environment
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-
-
-    # ---- CON-807 review probes: quoting, forward recovery, cleanup races --
 
     def test_the_recorded_activation_command_preserves_argument_boundaries(self) -> None:
         """A recorded command with a space in a path must split back into the

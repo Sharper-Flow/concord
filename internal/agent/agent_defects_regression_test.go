@@ -167,10 +167,8 @@ func TestRegressionDefect3_TerminalWithEvidenceCompletesWithoutConsent(t *testin
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Defect 4 — version_conflict must carry a typed current_version
 // structurally, not just a prose description in error.message.
-// ---------------------------------------------------------------------------
 //
 // Pre-fix failure mode (D4): store.Failure formats the current version
 // into Detail ("work-ready-low has version 2, want 1") but has no typed

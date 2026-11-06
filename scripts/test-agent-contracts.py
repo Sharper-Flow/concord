@@ -2667,7 +2667,7 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
             # closed branch requires; a branch answers to the group whose
             # names it carries. A kind-matched group expands into one closed
             # branch per declared kind, so only the plain groups map 1:1 to
-            # const-free branches (CON-412).
+            # const-free branches.
             group_branches = [branch for branch in fields_schema["oneOf"] if not any("const" in property for property in branch.get("properties", {}).values())]
 
             def branch_for(group):

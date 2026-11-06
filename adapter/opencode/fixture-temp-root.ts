@@ -57,7 +57,7 @@ export async function fixtureTempRoot(tag = "fx"): Promise<string> {
   return mkdtemp(join(ownedFixtureRunRoot(), `${tag}-`))
 }
 
-export interface FixtureProcessOptions {
+interface FixtureProcessOptions {
   cwd?: string
   env?: Record<string, string | undefined>
   // Connected to the spawned child for its whole life: an abort that fires
@@ -65,7 +65,7 @@ export interface FixtureProcessOptions {
   signal?: AbortSignal
 }
 
-export interface FixtureProcessResult {
+interface FixtureProcessResult {
   exitCode: number
   stdout: string
   stderr: string

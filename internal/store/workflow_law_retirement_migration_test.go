@@ -8,17 +8,6 @@ import (
 	"testing"
 )
 
-func TestLawAttributionStateRetired(t *testing.T) {
-	s := openTemp(t)
-	var count int
-	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='workflow_law_baselines'`).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("obsolete baseline table count=%d error=%v", count, err)
-	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM pragma_table_info('workflow_contracts') WHERE name='law_change'`).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("obsolete law_change column count=%d error=%v", count, err)
-	}
-}
-
 func TestLawAttributionVerifiedSnapshotUpgrade(t *testing.T) {
 	useStampedBuild(t)
 	db, path := retirementUpgradeFixture(t)

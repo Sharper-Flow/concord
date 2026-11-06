@@ -462,9 +462,7 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 
 	unknown := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"unknown-action","idempotency_key":"wf-unknown"}`)}
 	refused, err := Dispatch(context.Background(), s, service, unknown, env)
-	// The closed action-variant surface owns the unknown-action refusal
-	// (CON-412): the boundary refuses with a field-named invalid_input
-	// naming action_id before any authority read.
+	// Unknown actions are refused at the boundary before any authority read.
 	if err != nil || refused.Outcome != agentcontract.OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_input" || !strings.Contains(refused.Error.Message, "action_id") {
 		t.Fatalf("unknown workflow action response=%+v err=%v", refused, err)
 	}
@@ -636,10 +634,7 @@ func TestWorkflowActionRejectsLegacyEventReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The closed action-variant surface owns this refusal (CON-412): a
-	// removed action id never passes the boundary schema, so the refusal is
-	// the field-named invalid_input naming action_id, not a store transition
-	// refusal reached through a permissive union.
+	// Removed actions are refused by the boundary schema, not the store.
 	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" || !strings.Contains(response.Error.Message, "action_id") {
 		t.Fatalf("legacy event replay response=%+v", response)
 	}

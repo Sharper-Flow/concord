@@ -1344,10 +1344,8 @@ test("the host lease claim names the session directory and worktree", async () =
   configureHostLease({ reset: true })
 })
 
-// CON-807: while a maintenance boundary is open, the core refuses new session
-// admission. A session that starts mid-boundary fails closed with the fence's
-// own notice, so the operator reads the activation route in the session
-// instead of debugging a vanished release.
+// A session starting during a maintenance boundary must show the fence's
+// activation notice when admission fails.
 test("a lease claim refused by the maintenance fence carries the boundary notice", async () => {
   configureHostLease({
     release: { coreBinary: "concord", releaseRoot: "/releases/v11.0.0" },
@@ -1437,11 +1435,7 @@ test("tools forward the coordinator's reviewed step without launch authorization
   expect(validateGeneratedEnvelope(result), JSON.stringify(result)).toBe(true)
 })
 
-// ===========================================================================
-// Semantic tests: the decided closed mutation tuple through the
-// real producers, plus deterministic contract-defect propagation.
-// Every test name in this block carries one shared prefix, so a
-// `bun test -t` filter on that prefix selects the block.
+// The shared test-name prefix allows filtering the mutation tuple tests together.
 
 const expectTuple = (envelope: any, tuple: { kind: string; reason: string; effect: string; recovery: string; retrySafe: boolean }, label = "") => {
   expect(envelope.error.kind, label).toBe(tuple.kind)

@@ -32,14 +32,6 @@ import (
 // integer "0", "1", ... indices are map keys, not slice positions.
 // Bindings below all follow this rule.
 
-// ---------------------------------------------------------------------------
-// AJ5 — Initiative framing
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// AJ3 — capture_needed_work
-// ---------------------------------------------------------------------------
-
 // AJ3-capture-work: capture needed work for passkey login and observe
 // the resulting durable row. After capture, replay the SAME idempotency
 // key and prove that no second work item is created and the result is
@@ -136,10 +128,6 @@ func bindAJ3CaptureWork(t *testing.T, sc jobScenario) jobObservation {
 	obs.Authority["replayed"] = replay.Replayed
 	return obs
 }
-
-// ---------------------------------------------------------------------------
-// AJ4 — transition_work_with_evidence
-// ---------------------------------------------------------------------------
 
 // AJ4-start-valid-work: transition work-ready-high from needed to
 // in_progress using the post-amendment version 2 (per the operator
@@ -504,10 +492,6 @@ func bindAJ4StaleVersion(t *testing.T, sc jobScenario) jobObservation {
 	return obs
 }
 
-// ---------------------------------------------------------------------------
-// AJ5 — relate_and_scope_work
-// ---------------------------------------------------------------------------
-
 // AJ5-resolve-domain-overlap proves ordinary relation authority cannot settle
 // coordination and an unsigned sequencing answer records its directed graph.
 func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
@@ -582,13 +566,7 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 	return obs
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // AJ8 — budget refusal (CD-0038)
-// ---------------------------------------------------------------------------
 
 // bindAJ8BudgetRefused proves the seconds ceiling is real: an approved audit
 // requesting 60 seconds against workflow_action's TS1-fixed 30 refuses before
@@ -671,5 +649,3 @@ func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 	obs.Authority["budget_refusal_typed"] = true
 	return obs
 }
-
-// ---------------------------------------------------------------------------

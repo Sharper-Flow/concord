@@ -45,7 +45,7 @@ def expect_entries(name: str, source: str, versions: list[int]) -> None:
         FAILURES.append(f"{name}: parsed versions {found}, want {versions}")
 
 
-# --- FoldMaintained declaration parsing and rules ----------------------------
+# FoldMaintained declaration parsing and rules.
 # Entries are built in the shipped struct-literal shape so the declaration
 # regexes run against the text a real schema.go carries.
 

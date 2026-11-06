@@ -79,10 +79,6 @@ import (
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
-// ---------------------------------------------------------------------------
-// Units and pinned documents
-// ---------------------------------------------------------------------------
-
 // boundUnit is the count unit a bound speaks in. Items count array elements;
 // bytes count UTF-8 bytes; characters count Unicode code points.
 type boundUnit string
@@ -146,10 +142,6 @@ func ledgerClassRefusalPath(class string) string {
 		return ""
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Output bound sources
-// ---------------------------------------------------------------------------
 
 // outputBoundSource is an opaque, evaluated-later description of where a
 // bound comes from. Family files build sources only through the constructors
@@ -239,10 +231,6 @@ func sumBound(sources ...outputBoundSource) outputBoundSource {
 func unboundedOutput(producer string, refusalPaths ...string) outputBoundSource {
 	return outputBoundSource{kind: "unbounded", producer: producer, refusalPaths: refusalPaths}
 }
-
-// ---------------------------------------------------------------------------
-// Registration registry
-// ---------------------------------------------------------------------------
 
 // censusRootRequest is one explicitly registered output node for results the
 // manifest does not publish as a root (host or internal surfaces). file is a
@@ -408,10 +396,6 @@ func ledgerParentPattern(pattern string) string {
 	return parent
 }
 
-// ---------------------------------------------------------------------------
-// Pointers and small JSON helpers
-// ---------------------------------------------------------------------------
-
 func escapePointerToken(token string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(token, "~", "~0"), "/", "~1")
 }
@@ -500,10 +484,6 @@ func censusKey(file, pointer string) string {
 	}
 	return file + "#" + pointer
 }
-
-// ---------------------------------------------------------------------------
-// Ledger runtime: documents, Go sources
-// ---------------------------------------------------------------------------
 
 type goSource struct {
 	file *ast.File
@@ -598,10 +578,6 @@ func (rt *ledgerRuntime) parseGoSource(name, src string) error {
 	rt.mu.Unlock()
 	return nil
 }
-
-// ---------------------------------------------------------------------------
-// Go constant evaluation
-// ---------------------------------------------------------------------------
 
 type ledgerConstDef struct {
 	expr ast.Expr
@@ -803,10 +779,6 @@ func ledgerConstInt(value constant.Value) (int64, error) {
 	return parsed, nil
 }
 
-// ---------------------------------------------------------------------------
-// Go call matching and guard unit inference
-// ---------------------------------------------------------------------------
-
 func ledgerCalledName(expr ast.Expr) string {
 	switch fun := expr.(type) {
 	case *ast.Ident:
@@ -974,10 +946,6 @@ func reconcileGoUnit(declared boundUnit, inferred string) error {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Typed refusal path verification
-// ---------------------------------------------------------------------------
-
 // checkLedgerRefusalPath verifies that a repo-relative file:Symbol exists
 // and directly emits the canonical typed refusal: the declaration's own body
 // must carry the "limit_exceeded" error kind literal. A call whose callee
@@ -1046,10 +1014,6 @@ func checkLedgerRefusalPath(rt *ledgerRuntime, refusalPath string) error {
 	}
 	return nil
 }
-
-// ---------------------------------------------------------------------------
-// Evaluated bounds, unit conversion, composites
-// ---------------------------------------------------------------------------
 
 // boundConstraint is one numeric limit in one unit that applies to a value.
 type boundConstraint struct {
@@ -1188,10 +1152,6 @@ func combineComposite(kind string, members []evaluatedBound) (evaluatedBound, er
 		describe: label,
 	}, nil
 }
-
-// ---------------------------------------------------------------------------
-// Source evaluation
-// ---------------------------------------------------------------------------
 
 func keywordUnit(keyword string) (boundUnit, bool) {
 	for _, kw := range ledgerBoundKeywords {
@@ -1405,10 +1365,6 @@ func ledgerFieldSuffix(field string) string {
 	}
 	return fmt.Sprintf(", field %q", field)
 }
-
-// ---------------------------------------------------------------------------
-// Census
-// ---------------------------------------------------------------------------
 
 type censusBound struct {
 	file    string
@@ -1747,10 +1703,6 @@ func ledgerContainsString(values []string, want string) bool {
 	return false
 }
 
-// ---------------------------------------------------------------------------
-// Ledger run
-// ---------------------------------------------------------------------------
-
 // ledgerFailure is one closed-coverage violation. Kind is one of: census,
 // registration-invalid, duplicate-registration, stale-registration,
 // removed-finite-bound, restored-cap, missing-registration,
@@ -1999,10 +1951,6 @@ func ledgerCeilingFailures(rt *ledgerRuntime) []ledgerFailure {
 	}
 	return failures
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 func ledgerRepoRoot(t *testing.T) string {
 	t.Helper()

@@ -238,10 +238,9 @@ func TestPlanUpgradeReadinessFloorIsTheHighestAppliedBreakingStep(t *testing.T) 
 	}
 }
 
-// Compatible pairs coexist at the floor (CON-807): a newer release's
-// additive steps never block this binary's activation and never move the
-// floor, which is exactly what lets an old session and a new release share
-// one store while only additive steps ship.
+// Additive steps from a newer release neither block activation nor move the
+// floor, allowing old and new releases to share a store while only additive
+// steps ship.
 func TestPlanUpgradeReadinessAdmitsAdditiveStepsBeyondThisBinary(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store.db")
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -337,10 +336,8 @@ func TestPlanUpgradeReadinessFailsClosedOnUnknownStates(t *testing.T) {
 	}
 }
 
-// Planning reads the CURRENT committed state through a live WAL (CON-807):
-// with a writer connection holding un-checkpointed committed frames, the
-// plain read-only connection must see those frames. A breaking step that
-// committed only into the WAL must read as applied, never as pending.
+// Planning must see committed WAL frames even when they are not checkpointed.
+// A breaking step committed only to the WAL reads as applied, never pending.
 func TestPlanUpgradeReadinessReadsCurrentWALState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store.db")
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -439,8 +436,6 @@ func TestPlanUpgradeReadinessBlocksOnABreakingRowCommittedToTheLiveWAL(t *testin
 		t.Fatalf("the planner admitted a release against a breaking step committed only in the WAL: %+v", plan)
 	}
 }
-
-// ---- Cross-process WAL currency (CON-807) ----
 
 // readinessChildRoleEnv names the subprocess role the cross-process probe
 // re-executes this test binary for. The env carries the role and its store.

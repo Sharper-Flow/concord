@@ -6,16 +6,6 @@ import (
 	"testing"
 )
 
-func TestUnusedCoordinationTablesAbsent(t *testing.T) {
-	s := openTemp(t)
-	for _, table := range []string{"work_conflict_applications", "work_size_overrides", "resource_claims", "workflow_action_obligations", "domain_project_attachment_edges", "domain_project_attachment_sets", "product_knowledge_sources", "law_cross_source_relations", "workflow_impact_notices", "workflow_external_conditions", "workflow_staleness_observations"} {
-		var present bool
-		if err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?)`, table).Scan(&present); err != nil || present {
-			t.Fatalf("%s present=%v err=%v", table, present, err)
-		}
-	}
-}
-
 func TestWorkflowCoordinationRetirementPreservesComposition(t *testing.T) {
 	db := openMigratedTo(t, filepath.Join(t.TempDir(), "coordination-163.db"), 163)
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);

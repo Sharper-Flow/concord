@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -15,6 +16,9 @@ func TestAgentWorkflowCompositionUsesSelectedSuccessorFamily(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
+		t.Fatalf("pm1fixture.SeedCommittedProductDomain: %v", err)
+	}
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -58,6 +62,10 @@ func TestAgentWorkflowCompositionUsesSelectedSuccessorFamily(t *testing.T) {
 	compositionAction(t, ctx, s, service, env, sourceID, "record_clarify", map[string]any{"resolved_questions": []string{}, "note": "No operator questions remain."})
 	compositionAction(t, ctx, s, service, env, sourceID, "complete_step", map[string]any{"step_id": "clarify", "note": "Clarification complete."})
 	compositionRecordPlan(t, ctx, s, service, env, sourceID)
+	// approve first: CD-0203 D1 forbids closing the contract step without a contract
+	contractFields := workflowContractFieldsFixture()
+	contractFields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
+	compositionAction(t, ctx, s, service, env, sourceID, "approve_contract", contractFields)
 	compositionCompletePlanStep(t, ctx, s, service, env, sourceID)
 	compositionPrelude(successorID, "research")
 

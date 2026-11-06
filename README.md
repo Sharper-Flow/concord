@@ -17,7 +17,8 @@ every state transition on verified evidence.
 [Engineering highlights](#engineering-highlights) ·
 [Batteries included](#batteries-included) ·
 [Architecture](#architecture-and-tradeoffs) ·
-[Install](#install-and-setup)
+[Install](#install-and-setup) ·
+[Key links](#key-links)
 
 ## Why Concord exists
 
@@ -31,21 +32,21 @@ a concrete type without a runtime guard invites undefined behavior and crashes.
 You cannot fix an unsafe cast by shouting at the compiler, and you cannot fix an
 agent's semantic drift by stuffing more instructions into a prompt.
 
-Concord supplies the structural runtime guard. It enforces workflow conditions,
-outcome predicates, and evidence bindings outside the model's context
-window before state transitions commit:
+Concord supplies the structural runtime guard. It enforces workflow conditions
+and evidence bindings outside the model's context window before state
+transitions commit:
 
 - **Completion requires evidence.** Concord refuses completion requests until
   the required evidence types are durably bound. An agent's claim that work is
   finished cannot substitute for verified evidence.
-- **Goals are fixed before work begins.** The operator approves outcome
-  predicates first. At acceptance, Concord measures the delivered result
-  against those predicates rather than against an agent's summary.
-- **Domains own code roots exclusively.** Codebases partition into Domains that
-  own distinct code roots and hold typed architectural facts. Concurrent
-  execution blocks conflicting writes—such as overlapping policy edits, domain
-  boundary shifts, or relation changes—while allowing parallel work across
-  independent domains.
+- **Contracts lock goals before implementation.** Each work item records an
+  approved contract before implementation. Operator approval is required for
+  product direction, UI/UX, production application data, security, increased
+  spending, and legal obligations.
+- **Domains organize Product law.** A registry partitions law across Domains.
+  Each law record has one home Domain, and dependency and shared-contract
+  relations between Domains name the governing law. Two items with approved
+  Product-changing contracts can record an overlap resolution that orders them.
 - **Every refusal names its remedy.** Refusals are strictly typed and state
   which condition failed, directing a blocked agent to the corrective path
   rather than leaving it to guess.
@@ -65,29 +66,35 @@ coordination requires mechanical gates enforced outside the context window.
 
 ### How: the evidence-gated lifecycle
 
-Every change progresses through five deterministic enforcement stages:
+Every item starts with intake and its typed checks. Intake can proceed, mark
+the work already handled, decline it, or split or merge it. The driving agent
+then picks a type. Concord copies its required steps from the
+[template contract](contracts/workflow-step-templates.v1.json) into one JSON plan
+on the item's workflow row:
 
-1. **Lock the goal before work starts.**
-   - *Why*: Prevents agents from moving the goalposts when tasks get difficult.
-   - *How*: The operator approves *outcome predicates* upfront—exact assertions
-     like passing test locators, schema outputs, or file states. Concord checks
-     completion against these predicates, never against an agent's summary.
-2. **Isolate execution in dedicated worktrees.**
-   - *Why*: Prevents changes from bleeding across packages or breaking trunk.
-   - *How*: Concord boots each task in an isolated Git worktree pinned to an
-     approved path scope. Operations outside the assigned paths are refused.
-3. **Record verification evidence.**
+- **Change**: clarify, plan, implement, review.
+- **Fix**: diagnose, clarify, plan, implement, review.
+- **Research**: clarify, frame, investigate, conclude.
+- **Removal**: clarify, list, implement, review.
+
+Steps may be inserted between required steps; the plan stays a directed acyclic
+graph (DAG). A step that carries review passes only with a recorded typed review.
+Host tools own branch and worktree creation, placement, recovery, and removal.
+
+The lifecycle keeps these evidence gates:
+
+1. **Record verification evidence.**
    - *Why*: Review needs test results for the same commit it judges.
    - *How*: The coordinator binds an attributed local or required CI report with
      its source, commit, result and run reference. Concord compares recorded
      commits; independent review judges adequacy. Concord does not run the tests.
-4. **Require independent review.**
+2. **Require independent review.**
    - *Why*: The author must not approve their own work.
    - *How*: The coordinator obtains independent review through the host's native
      Task tool and records its typed outcome against the current candidate.
      Concord checks the recorded subject and findings, not which subagent
      produced the review. The coordinator owns that independence claim.
-5. **Gate terminal transitions on recorded evidence.**
+3. **Gate terminal transitions on recorded evidence.**
    - *Why*: Keeps completion tied to recorded evidence for the reviewed commit.
    - *How*: When an agent requests a `completed` transition, Concord validates
      every required evidence binding and refuses the transition with
@@ -95,7 +102,7 @@ Every change progresses through five deterministic enforcement stages:
 
 ### Verification in practice
 
-The [terminal-gate integration test](internal/agent/trunk_firewall_test.go#L116-L174)
+The [terminal-gate integration test](internal/agent/trunk_firewall_test.go#L117-L163)
 demonstrates this gate directly:
 
 | Scenario | Agent action | Engine verdict |
@@ -190,11 +197,11 @@ overhead:
 
 - **`concord-law-writing`**: Draft, amend, or prune Product specifications and
   decisions without altering obligations or approval boundaries.
+- **Concord structure**: Skills for architecture reference, README writing,
+  multi-repository work, self-repair, and ticket-frontend coordination.
 - **Engineering methods**: Portable skills for diagnosis, codebase design,
-  work shaping, instruction writing, and retrospectives.
-- **Dependency selection by total cost**: Evaluates dependencies by total
-  engineering cost rather than minimizing dependency counts, favoring
-  established libraries over bespoke reinvention.
+  architecture improvement, work shaping, review, instruction writing, and
+  retrospectives.
 
 ## Architecture and tradeoffs
 
@@ -228,13 +235,13 @@ Complex agent workflows cannot fit into a single directed acyclic graph (DAG) wi
 
 1. **Task coordination graph (`blocks`, `depends_on`)**
    - *Why*: Manages inter-task dependencies and parallel execution queues.
-   - *How*: Directed relations from the [relation vocabulary](contracts/relation-vocabulary.v1.json) filter tasks from the [ready queue](internal/store/query.go). When concurrent tasks touch the same Domain, the later agent merges the earlier change and an [overlap resolution](internal/store/workflow_domain_overlap.go) can record their order.
+   - *How*: Directed relations from the [relation vocabulary](contracts/relation-vocabulary.v1.json) filter tasks from the [ready queue](internal/store/query.go). A recorded [overlap resolution](internal/store/workflow_domain_overlap.go) adds a `depends_on` or `blocks` relation between two items that hold approved Product-changing contracts in the same Product.
 2. **Per-item step plans (Workflow execution)**
    - *Why*: Real engineering needs inserted send-back steps, conditional clarify, and repeated attempts that a fixed chain cannot express.
    - *How*: Every workflow starts with intake, then picks a type — change, fix, research, or removal — whose required steps are copied from the [template contract](contracts/workflow-step-templates.v1.json) into one JSON plan stored on the item's workflow row. Steps may be inserted between required steps; the plan stays a DAG because a send-back is a new step after the current one, never a backwards edge. One plan-write check guards every write; inspect the [plan module](internal/store/workflow_step_plan.go) and [action admission](internal/store/workflow_preflight.go).
 3. **Architectural authority graph (Domains and specifications)**
-   - *Why*: Tracks how specifications and codebases relate across multi-repository projects.
-   - *How*: Law relations model refinement, supersession, and conflict across specifications. Domain relations declare boundary dependencies, shared contracts, and replacements. Inspect the [committed law-folder snapshot](internal/store/law_snapshot.go) and [law validation](internal/store/law_boundary.go).
+   - *Why*: Tracks how law records and Domains relate within a Product.
+   - *How*: Law relations model refinement, subordination, and conflict across law records. Domain relations declare boundary dependencies, shared contracts, and replacements. Inspect the [committed law-folder snapshot](internal/store/law_snapshot.go) and [law validation](internal/store/law_boundary.go).
 4. **Provenance graph (Evidence bindings)**
    - *Why*: Records who produced what without prematurely declaring work accepted.
    - *How*: [Evidence bindings](internal/store/workflow.go) tie immutable artifacts to specific producers, run timestamps, and watermark digests. Gathering evidence and evaluating acceptance remain decoupled operations.
@@ -277,14 +284,6 @@ bin/oc-test store-shard 1 7
 The tier uses CI's `scripts/go-test-shard.py` selection with discovery inside admission. Required CI owns the whole-suite store pass; locally, the tier reproduces or investigates one failing shard, and it is not a pre-push step. A shard is a CI-placement tool, not a default local coverage choice.
 
 Heavy tiers refuse to start without the host test gate. Every tier caps each file a test writes at 1024 MiB; a writer that reaches the cap is normally killed by SIGXFSZ. `PASS` reports the command's exit status, not proof that a named test matched. To see admission and selection without running tests, use `bin/oc-test plan targeted -- <command>`. [`bin/oc-test`](bin/oc-test) documents the per-run override and host admission; the [CI workflow](.github/workflows/ci.yml) defines the required repository checks.
-
-## Roadmap
-
-Development directions extend the same authority and evidence model without
-compromising local verification:
-
-- **Release compatibility.** Expand release gates to exercise snapshot restoration
-  across earlier released binaries and candidate releases.
 
 ## Install and setup
 
@@ -345,27 +344,15 @@ host placement grants no workflow authority.
 The [installation guide](.concord/docs/installation.md) covers artifact
 verification, managed paths, repair, upgrade, and uninstall.
 
-<details>
-<summary>Upgrade note: retirement of the planning mirror</summary>
+## Key links
 
-### Planning retirement upgrade
-
-`concord upgrade` writes a verified snapshot of the unmigrated store to the
-data root's `backups` directory before any breaking migration applies, and
-names it in its report as `backup`. Migration 124 dropped unsent
-planning-mirror writes, Initiative projections, Linear Project links, and the
-Product planning-mode column. It kept a recorded issue identity only when both
-its issue key and URL were non-empty. Use the backup for any reconciliation
-through the Linear MCP server.
-
-</details>
-
-## Learn more
-
+- [Product vision](.concord/docs/product-vision.md)
+- [Product law](.concord/law/)
+- [Architecture reference](.concord/docs/core-architecture.md)
+- [Documentation index](.concord/docs/README.md)
 - [Installation guide](.concord/docs/installation.md)
 - [OpenCode adapter guide](adapter/opencode/README.md)
-- [Managed development authority](.concord/law/specs/managed-development-authority.md)
-- [Documentation index](.concord/docs/README.md)
+- [Contribution guidance](CONTRIBUTING.md)
 
 ## Contributing
 

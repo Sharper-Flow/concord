@@ -265,8 +265,8 @@ func TestWorkRemovalDeletesPlanAndRemovalScopeRecords(t *testing.T) {
 			work := "plan-removal-" + tc.typ
 			seedWork(t, s, work)
 			drivePlanDocumentForTest(t, s, work, tc.typ, tc.action, tc.document)
-			// The reported failure: a cancelled item that already recorded its
-			// plan document cannot be removed.
+			// A cancelled item that already recorded its plan document must
+			// still be removable.
 			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard VALUES(1); UPDATE work_items SET lifecycle='cancelled' WHERE id=?; DELETE FROM write_guard`, work); err != nil {
 				t.Fatal(err)
 			}

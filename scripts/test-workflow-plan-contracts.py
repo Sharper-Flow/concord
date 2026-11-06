@@ -11,12 +11,12 @@ class WorkflowPlanProjectionTest(unittest.TestCase):
     def test_advertised_action_fields_match_authoring_fields(self):
         result = subprocess.run(["go", "run", "./scripts/workflow-action-contracts"], cwd=ROOT, text=True, capture_output=True, check=True)
         projection = json.loads(result.stdout)
-        # Guard against guidance advertising fields the engine refuses (CON-1778).
+        # Intents and the served schema read public_payload; admission reads payload.
         for action in projection["actions"]:
             for variant in action["variants"]:
                 authoring = {field["name"]: field for field in variant["payload"]["fields"]}
-                advertised = {field["name"]: field for field in variant.get("public_payload", variant["payload"])["fields"]}
-                with self.subTest(action=action["id"], variant=variant.get("id")):
+                advertised = {field["name"]: field for field in variant["public_payload"]["fields"]}
+                with self.subTest(action=action["id"]):
                     self.assertEqual(set(advertised), set(authoring), f'{action["id"]}: field names differ')
                     for name in authoring:
                         self.assertEqual(advertised[name]["required"], authoring[name]["required"], f'{action["id"]}: {name} required differs')

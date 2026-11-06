@@ -17,6 +17,9 @@ review a Product's durable architecture reference, glossary, or cross-cutting
 concepts, to plan an architectural change, or to route a plan's lasting outputs
 to law, reference, or glossary at final review.
 
+Load [README writing](concord-readme-writing/SKILL.md) to create or improve a
+repository README, with audience resolution and repository-mode-aware key links.
+
 Load [Ticket frontend](concord-ticket-frontend/SKILL.md) when work is driven
 through the ticket frontend and an operator question or resume arises.
 
@@ -66,6 +69,10 @@ Architecture writing adapts the glossary format, the ADR selection test, the
 to-spec plan additions, and the wayfinder decision-map idea from
 [mattpocock/skills](https://github.com/mattpocock/skills/commit/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d)
 and keeps its upstream MIT notice in `concord-architecture-writing/LICENSE`.
+
+README writing adapts .agents/writing-docs.md and skills/in-progress/writing-shape
+from [mattpocock/skills](https://github.com/mattpocock/skills/commit/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d)
+and keeps its upstream MIT notice in `concord-readme-writing/LICENSE`.
 
 ## Delivery
 

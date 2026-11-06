@@ -111,7 +111,9 @@ test("the published workflow_action variants state each action's exact required 
   // The registry declares approve_contract's fields required: the published
   // variant input schema states that requirement.
   const approve = actionVariantInput(schema, "approve_contract")
-  expect(approve.required).toEqual(["work_id", "expected_version", "action_id", "idempotency_key", "fields"])
+  // approve_contract no longer requires fields: its last required field
+  // retired with CON-1710 under CD-0243 D3.
+  expect(approve.required).toEqual(["work_id", "expected_version", "action_id", "idempotency_key"])
   // The retired result-size budget object is named nowhere on the published
   // surface; time is bounded only by requested_budget_seconds.
   expect(JSON.stringify(schema)).not.toContain('"budget"')
@@ -127,62 +129,9 @@ test("the published workflow_action variants state each action's exact required 
 // core-admitted string, and x-maxBytes/x-minBytes carry the enforcing byte
 // bounds this adapter's schema validator applies. These cases run through
 // the same validateAgainstSchema the request conformance suite uses.
-test("published string bounds admit and refuse with the core in both directions on multibyte boundaries", () => {
-  const schema = publishedSchema("concord_work_transition")
-  // The premise lives on every branch of the fields union, so the bound
-  // check reads each branch, never the factored parent view alone.
-  const premises = actionFieldsBranches(actionVariantInput(schema, "approve_contract"))
-    .filter((fields: any) => fields.properties?.premise)
-    .map((fields: any) => fields.properties.premise)
-  expect(premises.length).toBeGreaterThan(0)
-  for (const premise of premises) {
-    expect(premise["x-maxBytes"]).toBe(4096)
-    expect(premise["x-minBytes"]).toBe(2)
-    expect(premise.minLength).toBe(1)
-    expect(premise.maxLength).toBe(4096)
-  }
-  const approveCall = (value: string) => ({
-    operation: "workflow_action",
-    input: {
-      work_id: "work-multibyte-parity",
-      expected_version: 4,
-      action_id: "approve_contract",
-      idempotency_key: "idem-multibyte-parity",
-      fields: {
-        premise: value,
-        route_conventions: [],
-        spec_mandate: [],
-        law_modifies: [],
-        decision_domains: [],
-        rigor_class: "prototype_internal",
-      },
-    },
-  })
-  // One code point of two bytes: the core byte floor admits it, so the
-  // published bounds must admit it too.
-  const failures: string[] = []
-  expect(validateAgainstSchema(schema, approveCall("é"), failures), failures.join("; ")).toBe(true)
-  // One byte under the two-byte floor: the core refuses it and
-  // x-minBytes refuses it, though the derived code-point minLength is 1.
-  expect(validateAgainstSchema(schema, approveCall("v"), failures)).toBe(false)
-  expect(failures.join("; ")).toContain("carries 1 UTF-8 bytes against a minimum of 2")
-  // The byte maximum in ASCII: admitted on both counts.
-  expect(validateAgainstSchema(schema, approveCall("v".repeat(4096)), failures)).toBe(true)
-  // 4096 code points of two bytes each: 8192 bytes, over the byte maximum
-  // the core enforces, under the code-point maxLength — only x-maxBytes
-  // refuses it.
-  expect(validateAgainstSchema(schema, approveCall("é".repeat(4096)), failures)).toBe(false)
-  expect(failures.join("; ")).toContain("UTF-8 bytes against a limit of 4096")
-})
-
-// --- The parity oracle -----------------------------------------------------
-//
-// The compact publication must stay semantically lossless against the
-// authored payload contract. Two independent authorities decide every
-// verdict: the generated payload validator runs the authored schema
-// document, and the host validator runs the raw compact published document
-// and the final hooked argument root. The expanded view never decides
-// admission; it only selects branches for structural comparison.
+// The premise multibyte-parity test retired with its field (CON-1710,
+// CD-0243 D3): approve_contract no longer carries a byte-bounded string
+// field whose core floor and published bounds must agree.
 
 // authoredInput is the authored schema document for one operation input,
 // used as the independent oracle surface.

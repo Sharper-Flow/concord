@@ -135,8 +135,7 @@ test("published tool arguments expose a host-safe request shape", async () => {
   const actionBranch = actionInput(transition, "approve_contract")
   const fieldsBranches = actionFieldsBranches(actionBranch)
   expect(fieldsBranches, "approve_contract fields branches").toHaveLength(1)
-  expect(fieldsBranches[0].required).toContain("decision_domains")
-  expect(fieldsBranches[0].properties.decision_domains).toBeObject()
+  // decision_domains retired by CON-1710 under CD-0243 D3.
   expect(fieldsBranches[0].additionalProperties).toBe(false)
   expect(fieldsBranches[0].properties.legislative_subjects.maxItems).toBe(800)
   // The branch names the conditional action fields, so a calling agent can
@@ -144,16 +143,10 @@ test("published tool arguments expose a host-safe request shape", async () => {
   for (const field of ["action_id"]) {
     expect(actionBranch.properties[field], field).toBeObject()
   }
-  // The approval premise an author writes is the published action field, so
-  // it carries the unit guidance: code points, the UTF-8 byte admission, and
-  // its distinction from packet and model-token limits.
+  // The approval premise's unit-guidance assertions retired with the field
+  // (CON-1710, CD-0243 D3): approve_contract publishes no premise property.
   for (const fields of fieldsBranches) {
-    const premise = fields.properties.premise
-    expect(premise.maxLength).toBe(4_096)
-    expect(premise.description).toContain("Unicode code points")
-    expect(premise.description).toContain("UTF-8 bytes")
-    expect(premise.description).toContain("model-token limit")
-    expect(premise.description).toContain("Do not truncate an approved objective")
+    expect(fields.properties.premise).toBeUndefined()
   }
 })
 

@@ -34,10 +34,15 @@ the evidence records citing it stay green.
 
 ## Decision
 
-### D1. Shipped definitions classify; the corpus exercises the classification
+### D1. The picked workflow type classifies; the corpus exercises the classification
 
-The shipped built-in workflow definitions classify `changes_product_truth` per
-work kind. No definition exists solely to give the conformance corpus a
+The picked workflow type classifies `changes_product_truth`: `research` is
+non-Product-changing, and `change`, `fix`, and `removal` are Product-changing.
+The closed type list lives in
+[`contracts/workflow-step-templates.v1.json`](../../../contracts/workflow-step-templates.v1.json);
+the work kind stays capture metadata and does not classify
+([CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution)).
+No workflow type exists solely to give the conformance corpus a
 non-Product-changing target.
 
 ### D2. Scenarios select what production runs

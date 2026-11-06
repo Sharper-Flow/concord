@@ -40,7 +40,8 @@ snapshots never masquerade as current authority.
 **Implication.** CD-0006 R3 retains hard/soft `depends_on` edges and bounded
 freshness checks. CD-0222 adds a typed architecture binding to every
 Product-changing contract. Intersecting affected Domains block neither item:
-Concord records the relation, and the later merge reconciles through Git
+an agent may record the sequencing as a relation, and the later merge
+reconciles through Git
 ([CD-0222 D6](../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md#d6-concurrent-work-reconciles-through-git));
 exact law/Domain/relation writes are marked as write overlap. Architecture and
 law checks rerun inside every consequential mutation. Version stamps supply

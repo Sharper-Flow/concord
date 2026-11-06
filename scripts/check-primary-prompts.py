@@ -27,8 +27,9 @@ install it. This check proves the example contract in CD-0154:
   portable surface   no host-specific research tool names appear in any
                      frontmatter; host tool configuration stays outside the
                      example
-  conduct ownership  technical-unknown evidence stays in the installed
-                     conduct corpus, not in the portable example
+  conduct ownership  technical-unknown evidence and the law-context obligation
+                     stay in the installed conduct corpus, not in the portable
+                     example
   intake restriction the intake definition keeps its write and workflow
                      denials
 
@@ -367,6 +368,8 @@ def check_primary_prompts(root: Path) -> list[str]:
                 findings.append(f"{name} frontmatter does not declare mode: primary")
             if any(marker in flat for marker in LOOKUP_OBLIGATION_MARKERS):
                 findings.append(f"{name} duplicates the technical-unknown conduct obligation")
+            if any(marker in flat for marker in LAW_CONTEXT_MARKERS):
+                findings.append(f"{name} duplicates the law-context conduct obligation")
         except ValueError as error:
             findings.append(f"{name} is malformed: {error}")
 

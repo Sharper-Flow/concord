@@ -85,8 +85,8 @@ re-litigate them silently.
 ### R2. Architecture-bound related work
 - **Architecture boundary under CD-0222:** Product-changing contracts declare one home Domain,
   all affected Domains, exact law revisions, and authorized writes. Concurrent
-  overlap blocks neither item: Concord records the relation, and the item that
-  merges later reconciles through Git
+  overlap blocks neither item: an agent may record the sequencing as a relation,
+  and the item that merges later reconciles through Git
   ([CD-0222 D6](../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md#d6-concurrent-work-reconciles-through-git)).
 
 ### R3. Factored lifecycle truth

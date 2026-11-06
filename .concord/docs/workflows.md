@@ -140,8 +140,10 @@ CD-0222 adds one non-optional preflight for Product-changing workflow types. An
 approved contract carries one home Domain, all affected Domains, exact governing
 law revisions, authorized law/Domain/relation modifications, and law-linked
 verification obligations. Overlap with another nonterminal Product-changing
-contract blocks neither item: Concord records the overlap as a `depends_on` or
-`blocks` relation, and the item that merges later reconciles through Git
+contract blocks neither item: an agent may record the sequencing as a
+`depends_on` or `blocks` relation through
+`concord_work_relate.resolve_overlap`, and the item that merges later
+reconciles through Git
 ([CD-0222 D6](../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md#d6-concurrent-work-reconciles-through-git)).
 Architecture and law checks rerun inside the transaction at every consequential
 mutation (D7).

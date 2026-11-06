@@ -30,7 +30,8 @@ You own your item's issue. Set an issue to In Progress when you begin work on
 it, not when it is assigned. When you stop working on it without finishing —
 a pause, a wait for an operator answer, a hold, a handoff, a retirement —
 set it back to Todo with one comment saying why it stopped and what resumes
-it. While its pull request waits on review, CI or merge, set it to In Review.
+it. While its pull request waits on review, CI or merge, the item is In
+Review, not Todo.
 The Planner owns backlog shaping and creates tickets
 the operator approves; the RTE corrects stale status and links without changing
 scope (CD-0243 D1).

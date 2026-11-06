@@ -268,8 +268,8 @@ Every named Domain and law must resolve inside the derived Product scope. A
 modified Domain must be affected. A modified or added law must be owned by an
 affected Domain. Law modifications remain a subset of the approved mandate.
 Law additions stay disjoint from modifications and existing law. Verification
-obligations name current mandated law and an obligation declared by the workflow
-type. Local attachment mutations use expected versions.
+obligations name current mandated law and a closed workflow evidence kind.
+Local attachment mutations use expected versions.
 
 A work item whose picked workflow type is non-Product-changing cannot write
 Product law, Domain identity, Domain relations, or Product behavior. Research

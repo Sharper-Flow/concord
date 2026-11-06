@@ -1,7 +1,7 @@
 ---
 {
   "id": "CD-0124",
-  "title": "Workflow verify evidence recovery",
+  "title": "Workflow evidence binding",
   "authority": {
     "tier": "derived"
   },
@@ -15,11 +15,11 @@
   ]
 }
 ---
-# CD-0124: Workflow verify evidence recovery
+# CD-0124: Workflow evidence binding
 
 - **Status:** Accepted
 - **Date:** 2026-09-09
-- **Scope:** Ordinary evidence binding in break-fix workflows
+- **Scope:** Ordinary evidence binding on steps that declare it
 - **Authority:** Derived amendment under the ordinary Product-law route.
 - **Related:** CD-0013, CD-0122, issue #837
 - **Preserves:** Contract authority, evidence provenance,
@@ -31,9 +31,10 @@ Evidence may be bound without advancing the current workflow step.
 
 ## Decision
 
-### D1. Verify admits ordinary evidence binding
+### D1. Declaring steps admit ordinary evidence binding
 
-Break-fix declares `bind_evidence` on `verify`. The action has hold execution
+The workflow step templates declare `bind_evidence` on the execution and
+closing steps of every type. The action has hold execution
 mode and no approval requirement. An authenticated actor may bind evidence once
 the workflow reaches or passes a step declaring the action. While the plan is
 incomplete, a missing active contract does not block the binding; an ambiguous
@@ -44,8 +45,8 @@ watermark. A prior binding does not prevent a fresh binding.
 
 ### D2. Confirmation remains the advancing gate
 
-`bind_evidence` never advances `verify`. `confirm_premise` remains the only
-advancing action on that step. Binding is not a premise-confirmation gate.
+`bind_evidence` never advances a step. `confirm_premise` remains the
+premise-confirmation action. Binding is not a premise-confirmation gate.
 
 ### D3. Binding preserves authority and refuses unsafe input
 
@@ -65,8 +66,8 @@ deployment or stranded-work recovery.
 
 ## Verification
 
-- The break-fix definition declares `bind_evidence` on `verify` with hold
-  execution mode, while `confirm_premise` remains the only advancing action.
+- The workflow step templates declare `bind_evidence` with hold
+  execution mode; `confirm_premise` remains the premise-confirmation action.
 - Each refusal leg has an executable witness: invalid and stale requests —
   `internal/store.TestLateBindingRefusesUndeclaredEvidenceKind` and
   `internal/store.TestExternalCheckRecoveryPreservesEvidenceRefusals` refuse

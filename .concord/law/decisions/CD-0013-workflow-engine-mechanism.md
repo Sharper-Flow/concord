@@ -351,7 +351,7 @@ completion follows D10.
 | `.concord/law/decisions/CD-0008-concord-mechanism-hardening.md` | Extends D2, D4, D5, D6 with workflow evidence, checkpoints, conditions, and recovery. |
 | `.concord/law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md` | Preserves the stated goal, independent Review and forward-linking. |
 | `.concord/law/decisions/CD-0005-concord-agent-tool-surface.md` | Keeps `workflow_action` reserved; promotes `WorkflowActionAvailable` to registered-engine check. |
-| `.concord/docs/workflows.md` | Resolves the live-family shape with a single machine contract. |
+| `.concord/docs/workflows.md` | Describes the workflow types; each type's required steps live once in the template contract `contracts/workflow-step-templates.v1.json` (CD-0218 D1). |
 | `.concord/law/constitution/priorities.md` | New decision-tracker row; no priority reordering. |
 | `.concord/docs/rollout-plan.md` | New entry condition: workflow engine shipped before any non-trivial advancement through `workflow_action`. |
 | `.concord/docs/README.md` | Companion-table row; status prose adjusted. |

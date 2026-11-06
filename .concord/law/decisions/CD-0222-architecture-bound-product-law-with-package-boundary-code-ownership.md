@@ -233,9 +233,12 @@ checks.
 
 ### D5. Product-changing work carries one architecture binding
 
-Every workflow definition declares the closed boolean
-`changes_product_truth`. The registry owns that classification; callers and
-agents do not infer it from the work title or diff.
+The picked workflow type classifies the closed boolean
+`changes_product_truth`: `research` is non-Product-changing, and `change`,
+`fix`, and `removal` are Product-changing, over the closed type list in
+[`contracts/workflow-step-templates.v1.json`](../../../contracts/workflow-step-templates.v1.json)
+([CD-0065 D1](CD-0065-conformance-corpus-runs-what-production-runs.md#d1-the-picked-workflow-type-classifies-the-corpus-exercises-the-classification)).
+Callers and agents do not infer it from the work title or diff.
 
 An approved contract with `changes_product_truth=true` carries exactly one
 architecture binding:
@@ -266,14 +269,14 @@ modified Domain must be affected. A modified or added law must be owned by an
 affected Domain. Law modifications remain a subset of the approved mandate.
 Law additions stay disjoint from modifications and existing law. Verification
 obligations name current mandated law and an obligation declared by the workflow
-definition. Local attachment mutations use expected versions.
+type. Local attachment mutations use expected versions.
 
-Workflow definitions with `changes_product_truth=false` cannot write Product law,
-Domain identity, Domain relations, or Product behavior. Research may recommend a
-change; an architecture spike may enact a decision only through a separate
-Product-changing contract. The generic workflow type is always
-`changes_product_truth=false`; a Product-changing one-off must use a registered
-Product-changing type. The generic type cannot bypass this split.
+A work item whose picked workflow type is non-Product-changing cannot write
+Product law, Domain identity, Domain relations, or Product behavior. Research
+may recommend a change; an architecture spike may enact a decision only through
+a separate Product-changing contract. The `research` type is always
+`changes_product_truth=false`; an item that changes Product truth must pick a
+Product-changing workflow type. The `research` type cannot bypass this split.
 
 One carve-out bounds that split: a `changes_product_truth=false` contract may
 revise `derived` law in-contract. Its `law_modifies` may name only laws the

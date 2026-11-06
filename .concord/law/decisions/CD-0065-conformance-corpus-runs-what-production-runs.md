@@ -14,7 +14,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-23
 - **Scope:** How `.concord/scenarios/workflow-engine.v1.json` represents Product-changing
-  workflows; the shipped definition classification; issues #400, #405
+  workflows; the picked-workflow-type classification; issues #400, #405
 - **Approval:** Operator accepted the Option 1 proposal on 2026-08-23, answering
   the reviewer questions in
   [issue #405 comment](https://github.com/Sharper-Flow/concord/issues/405#issuecomment-5387211188);
@@ -48,8 +48,8 @@ non-Product-changing target.
 ### D2. Scenarios select what production runs
 
 A conformance scenario that exercises a picked workflow type selects a
-current production definition by reference. A scenario carries no definition
-version pin and may not select a definition production cannot run
+current production workflow type by reference. A scenario carries no version
+pin and may not select a workflow type production cannot run
 ([CD-0242 D14](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d14-generated-contracts-derive-from-one-source)).
 A scenario that proves a boundary before type selection — capture before a
 plan exists, or an unpicked plan's action refusal — selects none.
@@ -91,7 +91,7 @@ contract would be tested where production never enforces Product truth, leaving
 its records green while proving less than their text claims.
 
 **Keep the corpus non-Product-changing and add a second corpus.** This needs a
-shipped definition that exists only to keep the first corpus valid, and leaves
+workflow type that exists only to keep the first corpus valid, and leaves
 two corpora to keep in sync.
 
 ## Verification

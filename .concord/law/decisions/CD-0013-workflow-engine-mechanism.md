@@ -314,7 +314,7 @@ This decision produces:
 
 ## Deferred to implementation design
 
-1. **Per-family action enumeration.** Each family's available action list and the
+1. **Per-type action enumeration.** Each type's available action list and the
    exact step graph are implementation work, not part of this decision. The
    decision fixes the shape; the implementation fills it.
 2. **Audience commitment storage.** Runtime audience band storage and the

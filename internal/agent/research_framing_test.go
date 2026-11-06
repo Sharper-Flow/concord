@@ -93,7 +93,6 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 		t.Fatalf("refused record_finding moved the step to %q", step)
 	}
 
-	// Premise validation retired by CON-1710 under CD-0243 D3 (confirmed readerless).
 	stated := action("approve_contract", map[string]any{"legislative_subjects": []string{}}, "framing-gate-stated-question")
 	if stated.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract with a stated question = %+v, want success", stated.Error)

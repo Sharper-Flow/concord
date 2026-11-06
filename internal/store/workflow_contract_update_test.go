@@ -119,7 +119,6 @@ func contractRecordBindingSnapshot(t *testing.T, s *Store, workID string) string
 }
 
 func TestContractRecordUpdateRefusalsAreAtomic(t *testing.T) {
-	// retired by CON-1710 under CD-0243 D3 (confirmed readerless)
 	for _, mutant := range []string{"malformed", "unknown field", "null", "current version", "skipped version", "stale work version"} {
 		t.Run(mutant, func(t *testing.T) {
 			workID := "record-refusal-" + fmt.Sprint(len(mutant))

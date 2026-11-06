@@ -128,7 +128,7 @@ func TestWorkflowLawUpgradeCurrentContractRoutes(t *testing.T) {
 			seedWorkflowLaw(t, s)
 			seedWorkflowPlanFrontier(t, s, "upgrade-law", WorkflowStepPlanResearch, firstCallApprovalFrontier(t, WorkflowStepPlanResearch))
 			fields := map[string]any{
-				"legislative_subjects": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, }
+				"legislative_subjects": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}}
 			if action == "revise_intent" {
 				fields["contract_version"] = 2
 				if err := reviseContractRecord(t, s, "upgrade-law", owner, fields, readWorkVersion(t, s, "upgrade-law")); err != nil {

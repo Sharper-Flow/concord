@@ -110,7 +110,6 @@ payloads are typed objects, never free-form maps; unknown keys are refused
 | `ref` | lower-case registry/reference string, 2–128 chars |
 | `version`, `contract_version`, `attempt_epoch`, `request_id` sequence | positive integer, max 2,147,483,647 |
 | evidence/reference list | unique array, 0–32 items, each identifier |
-| candidate list | unique array, 1–100 items |
 | `actor_ref` | `actor:` plus lower-case content-hash reference |
 | `payload_version` | integer exactly `1` for v1 emission |
 
@@ -396,8 +395,7 @@ Each instance carries its own step plan ([section 2](#2-workflow-type-templates-
 | `workflow_decision_records` | `work_id TEXT`, `question TEXT`, `options_considered TEXT`, `decision TEXT`, `rationale TEXT`, `consequences TEXT`, `inputs TEXT`, `poc_findings TEXT`, `supersedes TEXT NULL`, `superseded_by TEXT NULL`, `recorded_at TEXT` | PK `(work_id,question)`; FK work; checks decision enum and required nonempty fields. Retained rows written before the step-plan cutover; they remain readable as recorded decisions, and the cutover's six-part plan record carries new in-flight decisions, so no current action writes new rows |
 | `workflow_premise_confirmations` | `work_id TEXT`, `contract_version INTEGER`, `confirmed_by TEXT`, `confirmed_at TEXT` | PK `(work_id,contract_version)`; composite FK contract; FK actor; actor class must be `operator` |
 
-No action records candidate
-role or scope fields. `consequence_class` is not defaulted: it is an explicit
+`consequence_class` is not defaulted: it is an explicit
 closed field recorded with contract approval. `target_kind` is closed to
 `work_item`, matching the `target_work_id` foreign key; product/project targets
 are not silently represented by a work foreign key.
@@ -431,7 +429,7 @@ Workflow state is current rows written by each mutation in one transaction, and 
 
 | Record | Current-row effect |
 |---|---|
-| intake recorded | insert the intake record row (its outcome and which of the fourteen checks found something) |
+| intake recorded | insert the intake record row (its outcome) |
 | clarify recorded | insert or replace the `workflow_clarify_records` row with the step document, work version, time, actor and event reference |
 | type picked | write the item's step plan in one row update through the plan-write check (§2.3); the initial pick copies the type's template; a later pick adds the new type's missing required steps only |
 | step inserted | add the inserted step through the plan-write check; an existing step never changes |
@@ -615,9 +613,8 @@ validation rather than being downgraded to prose or generic success.
 
 ## 12. Workflow types, prelude, and step admission
 
-Every workflow starts with **intake**: the driving session records the fourteen
-decided checks — which of them found something — and one of four outcomes
-(`proceed`, `already_handled`, `decline`, `split_or_merge`). The outcomes
+Every workflow starts with **intake**: the driving session records one of
+four outcomes (`proceed`, `already_handled`, `decline`, `split_or_merge`). The outcomes
 `already_handled`, `decline` and `split_or_merge` end or replace the item without
 picking a type. Then the type is picked (`change`, `fix`, `research` or `removal`)
 and its required steps, including **Clarify** before the type's planning step,

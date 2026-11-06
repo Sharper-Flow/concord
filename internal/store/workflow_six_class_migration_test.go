@@ -89,6 +89,3 @@ func sixClassSnapshot(t *testing.T, db *sql.DB, tables ...string) map[string][]s
 	return out
 }
 
-// TestSixClassMigrationCanonicalConstraint retired by CON-1710 under
-// CD-0243 D3: it asserted the decision_domains column's current-shape
-// canonicality constraints, and the column is retired by migration 190.

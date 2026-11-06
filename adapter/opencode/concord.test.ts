@@ -135,7 +135,6 @@ test("published tool arguments expose a host-safe request shape", async () => {
   const actionBranch = actionInput(transition, "approve_contract")
   const fieldsBranches = actionFieldsBranches(actionBranch)
   expect(fieldsBranches, "approve_contract fields branches").toHaveLength(1)
-  // decision_domains retired by CON-1710 under CD-0243 D3.
   expect(fieldsBranches[0].additionalProperties).toBe(false)
   expect(fieldsBranches[0].properties.legislative_subjects.maxItems).toBe(800)
   // The branch names the conditional action fields, so a calling agent can

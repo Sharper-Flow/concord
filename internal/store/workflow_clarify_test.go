@@ -322,6 +322,7 @@ func TestRemovalClarifyThenApproveContract(t *testing.T) {
 	act("complete_step", map[string]any{"step_id": "clarify", "note": "Clarification complete."})
 	act("record_removal_scope", map[string]any{"removed": []string{"file:one"}, "retiring_clauses": []string{}, "note": "Retire this."})
 	act("approve_contract", map[string]any{
+		"legislative_subjects": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"architecture_binding": WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}},
 	})
 }

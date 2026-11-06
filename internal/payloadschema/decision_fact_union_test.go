@@ -5,12 +5,6 @@ import (
 	"testing"
 )
 
-// Every contract declares its decision fact. The initial approve_contract
-// schema and complete contract updates both require the fact while the store
-// validates each call against the pinned family.
-// TestDecisionFactContractUnion retired by CON-1710 under CD-0243 D3:
-// the decision-fact field is retired.
-
 func TestContractAuthoringRejectsLawAttribution(t *testing.T) {
 	document := Document()
 	defs := document["$defs"].(map[string]any)
@@ -35,7 +29,3 @@ func TestContractAuthoringRejectsLawAttribution(t *testing.T) {
 		}
 	}
 }
-
-// TestSixClassDecisionFactSchemas retired by CON-1710 under CD-0243 D3:
-// the decision-fact field is retired.
-

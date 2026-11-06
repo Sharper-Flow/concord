@@ -243,7 +243,6 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
     const response = await invoke("concord_work_transition", "workflow_action", { work_id: workID, expected_version: await version(), action_id: actionID, idempotency_key: `handoff-e2e-${key}`, fields }, sourceContext)
     expect(response.outcome, `${actionID}: ${JSON.stringify(response)}`).toBe("ok")
   }
-  // note and checks_found retired by CON-1710 under CD-0243 D3 (confirmed readerless).
   await walk("record_intake", {
     outcome: "proceed",
   })
@@ -262,8 +261,6 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
   })
   const domainList = await invoke("concord_domain", "list", { product_id: PRODUCT_ID, page: { cursor: null, limit: 10 } }, sourceContext)
   expect(domainList.outcome).toBe("ok")
-  // premise, route_conventions and decision_domains retired by CON-1710
-  // under CD-0243 D3 (confirmed readerless).
   await walk("approve_contract", {
     legislative_subjects: [],
     spec_mandate: [],

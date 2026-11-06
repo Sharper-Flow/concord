@@ -45,9 +45,7 @@ and derived intents under CD-0113 D1–D3.
 History no longer carries the `workflow` sub-projection. Agent reads retire for
 the `record_plan` and `record_removal_scope` documents, `record_delivery`
 assertion and parked-delivery state, `record_diagnosis` backlog-alignment
-search, and intake and clarify answers. The candidate-ID and completion-warning
-writes those reads once served are themselves retired under CD-0243 D3
-(CON-1710); no gate read them. Linear owns planning, so Concord does not read back the plan, diagnosis or
+search, and intake and clarify answers. Linear owns planning, so Concord does not read back the plan, diagnosis or
 removal-scope documents; workflow gates retain their internal facts, mutation
 results provide `next_valid_intents`, and resume provides step state.
 The history read's `contract_version` selector retires with that sub-projection.

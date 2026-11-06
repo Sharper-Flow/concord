@@ -65,8 +65,6 @@ func TestCurrentActionPayloadContractsRefuseCrossActionAndInvalidFields(t *testi
 	}
 }
 
-// retired by CON-1710 under CD-0243 D3 (confirmed readerless)
-
 func TestRecordPlanPayloadContractIsTyped(t *testing.T) {
 	t.Parallel()
 	typed := json.RawMessage(`{"outcomes":"Deliver the change","approach":"Use the current plan","decisions":[{"id":"decision:one","question":"Which route?","choice":"native","rationale":"The adapter owns the route","rejected":[]}],"touches":["work:item"],"merge_split":"One change","risks":"Check the boundary"}`)

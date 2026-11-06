@@ -441,10 +441,6 @@ func actionIDListField(name string, required bool, lower, upper int64) WorkflowP
 	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(lower), MaxItems: workflowInt(upper), ItemRef: "id"}
 }
 
-func actionEnumListField(name string, required bool, upper int64, values ...string) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MaxItems: workflowInt(upper), Enum: values}
-}
-
 func actionProseListField(name string, required bool, lower, upper int64, itemRef string) WorkflowPayloadField {
 	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(lower), MaxItems: workflowInt(upper), ItemRef: itemRef}
 }
@@ -507,7 +503,6 @@ const workflowAlignmentCombinationTeaching = "record_diagnosis couples outcome a
 var builtinActionPolicies = map[string]builtinActionPolicy{
 	"record_discovery": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric),
 	"approve_contract": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
-		actionEnumField("route_convention", false, "workflow_action"),
 		actionContractVersionField(false),
 		actionLawListField("spec_mandate", false),
 		actionLawListField("law_modifies", false),

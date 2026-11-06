@@ -216,11 +216,11 @@ The implementation acceptance suite must exercise:
 
 1. An intent revision appends a retained contract version without changing earlier content.
 2. Work discovered outside the approved scope forward-links as successor work.
-4. Independent Review may correct its candidate; final review requires a clean pass.
-6. The lowest maturity × audience band still requires an approved contract;
+3. Independent Review may correct its candidate; final review requires a clean pass.
+4. The lowest maturity × audience band still requires an approved contract;
    only proof depth differs.
-7. Premise confirmation and the reported delivery remain terminal facts.
-8. Terminal metadata, lifecycle change and delivery links commit atomically.
+5. Premise confirmation and the reported delivery remain terminal facts.
+6. Terminal metadata, lifecycle change and delivery links commit atomically.
 
 ### Current-state mutations (CD-0008 binding)
 

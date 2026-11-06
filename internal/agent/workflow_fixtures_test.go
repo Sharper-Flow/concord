@@ -146,11 +146,7 @@ func workflowArchitectureBindingForSeededRegistry(t *testing.T, s *store.Store) 
 }
 
 func addWorkflowContractApprovalFields(input map[string]any) {
-	input["fields"] = workflowDecisionContractFieldsFixture()
-}
-
-func workflowDecisionContractFieldsFixture() map[string]any {
-	return workflowContractFieldsFixture()
+	input["fields"] = workflowContractFieldsFixture()
 }
 
 func workflowContractFieldsFixture() map[string]any {
@@ -164,7 +160,7 @@ func workflowContractFieldsFixture() map[string]any {
 
 func workflowContractActionInput(t *testing.T, s *store.Store, key string) json.RawMessage {
 	t.Helper()
-	fields := workflowDecisionContractFieldsFixture()
+	fields := workflowContractFieldsFixture()
 	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
 	return workflowContractActionInputWithFields(t, key, fields)
 }
@@ -288,7 +284,7 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 func TestWorkflowDecisionContractFieldsFixtureAccepted(t *testing.T) {
 	raw, err := json.Marshal(map[string]any{
 		"work_id": "work-1", "expected_version": 7, "action_id": "approve_contract",
-		"fields": workflowDecisionContractFieldsFixture(), "idempotency_key": "fixture-fields",
+		"fields": workflowContractFieldsFixture(), "idempotency_key": "fixture-fields",
 	})
 	if err != nil {
 		t.Fatal(err)

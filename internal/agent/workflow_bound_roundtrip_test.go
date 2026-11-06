@@ -31,9 +31,6 @@ func schemaDef(t *testing.T, name string) map[string]any {
 	return def
 }
 
-// TestGeneratedPremiseBoundMatchesStore retired by CON-1710 under CD-0243 D3:
-// the published premise bound and the store bound it checked are retired.
-
 func TestGeneratedReferenceDefMatchesStore(t *testing.T) {
 	t.Parallel()
 	schemaReference := schemaDef(t, "reference")
@@ -158,7 +155,7 @@ func TestBoundEvidenceReceiptsRoundTripThroughHistory(t *testing.T) {
 		t.Run(fmt.Sprintf("%d references", count), func(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
-			s, service, engine := workflowEngineFixture(t, "checkpoint evidence reaches history")
+			s, service, engine := workflowEngineFixture(t)
 			refs := make([]string, count)
 			for i := range refs {
 				prefix := fmt.Sprintf("artifact:checkpoint-%02d:", i)

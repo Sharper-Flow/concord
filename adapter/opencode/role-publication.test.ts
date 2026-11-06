@@ -124,7 +124,6 @@ test("grants select whole tools and never trim a published schema", async () => 
     expect(expanded.oneOf, tool).toHaveLength(operations.length)
   }
   expect(registeredBytes.get("concord_work_transition")).toBe(29_951)
-  // revise_candidates retired by CON-1710 under CD-0243 D3.
   expect(workflowActionPublicVariants.length).toBe(21)
 })
 

@@ -4291,16 +4291,6 @@
           "additionalProperties": false,
           "maxProperties": 32,
           "properties": {
-            "route_convention": {
-              "type": "string",
-              "enum": [
-                "workflow_action"
-              ],
-              "description": "Accepted shape: one of \"workflow_action\"; example: \"workflow_action\"",
-              "examples": [
-                "workflow_action"
-              ]
-            },
             "contract_version": {
               "type": "integer",
               "minimum": 1,

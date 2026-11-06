@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test"
 import { readFileSync } from "node:fs"
 import { contractOperations, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
-import { expandedPublishedRequestSchema, validateGeneratedPayload, actionFieldsBranches } from "./generated-contract-tests"
+import { expandedPublishedRequestSchema, validateGeneratedPayload } from "./generated-contract-tests"
 import { validateAgainstSchema } from "./core-runtime"
 
 const adapter = await import("./concord")
@@ -129,9 +129,36 @@ test("the published workflow_action variants state each action's exact required 
 // core-admitted string, and x-maxBytes/x-minBytes carry the enforcing byte
 // bounds this adapter's schema validator applies. These cases run through
 // the same validateAgainstSchema the request conformance suite uses.
-// The premise multibyte-parity test retired with its field (CON-1710,
-// CD-0243 D3): approve_contract no longer carries a byte-bounded string
-// field whose core floor and published bounds must agree.
+test("published string bounds admit and refuse with the core in both directions on multibyte boundaries", () => {
+  const schema = publishedSchema("concord_work_transition")
+  const variant = actionVariantInput(schema, "record_diagnosis")
+  const searched = variant.properties.fields.properties.searched
+  expect(searched).toBeObject()
+  expect(searched["x-maxBytes"]).toBe(4096)
+  expect(searched["x-minBytes"]).toBe(2)
+  const diagnosisCall = (value: string) => ({
+    operation: "workflow_action",
+    input: {
+      work_id: "work-multibyte-parity",
+      expected_version: 4,
+      action_id: "record_diagnosis",
+      idempotency_key: "idem-multibyte-parity",
+      fields: {
+        reproduction: "é",
+        searched: value,
+        outcome: "none_found",
+        root_cause: "é",
+      },
+    },
+  })
+  // One code point of two bytes: the core byte floor admits it, so the
+  // published bounds must admit it too.
+  const failures: string[] = []
+  expect(validateAgainstSchema(schema, diagnosisCall("é"), failures), failures.join("; ")).toBe(true)
+  // One byte under the two-byte floor: the core refuses it and
+  // x-minBytes refuses it, though the derived code-point minLength is 1.
+  expect(validateAgainstSchema(schema, diagnosisCall("v"), failures), failures.join("; ")).toBe(false)
+})
 
 // authoredInput is the authored schema document for one operation input,
 // used as the independent oracle surface.

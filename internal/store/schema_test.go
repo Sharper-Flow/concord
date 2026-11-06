@@ -1397,8 +1397,6 @@ func TestMigration53RejectsInvalidNativeRunVerificationState(t *testing.T) {
 	}
 }
 
-// retired by CON-1710 under CD-0243 D3 (confirmed readerless)
-
 func TestMigration54UpgradesValidRigorClass(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

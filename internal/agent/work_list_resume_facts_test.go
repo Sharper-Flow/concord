@@ -12,7 +12,7 @@ import (
 )
 
 func TestWorkListDispatchItemFullNativeRun(t *testing.T) {
-	s, _, _ := workflowEngineFixture(t, "list native run")
+	s, _, _ := workflowEngineFixture(t)
 	_, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1);
 		INSERT INTO workflow_native_runs(work_id,run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at,capture_method,observed_universe,freshness_policy_ref,divergence_policy_ref)
 		VALUES('work-1','run-1','start','started','event-1','client-1','actor-1','run:1',?,'evidence:1','digest','2026-08-20T12:00:00Z','2026-08-20T12:00:00Z','trusted_client_report','{}','policy','policy'); DELETE FROM write_guard`, "sha256:"+strings.Repeat("a", 64))
@@ -71,7 +71,7 @@ func TestWorkListDispatchItemFullNativeRun(t *testing.T) {
 
 func TestWorkListFactProjectionSchema(t *testing.T) {
 	ctx := context.Background()
-	s, _, _ := workflowEngineFixture(t, "list fact projection")
+	s, _, _ := workflowEngineFixture(t)
 	r := runtime{Store: s, Tool: "concord_work_browse", Operation: "list", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
 	q, err := s.QueryQ3(ctx, store.Q3Request{Product: "product-1", WorkIDs: []string{"work-1"}, Detail: "full"})
 	if err != nil || len(q.Items) != 1 {

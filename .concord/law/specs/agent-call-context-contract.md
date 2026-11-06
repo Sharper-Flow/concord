@@ -227,8 +227,7 @@ Product/Project restrictions are evaluated in addition to capability class.
 Operator consent is conversational, governed by CD-0243 D2's six operator
 approval classes: when a class applies, the agent asks the operator in
 conversation and records the answer in the existing work record; when no class
-applies, no ask is owed. The workflow's declared decision domains name the
-contract's decision class wherever one determines the ask.
+applies, no ask is owed.
 
 Authorization is the trusted client's capability scope plus
 the core's own admission checks.

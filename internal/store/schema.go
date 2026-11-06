@@ -9198,6 +9198,13 @@ CREATE TRIGGER workflow_clarify_records_guard_delete BEFORE DELETE ON workflow_c
 		SQL: `
 DROP TABLE workflow_candidate_sets;
 
+INSERT OR IGNORE INTO write_guard(active) VALUES(1);
+UPDATE workflow_instances SET prelude_state=json_remove(prelude_state,'$.intake.note','$.intake.checks_found')
+WHERE json_type(prelude_state)='object'
+  AND (json_extract(prelude_state,'$.intake.note') IS NOT NULL
+    OR json_extract(prelude_state,'$.intake.checks_found') IS NOT NULL);
+DELETE FROM write_guard;
+
 PRAGMA defer_foreign_keys = ON;
 
 CREATE TEMP TABLE workflow_premise_confirmations_v190_backup AS SELECT * FROM workflow_premise_confirmations;

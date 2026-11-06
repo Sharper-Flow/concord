@@ -770,7 +770,7 @@ func TestWorkflowActionDispatchPersistsDefinitionContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	fields := workflowDecisionContractFieldsFixture()
+	fields := workflowContractFieldsFixture()
 	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
 	input := retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "approve_contract", "fields": fields, "idempotency_key": "wf-approve-contract"})
 	approved, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)

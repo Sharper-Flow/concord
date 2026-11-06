@@ -71,8 +71,6 @@ test("published approval validates contract fields", () => {
   const schema = adapter.publishedRequestSchema("concord_work_transition") as any
   const fields = actionFieldsBranches(actionInputBranch(schema, "approve_contract"))
   expect(fields).toHaveLength(1)
-  // premise and decision_domains retired by CON-1710 under CD-0243 D3;
-  // the closed shape still validates the surviving bounded fields.
   const request = { operation: "workflow_action", input: {
     work_id: "work-conformance", expected_version: 2, action_id: "approve_contract",
     idempotency_key: "idem-conformance", fields: {

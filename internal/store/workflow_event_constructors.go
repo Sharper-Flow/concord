@@ -60,9 +60,6 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, planType Wor
 }
 
 func workflowContractContent(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, workID string, fields map[string]json.RawMessage, requestedLawModifies []string) (map[string]any, error) {
-	if route, ok := workflowFieldString(fields, "route_convention"); ok && route != "workflow_action" {
-		return nil, newFailure(KindInvariantViolation, "workflow_action", "route convention is not declared by the workflow action boundary", false, "use a declared route convention")
-	}
 	contractVersion := workflowContractVersionField(fields, 1)
 	spec := workflowFieldStrings(fields, "spec_mandate")
 	if spec == nil {

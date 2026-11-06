@@ -16,7 +16,7 @@
 **Decision owner:** Operator
 **Accepted by operator:** 2026-08-08
 **Reviewer:** Independent review; three rounds, approved.
-**Scope:** Contract premise, independent Review, discovered work and revision authority.
+**Scope:** Stated goals, independent Review, discovered work and revision authority.
 **Amends:** CD-0006 D5 and D10 while preserving the spec mandate.
 **Amended:** 2026-10-18. [CD-0236](CD-0236-vacuity-is-judged-at-review.md) places vacuity judgment at Review.
 [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5 amends
@@ -106,12 +106,10 @@ Main obtains independent native Task Review of the accumulated solution.
 Implement cannot accept its own result. Review's step record names the reviewer,
 result, commit and actual result link under CD-0242 D5.
 
-
-
 ### D9. Premise confirmation is recorded
 
 The authenticated coordinator records confirmation of the active contract's
-premise. Completion retains that terminal fact.
+stated goal. Completion retains that terminal fact.
 
 ### D10. Proportional rigor scales the evidence depth
 

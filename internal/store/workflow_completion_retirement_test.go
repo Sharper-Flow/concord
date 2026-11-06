@@ -44,5 +44,3 @@ func TestWorkflowCompletionIgnoresRetiredPayloadDrift(t *testing.T) {
 		t.Fatalf("completion rechecked retired payload drift: %v", err)
 	}
 }
-
-// retired by CON-1710 under CD-0243 D3 (confirmed readerless)

@@ -16,7 +16,7 @@ import (
 
 // workflowEngineFixture seeds a workflow and returns an engine closure that
 // applies further workflow actions at the work item's current version.
-func workflowEngineFixture(t *testing.T, _ string) (*store.Store, *Service, func(string, map[string]any)) {
+func workflowEngineFixture(t *testing.T) (*store.Store, *Service, func(string, map[string]any)) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())

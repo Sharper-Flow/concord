@@ -114,7 +114,6 @@ func TestOrdinaryAlignmentReplacement(t *testing.T) {
 }
 
 func TestWorkflowRecordActionOwnership(t *testing.T) {
-	// retired by CON-1710 under CD-0243 D3 (confirmed readerless)
 	for _, action := range []string{"record_intake", "record_clarify", "record_plan", "record_diagnosis", "record_delivery", "record_review"} {
 		if !workflowRecordAction(action) {
 			t.Errorf("%s must own a current record", action)
@@ -163,8 +162,6 @@ func TestWorkflowCurrentRecordsIncludesPlanAndPrelude(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-
-// retired by CON-1710 under CD-0243 D3 (confirmed readerless)
 
 func TestOrdinaryDeliveryWritesHoldProgress(t *testing.T) {
 	for _, variant := range []string{"passed_step", "completed", "migrated"} {

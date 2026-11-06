@@ -71,7 +71,6 @@ type Project struct {
 }
 
 type projectionMutation func(context.Context, *sql.Tx, Event) error
-type scopedProjectionMutation func(context.Context, *sql.Tx, Event, *writeScope) error
 
 // EventAppendAuthority is the closed set of routes allowed to append an event.
 // The zero value is deliberately invalid so every registry entry must opt in.
@@ -91,16 +90,10 @@ type EventKindRegistration struct {
 	CurrentVersion  int
 	ValidatePayload func(Event) error
 	Authority       EventAppendAuthority
-	Fold            scopedProjectionMutation
+	Fold            projectionMutation
 }
 
 func registerEventKind[T any](currentVersion int, authority EventAppendAuthority, fold projectionMutation, semantic eventPayloadSemantic[T]) EventKindRegistration {
-	return registerScopedEventKind(currentVersion, authority, func(ctx context.Context, tx *sql.Tx, event Event, _ *writeScope) error {
-		return fold(ctx, tx, event)
-	}, semantic)
-}
-
-func registerScopedEventKind[T any](currentVersion int, authority EventAppendAuthority, fold scopedProjectionMutation, semantic eventPayloadSemantic[T]) EventKindRegistration {
 	return EventKindRegistration{
 		CurrentVersion: currentVersion,
 		ValidatePayload: func(event Event) error {
@@ -151,14 +144,14 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"project.locator_updated":           registerEventKind[projectLocatorPayload](2, EventAppendAuthorityGeneric, foldProjectLocatorUpdated, nil),
 	"project.locator_removed":           registerEventKind[projectLocatorPayload](1, EventAppendAuthorityGeneric, foldProjectLocatorRemoved, nil),
 	"work.created":                      registerEventKind[workCreatedPayload](4, EventAppendAuthorityGeneric, foldWorkCreated, nil),
-	"work.intent_revised":               registerScopedEventKind[workIntentPayload](1, EventAppendAuthorityGeneric, foldWorkIntentRevised, nil),
+	"work.intent_revised":               registerEventKind[workIntentPayload](1, EventAppendAuthorityGeneric, foldWorkIntentRevised, nil),
 	WorkRemoved:                         registerEventKind[workRemovedPayload](1, EventAppendAuthorityGeneric, foldWorkRemoved, nil),
 	"work.memberships_replaced":         registerEventKind[workMembershipsPayload](1, EventAppendAuthorityGeneric, foldWorkMembershipsReplaced, nil),
 	EventExternalObservationCaptured:    registerEventKind[externalObservationCapturedPayload](1, EventAppendAuthorityGeneric, foldExternalObservationCaptured, nil),
 	EventExternalObservationVerified:    registerEventKind[externalObservationVerifiedPayload](1, EventAppendAuthorityGeneric, foldExternalObservationVerified, nil),
 	"work.project_handoff_recorded":     registerEventKind[projectHandoffRecordedPayload](1, EventAppendAuthorityGeneric, foldProjectHandoffRecorded, validateProjectHandoffRecordedPayload),
 	"work.project_handoff_consumed":     registerEventKind[projectHandoffConsumedPayload](1, EventAppendAuthorityGeneric, foldProjectHandoffConsumed, nil),
-	"work.transitioned":                 registerScopedEventKind[workTransitionPayload](1, EventAppendAuthorityGeneric, foldWorkTransitioned, nil),
+	"work.transitioned":                 registerEventKind[workTransitionPayload](1, EventAppendAuthorityGeneric, foldWorkTransitioned, nil),
 	"work.reopened":                     registerEventKind[workReopenedPayload](1, EventAppendAuthorityGeneric, foldWorkReopened, nil),
 	"relation.added":                    registerEventKind[relationPayload](1, EventAppendAuthorityGeneric, foldRelationAdded, nil),
 	"relation.removed":                  registerEventKind[relationPayload](1, EventAppendAuthorityGeneric, foldRelationRemoved, nil),
@@ -250,16 +243,12 @@ func validateRegisteredEvent(event Event) error {
 	return err
 }
 
-func applyEffect(ctx context.Context, tx *sql.Tx, event Event, scopes ...*writeScope) error {
+func applyEffect(ctx context.Context, tx *sql.Tx, event Event) error {
 	prepared, err := prepareRegisteredEvent(event)
 	if err != nil {
 		return attributeFailure(err, event, prepared.stage)
 	}
-	var scope *writeScope
-	if len(scopes) == 1 {
-		scope = scopes[0]
-	}
-	if err := prepared.registration.Fold(ctx, tx, event, scope); err != nil {
+	if err := prepared.registration.Fold(ctx, tx, event); err != nil {
 		stage := StageFold
 		var failure *Failure
 		if failureAs(err, &failure) && failure.Stage != "" {
@@ -402,7 +391,7 @@ func applyOperationEventTx(ctx context.Context, tx *sql.Tx, event Event, expecte
 	}
 	event.Seq = seq
 	scope.eventIDs = append(scope.eventIDs, event.EventID)
-	if err := applyEffect(ctx, tx, event, scope); err != nil {
+	if err := applyEffect(ctx, tx, event); err != nil {
 		return err
 	}
 	return advanceWorkEffectSeqTx(ctx, tx, event)

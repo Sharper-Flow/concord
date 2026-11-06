@@ -157,7 +157,7 @@ func foldWorkCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 	return nil
 }
 
-func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
+func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
 	}
@@ -212,12 +212,12 @@ func foldWorkIntentRevised(ctx context.Context, tx *sql.Tx, event Event, scope *
 		return newFailure(KindProjectionNotFound, "fold_event", "work item does not exist at expected version", false, "reload the work item before revising intent")
 	}
 	if payload.Contract != nil {
-		return foldWorkIntentContractRevision(ctx, tx, event, scope, payload)
+		return foldWorkIntentContractRevision(ctx, tx, event, payload)
 	}
 	return nil
 }
 
-func foldWorkIntentContractRevision(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope, payload workIntentPayload) error {
+func foldWorkIntentContractRevision(ctx context.Context, tx *sql.Tx, event Event, payload workIntentPayload) error {
 	if payload.Actor != nil {
 		actor := payload.Actor
 		ref, err := WorkflowActorRef(*actor)
@@ -231,7 +231,7 @@ func foldWorkIntentContractRevision(ctx context.Context, tx *sql.Tx, event Event
 			return err
 		}
 	}
-	return reviseWorkflowContractTx(ctx, tx, event, scope, payload.Contract)
+	return reviseWorkflowContractTx(ctx, tx, event, payload.Contract)
 }
 
 func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -287,7 +287,7 @@ func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) e
 	return nil
 }
 
-func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
+func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
 	}
@@ -386,7 +386,7 @@ func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindRelationContractViolation, "fold_event", refusal.Message, false, refusal.Recovery)
 	}
 	if payload.Kind == "parent" {
-		if err := refuseInitiativeParentTx(ctx, tx, payload); err != nil {
+		if err := requireRelationParentEndpointsTx(ctx, tx, payload); err != nil {
 			return err
 		}
 	}
@@ -417,17 +417,17 @@ func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 	return nil
 }
 
-func refuseInitiativeParentTx(ctx context.Context, tx *sql.Tx, payload relationPayload) error {
-	fromKind, err := readWorkKind(ctx, tx, payload.From)
-	if err != nil {
-		return err
-	}
-	toKind, err := readWorkKind(ctx, tx, payload.To)
-	if err != nil {
-		return err
-	}
-	if fromKind == "initiative" || toKind == "initiative" {
-		return newFailure(KindRelationContractViolation, "fold_event", "Initiative work items are read-only under CD-0213: grouping lives in Linear", false, "group the work in Linear through the Linear MCP server")
+// A parent edge requires both endpoints to exist before graph rules run.
+func requireRelationParentEndpointsTx(ctx context.Context, tx *sql.Tx, payload relationPayload) error {
+	for _, id := range []string{payload.From, payload.To} {
+		var exists int
+		err := tx.QueryRowContext(ctx, `SELECT 1 FROM work_items WHERE id=?`, id).Scan(&exists)
+		if err == sql.ErrNoRows {
+			return newFailure(KindProjectionNotFound, "fold_event", "work item does not exist", false, "create the work item first")
+		}
+		if err != nil {
+			return wrapFailure(KindUnavailable, "fold_event", "cannot read work item", true, "retry once the database is readable", err)
+		}
 	}
 	return nil
 }
@@ -450,16 +450,8 @@ func foldRelationRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 			"leave the edge in place; work that shares a Domain proceeds without a resolution")
 	}
 	if payload.Kind == "parent" {
-		fromKind, err := readWorkKind(ctx, tx, payload.From)
-		if err != nil {
+		if err := requireRelationParentEndpointsTx(ctx, tx, payload); err != nil {
 			return err
-		}
-		toKind, err := readWorkKind(ctx, tx, payload.To)
-		if err != nil {
-			return err
-		}
-		if fromKind == "initiative" || toKind == "initiative" {
-			return newFailure(KindRelationContractViolation, "fold_event", "Initiative work items are read-only under CD-0213: grouping lives in Linear", false, "group the work in Linear through the Linear MCP server")
 		}
 	}
 	current, err := readRelationEndpointsTx(ctx, tx, event, payload)
@@ -757,16 +749,4 @@ func relationIdentity(ctx context.Context, tx *sql.Tx, event Event) (int64, erro
 		return 0, newFailure(KindInvariantViolation, "fold_event", "relation effect has no assigned identity", false, "restore the effect receipt state")
 	}
 	return relationID.Int64, nil
-}
-
-func readWorkKind(ctx context.Context, tx *sql.Tx, id string) (string, error) {
-	var kind string
-	err := tx.QueryRowContext(ctx, `SELECT kind FROM work_items WHERE id=?`, id).Scan(&kind)
-	if err == sql.ErrNoRows {
-		return "", newFailure(KindProjectionNotFound, "fold_event", "work item does not exist", false, "create the work item first")
-	}
-	if err != nil {
-		return "", wrapFailure(KindUnavailable, "fold_event", "cannot read work item kind", true, "retry once the database is readable", err)
-	}
-	return kind, nil
 }

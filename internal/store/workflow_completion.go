@@ -94,7 +94,7 @@ func appendWorkflowCompletionTx(ctx context.Context, tx *sql.Tx, event Event, sc
 	}
 	completion.Seq = seq
 	scope.eventIDs = append(scope.eventIDs, completion.EventID)
-	if err := applyEffect(ctx, tx, completion, scope); err != nil {
+	if err := applyEffect(ctx, tx, completion); err != nil {
 		return workflowClauseError(err, 7)
 	}
 	if err := advanceWorkEffectSeqTx(ctx, tx, completion); err != nil {
@@ -133,7 +133,7 @@ func appendWorkflowTerminalLifecycleTx(ctx context.Context, tx *sql.Tx, scope *w
 	}
 	transition.Seq = seq
 	scope.eventIDs = append(scope.eventIDs, transition.EventID)
-	if err := applyEffect(ctx, tx, transition, scope); err != nil {
+	if err := applyEffect(ctx, tx, transition); err != nil {
 		return err
 	}
 	return advanceWorkEffectSeqTx(ctx, tx, transition)

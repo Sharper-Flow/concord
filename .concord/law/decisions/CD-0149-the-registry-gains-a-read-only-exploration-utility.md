@@ -68,7 +68,7 @@ seconds. It has no packet, report schema, or evidence obligation.
 
 The host definition keeps coordinator utility permissions. A utility
 returns text to its parent and cannot record workflow state,
-start a nested Task, or discharge Review or Verify. The generated agent remains
+start a nested Task, or supply a step's review or verification evidence. The generated agent remains
 hidden from the operator agent cycle.
 
 ## Consequences

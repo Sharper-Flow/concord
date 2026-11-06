@@ -92,7 +92,7 @@ func TestWorkListLinearKeyMatchesTerminalHolder(t *testing.T) {
 	holderID := (*holder.ChangedRefs)[0].ID
 	env := mutationEnvelope(grant, scope)
 	env.RequestID = "terminal-intake"
-	intakeInput, err := json.Marshal(map[string]any{"work_id": holderID, "expected_version": 3, "action_id": "record_intake", "idempotency_key": "terminal-intake", "fields": map[string]any{"outcome": "decline", "open_questions_found": false}})
+	intakeInput, err := json.Marshal(map[string]any{"work_id": holderID, "expected_version": 3, "action_id": "record_intake", "idempotency_key": "terminal-intake", "fields": map[string]any{"outcome": "decline"}})
 	if err != nil {
 		t.Fatal(err)
 	}

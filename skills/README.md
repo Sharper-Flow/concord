@@ -17,6 +17,15 @@ review a Product's durable architecture reference, glossary, or cross-cutting
 concepts, to plan an architectural change, or to route a plan's lasting outputs
 to law, reference, or glossary at final review.
 
+Load [Ticket frontend](concord-ticket-frontend/SKILL.md) when work is driven
+through the ticket frontend and an operator question or resume arises.
+
+Load [Multi-repository](concord-multi-repository/SKILL.md) when a work item
+must edit a second Project in another Git repository.
+
+Load [Self-repair](concord-self-repair/SKILL.md) when a Concord defect blocks
+safe workflow recording or execution of your own managed item.
+
 ## Portable engineering methods
 
 - [Instruction writing](concord-instruction-writing/SKILL.md): write, edit, or

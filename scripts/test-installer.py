@@ -2778,8 +2778,11 @@ esac''',
             "concord-improve-codebase-architecture",
             "concord-instruction-writing",
             "concord-law-writing",
+            "concord-multi-repository",
             "concord-retrospective",
             "concord-review",
+            "concord-self-repair",
+            "concord-ticket-frontend",
             "concord-work-shaping",
         ]
         skill_relatives = {f"skills/{name}/SKILL.md" for name in skill_names}

@@ -10,14 +10,8 @@ required, a boundary refuses, or the agreed end state is reached.
 
 A blocking operator question is such a stop. On a ticket frontend the stop is
 durable: the published comment, the incomplete step and the resume read are
-the wait, and the agent may end its process. A fresh session resumes the
-same work from those records and the linked ticket, never from chat history:
-it reads everything that changed on the linked issue since its questions were
-posted — comments, including discussion among users, and description edits —
-relates answers to the outstanding questions, and records the resulting
-decisions before advancing. A posted answer is context only until agents post
-under their own identity and the frontend attributes the answer to the
-operator; treat what it does not resolve as unresolved.
+the wait, and a fresh session resumes the same work from those records; load
+`concord-ticket-frontend`.
 
 Context size alone does not justify a stop, handoff, or restart. Preserve work
 on disk as it proceeds, through commits, checkpoints, reports, and logs. After
@@ -41,9 +35,16 @@ can reach it. Do not infer absent capability from a partial catalog or one
 failed lookup.
 
 A refusal stops only the refused route. When it names an admitted recovery
-action, follow that action and continue. Do not retry an identical refused request, bypass a
-refusal, invent an approval, or use an unauthorized route. Reconcile a possible
-committed effect before you report that no effect exists.
+action, follow that action and continue. When a refusal reports
+`effect_state: none`, you may correct and resend within unchanged authority and
+approved scope, whatever its `recovery_action`; this replaces no required
+approval. If an effect is possible or unknown, reconcile it before resending;
+a later no-effect refusal does not clear that uncertainty. Do not retry an
+identical refused request, bypass a refusal, invent
+an approval, or use an unauthorized route. Never change arguments, split
+operations, or retry to evade an operator denial or authority boundary; a
+rejected operator decision stays rejected. Reconcile a possible committed
+effect before you report that no effect exists.
 
 When no recovery action is admitted, report the failed action, the effect
 state, and the exact operator action needed, then continue any other admitted

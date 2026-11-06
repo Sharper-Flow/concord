@@ -39,22 +39,31 @@ Record which checks found something and recommend **proceed**, **already handled
 **decline**, or **split or merge**, with evidence. The owner
 decides within its authority.
 
+Before capturing a production configuration-only operation, establish an
+admitted execution and acceptance route for its actual target. If no route
+exists, report the limitation before capture. Distinguish host-owned work from
+new managed capability and obtain any applicable operator decision; do not invent
+a recipe, receipt, or research classification. Host-owned work has no Concord
+workflow authority, evidence, review, or completion claim. Keep an existing
+managed item held when its supported execution or handoff is unavailable.
+
 ## Clarify
 
 After the type pick, new plans require Clarify before the planning step for every
 type; Fix diagnoses first. Older plans without Clarify do not gain it on a type
-switch. Synthesize instructions, the ticket, recorded decisions,
+switch. Run Clarify inline with the driving agent; it has no helper. Synthesize instructions, the ticket, recorded decisions,
 and relevant investigation or diagnosis findings; the investigation may inform
 the step without first drafting an implementation plan. Check intended product
 outcomes, product direction, request intention, and scope. Answer from evidence
 first, citing where; ask the operator only remaining questions, one at a time
-in the pane; on a ticket frontend, one comment carrying that step's
+in the pane; on a [ticket frontend](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/specs/workflow-engine-contract.md#81-operator-decisions-stay-in-conversation), one comment carrying that step's
 independent questions, and a question that depends on an earlier answer waits
 for it. Quote operator answers on the work item's Linear issue and point the
 step note there; reserved approvals stay with the host question tool until
 agents post under their own Linear identity. Record question resolutions or
 the explicit result that no operator questions remain. Running the step is
-mandatory; asking is not. Clarify grants no blanket implementation or UI/UX
+mandatory where the plan carries it; asking is not. Clarify settles what to
+build and grants no blanket implementation or UI/UX
 approval. Reuse settled answers; ask later questions where they arise.
 
 ## Plan Change and Fix work

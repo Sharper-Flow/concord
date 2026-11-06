@@ -134,7 +134,7 @@ LOOKUP_OBLIGATION_MARKERS = (
 DELEGATION_ANCHOR_MARKERS = (
     "Use native Task to delegate implementation and design under host permissions",
     "Obtain independent review through native Task against the exact current subject",
-    "Record the reviewed step through `record_review` with its step ID, note, reviewer, result, commit and actual Task result link",
+    "Record the reviewed step through `record_review`, linking the actual Task",
     "The tuple does not run Review",
     "the final review needs a clean pass",
     "Bind ordinary evidence with its producer watermark",

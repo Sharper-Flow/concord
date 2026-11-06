@@ -9,8 +9,8 @@
 > [`specs-as-laws.md`](./specs-as-laws.md),
 > [`product-data-model.md`](./product-data-model.md).
 > **Purpose:** New execution picks one of four workflow types
-> (CD-0218 D1); §4 lists them. Each type has a plain Go definition;
-> work has no size class (§7; CD-0229).
+> (CD-0218 D1); §4 lists them. Each type's required steps live once in the
+> step-template contract; work has no size class (§7; CD-0229).
 > **Primary surface:** Defined by [`../law/constitution/priorities.md`](../law/constitution/priorities.md); an admin
 > panel or web UI is optional and secondary.
 
@@ -23,9 +23,8 @@ existing requirements.
 ## TL;DR
 
 The live workflow catalog holds four workflow types for new work
-(CD-0218 D1; §4). Workflows are plain Go definitions, and
-work has no size class (§7; CD-0229). Public projections
-are generated from those definitions, and no released workflow-definition
+(CD-0218 D1; §4). Work has no size class (§7; CD-0229). Public projections
+derive from the step-template contract, and no released workflow-definition
 version, pin, or catalog list is retained for history (CD-0242 D14). The cutover
 is one documented migration with a verified snapshot and the operator's approval
 of its destructive operation (CD-0242 D13).
@@ -70,8 +69,8 @@ out of scope.
 - **Types:** new execution picks one of the four workflow types; a
   retired family ref refuses before any capture or contract write (CD-0218 D1).
   §4 lists them.
-- **Canonical definitions:** plain Go definitions own the generated public
-  projections, and no released workflow-definition version, pin, or catalog list is
+- **Canonical source:** each type's required steps live once in the
+  step-template contract, and no released workflow-definition version, pin, or catalog list is
   retained for history (CD-0242 D14). No event log, fold, upcaster, or replay
   exists; the store keeps current state and finite snapshots (CD-0242 D2).
 
@@ -79,9 +78,9 @@ out of scope.
 
 ## 2. The workflow-type model
 
-A **workflow type** is a code-defined execution type in the registry. Its
-definitions are plain Go values (§7; CD-0229 D1), and the live
-catalog holds four types (CD-0218 D1). What a definition fixes:
+A **workflow type** is an execution type in the live catalog. Its ordered
+required steps live once in the step-template contract (§4; CD-0229 D1), and
+the live catalog holds four types (CD-0218 D1). What a type fixes:
 
 | Aspect | Meaning |
 |---|---|
@@ -94,9 +93,10 @@ catalog holds four types (CD-0218 D1). What a definition fixes:
 | **Staleness rule** | Whether execution is blocked while the workflow's inputs or upstream state are stale. |
 | **Active visibility** | Which gates/problems are surfaced by default vs. hidden behind history. |
 
-The registry validates each definition and derives its canonical manifest and
-digest. Common runtime action and payload implementations remain shared; no
-parts catalog or composition compiler assembles definitions (CD-0229 D1).
+Common runtime action and payload implementations remain shared; there is no
+definition registry, digest, parts catalog or composition compiler
+(CD-0229 D1). Public schemas and tool contracts derive from the template
+contract under CD-0242 D14.
 
 ### 2.1 Value statement invariant
 
@@ -245,16 +245,17 @@ status.
    workflow/work item, then let the current workflow finish. Each retains
    independent authority and recovery. No nested child execution or parent
    waiting (CD-0006 R1).
-2. **Plain definitions:** each type directly declares its step graph, actions,
-   evidence and outcomes in a Go value. The registry validates
-   it and derives its canonical manifest and digest. Public schemas and tool
-   contracts generate from those definitions, without a parts catalog or
+2. **One template contract:** each type's required steps live once in the
+   step-template contract, and picking the type copies them into the item's
+   stored plan. Public schemas and tool
+   contracts derive from the template contract, without a definition
+   registry, digest, parts catalog or
    composition compiler (CD-0229 D1; CD-0242 D14).
    Retry and correction use the owning ordinary action, including replacement
    of an existing record after its step has passed. Record-only writes hold the
    step and lifecycle; completed delivery-link edits do not reopen work
    ([workflow-engine contract §4.2](../law/specs/workflow-engine-contract.md#42-ordinary-retry-and-record-correction)).
-3. **Mandatory stages:** each live type's definition supplies its stages.
+3. **Mandatory stages:** each live type's template supplies its required steps.
    Work has no size classification or size-derived review gate (CD-0229 D4).
    Main may add research, architecture or planning depth but cannot waive a
    mandatory stage or operator approval (CD-0242 D4).
@@ -267,11 +268,11 @@ status.
 |---|---|
 | `product-data-model.md` §6 | Product → Domain navigation. |
 | `specs-as-laws.md` | Workflow evolution couples to spec evolution. |
-| `design-constraints.md` §3 | Workflow evolution constraints; public projections derive from the canonical Go definitions (§7; CD-0229 D1; CD-0242 D14). |
+| `design-constraints.md` §3 | Workflow evolution constraints; public projections derive from the step-template contract (§7; CD-0229 D1; CD-0242 D14). |
 | [CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) | Four workflow types own new execution (CD-0218 D1); the store keeps current state, and the cutover is one documented migration (CD-0242 D2, D13). |
 | [CD-0229](../law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md) | Plain workflow definitions without size classification. |
 
 ---
 
-*New execution picks one of the four workflow types (§4); plain Go
-definitions (§7) own generated public projections (CD-0242 D14).*
+*New execution picks one of the four workflow types (§4); public projections
+derive from the step-template contract (§7; CD-0242 D14).*

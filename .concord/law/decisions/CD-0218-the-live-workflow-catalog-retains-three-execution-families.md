@@ -1,7 +1,7 @@
 ---
 {
   "id": "CD-0218",
-  "title": "The live workflow catalog retains three execution families",
+  "title": "The live workflow catalog retains its execution types",
   "authority": {
     "tier": "derived"
   },
@@ -9,7 +9,7 @@
   "applies_to_domain_ids": []
 }
 ---
-# CD-0218: The live workflow catalog retains three execution families
+# CD-0218: The live workflow catalog retains its execution types
 
 - **Status:** Accepted
 - **Date:** 2026-10-09
@@ -130,7 +130,7 @@ than publish competing overrides.
 ```
 
 ```gherkin
-  Given a break-fix diagnosis lacks its search section
+  Given a fix diagnosis lacks its search section
   When the coordinator records the diagnosis
   Then no diagnosis, alignment, or step advance commits
 ```

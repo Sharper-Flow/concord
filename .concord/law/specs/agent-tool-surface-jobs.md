@@ -161,7 +161,7 @@ surface expansion or pruning. No universal numeric tool ceiling is assumed.
   visible ready/blocked/next work, evidence-backed completion, and durable Product
   knowledge and architecture-bound Product law
   ([`floor-readiness.md`](../../docs/floor-readiness.md)).
-- The live families are implementation, break-fix, and research; completion is a
+- The live workflow types are those the step templates declare; completion is a
   contract outcome rather than a process-liveness flag (`workflows.md` §§2–4;
   CD-0218 D1).
 - The adversarial cases this corpus must cover: split authority, partial

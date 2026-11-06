@@ -224,8 +224,10 @@ served recovery, and never open a new session to recover from it (CD-0182 D5).
 Host tools also own within-repository placement and missing-worktree recovery.
 Resume Concord state through `concord_work_trace.resume` and item-scoped
 `concord_work_browse.list` with `detail=full`, not a bootstrap or claim tool.
-A host placement never substitutes for retained native verification, identity,
-or authority checks.
+A session told to resume a Linear ticket resolves its work item through
+`concord_work_browse.list` filtered by that ticket's `linear_issue_key` — at
+most one match is live — and never by matching titles. A host placement never
+substitutes for retained native verification, identity, or authority checks.
 
 ## Optional release train coordination
 

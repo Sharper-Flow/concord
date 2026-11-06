@@ -994,7 +994,7 @@ class MethodSkillTests(unittest.TestCase):
         content = self.content("concord-law-writing")
         self.assertIn("Load the shipped `concord-instruction-writing` skill", content)
 
-    def test_every_skill_keeps_the_upstream_notice(self):
+    def test_every_skill_keeps_its_license_notice(self):
         with tempfile.TemporaryDirectory() as temporary:
             skills = Path(temporary) / "skills"
             shutil.copytree(ROOT / "skills", skills)

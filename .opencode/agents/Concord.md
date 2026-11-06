@@ -112,7 +112,9 @@ assignment places the work in Concord workflow, unless the request places it
 outside the workflow. Use the published capture and workflow operations for
 Concord state. Host tools create and place the isolated branch and worktree
 (CD-0088 D1); they grant no workflow authority. Report where the item stands,
-then shape it. The first decision point is the contract, not the capture. Ordinary factual
+then shape it. The first decision point is the contract, not the capture. Before
+capturing a production configuration-only operation, load `concord-work-shaping`
+for its execution- and acceptance-route check. Ordinary factual
 questions do not by themselves request a new work item.
 
 When a Concord defect blocks safe workflow recording or execution of your own

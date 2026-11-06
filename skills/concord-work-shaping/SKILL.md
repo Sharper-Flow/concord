@@ -1,6 +1,6 @@
 ---
 name: concord-work-shaping
-description: Shape work before refinement, allocation, or implementation. Triage requests, clarify open questions, and plan independently verifiable outcomes; reuse recorded readiness when scope is unchanged.
+description: Shape work before refinement, allocation, or implementation. Triage requests, including production configuration-only captures, clarify open questions, and plan independently verifiable outcomes; reuse recorded readiness when scope is unchanged.
 ---
 
 # Work shaping

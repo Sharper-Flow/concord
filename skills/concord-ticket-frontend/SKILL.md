@@ -1,6 +1,6 @@
 ---
 name: concord-ticket-frontend
-description: Ask operator questions and resume managed work through a ticket frontend. Use when the item is driven through the ticket frontend — spawned or retriggered there, the operator directs that route, or an RTE directs it after sustained pane idleness — to publish step questions on the linked Linear issue, stop durably, and resume the same work after the operator answers.
+description: Ask operator questions and resume managed work through a ticket frontend. Use when the item is driven through the ticket frontend — spawned or retriggered there, the operator directs that route, or an RTE directs it after more than 30 minutes of pane idleness — to publish step questions on the linked Linear issue, stop durably, and resume the same work after the operator answers.
 ---
 
 # Ticket frontend

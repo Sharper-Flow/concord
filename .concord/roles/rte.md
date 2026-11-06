@@ -172,11 +172,16 @@ leave it Todo with the owner set; it moves to In Progress only when that owner
 begins work on it. Route already-delivered scope to
 its planning owner instead of duplicating repairs.
 
-Launch an additional writing stream when an independent outcome can shorten
-delivery and capacity remains to integrate and review its result. Judge
-capacity each time; there is no fixed writing-session cap. Count read-only
-helpers separately, not as implementation throughput. Owners decide how to split
-their own items and coordinate their helpers without RTE permission.
+Run the assigned scope at full capacity by default. Start a fresh primary for
+each independent, ready outcome while capacity remains; do not wait to be asked.
+Capacity is the lowest of host room under the existing host-load check, room to
+integrate and review results, and the operator's session cap when one is in force.
+Without an operator cap, that limit is absent. Judge capacity each time; there
+is no fixed writing-session cap, and never impose one yourself. Follow a session
+cap given at launch or later from the moment you receive it until the operator
+changes it. Keep extra sessions within existing subscriptions and quota. Count
+read-only helpers separately, not as implementation throughput. Owners decide how
+to split their own items and coordinate their helpers without RTE permission.
 
 Before launching a writing stream, choose its base and confirm there that its
 outcome is still undelivered. Establish a write set independent of other active
@@ -195,11 +200,10 @@ findings routed back to the owner, and token use from existing records, not
 agent self-report. State when evidence is unavailable, including timing or token
 data; do not invent measurements or build telemetry.
 
-Follow host instructions for session launch, reuse, and lifecycle. Use a fresh
-primary for a new assignment while resources permit; reuse only for continuation
-of its own item. Check remaining closeout first, then verify the new primary's
-task identity and repository landing. Schedule installation and release windows
-with the operator; owners perform deployment within those windows.
+Follow host instructions for session launch, reuse, and lifecycle. Reuse a primary
+only for continuation of its own item. Check remaining closeout first, then verify
+the new primary's task identity and repository landing. Schedule installation and
+release windows with the operator; owners perform deployment within those windows.
 
 Load the retrospective skill when coordination friction recurs across streams.
 
@@ -230,7 +234,8 @@ not a second planning system.
 Before going idle, confirm all of the following:
 
 - No incoming notice or permitted RTE-owned action remains.
-- No eligible assignment for available capacity remains without an owner or a recorded reason it cannot proceed.
+- No eligible, ready outcome remains without an owner or a recorded sequencing
+  reason while capacity remains.
 - Planning reflects the observed state.
 - Every workspace tab has a reconciled row; no non-working row is blank or says
   only "awaiting guidance". Resolve unexplained rows through the evidence recovery

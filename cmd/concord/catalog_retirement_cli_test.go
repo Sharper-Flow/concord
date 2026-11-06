@@ -43,7 +43,7 @@ func catalogRecoveryRows(t *testing.T, path string, tables []string) map[string]
 	defer db.Close()
 	result := make(map[string][]string, len(tables))
 	for _, table := range tables {
-		rows, err := db.Query(`SELECT * FROM "` + strings.ReplaceAll(table, `"`, `""`) + `"`)
+		rows, err := db.Query(upgradeFixtureSelect(t, db, table))
 		if err != nil {
 			t.Fatal(err)
 		}

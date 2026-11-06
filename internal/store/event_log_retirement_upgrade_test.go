@@ -130,6 +130,13 @@ func retirementUpgradeRows(t *testing.T, db *sql.DB, query string, args ...any) 
 	return result
 }
 
+const retirementProjectColumns = `id,display_name,stage_maturity_override,stage_audience_commitment_override,version,created_at,updated_at`
+
+func retirementProjectRows(t *testing.T, db *sql.DB) [][]any {
+	t.Helper()
+	return retirementUpgradeRows(t, db, `SELECT `+retirementProjectColumns+` FROM projects ORDER BY rowid`)
+}
+
 func retirementUpgradeSnapshot(t *testing.T, db *sql.DB) map[string][][]any {
 	t.Helper()
 	state := map[string][][]any{"schema": retirementUpgradeRows(t, db, `SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name`)}
@@ -156,6 +163,22 @@ func retirementUpgradeSnapshot(t *testing.T, db *sql.DB) map[string][][]any {
 				}
 			}
 			query = `SELECT ` + strings.Join(cols, ",") + ` FROM workflow_contracts ORDER BY rowid`
+		}
+		if name == "projects" {
+			// Migration 191 adds repository_mode; compare only columns carried
+			// by the predecessor schema.
+			preferred := strings.Split(retirementProjectColumns, ",")
+			present := map[string]bool{}
+			for _, col := range retirementUpgradeRows(t, db, `SELECT name FROM pragma_table_info('projects')`) {
+				present[col[0].(string)] = true
+			}
+			var cols []string
+			for _, col := range preferred {
+				if present[col] {
+					cols = append(cols, col)
+				}
+			}
+			query = `SELECT ` + strings.Join(cols, ",") + ` FROM projects ORDER BY rowid`
 		}
 		state[name] = retirementUpgradeRows(t, db, query)
 	}

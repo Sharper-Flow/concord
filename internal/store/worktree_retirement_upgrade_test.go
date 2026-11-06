@@ -124,6 +124,11 @@ func TestWorktreeRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 			continue
 		case "workflow_architecture_bindings":
 			want = retainedBindings
+		case "projects":
+			if got := retirementProjectRows(t, db); !reflect.DeepEqual(got, want) {
+				t.Errorf("unrelated table projects changed: got %v, want %v", got, want)
+			}
+			continue
 		case "workflow_contracts":
 			if got := cutoverContractRows(t, db); !reflect.DeepEqual(got, retainedContracts) {
 				t.Error("current contract facts changed")

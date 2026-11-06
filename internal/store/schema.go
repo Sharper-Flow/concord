@@ -9284,6 +9284,10 @@ DROP TABLE workflow_contract_law_modifications_v190_backup;
 DROP TABLE workflow_overlap_resolutions_v190_backup;
 `,
 	},
+	{
+		Version: 191, Name: "project_repository_mode", Breaking: true, FoldMaintained: "advance",
+		SQL: `ALTER TABLE projects ADD COLUMN repository_mode TEXT NOT NULL DEFAULT 'off' CHECK(repository_mode IN ('on','off'));`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

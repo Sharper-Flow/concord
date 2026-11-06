@@ -43,6 +43,11 @@ type ProductMembershipAddition struct {
 	ExpectedVersion int64
 }
 
+type ProjectRepositoryModeChange struct {
+	ProjectID, RepositoryMode, Reason string
+	ExpectedVersion                   int64
+}
+
 // EntityVersion reads the current aggregate version needed to chain operator
 // setup commands without maintaining a second version ledger outside SQLite.
 func (s *Store) EntityVersion(ctx context.Context, subjectType SubjectType, id string) (int64, error) {
@@ -165,6 +170,20 @@ func (s *Store) AddProductProjectMembership(ctx context.Context, request Product
 	return ApplyOperationWithResult(ctx, s, Operation{
 		Events:           []Event{{EventID: operatorEventID("product_project.added", request.ProductID+":"+request.ProjectID), Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: request.ProductID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: payload}},
 		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, request.ProductID): request.ExpectedVersion},
+	})
+}
+
+func (s *Store) SetProjectRepositoryMode(ctx context.Context, request ProjectRepositoryModeChange) (ApplyOperationResult, error) {
+	if request.ProjectID == "" || request.ExpectedVersion < 1 || (request.RepositoryMode != "on" && request.RepositoryMode != "off") {
+		return ApplyOperationResult{}, newFailure(KindInvalidOperation, "project_repository_mode_update", "Project, positive expected version, and valid repository mode are required", false, "supply an existing Project, its current version, and on or off")
+	}
+	if request.Reason == "" {
+		request.Reason = "operator repository mode"
+	}
+	payload, _ := json.Marshal(projectRepositoryModeSetPayload{RepositoryMode: request.RepositoryMode, Reason: request.Reason, ExpectedVersion: request.ExpectedVersion, ResultingVersion: request.ExpectedVersion + 1})
+	return ApplyOperationWithResult(ctx, s, Operation{
+		Events:           []Event{{EventID: operatorEventID("project.repository_mode_set", request.ProjectID), Kind: "project.repository_mode_set", SubjectType: SubjectProject, SubjectID: request.ProjectID, Actor: "operator", OccurredAt: s.now(), PayloadVersion: 1, Payload: payload}},
+		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, request.ProjectID): request.ExpectedVersion},
 	})
 }
 

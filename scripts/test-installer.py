@@ -2901,6 +2901,102 @@ esac''',
         if source_references:
             self.fail("installed profiles require Concord checkout paths:\n" + "\n".join(source_references))
 
+    def prepare_exclusion_project(self, mode: str, git: bool = True) -> Path:
+        self.make_release("v1.0.0")
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        self.write_command("git", f'exec {shlex.quote(shutil.which("git", path=os.defpath))} "$@"')
+        launcher = self.root / "bin" / "concord"
+        launcher.unlink()
+        launcher.write_text(
+            "#!/usr/bin/env python3\nimport json, sys\n"
+            "assert sys.argv[1:] == ['project-resolve']\n"
+            "assert 'directory' in json.load(sys.stdin)\n"
+            + ("sys.exit(1)\n" if mode == "failure" else f"print(json.dumps({{'repository_mode': {mode!r}}}))\n"),
+            encoding="utf-8",
+        )
+        launcher.chmod(0o755)
+        project = self.root / "consumer"
+        project.mkdir()
+        if git:
+            subprocess.run(["git", "init", "-q", str(project)], check=True, env=self.env)
+        return project
+
+    def test_off_mode_excludes_linked_project_file_from_git_status(self) -> None:
+        project = self.prepare_exclusion_project("off")
+        (project / ".concord").mkdir()
+        (project / ".concord/stray").write_text("untracked")
+        result = self.run_installer("link", "--project", str(project))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        exclude = project / ".git/info/exclude"
+        self.assertIn("/.opencode/opencode.json", exclude.read_text().splitlines())
+        self.assertIn("/.concord/", exclude.read_text().splitlines())
+        status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=project,
+                                text=True, capture_output=True, check=True, env=self.env)
+        self.assertNotIn(".opencode/opencode.json", status.stdout)
+        self.assertNotIn(".concord/", status.stdout)
+        self.assertIn("mode off", result.stdout)
+        again = self.run_installer("link", "--project", str(project))
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(exclude.read_text().splitlines().count("/.opencode/opencode.json"), 1)
+        self.assertEqual(exclude.read_text().splitlines().count("/.concord/"), 1)
+
+    def test_on_mode_removes_exclusion_and_git_status_shows_project_file(self) -> None:
+        project = self.prepare_exclusion_project("on")
+        exclude = project / ".git/info/exclude"
+        exclude.write_text("# keep\n/.opencode/opencode.json\n/.concord/\nother\n")
+        result = self.run_installer("link", "--project", str(project))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(exclude.read_text(), "# keep\nother\n")
+        status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=project,
+                                text=True, capture_output=True, check=True, env=self.env)
+        self.assertIn(".opencode/opencode.json", status.stdout)
+        self.assertIn("mode on", result.stdout)
+
+    def test_unresolved_mode_excludes_project_file_and_reports_failure(self) -> None:
+        project = self.prepare_exclusion_project("failure")
+        result = self.run_installer("link", "--project", str(project))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("/.opencode/opencode.json", (project / ".git/info/exclude").read_text().splitlines())
+        self.assertIn("project-resolve failed", result.stdout)
+
+    def test_unresolved_invalid_responses_exclude_project_file(self) -> None:
+        project = self.prepare_exclusion_project("off")
+        launcher = self.root / "bin/concord"
+        for output, note in (("not-json", "malformed JSON"), ('{"repository_mode":"maybe"}', "unknown mode")):
+            with self.subTest(output=output):
+                launcher.write_text(f"#!/bin/sh\nprintf '%s' {shlex.quote(output)}\n", encoding="utf-8")
+                result = self.run_installer("link", "--project", str(project))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(note, result.stdout)
+                self.assertIn("/.opencode/opencode.json", (project / ".git/info/exclude").read_text().splitlines())
+
+    def test_nested_project_exclusion_escapes_git_patterns(self) -> None:
+        root = self.prepare_exclusion_project("off")
+        project = root / "project [one]"
+        project.mkdir()
+        result = self.run_installer("link", "--project", str(project))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(r"/project\ \[one\]/.opencode/opencode.json", (root / ".git/info/exclude").read_text().splitlines())
+        status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=root,
+                                text=True, capture_output=True, check=True, env=self.env)
+        self.assertEqual(status.stdout, "")
+
+    def test_unlink_removes_off_mode_exclusion(self) -> None:
+        project = self.prepare_exclusion_project("off")
+        result = self.run_installer("link", "--project", str(project))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.run_installer("unlink", "--project", str(project))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("/.opencode/opencode.json", (project / ".git/info/exclude").read_text().splitlines())
+        self.assertNotIn("/.concord/", (project / ".git/info/exclude").read_text().splitlines())
+
+    def test_exclusion_skips_project_outside_git_work_tree(self) -> None:
+        project = self.prepare_exclusion_project("off", git=False)
+        result = self.run_installer("link", "--project", str(project))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("not a git work tree", result.stdout)
+
     def test_link_is_idempotent(self) -> None:
         self.make_release("v1.0.0")
         installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))

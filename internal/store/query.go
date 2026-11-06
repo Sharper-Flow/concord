@@ -235,7 +235,7 @@ func readProduct(ctx context.Context, tx *sql.Tx, id string) (Product, error) {
 }
 
 func readProjectMemberships(ctx context.Context, tx *sql.Tx, productID string) ([]ProjectMembership, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT projects.id, projects.display_name, product_projects.role FROM product_projects JOIN projects ON projects.id = product_projects.project_id WHERE product_projects.product_id = ? ORDER BY CASE product_projects.role WHEN 'primary' THEN 0 ELSE 1 END, projects.display_name, projects.id`, productID)
+	rows, err := tx.QueryContext(ctx, `SELECT projects.id, projects.display_name, product_projects.role, projects.repository_mode FROM product_projects JOIN projects ON projects.id = product_projects.project_id WHERE product_projects.product_id = ? ORDER BY CASE product_projects.role WHEN 'primary' THEN 0 ELSE 1 END, projects.display_name, projects.id`, productID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "query", "cannot read Product Projects", true, "retry once the database is readable", err)
 	}
@@ -243,7 +243,7 @@ func readProjectMemberships(ctx context.Context, tx *sql.Tx, productID string) (
 	var out []ProjectMembership
 	for rows.Next() {
 		var p ProjectMembership
-		if err := rows.Scan(&p.ID, &p.DisplayName, &p.Role); err != nil {
+		if err := rows.Scan(&p.ID, &p.DisplayName, &p.Role, &p.RepositoryMode); err != nil {
 			return nil, wrapFailure(KindUnavailable, "query", "cannot decode Project membership", true, "retry once the database is readable", err)
 		}
 		out = append(out, p)
@@ -888,7 +888,7 @@ func attachWorkMemberships(ctx context.Context, tx queryer, items []WorkItem, id
 		args[i] = id
 		byID[id] = i
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT wp.work_id, p.id,p.display_name,wp.role FROM work_projects wp JOIN projects p ON p.id=wp.project_id WHERE wp.work_id IN (`+strings.Join(ph, ",")+`) ORDER BY CASE wp.role WHEN 'primary' THEN 0 ELSE 1 END,p.id`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every work ID stays parameter-bound.
+	rows, err := tx.QueryContext(ctx, `SELECT wp.work_id, p.id,p.display_name,wp.role,p.repository_mode FROM work_projects wp JOIN projects p ON p.id=wp.project_id WHERE wp.work_id IN (`+strings.Join(ph, ",")+`) ORDER BY CASE wp.role WHEN 'primary' THEN 0 ELSE 1 END,p.id`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every work ID stays parameter-bound.
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "query", "cannot read work memberships", true, "retry once the database is readable", err)
 	}
@@ -896,7 +896,7 @@ func attachWorkMemberships(ctx context.Context, tx queryer, items []WorkItem, id
 	for rows.Next() {
 		var wid string
 		var p ProjectMembership
-		if err := rows.Scan(&wid, &p.ID, &p.DisplayName, &p.Role); err != nil {
+		if err := rows.Scan(&wid, &p.ID, &p.DisplayName, &p.Role, &p.RepositoryMode); err != nil {
 			return nil, err
 		}
 		if i, ok := byID[wid]; ok {

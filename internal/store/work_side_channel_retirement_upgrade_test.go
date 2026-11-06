@@ -70,6 +70,12 @@ func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 		if table == "workflow_contracts" || table == "workflow_instances" {
 			continue
 		}
+		if table == "projects" {
+			if got := retirementProjectRows(t, db); !reflect.DeepEqual(got, want) {
+				t.Errorf("unrelated current authority projects changed")
+			}
+			continue
+		}
 		if table == "work_items" {
 			if got := retirementUpgradeRows(t, db, `SELECT * FROM work_items ORDER BY id`); !reflect.DeepEqual(got, work) {
 				t.Errorf("retained work changed: got %v want %v", got, work)

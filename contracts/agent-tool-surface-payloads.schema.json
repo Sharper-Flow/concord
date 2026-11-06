@@ -1958,7 +1958,8 @@
             "additionalProperties": false,
             "required": [
               "project_id",
-              "version"
+              "version",
+              "repository_mode"
             ],
             "properties": {
               "project_id": {
@@ -1966,6 +1967,14 @@
               },
               "version": {
                 "$ref": "#/$defs/version"
+              },
+              "repository_mode": {
+                "description": "The Project's repository mode. On means Concord's files are committed like Product files; off means agents keep them out of git as specified by CD-0255.",
+                "type": "string",
+                "enum": [
+                  "on",
+                  "off"
+                ]
               },
               "role": {
                 "type": "string",

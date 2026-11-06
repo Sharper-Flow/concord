@@ -69,6 +69,11 @@ func TestLawAttributionVerifiedSnapshotUpgrade(t *testing.T) {
 			continue
 		}
 		switch table {
+		case "projects":
+			if got := retirementProjectRows(t, db); !reflect.DeepEqual(got, expected) {
+				t.Errorf("unrelated projects changed")
+			}
+			continue
 		case "work_items":
 			if got := retirementUpgradeRows(t, db, `SELECT * FROM work_items ORDER BY id`); !reflect.DeepEqual(got, work) {
 				t.Errorf("retained work changed: got %v want %v", got, work)

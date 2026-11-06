@@ -524,8 +524,10 @@ class GuidanceFixtureTests(unittest.TestCase):
         return (self.ROOT / ".opencode" / "agents" / "Concord.md").read_text()
 
     def test_coordinator_allows_no_effect_correction_without_label_gate(self):
-        text = " ".join(self.guidance().split())
-        self.assertIn("`effect_state: none`", text)
+        # The coordinator's no-effect resend and denial rules live in the
+        # shipped continuation instruction.
+        text = " ".join((self.ROOT / ".concord" / "instructions" / "continuation.md").read_text().split())
+        self.assertIn("When a refusal reports `effect_state: none`", text)
         self.assertIn("whatever its `recovery_action`", text)
         self.assertIn("within unchanged authority and approved scope", text)
         self.assertIn("Never change arguments, split operations, or retry to evade an operator denial", text)

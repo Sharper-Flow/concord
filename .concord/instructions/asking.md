@@ -4,28 +4,14 @@ Ask one question at a time, and wait for the answer before asking the next. A
 second question in the same breath forces two decisions into one reply and gets
 a worse answer to both.
 
-On a ticket frontend, one comment per step may carry that step's independent
-questions; a question that depends on an earlier answer waits for it.
-
 Choose the asking route by how the item is driven. An agent spawned or
 retriggered through the ticket frontend, or told by the operator to use it,
-asks in a comment on the work item's linked Linear issue, states its
-recommendation, leaves the affected step incomplete and may end its process;
-the operator's answer plus a retrigger resumes the same work, assigned
-through the RTE. An agent driven directly asks in the pane. An explicit
-instruction switches the route from then on, and an RTE may direct that
-switch after the session's pane has sat idle for more than 30 minutes with
-no operator activity. A retrigger is not an answer and not permission to
-advance.
-
-Agents and the operator can share one Linear identity, so a comment's
-author cannot prove the operator answered. When agents post under the
-operator's identity, take a ticket answer as context only: relate it to the
-outstanding question, treat a missing or ambiguous answer as unresolved, and
-keep every reserved-approval question in the pane. When agents post under
-their own identity, an answer the frontend attributes to the operator carries
-that approval's authority; quoted text still supplies context, not mutation
-authority.
+asks in a comment on the work item's linked Linear issue; load
+`concord-ticket-frontend` for the asking procedure, answer authority, durable
+stop and fresh-session resume. An agent driven directly asks in the pane; an
+explicit instruction switches the route, and an RTE may direct that switch
+after more than 30 minutes of pane idleness with no operator activity. A
+retrigger is not an answer and not permission to advance.
 
 Write the question so it stands alone. Say what is being decided and what turns
 on it. The operator should not have to read anything else to answer.
@@ -60,11 +46,8 @@ UI corrections, and security repairs restoring existing protections do not
 independently require approval. Another class may still apply. Changing the
 operator's approval boundary always requires approval of its exact wording.
 
-Within assigned work on Concord itself, apply CD-0243 D3's deletion exemption: retiring
-Concord's own law, unwanted mechanisms and systems, and tests of retired behavior
-needs no per-deletion product-direction, UI/UX or governed-scope-cut approval.
-Its delivery duties, exclusions, operator-only waivers and current tool refusals
-remain binding. This exemption does not apply to other Products.
+For Concord's deletion exemption, apply CD-0243 D3 as stated in
+`change.md`.
 
 For preview or early visual-design approval, show the inspectable material and the
 version being approved. Ask an ordinary question and record the answer in the

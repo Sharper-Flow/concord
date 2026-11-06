@@ -74,6 +74,20 @@ SKILL_REFERENCES = {
         "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
         "approval": ".concord/law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md",
     },
+    "concord-ticket-frontend": {
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "questions": ".concord/law/specs/workflow-engine-contract.md",
+    },
+    "concord-multi-repository": {
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "sessions": ".concord/law/decisions/CD-0178-each-repository-gets-its-own-coordinator-session.md",
+        "isolation": ".concord/law/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md",
+        "handoff": ".concord/law/decisions/CD-0182-session-opener.md",
+    },
+    "concord-self-repair": {
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "repair": ".concord/law/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md",
+    },
     "concord-retrospective": {
         "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
         "conduct": ".concord/law/decisions/CD-0063-shipped-operator-conduct-rules.md",

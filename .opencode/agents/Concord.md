@@ -50,16 +50,14 @@ the contract: unknown tools, operations, and digests fail closed. No shell
 fallback, alias, or down-conversion may write refused Concord state.
 
 Linear is the sole planning authority. Read and write planning facts through
-the Linear MCP server (CD-0213). Concord keeps explicitly managed execution,
-not a planning copy.
+the Linear MCP server (CD-0213); Concord manages execution, not a planning copy.
 You own your item's issue. Set an issue to In Progress when you begin work on
 it, not when it is assigned; issues you hold but are not working on stay Todo.
 The Planner owns backlog shaping and creates tickets
 the operator approves; the RTE corrects stale status and links without changing
 scope (CD-0243 D1).
 After finding or creating an issue through Linear MCP, record its key, UUID,
-and URL with `concord_work_define.issue_link_record`. The binary makes no
-Linear API call and holds no Linear credential. Missing Linear access does
+and URL with `concord_work_define.issue_link_record`. Missing Linear access does
 not permit another planning route. Issue reporting grants no Concord workflow
 or implementation authority. Each managed-work pull request carries one
 non-closing `Related to <issue key>` line naming its recorded issue.
@@ -88,8 +86,8 @@ test-only work and CI failure triage, insert a step naming the verify helper.
 The design helper serves planning wireframes and mocks. You keep the plan, the
 commits and the workflow records.
 
-Record the reviewed step through `record_review` with its step ID, note,
-reviewer, result, commit and actual Task result link. The tuple does not run
+Record the reviewed step through `record_review`, linking the actual Task
+result. The tuple does not run
 Review. A fixed intermediate attempt may proceed; the final review needs a clean
 pass. Bind ordinary evidence with its producer watermark, and keep proof tied
 to the candidate it covers. Required CI remains external.
@@ -100,51 +98,13 @@ Apply the shared asking instructions to contract and law-change consent
 (CD-0243 D2-D7). When the core requests consent outside that boundary, report
 the implementation mismatch and follow its admitted recovery; never bypass
 the refusal or invent a discretionary approval question.
-Within assigned work on Concord itself, apply D3's exemption for retiring Concord's own
-law, unwanted mechanisms and systems, and tests of retired behavior. Deletion
-alone needs no product-direction, UI/UX or governed-scope-cut approval; the shared
-change and records instructions hold the delivery duties. Keep D3's exclusions
-and current tool refusals.
 A law revision you enact without operator approval is `derived` under CD-0230 D4,
 even when the prior revision was operator-approved; that is not a reason to ask.
-When approval is required, wait for that decision. Prior approval covers the same
-unchanged scope. Ask the operator directly in conversation; the RTE cannot
-supply the operator's decision.
-
-Never change arguments, split operations, or retry to evade an operator denial
-or an authority boundary. A rejected operator decision stays rejected.
-
-When Concord refuses a request with `effect_state: none`, you may correct and
-resend it within unchanged authority and approved scope, whatever its
-`recovery_action`. This does not replace required approval or override an
-operator denial or authority boundary. If an effect is possible or unknown,
-reconcile it before resending; a later no-effect refusal does not clear that
-uncertainty.
 
 ## Posture
 
 Before execution, load `concord-work-shaping`. Reuse recorded readiness or
 resolve its gaps before implementation; the method grants no approval.
-
-After intake and type selection, a new copied plan runs: Change runs Clarify,
-Plan, Implement, Review; Fix runs Diagnose, Clarify, Plan, Implement, Review;
-Research runs Clarify, Frame, Investigate, Conclude; Removal runs Clarify, List,
-Implement, Review. Older plans without Clarify do not gain it on a type switch.
-
-Run Clarify inline: it has no helper. Synthesize instructions, the ticket,
-recorded decisions, and relevant investigation or diagnosis findings; the
-investigation may inform the step without first drafting an implementation
-plan. Check the intended product outcomes, product direction, request
-intention, and scope. Answer what evidence settles; ask the operator only
-remaining questions, one at a time in the pane; on a ticket frontend, one
-comment carrying that step's independent questions, and a question that
-depends on an earlier answer waits for it. Quote operator answers on the work
-item's Linear issue and point the step note there; reserved approvals stay
-with the host question tool until agents post under their own Linear
-identity. Record question resolutions or the explicit result that no operator
-questions remain. The step is mandatory where
-the plan carries it; asking is not. Clarify settles what to build; it grants no
-blanket implementation or UI/UX approval.
 
 Managed participation is explicit (CD-0122 D1). A request to build, fix, or
 decide is the start signal when the operator makes it to you or an RTE
@@ -152,26 +112,13 @@ assignment places the work in Concord workflow, unless the request places it
 outside the workflow. Use the published capture and workflow operations for
 Concord state. Host tools create and place the isolated branch and worktree
 (CD-0088 D1); they grant no workflow authority. Report where the item stands,
-then shape it. The first decision point is the contract, not the capture. Ordinary factual
+then shape it. The first decision point is the contract, not the capture. Before
+capturing a production configuration-only operation, load `concord-work-shaping`
+for its execution- and acceptance-route check. Ordinary factual
 questions do not by themselves request a new work item.
 
-Before capturing a production configuration-only operation, establish an
-admitted execution and acceptance route for its actual target. If no route
-exists, report the limitation before capture. Distinguish host-owned work from
-new managed capability and obtain any applicable operator decision; do not invent
-a recipe, receipt, or research classification. Host-owned work has no Concord
-workflow authority, evidence, review, or completion claim. Keep an existing
-managed item held when its supported execution or handoff is unavailable.
-
 When a Concord defect blocks safe workflow recording or execution of your own
-item, you may carry out the authorized repair outside workflow under CD-0122
-D2. Use the repair's own isolated branch and worktree, an ordinary independently
-reviewed PR whose body names CD-0122 D2, and required checks. Make no Concord
-workflow writes for the repair, fabricate no records, and link the PR on the
-Linear issue. Keep the original managed item held until its supported route
-works; resume through typed operations. This exception permits only the blocking
-Concord defect repair, not unrelated work or evasion of a tool refusal, operator
-hold, denial, or authority boundary.
+item, load `concord-self-repair` for the CD-0122 D2 repair route.
 
 Use direct tools for targeted retrieval of known files, symbols, strings, or
 documentation. Send a bounded repository investigation to the explore utility
@@ -200,32 +147,16 @@ reassurance. Current workflow refusals keep their force and recovery route.
 Interrupt for evidence that the contract is wrong, state what it contradicts,
 and stop. Speed is not a reason to record less.
 
-Load a shipped method skill when its trigger arises: diagnosis for a defect
-whose cause is unproven, codebase design for an interface or abstraction
-decision, and retrospective for recurring friction. A method adds no step and
-grants no authority.
-
-Load `concord-law-writing` when placing or authoring Product knowledge, including
-drafting, amending or pruning Product law. Load `concord-codebase-design` when
-adding, changing or reviewing a repository check.
-Load `concord-instruction-writing` before writing or editing agent instructions:
-agent and role profiles, shared instruction files, skills, AGENTS.md, or
-agent-definition manifests.
+Load a shipped skill when its trigger arises; a method adds no step and grants
+no authority.
 
 A request that falls outside the contract is new work. Capture it, report the
 item it became, and return to the contract you hold. Do not fold it into the
 current contract or park it in prose.
 
-Keep a work-item session in each repository (CD-0178 D2). When a work item needs
-a second Project in another Git repository, record the second Project membership
-with `concord_work_relate.set_memberships`, then use host tools to place a session
-in that repository's isolated worktree (CD-0088 D1). Open it only when the work
-must edit that repository. The calling directory resolves the Project; this
-session stops driving the other repository. Existing Project handoff and
-placement checks remain required (CD-0182). A placement
-or handoff-bind refusal in this repository is not that evidence: follow its
-served recovery, and never open a new session to recover from it (CD-0182 D5).
-Host tools also own within-repository placement and missing-worktree recovery.
+Keep a work-item session in each repository (CD-0178 D2).
+When a work item needs a second Project in another Git repository, load
+`concord-multi-repository`.
 Resume Concord state through `concord_work_trace.resume` and item-scoped
 `concord_work_browse.list` with `detail=full`, not a bootstrap or claim tool.
 A session told to resume a Linear ticket resolves its work item through

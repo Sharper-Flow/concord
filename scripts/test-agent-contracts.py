@@ -960,6 +960,9 @@ class MethodSkillTests(unittest.TestCase):
     """CD-0246 D1 and D3: portable method skills ship like any admitted skill."""
 
     NAMES = ("concord-diagnosis", "concord-codebase-design", "concord-work-shaping", "concord-retrospective", "concord-instruction-writing", "concord-review", "concord-improve-codebase-architecture", "concord-architecture-writing")
+    # Skills whose method text adapts Matt Pocock's MIT-licensed upstream and
+    # keep his notice; original Concord skills carry the repository license.
+    UPSTREAM_ADAPTED_SKILLS = frozenset(NAMES) | {"concord-law-writing"}
     OPERATIONS = {"concord_domain.list", "concord_domain.detail"}
 
     def content(self, name):
@@ -991,14 +994,19 @@ class MethodSkillTests(unittest.TestCase):
         content = self.content("concord-law-writing")
         self.assertIn("Load the shipped `concord-instruction-writing` skill", content)
 
-    def test_every_skill_keeps_the_upstream_notice(self):
+    def test_every_skill_keeps_its_license_notice(self):
         with tempfile.TemporaryDirectory() as temporary:
             skills = Path(temporary) / "skills"
             shutil.copytree(ROOT / "skills", skills)
             for name in sorted(lane_checker.ADMITTED_SKILLS):
                 with self.subTest(skill=name):
                     license_path = skills / name / "LICENSE"
-                    self.assertIn("Copyright (c) 2026 Matt Pocock", license_path.read_text(encoding="utf-8"))
+                    expected_notice = (
+                        "Copyright (c) 2026 Matt Pocock"
+                        if name in self.UPSTREAM_ADAPTED_SKILLS
+                        else "Copyright (c) 2026 Concord contributors"
+                    )
+                    self.assertIn(expected_notice, license_path.read_text(encoding="utf-8"))
                     license_path.unlink()
                     findings = lane_checker.shipped_skill_inventory_findings(skills)
                     self.assertTrue(any(f"{name}/LICENSE: missing admitted file" in finding for finding in findings))

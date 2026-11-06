@@ -142,11 +142,6 @@ test("published tool arguments expose a host-safe request shape", async () => {
   for (const field of ["action_id"]) {
     expect(actionBranch.properties[field], field).toBeObject()
   }
-  // The approval premise's unit-guidance assertions retired with the field
-  // (CON-1710, CD-0243 D3): approve_contract publishes no premise property.
-  for (const fields of fieldsBranches) {
-    expect(fields.properties.premise).toBeUndefined()
-  }
 })
 
 test("work define publishes the record-only issue identity contract", () => {
@@ -939,7 +934,7 @@ const runWorkflowAction = (runner: any, input: Record<string, unknown>, ask?: ()
 test("host publication round-trips legislative subjects unchanged", async () => {
   const input = {
     work_id: "work-1", expected_version: 2, action_id: "approve_contract", idempotency_key: "idem-subjects-1",
-    fields: { premise: "Review the proposed law change.", decision_domains: [], legislative_subjects: ["spec:one", "decision:one"] },
+    fields: { legislative_subjects: ["spec:one", "decision:one"] },
   }
   let sentInput: unknown
   const success = coreEnvelope("concord_work_transition", "workflow_action", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })

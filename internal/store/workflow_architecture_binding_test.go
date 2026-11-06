@@ -737,7 +737,6 @@ func TestProductChangingApprovalMissingBindingIsAtomic(t *testing.T) {
 			candidate[key] = value
 		}
 		delete(candidate, omitted)
-		candidate["decision_domains"] = []string{}
 		event := workflowEventWithActor("architecture-binding-missing-"+omitted, WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), candidate)
 		event.PayloadVersion = CurrentEventPayloadVersion(WorkflowContractApproved)
 		if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err == nil {

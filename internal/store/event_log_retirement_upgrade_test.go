@@ -135,9 +135,6 @@ func retirementUpgradeSnapshot(t *testing.T, db *sql.DB) map[string][][]any {
 	state := map[string][][]any{"schema": retirementUpgradeRows(t, db, `SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name`)}
 	for _, table := range retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name`) {
 		name := table[0].(string)
-		// workflow_candidate_sets is retired by migration 190 (CON-1710,
-		// CD-0243 D3): it snapshots only when present and no comparison
-		// asserts its preservation.
 		if name == "workflow_candidate_sets" {
 			continue
 		}

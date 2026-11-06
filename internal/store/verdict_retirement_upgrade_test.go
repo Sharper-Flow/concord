@@ -139,8 +139,6 @@ func assertRetirementContractGuards(t *testing.T, db *sql.DB) {
 	if err := enterWrite(t.Context(), tx); err != nil {
 		t.Fatal(err)
 	}
-	// The rigor-class and decision-domains guard cases retired with their
-	// columns (CON-1710, CD-0243 D3); the write seam still admits the fold.
 	if _, err := tx.Exec(insert); err != nil {
 		t.Fatal(err)
 	}

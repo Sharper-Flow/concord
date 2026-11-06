@@ -281,7 +281,7 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 	}
 }
 
-func TestWorkflowDecisionContractFieldsFixtureAccepted(t *testing.T) {
+func TestWorkflowContractFieldsFixtureAccepted(t *testing.T) {
 	raw, err := json.Marshal(map[string]any{
 		"work_id": "work-1", "expected_version": 7, "action_id": "approve_contract",
 		"fields": workflowContractFieldsFixture(), "idempotency_key": "fixture-fields",

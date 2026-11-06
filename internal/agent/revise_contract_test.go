@@ -65,7 +65,6 @@ func TestReviseIntentUpdatesContractAtomicallyAndReplays(t *testing.T) {
 	contract["legislative_subjects"] = []string{}
 	invokeAction("approve_contract", contract)
 	contract["contract_version"] = 2
-	delete(contract, "route_convention")
 	expected := workVersion(t, s, "work-1")
 	raw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": expected, "title": "Revised plan", "kind": "task", "reason": "Clarify the plan", "contract": contract, "idempotency_key": "ordinary-contract-update"})
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: raw}

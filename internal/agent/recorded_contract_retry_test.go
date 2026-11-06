@@ -42,10 +42,6 @@ func TestContractStructuralRefusalsDeliverCompleteGuidance(t *testing.T) {
 		{"missing outer", `{"work_id":"work-example","action_id":"approve_contract","idempotency_key":"request-example","fields":{}}`, "expected_version"},
 		{"unknown outer", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example","extra":true,"fields":{}}`, "extra"},
 		{"long unknown", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example","` + strings.Repeat("x", 1000) + `":true,"fields":{}}`, "member name sha256:"},
-		// The missing-fields case retired with approve_contract's last
-		// required field (CON-1710, CD-0243 D3): no action variant that the
-		// guidance corpus annotates still carries a fields requirement whose
-		// refusal renders a full shape example.
 		{"invalid subject", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example","fields":{"legislative_subjects":["bad subject"]}}`, "legislative_subjects"},
 		{"many missing", `{"work_id":"work-example","expected_version":1,"title":"Updated plan","kind":"task","reason":"Revise the plan","idempotency_key":"request-example","contract":{}}`, "contract_version"},
 		{"unknown nested", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example","fields":{"extra":true,"legislative_subjects":["example"]}}`, "extra"},

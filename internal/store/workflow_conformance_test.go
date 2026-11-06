@@ -350,8 +350,6 @@ func TestCorpusCurrentProofPreparationProfiles(t *testing.T) {
 			setup := workflowCorpusSetup{FixtureRefs: workflowCorpusFixtureRefs{WorkItem: "work-alpha", Actors: []string{ref}, WorkflowTypes: []WorkflowStepPlanType{planType}}, CurrentState: &workflowCorpusCurrentState{Step: tc.step, ProofCase: tc.proof}}
 			fields := map[string]any{"impact_verdict": "non-breaking"}
 			switch tc.action {
-			case "approve_contract":
-				fields = map[string]any{"decision_domains": []string{}}
 			case "confirm_premise":
 				fields = map[string]any{}
 			}

@@ -31,7 +31,7 @@ func seedUnreadRecordsFixture(t *testing.T, db *sql.DB) {
 		`INSERT INTO product_projects(product_id,project_id,role) VALUES('product-one','project-one','primary')`,
 		`INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at) VALUES('work-unread','task','Fixture','needed',1,'t','t')`,
 		`INSERT INTO work_projects(work_id,project_id,role) VALUES('work-unread','project-one','primary')`,
-		`INSERT INTO workflow_instances(work_id,instance_state) VALUES('work-unread','intake')`,
+		`INSERT INTO workflow_instances(work_id,instance_state,prelude_state) VALUES('work-unread','intake','{"intake":{"outcome":"proceed","note":"retired prose","checks_found":["freshness"]}}')`,
 	}
 	execUnreadSeed(t, db, `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'principal:one','client:one','agent:one','session:one','agent','t')`, actor)
 	for _, stmt := range stmts {
@@ -89,6 +89,13 @@ func TestUnreadRecordsRetirementUpgrade(t *testing.T) {
 	var mandate, subjects string
 	if err := db.QueryRow(`SELECT spec_mandate,legislative_subjects FROM workflow_contracts WHERE work_id='work-unread' AND contract_version=1`).Scan(&mandate, &subjects); err != nil || mandate != `["spec:one"]` || subjects != `["spec:one"]` {
 		t.Fatalf("retained contract facts lost: mandate=%s subjects=%s err=%v", mandate, subjects, err)
+	}
+	var prelude string
+	if err := db.QueryRow(`SELECT prelude_state FROM workflow_instances WHERE work_id='work-unread'`).Scan(&prelude); err != nil {
+		t.Fatal(err)
+	}
+	if prelude != `{"intake":{"outcome":"proceed"}}` {
+		t.Fatalf("retired prelude prose survived the upgrade: %s", prelude)
 	}
 	if got := retirementUpgradeRows(t, db, `PRAGMA foreign_key_check`); len(got) != 0 {
 		t.Fatalf("foreign_key_check = %v", got)

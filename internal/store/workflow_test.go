@@ -512,8 +512,8 @@ func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *test
 	t.Parallel()
 	s := openTemp(t)
 	expectedColumns := map[string][]string{
-		"workflow_instances": {"work_id", "workflow_type", "step_plan", "prelude_state", "instance_state", "execution_actor_ref", "execution_model", "started_at", "completed_at", "last_checkpoint_at", "execution_started_at", "completion_payload", "completion_occurred_at"},
-		"workflow_contracts": {"work_id", "contract_version", "consequence_class", "approved_at", "approved_by", "superseded_by", "spec_mandate", "law_modifies", "law_boundary_version", "self_repair_json", "supersession_seq", "last_healthy_seq", "changes_product_truth", "legislative_subjects"},
+		"workflow_instances":             {"work_id", "workflow_type", "step_plan", "prelude_state", "instance_state", "execution_actor_ref", "execution_model", "started_at", "completed_at", "last_checkpoint_at", "execution_started_at", "completion_payload", "completion_occurred_at"},
+		"workflow_contracts":             {"work_id", "contract_version", "consequence_class", "approved_at", "approved_by", "superseded_by", "spec_mandate", "law_modifies", "law_boundary_version", "self_repair_json", "supersession_seq", "last_healthy_seq", "changes_product_truth", "legislative_subjects"},
 		"workflow_actors":                {"actor_ref", "principal_ref", "client_ref", "agent_ref", "session_ref", "actor_class", "first_seen_at"},
 		"workflow_checkpoints":           {"work_id", "checkpoint_id", "step_id", "step_kind", "attempt_epoch", "accepted_inputs_digest", "result_evidence_refs", "resume_cursor", "idempotency_identity", "actor_ref", "request_id", "recorded_at"},
 		"workflow_impact_edges":          {"work_id", "edge_id", "edge_kind", "edge_class", "target_work_id", "target_kind", "severity", "recorded_at"},

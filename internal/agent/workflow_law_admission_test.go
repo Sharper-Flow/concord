@@ -137,7 +137,6 @@ func testWorkflowLawChangeAdmission(t *testing.T, tier string) {
 		var response agentcontract.Envelope
 		if action == "revise_intent" {
 			fields["contract_version"] = 2
-			delete(fields, "route_convention")
 			response, _ = dispatchContractRevisionResult(t, s, service, env, "work-1", workVersion(t, s, "work-1"), fields, "law-revise-intent")
 		} else {
 			response = invoke(action, "law-"+action, fields)

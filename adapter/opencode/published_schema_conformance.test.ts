@@ -108,11 +108,7 @@ test("the published workflow_action variants state each action's exact required 
       expect(input.required).not.toContain(field)
     }
   }
-  // The registry declares approve_contract's fields required: the published
-  // variant input schema states that requirement.
   const approve = actionVariantInput(schema, "approve_contract")
-  // approve_contract no longer requires fields: its last required field
-  // retired with CON-1710 under CD-0243 D3.
   expect(approve.required).toEqual(["work_id", "expected_version", "action_id", "idempotency_key"])
   // The retired result-size budget object is named nowhere on the published
   // surface; time is bounded only by requested_budget_seconds.
@@ -136,6 +132,8 @@ test("published string bounds admit and refuse with the core in both directions 
   expect(searched).toBeObject()
   expect(searched["x-maxBytes"]).toBe(4096)
   expect(searched["x-minBytes"]).toBe(2)
+  expect(searched.minLength).toBe(1)
+  expect(searched.maxLength).toBe(4096)
   const diagnosisCall = (value: string) => ({
     operation: "workflow_action",
     input: {
@@ -152,12 +150,21 @@ test("published string bounds admit and refuse with the core in both directions 
     },
   })
   // One code point of two bytes: the core byte floor admits it, so the
-  // published bounds must admit it too.
+  // published bounds must admit it too; the same holds for the ASCII
+  // maximum the byte ceiling admits.
   const failures: string[] = []
   expect(validateAgainstSchema(schema, diagnosisCall("é"), failures), failures.join("; ")).toBe(true)
+  expect(validateAgainstSchema(schema, diagnosisCall("v".repeat(4096)), failures), failures.join("; ")).toBe(true)
   // One byte under the two-byte floor: the core refuses it and
   // x-minBytes refuses it, though the derived code-point minLength is 1.
   expect(validateAgainstSchema(schema, diagnosisCall("v"), failures), failures.join("; ")).toBe(false)
+  expect(failures.join("; ")).toContain("carries 1 UTF-8 bytes against a minimum of 2")
+  failures.length = 0
+  // The other direction at the max bound: 4096 code points of two-byte
+  // characters are 8192 bytes — the core refuses them and the byte bound
+  // refuses them, where the code-point-equal maxLength admits them.
+  expect(validateAgainstSchema(schema, diagnosisCall("é".repeat(4096)), failures), failures.join("; ")).toBe(false)
+  expect(failures.join("; ")).toContain("carries 8192 UTF-8 bytes against a maximum of 4096")
 })
 
 // authoredInput is the authored schema document for one operation input,

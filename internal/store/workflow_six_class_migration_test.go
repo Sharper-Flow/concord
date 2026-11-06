@@ -88,4 +88,3 @@ func sixClassSnapshot(t *testing.T, db *sql.DB, tables ...string) map[string][]s
 	}
 	return out
 }
-

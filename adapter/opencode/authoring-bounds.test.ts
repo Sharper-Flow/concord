@@ -441,8 +441,7 @@ test("every reachable enforced bound teaches its exact Bounds clause with role, 
   const payloadTable = payloadSchemas as unknown as SchemaTable
   const canonical = boundInventory(canonicalBoundRoots(), payloadTable)
   expect(canonical.unresolved).toEqual([])
-  // the inventory shrank with CON-1710's retired bounds (CD-0243 D3)
-  expect(canonical.uses.size).toBeGreaterThan(900)
+    expect(canonical.uses.size).toBeGreaterThan(900)
   const findings = new Set<string>()
   for (const use of canonical.bounded) {
     for (const finding of boundTeachingFindings(use.node, use.at)) findings.add(finding)

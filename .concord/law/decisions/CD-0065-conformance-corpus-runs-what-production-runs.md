@@ -91,8 +91,8 @@ two corpora to keep in sync.
 
 ## Verification
 
-- `.concord/scenarios/workflow-engine.v1.json` holds twelve scenarios and
-  fifteen executable cases. Each selects `workflow.implementation` by reference
+- `.concord/scenarios/workflow-engine.v1.json` holds four scenarios. Each
+  that selects a workflow type selects the current `change` type by reference
   with no version pin.
 - `internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions`
   runs every case through the production action boundary over real SQLite and

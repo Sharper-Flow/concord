@@ -8,6 +8,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WorkflowPlanProjectionTest(unittest.TestCase):
+    def test_advertised_action_fields_match_authoring_fields(self):
+        result = subprocess.run(["go", "run", "./scripts/workflow-action-contracts"], cwd=ROOT, text=True, capture_output=True, check=True)
+        projection = json.loads(result.stdout)
+        # Guard against guidance advertising fields the engine refuses (CON-1778).
+        for action in projection["actions"]:
+            for variant in action["variants"]:
+                authoring = {field["name"]: field for field in variant["payload"]["fields"]}
+                advertised = {field["name"]: field for field in variant.get("public_payload", variant["payload"])["fields"]}
+                with self.subTest(action=action["id"], variant=variant.get("id")):
+                    self.assertEqual(set(advertised), set(authoring), f'{action["id"]}: field names differ')
+                    for name in authoring:
+                        self.assertEqual(advertised[name]["required"], authoring[name]["required"], f'{action["id"]}: {name} required differs')
+
     def test_action_route_is_available_at_intake(self):
         manifest = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text())
         operation = next(item for item in manifest["operations"] if item["id"] == "concord_work_transition.workflow_action")

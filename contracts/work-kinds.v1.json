@@ -1,7 +1,7 @@
 {
   "$schema": "contracts/work-kinds.schema.json",
   "schema_version": "1.0",
-  "summary": "The single declaration of the work-item operator taxonomy. This vocabulary answers what an operator says a work item IS. It is not the workflow family, which answers which workflow a work item RUNS: that set is fixed by CD-0013 D14, lives on the workflow definition, and is resolved through workflow_instances.definition_ref. The two sets are disjoint in meaning and must never be compared. Every projection of this vocabulary is derived from this file: the seeded work_kinds registry, the work_items membership trigger, the fold's create and revise gates, and the agent capture enum.",
+  "summary": "The single declaration of the work-item operator taxonomy. This vocabulary answers what an operator says a work item IS. It is not the workflow family, which answers which workflow a work item RUNS: workflow types come from contracts/workflow-step-templates.v1.json and the driving agent picks a type per item, stored on the item's step plan. The two sets are disjoint in meaning and must never be compared. Every projection of this vocabulary is derived from this file: the seeded work_kinds registry, the work_items membership trigger, the fold's create and revise gates, and the agent capture enum.",
   "kinds": [
     {
       "kind": "bug",

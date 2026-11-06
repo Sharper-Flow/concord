@@ -1826,7 +1826,7 @@
       ]
     },
     "resume_read_document": {
-      "description": "The item's stored step plan exactly as written, derived next step ids and work version. Before intake, opening_steps contains intake and pick_type; clarify is conditional on the intake outcome. After clarify-required intake it contains clarify and pick_type, and after proceed or clarification it contains pick_type. Terminal items carry neither next_steps nor opening_steps.",
+      "description": "The item's stored step plan, derived next step ids and work version. Before intake, opening_steps contains intake and pick_type; after proceed it contains pick_type. After type pick, next_steps derives from the stored plan. Every type requires clarify; fix requires diagnose first. Terminal items carry neither next_steps nor opening_steps.",
       "type": "object",
       "additionalProperties": false,
       "required": [

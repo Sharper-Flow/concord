@@ -37,7 +37,8 @@ Break-fix declares `bind_evidence` on `verify`. The action has hold execution
 mode and no approval requirement. An authenticated actor may bind evidence once
 the workflow reaches or passes a step declaring the action. While the plan is
 incomplete, a missing active contract does not block the binding; an ambiguous
-active-contract projection still refuses. The binding must satisfy ordinary
+active-contract projection still refuses. After the plan completes, binding
+requires exactly one active contract. The binding must satisfy ordinary
 payload, producer, subject and evidence-kind checks and include the producer
 watermark. A prior binding does not prevent a fresh binding.
 

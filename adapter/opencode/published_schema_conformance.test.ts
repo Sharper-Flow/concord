@@ -134,21 +134,19 @@ test("published string bounds admit and refuse with the core in both directions 
   expect(searched["x-minBytes"]).toBe(2)
   expect(searched.minLength).toBe(1)
   expect(searched.maxLength).toBe(4096)
-  const diagnosisCall = (value: string) => ({
-    operation: "workflow_action",
-    input: {
-      work_id: "work-multibyte-parity",
-      expected_version: 4,
-      action_id: "record_diagnosis",
-      idempotency_key: "idem-multibyte-parity",
-      fields: {
-        reproduction: "é",
-        searched: value,
-        outcome: "none_found",
-        root_cause: "é",
-      },
+  const diagnosisInput = (value: string) => ({
+    work_id: "work-multibyte-parity",
+    expected_version: 4,
+    action_id: "record_diagnosis",
+    idempotency_key: "idem-multibyte-parity",
+    fields: {
+      reproduction: "é",
+      searched: value,
+      outcome: "none_found",
+      root_cause: "é",
     },
   })
+  const diagnosisCall = (value: string) => ({ operation: "workflow_action", input: diagnosisInput(value) })
   // One code point of two bytes: the core byte floor admits it, so the
   // published bounds must admit it too; the same holds for the ASCII
   // maximum the byte ceiling admits.
@@ -157,14 +155,19 @@ test("published string bounds admit and refuse with the core in both directions 
   expect(validateAgainstSchema(schema, diagnosisCall("v".repeat(4096)), failures), failures.join("; ")).toBe(true)
   // One byte under the two-byte floor: the core refuses it and
   // x-minBytes refuses it, though the derived code-point minLength is 1.
+  // The whole-tool union reports the refusal as a branch mismatch, so the
+  // enforcing byte message is asserted against the matched variant branch.
   expect(validateAgainstSchema(schema, diagnosisCall("v"), failures), failures.join("; ")).toBe(false)
-  expect(failures.join("; ")).toContain("carries 1 UTF-8 bytes against a minimum of 2")
-  failures.length = 0
+  const branchFailures: string[] = []
+  expect(validateAgainstSchema(variant, diagnosisInput("v"), branchFailures), branchFailures.join("; ")).toBe(false)
+  expect(branchFailures.join("; ")).toContain("carries 1 UTF-8 bytes against a minimum of 2")
   // The other direction at the max bound: 4096 code points of two-byte
   // characters are 8192 bytes — the core refuses them and the byte bound
   // refuses them, where the code-point-equal maxLength admits them.
   expect(validateAgainstSchema(schema, diagnosisCall("é".repeat(4096)), failures), failures.join("; ")).toBe(false)
-  expect(failures.join("; ")).toContain("carries 8192 UTF-8 bytes against a maximum of 4096")
+  branchFailures.length = 0
+  expect(validateAgainstSchema(variant, diagnosisInput("é".repeat(4096)), branchFailures), branchFailures.join("; ")).toBe(false)
+  expect(branchFailures.join("; ")).toContain("carries 8192 UTF-8 bytes against a limit of 4096")
 })
 
 // authoredInput is the authored schema document for one operation input,

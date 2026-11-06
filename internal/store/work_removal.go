@@ -377,21 +377,41 @@ func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 	return nil
 }
 
+// workRemovalProjectionTables names, in foreign-key-graph order, every
+// projection table whose work-item rows deleteWorkOwnedProjections deletes.
+// Table names are closed source-owned identifiers, not caller input. Tables
+// whose work-item owner columns are not a bare work_id appear in
+// workRemovalProjectionOwnerColumns, and deleteWorkProjectionTx builds their
+// delete predicate from that map. TestWorkRemovalClearsEveryForeignKeyIntoWorkItems
+// requires every entry to exist in the live schema and requires every live
+// foreign-key owner of work_items that is not ON DELETE CASCADE to be cleared
+// through this list or that map, so a new uncleared owner fails the suite
+// instead of failing removal at runtime.
+var workRemovalProjectionTables = []string{"workflow_overlap_resolutions", "workflow_backlog_alignment", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_impact_edges", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_clarify_records", "workflow_removal_scopes", "workflow_plan_records", "workflow_instances", "project_handoffs", "external_observations", "relations", "work_projects", "linear_issue_links"}
+
+// workRemovalProjectionOwnerColumns maps each projection table whose
+// work-item owner columns are not a bare work_id to those exact columns.
+// deleteWorkProjectionTx deletes rows matching ANY listed column, so a row
+// naming the removed work at either end clears: an alignment row names the
+// searching item and, for a related_found outcome, one item the search found;
+// an overlap resolution, an impact edge, and a relation each name two ends.
+// Every key must also appear in workRemovalProjectionTables: only that list
+// drives the deletes, so an entry missing from it builds a predicate that
+// never runs. TestWorkRemovalClearsEveryForeignKeyIntoWorkItems binds the
+// live non-CASCADE foreign-key owners of work_items to this map and enforces
+// the list membership, so a stale, split, or never-executed entry fails the
+// suite.
+var workRemovalProjectionOwnerColumns = map[string][]string{
+	"workflow_overlap_resolutions": {"from_work_id", "to_work_id"},
+	"workflow_backlog_alignment":   {"work_id", "related_work_id"},
+	"workflow_impact_edges":        {"work_id", "target_work_id"},
+	"relations":                    {"work_id_from", "work_id_to"},
+}
+
 func deleteWorkOwnedProjections(ctx context.Context, tx migrationRunner, workID string) error {
-	// This order follows the FK graph. The table names are closed source-owned
-	// identifiers, not caller input. Shared Product, Project, actor, and law
+	// This order follows the FK graph. Shared Product, Project, actor, and law
 	// rows have no work-item ownership predicate and remain untouched.
-	if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_overlap_resolutions WHERE from_work_id=? OR to_work_id=?`, workID, workID); err != nil {
-		return projectionDeleteFailure("workflow_overlap_resolutions", err)
-	}
-	// An alignment row names the searching item and, for a related_found
-	// outcome, one item the search found. Both columns carry a RESTRICT
-	// foreign key, so removing either end must clear the row first.
-	if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_backlog_alignment WHERE work_id=? OR related_work_id=?`, workID, workID); err != nil {
-		return projectionDeleteFailure("workflow_backlog_alignment", err)
-	}
-	tables := []string{"workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_impact_edges", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_clarify_records", "workflow_removal_scopes", "workflow_plan_records", "workflow_instances", "external_observations", "relations", "work_projects", "linear_issue_links"}
-	for _, table := range tables {
+	for _, table := range workRemovalProjectionTables {
 		if err := deleteWorkProjectionTx(ctx, tx, table, workID); err != nil {
 			return err
 		}
@@ -403,7 +423,21 @@ func deleteWorkOwnedProjections(ctx context.Context, tx migrationRunner, workID 
 }
 
 func deleteWorkProjectionTx(ctx context.Context, tx migrationRunner, table, workID string) error {
-	_, deleteErr := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE work_id=?`, workID) //nolint:gosec // table comes only from the closed FK-order projection list in deleteWorkOwnedProjections and the work ID stays parameter-bound.
+	if columns, special := workRemovalProjectionOwnerColumns[table]; special {
+		// The table and column names come only from the closed declarations
+		// above; the work ID stays parameter-bound.
+		predicates := make([]string, len(columns))
+		args := make([]any, len(columns))
+		for i, column := range columns {
+			predicates[i] = column + "=?"
+			args[i] = workID
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE `+strings.Join(predicates, " OR "), args...); err != nil {
+			return projectionDeleteFailure(table, err)
+		}
+		return nil
+	}
+	_, deleteErr := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE work_id=?`, workID) //nolint:gosec // table comes only from the closed projection list in workRemovalProjectionTables and the work ID stays parameter-bound.
 	if deleteErr == nil {
 		return nil
 	}
@@ -412,28 +446,16 @@ func deleteWorkProjectionTx(ctx context.Context, tx migrationRunner, table, work
 	if (table == "workflow_clarify_records" || table == "workflow_plan_records" || table == "workflow_removal_scopes") && strings.Contains(deleteErr.Error(), "no such table: "+table) {
 		return nil
 	}
-	// Tables with a different owner column are handled explicitly below.
-	switch table {
-	case "workflow_impact_edges":
-		if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_impact_edges WHERE work_id=? OR target_work_id=?`, workID, workID); err != nil {
-			return projectionDeleteFailure(table, err)
-		}
-	case "relations":
-		if _, err := tx.ExecContext(ctx, `DELETE FROM relations WHERE work_id_from=? OR work_id_to=?`, workID, workID); err != nil {
-			return projectionDeleteFailure(table, err)
-		}
-	case "workflow_law_addition_reservations":
+	// workflow_law_addition_reservations carries no direct foreign key into
+	// work_items (its owner references workflow_contracts), so it stays out of
+	// workRemovalProjectionOwnerColumns and clears by its own owner column.
+	if table == "workflow_law_addition_reservations" {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_law_addition_reservations WHERE owner_work_id=?`, workID); err != nil {
 			return projectionDeleteFailure(table, err)
 		}
-	case "work_projects":
-		if _, err := tx.ExecContext(ctx, `DELETE FROM work_projects WHERE work_id=?`, workID); err != nil {
-			return projectionDeleteFailure(table, err)
-		}
-	default:
-		return projectionDeleteFailure(table, deleteErr)
+		return nil
 	}
-	return nil
+	return projectionDeleteFailure(table, deleteErr)
 }
 
 func projectionDeleteFailure(table string, err error) error {

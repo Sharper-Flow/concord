@@ -15,6 +15,12 @@ PRIMARY_PROFILE_IDS = ("Concord-RTE", "Concord", "Concord-Planner")
 STEP_HELPER_IDS = ("concord-review", "concord-verify", "concord-implement", "concord-design", "concord-research")
 STASH_DENIALS = tuple(f"    {json.dumps(pattern)}: deny" for pattern in
                      ("git stash *", "git * stash *", "*/git stash *", "*/git * stash *"))
+STEP_HELPER_BOUNDARY = """## Shared boundaries
+
+Command-text restrictions are hygiene, not a sandbox: do not use the CLI, a
+direct store connection, a wrapper, or a connected service to bypass your
+boundaries. A Task result is not a workflow transition or an evidence
+binding; the caller owns workflow state, evidence binding and delivery."""
 spec = importlib.util.spec_from_file_location("agent_contract_generator", ROOT / "scripts/generate-agent-contracts.py")
 if spec is None or spec.loader is None:
     raise RuntimeError("unable to load shared contract helpers")
@@ -288,6 +294,8 @@ def primary_projection(profile: dict, role_source: str) -> str:
             lines.extend(STASH_DENIALS)
     lines.extend(f"  {tool}: deny" for tool in profile["denied_concord_tools"])
     lines.extend(["---", "", role_source.rstrip("\n")])
+    if profile["id"] in STEP_HELPER_IDS:
+        lines.extend(["", STEP_HELPER_BOUNDARY])
     return "\n".join(lines) + "\n"
 
 

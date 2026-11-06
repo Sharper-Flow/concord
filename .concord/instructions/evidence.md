@@ -12,6 +12,11 @@ Interrogate the source rather than a description of it. Running a command,
 reading the code that implements it, or writing a failing case is more reliable
 than prose about any of them, and far more reliable than memory.
 
+Product-law status resolves through the workflow's resolved law context;
+repository text alone does not establish it. Before delegating work that depends
+on law state, resolve it and pass the resolved context. Resolve any law-state
+gap a delegate returns before relying on that part of its answer.
+
 Documentation states what a thing offers. It does not state what its users
 adopt. Where working code that depends on it is reachable, read that code
 before you design against it. Report a disagreement between the two rather

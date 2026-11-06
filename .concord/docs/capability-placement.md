@@ -17,12 +17,10 @@
 
 ## TL;DR
 
-Concord makes **every placement decision correctly and deliberately.** When a new
-capability is needed, we know exactly where it goes — owned by plugin, MCP,
-instructions, skill, command, host script, durable state, or the native system
-that already enforces it — based on its shape. We **keep the rubric dynamic**:
-as tooling evolves, placements are re-evaluated so we stay cutting-edge. No
-default dumping ground.
+This rubric decides where a capability lives: external native authority, plugin,
+MCP, instructions, skill, command, host script, or durable state. Placement is a
+deliberate decision by shape, with no default dumping ground; placements are
+re-evaluated as tooling evolves.
 
 ---
 
@@ -113,7 +111,7 @@ over any Concord internal surface.
 
 ---
 
-## 5. Dynamic guidance (stay cutting-edge)
+## 5. Dynamic guidance
 
 The rubric is **not static.** Tooling evolves — MCP gains capabilities, plugin
 hooks change, CodeMode matures, and external authorities expose new APIs. So:
@@ -128,9 +126,6 @@ drift is visible and re-evaluation is grounded.
 locked into a surface that ages poorly.
 - **Treat the rubric itself as living** — update it when a new surface appears or
 an existing one's characteristics change.
-
-This is the mechanism for staying cutting-edge: deliberate placement + periodic
-re-evaluation, never "set and forget."
 
 ---
 
@@ -173,8 +168,3 @@ owns the open rubric-enforcement question and its current lean.
 | `design-constraints.md` §8 | Tool-suite interaction / portability — placement of the cross-client surface. |
 | `design-constraints.md` §12 | Ownership-aligned placement: respect native authority. |
 | `self-documentation.md` | The placement map should be browsable. |
-
----
-
-*Right shape, every time, re-evaluated as the world changes. That's how a system
-stays sharp instead of calcifying.*

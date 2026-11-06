@@ -60,7 +60,7 @@ follows them without restating the ranked list.
 
 ---
 
-## 2. Optimal IO / storage / memory (the sharp requirement)
+## 2. Optimal IO / storage / memory
 
 For **each** of these surfaces, the IO/storage/memory model must be **optimal** —
 not an afterthought. Self-documentation is a **read-heavy** surface (users/agents
@@ -90,10 +90,10 @@ browse constantly); if it's slow or memory-heavy, the whole platform feels heavy
   truth; self-documentation surfaces read it, never write a shadow copy.
 
 ### 2.2 Why this is foundational
-Optimal IO/storage/memory here is foundational to the *"fast + seamless"* feel
-(`design-constraints.md` §2) and to the chaos-proof architecture
-([`clarifications.md`](./clarifications.md) R3) — a heavy, lock-prone doc store would reintroduce
-exactly the failure modes Concord exists to eliminate.
+Optimal IO/storage/memory here underpins the fast, bounded read path
+(`design-constraints.md` §5) and factored lifecycle truth
+([`clarifications.md`](./clarifications.md) R3). A heavy, lock-prone doc store
+would undermine both.
 
 ### 2.3 Minimal active-work visibility
 

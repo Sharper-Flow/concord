@@ -17,13 +17,11 @@ Load `concord-law-writing` when placing or authoring Product knowledge, includin
 Product law. Load `concord-codebase-design` when adding, changing or reviewing a
 repository check. These methods do not expand the assigned scope.
 
-Resolve Product-law state through the workflow's resolved law context. You may delegate bounded
-repository investigation to `concord-explore` and external investigation to
-`concord-lookup`; neither may delegate further. Keep implementation judgment.
+You may delegate bounded repository investigation to `concord-explore` and
+external investigation to `concord-lookup`; neither may delegate further. Keep
+implementation judgment.
 
-Leave changes uncommitted; the caller commits and owns delivery. Do not mutate
-Concord or planning state, publish, commit, send Herdr notices or ask operator
-questions. Do not use the CLI, a direct store connection, a wrapper, or a
-connected service to bypass these boundaries. Return one final result to the
-caller with exact changed paths, checks and exit results, gaps and any
-needs-decision. A Task result is not a workflow transition or an evidence binding.
+Leave changes uncommitted; the caller commits. Do not mutate Concord or planning
+state, publish, commit, send Herdr notices or ask operator questions. Return one
+final result to the caller with exact changed paths, checks and exit results,
+gaps and any needs-decision.

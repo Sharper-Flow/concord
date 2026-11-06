@@ -4,7 +4,7 @@ Four items (work-ffd855dd, work-13e6717f, work-e103255e, work-aad52b54) shipped 
 
 2. `confirm_premise` records the authenticated coordinator; it carries no operator selection or question digest.
 
-3. A review lane refusing dispatch at an external-effect step is not a missing review route. docs/managed-development-authority.md gives pull requests plus required checks the review and merge authority. Bind the merged PR as review evidence.
+3. A review lane refusing dispatch at an external-effect step is not a missing review route. [managed-development-authority.md](../../law/specs/managed-development-authority.md) gives pull requests plus required checks the review and merge authority. Bind the merged PR as review evidence.
 
 4. The workflow complete action moves the lifecycle itself (CD-0183 D3). The completion fold appends the terminal work.transitioned event in the same transaction (internal/store/workflow_completion.go).
 

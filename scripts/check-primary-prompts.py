@@ -27,10 +27,33 @@ install it. This check proves the example contract in CD-0154:
   portable surface   no host-specific research tool names appear in any
                      frontmatter; host tool configuration stays outside the
                      example
-  conduct ownership  technical-unknown evidence stays in the installed
-                     conduct corpus, not in the portable example
+  conduct ownership  technical-unknown evidence and the law-context obligation
+                     stay in the installed conduct corpus, not in the portable
+                     example
   intake restriction the intake definition keeps its write and workflow
                      denials
+
+Authority classes under CD-0055:
+
+The marker-presence rule over .concord/instructions/evidence.md is structural
+(D1): it reads the conduct file that owns each obligation, and an exact marker
+is either present or not.
+
+The duplicated-obligation rule over profile and example bodies is a declared
+textual guard (D3):
+
+  invisible failure class    A conduct sentence copied into a profile raises
+                             nothing. The copies drift, and the agent receives
+                             two versions of one rule.
+  inexpressible in D1 today  Nothing types the relationship between a conduct
+                             file and profile prose.
+  small, with a documented   Only exact markers match, so a paraphrase passes.
+  false-positive shape       A body that quotes a marker for another reason is
+                             a finding; the remedy is to rely on the installed
+                             conduct corpus, which every context loads.
+  structural end-state       Profiles assembled from manifest-declared parts
+                             that reference conduct files rather than restate
+                             them, so a body cannot carry a copy.
 """
 from __future__ import annotations
 
@@ -130,6 +153,9 @@ LOOKUP_OBLIGATION_MARKERS = (
     "Recall is not evidence",
     "source to fit the surface",
     "blocked, unavailable, or inconclusive",
+)
+LAW_CONTEXT_MARKERS = (
+    "Product-law status resolves through the workflow's resolved law context",
 )
 DELEGATION_ANCHOR_MARKERS = (
     "Use native Task to delegate implementation and design under host permissions",
@@ -301,6 +327,8 @@ def check_named_profiles(root: Path) -> list[str]:
             findings.append(f"{name} frontmatter does not declare mode: primary")
         if any(marker in flat_body for marker in LOOKUP_OBLIGATION_MARKERS):
             findings.append(f"{name} duplicates the technical-unknown conduct obligation")
+        if any(marker in flat_body for marker in LAW_CONTEXT_MARKERS):
+            findings.append(f"{name} duplicates the law-context conduct obligation")
         findings.extend(
             f"{name} routes by generated agent id {match.group(0)!r}; route by need and let the registry descriptions name the agent"
             for match in [GENERATED_AGENT_ID.search(flat_body)]
@@ -340,6 +368,8 @@ def check_primary_prompts(root: Path) -> list[str]:
                 findings.append(f"{name} frontmatter does not declare mode: primary")
             if any(marker in flat for marker in LOOKUP_OBLIGATION_MARKERS):
                 findings.append(f"{name} duplicates the technical-unknown conduct obligation")
+            if any(marker in flat for marker in LAW_CONTEXT_MARKERS):
+                findings.append(f"{name} duplicates the law-context conduct obligation")
         except ValueError as error:
             findings.append(f"{name} is malformed: {error}")
 
@@ -351,6 +381,11 @@ def check_primary_prompts(root: Path) -> list[str]:
         f".concord/instructions/evidence.md is missing the lookup obligation marker {marker!r}"
         for marker in LOOKUP_OBLIGATION_MARKERS
         if marker not in evidence
+    )
+    findings.extend(
+        f".concord/instructions/evidence.md is missing the law-context obligation marker {marker!r}"
+        for marker in LAW_CONTEXT_MARKERS
+        if marker not in flatten(evidence)
     )
 
     intake_frontmatter = split_frontmatter(texts["concord-0.md"])

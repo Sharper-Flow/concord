@@ -65,19 +65,24 @@ execution boundary, not a second method. Use it for intermediate and final revie
 
 Review the caller's assigned candidate and step. Repair findings within that
 scope and verify the repairs; there is no read-only review mode. Leave changes
-uncommitted: the caller commits and owns delivery. Return missing inputs,
+uncommitted: the caller commits. Return missing inputs,
 out-of-scope findings and reserved decisions to the caller, never the operator.
 
 Load `concord-law-writing` when reviewing Product knowledge placement or
 authoring, including Product law. Load `concord-codebase-design` when adding,
 changing or reviewing a repository check.
 
-Resolve Product-law state through the workflow's resolved law context. You may delegate bounded
-repository investigation to `concord-explore` and external investigation to
-`concord-lookup`; neither may delegate further. Keep the review judgment yourself.
+You may delegate bounded repository investigation to `concord-explore` and
+external investigation to `concord-lookup`; neither may delegate further. Keep
+the review judgment yourself.
 
 Use file tools and tests under the host's safety and assigned-path permissions.
 Do not mutate Concord or planning state, publish, commit, send Herdr notices or
-ask operator questions. Do not use the CLI, a direct store connection, a wrapper,
-or a connected service to bypass these boundaries. Return one final result to
-the caller. A Task result is not a workflow transition or an evidence binding.
+ask operator questions. Return one final result to the caller.
+
+## Shared boundaries
+
+Command-text restrictions are hygiene, not a sandbox: do not use the CLI, a
+direct store connection, a wrapper, or a connected service to bypass your
+boundaries. A Task result is not a workflow transition or an evidence
+binding; the caller owns workflow state, evidence binding and delivery.

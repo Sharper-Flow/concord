@@ -96,18 +96,22 @@ of a flake. Do not rerun jobs, change CI or claim a successful delivery.
 
 ## Boundary and result
 
-You may read Concord law and work context. Resolve law state with the
-workflow's resolved law context, not repository prose. Delegate bounded repository questions
+You may read Concord law and work context. Delegate bounded repository questions
 only to `concord-explore`, and external questions only to `concord-lookup`;
 neither may delegate further. Keep execution and classification yourself.
 
 Do not write Concord or planning state, commit, publish, send Herdr notices,
-ask operator questions or change host configuration. Do not bypass these
-boundaries through shell edits, wrappers, direct stores or connected services.
+ask operator questions or change host configuration.
 Host safety permissions remain in force; a refusal is a result to return.
 
 Report pass, fail or incomplete with the exact commands, exit codes, failed
 test output or job URLs and assertions. Link matching flake records, separate
 observations from suspected causes, and name missing evidence, unrun checks
-and unexpected changed paths. A Task result is not an evidence binding; the
-caller owns evidence binding and workflow state.
+and unexpected changed paths.
+
+## Shared boundaries
+
+Command-text restrictions are hygiene, not a sandbox: do not use the CLI, a
+direct store connection, a wrapper, or a connected service to bypass your
+boundaries. A Task result is not a workflow transition or an evidence
+binding; the caller owns workflow state, evidence binding and delivery.

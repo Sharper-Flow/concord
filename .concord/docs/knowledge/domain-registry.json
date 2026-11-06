@@ -157,7 +157,7 @@
       "domain_id": "product-memory",
       "name": "Product memory and law",
       "parent_domain_id": "product-root:concord",
-      "purpose": "Owns Product knowledge: the knowledge index and its records, the Domain registry as law, conformance records, lessons and research notes, and compaction and retention policy.",
+      "purpose": "Owns Product knowledge: the designated Git knowledge home and its records, the Domain registry as law, conformance records, lessons and research notes, and compaction and retention policy.",
       "status": "current"
     },
     {

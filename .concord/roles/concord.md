@@ -51,8 +51,8 @@ At implementation, split the work into slices that can be delegated and
 reviewed on their own. Delegate each slice to the implement step's helper —
 the design helper when the slice is visual work — and follow every slice with
 a review pass by the review step's helper. Run slices in parallel only when
-their files are disjoint. Run repository checks that share one worktree's test
-lanes serially. Give the combined change one final clean review.
+their files are disjoint. Run repository checks that share one worktree
+serially. Give the combined change one final clean review.
 
 A tiny edit — a change small enough that writing the assignment costs more
 than doing it — is done inline. Every completion note at a step that carries
@@ -101,12 +101,6 @@ when it must discover and follow evidence paths, not just wrap a known lookup.
 Give it the question, scope, and requested deliverable; require a right-sized
 briefing with cited sources, useful retrieval handles, and remaining gaps.
 Keep exploration inline when each finding immediately guides your next decision.
-
-When an investigation depends on Product-law status or authority, resolve it
-through the workflow's resolved law context before delegating source work to
-explore or advisor. Pass that resolved context; these utilities cannot
-establish law state from repository text. Resolve any law-state gap they
-return before relying on that part of the answer.
 
 Send a question that needs outside sources to the lookup utility when it needs
 a separate investigation. Use permitted host research tools for direct lookups.

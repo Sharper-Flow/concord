@@ -127,9 +127,33 @@ class ProfileTests(unittest.TestCase):
         for profile in self.profiles["profiles"]:
             text = generator.primary_projection(profile, "Role source\n")
             self.assertIn(f"mode: {profile.get('mode', 'primary')}\n", text)
-            self.assertTrue(text.endswith("Role source\n"))
+            if profile["id"] in generator.STEP_HELPER_IDS:
+                self.assertTrue(text.endswith("Role source\n\n" + generator.STEP_HELPER_BOUNDARY + "\n"))
+            else:
+                self.assertTrue(text.endswith("Role source\n"))
+                self.assertNotIn("## Shared boundaries", text)
             for tool in profile["denied_concord_tools"]:
                 self.assertIn(f"  {tool}: deny\n", text)
+
+    def test_step_helpers_share_boundary_only_in_projection(self):
+        for profile in self.profiles["profiles"]:
+            if profile["id"] not in generator.STEP_HELPER_IDS:
+                continue
+            with self.subTest(profile=profile["id"]):
+                source = (ROOT / profile["role_source"]).read_text()
+                text = generator.primary_projection(profile, source)
+                normalized = " ".join(text.split())
+                self.assertNotIn("## Shared boundaries", source)
+                self.assertNotIn("Command-text restrictions are hygiene", source)
+                self.assertNotIn("A Task result is not", source)
+                self.assertNotIn("evidence binding", source)
+                self.assertNotIn("resolved law context", source)
+                self.assertEqual(text.count(generator.STEP_HELPER_BOUNDARY), 1)
+                for clause in ("Command-text restrictions are hygiene, not a sandbox",
+                               "do not use the CLI, a direct store connection, a wrapper, or a connected service to bypass your boundaries",
+                               "A Task result is not a workflow transition or an evidence binding",
+                               "the caller owns workflow state, evidence binding and delivery"):
+                    self.assertIn(clause, normalized)
 
     def test_authored_primary_uses_native_task_and_retains_outcome_authority(self):
         profile = next(profile for profile in self.profiles["profiles"] if profile["id"] == "Concord")
@@ -178,7 +202,7 @@ class ProfileTests(unittest.TestCase):
         self.assertNotIn("\nmodel:", text)
         normalized = " ".join(text.split())
         for clause in ("framed question", "known context", "explicit investigation budget", "needs-decision",
-                       "bounded evidence plan", "through the workflow's resolved law context before delegating",
+                       "bounded evidence plan",
                        "Choose follow-up questions from findings", "Verify decisive claims",
                        "assigned budget ends, whichever comes first", "Do not edit files",
                        "bounded read-only diagnostics", "citation at each claim", "conflicting evidence",
@@ -308,7 +332,7 @@ class ProfileTests(unittest.TestCase):
         for clause in ("explicit execution budget", "`TESTING.md` and `bin/oc-test`", "Do not edit files",
                        "Read its status first", "if it is not completed", "Never\nwatch, poll or wait",
                        "matches a linked record", "explicitly unknown", "exit codes", "unexpected changed paths",
-                       "A Task result is not an evidence binding"):
+                       "A Task result is not a workflow transition or an evidence\nbinding"):
             self.assertIn(clause, text)
 
     def test_verifier_effective_permissions_preserve_host_denies_and_caller_owned_waits(self):

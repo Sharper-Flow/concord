@@ -9,7 +9,7 @@ import (
 func TestReviewPreflightAfterContractRevision(t *testing.T) {
 	const id = "revision-review-preflight"
 	f := seedWorkflowReturnRouteFixture(t, id, WorkflowStepPlanChange, "review")
-	contract := pContractSuccessor(t, f.store, id, "corrected premise")
+	contract := pContractSuccessor(t, f.store, id)
 	if err := reviseContractRecord(t, f.store, id, f.owner, contract, readWorkVersion(t, f.store, id)); err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestTerminalContractRevisionKeepsPlanAndConfirmationHistory(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			contract := pContractSuccessor(t, f.store, id, "clarified premise")
+			contract := pContractSuccessor(t, f.store, id)
 			if err := reviseContractRecord(t, f.store, id, f.owner, contract, readWorkVersion(t, f.store, id)); err != nil {
 				t.Fatal(err)
 			}

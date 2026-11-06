@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-const cutoverContractColumns = `work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,superseded_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json,supersession_seq,last_healthy_seq,decision_domains`
+const cutoverContractColumns = `work_id,contract_version,consequence_class,approved_at,approved_by,superseded_by,spec_mandate,law_modifies,law_boundary_version,self_repair_json,supersession_seq,last_healthy_seq`
 
 func cutoverContractRows(t *testing.T, db *sql.DB) [][]any {
 	t.Helper()

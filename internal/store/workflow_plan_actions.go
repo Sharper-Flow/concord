@@ -17,9 +17,7 @@ const (
 )
 
 type workflowIntakeRecord struct {
-	ChecksFound []string              `json:"checks_found,omitempty"`
-	Outcome     WorkflowIntakeOutcome `json:"outcome"`
-	Note        string                `json:"note,omitempty"`
+	Outcome WorkflowIntakeOutcome `json:"outcome"`
 }
 
 type workflowPreludeState struct {
@@ -92,15 +90,8 @@ func foldWorkflowIntakeRecorded(ctx context.Context, tx *sql.Tx, event Event) er
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
 	}
-	if !slices.Contains([]WorkflowIntakeOutcome{WorkflowIntakeProceed, WorkflowIntakeAlreadyHandled, WorkflowIntakeDecline, WorkflowIntakeSplitOrMerge}, p.Outcome) || len(p.ChecksFound) > 14 || (p.Note != "" && !workflowString(p.Note, 4096)) {
+	if !slices.Contains([]WorkflowIntakeOutcome{WorkflowIntakeProceed, WorkflowIntakeAlreadyHandled, WorkflowIntakeDecline, WorkflowIntakeSplitOrMerge}, p.Outcome) {
 		return newFailure(KindInvalidPayload, "fold_event", "intake outcome or fields are invalid", false, "supply a consistent intake outcome")
-	}
-	seen := map[string]bool{}
-	for _, check := range p.ChecksFound {
-		if !slices.Contains(WorkflowIntakeChecks, check) || seen[check] {
-			return newFailure(KindInvalidPayload, "fold_event", "intake checks are invalid", false, "supply distinct declared checks")
-		}
-		seen[check] = true
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err

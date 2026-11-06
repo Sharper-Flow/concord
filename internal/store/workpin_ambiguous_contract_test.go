@@ -11,7 +11,7 @@ func TestWorkPinRemainsReadableWithoutAuthorizingAmbiguousContracts(t *testing.T
 	ctx := context.Background()
 	route := seedWorkflowReturnRouteFixture(t, "ambiguous-pin", WorkflowStepPlanChange, "review")
 	f := acceptanceRecoveryFixture{store: route.store, workID: "ambiguous-pin", owner: route.owner, operator: route.operator}
-	contract := pContractSuccessor(t, f.store, f.workID, "Revise the recorded plan")
+	contract := pContractSuccessor(t, f.store, f.workID)
 	before, err := ReadWorkPin(ctx, f.store, f.workID)
 	if err != nil {
 		t.Fatal(err)
@@ -62,8 +62,8 @@ func duplicateActiveWorkflowContract(ctx context.Context, t *testing.T, s *Store
 	t.Helper()
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `
 		INSERT INTO write_guard(active) VALUES(1);
-		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json,legislative_subjects)
-		SELECT work_id,contract_version+1,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json,legislative_subjects
+		INSERT INTO workflow_contracts(work_id,contract_version,consequence_class,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,self_repair_json,legislative_subjects)
+		SELECT work_id,contract_version+1,consequence_class,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,self_repair_json,legislative_subjects
 		FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL
 		ORDER BY contract_version DESC LIMIT 1;
 		DELETE FROM write_guard`, workID); err != nil {

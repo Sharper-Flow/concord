@@ -46,8 +46,6 @@ func TestInvokeResearchArchitectureBindingCorrection(t *testing.T) {
 		return state
 	}
 	fields := map[string]any{
-		"premise":              "Which retry bound preserves the existing dispatch route?",
-		"decision_domains":     []string{},
 		"legislative_subjects": []string{},
 		"architecture_binding": map[string]any{
 			"home_domain_id": "root", "affected_domain_ids": []string{"root"},

@@ -25,7 +25,6 @@ func TestNonProductChangingLawRevision(t *testing.T) {
 			seedWorkflowLaw(t, s)
 			version := seedDerivedRevisionWorkflow(t, s, workID, actor)
 			fields := map[string]any{
-				"premise":      "Preserve the approved derived-law revision.",
 				"spec_mandate": []string{"spec:one"}, "law_modifies": scenario.modifies,
 				"legislative_subjects": []string{},
 			}
@@ -41,7 +40,7 @@ func TestNonProductChangingLawRevision(t *testing.T) {
 			if scenario.successor {
 				contractVersion = 2
 				modifies = []string{"spec:one"}
-				fields = pContractSuccessor(t, s, workID, "Preserve the approved derived-law revision.")
+				fields = pContractSuccessor(t, s, workID)
 				fields["law_modifies"] = modifies
 				version = readWorkVersion(t, s, workID)
 				if err := reviseContractRecord(t, s, workID, actor, fields, version); err != nil {

@@ -49,20 +49,16 @@ func TestContractRevisionPreservesExecutionAndLegislativeSubjects(t *testing.T) 
 	}
 	successor := map[string]any{
 		"contract_version":     contract.Version + 1,
-		"premise":              contract.Premise,
 		"legislative_subjects": contract.LegislativeSubjects,
-		"route_conventions":    contract.RouteConventions,
 		"spec_mandate":         contract.SpecMandate,
 		"law_modifies":         contract.LawModifies,
 		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, f.s),
-		"rigor_class":          contract.RigorClass,
-		"decision_domains":     contract.DecisionDomains,
 	}
 	updated, _ := dispatchContractRevisionResult(t, f.s, f.service, f.env, f.work, before.Pinned.Pin.Version, successor, "journey-revise-unchanged")
 	spineOK(t, updated)
 	after := f.read(t)
 	if after.Pinned.Step != before.Pinned.Step || after.Pinned.Contract == nil || after.Pinned.Contract.Version != contract.Version+1 ||
-		!reflect.DeepEqual(after.Pinned.Contract.LegislativeSubjects, contract.LegislativeSubjects) || after.Pinned.Contract.Premise != contract.Premise {
+		!reflect.DeepEqual(after.Pinned.Contract.LegislativeSubjects, contract.LegislativeSubjects) || after.Pinned.Contract.Version != contract.Version+1 {
 		t.Fatalf("revision lost execution position or contract authority: before=%+v after=%+v", before.Pinned, after.Pinned)
 	}
 	if agentRowsSnapshot(t, f.s, evidenceRows, f.work) != proof {

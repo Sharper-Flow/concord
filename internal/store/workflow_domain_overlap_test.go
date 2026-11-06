@@ -46,7 +46,7 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 			tx.Rollback()
 			t.Fatal(err)
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, workID, 1, "overlap test", "internal_sqlite", `[]`, "2026-08-19T00:00:00Z", actor, `[]`, `[]`, 1, "prototype_internal"); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,consequence_class,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version) VALUES(?,?,?,?,?,?,?,?)`, workID, 1, "internal_sqlite", "2026-08-19T00:00:00Z", actor, `[]`, `[]`, 1); err != nil {
 			tx.Rollback()
 			t.Fatal(err)
 		}
@@ -138,10 +138,8 @@ func seedProductChangingContract(t *testing.T, s *Store, workID string, binding 
 	}
 	contract := workflowEventWithActor("overlap-contract-"+workID, WorkflowContractApproved, workID, actorRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1),
-		"premise": "coordinate Product-changing overlap", "legislative_subjects": []string{},
-		"route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": []string{},
-		"law_boundary_version": 1,
-		"rigor_class":          "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
+		"legislative_subjects": []string{}, "spec_mandate": mandate, "law_modifies": []string{},
+		"law_boundary_version": 1, "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})
 	contract = pOverlapContractFacts(t, s, contract)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contract}, ExpectedVersions: workVersion(workID, version)}); err != nil {

@@ -98,8 +98,8 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 	// contract approval refuses a missing, blank, or placeholder question.
 	for i, fields := range []map[string]any{
 		{"legislative_subjects": []string{}, "decision_domains": []string{}},
-		{"premise": "   ", "legislative_subjects": []string{}, "decision_domains": []string{}},
-		{"premise": "workflow premise", "legislative_subjects": []string{}, "decision_domains": []string{}},
+		{"legislative_subjects": []string{}, "decision_domains": []string{}},
+		{"legislative_subjects": []string{}, "decision_domains": []string{}},
 	} {
 		refused := action("approve_contract", fields, "framing-gate-unstated-question-"+strconv.Itoa(i))
 		if refused.Outcome != agentcontract.OutcomeError || refused.Error == nil {
@@ -112,7 +112,7 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 	if approvals := contractApprovals(); approvals != 0 {
 		t.Fatalf("contract approvals without a stated question=%d, want 0", approvals)
 	}
-	stated := action("approve_contract", map[string]any{"premise": "Which retry bound keeps the dispatch route live?", "legislative_subjects": []string{}, "decision_domains": []string{"product"}}, "framing-gate-stated-question")
+	stated := action("approve_contract", map[string]any{"legislative_subjects": []string{}, "decision_domains": []string{"product"}}, "framing-gate-stated-question")
 	if stated.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract with a stated question = %+v, want success", stated.Error)
 	}

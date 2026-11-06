@@ -45,27 +45,4 @@ func TestWorkflowCompletionIgnoresRetiredPayloadDrift(t *testing.T) {
 	}
 }
 
-func TestWorkflowCompletionIgnoresRetiredModifyingScope(t *testing.T) {
-	const id = "completion-modifying-scope"
-	const target = "completion-outside-candidates"
-	f := qCurrentAcceptanceWithDelivery(t, id, "https://example.com/delivery/scope")
-	s := f.store
-	completeWorkflowPlanFixture(t, s, id)
-	seedWork(t, s, target)
-	var candidates int
-	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_candidate_sets WHERE work_id=? AND candidate_kind='work_item' AND candidate_ref=?`, id, target).Scan(&candidates); err != nil || candidates != 0 {
-		t.Fatalf("outside target candidates=%d err=%v", candidates, err)
-	}
-	execInFold(t, s, `INSERT INTO workflow_impact_edges(work_id,edge_id,edge_kind,edge_class,target_work_id,target_kind,severity,recorded_at) VALUES('completion-modifying-scope','outside-modifying-edge','modifies','none','completion-outside-candidates','work_item','informational','now')`)
-	if err := f.run(t.Context(), "complete", "complete", f.version(t.Context(), t), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil); err != nil {
-		t.Fatalf("completion rechecked modifying-edge scope: %v", err)
-	}
-	var lifecycle string
-	if err := s.db.QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, id).Scan(&lifecycle); err != nil || lifecycle != "completed" {
-		t.Fatalf("lifecycle=%q err=%v", lifecycle, err)
-	}
-	var delivery string
-	if err := s.db.QueryRow(`SELECT json_extract(payload,'$.delivery_artifact') FROM workflow_delivery_state WHERE work_id=?`, id).Scan(&delivery); err != nil || delivery != "https://example.com/delivery/scope" {
-		t.Fatalf("delivery=%q err=%v", delivery, err)
-	}
-}
+// retired by CON-1710 under CD-0243 D3 (confirmed readerless)

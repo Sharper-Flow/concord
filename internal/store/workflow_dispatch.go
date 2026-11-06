@@ -320,8 +320,6 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, planType Work
 		return workflowPlanDocumentEvents(request, actor, raw, eventID, expected, WorkflowRemovalScopeRecorded), nil
 	case "approve_contract":
 		return workflowApproveContractEvents(ctx, tx, planType, request, actor, fields, eventID, expected)
-	case "revise_candidates":
-		return workflowReviseCandidatesEvents(request, actor, fields, eventID, expected)
 	case "record_diagnosis":
 		return workflowRecordDiagnosisEvents(ctx, tx, request, actor, fields, eventID, expected)
 	case "bind_evidence", "record_research", "record_report", "approve_operation":

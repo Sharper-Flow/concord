@@ -290,7 +290,7 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 	fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanFix, "implement")
 	s := fixture.store
 	current := workContextFixture{store: s, workID: workID, owner: fixture.owner, operator: fixture.operator}
-	if err := reviseContractRecord(t, s, workID, fixture.owner, pContractSuccessor(t, s, workID, "The repaired subject has current proof."), readWorkVersion(t, s, workID)); err != nil {
+	if err := reviseContractRecord(t, s, workID, fixture.owner, pContractSuccessor(t, s, workID), readWorkVersion(t, s, workID)); err != nil {
 		t.Fatalf("revise the contract at the producer step: %v", err)
 	}
 	if step := currentStep(t, s, workID); step != "implement" {

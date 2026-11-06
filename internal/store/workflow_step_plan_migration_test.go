@@ -19,7 +19,7 @@ INSERT INTO workflow_delivery_state SELECT 'work-delivered',assertion_seq,assert
 INSERT INTO linear_issue_links VALUES('work-upgrade-to','synthetic-cutover-issue','TEST-1574','https://example.com/issues/TEST-1574','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');
 INSERT INTO workflow_coordinator_actions VALUES('work-delivered','actor-delivered',1,'record_delivery','2026-01-01T00:00:00Z');
 DELETE FROM write_guard`, retirementUpgradeTime, retirementUpgradeTime)
-	contracts := retirementUpgradeRows(t, db, `SELECT work_id,contract_version,premise,approved_at,approved_by FROM workflow_contracts ORDER BY work_id`)
+	contracts := retirementUpgradeRows(t, db, `SELECT work_id,contract_version,approved_at,approved_by FROM workflow_contracts ORDER BY work_id`)
 	delivery := retirementUpgradeRows(t, db, `SELECT * FROM workflow_delivery_state ORDER BY work_id`)
 	receipts := retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts ORDER BY effect_seq`)
 	membership := retirementUpgradeRows(t, db, `SELECT * FROM work_projects ORDER BY work_id`)
@@ -52,7 +52,7 @@ DELETE FROM write_guard`, retirementUpgradeTime, retirementUpgradeTime)
 	if got := retirementUpgradeRows(t, db, `SELECT w.terminal_time=d.occurred_at,(SELECT count(*) FROM workflow_coordinator_actions c WHERE c.work_id=w.id) FROM work_items w JOIN workflow_delivery_state d ON d.work_id=w.id WHERE w.id='work-delivered'`); !reflect.DeepEqual(got, [][]any{{int64(1), int64(0)}}) {
 		t.Fatalf("cutover-completed item terminal facts=%v", got)
 	}
-	if got := retirementUpgradeRows(t, db, `SELECT work_id,contract_version,premise,approved_at,approved_by FROM workflow_contracts ORDER BY work_id`); !reflect.DeepEqual(got, contracts) {
+	if got := retirementUpgradeRows(t, db, `SELECT work_id,contract_version,approved_at,approved_by FROM workflow_contracts ORDER BY work_id`); !reflect.DeepEqual(got, contracts) {
 		t.Fatalf("contracts changed: %v", got)
 	}
 	if got := retirementUpgradeRows(t, db, `SELECT * FROM workflow_delivery_state ORDER BY work_id`); !reflect.DeepEqual(got, delivery) {

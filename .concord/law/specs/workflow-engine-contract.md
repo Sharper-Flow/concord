@@ -227,8 +227,7 @@ the rows below do not repeat this pair.
 | Record | Exact payload fields and bounds |
 |---|---|
 | `workflow.definition_selected` | `work_id`, `ref`, `version`, `digest`, `work_kind` (closed family enum) |
-| `workflow.contract_approved` | `work_id`, `contract_version`, `premise`, `legislative_subjects` (0–800 unique subjects), `route_conventions`, `spec_mandate`, `rigor_class`, and `consequence_class` |
-| `workflow.candidate_set_revised` | `work_id`, `contract_version`, `candidate_kind` (exactly `work_item`, `product`, or `project`), `candidate_ref`, `added` (0–100 refs), `removed` (0–100 refs); `added` and `removed` are disjoint and not both empty |
+| `workflow.contract_approved` | `work_id`, `contract_version`, `legislative_subjects` (0–800 unique subjects), `spec_mandate`, `law_modifies`, `architecture_binding`, `law_boundary_version`, and `consequence_class` |
 | `workflow.actor_recorded` | `work_id`, `actor_ref`, `principal_ref`, `client_ref`, `agent_ref`, `session_ref`, `actor_class` (`agent` or `operator`) |
 | `workflow.action_started` | `work_id`, `step_id`, `action_id`, `attempt_epoch`, `accepted_inputs_digest`, `idempotency_identity` (2–128), `actor_ref` |
 | `workflow.action_checkpointed` | `work_id`, `step_id`, `step_kind` (`internal_sqlite`, `cross_authority`, or `external_effect`), `attempt_epoch`, `checkpoint_payload` (typed action checkpoint, max 16 KiB), `resume_cursor` (0–2048), `actor_ref`, `request_id` |
@@ -241,7 +240,7 @@ the rows below do not repeat this pair.
 | `workflow.native_run_recorded` | `work_id`, `run_id` (1–128), `native_subject_ref` (1–2048 opaque non-secret), `subject_digest` (core-derived), `phase` (`start`/`health`/`rollback`/`cleanup`, fixed by the action ID), `status` (closed per-phase vocabulary), `evidence_ref`, `evidence_digest`, `asserted_at` (RFC3339, within the two-minute report skew bound), `reporting_authority_ref` (the authenticated actor's client, never caller input), `actor_ref`, and the embedded CD-0040 capture component: `capture_method`, the closed `observed_universe` structure (one item, exactly scoped, complete by closed-structure digest — validated by the shared D4 rules when recorded and read), the derived content-hashed `freshness_policy_ref`/`divergence_policy_ref` from the reviewed per-kind register, and the `observation_id` the run's phases share. The mutation registers that observation in `external_observations` as its shared provenance home, so one verification record answers every phase row and the attributed read (`NativeRunReport`) carries the derived verification state. |
 | `workflow.premise_confirmed` | `work_id`, `contract_version`, `confirming_actor_ref` |
 | `workflow.successor_linked` | `work_id`, `successor_work_id`, `relation_kind` (`forward_link`) |
-| `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`), `premise_confirmed` (boolean), `evidence_count` (non-negative, derived from the item's bound evidence history), `changed_refs_digest` (digest), `impact_verdict` (`breaking` or `non-breaking`), `warnings` (0–16 staleness-rule IDs) |
+| `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`), `premise_confirmed` (boolean), `evidence_count` (non-negative, derived from the item's bound evidence history), `changed_refs_digest` (digest), `impact_verdict` (`breaking` or `non-breaking`) |
 
 `legislative_subjects` belongs to the exact contract version that recorded it.
 Legislative standing also requires the operator-approved contract and the other
@@ -266,7 +265,7 @@ The update grants no legislative authority, overlap exemption, or approval
 waiver. Initial contract recording remains `approve_contract`, which a completed
 plan still admits while no active contract exists (§4.2).
 
-Retained contract content, candidate sets, attribution, and evidence remain
+Retained contract content, attribution, and evidence remain
 addressable by the versions and subjects they originally named. The update
 preserves the current workflow step, instance state, checkpoints, and attempts.
 Evidence for a different candidate does not prove the current candidate.
@@ -289,7 +288,7 @@ native Task Review and applicable proof for the exact changed candidate.
 
 Retry reruns the owning action. Current-record replacement applies to
 `record_intake`, `record_clarify`, `record_plan`, `record_diagnosis`,
-`record_delivery`, `record_review` and `revise_candidates`.
+`record_delivery` and `record_review`.
 To correct an existing record, the authenticated coordinator invokes its ordinary
 owning action with replacement values and the current expected work version.
 That write updates the action's current record in one transaction. It applies
@@ -370,6 +369,17 @@ Each mutation writes current rows in one transaction checked by an expected vers
 `work_id` references the
 existing `work_items(id)` key; actor references point to `workflow_actors`.
 
+Every retained workflow record names its reader. The plan and removal-scope
+documents gate their owning step's completion (`requireWorkflowPlanDocumentTx`);
+the clarify document gates the Clarify step through the same gate; the delivery
+assertion gates completion and the retained `record_delivery` admission
+(`requireWorkflowCompletionFactsTx`, `workflowPlanTerminalAdmissionTx`); the
+diagnosis alignment gates the diagnose step and the retained upgrade chain
+reads it (initiative retirement); the prelude's intake outcome drives opening
+admission and the resume and work-pin derivation; legislative subjects and the
+contract version feed legislated authority resolution (`knowledge_authority`).
+A recorded fact with no gate and no reader is retired, not stored.
+
 ### 5.1 Tables
 
 Each instance carries its own step plan ([section 2](#2-workflow-type-templates-and-step-plans)).
@@ -378,19 +388,15 @@ Each instance carries its own step plan ([section 2](#2-workflow-type-templates-
 |---|---|---|
 | `workflow_instances` | `work_id TEXT`, `workflow_type TEXT NULL`, `step_plan TEXT NULL`, `instance_state TEXT`, `execution_actor_ref TEXT NULL`, `started_at TEXT NULL`, `completed_at TEXT NULL`, `last_checkpoint_at TEXT NULL` | PK `work_id`; FK work; FK actor nullable; checks type enum or null, plan JSON object or null, state enum |
 | `workflow_clarify_records` | `work_id TEXT`, `work_version INTEGER`, `payload TEXT`, `recorded_at TEXT NULL`, `actor TEXT NULL`, `event_ref TEXT NULL` | PK `work_id`; FK work and nullable actor, both `ON DELETE RESTRICT`; `work_version` is non-null and positive; `payload` is non-null, valid JSON and an object; insert, update and delete require the write guard |
-| `workflow_contracts` | `work_id TEXT`, `contract_version INTEGER`, `premise TEXT`, `legislative_subjects TEXT`, `consequence_class TEXT`, `route_conventions TEXT`, `approved_at TEXT`, `approved_by TEXT`, `superseded_by INTEGER NULL`, `spec_mandate TEXT` | PK `(work_id,contract_version)`; FK work and approved actor; self-FK superseded contract |
-| `workflow_candidate_sets` | `work_id TEXT`, `contract_version INTEGER`, `candidate_kind TEXT`, `candidate_ref TEXT`, `candidate_role TEXT`, `candidate_scope TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,contract_version,candidate_kind,candidate_ref)`; composite FK contract; FK actor; checks closed candidate kind/role |
-| `workflow_backlog_alignment` | `work_id TEXT`, `related_work_id TEXT NULL`, `searched TEXT`, `outcome TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,related_work_id)`; FK work for both ids; checks closed outcome, a `none_found` work records no match rows, and no self-match; the declaration row carries a null `related_work_id`. Work removal clears rows naming the removed item in either column, because both foreign keys are `RESTRICT`. It preserves the original search outcome and surviving evidence under [§11.1](#111-retained-alignment-records). It does not reuse `workflow_candidate_sets`, whose composite FK binds to `workflow_contracts(work_id,contract_version)` and which therefore cannot hold a row before planning approves a contract |
+| `workflow_contracts` | `work_id TEXT`, `contract_version INTEGER`, `consequence_class TEXT`, `approved_at TEXT`, `approved_by TEXT`, `superseded_by INTEGER NULL`, `spec_mandate TEXT`, `law_modifies TEXT`, `law_boundary_version INTEGER`, `self_repair_json TEXT`, `supersession_seq INTEGER`, `last_healthy_seq INTEGER`, `changes_product_truth INTEGER NULL`, `legislative_subjects TEXT` | PK `(work_id,contract_version)`; FK work and approved actor; self-FK superseded contract |
+| `workflow_backlog_alignment` | `work_id TEXT`, `related_work_id TEXT NULL`, `searched TEXT`, `outcome TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,related_work_id)`; FK work for both ids; checks closed outcome, a `none_found` work records no match rows, and no self-match; the declaration row carries a null `related_work_id`. Work removal clears rows naming the removed item in either column, because both foreign keys are `RESTRICT`. It preserves the original search outcome and surviving evidence under [§11.1](#111-retained-alignment-records). Its foreign keys bind to `work_items`, not to `workflow_contracts`, so it can hold a row before planning approves a contract |
 | `workflow_actors` | `actor_ref TEXT`, `principal_ref TEXT`, `client_ref TEXT`, `agent_ref TEXT`, `session_ref TEXT`, `actor_class TEXT`, `first_seen_at TEXT` | PK `actor_ref`; UNIQUE tuple `(principal_ref,client_ref,agent_ref,session_ref)`; checks nonempty tuple and `actor_class IN ('agent','operator')` |
 | `workflow_checkpoints` | `work_id TEXT`, `checkpoint_id TEXT`, `step_id TEXT`, `step_kind TEXT`, `attempt_epoch INTEGER`, `accepted_inputs_digest TEXT`, `result_evidence_refs TEXT`, `resume_cursor TEXT`, `idempotency_identity TEXT`, `actor_ref TEXT`, `request_id TEXT`, `recorded_at TEXT` | PK `(work_id,checkpoint_id)`; UNIQUE `(work_id,step_id,attempt_epoch)` and `(work_id,idempotency_identity)`; FK work/actor; closed step-kind check |
 | `workflow_impact_edges` | `work_id TEXT`, `edge_id TEXT`, `edge_kind TEXT`, `edge_class TEXT`, `target_work_id TEXT`, `target_kind TEXT`, `severity TEXT`, `recorded_at TEXT` | PK `(work_id,edge_id)`; FK source/target work; closed edge/class/severity checks; hard `depends_on` and `forward_link` cycle check in transaction |
 | `workflow_decision_records` | `work_id TEXT`, `question TEXT`, `options_considered TEXT`, `decision TEXT`, `rationale TEXT`, `consequences TEXT`, `inputs TEXT`, `poc_findings TEXT`, `supersedes TEXT NULL`, `superseded_by TEXT NULL`, `recorded_at TEXT` | PK `(work_id,question)`; FK work; checks decision enum and required nonempty fields. Retained rows written before the step-plan cutover; they remain readable as recorded decisions, and the cutover's six-part plan record carries new in-flight decisions, so no current action writes new rows |
 | `workflow_premise_confirmations` | `work_id TEXT`, `contract_version INTEGER`, `confirmed_by TEXT`, `confirmed_at TEXT` | PK `(work_id,contract_version)`; composite FK contract; FK actor; actor class must be `operator` |
 
-Phase A does not invent a second candidate-role or scope authority. The
-`candidate_role` projection column is closed to the single value `include`, and
-`candidate_scope` is the canonical empty JSON object `{}`. Both are derived
-values because the candidate-set record carries no
+No action records candidate
 role or scope fields. `consequence_class` is not defaulted: it is an explicit
 closed field recorded with contract approval. `target_kind` is closed to
 `work_item`, matching the `target_work_id` foreign key; product/project targets
@@ -431,8 +437,7 @@ Workflow state is current rows written by each mutation in one transaction, and 
 | step inserted | add the inserted step through the plan-write check; an existing step never changes |
 | step completed | append the step's attempt through the plan-write check; the frontier derives from completions, and no step pointer is stored |
 | contract recorded/updated | insert the immutable contract version; an ordinary update atomically makes the next version current under §4.1 |
-| candidate set revised | insert added candidates and delete only the named removed candidates for that contract; premise and outcome bytes are untouched |
-| backlog alignment recorded | insert the declaration row and, when the outcome is `related_found`, one row per named work id; the alignment action records the candidate set only and creates no relation |
+| backlog alignment recorded | insert the declaration row and, when the outcome is `related_found`, one row per named work id; the alignment action records the alignment rows only and creates no relation |
 | actor recorded | insert once; a different tuple for an existing `actor_ref` is refused |
 | action started/checkpointed/completed/failed | update instance state/checkpoint timestamps and insert/update checkpoint rows; a repeated idempotency key returns the stored result without a second effect |
 | evidence bound | write to the existing evidence authority; it is not copied into a workflow-only authority |
@@ -649,7 +654,7 @@ of a plan step. `record_review` and `complete_step` use the same step-attempt wr
 |---|---|
 | `record_intake`, `pick_type`, `insert_step`, `complete_step` | `workflow.intake_recorded`, `workflow.type_picked`, `workflow.step_inserted`, `workflow.step_completed`, respectively |
 | `record_clarify`, `record_plan`, `record_removal_scope` | `workflow.clarify_recorded`, `workflow.plan_recorded`, `workflow.removal_scope_recorded`, respectively, plus `workflow.action_completed` |
-| `approve_contract`, `revise_candidates`, `record_diagnosis` | `workflow.contract_approved`, `workflow.candidate_set_revised`, `workflow.diagnosis_recorded`, respectively, plus `workflow.action_completed` |
+| `approve_contract`, `record_diagnosis` | `workflow.contract_approved`, `workflow.diagnosis_recorded`, respectively, plus `workflow.action_completed` |
 | `record_review` | `workflow.step_completed` with the reviewed attempt |
 | `bind_evidence`, `record_report` | `workflow.evidence_bound` plus `workflow.action_completed` |
 | `confirm_premise`, `link_successor` | `workflow.premise_confirmed`, `workflow.successor_linked`, respectively, plus `workflow.action_completed` |

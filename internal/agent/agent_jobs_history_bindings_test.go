@@ -30,14 +30,10 @@ func bindAJ4CurrentLifecycleAfterContractRevision(t *testing.T, _ jobScenario) j
 	version = workOneVersion(t, s)
 	revised, _ := dispatchContractRevisionResult(t, s, service, env, "work-1", version, map[string]any{
 		"contract_version":     2,
-		"premise":              "corrected premise",
 		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, s),
 		"legislative_subjects": []string{},
-		"route_conventions":    []string{},
 		"spec_mandate":         []string{},
 		"law_modifies":         []string{},
-		"rigor_class":          "prototype_internal",
-		"decision_domains":     []string{},
 	}, "aj4-history-revise")
 	if revised.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("revise_intent = %+v", revised.Error)

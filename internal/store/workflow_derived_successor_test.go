@@ -30,7 +30,6 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 			commitFixtureLawFile(t, lawChangeFixtureHome(t, s), "spec:two", fixtureLawFolderLaw("spec:two"))
 			version := seedDerivedRevisionWorkflow(t, s, workID, actor)
 			fields := map[string]any{
-				"premise":      "Revise the derived record inside this contract.",
 				"spec_mandate": []string{"spec:one"}, "law_modifies": []string{"spec:one"},
 				"legislative_subjects": []string{},
 			}
@@ -39,10 +38,9 @@ func TestNonProductChangingSuccessorPreservesDerivedLaw(t *testing.T) {
 			}
 			// Re-pin to the other existing derived law without enacting an
 			// unrelated deletion of the predecessor's mandate.
-			fields = pContractSuccessor(t, s, workID, "Revise the derived record inside this contract.")
+			fields = pContractSuccessor(t, s, workID)
 			fields["spec_mandate"] = []string{"spec:two"}
 			fields["law_modifies"] = scenario.modifies
-			fields["decision_domains"] = []string{}
 			if scenario.refused {
 				fields["spec_mandate"] = []string{"spec:two", "spec:legislated"}
 			}

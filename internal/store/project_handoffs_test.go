@@ -170,7 +170,7 @@ func seedProjectHandoffContract(t *testing.T, s *Store, workID string) {
 	}
 	workVersion := readWorkVersion(t, s, workID)
 	setup := []Event{
-		workflowEventWithActor("ph-contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion, "resulting_version": workVersion + 1, "contract_version": 1, "premise": "cross-project handoff fixture", "decision_domains": []string{}, "legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"}),
+		workflowEventWithActor("ph-contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": workVersion, "resulting_version": workVersion + 1, "contract_version": 1, "legislative_subjects": []string{}, "spec_mandate": []string{}, "consequence_class": "internal_sqlite"}),
 		workflowActionCompletedFixture("ph-approval-"+workID, workID, ownerRef, workVersion+1, "frame", "approve_contract"),
 	}
 	setup[0] = pOverlapContractFacts(t, s, setup[0])
@@ -185,7 +185,7 @@ func seedProjectHandoffContract(t *testing.T, s *Store, workID string) {
 func seedReplacementProjectHandoffContract(t *testing.T, s *Store, workID string, workVersion int64) {
 	t.Helper()
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/coordinator", SessionRef: "session/source", ActorClass: ActorAgent}
-	successor := pContractSuccessor(t, s, workID, "cross-project handoff fixture v2")
+	successor := pContractSuccessor(t, s, workID)
 	if err := reviseContractRecord(t, s, workID, owner, successor, workVersion); err != nil {
 		t.Fatal(err)
 	}

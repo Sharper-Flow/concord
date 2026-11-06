@@ -381,11 +381,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	// The approved contract retains its law mandate through backup and restore.
 	approval := workflowEventWithActor("evidence-contract", WorkflowContractApproved, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": workVersionBeforeApproval, "resulting_version": workVersionBeforeApproval + 1, "contract_version": int64(1),
-		"premise":              "preserve living evidence across backup, restore, rebuild and as-of reads",
-		"legislative_subjects": []string{}, "route_conventions": []string{},
-		"spec_mandate": []string{"spec:one"}, "law_modifies": []string{},
-		"law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-		"decision_domains": []string{},
+		"legislative_subjects": []string{}, "spec_mandate": []string{"spec:one"}, "law_modifies": []string{},
+		"law_boundary_version": 1, "consequence_class": "internal_sqlite",
 		"architecture_binding": WorkflowArchitectureBinding{
 			HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
@@ -432,10 +429,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	seedWorkflowPlanFrontier(t, s, boundWork, WorkflowStepPlanFix, "implement")
 	boundContractVersion := readWorkVersion(t, s, boundWork)
 	boundContract := workflowEventWithActor("evidence-bound-contract", WorkflowContractApproved, boundWork, boundOwnerRef, map[string]any{
-		"work_id": boundWork, "expected_version": boundContractVersion, "resulting_version": boundContractVersion + 1, "contract_version": 1, "premise": "deliver the checked change",
-		"legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
-		"law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
-		"decision_domains": []string{},
+		"work_id": boundWork, "expected_version": boundContractVersion, "resulting_version": boundContractVersion + 1, "contract_version": 1, "legislative_subjects": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
+		"law_boundary_version": 1, "consequence_class": "internal_sqlite",
 		"architecture_binding": WorkflowArchitectureBinding{
 			HomeDomainID: workContextTestRoot, AffectedDomainIDs: []string{workContextTestRoot, workContextTestChild},
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
@@ -460,7 +455,7 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		{"effect_receipts", `SELECT effect_seq,event_id,kind,subject_type,subject_id,actor,payload_version,payload_digest,delivery_assertion,relation_seq FROM effect_receipts ORDER BY effect_seq`},
 		{"workflow_evidence_bindings", `SELECT work_id,binding_seq,binding_id,actor,payload FROM workflow_evidence_bindings ORDER BY work_id,binding_seq`},
 		{"workflow_instances", `SELECT work_id,workflow_type,step_plan,prelude_state,instance_state,completed_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY work_id`},
-		{"workflow_contracts", `SELECT work_id,contract_version,premise,spec_mandate,law_boundary_version FROM workflow_contracts ORDER BY work_id,contract_version`},
+		{"workflow_contracts", `SELECT work_id,contract_version,spec_mandate,law_boundary_version FROM workflow_contracts ORDER BY work_id,contract_version`},
 		{"linear_issue_links", `SELECT work_id,remote_issue_uuid,human_key,url,created_at,updated_at FROM linear_issue_links ORDER BY work_id`},
 		{"knowledge_homes", `SELECT product_id,project_id,locator_id FROM product_knowledge_homes ORDER BY product_id`},
 	}

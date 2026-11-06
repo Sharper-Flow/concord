@@ -6,7 +6,7 @@ func TestPlanConfirmationBindsRevisedContract(t *testing.T) {
 	const workID = "plan-revised-confirmation"
 	f := qCurrentAcceptance(t, workID)
 	defer f.store.Close()
-	contract := pContractSuccessor(t, f.store, workID, "Continue under the revised contract.")
+	contract := pContractSuccessor(t, f.store, workID)
 	if err := reviseContractRecord(t, f.store, workID, f.owner, contract, readWorkVersion(t, f.store, workID)); err != nil {
 		t.Fatal(err)
 	}

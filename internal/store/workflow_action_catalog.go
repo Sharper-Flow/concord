@@ -97,7 +97,7 @@ func catalogAction(actionID string) (WorkflowActionDefinition, error) {
 
 func builtinWorkflowActionCatalog() workflowActionCatalog {
 	return workflowActionCatalog{
-		"approve_contract":     {premiseFloor},
+		"approve_contract":     nil,
 		"bind_evidence":        nil,
 		"checkpoint_execution": nil,
 		"checkpoint_refine":    nil,
@@ -119,7 +119,6 @@ func builtinWorkflowActionCatalog() workflowActionCatalog {
 		"record_removal_scope": nil,
 		"record_report":        nil,
 		"record_review":        {workTransitionAction},
-		"revise_candidates":    nil,
 		"start_execution":      nil,
 	}
 }

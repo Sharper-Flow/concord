@@ -55,12 +55,10 @@ func ekbWorkAtExecute(t *testing.T, ctx context.Context, s *store.Store, service
 	// The canonical head declares approve_contract behind the pre-contract walk.
 	version := advanceCapturedWorkToContract(t, s, service, env, workID, "ekb-"+key)
 	approved, _ := ekbDispatch(t, s, service, env, workID, version, "approve_contract", map[string]any{
-		"premise":              "one bind records one evidence kind",
 		"legislative_subjects": []string{},
 		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, s),
 		"spec_mandate":         []string{},
 		"law_modifies":         []string{},
-		"decision_domains":     []string{},
 	}, nil, "ekb-approve-"+key)
 	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve_contract: %+v", approved.Error)

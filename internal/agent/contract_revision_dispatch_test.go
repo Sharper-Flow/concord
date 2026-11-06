@@ -64,15 +64,11 @@ func testContractRevisionDispatch(t *testing.T, stage string) {
 	successorBinding := workflowArchitectureBindingForSeededRegistry(t, s)
 	successorBinding["domain_modifies"] = []string{successorBinding["home_domain_id"].(string)}
 	fields := map[string]any{
-		"decision_domains":     []string{"security"},
 		"contract_version":     2,
-		"premise":              "corrected premise",
 		"architecture_binding": successorBinding,
 		"legislative_subjects": []string{},
-		"route_conventions":    []string{},
 		"spec_mandate":         []string{},
 		"law_modifies":         []string{},
-		"rigor_class":          "prototype_internal",
 	}
 	approvedRaw := contractRevisionInput(t, s, "work-1", version, fields, "contract-revision-dispatch")
 	var stale map[string]any

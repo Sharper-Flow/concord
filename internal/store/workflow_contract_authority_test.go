@@ -16,8 +16,8 @@ func TestContractApprovalRefusesDuplicateActiveProjection(t *testing.T) {
 	}
 	db := s.DatabaseForTesting()
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
-INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class)
-SELECT work_id,2,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=1;
+INSERT INTO workflow_contracts(work_id,contract_version,consequence_class,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version)
+SELECT work_id,2,consequence_class,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version FROM workflow_contracts WHERE work_id=? AND contract_version=1;
 DELETE FROM write_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
@@ -25,9 +25,7 @@ DELETE FROM write_guard`, workID); err != nil {
 	version := readWorkVersion(t, s, workID)
 	event := workflowEventWithActor("duplicate-approval", WorkflowContractApproved, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"contract_version": 3, "premise": "must refuse", "legislative_subjects": []string{},
-		"route_conventions": []string{}, "spec_mandate": []string{},
-		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+		"contract_version": 3, "legislative_subjects": []string{},
 	})
 	tx, err := db.BeginTx(context.Background(), nil)
 	if err != nil {
@@ -60,7 +58,7 @@ func TestContractRecordUpdateRefusesDuplicateActiveProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	db := s.DatabaseForTesting()
-	contract := pContractSuccessor(t, s, workID, "Revise the recorded plan")
+	contract := pContractSuccessor(t, s, workID)
 	seedDuplicateContractProjection(t, s, workID, ownerRef)
 	version := readWorkVersion(t, s, workID)
 	before := contractRecordEffectSnapshot(t, s, workID)
@@ -75,7 +73,7 @@ func TestContractRecordUpdateRefusesDuplicateActiveProjection(t *testing.T) {
 	if err := db.QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&active); err != nil {
 		t.Fatal(err)
 	}
-	if active != 2 || decisionContractCount(t, s, workID) != 2 {
+	if active != 2 {
 		t.Fatalf("refused revision changed duplicate contracts: active=%d", active)
 	}
 }

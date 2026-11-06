@@ -29,9 +29,9 @@ func TestWorkflowLawRevisionRecontractsThroughProductionRoutes(t *testing.T) {
 				t.Fatal(err)
 			}
 			successor := map[string]any{
-				"contract_version": 2, "premise": "continue under successor law",
-				"legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": tc.mandate, "law_modifies": []string{}, "rigor_class": "prototype_internal",
-				"decision_domains": []string{}, "architecture_binding": binding,
+				"contract_version":     2,
+				"legislative_subjects": []string{}, "spec_mandate": tc.mandate, "law_modifies": []string{},
+				"architecture_binding": binding,
 			}
 			version := readWorkVersion(t, s, workID)
 			err = reviseContractRecord(t, s, workID, actor, successor, version)
@@ -93,7 +93,7 @@ func TestWorkflowLawRevisionDeletedLawRecoveryAtExecution(t *testing.T) {
 	}
 	actor := workflowActorForRef(t, s, approvedBy)
 	cutoverLawProjection(t, s)
-	successor := pContractSuccessor(t, s, workID, "continue with current accepted law")
+	successor := pContractSuccessor(t, s, workID)
 	successor["spec_mandate"] = []string{}
 	successor["law_modifies"] = []string{}
 	if err := reviseContractRecord(t, s, workID, actor, successor, readWorkVersion(t, s, workID)); err != nil {

@@ -19,8 +19,6 @@ func issue31WorkflowActionWithPayload(t *testing.T, s *Store, workID string, ver
 		if err := json.Unmarshal(payload, &fields); err != nil {
 			t.Fatal(err)
 		}
-		fields["premise"] = "The operator stated this premise."
-		fields["decision_domains"] = []string{}
 		if _, ok := fields["architecture_binding"]; !ok {
 			fields["architecture_binding"] = WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 		}
@@ -149,7 +147,7 @@ func TestApproveContractPersistsSubjectsAndRigor(t *testing.T) {
 		subjects    string
 		rigorClass  string
 	}{
-		{name: "explicit", extraFields: `"legislative_subjects":["law:future"],"rigor_class":"critical_public",`, subjects: `["law:future"]`, rigorClass: "critical_public"},
+		{name: "explicit", extraFields: `"legislative_subjects":["law:future"],`, subjects: `["law:future"]`, rigorClass: "critical_public"},
 		{name: "defaults", subjects: `[]`, rigorClass: "prototype_internal"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -177,12 +175,12 @@ func TestApproveContractPersistsSubjectsAndRigor(t *testing.T) {
 			version := readWorkVersion(t, s, workID)
 			approval := json.RawMessage(`{` + testCase.extraFields + `"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
 			issue31WorkflowActionWithPayload(t, s, workID, version, "approve_contract", "contract-fields-"+testCase.name+"-approve", actor, approval)
-			var subjects, rigorClass string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT legislative_subjects,rigor_class FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&subjects, &rigorClass); err != nil {
+			var subjects string
+			if err := s.DatabaseForTesting().QueryRow(`SELECT legislative_subjects FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&subjects); err != nil {
 				t.Fatal(err)
 			}
-			if subjects != testCase.subjects || rigorClass != testCase.rigorClass {
-				t.Fatalf("stored contract fields=(%s,%s), want (%s,%s)", subjects, rigorClass, testCase.subjects, testCase.rigorClass)
+			if subjects != testCase.subjects {
+				t.Fatalf("stored contract subjects=%s, want %s", subjects, testCase.subjects)
 			}
 		})
 	}

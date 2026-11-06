@@ -96,7 +96,7 @@ func TestCorrectedContractExternalCheckBindingAtAcceptance(t *testing.T) {
 	subject := "ci:required-checks:corrected-subject"
 	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", nil)
 	s := f.store
-	successor := pContractSuccessor(t, s, workID, "Correct the checked subject.")
+	successor := pContractSuccessor(t, s, workID)
 	if err := reviseContractRecord(t, s, workID, f.owner, successor, readWorkVersion(t, s, workID)); err != nil {
 		t.Fatal(err)
 	}

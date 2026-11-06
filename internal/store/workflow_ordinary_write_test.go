@@ -114,7 +114,8 @@ func TestOrdinaryAlignmentReplacement(t *testing.T) {
 }
 
 func TestWorkflowRecordActionOwnership(t *testing.T) {
-	for _, action := range []string{"record_intake", "record_clarify", "record_plan", "record_diagnosis", "record_delivery", "record_review", "revise_candidates"} {
+	// retired by CON-1710 under CD-0243 D3 (confirmed readerless)
+	for _, action := range []string{"record_intake", "record_clarify", "record_plan", "record_diagnosis", "record_delivery", "record_review"} {
 		if !workflowRecordAction(action) {
 			t.Errorf("%s must own a current record", action)
 		}
@@ -123,9 +124,6 @@ func TestWorkflowRecordActionOwnership(t *testing.T) {
 		if workflowRecordAction(action) {
 			t.Errorf("%s is not a current-record owner", action)
 		}
-	}
-	if !workflowRecordAction("revise_candidates") {
-		t.Error("candidate delta must remain a current-record action")
 	}
 }
 
@@ -166,40 +164,7 @@ func TestWorkflowCurrentRecordsIncludesPlanAndPrelude(t *testing.T) {
 	}
 }
 
-func TestOrdinaryCandidateDeltaHoldsProgress(t *testing.T) {
-	const work = "ordinary-candidate-delta"
-	f := seedWorkflowReturnRouteFixture(t, work, WorkflowStepPlanResearch, "investigate")
-	s := f.store
-	version := readWorkVersion(t, s, work)
-	version = issue31WorkflowActionWithPayload(t, s, work, version, "revise_candidates", work+"-first", f.owner, json.RawMessage(`{"added":["candidate:old","candidate:keep"]}`))
-	step := currentStep(t, s, work)
-	if step != "investigate" {
-		t.Fatal("first candidate action advanced its step")
-	}
-	issue31WorkflowActionWithPayload(t, s, work, version, "revise_candidates", work+"-second", f.owner, json.RawMessage(`{"added":["candidate:new"],"removed":["candidate:old"]}`))
-	if got := currentStep(t, s, work); got != step {
-		t.Fatalf("candidate delta moved progress: %s -> %s", step, got)
-	}
-	rows, err := s.db.Query(`SELECT candidate_ref FROM workflow_candidate_sets WHERE work_id=? ORDER BY candidate_ref`, work)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	var candidates []string
-	for rows.Next() {
-		var ref string
-		if err := rows.Scan(&ref); err != nil {
-			t.Fatal(err)
-		}
-		candidates = append(candidates, ref)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"candidate:keep", "candidate:new"}; !reflect.DeepEqual(candidates, want) {
-		t.Fatalf("candidates=%v want=%v", candidates, want)
-	}
-}
+// retired by CON-1710 under CD-0243 D3 (confirmed readerless)
 
 func TestOrdinaryDeliveryWritesHoldProgress(t *testing.T) {
 	for _, variant := range []string{"passed_step", "completed", "migrated"} {

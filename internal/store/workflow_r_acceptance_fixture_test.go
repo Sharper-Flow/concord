@@ -34,7 +34,7 @@ func rReviseContract(t *testing.T, s *Store, workID, actorRef string, domains []
 		t.Fatal(err)
 	}
 	version := readWorkVersion(t, s, workID)
-	successor := pContractSuccessor(t, s, workID, "deliver the checked change under its revised decision fact")
+	successor := pContractSuccessor(t, s, workID)
 	successor["decision_domains"] = domains
 	// The same Domain write authority the seeded contract carries, plus
 	// the committed registry's Product root for root-scope selections.

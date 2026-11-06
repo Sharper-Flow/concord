@@ -40,14 +40,6 @@ const (
 	WorkflowIntakeSplitOrMerge   WorkflowIntakeOutcome = "split_or_merge"
 )
 
-// WorkflowIntakeChecks are the fourteen decided intake checks in decided
-// order. An intake record names which of these found something.
-var WorkflowIntakeChecks = []string{
-	"freshness", "overtaken", "already_delivered", "still_reproducible", "observed_or_theoretical",
-	"defect_or_feature", "duplicate_or_overlap", "right_owner", "conflicts", "value",
-	"cost_against_value", "one_outcome_or_several", "checkable_end_state", "blocked",
-}
-
 // WorkflowPlanAttempt is one completion of one step. A repeated step appends
 // another attempt; completed attempts are never altered.
 type WorkflowPlanAttempt struct {

@@ -34,7 +34,7 @@ func TestWorkflowPlanDeliverySharedAdmission(t *testing.T) {
 func TestWorkflowPlanDeliveryAmbiguousContractUpdateIsAtomic(t *testing.T) {
 	const workID = "plan-delivery-duplicate-contract"
 	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", []string{})
-	contract := pContractSuccessor(t, f.store, workID, "Retain the delivery assertion.")
+	contract := pContractSuccessor(t, f.store, workID)
 	duplicateActiveWorkflowContract(context.Background(), t, f.store, workID)
 	before := lawUpgradeSnapshot(t, f.store)
 	version := readWorkVersion(t, f.store, workID)

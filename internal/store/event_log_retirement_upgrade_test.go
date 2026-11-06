@@ -135,7 +135,31 @@ func retirementUpgradeSnapshot(t *testing.T, db *sql.DB) map[string][][]any {
 	state := map[string][][]any{"schema": retirementUpgradeRows(t, db, `SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name`)}
 	for _, table := range retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name`) {
 		name := table[0].(string)
-		state[name] = retirementUpgradeRows(t, db, `SELECT * FROM "`+strings.ReplaceAll(name, `"`, `""`)+`" ORDER BY rowid`)
+		// workflow_candidate_sets is retired by migration 190 (CON-1710,
+		// CD-0243 D3): it snapshots only when present and no comparison
+		// asserts its preservation.
+		if name == "workflow_candidate_sets" {
+			continue
+		}
+		query := `SELECT * FROM "` + strings.ReplaceAll(name, `"`, `""`) + `" ORDER BY rowid`
+		if name == "workflow_contracts" {
+			// The four unread fields retired by migration 190 are absent from
+			// the comparison, and snapshots taken before later additive
+			// columns existed select only the columns that schema carries.
+			preferred := []string{"work_id", "contract_version", "consequence_class", "approved_at", "approved_by", "superseded_by", "spec_mandate", "law_modifies", "law_boundary_version", "self_repair_json", "supersession_seq", "last_healthy_seq", "changes_product_truth", "legislative_subjects"}
+			present := map[string]bool{}
+			for _, col := range retirementUpgradeRows(t, db, `SELECT name FROM pragma_table_info('workflow_contracts')`) {
+				present[col[0].(string)] = true
+			}
+			var cols []string
+			for _, col := range preferred {
+				if present[col] {
+					cols = append(cols, col)
+				}
+			}
+			query = `SELECT ` + strings.Join(cols, ",") + ` FROM workflow_contracts ORDER BY rowid`
+		}
+		state[name] = retirementUpgradeRows(t, db, query)
 	}
 	return state
 }

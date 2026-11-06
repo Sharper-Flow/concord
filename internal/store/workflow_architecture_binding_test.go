@@ -85,7 +85,7 @@ func approveQualifiedAdditionAtSeam(t *testing.T, s *Store, workID string, manda
 	version := readWorkVersion(t, s, workID)
 	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: additions, VerificationObligations: []WorkflowVerificationObligation{}}
 	fields := map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "premise": "qualified addition admission", "legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": []string{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "legislative_subjects": []string{}, "spec_mandate": mandate, "law_modifies": []string{}, "law_boundary_version": 1, "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	}
 	event := workflowEventWithActor("qualified-addition-approval-"+workID, WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), fields)
 	event = pOverlapContractFacts(t, s, event)
@@ -279,7 +279,7 @@ func TestLawAdditionReservationSpellingsConflictAtApprovalSeam(t *testing.T) {
 	// The read-back contract revises cleanly: its canonical addition and the
 	// authored mandate spelling still agree as one identity.
 	owner := WorkflowActor{PrincipalRef: "principal:qualified-addition", ClientRef: "client:qualified-addition", AgentRef: "agent:qualified-addition", SessionRef: "session:" + lawContextWork, ActorClass: ActorAgent}
-	successor := pContractSuccessor(t, s, lawContextWork, "revise the folded identity")
+	successor := pContractSuccessor(t, s, lawContextWork)
 	if err := reviseContractRecord(t, s, lawContextWork, owner, successor, readWorkVersion(t, s, lawContextWork)); err != nil {
 		t.Fatalf("read-back contract revise refused: %v", err)
 	}
@@ -513,12 +513,12 @@ func TestLawAdditionReservationsAreProductScopedAndRevisionStable(t *testing.T) 
 			tx.Rollback()
 			t.Fatal(err)
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'reservation','internal_sqlite','[]','now',?,'[]','[]',0,'prototype_internal')`, workID, actorRef); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,consequence_class,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version) VALUES(?,1,'internal_sqlite','now',?,'[]','[]',0)`, workID, actorRef); err != nil {
 			tx.Rollback()
 			t.Fatal(err)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version) SELECT work_id,2,premise,consequence_class,route_conventions,'now',approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version FROM workflow_contracts WHERE work_id='reservation-owner' AND contract_version=1`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,consequence_class,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version) SELECT work_id,2,consequence_class,'now',approved_by,spec_mandate,law_modifies,law_boundary_version FROM workflow_contracts WHERE work_id='reservation-owner' AND contract_version=1`); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -604,7 +604,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	version := readWorkVersion(t, s, workID)
 	binding := WorkflowArchitectureBinding{HomeDomainID: "child", AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{"child"}, DomainRelationModifies: []WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}}
 	event := workflowEventWithActor("architecture-binding-approval", WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "premise": "bind Product law", "legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{"spec:one", "law:new"}, "law_modifies": []string{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "legislative_subjects": []string{}, "spec_mandate": []string{"spec:one", "law:new"}, "law_modifies": []string{}, "law_boundary_version": 1, "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})
 	event = pOverlapContractFacts(t, s, event)
 	var approvalFields map[string]any
@@ -659,7 +659,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	}
 	successorBinding := binding
 	successorBinding.DomainModifies = []string{"root"}
-	successor := pContractSuccessor(t, s, workID, "revised Product law binding")
+	successor := pContractSuccessor(t, s, workID)
 	successor["architecture_binding"] = successorBinding
 	absentSuccessor := map[string]any{}
 	for key, value := range successor {
@@ -683,7 +683,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contract_domain_modifications WHERE work_id=? AND contract_version=1 AND domain_id='child'`, workID).Scan(&oldModifications); err != nil || oldModifications != 1 {
 		t.Fatalf("historical binding was rewritten: count=%d err=%v", oldModifications, err)
 	}
-	incomplete := pContractSuccessor(t, s, workID, "An incomplete Product-changing revision")
+	incomplete := pContractSuccessor(t, s, workID)
 	delete(incomplete, "architecture_binding")
 	beforeRevision = contractRecordEffectSnapshot(t, s, workID)
 	if err := reviseContractRecord(t, s, workID, actor, incomplete, version); err == nil {
@@ -728,7 +728,7 @@ func TestProductChangingApprovalMissingBindingIsAtomic(t *testing.T) {
 	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
 	version := readWorkVersion(t, s, workID)
 	fields := map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "premise": "missing binding", "legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "legislative_subjects": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "law_boundary_version": 1, "consequence_class": "internal_sqlite",
 		"architecture_binding": WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}},
 	}
 	for _, omitted := range []string{"spec_mandate", "law_modifies", "architecture_binding"} {
@@ -759,7 +759,7 @@ func TestProductChangingCompletionDoesNotRecheckVerificationObligation(t *testin
 	workID := "architecture-obligation-completion"
 	f := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "review")
 	s := f.store
-	successor := pContractSuccessor(t, s, workID, "complete with the current law")
+	successor := pContractSuccessor(t, s, workID)
 	successor["spec_mandate"] = []string{"spec:one"}
 	successor["law_modifies"] = []string{"spec:one"}
 	binding := *successor["architecture_binding"].(*WorkflowArchitectureBinding)

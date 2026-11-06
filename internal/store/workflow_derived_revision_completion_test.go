@@ -23,7 +23,7 @@ func TestCompletionDoesNotRecheckMandatedLaw(t *testing.T) {
 	commitFixtureLawFile(t, home, "spec:one", derivedRevisionConflictLaw)
 	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/researcher", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	version := seedDerivedRevisionWorkflow(t, s, workID, owner)
-	approval := json.RawMessage(`{"premise":"Bring the derived law into conformance with the legislated one.","spec_mandate":["spec:legislated","spec:one"],"law_modifies":["spec:one"],"legislative_subjects":[]}`)
+	approval := json.RawMessage(`{"spec_mandate":["spec:legislated","spec:one"],"law_modifies":["spec:one"],"legislative_subjects":[]}`)
 	if err := runDerivedLawApproval(t, s, workID, version, owner, approval); err != nil {
 		t.Fatalf("the derived revision was not admitted at approval: %v", err)
 	}

@@ -55,10 +55,8 @@ func seedWorkflowReturnRouteFixtureWithPlan(t *testing.T, workID string, planTyp
 	}))}
 	contractPayload := map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
-		"contract_version": 1, "premise": "deliver the checked change",
-		"legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
-		"law_boundary_version": 1, "rigor_class": "prototype_internal",
-		"consequence_class": "internal_sqlite",
+		"contract_version": 1, "legislative_subjects": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
+		"law_boundary_version": 1, "consequence_class": "internal_sqlite",
 	}
 	if planType != WorkflowStepPlanResearch {
 		// The registry root "product-root:product" is the Product-wide Domain

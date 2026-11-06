@@ -243,8 +243,8 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
     const response = await invoke("concord_work_transition", "workflow_action", { work_id: workID, expected_version: await version(), action_id: actionID, idempotency_key: `handoff-e2e-${key}`, fields }, sourceContext)
     expect(response.outcome, `${actionID}: ${JSON.stringify(response)}`).toBe("ok")
   }
+  // note and checks_found retired by CON-1710 under CD-0243 D3 (confirmed readerless).
   await walk("record_intake", {
-    checks_found: ["freshness", "overtaken", "already_delivered", "still_reproducible", "observed_or_theoretical", "defect_or_feature", "duplicate_or_overlap", "right_owner", "conflicts", "value", "cost_against_value", "one_outcome_or_several", "checkable_end_state", "blocked"],
     outcome: "proceed",
   })
   await walk("pick_type", { type: "fix", reason: "The fixture reproduces a defect." })

@@ -150,7 +150,6 @@ const GeneratedWorkflowStepTemplatesDocument = `{
           "actions": [
             "record_finding",
             "complete_step",
-            "revise_candidates",
             "bind_evidence"
           ]
         },

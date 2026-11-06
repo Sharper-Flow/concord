@@ -215,7 +215,7 @@ func TestMigration88BackfillsWorkflowContractDefinitionAuthorityPins(t *testing.
 	if ref != definitionRef || version != 6 || digest != historicalDefinitionDigest {
 		t.Fatalf("migration 88 pins = %q, %d, %q", ref, version, digest)
 	}
-	const retained = `SELECT work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate FROM workflow_contracts WHERE work_id='migration-88-contract-pins'`
+	const retained = `SELECT work_id,contract_version,consequence_class,approved_at,approved_by,spec_mandate FROM workflow_contracts WHERE work_id='migration-88-contract-pins'`
 	want := retirementUpgradeRows(t, db, retained)
 	if err := Migrate(outcomeSnapshotContext(t, ctx, db), db); err != nil {
 		t.Fatal(err)
@@ -1397,25 +1397,7 @@ func TestMigration53RejectsInvalidNativeRunVerificationState(t *testing.T) {
 	}
 }
 
-func TestWorkflowContractRigorClassVocabulary(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	db := s.DatabaseForTesting()
-	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	actorRef := seedRigorClassPrerequisites(t, db)
-	if err := insertRigorClassContract(ctx, db, actorRef, "prototype/internal"); err == nil || !strings.Contains(err.Error(), "workflow contract rigor class is not a declared maturity-audience composition") {
-		t.Fatalf("invalid rigor class error=%v", err)
-	}
-	if err := insertRigorClassContract(ctx, db, actorRef, "prototype_internal"); err != nil {
-		t.Fatalf("valid rigor class rejected: %v", err)
-	}
-	if _, err := db.ExecContext(ctx, `UPDATE workflow_contracts SET rigor_class='prototype/internal' WHERE work_id='rigor-class-work'`); err == nil || !strings.Contains(err.Error(), "workflow contract rigor class is not a declared maturity-audience composition") {
-		t.Fatalf("invalid rigor class update error=%v", err)
-	}
-}
+// retired by CON-1710 under CD-0243 D3 (confirmed readerless)
 
 func TestMigration54UpgradesValidRigorClass(t *testing.T) {
 	t.Parallel()

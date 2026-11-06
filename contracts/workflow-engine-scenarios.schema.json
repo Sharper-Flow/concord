@@ -120,10 +120,8 @@
       "properties": {
         "payload": {"$ref": "#/$defs/jsonObject"}, "title": {"$ref": "#/$defs/short"},
         "project_ids": {"type": "array", "minItems": 0, "maxItems": 32, "items": {"$ref": "#/$defs/id"}},
-        "premise": {"$ref": "#/$defs/short"},
         "current_commit": {"type": "string", "minLength": 40, "maxLength": 64, "pattern": "^[0-9a-f]+$"},
         "evidence_commit": {"type": "string", "minLength": 40, "maxLength": 64, "pattern": "^[0-9a-f]+$"},
-        "decision_domains": {"type": "array", "minItems": 0, "maxItems": 6, "uniqueItems": true, "items": {"type": "string", "enum": ["increased_spending", "legal", "product", "production_data", "security", "ui_ux"]}},
         "impact_verdict": {"type": "string", "enum": ["breaking", "non-breaking"]}
       }
     },

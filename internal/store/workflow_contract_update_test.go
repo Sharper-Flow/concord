@@ -39,7 +39,7 @@ func reviseContractRecord(t *testing.T, s *Store, workID string, owner WorkflowA
 
 func contractRecordUpdate(t *testing.T, s *Store, workID string) map[string]any {
 	t.Helper()
-	return pContractSuccessor(t, s, workID, "An ordinary revised plan.")
+	return pContractSuccessor(t, s, workID)
 }
 
 func TestContractRecordUpdatePreservesProofAndProvenance(t *testing.T) {
@@ -119,7 +119,8 @@ func contractRecordBindingSnapshot(t *testing.T, s *Store, workID string) string
 }
 
 func TestContractRecordUpdateRefusalsAreAtomic(t *testing.T) {
-	for _, mutant := range []string{"malformed", "missing premise", "unknown field", "null", "current version", "skipped version", "stale work version"} {
+	// retired by CON-1710 under CD-0243 D3 (confirmed readerless)
+	for _, mutant := range []string{"malformed", "unknown field", "null", "current version", "skipped version", "stale work version"} {
 		t.Run(mutant, func(t *testing.T) {
 			workID := "record-refusal-" + fmt.Sprint(len(mutant))
 			f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanFix, "plan", nil)
@@ -127,8 +128,6 @@ func TestContractRecordUpdateRefusalsAreAtomic(t *testing.T) {
 			expected := readWorkVersion(t, f.store, workID)
 			contract := contractRecordUpdate(t, f.store, workID)
 			switch mutant {
-			case "missing premise":
-				delete(contract, "premise")
 			case "unknown field":
 				contract["unrecognized"] = "field"
 			case "null":

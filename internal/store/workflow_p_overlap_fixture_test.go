@@ -24,9 +24,6 @@ func pOverlapContractFacts(t *testing.T, s *Store, event Event) Event {
 		if err := json.Unmarshal(fields["contract"], &contract); err != nil {
 			t.Fatal(err)
 		}
-		if _, declared := contract["decision_domains"]; !declared {
-			contract["decision_domains"] = mustJSONValue([]string{})
-		}
 		fields["contract"] = mustJSONValue(contract)
 		event.Payload = mustJSONValue(fields)
 		event.PayloadVersion = CurrentEventPayloadVersion(event.Kind)

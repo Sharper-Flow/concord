@@ -43,7 +43,6 @@ func TestSmallFixPreparationDepthNeedsNoArchitectureDocument(t *testing.T) {
 			act("record_clarify", map[string]any{"resolved_questions": []string{}, "note": "No operator questions remain."})
 			act("complete_step", map[string]any{"step_id": "clarify", "note": "Clarification complete."})
 			act("approve_contract", map[string]any{
-				"premise": "Correct the factual comment without changing behavior.", "decision_domains": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 				"legislative_subjects": []string{},
 				"architecture_binding": WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}},
 			})

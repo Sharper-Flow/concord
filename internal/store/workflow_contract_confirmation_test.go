@@ -18,7 +18,7 @@ func TestContractRevisionInvalidatesPriorPremiseConfirmation(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=1`, workID).Scan(&confirmed); err != nil || confirmed != 1 {
 		t.Fatalf("first confirmation count = %d, want 1: %v", confirmed, err)
 	}
-	contract := pContractSuccessor(t, s, workID, "Align the five sibling provider services.")
+	contract := pContractSuccessor(t, s, workID)
 	frontier := currentStep(t, s, workID)
 	var planBefore string
 	if err := s.db.QueryRow(`SELECT step_plan FROM workflow_instances WHERE work_id=?`, workID).Scan(&planBefore); err != nil {

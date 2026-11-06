@@ -293,8 +293,6 @@ func TestAnnotateGuidanceIsIdempotent(t *testing.T) {
 func TestAnnotatedContractFailureCarriesShapeAndExample(t *testing.T) {
 	root := annotateGuidanceNames(t, guidanceNamesBoth)
 	fields := `{
-		"premise": "The premise states the bounded change.",
-		"decision_domains": [],
 		"legislative_subjects": ["The subject has spaces"]
 	}`
 	data := contractGuidanceInput(t, "guidance-approve-1", fields)
@@ -326,8 +324,6 @@ func TestAnnotatedContractFailureCarriesShapeAndExample(t *testing.T) {
 // guidance segment appears, and generic bounds keep their exact messages.
 func TestUnannotatedRefusalCarriesNoGuidance(t *testing.T) {
 	fields := `{
-		"premise": "The premise states the bounded change.",
-		"decision_domains": [],
 		"legislative_subjects": ["has spaces"]
 	}`
 	data := contractGuidanceInput(t, "unguided-1", fields)

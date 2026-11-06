@@ -2815,9 +2815,6 @@
           "$ref": "#/$defs/work_transition_action_variant_record_review"
         },
         {
-          "$ref": "#/$defs/work_transition_action_variant_revise_candidates"
-        },
-        {
           "$ref": "#/$defs/work_transition_action_variant_start_execution"
         }
       ]
@@ -3780,9 +3777,6 @@
           "$ref": "#/$defs/work_transition_action_variant_record_review"
         },
         {
-          "$ref": "#/$defs/work_transition_action_variant_revise_candidates"
-        },
-        {
           "$ref": "#/$defs/work_transition_action_variant_start_execution"
         }
       ]
@@ -4233,8 +4227,7 @@
         "work_id",
         "expected_version",
         "action_id",
-        "idempotency_key",
-        "fields"
+        "idempotency_key"
       ],
       "properties": {
         "work_id": {
@@ -4298,30 +4291,6 @@
           "additionalProperties": false,
           "maxProperties": 32,
           "properties": {
-            "decision_domains": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "type": "string",
-                "enum": [
-                  "increased_spending",
-                  "legal",
-                  "product",
-                  "production_data",
-                  "security",
-                  "ui_ux"
-                ],
-                "description": "Accepted shape: one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; example: \"increased_spending\"",
-                "examples": [
-                  "increased_spending"
-                ]
-              },
-              "maxItems": 6,
-              "description": "Accepted shape: array of one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; Bounds: <=6 items inclusive; example: []",
-              "examples": [
-                []
-              ]
-            },
             "route_convention": {
               "type": "string",
               "enum": [
@@ -4332,57 +4301,6 @@
                 "workflow_action"
               ]
             },
-            "route_conventions": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/reference",
-                "description": "Accepted shape: string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive; example: \"aa\"",
-                "examples": [
-                  "aa"
-                ]
-              },
-              "minItems": 0,
-              "maxItems": 16,
-              "description": "Accepted shape: array of string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 0..16 items inclusive; example: []",
-              "examples": [
-                []
-              ]
-            },
-            "proposed_route_conventions": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/reference",
-                "description": "Accepted shape: string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive; example: \"aa\"",
-                "examples": [
-                  "aa"
-                ]
-              },
-              "minItems": 0,
-              "maxItems": 16,
-              "description": "Accepted shape: array of string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 0..16 items inclusive; example: []",
-              "examples": [
-                []
-              ]
-            },
-            "required_route_conventions": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/reference",
-                "description": "Accepted shape: string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive; example: \"aa\"",
-                "examples": [
-                  "aa"
-                ]
-              },
-              "minItems": 0,
-              "maxItems": 16,
-              "description": "Accepted shape: array of string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 0..16 items inclusive; example: []",
-              "examples": [
-                []
-              ]
-            },
             "contract_version": {
               "type": "integer",
               "minimum": 1,
@@ -4390,28 +4308,6 @@
               "description": "Accepted shape: integer; Bounds: 1..2147483647 value inclusive; example: 1",
               "examples": [
                 1
-              ]
-            },
-            "premise": {
-              "type": "string",
-              "maxLength": 4096,
-              "x-maxBytes": 4096,
-              "minLength": 1,
-              "x-minBytes": 2,
-              "pattern": "\\S",
-              "not": {
-                "type": "string",
-                "enum": [
-                  "workflow premise"
-                ],
-                "description": "Accepted shape: one of \"workflow premise\"; example: \"workflow premise\"",
-                "examples": [
-                  "workflow premise"
-                ]
-              },
-              "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection. Accepted shape: string matching \\S; Bounds: 1..4096 code points inclusive; 2..4096 UTF-8 bytes inclusive; example: \"av\"",
-              "examples": [
-                "av"
               ]
             },
             "spec_mandate": {
@@ -4465,27 +4361,6 @@
                 []
               ]
             },
-            "rigor_class": {
-              "type": "string",
-              "enum": [
-                "prototype_internal",
-                "prototype_trusted",
-                "prototype_public",
-                "prototype_safety_critical",
-                "production_internal",
-                "production_trusted",
-                "production_public",
-                "production_safety_critical",
-                "critical_internal",
-                "critical_trusted",
-                "critical_public",
-                "critical_safety_critical"
-              ],
-              "description": "Accepted shape: one of \"prototype_internal\", \"prototype_trusted\", \"prototype_public\", \"prototype_safety_critical\", \"production_internal\", \"production_trusted\", \"production_public\", \"production_safety_critical\", \"critical_internal\", \"critical_trusted\", \"critical_public\", \"critical_safety_critical\"; example: \"prototype_internal\"",
-              "examples": [
-                "prototype_internal"
-              ]
-            },
             "architecture_binding": {
               "$ref": "#/$defs/architecture_binding",
               "description": "Architecture bindings must name Domains that exist in the current domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
@@ -4503,28 +4378,17 @@
               ]
             }
           },
-          "required": [
-            "decision_domains",
-            "premise"
-          ],
-          "description": "Accepted shape: object; Bounds: <=32 properties inclusive; example: {\"decision_domains\":[],\"premise\":\"av\"}",
+          "description": "Accepted shape: object; Bounds: <=32 properties inclusive; example: {}",
           "examples": [
-            {
-              "decision_domains": [],
-              "premise": "av"
-            }
+            {}
           ]
         }
       },
-      "description": "Accepted shape: object; example: {\"action_id\":\"approve_contract\",\"expected_version\":1,\"fields\":{\"decision_domains\":[],\"premise\":\"av\"},\"idempotency_key\":\"a\",\"work_id\":\"a\"}",
+      "description": "Accepted shape: object; example: {\"action_id\":\"approve_contract\",\"expected_version\":1,\"idempotency_key\":\"a\",\"work_id\":\"a\"}",
       "examples": [
         {
           "action_id": "approve_contract",
           "expected_version": 1,
-          "fields": {
-            "decision_domains": [],
-            "premise": "av"
-          },
           "idempotency_key": "a",
           "work_id": "a"
         }
@@ -5199,110 +5063,6 @@
         }
       }
     },
-    "work_transition_action_variant_revise_candidates": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "expected_version",
-        "action_id",
-        "idempotency_key"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "action_id": {
-          "type": "string",
-          "const": "revise_candidates"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id",
-          "description": "Bounds: 1..128 code points inclusive"
-        },
-        "evidence": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/evidence"
-          },
-          "description": "Bounds: <=32 items inclusive"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds",
-          "description": "Bounds: >=1 value inclusive"
-        },
-        "fields": {
-          "type": "object",
-          "additionalProperties": false,
-          "maxProperties": 32,
-          "properties": {
-            "contract_version": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 2147483647,
-              "description": "Bounds: 1..2147483647 value inclusive"
-            },
-            "candidate_kind": {
-              "type": "string",
-              "enum": [
-                "work_item",
-                "product",
-                "project"
-              ]
-            },
-            "candidate_ref": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 128,
-              "x-minBytes": 2,
-              "x-maxBytes": 128,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-            },
-            "added": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/reference",
-                "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-              },
-              "minItems": 1,
-              "maxItems": 64,
-              "description": "Bounds: 1..64 items inclusive"
-            },
-            "candidate_ids": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/reference",
-                "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-              },
-              "minItems": 1,
-              "maxItems": 64,
-              "description": "Bounds: 1..64 items inclusive"
-            },
-            "removed": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/reference",
-                "description": "Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
-              },
-              "minItems": 1,
-              "maxItems": 64,
-              "description": "Bounds: 1..64 items inclusive"
-            }
-          },
-          "description": "Bounds: <=32 properties inclusive"
-        }
-      }
-    },
     "work_transition_action_variant_start_execution": {
       "type": "object",
       "additionalProperties": false,
@@ -5620,44 +5380,6 @@
             1
           ]
         },
-        "premise": {
-          "type": "string",
-          "maxLength": 4096,
-          "x-maxBytes": 4096,
-          "minLength": 1,
-          "pattern": "\\S",
-          "not": {
-            "type": "string",
-            "enum": [
-              "workflow premise"
-            ],
-            "description": "Accepted shape: one of \"workflow premise\"; example: \"workflow premise\"",
-            "examples": [
-              "workflow premise"
-            ]
-          },
-          "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection. Accepted shape: string matching \\S; Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive; example: \"a\"",
-          "examples": [
-            "a"
-          ]
-        },
-        "route_conventions": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/reference",
-            "description": "Accepted shape: string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive; example: \"aa\"",
-            "examples": [
-              "aa"
-            ]
-          },
-          "minItems": 0,
-          "maxItems": 16,
-          "description": "Accepted shape: array of string matching ^[^\\x09-\\x0d    -     　]+$; Bounds: 0..16 items inclusive; example: []",
-          "examples": [
-            []
-          ]
-        },
         "spec_mandate": {
           "type": "array",
           "uniqueItems": true,
@@ -5709,27 +5431,6 @@
             []
           ]
         },
-        "rigor_class": {
-          "type": "string",
-          "enum": [
-            "prototype_internal",
-            "prototype_trusted",
-            "prototype_public",
-            "prototype_safety_critical",
-            "production_internal",
-            "production_trusted",
-            "production_public",
-            "production_safety_critical",
-            "critical_internal",
-            "critical_trusted",
-            "critical_public",
-            "critical_safety_critical"
-          ],
-          "description": "Accepted shape: one of \"prototype_internal\", \"prototype_trusted\", \"prototype_public\", \"prototype_safety_critical\", \"production_internal\", \"production_trusted\", \"production_public\", \"production_safety_critical\", \"critical_internal\", \"critical_trusted\", \"critical_public\", \"critical_safety_critical\"; example: \"prototype_internal\"",
-          "examples": [
-            "prototype_internal"
-          ]
-        },
         "architecture_binding": {
           "$ref": "#/$defs/architecture_binding",
           "description": "Architecture bindings must name Domains that exist in the current domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
@@ -5745,52 +5446,20 @@
               "verification_obligations": []
             }
           ]
-        },
-        "decision_domains": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "enum": [
-              "increased_spending",
-              "legal",
-              "product",
-              "production_data",
-              "security",
-              "ui_ux"
-            ],
-            "description": "Accepted shape: one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; example: \"increased_spending\"",
-            "examples": [
-              "increased_spending"
-            ]
-          },
-          "maxItems": 6,
-          "description": "Accepted shape: array of one of \"increased_spending\", \"legal\", \"product\", \"production_data\", \"security\", \"ui_ux\"; Bounds: <=6 items inclusive; example: []",
-          "examples": [
-            []
-          ]
         }
       },
       "required": [
         "contract_version",
-        "premise",
-        "route_conventions",
         "spec_mandate",
         "law_modifies",
-        "legislative_subjects",
-        "rigor_class",
-        "decision_domains"
+        "legislative_subjects"
       ],
-      "description": "Accepted shape: object; Bounds: <=32 properties inclusive; example: {\"contract_version\":1,\"decision_domains\":[],\"law_modifies\":[],\"legislative_subjects\":[],\"premise\":\"a\",\"rigor_class\":\"prototype_internal\",\"route_conventions\":[],\"spec_mandate\":[]}",
+      "description": "Accepted shape: object; Bounds: <=32 properties inclusive; example: {\"contract_version\":1,\"law_modifies\":[],\"legislative_subjects\":[],\"spec_mandate\":[]}",
       "examples": [
         {
           "contract_version": 1,
-          "decision_domains": [],
           "law_modifies": [],
           "legislative_subjects": [],
-          "premise": "a",
-          "rigor_class": "prototype_internal",
-          "route_conventions": [],
           "spec_mandate": []
         }
       ]
@@ -6192,17 +5861,6 @@
           "additionalProperties": false,
           "maxProperties": 32,
           "properties": {
-            "checks_found": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "$ref": "#/$defs/id",
-                "description": "Bounds: 1..128 code points inclusive"
-              },
-              "minItems": 0,
-              "maxItems": 14,
-              "description": "Bounds: 0..14 items inclusive"
-            },
             "outcome": {
               "type": "string",
               "enum": [
@@ -6211,15 +5869,6 @@
                 "decline",
                 "split_or_merge"
               ]
-            },
-            "note": {
-              "type": "string",
-              "maxLength": 4096,
-              "x-maxBytes": 4096,
-              "minLength": 1,
-              "x-minBytes": 2,
-              "pattern": "\\S",
-              "description": "Bounds: 1..4096 code points inclusive; 2..4096 UTF-8 bytes inclusive"
             }
           },
           "required": [

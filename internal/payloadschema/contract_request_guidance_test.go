@@ -32,8 +32,6 @@ func contractGuidanceInput(t *testing.T, idempotencyKey, fields string) []byte {
 
 func approveFieldsWithSubject(payload string) string {
 	return `{
-		"premise": "The premise states the bounded change.",
-		"decision_domains": [],
 		"legislative_subjects": [` + payload + `]
 	}`
 }
@@ -41,12 +39,8 @@ func approveFieldsWithSubject(payload string) string {
 func revisionContractWithSubject(payload string) string {
 	return `{
 		"contract_version": 2,
-		"premise": "The premise states the bounded replacement.",
-		"route_conventions": [],
 		"spec_mandate": [],
 		"law_modifies": [],
-		"rigor_class": "prototype_internal",
-		"decision_domains": [],
 		"legislative_subjects": [` + payload + `]
 	}`
 }
@@ -108,7 +102,6 @@ func TestContractRevisionFailureSelectsTheApplicableVariant(t *testing.T) {
 // that declares the field, not through the legacy alternative that forbids it.
 func TestInvalidDecisionDomainsNamesItsEnumThroughTheDeclaringVariant(t *testing.T) {
 	fields := `{
-		"premise": "The premise states the bounded change.",
 		"decision_domains": ["bogus"]
 	}`
 	data := contractGuidanceInput(t, "select-domains-1", fields)
@@ -133,7 +126,7 @@ func TestNonDiscriminatedAlternativesStayLabeled(t *testing.T) {
 	root := decodeSchema(t, `{
 		"$defs": {
 			"legacy": {"type": "object", "additionalProperties": false, "required": ["premise"], "properties": {"premise": {"type": "string"}}},
-			"extended": {"type": "object", "additionalProperties": false, "required": ["decision_domains"], "properties": {"decision_domains": {"items": {"enum": ["a", "b"], "type": "string"}, "type": "array"}}}
+			"extended": {"type": "object", "additionalProperties": false, "required": ["decision_domains"], "properties": {"b"], "type": "string"}, "type": "array"}}}
 		},
 		"oneOf": [{"$ref": "#/$defs/legacy"}, {"$ref": "#/$defs/extended"}]
 	}`)

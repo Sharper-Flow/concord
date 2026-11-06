@@ -161,12 +161,10 @@ func workflowDecisionContractFieldsFixture() map[string]any {
 func workflowContractFieldsFixture() map[string]any {
 	return map[string]any{
 		"architecture_binding": workflowArchitectureBindingFixture(),
-		"premise":              "The operator stated this premise.",
 		"legislative_subjects": []string{},
 		"spec_mandate":         []string{},
 		"law_modifies":         []string{},
 		// Empty decision domains declare engineering work.
-		"decision_domains": []string{},
 	}
 }
 
@@ -263,11 +261,9 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 		"action_id":        "approve_contract",
 		"fields": map[string]any{
 			"architecture_binding": binding,
-			"premise":              "The operator stated this premise.",
 			"legislative_subjects": workflowContractFieldsFixture()["legislative_subjects"],
 			"spec_mandate":         []string{lawID},
 			"law_modifies":         []string{lawID},
-			"decision_domains":     []string{},
 		},
 		"idempotency_key": "wide-architecture-ids",
 	})
@@ -283,7 +279,7 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 		invalid["affected_domain_ids"] = []string{invalidDomainID}
 		payload, err := json.Marshal(map[string]any{
 			"work_id": "work-1", "expected_version": 7, "action_id": "approve_contract",
-			"fields":          map[string]any{"architecture_binding": invalid, "premise": "The operator stated this premise.", "legislative_subjects": workflowContractFieldsFixture()["legislative_subjects"], "spec_mandate": []string{}, "law_modifies": []string{}, "decision_domains": []string{}},
+			"fields":          map[string]any{"architecture_binding": invalid, "legislative_subjects": workflowContractFieldsFixture()["legislative_subjects"], "spec_mandate": []string{}, "law_modifies": []string{}, "decision_domains": []string{}},
 			"idempotency_key": "invalid-domain-id",
 		})
 		if err != nil {

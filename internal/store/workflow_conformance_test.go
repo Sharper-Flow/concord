@@ -351,7 +351,7 @@ func TestCorpusCurrentProofPreparationProfiles(t *testing.T) {
 			fields := map[string]any{"impact_verdict": "non-breaking"}
 			switch tc.action {
 			case "approve_contract":
-				fields = map[string]any{"premise": "The bounded engineering result.", "decision_domains": []string{}}
+				fields = map[string]any{"decision_domains": []string{}}
 			case "confirm_premise":
 				fields = map[string]any{}
 			}
@@ -676,8 +676,7 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 func corpusApprovalPayload(t *testing.T, s *Store, workID string) json.RawMessage {
 	t.Helper()
 	return testApprovalPayload(t, s, workID, "approve_contract", mustJSONValue(map[string]any{
-		"contract_version": 1, "premise": "deliver the checked change", "legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
-	}))
+		"contract_version": 1, "legislative_subjects": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}}))
 }
 
 func workflowCurrentVersion(ctx context.Context, s *Store, workID string) (int64, error) {

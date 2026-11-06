@@ -77,7 +77,7 @@ func SeedDomainPayloadEvidence(ctx context.Context, s *store.Store, opts DomainP
 	if err != nil {
 		return err
 	}
-	return seedDomainEvidence(ctx, s, DomainEvidenceOptions(opts), repo, CommittedRegistryContentHash(registry), PayloadChildDomainID, PayloadLawID, "populated domain payload")
+	return seedDomainEvidence(ctx, s, DomainEvidenceOptions(opts), repo, CommittedRegistryContentHash(registry), PayloadChildDomainID, PayloadLawID)
 }
 
 // domainPayloadRepo commits a root Domain and one child that depends on it

@@ -137,10 +137,10 @@ func SeedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidence
 	if err != nil {
 		return err
 	}
-	return seedDomainEvidence(ctx, s, opts, repo, CommittedRegistryContentHash(registry), SingleDomainRootID, DomainEvidenceLawID, "domain evidence")
+	return seedDomainEvidence(ctx, s, opts, repo, CommittedRegistryContentHash(registry), SingleDomainRootID, DomainEvidenceLawID)
 }
 
-func seedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidenceOptions, repo, registryHash, domainID, lawID, _ string) error {
+func seedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidenceOptions, repo, registryHash, domainID, lawID string) error {
 	if err := execDomainFold(ctx, s,
 		domainStatement{"knowledge locator", `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?,?,'canonical_path',?,?,'now','now')`, []any{opts.LocatorID, opts.ProjectID, repo, repo}},
 		domainStatement{"knowledge home", `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?,?,?)`, []any{opts.ProductID, opts.ProjectID, opts.LocatorID}},

@@ -149,13 +149,8 @@ func addWorkflowContractApprovalFields(input map[string]any) {
 	input["fields"] = workflowDecisionContractFieldsFixture()
 }
 
-// workflowDecisionContractFieldsFixture is the contract fixture declaring a
-// Product decision: the coordinator's premise confirmation follows CD-0243's
-// conversational classes for decision-bearing work.
 func workflowDecisionContractFieldsFixture() map[string]any {
-	fields := workflowContractFieldsFixture()
-	fields["decision_domains"] = []string{"product"}
-	return fields
+	return workflowContractFieldsFixture()
 }
 
 func workflowContractFieldsFixture() map[string]any {
@@ -164,7 +159,6 @@ func workflowContractFieldsFixture() map[string]any {
 		"legislative_subjects": []string{},
 		"spec_mandate":         []string{},
 		"law_modifies":         []string{},
-		// Empty decision domains declare engineering work.
 	}
 }
 
@@ -279,7 +273,7 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 		invalid["affected_domain_ids"] = []string{invalidDomainID}
 		payload, err := json.Marshal(map[string]any{
 			"work_id": "work-1", "expected_version": 7, "action_id": "approve_contract",
-			"fields":          map[string]any{"architecture_binding": invalid, "legislative_subjects": workflowContractFieldsFixture()["legislative_subjects"], "spec_mandate": []string{}, "law_modifies": []string{}, "decision_domains": []string{}},
+			"fields":          map[string]any{"architecture_binding": invalid, "legislative_subjects": workflowContractFieldsFixture()["legislative_subjects"], "spec_mandate": []string{}, "law_modifies": []string{}},
 			"idempotency_key": "invalid-domain-id",
 		})
 		if err != nil {
@@ -291,11 +285,23 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 	}
 }
 
-func TestApproveContractSchemaAcceptsLegislativeSubjectsAndRigor(t *testing.T) {
+func TestWorkflowDecisionContractFieldsFixtureAccepted(t *testing.T) {
+	raw, err := json.Marshal(map[string]any{
+		"work_id": "work-1", "expected_version": 7, "action_id": "approve_contract",
+		"fields": workflowDecisionContractFieldsFixture(), "idempotency_key": "fixture-fields",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := payloadschema.Validate("work_transition_action_input", raw); err != nil {
+		t.Fatalf("contract fixture rejected: %v", err)
+	}
+}
+
+func TestApproveContractSchemaAcceptsLegislativeSubjects(t *testing.T) {
 	t.Parallel()
 	fields := workflowContractFieldsFixture()
 	fields["legislative_subjects"] = []string{"spec:example", "decision:example"}
-	fields["rigor_class"] = "prototype_internal"
 	payload := func(key string) []byte {
 		t.Helper()
 		raw, err := json.Marshal(map[string]any{
@@ -311,7 +317,7 @@ func TestApproveContractSchemaAcceptsLegislativeSubjectsAndRigor(t *testing.T) {
 		return raw
 	}
 	if err := payloadschema.Validate("work_transition_action_input", payload("complete-approve-contract-fields")); err != nil {
-		t.Fatalf("approve_contract legislative subjects or rigor rejected: %v", err)
+		t.Fatalf("approve_contract legislative subjects rejected: %v", err)
 	}
 
 	fields["legislative_subjects"] = []string{"invalid subject"}
@@ -319,11 +325,6 @@ func TestApproveContractSchemaAcceptsLegislativeSubjectsAndRigor(t *testing.T) {
 		t.Fatal("approve_contract schema accepted an invalid legislative subject")
 	}
 	fields["legislative_subjects"] = []string{"spec:example", "decision:example"}
-	fields["rigor_class"] = "unknown"
-	if err := payloadschema.Validate("work_transition_action_input", payload("unknown-rigor-class")); err == nil {
-		t.Fatal("approve_contract schema accepted an unknown rigor class")
-	}
-	fields["rigor_class"] = "prototype_internal"
 	fields["unknown_contract_field"] = true
 	if err := payloadschema.Validate("work_transition_action_input", payload("unknown-approve-contract-field")); err == nil {
 		t.Fatal("approve_contract schema accepted an unknown field")

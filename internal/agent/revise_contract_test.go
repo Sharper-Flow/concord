@@ -62,16 +62,10 @@ func TestReviseIntentUpdatesContractAtomicallyAndReplays(t *testing.T) {
 	advanceCapturedWorkToContract(t, s, service, env, "work-1", "update-prelude")
 	contract := workflowContractFieldsFixture()
 	contract["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
-	contract["decision_domains"] = []string{}
 	contract["legislative_subjects"] = []string{}
 	invokeAction("approve_contract", contract)
 	contract["contract_version"] = 2
 	delete(contract, "route_convention")
-	var routes, rigor string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT route_conventions,rigor_class FROM workflow_contracts WHERE work_id='work-1' AND contract_version=1`).Scan(&routes, &rigor); err != nil {
-		t.Fatal(err)
-	}
-	contract["route_conventions"], contract["rigor_class"] = json.RawMessage(routes), rigor
 	expected := workVersion(t, s, "work-1")
 	raw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": expected, "title": "Revised plan", "kind": "task", "reason": "Clarify the plan", "contract": contract, "idempotency_key": "ordinary-contract-update"})
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: raw}

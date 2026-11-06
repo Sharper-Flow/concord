@@ -34,7 +34,7 @@ func TestRecordedContractCallRetry(t *testing.T) {
 	if err := validate(); err != nil {
 		t.Fatalf("corrected identifiers refused: %v", err)
 	}
-	t.Log("corrected identifiers accepted with decision_domains unchanged; no live workflow mutation issued")
+	t.Log("corrected identifiers accepted; no live workflow mutation issued")
 }
 
 func TestContractStructuralRefusalsDeliverCompleteGuidance(t *testing.T) {
@@ -42,9 +42,12 @@ func TestContractStructuralRefusalsDeliverCompleteGuidance(t *testing.T) {
 		{"missing outer", `{"work_id":"work-example","action_id":"approve_contract","idempotency_key":"request-example","fields":{}}`, "expected_version"},
 		{"unknown outer", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example","extra":true,"fields":{}}`, "extra"},
 		{"long unknown", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example","` + strings.Repeat("x", 1000) + `":true,"fields":{}}`, "member name sha256:"},
-		{"missing fields", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example"}`, "fields"},
+		// The missing-fields case retired with approve_contract's last
+		// required field (CON-1710, CD-0243 D3): no action variant that the
+		// guidance corpus annotates still carries a fields requirement whose
+		// refusal renders a full shape example.
 		{"invalid subject", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example","fields":{"legislative_subjects":["bad subject"]}}`, "legislative_subjects"},
-		{"many missing", `{"work_id":"work-example","expected_version":1,"title":"Updated plan","kind":"task","reason":"Revise the plan","idempotency_key":"request-example","contract":{"decision_domains":[]}}`, "contract_version"},
+		{"many missing", `{"work_id":"work-example","expected_version":1,"title":"Updated plan","kind":"task","reason":"Revise the plan","idempotency_key":"request-example","contract":{}}`, "contract_version"},
 		{"unknown nested", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example","fields":{"extra":true,"legislative_subjects":["example"]}}`, "extra"},
 		{"extended unknown", `{"work_id":"work-example","expected_version":1,"title":"Updated plan","kind":"task","reason":"Revise the plan","idempotency_key":"request-example","contract":{"contract_version":2,"spec_mandate":[],"law_modifies":[],"extra":true,"legislative_subjects":["example"]}}`, "extra"},
 	} {
@@ -63,9 +66,6 @@ func TestContractStructuralRefusalsDeliverCompleteGuidance(t *testing.T) {
 			}
 			if !strings.Contains(message, tc.field) || !strings.Contains(message, "Accepted shape:") || !strings.Contains(message, "example:") || strings.Contains(message, "[truncated]") || len(message) > 1000 {
 				t.Fatalf("incomplete guidance (%d bytes): %s", len(message), message)
-			}
-			if strings.Contains(message, "unknown property $.fields.decision_domains") {
-				t.Fatalf("branch-local field restriction leaked: %s", message)
 			}
 			if _, err := out.Encode(); err != nil {
 				t.Fatalf("refusal is undeliverable: %v", err)

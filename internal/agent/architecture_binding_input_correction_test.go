@@ -71,11 +71,11 @@ func TestInvokeResearchArchitectureBindingCorrection(t *testing.T) {
 	if corrected := action("approve_contract", fields, "binding-approve"); corrected.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("correcting only architecture_binding under unchanged authority failed: %+v", corrected.Error)
 	}
-	var workflowType, premise string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT i.workflow_type,c.premise FROM workflow_instances i JOIN workflow_contracts c ON c.work_id=i.work_id WHERE i.work_id=?`, workID).Scan(&workflowType, &premise); err != nil {
+	var workflowType string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT i.workflow_type FROM workflow_instances i JOIN workflow_contracts c ON c.work_id=i.work_id WHERE i.work_id=?`, workID).Scan(&workflowType); err != nil {
 		t.Fatal(err)
 	}
-	if workflowType != "research" || premise != fields["premise"] || snapshot()[2] != 1 {
-		t.Fatalf("correction changed research scope: workflow=%s premise=%s", workflowType, premise)
+	if workflowType != "research" || snapshot()[2] != 1 {
+		t.Fatalf("correction changed research scope: workflow=%s", workflowType)
 	}
 }

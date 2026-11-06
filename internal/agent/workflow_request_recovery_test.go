@@ -111,17 +111,17 @@ func TestInvokeContractRequestCorrection(t *testing.T) {
 			if workVersion(t, s, workID) <= version || usedCount(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID) != 1 {
 				t.Fatal("correction did not commit exactly one contract and advance the work")
 			}
-			var actor, mandate, modifies, domains string
+			var actor, mandate, modifies string
 			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT actor FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, store.WorkflowContractApproved).Scan(&actor); err != nil {
 				t.Fatal(err)
 			}
 			if actor != store.DeriveWorkflowActorRef(grant.PrincipalRef, grant.ClientRef, grant.AgentRef, grant.SessionRef) {
 				t.Fatalf("corrected contract changed author authority: %s", actor)
 			}
-			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT spec_mandate,law_modifies,decision_domains FROM workflow_contracts WHERE work_id=?`, workID).Scan(&mandate, &modifies, &domains); err != nil {
+			if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=?`, workID).Scan(&mandate, &modifies); err != nil {
 				t.Fatal(err)
 			}
-			for key, raw := range map[string]string{"spec_mandate": mandate, "law_modifies": modifies, "decision_domains": domains} {
+			for key, raw := range map[string]string{"spec_mandate": mandate, "law_modifies": modifies} {
 				var got []string
 				if err := json.Unmarshal([]byte(raw), &got); err != nil {
 					t.Fatal(err)

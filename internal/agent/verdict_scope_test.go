@@ -14,11 +14,9 @@ import (
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
-// workflowEngineFixture seeds a workflow with an optional
-// contract premise override and returns an engine closure that applies
-// further workflow actions at the work item's current version. The premise
-// override exists so the bound round-trip test can approve the legal maximum.
-func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service, func(string, map[string]any)) {
+// workflowEngineFixture seeds a workflow and returns an engine closure that
+// applies further workflow actions at the work item's current version.
+func workflowEngineFixture(t *testing.T, _ string) (*store.Store, *Service, func(string, map[string]any)) {
 	t.Helper()
 	ctx := context.Background()
 	s, err := storetest.Open(t.TempDir())
@@ -104,9 +102,6 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 	engine("record_plan", agentPlanFields())
 	contractFields := workflowContractFieldsForSeededRegistry(t, s)
 	contractFields["legislative_subjects"] = []string{"work-1"}
-	if premise != "" {
-		contractFields["premise"] = premise
-	}
 	engine("approve_contract", contractFields)
 	engine("complete_step", map[string]any{"step_id": "plan", "note": "Plan approved."})
 	engine("start_execution", map[string]any{})

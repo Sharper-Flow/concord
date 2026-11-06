@@ -188,7 +188,10 @@ func TestCommitBoundaryTruth(t *testing.T) {
 					durable = true
 					s := openTemp(t)
 					actor, version := seedTestWorkflow(t, s, "boundary-work")
+					seedWorkflowLaw(t, s)
 					version = issue31WorkflowActionWithPayload(t, s, "boundary-work", version, "record_plan", "boundary-plan", actor, []byte(testWorkflowPlanDocument))
+					// approve first: CD-0203 D1 forbids closing the contract step without a contract
+					version = issue31WorkflowActionWithPayload(t, s, "boundary-work", version, "approve_contract", "boundary-approve", actor, []byte(contractStepApprovalPayload))
 					if _, e := s.db.Exec("CREATE TABLE boundary_witness (value INTEGER)"); e != nil {
 						t.Fatal(e)
 					}

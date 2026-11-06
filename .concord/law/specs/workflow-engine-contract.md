@@ -639,6 +639,13 @@ completion record keeps the reviewer, result, commit and link. A final clean
 review needs no fixes before completion. Each step names its method skill and
 the resume read shows it; no check verifies that a skill was loaded.
 
+**Contract steps.** The step that declares `approve_contract` passes only
+through the approval it hosts: while the item holds no active workflow
+contract, `complete_step` on that step is refused and the remedy names the
+approval ([CD-0203 D1](../decisions/CD-0203-the-admission-model-folds-every-condition-and-three-strands-recover.md)).
+Contractless completions already recorded stay valid; their items keep the §4.2
+completed-plan approval recovery.
+
 **Completion follows the plan.** An item completes only when every required
 step in its plan is completed.
 

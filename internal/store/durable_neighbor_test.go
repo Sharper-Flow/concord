@@ -111,7 +111,10 @@ func durableNeighborOperations() []neighborOperation {
 		neighborOperation{"AuthorizeWorkflowActionAtBoundary", func(t *testing.T) (*Store, func() error, func()) {
 			s := openTemp(t)
 			actor, version := seedTestWorkflow(t, s, "neighbor-work")
+			seedWorkflowLaw(t, s)
 			version = issue31WorkflowActionWithPayload(t, s, "neighbor-work", version, "record_plan", "neighbor-plan", actor, []byte(testWorkflowPlanDocument))
+			// approve first: CD-0203 D1 forbids closing the contract step without a contract
+			version = issue31WorkflowActionWithPayload(t, s, "neighbor-work", version, "approve_contract", "neighbor-approve", actor, []byte(contractStepApprovalPayload))
 			payload := []byte(`{"step_id":"plan","note":"The committed plan step survives."}`)
 			run := func() error {
 				return AuthorizeWorkflowActionAtBoundaryTx(ctx, s, WorkflowActionPreflightRequest{WorkID: "neighbor-work", ExpectedVersion: version, ActionID: "complete_step", Payload: payload, Actor: actor}, nil, func(tx *Transaction) error {

@@ -12,7 +12,10 @@ func TestWorkflowStepCompletionFrontier(t *testing.T) {
 	s := openTemp(t)
 	const work = "step-completions"
 	actor, version := seedTestWorkflow(t, s, work)
+	seedWorkflowLaw(t, s)
 	version = issue31WorkflowActionWithPayload(t, s, work, version, "record_plan", "frontier-plan", actor, json.RawMessage(testWorkflowPlanDocument))
+	// approve first: CD-0203 D1 forbids closing the contract step without a contract
+	version = issue31WorkflowActionWithPayload(t, s, work, version, "approve_contract", "frontier-approve", actor, json.RawMessage(contractStepApprovalPayload))
 	if got := workflowPlanFixtureFrontier(t, s, work); got != "plan" {
 		t.Fatalf("record_plan advanced frontier to %s", got)
 	}

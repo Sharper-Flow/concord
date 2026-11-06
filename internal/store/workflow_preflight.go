@@ -348,7 +348,10 @@ func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 	case "record_intake", "pick_type", "insert_step":
 	case "complete_step", "record_review":
 		step, _ = workflowFieldString(fields, "step_id")
-		return step, workflowPlanStepAttemptAdmission(plan, step, actionID)
+		if err := workflowPlanStepAttemptAdmission(plan, step, actionID); err != nil {
+			return step, err
+		}
+		return step, requireWorkflowContractStepApprovalTx(ctx, tx, workID, plan, step)
 	case "complete":
 		if plan == nil || !WorkflowStepPlanComplete(*plan) {
 			return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow plan is not complete", false, "complete every plan step")
@@ -387,6 +390,20 @@ func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 		}
 	}
 	return step, nil
+}
+
+// Production events enter through admission. Historical streams contain
+// contractless closes, so a fold guard would break replay and the completed-plan
+// approval recovery those items retain.
+func requireWorkflowContractStepApprovalTx(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, stepID string) error {
+	if plan == nil || !workflowStepDeclaresAction(plan, stepID, "approve_contract") {
+		return nil
+	}
+	_, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
+	if err == sql.ErrNoRows {
+		return newFailure(KindIllegalLifecycleTransition, "workflow_action", "step declares approve_contract and no active contract exists", false, "approve the contract before completing this step")
+	}
+	return err
 }
 
 func workflowPlanStepAttemptAdmission(plan *WorkflowStepPlan, step, actionID string) error {

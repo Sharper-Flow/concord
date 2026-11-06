@@ -16,7 +16,8 @@ func TestWorkflowPlanDocumentsMigrationFlow(t *testing.T) {
 		t.Run(tc.typ, func(t *testing.T) {
 			s := openTemp(t)
 			defer s.Close()
-			seedStepWork(t, s, "work-document")
+			seedWork(t, s, "work-document")
+			seedWorkflowLaw(t, s)
 			ctx := t.Context()
 			if err := s.Transact(ctx, func(tx *Transaction) error {
 				scope := newWriteScope(tx.tx)
@@ -37,11 +38,15 @@ func TestWorkflowPlanDocumentsMigrationFlow(t *testing.T) {
 			seq := 0
 			apply := func(action, payload string) error {
 				seq++
+				actionCtx, err := s.PrepareWorkflowActionProof(ctx, action, "work-document")
+				if err != nil {
+					return err
+				}
 				r := WorkflowActionExecutionRequest{WorkID: "work-document", ExpectedVersion: version, ActionID: action, Payload: json.RawMessage(payload), Actor: stepFixtureActor(), OperationID: fmt.Sprintf("doc-op-%d", seq), IdempotencyIdentity: fmt.Sprintf("doc-key-%d", seq), PrincipalRef: "principal-1", RequestID: fmt.Sprintf("doc-request-%d", seq), AcceptedInputsDigest: testDigest("inputs"), ContractDigest: testManifestDigest, Now: time.Unix(100, 0).UTC()}
 				var result WorkflowActionExecutionResult
-				err := s.Transact(ctx, func(tx *Transaction) error {
+				err = s.Transact(actionCtx, func(tx *Transaction) error {
 					var err error
-					result, err = ApplyWorkflowActionTx(ctx, tx, r)
+					result, err = ApplyWorkflowActionTx(actionCtx, tx, r)
 					return err
 				})
 				if err == nil {
@@ -140,6 +145,10 @@ func TestWorkflowPlanDocumentsMigrationFlow(t *testing.T) {
 			step := "plan"
 			if tc.typ == "removal" {
 				step = "list"
+			}
+			// approve first: CD-0203 D1 forbids closing the contract step without a contract
+			if err := apply("approve_contract", contractStepApprovalPayload); err != nil {
+				t.Fatal(err)
 			}
 			if err := apply("complete_step", fmt.Sprintf(`{"step_id":%q,"note":"document recorded"}`, step)); err != nil {
 				t.Fatal(err)

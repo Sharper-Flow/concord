@@ -28,12 +28,11 @@ class WorkflowPlanProjectionTest(unittest.TestCase):
                 self.assert_advertised_matches_authoring(action)
 
     def test_guard_catches_advertised_fields_admission_refuses(self):
-        # The pre-v60 catalog advertised required decision_domains and premise
-        # for approve_contract while the engine retired both; that divergence
-        # produced invalid_input refusals for agents following served
-        # guidance. No live action declares a divergent public payload, so the
-        # retired shape is seeded here to prove the guard fails on it.
-        retired = {
+        # No live action declares a divergent public payload, so divergent
+        # shapes are seeded here to prove the guard fails on them: a public
+        # half advertising fields the authoring half lacks, and a public half
+        # flipping a field's required flag.
+        divergent_names = {
             "id": "approve_contract",
             "variants": [{
                 "payload": {"fields": [
@@ -49,8 +48,17 @@ class WorkflowPlanProjectionTest(unittest.TestCase):
                 ]},
             }],
         }
-        with self.assertRaises(AssertionError):
-            self.assert_advertised_matches_authoring(retired)
+        with self.assertRaisesRegex(AssertionError, "field names differ"):
+            self.assert_advertised_matches_authoring(divergent_names)
+        divergent_flags = {
+            "id": "approve_contract",
+            "variants": [{
+                "payload": {"fields": [{"name": "spec_mandate", "required": False}]},
+                "public_payload": {"fields": [{"name": "spec_mandate", "required": True}]},
+            }],
+        }
+        with self.assertRaisesRegex(AssertionError, "required differs"):
+            self.assert_advertised_matches_authoring(divergent_flags)
 
     def test_action_route_is_available_at_intake(self):
         manifest = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text())

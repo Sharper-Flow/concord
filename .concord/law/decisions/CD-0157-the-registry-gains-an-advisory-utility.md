@@ -122,8 +122,8 @@ under a rollover. Disclosure accuracy under rollover is unverified.
 ### D5. Advisory output is not evidence
 
 CD-0149 D4 applies without change. The adviser returns text to its parent. It
-records no workflow state, starts no nested Task, and supplies no Review or
-Verify proof. It gates nothing. A coordinator that accepts an adviser's objection
+records no workflow state, starts no nested Task, and supplies no step
+review or verification evidence. It gates nothing. A coordinator that accepts an adviser's objection
 carries that objection into the work record itself.
 
 ## Consequences

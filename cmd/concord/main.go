@@ -132,6 +132,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "product-knowledge-home-designate", TwoWord: "product knowledge-home-designate", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("locator_id"), field("expected_version")), Optional: "reason", Enums: "locator_id: a canonical_path locator of the member Project"},
 	{Canonical: "product-knowledge-home-clear", TwoWord: "product knowledge-home-clear", RequiredFields: requiredFields(field("product_id"), field("expected_version")), Optional: "reason", Enums: "none"},
 	{Canonical: "project-locator-add", TwoWord: "project locator-add", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
+	{Canonical: "project-repository-mode-update", TwoWord: "project repository-mode-update", RequiredFields: requiredFields(field("project_id"), field("repository_mode"), field("expected_version")), Optional: "reason", Enums: "repository_mode: on | off"},
 	{Canonical: "project-locator-update", TwoWord: "project locator-update", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("kind"), field("value"), field("expected_version")), Optional: "none", Enums: "kind: canonical_path | git_remote"},
 	{Canonical: "project-locator-remove", TwoWord: "project locator-remove", RequiredFields: requiredFields(field("project_id"), field("locator_id"), field("expected_version")), Optional: "none", Enums: "none"},
 	{Canonical: "cd-reservations", TwoWord: "cd reservations", RequiredFields: requiredFields(field("directory")), Optional: "none", Enums: "prints the law-addition reservations (law_id, owner_work_id) of the Product that owns the calling checkout; read-only"},
@@ -541,6 +542,8 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 		return runClientKeyCommand(command, raw, service, s, out, errOut)
 	case "project-locator-add", "project-locator-update", "project-locator-remove":
 		return runProjectLocatorCommand(command, raw, s, out, errOut)
+	case "project-repository-mode-update":
+		return runProjectRepositoryModeUpdate(raw, s, out, errOut)
 	case "product-create":
 		return runProductCreate(command, raw, s, out, errOut)
 	case "project-create", "product-project-add", "product-stage-update":

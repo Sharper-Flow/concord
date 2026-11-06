@@ -83,9 +83,10 @@ func (ExecGitRunner) RunStdin(ctx context.Context, dir string, stdin []byte, arg
 }
 
 type ProjectResolution struct {
-	ProjectID  string
-	Repository HostRepository
-	Locators   []ProjectLocator
+	ProjectID      string
+	RepositoryMode string
+	Repository     HostRepository
+	Locators       []ProjectLocator
 	// MainWorktree reports that the resolved working tree is the repository's
 	// main checkout rather than a linked worktree. It is false
 	// when no resolver ran, so the zero value never blocks a grant.
@@ -434,7 +435,11 @@ func matchResolvedProjectHost(ctx context.Context, q queryer, host ResolvedProje
 	for candidate := range ids {
 		id = candidate
 	}
-	return ProjectResolution{ProjectID: id, Repository: host.Host, Locators: locators, MainWorktree: host.MainWorktree}, nil
+	var mode string
+	if err := q.QueryRowContext(ctx, `SELECT repository_mode FROM projects WHERE id=?`, id).Scan(&mode); err != nil {
+		return ProjectResolution{}, wrapFailure(KindUnavailable, "resolve_project", "cannot read Project repository mode", true, "retry once the database is readable", err)
+	}
+	return ProjectResolution{ProjectID: id, RepositoryMode: mode, Repository: host.Host, Locators: locators, MainWorktree: host.MainWorktree}, nil
 }
 
 func resolveRepositoryCommonRoot(ctx context.Context, runner GitRunner, worktreeRoot string) (string, error) {

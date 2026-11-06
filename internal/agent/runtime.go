@@ -1067,7 +1067,7 @@ func summary(w store.WorkItem) workSummary {
 func (r runtime) q1(base agentcontract.Envelope, q store.Q1Result) (agentcontract.Envelope, error) {
 	projects := []map[string]any{}
 	for _, p := range q.Projects {
-		projects = append(projects, map[string]any{"project_id": p.ID, "version": 1, "role": p.Role})
+		projects = append(projects, map[string]any{"project_id": p.ID, "version": 1, "role": p.Role, "repository_mode": p.RepositoryMode})
 	}
 	id := ""
 	stage := "prototype"

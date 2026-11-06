@@ -52,6 +52,12 @@ func TestLawIndexSchema168RetiredLawSnapshotAndUpgrade(t *testing.T) {
 	}
 	assertLawIndexRetired(t, db)
 	for _, table := range preserved {
+		if table == "projects" {
+			if got := retirementProjectRows(t, db); !reflect.DeepEqual(got, before[table]) {
+				t.Errorf("upgrade changed preserved projects bytes")
+			}
+			continue
+		}
 		if table == "work_items" {
 			if got := retirementUpgradeRows(t, db, `SELECT * FROM work_items ORDER BY id`); !reflect.DeepEqual(got, work) {
 				t.Errorf("upgrade changed retained work: got %v want %v", got, work)

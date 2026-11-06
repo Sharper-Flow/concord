@@ -136,6 +136,13 @@ func TestDefectRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 				t.Error("current contract facts changed")
 			}
 			continue
+		case "projects":
+			// Migration 191 adds repository_mode after the predecessor snapshot.
+			got := retirementProjectRows(t, db)
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("unrelated table %s changed", table)
+			}
+			continue
 		}
 		if got := retirementUpgradeRows(t, db, `SELECT * FROM "`+table+`" ORDER BY rowid`); !reflect.DeepEqual(got, want) {
 			t.Errorf("unrelated table %s changed", table)
@@ -377,6 +384,11 @@ func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 			continue
 		case "workflow_architecture_bindings":
 			expected = retainedBindings
+		case "projects":
+			if got := retirementProjectRows(t, db); !reflect.DeepEqual(got, expected) {
+				t.Errorf("unrelated table projects changed")
+			}
+			continue
 		case "workflow_contracts":
 			if got := cutoverContractRows(t, db); !reflect.DeepEqual(got, retainedContracts) {
 				t.Error("current contract facts changed")

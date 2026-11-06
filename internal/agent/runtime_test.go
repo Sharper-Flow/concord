@@ -57,13 +57,27 @@ func TestDispatchProductResolveReturnsGeneratedPayload(t *testing.T) {
 	}
 	request := InvokeRequest{Tool: "concord_product_view", Operation: "resolve", Input: json.RawMessage(`{"project_id":"project-1"}`)}
 	env := CallEnvelope{SchemaVersion: "1.0", RequestID: "request-1", ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
-	response, err := Dispatch(ctx, s, service, request, env)
-	if err != nil {
+	assertMode := func(want string) {
+		t.Helper()
+		response, err := Dispatch(ctx, s, service, request, env)
+		if err != nil || response.Outcome != agentcontract.OutcomeOK {
+			t.Fatalf("response=%+v err=%v", response, err)
+		}
+		var result struct {
+			Projects []struct {
+				ProjectID      string `json:"project_id"`
+				RepositoryMode string `json:"repository_mode"`
+			} `json:"projects"`
+		}
+		if err := json.Unmarshal(response.Result, &result); err != nil || len(result.Projects) != 1 || result.Projects[0].ProjectID != "project-1" || result.Projects[0].RepositoryMode != want {
+			t.Fatalf("repository mode want=%q result=%s err=%v", want, response.Result, err)
+		}
+	}
+	assertMode("off")
+	if _, err := s.SetProjectRepositoryMode(ctx, store.ProjectRepositoryModeChange{ProjectID: "project-1", RepositoryMode: "on", ExpectedVersion: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("response=%+v", response)
-	}
+	assertMode("on")
 }
 
 func TestRetiredPlanningOperationsRefuseBeforeEffects(t *testing.T) {

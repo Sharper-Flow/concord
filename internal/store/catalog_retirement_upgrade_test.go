@@ -58,7 +58,12 @@ func catalogUpgradeRows(t *testing.T, db *sql.DB, tables ...string) map[string][
 	t.Helper()
 	result := make(map[string][]string, len(tables))
 	for _, table := range tables {
-		rows, err := db.Query(`SELECT * FROM "` + strings.ReplaceAll(table, `"`, `""`) + `"`)
+		query := `SELECT * FROM "` + strings.ReplaceAll(table, `"`, `""`) + `"`
+		if table == "projects" {
+			// Migration 191 adds a column beyond the preserved predecessor facts.
+			query = `SELECT ` + retirementProjectColumns + ` FROM projects`
+		}
+		rows, err := db.Query(query)
 		if err != nil {
 			t.Fatal(err)
 		}

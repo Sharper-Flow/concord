@@ -68,6 +68,11 @@ Commands read one strict JSON object from stdin:
   concord project locator-add < JSON stdin
     required: project_id, locator_id, kind, value, expected_version
     accepted values: kind: canonical_path | git_remote
+  concord project-repository-mode-update < JSON stdin
+  concord project repository-mode-update < JSON stdin
+    required: project_id, repository_mode, expected_version
+    optional: reason
+    accepted values: repository_mode: on | off
   concord project-locator-update < JSON stdin
   concord project locator-update < JSON stdin
     required: project_id, locator_id, kind, value, expected_version

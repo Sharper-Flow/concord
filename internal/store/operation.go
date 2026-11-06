@@ -146,6 +146,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"project.created":                   registerEventKind[projectCreatedPayload](2, EventAppendAuthorityGeneric, foldProjectCreated, nil),
 	"project.renamed":                   registerEventKind[projectRenamedPayload](1, EventAppendAuthorityGeneric, foldProjectRenamed, nil),
 	"project.stage_changed":             registerEventKind[projectStageChangedPayload](1, EventAppendAuthorityGeneric, foldProjectStageChanged, nil),
+	"project.repository_mode_set":       registerEventKind[projectRepositoryModeSetPayload](1, EventAppendAuthorityGeneric, foldProjectRepositoryModeSet, nil),
 	"project.locator_added":             registerEventKind[projectLocatorPayload](2, EventAppendAuthorityGeneric, foldProjectLocatorAdded, nil),
 	"project.locator_updated":           registerEventKind[projectLocatorPayload](2, EventAppendAuthorityGeneric, foldProjectLocatorUpdated, nil),
 	"project.locator_removed":           registerEventKind[projectLocatorPayload](1, EventAppendAuthorityGeneric, foldProjectLocatorRemoved, nil),
@@ -672,6 +673,13 @@ type projectStageChangedPayload struct {
 	ResultingVersion                int64           `json:"resulting_version,omitempty"`
 }
 
+type projectRepositoryModeSetPayload struct {
+	RepositoryMode   string `json:"repository_mode"`
+	Reason           string `json:"reason,omitempty"`
+	ExpectedVersion  int64  `json:"expected_version,omitempty"`
+	ResultingVersion int64  `json:"resulting_version,omitempty"`
+}
+
 func decodeProjectStagePair(maturityRaw, audienceRaw json.RawMessage, allowAbsent bool) (*string, *string, error) {
 	maturityAbsent, audienceAbsent := len(maturityRaw) == 0, len(audienceRaw) == 0
 	if maturityAbsent || audienceAbsent {
@@ -880,6 +888,30 @@ func foldProjectStageChanged(ctx context.Context, tx *sql.Tx, event Event) error
 		return wrapFailure(KindUnavailable, "fold_event", "cannot verify Project stage projection update", true, "retry once the database is readable", err)
 	} else if affected == 0 {
 		return newFailure(KindProjectionNotFound, "fold_event", "Project does not exist", false, "create the Project before changing its stage")
+	}
+	return nil
+}
+
+func foldProjectRepositoryModeSet(ctx context.Context, tx *sql.Tx, event Event) error {
+	if err := checkSubject(event, SubjectProject); err != nil {
+		return err
+	}
+	var payload projectRepositoryModeSetPayload
+	if err := decodePayload(event, &payload); err != nil {
+		return err
+	}
+	if payload.RepositoryMode != "on" && payload.RepositoryMode != "off" {
+		return newFailure(KindInvalidPayload, "fold_event", "project.repository_mode_set payload has an invalid mode", false, "use on or off")
+	}
+	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
+	result, err := tx.ExecContext(ctx, `UPDATE projects SET repository_mode = ?, version = version + 1, updated_at = ? WHERE id = ?`, payload.RepositoryMode, now, event.SubjectID)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot update Project repository mode projection", true, "retry once the database is writable", err)
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot verify Project repository mode projection update", true, "retry once the database is readable", err)
+	} else if affected == 0 {
+		return newFailure(KindProjectionNotFound, "fold_event", "Project does not exist", false, "create the Project before changing its repository mode")
 	}
 	return nil
 }

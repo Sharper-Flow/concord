@@ -157,6 +157,7 @@ INSTRUCTION_FILES = (
     "continuation.md",
     "evidence.md",
     "records.md",
+    "repository-mode.md",
     "voice.md",
 )
 AGENT_FILES = (
@@ -5044,6 +5045,89 @@ def unlink_worktrees_root(paths: Paths) -> bool:
     return sync_worktree_links(paths, remove=True)
 
 
+def project_repository_mode(paths: Paths, project_dir: Path) -> tuple[str, str | None]:
+    """Resolve the Project mode, defaulting to off when resolution fails."""
+    try:
+        result = subprocess.run(
+            [str(paths.launcher), "project-resolve"],
+            input=json.dumps({"directory": str(project_dir)}), text=True, capture_output=True,
+        )
+    except OSError as error:
+        return "off", f"project-resolve unavailable: {error.strerror}"
+    if result.returncode:
+        return "off", f"project-resolve failed (exit {result.returncode})"
+    try:
+        payload = json.loads(result.stdout)
+        mode = payload.get("repository_mode") if isinstance(payload, dict) else None
+    except ValueError:
+        return "off", "project-resolve returned malformed JSON"
+    if mode not in ("on", "off"):
+        return "off", "project-resolve returned an unknown mode"
+    return mode, None
+
+
+def update_project_exclude(project_dir: Path, project_file: Path, exclude: bool) -> Path | None:
+    """Add or remove Concord's exact patterns in Git's local exclude."""
+    if not project_dir.is_dir():
+        return None
+    try:
+        git_env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=project_dir,
+                             text=True, capture_output=True, env=git_env)
+        if top.returncode or not top.stdout.strip():
+            return None
+        root = Path(top.stdout.rstrip("\n")).resolve()
+        relative = project_file.relative_to(root).as_posix()
+        if "\n" in relative or "\r" in relative:
+            raise InstallerError("cannot exclude a project path containing a newline")
+        pattern = "/" + re.sub(r"([\\*?\[\] ])", r"\\\1", relative)
+        git_path = subprocess.run(["git", "rev-parse", "--git-path", "info/exclude"],
+                                  cwd=project_dir, text=True, capture_output=True, check=True, env=git_env)
+        exclude_path = Path(git_path.stdout.rstrip("\n"))
+        if not exclude_path.is_absolute():
+            exclude_path = project_dir / exclude_path
+        common = subprocess.run(["git", "rev-parse", "--git-common-dir"], cwd=project_dir,
+                                text=True, capture_output=True, check=True, env=git_env)
+        common_dir = Path(common.stdout.rstrip("\n"))
+        if not common_dir.is_absolute():
+            common_dir = project_dir / common_dir
+        if not exclude_path.resolve().is_relative_to(common_dir.resolve()):
+            raise InstallerError("project git exclude resolves outside the git directory")
+        try:
+            content = exclude_path.read_bytes()
+        except FileNotFoundError:
+            content = b""
+        patterns = (os.fsencode(pattern), b"/.concord/")
+        lines = content.splitlines(keepends=True)
+        if exclude:
+            present = {item.rstrip(b"\r\n") for item in lines}
+            missing = [line for line in patterns if line not in present]
+            updated = content
+            if missing:
+                if updated and not updated.endswith(b"\n"):
+                    updated += b"\n"
+                updated += b"".join(line + b"\n" for line in missing)
+        else:
+            updated = b"".join(item for item in lines if item.rstrip(b"\r\n") not in patterns)
+        if updated != content:
+            write_atomic(exclude_path, updated)
+        return exclude_path
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        raise InstallerError(f"cannot update project git exclude: {error}") from error
+
+
+def sync_project_exclude(paths: Paths, project_dir: Path, project_file: Path) -> None:
+    """Apply the resolved mode to the project file's local Git exclusion."""
+    mode, reason = project_repository_mode(paths, project_dir)
+    exclude_path = update_project_exclude(project_dir, project_file, mode == "off")
+    detail = f" ({reason})" if reason else ""
+    if exclude_path is None:
+        print(f"Repository mode {mode}{detail}: not a git work tree; local exclude skipped.")
+    else:
+        action = "added" if mode == "off" else "removed"
+        print(f"Repository mode {mode}{detail}: {action} local exclude entries for {project_file} and /.concord/ in {exclude_path}.")
+
+
 def link(args: argparse.Namespace) -> int:
     paths = paths_for(args.root)
     recover_transactions(paths)
@@ -5067,6 +5151,7 @@ def link(args: argparse.Namespace) -> int:
     )
     if not changed:
         save_project_link_ownership(paths, ownership)
+        sync_project_exclude(paths, project_dir, project_file)
         print(f"Project {project_dir} already points at the conduct corpus; no changes made.")
         return 0
     pending_path = project_link_pending_path(paths)
@@ -5094,6 +5179,7 @@ def link(args: argparse.Namespace) -> int:
     save_project_link_ownership(paths, ownership)
     pending_path.unlink()
     fsync_directory(pending_path.parent)
+    sync_project_exclude(paths, project_dir, project_file)
     print(f"Linked project {project_dir} to {conduct_entry}.")
     return 0
 
@@ -5107,6 +5193,9 @@ def unlink(args: argparse.Namespace) -> int:
     conduct_entry = conduct_instruction_entry(paths)
     ownership = load_project_link_ownership(paths)
     new_text, changed = remove_conduct_entry(project_file, conduct_entry)
+    exclude_path = update_project_exclude(project_dir, project_file, False)
+    if exclude_path is None:
+        print("Not a git work tree; local exclude skipped.")
     if not changed:
         ownership.pop(str(project_file.resolve(strict=False)), None)
         save_project_link_ownership(paths, ownership)

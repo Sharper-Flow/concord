@@ -56,10 +56,11 @@ func runProjectResolve(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		})
 	}
 	return writeJSON(out, map[string]any{
-		"project_id":    resolution.ProjectID,
-		"product_ids":   productIDs,
-		"scope_version": scopeVersion,
-		"main_worktree": resolution.MainWorktree,
+		"project_id":      resolution.ProjectID,
+		"repository_mode": resolution.RepositoryMode,
+		"product_ids":     productIDs,
+		"scope_version":   scopeVersion,
+		"main_worktree":   resolution.MainWorktree,
 		"repository": map[string]string{
 			"canonical_path": resolution.Repository.CanonicalPath,
 			"git_remote":     resolution.Repository.GitRemote,

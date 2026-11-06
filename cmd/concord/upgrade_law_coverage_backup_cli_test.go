@@ -118,7 +118,7 @@ func expectedMinimalWorkRows(t *testing.T, rows []string) []string {
 // and the verified snapshot compare by content.
 func lawCoverageFixtureRows(t *testing.T, db *sql.DB, table string) []string {
 	t.Helper()
-	rows, err := db.Query(`SELECT * FROM "` + strings.ReplaceAll(table, `"`, `""`) + `" ORDER BY rowid`)
+	rows, err := db.Query(upgradeFixtureSelect(t, db, table) + ` ORDER BY rowid`)
 	if err != nil {
 		t.Fatalf("read %s: %v", table, err)
 	}

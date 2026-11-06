@@ -22,9 +22,10 @@ type membershipPayload struct {
 // ProjectMembership is a typed membership read with the Project's display
 // metadata. Role is intentionally read-only edge metadata.
 type ProjectMembership struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"display_name"`
-	Role        string `json:"role"`
+	ID             string `json:"id"`
+	DisplayName    string `json:"display_name"`
+	Role           string `json:"role"`
+	RepositoryMode string `json:"repository_mode"`
 }
 
 // ProductMembership is a typed membership read with the Product's display
@@ -327,7 +328,7 @@ func ProjectsForProductTx(ctx context.Context, transaction *Transaction, product
 
 func projectsForProduct(ctx context.Context, q queryer, productID string) ([]ProjectMembership, error) {
 	rows, err := q.QueryContext(ctx, `
-		SELECT projects.id, projects.display_name, product_projects.role
+		SELECT projects.id, projects.display_name, product_projects.role, projects.repository_mode
 		FROM product_projects JOIN projects ON projects.id = product_projects.project_id
 		WHERE product_projects.product_id = ?
 		ORDER BY CASE product_projects.role WHEN 'primary' THEN 0 ELSE 1 END, projects.display_name, projects.id`, productID)
@@ -339,7 +340,7 @@ func projectsForProduct(ctx context.Context, q queryer, productID string) ([]Pro
 	var memberships []ProjectMembership
 	for rows.Next() {
 		var item ProjectMembership
-		if err := rows.Scan(&item.ID, &item.DisplayName, &item.Role); err != nil {
+		if err := rows.Scan(&item.ID, &item.DisplayName, &item.Role, &item.RepositoryMode); err != nil {
 			return nil, wrapFailure(KindUnavailable, "projects_for_product", "cannot decode Product memberships", true,
 				"retry once the database is readable", err)
 		}
@@ -354,7 +355,7 @@ func (s *Store) ProjectsForWork(ctx context.Context, workID string) ([]ProjectMe
 
 func projectsForWork(ctx context.Context, q queryer, workID string) ([]ProjectMembership, error) {
 	rows, err := q.QueryContext(ctx, `
-		SELECT projects.id, projects.display_name, work_projects.role
+		SELECT projects.id, projects.display_name, work_projects.role, projects.repository_mode
 		FROM work_projects JOIN projects ON projects.id = work_projects.project_id
 		WHERE work_projects.work_id = ?
 		ORDER BY CASE work_projects.role WHEN 'primary' THEN 0 ELSE 1 END, projects.id`, workID)
@@ -366,7 +367,7 @@ func projectsForWork(ctx context.Context, q queryer, workID string) ([]ProjectMe
 	var memberships []ProjectMembership
 	for rows.Next() {
 		var item ProjectMembership
-		if err := rows.Scan(&item.ID, &item.DisplayName, &item.Role); err != nil {
+		if err := rows.Scan(&item.ID, &item.DisplayName, &item.Role, &item.RepositoryMode); err != nil {
 			return nil, wrapFailure(KindUnavailable, "projects_for_work", "cannot decode work memberships", true,
 				"retry once the database is readable", err)
 		}

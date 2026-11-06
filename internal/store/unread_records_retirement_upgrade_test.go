@@ -69,8 +69,8 @@ func TestUnreadRecordsRetirementUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(report.Applied) != 1 || report.Applied[0] != 190 {
-		t.Fatalf("applied = %v, want exactly [190]", report.Applied)
+	if len(report.Applied) != 2 || report.Applied[0] != 190 || report.Applied[1] != 191 {
+		t.Fatalf("applied = %v, want exactly [190 191]", report.Applied)
 	}
 	var candidateTable int
 	if err := db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='workflow_candidate_sets'`).Scan(&candidateTable); err != nil || candidateTable != 0 {

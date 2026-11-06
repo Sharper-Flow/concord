@@ -345,7 +345,7 @@ func workflowPlanCompleteActionTx(ctx context.Context, q queryer, workID string,
 
 func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, actionID, step string, plan *WorkflowStepPlan, fields map[string]json.RawMessage) (string, error) {
 	switch actionID {
-	case "record_intake", "record_clarify", "pick_type", "insert_step":
+	case "record_intake", "pick_type", "insert_step":
 	case "complete_step", "record_review":
 		step, _ = workflowFieldString(fields, "step_id")
 		return step, workflowPlanStepAttemptAdmission(plan, step, actionID)
@@ -771,6 +771,8 @@ func validWorkflowPayloadListItem(itemRef, value string) bool {
 		return validWorkflowProseItem(value, 256)
 	case "proposal_text":
 		return validWorkflowProseItem(value, 512)
+	case "clarification_answer_text":
+		return validWorkflowProseItem(value, 2048)
 	case "", "reference":
 		return ValidReference(value)
 	default:

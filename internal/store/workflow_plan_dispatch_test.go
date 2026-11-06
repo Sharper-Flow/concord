@@ -42,7 +42,7 @@ func TestWorkflowPlanActionDispatch(t *testing.T) {
 		})
 		return result, err
 	}
-	intake := `{"outcome":"proceed","open_questions_found":false}`
+	intake := `{"outcome":"proceed"}`
 	result, err := apply("record_intake", intake, version)
 	if err != nil {
 		t.Fatal(err)
@@ -94,13 +94,23 @@ func TestWorkflowPlanActionDispatch(t *testing.T) {
 	if _, err := apply("complete_step", fmt.Sprintf(`{"step_id":%q,"note":"missing plan"}`, step), version); err == nil {
 		t.Fatal("completed plan step without its document")
 	}
-	result, err = apply("record_plan", testWorkflowPlanDocument, version)
+	result, err = apply("record_clarify", `{"resolved_questions":[],"note":"No operator questions remain."}`, version)
 	if err != nil {
 		t.Fatal(err)
 	}
 	version = result.ResultingVersion
 	payload, _ := json.Marshal(map[string]string{"step_id": step, "note": "completed step"})
 	result, err = apply("complete_step", string(payload), version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version = result.ResultingVersion
+	result, err = apply("record_plan", testWorkflowPlanDocument, version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version = result.ResultingVersion
+	result, err = apply("complete_step", `{"step_id":"plan","note":"Plan complete."}`, version)
 	if err != nil {
 		t.Fatal(err)
 	}

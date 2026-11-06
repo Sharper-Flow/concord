@@ -227,8 +227,10 @@ func advanceCapturedWorkToContract(t *testing.T, s *store.Store, service *Servic
 		}
 		return after
 	}
-	dispatch("record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false}, "intake")
+	dispatch("record_intake", map[string]any{"outcome": "proceed"}, "intake")
 	dispatch("pick_type", map[string]any{"type": "change", "reason": "The work changes behavior."}, "type")
+	dispatch("record_clarify", map[string]any{"resolved_questions": []string{}, "note": "No operator questions remain."}, "clarify")
+	dispatch("complete_step", map[string]any{"step_id": "clarify", "note": "Clarification complete."}, "complete-clarify")
 	return dispatch("record_plan", agentPlanFields(), "plan")
 }
 
@@ -345,7 +347,7 @@ func seedAgentPlanFrontier(t testing.TB, s *store.Store, workID string, planType
 	if _, err := tx.Exec(`INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	result, err := tx.Exec(`UPDATE workflow_instances SET workflow_type=?, step_plan=?, prelude_state=?, instance_state='running' WHERE work_id=?`, planType, raw, `{"intake":{"outcome":"proceed","open_questions_found":false}}`, workID)
+	result, err := tx.Exec(`UPDATE workflow_instances SET workflow_type=?, step_plan=?, prelude_state=?, instance_state='running' WHERE work_id=?`, planType, raw, `{"intake":{"outcome":"proceed"}}`, workID)
 	if err != nil {
 		t.Fatal(err)
 	}

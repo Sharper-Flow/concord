@@ -44,7 +44,7 @@ func TestWorkflowPreflightReadsCommittedStateWhileWriterIsActive(t *testing.T) {
 	request := WorkflowActionPreflightRequest{
 		WorkID: workID, ExpectedVersion: version,
 		ActionID: "record_intake", Actor: secondSessionActor(),
-		Payload: json.RawMessage(`{"outcome":"proceed","open_questions_found":false}`),
+		Payload: json.RawMessage(`{"outcome":"proceed"}`),
 	}
 	inspect := func(request WorkflowActionPreflightRequest) error {
 		_, err := WorkflowActionDefinitionFor(ctx, s, request)

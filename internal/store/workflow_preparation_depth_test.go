@@ -40,6 +40,8 @@ func TestSmallFixPreparationDepthNeedsNoArchitectureDocument(t *testing.T) {
 				t.Fatal("recording diagnosis advanced the frontier")
 			}
 			act("complete_step", map[string]any{"step_id": "diagnose", "note": "diagnosis completed"})
+			act("record_clarify", map[string]any{"resolved_questions": []string{}, "note": "No operator questions remain."})
+			act("complete_step", map[string]any{"step_id": "clarify", "note": "Clarification complete."})
 			act("approve_contract", map[string]any{
 				"premise": "Correct the factual comment without changing behavior.", "decision_domains": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 				"legislative_subjects": []string{},

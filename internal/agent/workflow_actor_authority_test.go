@@ -37,7 +37,7 @@ func TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction(t *testing.T) {
 		id     string
 		fields map[string]any
 	}{
-		{"record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false}},
+		{"record_intake", map[string]any{"outcome": "proceed"}},
 		{"pick_type", map[string]any{"type": "change", "reason": "The task changes behavior."}},
 	} {
 		input := retryJSON(map[string]any{"work_id": workID, "expected_version": workVersion(t, s, workID), "action_id": action.id, "fields": action.fields, "idempotency_key": "capture-31-" + action.id})
@@ -55,7 +55,7 @@ func TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction(t *testing.T) {
 		t.Fatal(err)
 	}
 	frontier := store.WorkflowStepPlanFrontier(picked)
-	if picked.Type != store.WorkflowStepPlanChange || len(frontier) != 1 || frontier[0].ID != "plan" {
+	if picked.Type != store.WorkflowStepPlanChange || len(frontier) != 1 || frontier[0].ID != "clarify" {
 		t.Fatalf("picked plan=%+v frontier=%+v", picked, frontier)
 	}
 }

@@ -22,7 +22,7 @@ func TestReopenRestoresPlanAndAdmitsInsertStep(t *testing.T) {
 			}
 			env := mutationEnvelope(grant, scope)
 			id := captureCompositionWork(t, ctx, s, service, env, "Reopen plan", "task", "", "reopen-plan")
-			compositionAction(t, ctx, s, service, env, id, "record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false})
+			compositionAction(t, ctx, s, service, env, id, "record_intake", map[string]any{"outcome": "proceed"})
 			compositionAction(t, ctx, s, service, env, id, "pick_type", map[string]any{"type": "change", "reason": "fixture"})
 			var planBefore, preludeBefore string
 			if err := s.DatabaseForTesting().QueryRow(`SELECT step_plan,prelude_state FROM workflow_instances WHERE work_id=?`, id).Scan(&planBefore, &preludeBefore); err != nil {
@@ -109,7 +109,7 @@ func TestReopenDeclinedIntakeCanProceed(t *testing.T) {
 	}
 	env := mutationEnvelope(grant, scope)
 	id := captureCompositionWork(t, ctx, s, service, env, "Reopen declined intake", "task", "", "reopen-decline")
-	compositionAction(t, ctx, s, service, env, id, "record_intake", map[string]any{"outcome": "decline", "open_questions_found": false})
+	compositionAction(t, ctx, s, service, env, id, "record_intake", map[string]any{"outcome": "decline"})
 	cancelInput, err := json.Marshal(map[string]any{"work_id": id, "expected_version": agentCompositionWorkVersion(t, s, id), "target": "cancelled", "reason": "declined", "evidence": []map[string]string{{"kind": "verification", "authority": "test", "locator_kind": "file", "locator": "README.md"}}, "idempotency_key": "cancel-decline"})
 	if err != nil {
 		t.Fatal(err)
@@ -160,7 +160,7 @@ func TestReopenDeclinedIntakeCanProceed(t *testing.T) {
 	if !found {
 		t.Fatalf("reopened intake intents missing record_intake: %+v", pin.NextValidIntents)
 	}
-	compositionAction(t, ctx, s, service, env, id, "record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false})
+	compositionAction(t, ctx, s, service, env, id, "record_intake", map[string]any{"outcome": "proceed"})
 	compositionAction(t, ctx, s, service, env, id, "pick_type", map[string]any{"type": "change", "reason": "fixture"})
 	readState()
 	if lifecycle != "in_progress" || state != "running" || plan == nil || *plan == "" {

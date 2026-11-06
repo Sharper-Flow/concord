@@ -215,7 +215,7 @@ func TestWorkflowWriteAdmitsPlanlessHistoricalLegislator(t *testing.T) {
 		WorkID:          writeWork,
 		ActionID:        "record_intake",
 		ExpectedVersion: 1,
-		Payload:         json.RawMessage(`{"outcome":"proceed","open_questions_found":false}`),
+		Payload:         json.RawMessage(`{"outcome":"proceed"}`),
 		Actor:           actor,
 	}
 	err := AuthorizeWorkflowActionAtBoundaryTx(ctx, s, request, nil, func(*Transaction) error { return nil })

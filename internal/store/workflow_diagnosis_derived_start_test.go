@@ -165,8 +165,8 @@ func TestRecordDiagnosisRecordsAllSectionsAtomically(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "complete_step", json.RawMessage(`{"step_id":"diagnose","note":"diagnosis recorded"}`), 0, fixture.owner); err != nil {
 		t.Fatalf("complete diagnosis: %v", err)
 	}
-	if got := currentStep(t, s, workID); got != "plan" {
-		t.Fatalf("frontier after complete_step = %q, want plan", got)
+	if got := currentStep(t, s, workID); got != "clarify" {
+		t.Fatalf("frontier after complete_step = %q, want clarify", got)
 	}
 }
 

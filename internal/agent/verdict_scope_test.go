@@ -90,7 +90,7 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 		}
 		engineAction(version, actionID, payload)
 	}
-	engine("record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false})
+	engine("record_intake", map[string]any{"outcome": "proceed"})
 	engine("pick_type", map[string]any{"type": "fix", "reason": "The work repairs a defect."})
 	engine("record_diagnosis", map[string]any{
 		"reproduction": "The bounded defect reproduction statement.",
@@ -99,6 +99,8 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 		"root_cause":   "The bounded root cause statement.",
 	})
 	engine("complete_step", map[string]any{"step_id": "diagnose", "note": "Diagnosis recorded."})
+	engine("record_clarify", map[string]any{"resolved_questions": []string{}, "note": "No operator questions remain."})
+	engine("complete_step", map[string]any{"step_id": "clarify", "note": "Clarification complete."})
 	engine("record_plan", agentPlanFields())
 	contractFields := workflowContractFieldsForSeededRegistry(t, s)
 	contractFields["legislative_subjects"] = []string{"work-1"}

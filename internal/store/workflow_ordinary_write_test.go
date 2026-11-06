@@ -142,11 +142,14 @@ func TestWorkflowCurrentRecordsIncludesPlanAndPrelude(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prelude := workflowPreludeState{Intake: workflowIntakeRecord{Outcome: WorkflowIntakeClarify, OpenQuestionsFound: true}, Clarify: &workflowClarifyRecord{ResolvedQuestions: []string{"question"}, Note: "resolved"}}
+	prelude := workflowPreludeState{Intake: workflowIntakeRecord{Outcome: WorkflowIntakeProceed}}
 	if err := writeWorkflowPreludeTx(ctx, tx, work, prelude); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_plan_records(work_id,work_version,payload,recorded_at,actor,event_ref) SELECT ?,1,'{}','now',actor_ref,'event:test' FROM workflow_actors LIMIT 1`, work); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_clarify_records(work_id,work_version,payload) VALUES(?,1,'{"resolved_questions":["question"],"note":"resolved"}')`, work); err != nil {
 		t.Fatal(err)
 	}
 	records, err := workflowCurrentRecords(ctx, tx, work)

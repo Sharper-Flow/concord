@@ -63,8 +63,10 @@ func TestResearchFramingRequiresContractApprovalBeforeInvestigate(t *testing.T) 
 		id     string
 		fields map[string]any
 	}{
-		{"record_intake", map[string]any{"outcome": "proceed", "open_questions_found": false}},
+		{"record_intake", map[string]any{"outcome": "proceed"}},
 		{"pick_type", map[string]any{"type": "research", "reason": "Investigate the research question."}},
+		{"record_clarify", map[string]any{"resolved_questions": []string{}, "note": "No operator questions remain."}},
+		{"complete_step", map[string]any{"step_id": "clarify", "note": "Clarification complete."}},
 	} {
 		if response := action(prelude.id, prelude.fields, "framing-gate-"+prelude.id); response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("%s: %+v", prelude.id, response.Error)

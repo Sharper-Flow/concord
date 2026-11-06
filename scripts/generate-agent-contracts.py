@@ -885,6 +885,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], teaching
     defs["workflow_completion_payload"] = {"type": "object", "additionalProperties": False, "properties": {"evidence_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "current_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "staleness": {"type": "object", "additionalProperties": False, "required": ["drifted"], "properties": {"drifted": {"type": "boolean"}, "severity": {"type": "string", "enum": ["block", "warning"]}}}}}
     defs["proposal_affected_text"] = {"type": "string", "minLength": 1, "maxLength": 256}
     defs["proposal_text"] = {"type": "string", "minLength": 1, "maxLength": 512}
+    defs["clarification_answer_text"] = {"type": "string", "minLength": 1, "maxLength": 2048, "pattern": r"\S"}
 
     outer_properties = copy.deepcopy(common)
     outer_properties["fields"] = {}
@@ -1529,8 +1530,8 @@ def main() -> int:
             fail("Bun is not installed: the publication measurement requires Bun, so write mode and strict check refuse rather than skip it")
         prepare_workflow_templates(check)
         actions, teaching, schema_refs, contract_updates = load_workflow_action_contracts()
-        validate_current_schema_refs(schema_refs, payload.get("$defs", {}))
         projected_payload, public_variants = project_workflow_action_schema(payload, actions, teaching, contract_updates)
+        validate_current_schema_refs(schema_refs, projected_payload.get("$defs", {}))
         prune_payload_definitions(projected_payload, manifest, public_variants, schema_refs["current"])
         input_names = [operation["input_schema"].rsplit("/", 1)[-1] for operation in manifest["operations"]
                        if operation["id"] != "concord_work_transition.workflow_action"]

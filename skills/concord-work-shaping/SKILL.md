@@ -35,17 +35,24 @@ context. Cite findings and where you looked. Check in order:
 13. **Checkable end state:** can delivery evidence decide success?
 14. **Blocked:** does it depend on unmerged work?
 
-Record which checks found something and recommend **proceed**, **clarify**,
-**already handled**, **decline**, or **split or merge**, with evidence. The owner
+Record which checks found something and recommend **proceed**, **already handled**,
+**decline**, or **split or merge**, with evidence. The owner
 decides within its authority.
 
 ## Clarify
 
-Compare the request, decisions, behavior, and end state for unproven premises,
-ambiguous scope, or missing results. Record open questions or explicitly none.
-Answer from evidence first, citing where; ask the operator only what remains,
-one question at a time. Record answers. Reuse settled answers; ask later
-questions where they arise.
+After the type pick, new plans require Clarify before the planning step for every
+type; Fix diagnoses first. Older plans without Clarify do not gain it on a type
+switch. Synthesize instructions, the ticket, recorded decisions,
+and relevant investigation or diagnosis findings; the investigation may inform
+the step without first drafting an implementation plan. Check intended product
+outcomes, product direction, request intention, and scope. Answer from evidence
+first, citing where; ask the operator only remaining questions, one at a time.
+Quote operator answers on the work item's Linear issue and point the step note
+there. Record question resolutions or the explicit result that no operator
+questions remain. Running the step is mandatory; asking is not. Clarify grants
+no blanket implementation or UI/UX approval. Reuse settled answers;
+ask later questions where they arise.
 
 ## Plan Change and Fix work
 

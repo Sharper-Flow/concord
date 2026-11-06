@@ -193,7 +193,7 @@ func assertEvidenceCorpus142(t *testing.T) {
 	}
 	live := supported.current(t)
 	plan, err := readWorkflowPlanTx(t.Context(), live.db, "evidence-corpus")
-	if err != nil || plan == nil || plan.Type != WorkflowStepPlanFix || len(plan.Steps) != 4 || len(plan.Steps[0].Attempts) != 1 || len(plan.Steps[1].Attempts) != 1 || len(plan.Steps[2].Attempts) != 0 {
+	if err != nil || plan == nil || plan.Type != WorkflowStepPlanFix || len(plan.Steps) != 5 || len(plan.Steps[0].Attempts) != 1 || len(plan.Steps[1].Attempts) != 1 || len(plan.Steps[2].Attempts) != 1 || len(plan.Steps[3].Attempts) != 0 {
 		t.Fatalf("current plan attempts: plan=%+v err=%v", plan, err)
 	}
 	old := c.prefix(t, 141)

@@ -411,7 +411,7 @@ func committedWorkflowReplay(t *testing.T) (runtime, Authority, json.RawMessage,
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	raw := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_intake","fields":{"outcome":"proceed","open_questions_found":false,"note":"The bounded stakes statement."},"idempotency_key":"retained-replay"}`)
+	raw := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_intake","fields":{"outcome":"proceed","note":"The bounded stakes statement."},"idempotency_key":"retained-replay"}`)
 	first, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
 	if err != nil || first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("initial committed action=%+v err=%v", first, err)

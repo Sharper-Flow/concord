@@ -48,7 +48,7 @@ func TestFirstWorkflowActionStartsLifecycle(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	payload := mustJSONValue(map[string]any{"outcome": "proceed", "open_questions_found": false})
+	payload := mustJSONValue(map[string]any{"outcome": "proceed"})
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)

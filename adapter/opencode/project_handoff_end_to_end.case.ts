@@ -245,7 +245,7 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
   }
   await walk("record_intake", {
     checks_found: ["freshness", "overtaken", "already_delivered", "still_reproducible", "observed_or_theoretical", "defect_or_feature", "duplicate_or_overlap", "right_owner", "conflicts", "value", "cost_against_value", "one_outcome_or_several", "checkable_end_state", "blocked"],
-    outcome: "proceed", open_questions_found: false,
+    outcome: "proceed",
   })
   await walk("pick_type", { type: "fix", reason: "The fixture reproduces a defect." })
   // CD-0198 D2: the merged diagnosis record carries the reproduction,
@@ -253,6 +253,8 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
   // carried separately.
   await walk("record_diagnosis", { reproduction: "The defect reproduces from a clean store.", searched: "Searched the backlog for duplicate defect work.", outcome: "none_found", root_cause: "The defect is the fold's own pool." })
   await walk("complete_step", { step_id: "diagnose", note: "Diagnosis recorded." }, "complete-diagnosis")
+  await walk("record_clarify", { resolved_questions: [], note: "No operator questions remain." })
+  await walk("complete_step", { step_id: "clarify", note: "Clarification complete." }, "complete-clarify")
   await walk("record_plan", {
     outcomes: "The bounded handoff crosses Projects.", approach: "Exercise the real handoff route.",
     decisions: [{ id: "decision:handoff", question: "How should the route run?", choice: "Use the real core.", rationale: "The handoff gates must remain active.", rejected: [] }],

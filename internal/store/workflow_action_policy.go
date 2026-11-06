@@ -618,9 +618,9 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"checkpoint_action":   actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
 	"record_delivery": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric,
 		actionRefField("delivery_artifact", true), actionEnumField("delivery_state", true, "asserted")),
-	// The pre-plan prelude and plan writes. record_intake records
-	// the fourteen decided checks (which found something) and one of five
-	// outcomes; record_clarify resolves the open questions intake found;
+	// The intake and step plan writes. record_intake records
+	// the fourteen decided checks (which found something) and one of four
+	// outcomes; record_clarify records the clarification step;
 	// pick_type copies the picked type's template into the stored plan;
 	// insert_step adds a step between required steps; complete_step completes
 	// a plan step, carrying the concord-review receipt a reviewed step
@@ -628,12 +628,11 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	// record_removal_scope lists what a Removal retires and its clauses.
 	"record_intake": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
 		actionIDListField("checks_found", false, 0, 14),
-		actionEnumField("outcome", true, "proceed", "clarify", "already_handled", "decline", "split_or_merge"),
-		WorkflowPayloadField{Name: "open_questions_found", ValueType: PayloadBoolean, Required: true},
+		actionEnumField("outcome", true, "proceed", "already_handled", "decline", "split_or_merge"),
 		WorkflowPayloadField{Name: "note", ValueType: PayloadString, Required: false, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
 	),
 	"record_clarify": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
-		actionListField("resolved_questions", true, 1, 16),
+		actionProseListField("resolved_questions", true, 0, 16, "clarification_answer_text"),
 		WorkflowPayloadField{Name: "note", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
 	),
 	"pick_type": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,

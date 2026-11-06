@@ -149,7 +149,12 @@ refuses the write if the plan fails its schema, contains a cycle, removes a
 required step or changes a step's `after` edges, completes a step before every
 step it comes after, or alters a completed step. A repeated step adds another
 attempt instead of altering it. A type switch keeps completed steps and adds
-the new type's missing required steps; it never removes a step.
+the new type's missing required steps; it never removes a step. A switch adds no
+Clarify step to a stored plan that never held one: a copied plan never changes
+when a template changes, and plans carry no template-version marker. When a
+switch skips Clarify that way, each step it appends takes Clarify's template
+predecessors in place of Clarify, so every appended edge names a step the plan
+holds; stored `after` edges of existing steps never change.
 
 ### 2.4 Step helpers are the default delegates
 
@@ -369,6 +374,7 @@ Each instance carries its own step plan ([section 2](#2-workflow-type-templates-
 | Table | Columns (types) | Keys, foreign keys, and closed checks |
 |---|---|---|
 | `workflow_instances` | `work_id TEXT`, `workflow_type TEXT NULL`, `step_plan TEXT NULL`, `instance_state TEXT`, `execution_actor_ref TEXT NULL`, `started_at TEXT NULL`, `completed_at TEXT NULL`, `last_checkpoint_at TEXT NULL` | PK `work_id`; FK work; FK actor nullable; checks type enum or null, plan JSON object or null, state enum |
+| `workflow_clarify_records` | `work_id TEXT`, `work_version INTEGER`, `payload TEXT`, `recorded_at TEXT NULL`, `actor TEXT NULL`, `event_ref TEXT NULL` | PK `work_id`; FK work and nullable actor, both `ON DELETE RESTRICT`; `work_version` is non-null and positive; `payload` is non-null, valid JSON and an object; insert, update and delete require the write guard |
 | `workflow_contracts` | `work_id TEXT`, `contract_version INTEGER`, `premise TEXT`, `legislative_subjects TEXT`, `consequence_class TEXT`, `route_conventions TEXT`, `approved_at TEXT`, `approved_by TEXT`, `superseded_by INTEGER NULL`, `spec_mandate TEXT` | PK `(work_id,contract_version)`; FK work and approved actor; self-FK superseded contract |
 | `workflow_candidate_sets` | `work_id TEXT`, `contract_version INTEGER`, `candidate_kind TEXT`, `candidate_ref TEXT`, `candidate_role TEXT`, `candidate_scope TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,contract_version,candidate_kind,candidate_ref)`; composite FK contract; FK actor; checks closed candidate kind/role |
 | `workflow_backlog_alignment` | `work_id TEXT`, `related_work_id TEXT NULL`, `searched TEXT`, `outcome TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,related_work_id)`; FK work for both ids; checks closed outcome, a `none_found` work records no match rows, and no self-match; the declaration row carries a null `related_work_id`. Work removal clears rows naming the removed item in either column, because both foreign keys are `RESTRICT`. It preserves the original search outcome and surviving evidence under [§11.1](#111-retained-alignment-records). It does not reuse `workflow_candidate_sets`, whose composite FK binds to `workflow_contracts(work_id,contract_version)` and which therefore cannot hold a row before planning approves a contract |
@@ -417,7 +423,7 @@ Workflow state is current rows written by each mutation in one transaction, and 
 | Record | Current-row effect |
 |---|---|
 | intake recorded | insert the intake record row (its outcome and which of the fourteen checks found something) |
-| clarify recorded | insert the clarify record row resolving the open questions intake found |
+| clarify recorded | insert or replace the `workflow_clarify_records` row with the step document, work version, time, actor and event reference |
 | type picked | write the item's step plan in one row update through the plan-write check (§2.3); the initial pick copies the type's template; a later pick adds the new type's missing required steps only |
 | step inserted | add the inserted step through the plan-write check; an existing step never changes |
 | step completed | append the step's attempt through the plan-write check; the frontier derives from completions, and no step pointer is stored |
@@ -575,13 +581,12 @@ validation rather than being downgraded to prose or generic success.
 ## 12. Workflow types, prelude, and step admission
 
 Every workflow starts with **intake**: the driving session records the fourteen
-decided checks — which of them found something — and one of five outcomes
-(`proceed`, `clarify`, `already_handled`, `decline`, `split_or_merge`). **Clarify**
-runs only when intake found open questions, and intake's record says so when it
-found none. The outcomes `already_handled`, `decline` and `split_or_merge` end or
-replace the item without picking a type. Then the type is picked
-(`change`, `fix`, `research` or `removal`) and its required steps are copied from
-the template contract into the item's plan
+decided checks — which of them found something — and one of four outcomes
+(`proceed`, `already_handled`, `decline`, `split_or_merge`). The outcomes
+`already_handled`, `decline` and `split_or_merge` end or replace the item without
+picking a type. Then the type is picked (`change`, `fix`, `research` or `removal`)
+and its required steps, including **Clarify** before the type's planning step,
+are copied from the template contract into the item's plan
 ([section 2](#2-workflow-type-templates-and-step-plans)).
 
 **Inserted steps.** Between required steps the driving agent may insert a step
@@ -591,9 +596,8 @@ edges never change. A send-back is a new inserted step after the current one,
 never an edge pointing backwards, so the plan stays a DAG.
 
 **No skip move.** After a step completes, the agent either proceeds to a next
-step or inserts a step. Nothing skips a required step. Clarify running only when
-intake found open questions, the three ending intake outcomes, and the final
-clean review repeating until one needs no fixes, are not skips.
+step or inserts a step. Nothing skips a required step. The three ending intake
+outcomes, and the final clean review repeating until one needs no fixes, are not skips.
 
 **Reviewed steps.** From implementation onward, a step passes only when a
 `concord-review` native subagent has passed it or fixed it. The step's
@@ -613,8 +617,8 @@ of a plan step. `record_review` and `complete_step` use the same step-attempt wr
 
 | Action IDs | Semantic event mapping |
 |---|---|
-| `record_intake`, `record_clarify`, `pick_type`, `insert_step`, `complete_step` | `workflow.intake_recorded`, `workflow.clarify_recorded`, `workflow.type_picked`, `workflow.step_inserted`, `workflow.step_completed`, respectively |
-| `record_plan`, `record_removal_scope` | `workflow.plan_recorded`, `workflow.removal_scope_recorded`, respectively, plus `workflow.action_completed` |
+| `record_intake`, `pick_type`, `insert_step`, `complete_step` | `workflow.intake_recorded`, `workflow.type_picked`, `workflow.step_inserted`, `workflow.step_completed`, respectively |
+| `record_clarify`, `record_plan`, `record_removal_scope` | `workflow.clarify_recorded`, `workflow.plan_recorded`, `workflow.removal_scope_recorded`, respectively, plus `workflow.action_completed` |
 | `approve_contract`, `revise_candidates`, `record_diagnosis` | `workflow.contract_approved`, `workflow.candidate_set_revised`, `workflow.diagnosis_recorded`, respectively, plus `workflow.action_completed` |
 | `record_review` | `workflow.step_completed` with the reviewed attempt |
 | `bind_evidence`, `record_report` | `workflow.evidence_bound` plus `workflow.action_completed` |

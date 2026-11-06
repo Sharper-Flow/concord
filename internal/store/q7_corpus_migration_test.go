@@ -154,7 +154,7 @@ func assertQ7Corpus150(t *testing.T) {
 	c := q7ExplicitCorpus(t)
 	live := c.current(t)
 	plan, err := readWorkflowPlanTx(t.Context(), live.db, "q7-corpus")
-	if err != nil || plan == nil || plan.Type != WorkflowStepPlanResearch || len(plan.Steps) != 3 || len(plan.Steps[0].Attempts) != 1 || len(plan.Steps[1].Attempts) != 0 {
+	if err != nil || plan == nil || plan.Type != WorkflowStepPlanResearch || len(plan.Steps) != 4 || len(plan.Steps[0].Attempts) != 1 || len(plan.Steps[1].Attempts) != 1 || len(plan.Steps[2].Attempts) != 0 {
 		t.Fatalf("current plan attempts: plan=%+v err=%v", plan, err)
 	}
 	old := c.prefix(t, 149)

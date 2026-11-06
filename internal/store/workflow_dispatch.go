@@ -198,7 +198,7 @@ func applyWorkflowPlanActionTx(ctx context.Context, tx *sql.Tx, scope *writeScop
 }
 
 func workflowPlanActionEventsTx(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, action WorkflowActionDefinition, plan *WorkflowStepPlan, currentStep, actor string, evidenceRefs []string, version int64) ([]Event, error) {
-	planKinds := map[string]string{"record_intake": WorkflowIntakeRecorded, "record_clarify": WorkflowClarifyRecorded, "pick_type": WorkflowTypePicked, "insert_step": WorkflowStepInserted, "complete_step": WorkflowStepCompleted, "record_review": WorkflowStepCompleted}
+	planKinds := map[string]string{"record_intake": WorkflowIntakeRecorded, "pick_type": WorkflowTypePicked, "insert_step": WorkflowStepInserted, "complete_step": WorkflowStepCompleted, "record_review": WorkflowStepCompleted}
 	if kind, ok := planKinds[request.ActionID]; ok {
 		fields, err := workflowActionObject(request.Payload)
 		if err != nil {
@@ -312,6 +312,8 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, planType Work
 	}
 	eventID := request.OperationID + ":semantic"
 	switch request.ActionID {
+	case "record_clarify":
+		return workflowPlanDocumentEvents(request, actor, raw, eventID, expected, WorkflowClarifyRecorded), nil
 	case "record_plan":
 		return workflowPlanDocumentEvents(request, actor, raw, eventID, expected, WorkflowPlanRecorded), nil
 	case "record_removal_scope":

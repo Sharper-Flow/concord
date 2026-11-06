@@ -21,8 +21,9 @@ func TestWorkflowPlanDeliveryAdmission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan.Steps[0].Attempts = []store.WorkflowPlanAttempt{{Note: "planned", CompletedAt: "2026-01-01T00:00:00Z"}}
-	plan.Steps[1].Attempts = []store.WorkflowPlanAttempt{{Note: "implemented", CompletedAt: "2026-01-01T00:00:00Z", Reviewer: "concord-review", Result: "pass", Commit: "commit:test", Link: "link:test"}}
+	plan.Steps[0].Attempts = []store.WorkflowPlanAttempt{{Note: "clarified", CompletedAt: "2026-01-01T00:00:00Z"}}
+	plan.Steps[1].Attempts = []store.WorkflowPlanAttempt{{Note: "planned", CompletedAt: "2026-01-01T00:00:00Z"}}
+	plan.Steps[2].Attempts = []store.WorkflowPlanAttempt{{Note: "implemented", CompletedAt: "2026-01-01T00:00:00Z", Reviewer: "concord-review", Result: "pass", Commit: "commit:test", Link: "link:test"}}
 	planJSON, err := json.Marshal(plan)
 	if err != nil {
 		t.Fatal(err)

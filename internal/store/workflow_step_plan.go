@@ -29,13 +29,12 @@ const (
 // WorkflowStepPlanTypes is the closed type set in template-contract order.
 var WorkflowStepPlanTypes = []WorkflowStepPlanType{WorkflowStepPlanChange, WorkflowStepPlanFix, WorkflowStepPlanResearch, WorkflowStepPlanRemoval}
 
-// WorkflowIntakeOutcome is one of the five intake outcomes. The four non-
+// WorkflowIntakeOutcome is one of the four intake outcomes. The three non-
 // proceed outcomes end or replace the item without picking a type.
 type WorkflowIntakeOutcome string
 
 const (
 	WorkflowIntakeProceed        WorkflowIntakeOutcome = "proceed"
-	WorkflowIntakeClarify        WorkflowIntakeOutcome = "clarify"
 	WorkflowIntakeAlreadyHandled WorkflowIntakeOutcome = "already_handled"
 	WorkflowIntakeDecline        WorkflowIntakeOutcome = "decline"
 	WorkflowIntakeSplitOrMerge   WorkflowIntakeOutcome = "split_or_merge"
@@ -399,6 +398,11 @@ func validateStepPlanTypeSwitch(old, updated WorkflowStepPlan, refuse func(strin
 		}
 	}
 	for _, templateStep := range template.Steps {
+		// Plans have no template version marker; only a missing Clarify
+		// identifies a grandfathered copy for this switch.
+		if templateStep.ID == "clarify" && !stepIDExists(old.Steps, "clarify") {
+			continue
+		}
 		if !stepIDExists(old.Steps, templateStep.ID) && !stepIDExists(updated.Steps, templateStep.ID) {
 			return refuse("a type switch adds the new type's missing required steps")
 		}

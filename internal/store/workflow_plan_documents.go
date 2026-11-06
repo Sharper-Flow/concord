@@ -105,6 +105,9 @@ func requireWorkflowPlanDocumentTx(ctx context.Context, tx *sql.Tx, workID strin
 	var err error
 	var action string
 	switch {
+	case stepID == "clarify":
+		action = "record_clarify"
+		err = tx.QueryRowContext(ctx, `SELECT payload FROM workflow_clarify_records WHERE work_id=?`, workID).Scan(&raw)
 	case stepID == "plan" && (plan.Type == WorkflowStepPlanChange || plan.Type == WorkflowStepPlanFix):
 		action = "record_plan"
 		err = tx.QueryRowContext(ctx, `SELECT payload FROM workflow_plan_records WHERE work_id=?`, workID).Scan(&raw)

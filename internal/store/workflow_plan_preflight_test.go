@@ -23,7 +23,7 @@ func TestWorkflowPlanPreflightIntakeSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	request := WorkflowActionPreflightRequest{WorkID: "work", ExpectedVersion: 1, StepID: "intake", ActionID: "record_intake", Payload: json.RawMessage(`{"outcome":"proceed","open_questions_found":false}`), Actor: stepFixtureActor()}
+	request := WorkflowActionPreflightRequest{WorkID: "work", ExpectedVersion: 1, StepID: "intake", ActionID: "record_intake", Payload: json.RawMessage(`{"outcome":"proceed"}`), Actor: stepFixtureActor()}
 	if _, err := workflowActionPreflightTx(ctx, tx, request); err != nil {
 		t.Fatal(err)
 	}

@@ -114,7 +114,7 @@ func TestValidateOperationPayloadPreservesSelectedGuidance(t *testing.T) {
 		},
 		{
 			name:    "selected nested field",
-			payload: `{"work_id":"work-1","expected_version":1,"action_id":"approve_contract","idempotency_key":"guidance","fields":{"legislative_subjects":[]}}`,
+			payload: `{"work_id":"work-1","expected_version":1,"action_id":"approve_contract","idempotency_key":"guidance","fields":{"legislative_subjects":["bad subject"]}}`,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

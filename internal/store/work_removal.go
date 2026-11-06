@@ -407,6 +407,11 @@ func deleteWorkProjectionTx(ctx context.Context, tx migrationRunner, table, work
 	if deleteErr == nil {
 		return nil
 	}
+	// A store that predates migration 189 holds no clarification records:
+	// the table's absence means nothing to remove for that work item.
+	if table == "workflow_clarify_records" && strings.Contains(deleteErr.Error(), "no such table: workflow_clarify_records") {
+		return nil
+	}
 	// Tables with a different owner column are handled explicitly below.
 	switch table {
 	case "workflow_impact_edges":

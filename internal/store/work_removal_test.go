@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -327,6 +328,197 @@ func TestWorkRemovalDeletesPlanAndRemovalScopeRecords(t *testing.T) {
 			t.Fatalf("remaining rows=%d err=%v", remaining, err)
 		}
 	})
+}
+
+// TestWorkRemovalDeletesProjectHandoffs covers the removal of a work item
+// that holds rows in project_handoffs: one recorded through the real typed
+// record fold, and one written by an earlier binary at schema 188 and
+// upgraded. Both must leave zero project_handoffs rows for the work.
+func TestWorkRemovalDeletesProjectHandoffs(t *testing.T) {
+	t.Run("current", func(t *testing.T) {
+		f := setupProjectHandoffFixture(t)
+		ctx := t.Context()
+		if _, err := runRecordProjectHandoffTx(f, f.recordRequest()); err != nil {
+			t.Fatal(err)
+		}
+		var recorded int
+		if err := f.store.db.QueryRow(`SELECT count(*) FROM project_handoffs WHERE work_id=?`, f.workID).Scan(&recorded); err != nil || recorded != 1 {
+			t.Fatalf("project_handoffs rows=%d err=%v", recorded, err)
+		}
+		if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO write_guard VALUES(1); UPDATE work_items SET lifecycle='cancelled' WHERE id=?; DELETE FROM write_guard`, f.workID); err != nil {
+			t.Fatal(err)
+		}
+		req := removalTestRequest()
+		req.OperationID, req.IdempotencyKey = "remove-handoff", "key-handoff"
+		req.WorkID = f.workID
+		req.ExpectedVersion, req.Reason = readWorkVersion(t, f.store, f.workID), "cancelled"
+		confirmRemovalHandoff(t, f.store, &req)
+		// The fixture's work lives in Product product-w, not the helper's
+		// default Product; keep one confirmation path and override the destination.
+		req.ProductID = "product-w"
+		req.Linear.ProductID = "product-w"
+		if err := removeWorkForTest(ctx, f.store, req); err != nil {
+			t.Fatalf("remove: %v", err)
+		}
+		var remaining int
+		if err := f.store.db.QueryRow(`SELECT (SELECT count(*) FROM work_items WHERE id=?) + (SELECT count(*) FROM project_handoffs WHERE work_id=?)`, f.workID, f.workID).Scan(&remaining); err != nil || remaining != 0 {
+			t.Fatalf("remaining rows=%d err=%v", remaining, err)
+		}
+	})
+	t.Run("migrated", func(t *testing.T) {
+		// A handoff row written by an earlier binary survives the upgrade;
+		// removal must clear it in the same transaction as the work item.
+		useStampedBuild(t)
+		db := openMigratedTo(t, filepath.Join(t.TempDir(), "removal.db"), 188)
+		ctx := t.Context()
+		retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
+		retirementUpgradeExec(t, db, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project','Project',1,'now','now')`)
+		retirementUpgradeExec(t, db, `INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product','Product','prototype','operator_only',1,'now','now')`)
+		retirementUpgradeExec(t, db, `INSERT INTO product_projects(product_id,project_id,role) VALUES('product','project','primary')`)
+		retirementUpgradeExec(t, db, `INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at) VALUES('migrated-handoff','task','Migrated','cancelled',1,'now','now')`)
+		retirementUpgradeExec(t, db, `INSERT INTO work_projects(work_id,project_id,role) VALUES('migrated-handoff','project','primary')`)
+		retirementUpgradeExec(t, db, `INSERT INTO project_handoffs(handoff_id,work_id,contract_version,source_project_id,target_project_id,source_session_ref,bounded_job,changes,verification,artifact_refs,blockers,next_action,state,recorded_at,recorded_seq) VALUES('handoff-migrated','migrated-handoff',1,'project','other-project','session/source','bounded job','[]','[]','[]','[]','consume the handoff','recorded','now',1)`)
+		retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
+		if err := Migrate(ctx, db); err != nil {
+			t.Fatal(err)
+		}
+		s := &Store{db: db, Clock: time.Now}
+		var count int
+		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM project_handoffs WHERE work_id='migrated-handoff'`).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("project_handoffs count=%d err=%v", count, err)
+		}
+		req := removalTestRequest()
+		req.WorkID, req.OperationID, req.IdempotencyKey = "migrated-handoff", "remove-migrated-handoff", "key-migrated-handoff"
+		req.ExpectedVersion, req.Reason = readWorkVersion(t, s, "migrated-handoff"), "cancelled"
+		confirmRemovalHandoff(t, s, &req)
+		if err := removeWorkForTest(ctx, s, req); err != nil {
+			t.Fatalf("remove: %v", err)
+		}
+		var remaining int
+		if err := db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM work_items WHERE id='migrated-handoff') + (SELECT count(*) FROM project_handoffs WHERE work_id='migrated-handoff')`).Scan(&remaining); err != nil || remaining != 0 {
+			t.Fatalf("remaining rows=%d err=%v", remaining, err)
+		}
+	})
+}
+
+func TestWorkRemovalClearsEveryForeignKeyIntoWorkItems(t *testing.T) {
+	s := openTemp(t)
+	defer s.Close()
+	db := s.DatabaseForTesting()
+
+	// Each allowlist entry must cite the record justifying an uncleared FK.
+	allowlist := map[string]string{}
+	type ownerFK struct{ column, action string }
+	owners := map[string][]ownerFK{}
+	live := map[string]bool{}
+	rows, err := db.QueryContext(t.Context(), `SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tables []string
+	for rows.Next() {
+		var table string
+		if err := rows.Scan(&table); err != nil {
+			rows.Close()
+			t.Fatal(err)
+		}
+		tables = append(tables, table)
+		live[table] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		t.Fatal(err)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range tables {
+		rows, err := db.QueryContext(t.Context(), `PRAGMA foreign_key_list("`+strings.ReplaceAll(table, `"`, `""`)+`")`)
+		if err != nil {
+			t.Fatalf("foreign keys for %s: %v", table, err)
+		}
+		for rows.Next() {
+			var id, seq int
+			var target, from, onUpdate, onDelete, match string
+			var to sql.NullString
+			if err := rows.Scan(&id, &seq, &target, &from, &to, &onUpdate, &onDelete, &match); err != nil {
+				rows.Close()
+				t.Fatalf("foreign keys for %s: %v", table, err)
+			}
+			if strings.EqualFold(target, "work_items") {
+				owners[table] = append(owners[table], ownerFK{from, onDelete})
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			t.Fatalf("foreign keys for %s: %v", table, err)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, table := range tables {
+		fks := owners[table]
+		if len(fks) == 0 {
+			continue
+		}
+		var columns, actions []string
+		allCascade := true
+		for _, fk := range fks {
+			columns = append(columns, fk.column)
+			actions = append(actions, fk.column+":"+fk.action)
+			allCascade = allCascade && strings.EqualFold(fk.action, "CASCADE")
+		}
+		slices.Sort(columns)
+		columns = slices.Compact(columns)
+		slices.Sort(actions)
+		declared, special := workRemovalProjectionOwnerColumns[table]
+		listed := slices.Contains(workRemovalProjectionTables, table)
+		justification, allowed := allowlist[table]
+		if allowed && (listed || special || strings.TrimSpace(justification) == "") {
+			t.Errorf("%s: allowlist entry must cite a record and not overlap production declarations", table)
+		}
+		if allCascade || allowed {
+			continue
+		}
+		want := slices.Clone(declared)
+		slices.Sort(want)
+		if special && !listed {
+			t.Errorf("%s: owner-column declaration is missing from workRemovalProjectionTables, so its delete never runs", table)
+		}
+		if special && listed && slices.Equal(columns, want) || !special && listed && slices.Equal(columns, []string{"work_id"}) {
+			continue
+		}
+		t.Errorf("%s: live owner columns %v, on_delete actions %v; add the table to removal cleanup with the matching declaration, declare ON DELETE CASCADE, or add it to the test allowlist only with a recorded justification", table, columns, actions)
+	}
+	for _, table := range workRemovalProjectionTables {
+		if !live[table] {
+			t.Errorf("cleanup table %s does not exist in the live schema", table)
+		}
+	}
+	var specialTables []string
+	for table := range workRemovalProjectionOwnerColumns {
+		specialTables = append(specialTables, table)
+	}
+	slices.Sort(specialTables)
+	for _, table := range specialTables {
+		if !slices.Contains(workRemovalProjectionTables, table) {
+			t.Errorf("%s: owner-column declaration is missing from workRemovalProjectionTables, so its delete never runs", table)
+		}
+		var columns []string
+		nonCascade := false
+		for _, fk := range owners[table] {
+			columns = append(columns, fk.column)
+			nonCascade = nonCascade || !strings.EqualFold(fk.action, "CASCADE")
+		}
+		slices.Sort(columns)
+		columns = slices.Compact(columns)
+		want := slices.Clone(workRemovalProjectionOwnerColumns[table])
+		slices.Sort(want)
+		if !nonCascade || !slices.Equal(columns, want) {
+			t.Errorf("%s: live owner columns %v, non-CASCADE FK %t; want %v and a non-CASCADE FK", table, columns, nonCascade, want)
+		}
+	}
 }
 
 func TestWorkLivenessKeepsDecisionAndProgressEvidence(t *testing.T) {

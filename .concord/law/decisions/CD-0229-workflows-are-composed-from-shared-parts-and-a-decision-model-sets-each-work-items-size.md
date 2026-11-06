@@ -85,8 +85,7 @@ requirements remain.
 
 ## Verification
 
-Plain definitions require complete canonical-manifest and digest equivalence,
-plus template-contract and generated-contract parity checks.
+Plain definitions require template-contract and generated-contract parity checks.
 Size retirement requires refusal of retired events, preserved review blockers
 and snapshot-backed migration of existing stores, and public contracts that
 carry no size fields. Runtime result-schema validation rejects undeclared fields

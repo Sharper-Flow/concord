@@ -575,8 +575,9 @@ dispatcher performs this order:
    frontier admits its actions ([section 2](#2-workflow-type-templates-and-step-plans)).
 2. Validate the closed action ID and payload against the action catalog's
    entry. Existing-record replacement follows §4.2.
-   Unknown fields, missing fields, wrong bounds, or an action
-   outside its admitted ordinary use return the existing `invalid_transition`
+   Unknown fields, missing fields, or wrong bounds return `invalid_input`
+   with recovery action `correct_request`; an action
+   outside its admitted ordinary use returns the existing `invalid_transition`
    refusal with recovery action `reread_entities`.
 3. Validate work ID, expected work version, authenticated actor tuple, and current
    step. Stale versions return `version_conflict`; an incomplete actor returns

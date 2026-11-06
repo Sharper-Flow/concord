@@ -34,7 +34,7 @@ the evidence records citing it stay green.
 
 ## Decision
 
-### D1. The picked type classifies; the corpus exercises the classification
+### D1. The picked workflow type classifies; the corpus exercises the classification
 
 The picked workflow type classifies `changes_product_truth`: `research` is
 non-Product-changing, and `change`, `fix`, and `removal` are Product-changing.

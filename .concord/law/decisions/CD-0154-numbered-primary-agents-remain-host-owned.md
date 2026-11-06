@@ -36,7 +36,7 @@
   The operator approved the Concord-Planner amendment as exact text on
   2026-10-19 for
   [Concord (CON) issue 1183](https://linear.app/sharper-flow/issue/CON-1183).
-- **Profile installation:** Existing workflow pins and stored contracts keep
+- **Profile installation:** Existing stored workflow plans and contracts keep
   their meaning; the managed profile name changes
   through the installer's existing retirement transaction.
 - **P12:** Serious: the agent name users select, its permission boundary, and

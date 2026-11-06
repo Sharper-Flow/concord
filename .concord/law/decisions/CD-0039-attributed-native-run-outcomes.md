@@ -120,35 +120,6 @@ keeps its existing completed-operation backing rule. A native-run report may be
 used as completion evidence only through the existing explicit evidence-binding
 action and its authority checks.
 
-### D5. Ops actions gain strict payload contracts
-
-The built-in ops runbook stops accepting arbitrary fields for these actions.
-`start_run`, `record_health`, `rollback_run`, and `cleanup_run` declare exact
-fields and phase-specific requirements in the workflow definition and canonical
-agent payload schema. `checkpoint_run` remains a resume-boundary record and does
-not stand in for a native outcome.
-
-The current core agent path that reduces evidence to a locator is insufficient
-for this record. Kind, reporting authority, subject digest, and evidence digest
-must reach the core as typed fields and be validated before the event appends.
-
-### D6. Workflow-engine mappings and surface input change together
-
-The workflow-engine action mappings record `workflow.native_run_recorded` for
-`record_health`, `rollback_run`, `start_run`, and `cleanup_run`, with their
-existing started/completed facts as applicable, and write the
-`workflow_native_runs` rows in the same transactions. The canonical workflow
-and agent payload schemas, generated clients, docs, and registry definitions
-move in one change.
-
-Tightening the current arbitrary workflow-action field bag into required typed
-phase payloads is a TS8 major change. There is no compatibility alias.
-Old clients regenerate, old/new pairs fail closed at
-bootstrap, and pre-amendment records never acquire a native status
-retroactively. Existing completed workflow-action operations replay as their
-recorded generic result; there are no native reports to infer from them. This
-record is the explicit operator acceptance required by TS8.
-
 ### D7. Native failure uses the existing workflow-action durable operation
 
 The workflow-action claim already owns idempotency, attempt epochs, and replay.

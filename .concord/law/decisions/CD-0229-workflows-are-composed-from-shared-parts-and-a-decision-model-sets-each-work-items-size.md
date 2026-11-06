@@ -61,7 +61,7 @@ correction triggers, targets or route readers.
 Requirements for unique step ownership by part, compiling compositions and
 assembling a new workflow kind without step code are retired. Tests solely of
 the parts catalog, duplicate part ownership, part-use validation or composition
-compilation retire with those mechanisms. Registered-definition validation,
+compilation retire with those mechanisms. Template-contract validation,
 canonical identity, generator parity and runtime route tests remain.
 
 ### D4. Work has no size classification
@@ -71,7 +71,7 @@ assessments, proofs, overrides or size-specific timing obligations. Capture,
 revision, reads and published contracts expose no size fields. No workflow
 selection or review exit depends on a size class.
 
-Every live family keeps its mandatory steps and transitions. Independent
+Every workflow type keeps its mandatory steps and transitions. Independent
 review and current-subject proof remain required. An open in-scope blocking
 finding still blocks execution exit under CD-0242 D5; no size-specific severity
 gate adds another condition.
@@ -86,7 +86,7 @@ requirements remain.
 ## Verification
 
 Plain definitions require complete canonical-manifest and digest equivalence
-when removing assembly, plus registration and generated-contract parity checks.
+when removing assembly, plus template-contract and generated-contract parity checks.
 Size retirement requires refusal of retired events, preserved review blockers
 and snapshot-backed migration of existing stores, and public contracts that
 carry no size fields. Runtime result-schema validation rejects undeclared fields

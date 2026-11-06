@@ -93,9 +93,7 @@ items completable (CD-0094 D2). A `cancelled` target is unchanged. Recorded rows
 
 - `TestFirstWorkflowActionStartsLifecycle` proves D1: the first action moves
   the lifecycle, enqueues the Linear update, and the item stops reading ready.
-- `TestExecutionStartStepSetMatchesRegistry` pins the migration's
-  external-effect step set to the registered definitions.
-  `TestExecutionStartBackfillMatchesFoldDerivation` pins the recorded
+- `TestExecutionStartBackfillMatchesFoldDerivation` pins the recorded
   execution-start fact; the fold, backfill, and rebuild halves retire at the
   cutover, and the implementing change binds the current-state anchor
   (CD-0242 D2).

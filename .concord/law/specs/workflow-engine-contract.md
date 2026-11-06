@@ -27,16 +27,16 @@
 > **State and definitions ([CD-0242](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
 > D2, D4, D6, and D14):** the engine keeps current workflow state and finite
 > snapshots with no event log, fold, replay, or rebuild. Attempts carry their
-> own authority with no escalation wall. Families compose shared stages under
-> the decision-model minimum, and generated definitions derive from one source.
-> **Scope:** Go registry, current workflow state, reviewed steps,
+> own authority with no escalation wall. Workflow types set each item's shared
+> stages from the template contract, and generated contracts derive from one source.
+> **Scope:** Go store, current workflow state, reviewed steps,
 > completion, workflow composition, and the reserved `workflow_action`
 > dispatch path.
 > **Conformance carriers:** [`workflow-engine.v1.json`](../../scenarios/workflow-engine.v1.json),
 > [`workflow-step-templates.v1.json`](../../../contracts/workflow-step-templates.v1.json).
 
 This document fills the implementation-design boundary left by CD-0013. It does
-not add a workflow family, authority, or agent tool. The
+not add a workflow type, authority, or agent tool. The
 workflow tables are current state written one mutation at a time;
 
 CD-0015 adds the law boundary without adding a workflow tool.
@@ -92,8 +92,8 @@ The binding contract is sections 1 through 12: the common representation and
 bounds, the type templates and step plans, the instance state machine, current workflow
 state, reviewed steps, the
 ordered completion gate, the actor tuple, workflow
-composition, dispatch, and the built-in
-family graphs and actions. Section 13 records implementation-deferred items
+composition, dispatch, and the workflow
+types with their step admission. Section 13 records implementation-deferred items
 and carries no obligation.
 
 ## 1. Common representation and bounds
@@ -107,7 +107,7 @@ payloads are typed objects, never free-form maps; unknown keys are refused
 | Value | Type/bound |
 |---|---|
 | `work_id`, `step_id`, `action_id`, `checkpoint_id`, `edge_id` | identifier, 2–128 chars |
-| `ref` | lower-case registry/reference string, 2–128 chars |
+| `ref` | lower-case reference string, 2–128 chars |
 | `version`, `contract_version`, `attempt_epoch`, `request_id` sequence | positive integer, max 2,147,483,647 |
 | evidence/reference list | unique array, 0–32 items, each identifier |
 | `actor_ref` | `actor:` plus lower-case content-hash reference |
@@ -225,7 +225,7 @@ the rows below do not repeat this pair.
 
 | Record | Exact payload fields and bounds |
 |---|---|
-| `workflow.definition_selected` | `work_id`, `ref`, `version`, `digest`, `work_kind` (closed family enum) |
+| `workflow.definition_selected` | `work_id`, `ref`, `version`, `digest`, `work_kind` (retained for pre-cutover rows; no action emits it — the type pick is `workflow.type_picked`) |
 | `workflow.contract_approved` | `work_id`, `contract_version`, `legislative_subjects` (0–800 unique subjects), `spec_mandate`, `law_modifies`, `architecture_binding`, `law_boundary_version`, and `consequence_class` |
 | `workflow.actor_recorded` | `work_id`, `actor_ref`, `principal_ref`, `client_ref`, `agent_ref`, `session_ref`, `actor_class` (`agent` or `operator`) |
 | `workflow.action_started` | `work_id`, `step_id`, `action_id`, `attempt_epoch`, `accepted_inputs_digest`, `idempotency_identity` (2–128), `actor_ref` |
@@ -256,7 +256,7 @@ contract version atomically with the intent update. It does not edit an older
 version in place or create another work item.
 
 The complete contract passes the existing contract validation, authority,
-scope, current-law membership, and definition checks. A refusal leaves the intent, contract,
+scope, current-law membership, and plan checks. A refusal leaves the intent, contract,
 evidence, and work version unchanged. Operator decisions remain ordinary
 questions whose answers are recorded in the work record under
 [CD-0243 D2](../decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision).
@@ -594,12 +594,12 @@ dispatcher performs this order:
 
 | Internal condition | TS7 error kind | Required recovery action |
 |---|---|---|
-| Missing/unsupported registry entry or pinned digest mismatch | `invariant_violation` | `reread_entities` |
+| Unknown action or step in the action catalog, or an invalid action definition | `invariant_violation` | `reread_entities` |
 | Unknown action, undeclared payload field, missing payload field, or wrong graph step | `invalid_transition` | `reread_entities` |
 | Stale expected work version | `version_conflict` | `reread_entities` |
 | Incomplete actor tuple | `unauthorized` | `contact_operator` |
 
-Registry-specific availability/drift names and action-payload-specific names are
+Catalog-specific availability/drift names and action-payload-specific names are
 not envelope kinds and must never escape the core.
 CD-0013 D10 adds exactly one new closed kind, `outcome_mismatch`, with recovery
 action `contact_operator`. The current generated manifest and envelope schema carry
@@ -718,7 +718,7 @@ executed against production dispatch by
 (`internal/store/workflow_conformance_test.go`).
 
 - Criterion 1 is proved by the bound `WF37-action-availability-before-register`
-  scenario, which dispatches before the definition is registered and asserts
+  scenario, which dispatches before a workflow type is picked and asserts
   an invariant_violation refusal with no fallback.
 - Criterion 2 is proved by the bound `WF19-completion-one-transaction`
   scenario, which fails a completion inside its transaction and asserts that

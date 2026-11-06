@@ -36,7 +36,7 @@ the evidence records citing it stay green.
 
 ### D1. The picked type classifies; the corpus exercises the classification
 
-The picked plan type classifies `changes_product_truth`: `research` is
+The picked workflow type classifies `changes_product_truth`: `research` is
 non-Product-changing, and `change`, `fix`, and `removal` are Product-changing.
 The closed type list lives in
 [`contracts/workflow-step-templates.v1.json`](../../../contracts/workflow-step-templates.v1.json);

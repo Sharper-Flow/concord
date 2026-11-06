@@ -85,7 +85,7 @@ report omitted sections. This skill never commits or pushes.
 
 ## Canonical references
 
-- [Admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
+- [Admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md).
 - [Repository mode](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0255-per-project-repository-mode.md).
 - [Product vision](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0254-product-vision-documents.md).
 - [Architecture reference](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0251-architecture-reference-is-not-product-law.md).

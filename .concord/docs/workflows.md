@@ -1,9 +1,9 @@
 # Concord Workflows
 
 > **Authority:**
-> [CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md)
+> [CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-its-execution-types.md)
 > and
-> [CD-0229](../law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md).
+> [CD-0229](../law/decisions/CD-0229-plain-workflow-definitions-without-work-item-size-classification.md).
 > [CD-0242](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D4, D6, D13, and D14 govern generated contracts, current state, and finite snapshots.
 > Companion to [`README.md`](./README.md),
 > [`specs-as-laws.md`](./specs-as-laws.md),
@@ -206,7 +206,7 @@ docs hold no hand-written copy. Research records findings, conclusions and
 recommendations and may conclude `no_change`
 (CD-0218 D1). The retired family refs select no new
 execution, and no alias maps a retired ref to a type (CD-0218 D1).
-[CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) requires
+[CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-its-execution-types.md) requires
 an architecture spike to resolve through a separate reviewed and accepted
 decision and assigns that obligation to the cutover owner's approved
 successor set. Research reports do not enact legislation (CD-0218 D1).
@@ -226,7 +226,7 @@ report, and evidence in the steps its plan declares; that output is advisory
 input, not a verdict. Host-owned methodology selects the tool and analysis
 procedure. This boundary
 follows
-[CD-0043 D1](../law/decisions/CD-0043-host-owned-lane-methodology.md#d1-methodology-is-not-durable-coordination-state),
+[CD-0043 D1](../law/decisions/CD-0043-host-specific-methodology-stays-host-owned.md#d1-methodology-is-not-durable-coordination-state),
 and [CD-0055 D4](../law/decisions/CD-0055-repository-check-authority.md#d4-heuristic-judgment-warns-it-never-blocks).
 
 ---
@@ -242,7 +242,7 @@ and [CD-0055 D4](../law/decisions/CD-0055-repository-check-authority.md#d4-heuri
 
 ## 7. Composition
 
-[CD-0229](../law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md)
+[CD-0229](../law/decisions/CD-0229-plain-workflow-definitions-without-work-item-size-classification.md)
 is accepted law. This section states its model, not the current implementation
 status.
 
@@ -274,8 +274,8 @@ status.
 | `product-data-model.md` §6 | Product → Domain navigation. |
 | `specs-as-laws.md` | Workflow evolution couples to spec evolution. |
 | `design-constraints.md` §3 | Workflow evolution constraints; public projections derive from the step-template contract (§7; CD-0229 D1; CD-0242 D14). |
-| [CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md) | Four workflow types own new execution (CD-0218 D1); the store keeps current state, and the cutover is one documented migration (CD-0242 D2, D13). |
-| [CD-0229](../law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md) | Plain workflow definitions without size classification. |
+| [CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-its-execution-types.md) | Four workflow types own new execution (CD-0218 D1); the store keeps current state, and the cutover is one documented migration (CD-0242 D2, D13). |
+| [CD-0229](../law/decisions/CD-0229-plain-workflow-definitions-without-work-item-size-classification.md) | Plain workflow definitions without size classification. |
 
 ---
 

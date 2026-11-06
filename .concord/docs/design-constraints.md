@@ -32,10 +32,14 @@ blocks ordinary operator work as a storage-authority reopen condition.
 ---
 ## 2. Structural Product-law impact, architecture overlap, and freshness
 
-**Requirement.** No Product-changing workflow may silently proceed when another
-active or newly landed workflow overlaps its Domain footprint or invalidates a
-law, architecture relation, dependency, or resource assumption. Non-authoritative
-snapshots never masquerade as current authority.
+**Requirement.** Product-changing workflows never diverge silently: when another
+active or newly landed workflow overlaps a Domain footprint or changes a law,
+architecture relation, dependency, or resource assumption an item relies on,
+the overlap is surfaced and reconciled through Git, and revalidation at every
+consequential action decides admissibility. Overlap blocks neither item, and a
+change merged on main never invalidates work already in progress
+([CD-0222 D6–D7](../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md#d7-revalidation-is-transactional-at-every-consequential-action)).
+Non-authoritative snapshots never masquerade as current authority.
 
 **Implication.** CD-0006 R3 retains hard/soft `depends_on` edges and bounded
 freshness checks. CD-0222 adds a typed architecture binding to every
@@ -60,7 +64,7 @@ heuristic authority are forbidden.
 not retained historical versions.
 
 **Direction.** [`workflows.md`](./workflows.md) describes the current workflow
-types and composition model. [CD-0218 D1](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution)
+types and composition model. [CD-0218 D1](../law/decisions/CD-0218-the-live-workflow-catalog-retains-its-execution-types.md#d1-four-workflow-types-own-new-execution)
 owns the type catalog and its step-template contract; CD-0242 D14 owns
 generated contracts.
 

@@ -12,7 +12,7 @@ ownership boundaries the Product's law already sets.
 
 ## Canonical references
 
-- [Shipped skill delivery and portability](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
+- [Shipped skill delivery and portability](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md).
 - [Domain law ownership](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md):
   preserve the Product's Domain and law bindings when moving a seam.
 

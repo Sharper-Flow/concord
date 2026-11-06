@@ -44,7 +44,7 @@ These agent-enacted revisions are derived. Assigned Concord retirement uses CD-0
 
 - Retired CD-0244, `.concord/law/decisions/CD-0244-domains-own-code-exclusively-and-hold-typed-facts.md`, in full: exclusive roots, package map, facts, extractors, checks, setup, reads and ratchet. Its requirements retired with the unwanted mechanism.
 - Amended [CD-0222](../../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md): removed map/fact/ratchet/footprint obligations while retaining registry-based law organization, exact law revisions and architecture binding. Integrated main's separate retirements without reversing them.
-- Amended [CD-0245](../../law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md): retired the stewardship instance and its checks; retained generic skill portability, admission, installation and release rules. No replacement framework was introduced.
+- Amended [CD-0245](../../law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md): retired the stewardship instance and its checks; retained generic skill portability, admission, installation and release rules. No replacement framework was introduced.
 - Amended [CD-0249](../../law/decisions/CD-0249-decisions-carry-no-coverage-records.md): removed fact-anchor/footprint-only wording and corrected the historical migration-proof citation. Current typed anchors, coverage retirement and reachability remain.
 - Amended [priorities](../../law/constitution/priorities.md): removed typed-fact/map/footprint requirements while retaining affected-Domain declarations, exact-law declarations and approval boundaries.
 

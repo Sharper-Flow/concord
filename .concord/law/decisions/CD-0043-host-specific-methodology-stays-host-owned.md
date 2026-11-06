@@ -16,7 +16,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-20
 - **Scope:** Ownership of engineering methodology and shipped skills
-- **Related:** [CD-0245](CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md), [CD-0246](CD-0246-concord-ships-portable-engineering-methods.md), [capability placement](../../docs/capability-placement.md)
+- **Related:** [CD-0245](CD-0245-concord-ships-release-versioned-portable-skills.md), [CD-0246](CD-0246-concord-ships-portable-engineering-methods.md), [capability placement](../../docs/capability-placement.md)
 
 ## Context
 

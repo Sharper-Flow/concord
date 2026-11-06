@@ -16,7 +16,7 @@ decision authority.
 These Concord references define the knowledge and authority machinery, not the
 adopting Product's behavior. Read that Product's own accepted law for its rules.
 
-- [Skill admission and portability](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
+- [Skill admission and portability](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md).
 - [Domain ownership](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md):
   the registry alone owns Domain identity, hierarchy, and governed relations.
 - [Product knowledge placement](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0194-product-knowledge-lives-under-concord.md).

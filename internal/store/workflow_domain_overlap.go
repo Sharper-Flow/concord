@@ -35,9 +35,8 @@ type WorkflowDomainOverlapResolutionRequest struct {
 	OccurredAt             time.Time
 }
 
-// ResolveWorkflowDomainOverlapTx appends the immutable resolution event. The
-// supplied terminal-resolution approval verifies its exact consumed row before
-// any write. All current-version, overlap, relation, and
+// ResolveWorkflowDomainOverlapTx appends the immutable resolution event. All
+// current-version, overlap, relation, and
 // terminal checks fold in this same transaction.
 func ResolveWorkflowDomainOverlapTx(ctx context.Context, tx *Transaction, request WorkflowDomainOverlapResolutionRequest) (ApplyOperationResult, error) {
 	sqlTx, err := transactionSQL(tx, "workflow_domain_overlap_resolution")
@@ -76,7 +75,7 @@ func workflowOverlapResolutionRelationKind(kind string) string {
 }
 
 func overlapResolutionFailure(detail string) error {
-	return newFailure(KindInvalidPayload, "workflow_domain_overlap", detail, false, "supply a current operator-approved overlap resolution")
+	return newFailure(KindInvalidPayload, "workflow_domain_overlap", detail, false, "correct the actor, endpoints, contract versions, kind or reason and record the relation again")
 }
 
 func workflowOverlapResolutionProjectionError(err error) error {
@@ -84,7 +83,7 @@ func workflowOverlapResolutionProjectionError(err error) error {
 		return nil
 	}
 	if sqlitedb.IsConstraintViolation(err) {
-		return newFailure(KindProjectionConflict, "workflow_domain_overlap", "overlap resolution projection conflicts with current history", false, "reread the active overlap and resolve it again")
+		return newFailure(KindProjectionConflict, "workflow_domain_overlap", "overlap resolution projection conflicts with current history", false, "reread the endpoints and record the relation again")
 	}
 	return wrapFailure(KindUnavailable, "workflow_domain_overlap", fmt.Sprintf("cannot update overlap resolution projection: %v", err), true, "retry once the database is writable", err)
 }

@@ -726,7 +726,7 @@ class Ts2BudgetTests(unittest.TestCase):
 
 
 class CurrentSkillReferenceTests(unittest.TestCase):
-    CURRENT = "https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md"
+    CURRENT = "https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md"
 
     def test_shipped_law_urls_name_current_main_law_and_existing_targets(self):
         count = 0
@@ -851,7 +851,7 @@ class ShippedSkillTests(unittest.TestCase):
         with unittest.mock.patch.object(lane_checker.subprocess, "run", side_effect=AssertionError("must not read historical law")):
             self.assertEqual(lane_checker.shipped_skill_reference_findings(ROOT, self.content()), [])
         is_file = Path.is_file
-        missing_doc = ROOT / ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md"
+        missing_doc = ROOT / ".concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md"
         with unittest.mock.patch.object(Path, "is_file", lambda path: False if path == missing_doc else is_file(path)):
             findings = lane_checker.shipped_skill_reference_findings(ROOT, self.content())
         self.assertEqual(findings, [f"reference path {missing_doc.relative_to(ROOT)} does not exist in this repository"])

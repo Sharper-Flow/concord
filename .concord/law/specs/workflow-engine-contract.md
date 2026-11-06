@@ -225,7 +225,7 @@ the rows below do not repeat this pair.
 
 | Record | Exact payload fields and bounds |
 |---|---|
-| `workflow.definition_selected` | Registration is retired; appends refuse under [CD-0229 D1](../decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md) because no definition registry or selection exists. No action emits it; the type pick is `workflow.type_picked`. Stored pre-cutover rows keep their recorded meaning under [CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history). |
+| `workflow.definition_selected` | Registration is retired; appends refuse under [CD-0229 D1](../decisions/CD-0229-plain-workflow-definitions-without-work-item-size-classification.md) because no definition registry or selection exists. No action emits it; the type pick is `workflow.type_picked`. Stored pre-cutover rows keep their recorded meaning under [CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history). |
 | `workflow.contract_approved` | `work_id`, `contract_version`, `legislative_subjects` (0–800 unique subjects), `spec_mandate`, `law_modifies`, `architecture_binding`, `law_boundary_version`, and `consequence_class` |
 | `workflow.actor_recorded` | `work_id`, `actor_ref`, `principal_ref`, `client_ref`, `agent_ref`, `session_ref`, `actor_class` (`agent` or `operator`) |
 | `workflow.action_started` | `work_id`, `step_id`, `action_id`, `attempt_epoch`, `accepted_inputs_digest`, `idempotency_identity` (2–128), `actor_ref` |

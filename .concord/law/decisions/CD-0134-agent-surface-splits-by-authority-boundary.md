@@ -112,7 +112,7 @@ The migration performs these ordered changes in one accepted Git change:
 2. Re-home the forty records in D2 and add bounded applicability for cross-child records.
 3. Rebind each active Product-changing work footprint to the parent or its affected children.
 4. Replace child-specific architecture relation tuples and retain governing law IDs.
-5. Compose the knowledge index, recompute the registry and manifest digests, and regenerate every dependent artifact.
+5. Recompute the registry and manifest digests and regenerate every dependent artifact.
 6. Rebuild the SQLite Domain projection from the new Git authority before child-scoped reads become current.
 
 The migration does not add aliases, fallback homes, or old-registry compatibility. A changed generated digest fails closed under TS8 until the adapter and core use the matching artifacts.

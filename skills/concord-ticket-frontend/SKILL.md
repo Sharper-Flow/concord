@@ -6,7 +6,7 @@ description: Ask operator questions and resume managed work through a ticket fro
 # Ticket frontend
 
 This method operates the [question route](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/specs/workflow-engine-contract.md#81-operator-decisions-stay-in-conversation)
-under [skill admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
+under [skill admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md).
 It grants no approval or workflow authority.
 
 ## Ask and wait

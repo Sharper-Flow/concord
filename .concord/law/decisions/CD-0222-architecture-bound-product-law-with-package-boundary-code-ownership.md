@@ -288,9 +288,17 @@ binding stays reserved for Product-changing contracts regardless of tier.
 ### D6. Concurrent work reconciles through Git
 
 Two in-progress items may change the same law, Domain, or Domain relation.
-Concord does not block either item for that overlap and records no resolution
-for it. The item that merges later merges main into its branch and fixes any
-conflict, as with any other code change; D7 then applies to it.
+Concord does not block either item for that overlap and imposes no resolution
+requirement on it: no approval, recorded resolution, or cleared conflict is
+needed for either item to act, record a step, or complete. The item that merges
+later merges main into its branch and fixes any conflict, as with any other
+code change; D7 then applies to it.
+
+Concord itself records nothing for an overlap. An agent may record a routine
+`depends_on` or `blocks` relation between the two items through
+`resolve_overlap` (D4; the Decision preamble). That relation sequences the
+pair and pins both contract versions; it resolves neither the overlap nor
+either item's admissibility, and neither endpoint needs it.
 
 ### D7. Revalidation is transactional at every consequential action
 

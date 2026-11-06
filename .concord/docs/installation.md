@@ -115,7 +115,7 @@ Product.
 | Requirement | Canonical owner and authority | Applicability and delivery |
 |---|---|---|
 | Planning through Linear MCP | [CD-0213](../law/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md) | Reusable across Products; the generated primary states the operative planning rule. |
-| Source-edit boundary | [CD-0220](../law/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md) | Approved scope and law-change authority remain distinct from host tool permission. |
+| Source-edit boundary | [CD-0220](../law/decisions/CD-0220-repository-authoring-follows-approved-scope.md) | Approved scope and law-change authority remain distinct from host tool permission. |
 | Committed-content conduct | [Shared conduct](../instructions/change.md) under [CD-0063](../law/decisions/CD-0063-shipped-operator-conduct-rules.md) | Loaded from the installed corpus, not inferred from a Product-relative filename. |
 | Concord repository engineering | [Concord's AGENTS.md](../../AGENTS.md) and the explicitly Concord-specific item 2 in [development authority](../law/specs/managed-development-authority.md#preserved-boundaries) | Repository instruction, not part of the shipped conduct corpus. Other boundaries keep their stated scope. |
 | An adopting Product's law and facts | That Product's canonical knowledge home | Product-scoped knowledge reads and declared reading sources; not inherited from Concord's source checkout. |

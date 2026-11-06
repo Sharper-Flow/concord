@@ -42,19 +42,19 @@ _primary_spec.loader.exec_module(_primary_prompts)
 
 SKILL_REFERENCES = {
     "concord-law-writing": {
-        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md",
         "ownership": ".concord/law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
         "amendment": ".concord/law/decisions/CD-0036-breaking-law-cutovers.md",
         "conflicts": ".concord/law/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md",
         "approval": ".concord/law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md",
     },
     "concord-architecture-writing": {
-        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md",
         "ownership": ".concord/law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
         "relationship": ".concord/law/decisions/CD-0251-architecture-reference-is-not-product-law.md",
     },
     "concord-readme-writing": {
-        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md",
         "repository_mode": ".concord/law/decisions/CD-0255-per-project-repository-mode.md",
         "product_vision": ".concord/law/decisions/CD-0254-product-vision-documents.md",
         "architecture_reference": ".concord/law/decisions/CD-0251-architecture-reference-is-not-product-law.md",
@@ -70,32 +70,32 @@ SKILL_REFERENCES = {
         "admission": ".concord/law/decisions/CD-0246-concord-ships-portable-engineering-methods.md",
     },
     "concord-diagnosis": {
-        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md",
     },
     "concord-codebase-design": {
-        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md",
         "ownership": ".concord/law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md",
     },
     "concord-work-shaping": {
-        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md",
         "approval": ".concord/law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md",
     },
     "concord-ticket-frontend": {
-        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md",
         "questions": ".concord/law/specs/workflow-engine-contract.md",
     },
     "concord-multi-repository": {
-        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md",
         "sessions": ".concord/law/decisions/CD-0178-each-repository-gets-its-own-coordinator-session.md",
         "isolation": ".concord/law/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md",
         "handoff": ".concord/law/decisions/CD-0182-session-opener.md",
     },
     "concord-self-repair": {
-        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md",
         "repair": ".concord/law/decisions/CD-0122-concord-workflow-scope-and-defect-repair.md",
     },
     "concord-retrospective": {
-        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md",
         "conduct": ".concord/law/decisions/CD-0063-shipped-operator-conduct-rules.md",
         "ladder": ".concord/law/decisions/CD-0106-lesson-owns-the-knowledge-ladder.md",
     },

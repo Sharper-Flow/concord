@@ -80,6 +80,6 @@ one condition stays outside this route and makes no claim from it.
 
 ## Verification
 
-- The knowledge record resolves this decision through the composed knowledge index.
+- The committed law folder resolves this decision by its record identity.
 - Repository validators check the decision path, content hash, evidence paths, and product-root law fields.
 - The decision changes no engine code, gate, admission rule, or workflow step.

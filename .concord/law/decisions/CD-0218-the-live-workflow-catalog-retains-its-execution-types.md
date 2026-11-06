@@ -37,7 +37,8 @@ requirements remain required.
 
 The live workflow catalog then required seven families. Four families repeated bounded
 job, independent evidence, and delivery duties that the retained execution owners
-already carry. Their public authoring can retire; the store keeps current state and finite snapshots, and the one documented cutover retires what the migration discards ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) and [D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
+already carry; their public authoring retired, and what remains is the four workflow
+types D1 names. The store keeps current state and finite snapshots, and the one documented cutover retires what the migration discards ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history) and [D13](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot)).
 
 Research conclusions do not enact binding Product law.
 

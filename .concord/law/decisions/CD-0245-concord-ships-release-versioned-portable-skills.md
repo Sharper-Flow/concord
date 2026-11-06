@@ -24,7 +24,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-23
 - **Scope:** Which skills Concord may ship; the `skills/` boundary
-- **Amends:** [CD-0043](CD-0043-host-owned-lane-methodology.md) D3; the `skills/` sentence of [CD-0063](CD-0063-shipped-operator-conduct-rules.md) D2
+- **Amends:** [CD-0043](CD-0043-host-specific-methodology-stays-host-owned.md) D3; the `skills/` sentence of [CD-0063](CD-0063-shipped-operator-conduct-rules.md) D2
 - **Preserves:** CD-0043 D1 as amended by CD-0246, D2, and D4: host-specific lane procedure stays host-owned
 - **Approval:** The operator approved the exact amendment wording on 2026-10-23 and the publication-only heading and check section on 2026-10-26, recorded in [Concord issue 1318](https://linear.app/sharper-flow/issue/CON-1318/permit-concord-to-ship-domain-shape-stewardship-through-its-existing).
 

@@ -61,5 +61,5 @@ Existing tooling and evidence-anchor validators uphold structural bindings. Focu
 ## Related law
 
 [CD-0074](CD-0074-project-tooling-declaration.md) ·
-[CD-0229](CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md) ·
+[CD-0229](CD-0229-plain-workflow-definitions-without-work-item-size-classification.md) ·
 [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) ·

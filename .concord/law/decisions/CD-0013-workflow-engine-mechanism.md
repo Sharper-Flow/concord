@@ -24,7 +24,7 @@ workflow engine must add to the existing storage spine.
 CD-0008 D2 (evidence), D4 (checkpoints), D6 (schema evolution);
 CD-0012 D1–D11 (outcome contract).
 **Amended:** 2026-10-18. These 2026-10-17 records amend this one:
-[CD-0229](CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md)
+[CD-0229](CD-0229-plain-workflow-definitions-without-work-item-size-classification.md)
 amends this record's D1 (its former plain-Go workflow definitions);
 [CD-0230](CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md)
 amends D9 (law-change approval follows CD-0243 D2).
@@ -54,7 +54,7 @@ The accepted law does **not** yet:
 - name how each workflow mutation persists; the store keeps current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history))
 - name the typed edges (`modifies`, hard/soft `depends_on`, `forward_link`).
 
-[CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution)
+[CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-its-execution-types.md#d1-four-workflow-types-own-new-execution)
 sets the workflow types as change, fix, research, and removal.
 
 This decision resolves the design choices still named as deferred by CD-0012 and adds
@@ -64,7 +64,7 @@ the implementation contract the engine needs.
 
 ### D1. Workflow types use one template contract
 
-The canonical template contract supplies required steps for each type; each work item holds its own plan ([CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution)).
+The canonical template contract supplies required steps for each type; each work item holds its own plan ([CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-its-execution-types.md#d1-four-workflow-types-own-new-execution)).
 
 ### D2. Workflow state lives on the work-item subject
 
@@ -177,7 +177,7 @@ capability, state, evidence and exact-target checks remain required. Workflow ac
 destructive commands, deployment, release, credential disclosure, or
 force-push; host permissions still govern them.
 
-Type contracts require explicit classification. Each item's plan derives from the single template contract ([CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution)).
+Type contracts require explicit classification. Each item's plan derives from the single template contract ([CD-0218 D1](CD-0218-the-live-workflow-catalog-retains-its-execution-types.md#d1-four-workflow-types-own-new-execution)).
 
 [CD-0042 D2](CD-0042-pre-go-live-single-path.md#d2-the-current-agent-surface-has-one-identity)
 owns the current agent-tool contract identity, its digest binding, and

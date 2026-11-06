@@ -96,7 +96,7 @@ invoked by name, so central visibility carries none of the always-on leakage
 that governs instructions.
 
 `skills/` admits skills that operate Concord-defined structure under
-[CD-0245](CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md) D1.
+[CD-0245](CD-0245-concord-ships-release-versioned-portable-skills.md) D1.
 A shipped skill uses this installation route and is versioned by the release
 under CD-0245 D2. A skill may also carry a portable engineering method under
 CD-0246 D3; host-specific lane procedure stays host-owned under CD-0043 D1.

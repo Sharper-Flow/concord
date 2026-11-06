@@ -8,6 +8,58 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WorkflowPlanProjectionTest(unittest.TestCase):
+    @staticmethod
+    def assert_advertised_matches_authoring(action):
+        # Intents and the served schema read public_payload; admission reads payload.
+        for variant in action["variants"]:
+            authoring = {field["name"]: field for field in variant["payload"]["fields"]}
+            advertised = {field["name"]: field for field in variant["public_payload"]["fields"]}
+            if set(advertised) != set(authoring):
+                raise AssertionError(f'{action["id"]}: field names differ: {sorted(set(advertised) ^ set(authoring))}')
+            for name in authoring:
+                if advertised[name]["required"] != authoring[name]["required"]:
+                    raise AssertionError(f'{action["id"]}: {name} required differs')
+
+    def test_advertised_action_fields_match_authoring_fields(self):
+        result = subprocess.run(["go", "run", "./scripts/workflow-action-contracts"], cwd=ROOT, text=True, capture_output=True, check=True)
+        projection = json.loads(result.stdout)
+        for action in projection["actions"]:
+            with self.subTest(action=action["id"]):
+                self.assert_advertised_matches_authoring(action)
+
+    def test_guard_catches_advertised_fields_admission_refuses(self):
+        # No live action declares a divergent public payload, so divergent
+        # shapes are seeded here to prove the guard fails on them: a public
+        # half advertising fields the authoring half lacks, and a public half
+        # flipping a field's required flag.
+        divergent_names = {
+            "id": "approve_contract",
+            "variants": [{
+                "payload": {"fields": [
+                    {"name": "contract_version", "required": False},
+                    {"name": "spec_mandate", "required": False},
+                    {"name": "law_modifies", "required": False},
+                    {"name": "legislative_subjects", "required": False},
+                    {"name": "architecture_binding", "required": False},
+                ]},
+                "public_payload": {"fields": [
+                    {"name": "decision_domains", "required": True},
+                    {"name": "premise", "required": True},
+                ]},
+            }],
+        }
+        with self.assertRaisesRegex(AssertionError, "field names differ"):
+            self.assert_advertised_matches_authoring(divergent_names)
+        divergent_flags = {
+            "id": "approve_contract",
+            "variants": [{
+                "payload": {"fields": [{"name": "spec_mandate", "required": False}]},
+                "public_payload": {"fields": [{"name": "spec_mandate", "required": True}]},
+            }],
+        }
+        with self.assertRaisesRegex(AssertionError, "required differs"):
+            self.assert_advertised_matches_authoring(divergent_flags)
+
     def test_action_route_is_available_at_intake(self):
         manifest = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text())
         operation = next(item for item in manifest["operations"] if item["id"] == "concord_work_transition.workflow_action")

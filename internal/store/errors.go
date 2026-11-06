@@ -137,10 +137,10 @@ const (
 	// another session holds. The retry is safe and there is nothing to
 	// reconcile, which is what separates it from KindOperationConflict.
 	KindResourceBusy FailureKind = "resource_busy"
-	// Definition failures are closed registry errors. They are deliberately
-	// distinct from workflow action refusals so callers cannot mistake a binary
-	// definition drift for a retryable action failure.
-	KindInvalidDefinition             FailureKind = "invalid_definition"
+	// KindDefinitionActionOrStepUnknown marks a workflow action the action
+	// catalog cannot resolve: the action is absent from the catalog or has no
+	// policy. It is distinct from workflow action refusals so callers cannot
+	// mistake it for a retryable action failure.
 	KindDefinitionActionOrStepUnknown FailureKind = "definition_action_or_step_unknown"
 	// Lane failures are closed registry errors. They fail before a worker can
 	// create any workflow authority or external effect.

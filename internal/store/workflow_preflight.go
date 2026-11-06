@@ -348,10 +348,7 @@ func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 	case "record_intake", "pick_type", "insert_step":
 	case "complete_step", "record_review":
 		step, _ = workflowFieldString(fields, "step_id")
-		if err := workflowPlanStepAttemptAdmission(plan, step, actionID); err != nil {
-			return step, err
-		}
-		return step, requireWorkflowContractStepApprovalTx(ctx, tx, workID, plan, step)
+		return step, workflowPlanStepAttemptAdmissionTx(ctx, tx, workID, plan, step, actionID)
 	case "complete":
 		if plan == nil || !WorkflowStepPlanComplete(*plan) {
 			return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow plan is not complete", false, "complete every plan step")
@@ -390,6 +387,16 @@ func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 		}
 	}
 	return step, nil
+}
+
+// workflowPlanStepAttemptAdmissionTx adds the tx-scoped contract-step rule to
+// the pure attempt admission: a step that declares approve_contract closes
+// only through the approval it hosts (CD-0203 D1).
+func workflowPlanStepAttemptAdmissionTx(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, step, actionID string) error {
+	if err := workflowPlanStepAttemptAdmission(plan, step, actionID); err != nil {
+		return err
+	}
+	return requireWorkflowContractStepApprovalTx(ctx, q, workID, plan, step)
 }
 
 // Production events enter through admission. Historical streams contain

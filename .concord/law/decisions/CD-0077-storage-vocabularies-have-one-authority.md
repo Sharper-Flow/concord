@@ -98,10 +98,8 @@ the database boundary without replacing the referenced table.
 
 ### D4. Composition resolves the successor's picked workflow type
 
-A forward-link composition check reads the successor work item's kind, requires
-the successor to hold a step plan with a picked workflow type, and, when the
-link payload carries `definition_ref`, requires it to equal that plan's type. A
-resize link requires the same workflow type on both items. A successor without
+A forward-link composition check reads the successor work item's kind and requires
+the successor to hold a step plan with a picked workflow type. A successor without
 a picked type is refused.
 
 Recorded successor links read back with their recorded meaning, and no payload version, upcast, or replay reinterprets them ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). The

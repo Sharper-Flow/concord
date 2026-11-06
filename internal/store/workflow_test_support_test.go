@@ -125,7 +125,7 @@ func applyWorkflowTestOperationDirect(ctx context.Context, s *Store, operation O
 	// caller that is exercising a source change after verification.
 	if knowledgeSourceSetProofFrom(ctx) == nil {
 		for _, event := range operation.Events {
-			if event.Kind == WorkflowDefinitionSelected || event.Kind == WorkflowContractApproved || event.Kind == WorkflowContractSuperseded {
+			if event.Kind == WorkflowContractApproved || event.Kind == WorkflowContractSuperseded {
 				var err error
 				ctx, err = s.EstablishKnowledgeSourceSetProof(ctx, event.SubjectID)
 				if err != nil {

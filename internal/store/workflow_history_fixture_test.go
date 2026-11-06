@@ -30,7 +30,7 @@ func progressHistory(t *testing.T) (*sql.DB, func(string, any) int64) {
 		}
 		return seq
 	}
-	appendEvent(WorkflowDefinitionSelected, workflowDefinitionSelectedPayload{Ref: "retired.definition", Digest: "sha256:retired"})
+	appendEvent(WorkflowTypePicked, map[string]any{"workflow_type": "change"})
 	appendEvent(WorkflowContractApproved, workflowContractApprovedPayload{ContractVersion: 1, LegislativeSubjects: []string{}})
 	return db, appendEvent
 }

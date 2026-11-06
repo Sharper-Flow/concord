@@ -8,39 +8,6 @@ import (
 	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
-func TestWorkflowPlanProjectionRetiredDefinitionSelection(t *testing.T) {
-	ctx := t.Context()
-	db, err := sqlitedb.Open(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if _, err := db.ExecContext(ctx, `CREATE TABLE work_items(id TEXT PRIMARY KEY, version INTEGER, updated_at TEXT); INSERT INTO work_items VALUES('work',1,'')`); err != nil {
-		t.Fatal(err)
-	}
-	before, after := int64(1), int64(2)
-	raw, err := json.Marshal(workflowDefinitionSelectedPayload{WorkflowVersionFields: WorkflowVersionFields{WorkID: "work", ExpectedVersion: &before, ResultingVersion: &after}, Ref: "retired.definition", Digest: "sha256:retired", WorkKind: "research"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	event := Event{SubjectType: SubjectWorkItem, SubjectID: "work", Payload: raw, OccurredAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if err := foldWorkflowDefinitionSelected(ctx, tx, event, nil); err != nil {
-		t.Fatal(err)
-	}
-	var version int64
-	if err := tx.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id='work'`).Scan(&version); err != nil || version != after {
-		t.Fatalf("version = %d, want %d: %v", version, after, err)
-	}
-	if err := foldWorkflowDefinitionSelected(ctx, tx, event, nil); err == nil {
-		t.Fatal("stale historical event did not refuse")
-	}
-}
-
 func TestWorkflowPlanProjectionStartKeepsPlan(t *testing.T) {
 	ctx := t.Context()
 	db, err := sqlitedb.Open(":memory:")
@@ -88,7 +55,7 @@ INSERT INTO workflow_actors VALUES('actor:example','agent','session');`)
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if err := foldWorkflowActionStarted(ctx, tx, event, nil); err != nil {
+	if err := foldWorkflowActionStarted(ctx, tx, event); err != nil {
 		t.Fatal(err)
 	}
 	var got, state string
@@ -108,7 +75,7 @@ INSERT INTO workflow_actors VALUES('actor:example','agent','session');`)
 		t.Fatal(err)
 	}
 	event.EventID, event.Kind, event.Seq, event.Payload = "checkpoint", WorkflowActionCheckpointed, 11, payload
-	if err := foldWorkflowActionCheckpointed(ctx, tx, event, nil); err != nil {
+	if err := foldWorkflowActionCheckpointed(ctx, tx, event); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT step_plan FROM workflow_instances WHERE work_id='work'`).Scan(&got); err != nil || got != string(encoded) {
@@ -120,7 +87,7 @@ INSERT INTO workflow_actors VALUES('actor:example','agent','session');`)
 		t.Fatal(err)
 	}
 	event.EventID, event.Kind, event.Seq, event.Payload = "done", WorkflowActionCompleted, 12, payload
-	if err := foldWorkflowActionCompleted(ctx, tx, event, nil); err != nil {
+	if err := foldWorkflowActionCompleted(ctx, tx, event); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT step_plan FROM workflow_instances WHERE work_id='work'`).Scan(&got); err != nil || got != string(encoded) {

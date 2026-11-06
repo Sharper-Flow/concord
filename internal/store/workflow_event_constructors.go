@@ -290,5 +290,5 @@ func workflowLinkSuccessorEvents(ctx context.Context, tx *sql.Tx, _ WorkflowStep
 	if successor == nil {
 		return nil, newFailure(KindInvalidRelation, "workflow_action", "successor workflow type is not selected", false, "pick a successor workflow type")
 	}
-	return []Event{workflowTypedEvent(eventID, WorkflowSuccessorLinked, request.WorkID, actor, request.Now, expected, map[string]any{"successor_work_id": successorID, "relation_kind": "forward_link", "successor_kind": successorKind, "definition_ref": string(successor.Type)})}, nil
+	return []Event{workflowTypedEvent(eventID, WorkflowSuccessorLinked, request.WorkID, actor, request.Now, expected, map[string]any{"successor_work_id": successorID, "relation_kind": "forward_link", "successor_kind": successorKind})}, nil
 }

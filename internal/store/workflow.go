@@ -61,24 +61,6 @@ func workflowRegistration[T workflowPayload](currentVersion int, fold projection
 	return registerEventKind[T](currentVersion, EventAppendAuthorityWorkflow, fold, validateWorkflowPayload[T])
 }
 
-// workflowScopedRegistration registers a workflow event kind whose fold reads
-// the transaction's verified definition source from the write scope, so one
-// caller-selected registry carries selection, contract, action, confirmation,
-// and terminal folds.
-func workflowScopedRegistration[T workflowPayload](currentVersion int, fold scopedProjectionMutation) EventKindRegistration {
-	return registerScopedEventKind[T](currentVersion, EventAppendAuthorityWorkflow, fold, validateWorkflowPayload[T])
-}
-
-type workflowDefinitionSelectedPayload struct {
-	WorkflowVersionFields
-	Ref    string `json:"ref"`
-	Digest string `json:"digest"`
-	// RecordedVersion decodes the definition counter that recorded events
-	// still carry; nothing reads it, and the log drop removes it with replay.
-	RecordedVersion int64  `json:"version,omitempty"`
-	WorkKind        string `json:"work_kind"`
-}
-
 type workflowContractApprovedPayload struct {
 	WorkflowVersionFields
 	ContractVersion     int64                        `json:"contract_version"`
@@ -286,10 +268,6 @@ type workflowSuccessorLinkedPayload struct {
 	SuccessorWorkID string `json:"successor_work_id"`
 	RelationKind    string `json:"relation_kind"`
 	SuccessorKind   string `json:"successor_kind"`
-	DefinitionRef   string `json:"definition_ref"`
-	// Resize marks the same-family link a resize records (v3); it holds
-	// only beside the lineage row of that resize.
-	Resize bool `json:"resize,omitempty"`
 }
 
 type workflowCompletedPayload struct {
@@ -299,12 +277,6 @@ type workflowCompletedPayload struct {
 	EvidenceCount     int64  `json:"evidence_count"`
 	ChangedRefsDigest string `json:"changed_refs_digest"`
 	ImpactVerdict     string `json:"impact_verdict"`
-}
-
-var workflowKinds = map[string]bool{
-	"implementation": true, "break_fix": true, "research": true,
-	"architecture_spike": true, "ops_runbook": true, "static_analysis": true,
-	"generic_one_off": true,
 }
 
 func isWorkflowAdvancementEvent(kind string) bool {
@@ -503,14 +475,6 @@ func workflowDigest(value string) bool {
 	return len(value) == 71 && strings.HasPrefix(value, "sha256:")
 }
 
-func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event, _ *writeScope) error {
-	var p workflowDefinitionSelectedPayload
-	if err := decodeWorkflowPayload(event, &p); err != nil {
-		return err
-	}
-	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)
-}
-
 func workflowProjectionError(err error, message string) error {
 	if err == nil {
 		return nil
@@ -541,7 +505,7 @@ func validateWorkflowContractApprovalLaw(ctx context.Context, tx *sql.Tx, event 
 		}
 	} else {
 		if p.ArchitectureBinding != nil {
-			return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing workflow cannot carry architecture_binding", false, "select a registered Product-changing workflow")
+			return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing workflow cannot carry architecture_binding", false, "pick a Product-changing workflow type or drop architecture_binding")
 		}
 		if len(p.LawModifies) != 0 {
 			if err := validateDerivedLawModification(ctx, tx, event.SubjectID, p.LawModifies); err != nil {
@@ -552,7 +516,7 @@ func validateWorkflowContractApprovalLaw(ctx context.Context, tx *sql.Tx, event 
 	return nil
 }
 
-func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
+func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowContractApprovedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -563,7 +527,7 @@ func foldWorkflowContractApproved(ctx context.Context, tx *sql.Tx, event Event, 
 	if err := normalizeWorkflowContractApproval(&p); err != nil {
 		return err
 	}
-	return foldValidatedWorkflowContractApproval(ctx, tx, event, scope, p)
+	return foldValidatedWorkflowContractApproval(ctx, tx, event, p)
 }
 
 func normalizeWorkflowContractApproval(p *workflowContractApprovedPayload) error {
@@ -585,7 +549,7 @@ func normalizeWorkflowContractApproval(p *workflowContractApprovedPayload) error
 	return nil
 }
 
-func foldValidatedWorkflowContractApproval(ctx context.Context, tx *sql.Tx, event Event, _ *writeScope, p workflowContractApprovedPayload) error {
+func foldValidatedWorkflowContractApproval(ctx context.Context, tx *sql.Tx, event Event, p workflowContractApprovedPayload) error {
 	var activeCount int64
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, event.SubjectID).Scan(&activeCount); err != nil {
 		return workflowProjectionError(err, "cannot inspect active workflow contracts")
@@ -882,7 +846,7 @@ func foldWorkflowRetainedRecordTx(ctx context.Context, tx *sql.Tx, workID string
 	return records[actionID], nil
 }
 
-func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
+func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowActionStartedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -969,7 +933,7 @@ func beginWorkflowLifecycleTx(ctx context.Context, tx *sql.Tx, event Event) erro
 	return nil
 }
 
-func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
+func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowActionCheckpointedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -1015,10 +979,10 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 	if !workflowCheckpointWriterAdmitted(executionActor, p.ActorRef, found) {
 		return newFailure(KindUnauthorized, "fold_event", "checkpoint actor does not hold the workflow writing authority", false, "checkpoint through the workflow actor that holds the writing authority")
 	}
-	return persistWorkflowCheckpointTx(ctx, tx, event, scope, p)
+	return persistWorkflowCheckpointTx(ctx, tx, event, p)
 }
 
-func persistWorkflowCheckpointTx(ctx context.Context, tx *sql.Tx, event Event, _ *writeScope, p workflowActionCheckpointedPayload) error {
+func persistWorkflowCheckpointTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCheckpointedPayload) error {
 	if err := requireActor(ctx, tx, p.ActorRef); err != nil {
 		return err
 	}
@@ -1171,7 +1135,7 @@ func validateWorkflowCompletionResultFields(p workflowActionCompletedPayload) er
 	return nil
 }
 
-func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
+func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowActionCompletedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -1353,7 +1317,7 @@ func readWorkflowActionStartTx(ctx context.Context, q queryer, workID, stepID st
 	return start, nil
 }
 
-func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
+func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowActionFailedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -1489,7 +1453,7 @@ func foldWorkflowEvidenceBound(ctx context.Context, tx *sql.Tx, event Event) err
 	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)
 }
 
-func foldWorkflowPremiseConfirmed(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
+func foldWorkflowPremiseConfirmed(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowPremiseConfirmedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -1558,18 +1522,6 @@ func foldWorkflowSuccessorLinked(ctx context.Context, tx *sql.Tx, event Event) e
 	if successor == nil {
 		return newFailure(KindInvalidRelation, "fold_event", "successor workflow type is not selected", false, "pick a successor workflow type")
 	}
-	if p.DefinitionRef != "" && p.DefinitionRef != string(successor.Type) {
-		return newFailure(KindInvalidRelation, "fold_event", "successor workflow type does not match its plan", false, "reread the successor workflow")
-	}
-	if p.Resize {
-		source, err := readWorkflowPlanTx(ctx, tx, event.SubjectID)
-		if err != nil {
-			return err
-		}
-		if source == nil || source.Type != successor.Type {
-			return newFailure(KindInvalidRelation, "fold_event", "a resize link requires the same workflow type", false, "link a same-type successor")
-		}
-	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
@@ -1632,7 +1584,7 @@ func valueOrNil(value *string) any {
 	}
 	return *value
 }
-func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *writeScope) error {
+func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowCompletedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err

@@ -20,7 +20,7 @@ func BuiltinWorkflowContractUpdateFields() []WorkflowPayloadField {
 	}
 }
 
-func reviseWorkflowContractTx(ctx context.Context, tx *sql.Tx, event Event, _ *writeScope, raw json.RawMessage) error {
+func reviseWorkflowContractTx(ctx context.Context, tx *sql.Tx, event Event, raw json.RawMessage) error {
 	plan, err := readWorkflowPlanTx(ctx, tx, event.SubjectID)
 	if err != nil {
 		return err

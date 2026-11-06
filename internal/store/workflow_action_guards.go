@@ -201,7 +201,7 @@ func applyCompleteWorkflowActionTx(ctx context.Context, tx *sql.Tx, scope *write
 		}
 		event.Seq = seq
 		scope.eventIDs = append(scope.eventIDs, event.EventID)
-		if err := applyEffect(ctx, tx, event, scope); err != nil {
+		if err := applyEffect(ctx, tx, event); err != nil {
 			return result, err
 		}
 		if err := advanceWorkEffectSeqTx(ctx, tx, event); err != nil {

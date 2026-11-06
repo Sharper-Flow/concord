@@ -41,7 +41,7 @@ func TestEventLogRetirementFreshStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := applyEffect(t.Context(), tx, e, scope); err != nil {
+	if err := applyEffect(t.Context(), tx, e); err != nil {
 		t.Fatal(err)
 	}
 	if err := scope.close(t.Context()); err != nil {

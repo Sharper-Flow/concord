@@ -249,6 +249,41 @@ func TestRelationRemovedRejectsStaleExpectedVersionWithoutMutation(t *testing.T)
 	}
 }
 
+func TestParentRelationRequiresBothEndpoints(t *testing.T) {
+	for _, tc := range []struct {
+		name, from, to, existing string
+	}{
+		{"missing target", "source", "missing", "source"},
+		{"missing source", "missing", "target", "target"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := openTemp(t)
+			seedWork(t, s, tc.existing)
+			err := applyWorkEvent(t, s, relationAddedEvent("add", "parent", tc.from, tc.to, 2, 3), nil)
+			assertFailureKind(t, err, KindProjectionNotFound)
+			var failure *Failure
+			if !errors.As(err, &failure) || failure.Detail != "work item does not exist" || failure.RecoveryAction != "create the work item first" {
+				t.Fatalf("missing endpoint detail = %v", err)
+			}
+		})
+	}
+}
+
+func TestParentRelationRemovalRequiresBothEndpoints(t *testing.T) {
+	s := openTemp(t)
+	seedWork(t, s, "source")
+	seedWork(t, s, "target")
+	if err := applyWorkEvent(t, s, relationAddedEvent("add", "parent", "source", "target", 2, 3), nil); err != nil {
+		t.Fatal(err)
+	}
+	err := applyWorkEvent(t, s, relationRemovedEvent("remove", "parent", "source", "missing", 3, 4), nil)
+	assertFailureKind(t, err, KindProjectionNotFound)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Detail != "work item does not exist" || failure.RecoveryAction != "create the work item first" {
+		t.Fatalf("missing endpoint detail = %v", err)
+	}
+}
+
 func TestRelationKindsEnforceTheirOwnGraphRules(t *testing.T) {
 	t.Parallel()
 	for _, kind := range []string{"parent", "blocks"} {

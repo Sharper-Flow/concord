@@ -3,9 +3,7 @@
   "id": "CD-0065",
   "title": "The conformance corpus runs what production runs",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "workflow-engine",
   "applies_to_domain_ids": []
@@ -71,7 +69,7 @@ action boundary. Each keeps its stable ID.
 
 ## Consequences
 
-- Product-truth enforcement on the implementation workflow carries conformance
+- Product-truth enforcement on the change workflow carries conformance
   coverage: outcome contracts, completion rollback, evidence-commit binding,
   and current subject-bound Review results.
 - Store tests prove that a shared Domain alone blocks no boundary (CD-0222 D6).
@@ -91,8 +89,8 @@ two corpora to keep in sync.
 
 ## Verification
 
-- `.concord/scenarios/workflow-engine.v1.json` holds twelve scenarios and
-  fifteen executable cases. Each selects `workflow.implementation` by reference
+- `.concord/scenarios/workflow-engine.v1.json` holds four scenarios. Each
+  that selects a workflow type selects the current `change` type by reference
   with no version pin.
 - `internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions`
   runs every case through the production action boundary over real SQLite and

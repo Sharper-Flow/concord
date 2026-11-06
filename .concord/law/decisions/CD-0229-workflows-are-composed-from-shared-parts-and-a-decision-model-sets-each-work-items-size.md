@@ -32,7 +32,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-17
 - **Scope:** Plain workflow definitions and the absence of work-item size classification
-- **Preserves:** CD-0218 D1's three live families; CD-0242 D4-D8's mandatory
+- **Preserves:** CD-0218 D1's workflow types; CD-0242 D4-D8's mandatory
   stages, independent review, current-subject proof and evidence requirements;
   CD-0242 D13's verified-snapshot upgrade; CD-0242 D14's single canonical source
 

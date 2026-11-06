@@ -33,7 +33,7 @@ Contract authority, evidence and independent Review remain mandatory. Consent
 follows CD-0243's six classes in conversation. Premise confirmation uses
 authenticated coordinator identity. Concord attests no subagent identity.
 
-### D2. Break-fix records one typed diagnosis
+### D2. The fix type records one typed diagnosis
 
 `record_diagnosis` records its reproduction, alignment-search and
 root-cause sections, each retaining its fields and guards. The search

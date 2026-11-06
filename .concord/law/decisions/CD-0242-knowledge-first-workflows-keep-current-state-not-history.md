@@ -199,7 +199,7 @@ The single template contract sets each type's mandatory steps, copied into each
 item's plan, without a work-item size classification.
 Main may add research, architecture, or planning depth. No agent may waive a
 mandatory stage or an operator approval. Current validated knowledge may
-satisfy a requirement without a new document. Break-fix keeps diagnosis and
+satisfy a requirement without a new document. The fix type keeps diagnosis and
 regression proof. Research may end with evidenced findings instead of
 implementation proof.
 
@@ -243,7 +243,7 @@ Main obtains independent review and records its actual outcome. A partial
 result remains progress with its remaining obligations. No attempt count,
 correction count, convergence basis, escalation wall, or reset exists.
 Removal of execution attestation never permits fabricated review or proof,
-skipped Review or Verify stages, or weaker required CI.
+skipped review stages, or weaker required CI.
 
 Main sizes each assignment by complexity and relatedness. No production-line
 cap, size measurement, or mandatory split applies. Scope, prerequisite,

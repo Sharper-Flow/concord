@@ -36,8 +36,7 @@ func TestWorkflowPlanApprovalRecordsLegislativeSubjects(t *testing.T) {
 	}
 	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
 	payload := testApprovalPayload(t, s, workID, "approve_contract", mustJSONValue(map[string]any{
-		"contract_version": 1, "premise": "deliver the change", "legislative_subjects": []string{"spec:one"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
-	}))
+		"contract_version": 1, "legislative_subjects": []string{"spec:one"}, "spec_mandate": []string{}, "law_modifies": []string{}}))
 	version := readWorkVersion(t, s, workID)
 	operationID := "approval-" + workID
 	tx, err = s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -58,7 +57,7 @@ func TestWorkflowPlanApprovalRecordsLegislativeSubjects(t *testing.T) {
 	if err := json.Unmarshal(events[0].Payload, &emitted); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(emitted["legislative_subjects"]), "spec:one") || string(emitted["decision_domains"]) != "[]" {
+	if !strings.Contains(string(emitted["legislative_subjects"]), "spec:one") {
 		t.Fatalf("approval payload=%s", events[0].Payload)
 	}
 	_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: "approve_contract", Payload: payload, Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: operationID, OperationID: operationID, PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: now})
@@ -106,13 +105,13 @@ func reviseExplicitPredicateContract(t *testing.T, s *Store, workID string, owne
 func TestWorkflowPlanContractUpdateValidatesLegislativeSubjects(t *testing.T) {
 	const workID = "contract-update-predicates"
 	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanFix, "implement", nil)
-	contract := pContractSuccessor(t, f.store, workID, "Continue with explicit corrected criteria.")
+	contract := pContractSuccessor(t, f.store, workID)
 	if err := reviseExplicitPredicateContract(t, f.store, workID, f.owner, contract, readWorkVersion(t, f.store, workID)); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"missing", "duplicate", "invalid type"} {
 		t.Run(name, func(t *testing.T) {
-			contract := pContractSuccessor(t, f.store, workID, "Require explicit outcome predicates.")
+			contract := pContractSuccessor(t, f.store, workID)
 			switch name {
 			case "missing":
 				delete(contract, "legislative_subjects")

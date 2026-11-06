@@ -24,9 +24,7 @@ func TestContractRevisionPayloadIsRepresentableAtAgentBoundary(t *testing.T) {
 	payload, err := json.Marshal(map[string]any{
 		"work_id": "work-stale", "expected_version": 7, "idempotency_key": "revise-contract", "title": "Updated plan", "kind": "task", "reason": "Update the plan",
 		"contract": map[string]any{
-			"contract_version": 2, "premise": "continue under the accepted successor law",
-			"legislative_subjects": []string{},
-			"route_conventions":    []string{}, "spec_mandate": []string{"spec:successor"}, "law_modifies": []string{}, "rigor_class": "prototype_internal", "decision_domains": []string{},
+			"contract_version": 2, "legislative_subjects": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		},
 	})
 	if err != nil {

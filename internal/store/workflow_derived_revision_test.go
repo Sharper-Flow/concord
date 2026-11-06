@@ -96,7 +96,7 @@ func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 		seedWorkflowLaw(t, s)
 		seedDerivedLawExtension(t, s)
 		version := seedDerivedRevisionWorkflow(t, s, workID, actor)
-		payload := json.RawMessage(`{"premise":"Revise the derived record inside this contract.","spec_mandate":["spec:one"],"law_modifies":["spec:one"],"legislative_subjects":[]}`)
+		payload := json.RawMessage(`{"spec_mandate":["spec:one"],"law_modifies":["spec:one"],"legislative_subjects":[]}`)
 		if err := runDerivedLawApproval(t, s, workID, version, actor, payload); err != nil {
 			t.Fatalf("a derived-only law_modifies was refused: %v", err)
 		}
@@ -117,7 +117,7 @@ func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 		seedWorkflowLaw(t, s)
 		seedDerivedLawExtension(t, s)
 		version := seedDerivedRevisionWorkflow(t, s, workID, actor)
-		payload := json.RawMessage(`{"premise":"Attempt to revise legislated law without a Product-changing workflow.","spec_mandate":["spec:legislated"],"law_modifies":["spec:legislated"],"legislative_subjects":[]}`)
+		payload := json.RawMessage(`{"spec_mandate":["spec:legislated"],"law_modifies":["spec:legislated"],"legislative_subjects":[]}`)
 		err := runDerivedLawApproval(t, s, workID, version, actor, payload)
 		if err == nil {
 			t.Fatal("a legislated law_modifies was admitted on a non-Product-changing contract")
@@ -136,7 +136,7 @@ func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 		seedWorkflowLaw(t, s)
 		seedDerivedLawExtension(t, s)
 		version := seedDerivedRevisionWorkflow(t, s, workID, actor)
-		payload := json.RawMessage(`{"premise":"Attempt to carry a binding without Product truth.","spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]},"legislative_subjects":[]}`)
+		payload := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]},"legislative_subjects":[]}`)
 		err := runDerivedLawApproval(t, s, workID, version, actor, payload)
 		if err == nil {
 			t.Fatal("an architecture binding was admitted on a non-Product-changing contract")
@@ -202,7 +202,7 @@ func TestTierAdmittedConflictRecordsTheContractRevisionLine(t *testing.T) {
 			t.Fatalf("fixture declarer %s has no committed record", declarer)
 		}
 		version := seedDerivedRevisionWorkflow(t, s, workID, actor)
-		payload := json.RawMessage(`{"premise":"Resolve the conflict inside this contract.","spec_mandate":["spec:legislated","spec:one"],"law_modifies":` + modifies + `,"legislative_subjects":[]}`)
+		payload := json.RawMessage(`{"spec_mandate":["spec:legislated","spec:one"],"law_modifies":` + modifies + `,"legislative_subjects":[]}`)
 		return s, runDerivedLawApproval(t, s, workID, version, actor, payload)
 	}
 

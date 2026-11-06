@@ -349,10 +349,7 @@ func TestCorpusCurrentProofPreparationProfiles(t *testing.T) {
 			planType := WorkflowStepPlanChange
 			setup := workflowCorpusSetup{FixtureRefs: workflowCorpusFixtureRefs{WorkItem: "work-alpha", Actors: []string{ref}, WorkflowTypes: []WorkflowStepPlanType{planType}}, CurrentState: &workflowCorpusCurrentState{Step: tc.step, ProofCase: tc.proof}}
 			fields := map[string]any{"impact_verdict": "non-breaking"}
-			switch tc.action {
-			case "approve_contract":
-				fields = map[string]any{"premise": "The bounded engineering result.", "decision_domains": []string{}}
-			case "confirm_premise":
+			if tc.action == "confirm_premise" {
 				fields = map[string]any{}
 			}
 			request := workflowCorpusRequest{ActorRef: ref, WorkflowType: &planType, ActionID: tc.action, Fields: fields,
@@ -676,8 +673,7 @@ func TestWorkflowInlineTransactionRollbackLeavesNoSemanticOrActionEvents(t *test
 func corpusApprovalPayload(t *testing.T, s *Store, workID string) json.RawMessage {
 	t.Helper()
 	return testApprovalPayload(t, s, workID, "approve_contract", mustJSONValue(map[string]any{
-		"contract_version": 1, "premise": "deliver the checked change", "legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
-	}))
+		"contract_version": 1, "legislative_subjects": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}}))
 }
 
 func workflowCurrentVersion(ctx context.Context, s *Store, workID string) (int64, error) {

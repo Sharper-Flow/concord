@@ -88,7 +88,7 @@ the live catalog holds four types (CD-0218 D1). What a type fixes:
 | **Artifacts** | What it produces (a spec delta? a report? findings? nothing durable?). |
 | **Completion criteria** | How it's "done" (a contract satisfied? a report submitted? a signal fired?). |
 | **Value statement** | One sentence stating the work value: what it delivers and why it matters. |
-| **Contract** | The premise and the contract fields recorded for the work. See §2.1a. |
+| **Contract** | The contract fields recorded for the work. See §2.1a. |
 | **Product-truth effect** | Closed `changes_product_truth` classification; architecture bindings and permitted law revisions follow [CD-0222 D5](../law/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md), as amended by [CD-0230 D4](../law/decisions/CD-0230-the-conflict-rules-are-one-checked-table-and-an-agent-changes-law-that-is-not-serious.md). |
 | **Staleness rule** | Whether execution is blocked while the workflow's inputs or upstream state are stale. |
 | **Active visibility** | Which gates/problems are surfaced by default vs. hidden behind history. |
@@ -114,7 +114,7 @@ observable outcome and proof strategy; independent Review judges the delivery.
 
 ### 2.1a Contract and plan
 
-Every work item carries a contract with its premise. The approved plan records
+Every work item carries a contract. The approved plan records
 the observable outcome and proof strategy. Work discovered outside the agreed
 scope forward-links as successor work under CD-0006 R1; it never substitutes.
 

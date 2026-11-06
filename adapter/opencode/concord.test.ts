@@ -135,25 +135,12 @@ test("published tool arguments expose a host-safe request shape", async () => {
   const actionBranch = actionInput(transition, "approve_contract")
   const fieldsBranches = actionFieldsBranches(actionBranch)
   expect(fieldsBranches, "approve_contract fields branches").toHaveLength(1)
-  expect(fieldsBranches[0].required).toContain("decision_domains")
-  expect(fieldsBranches[0].properties.decision_domains).toBeObject()
   expect(fieldsBranches[0].additionalProperties).toBe(false)
   expect(fieldsBranches[0].properties.legislative_subjects.maxItems).toBe(800)
   // The branch names the conditional action fields, so a calling agent can
   // read them before calling.
   for (const field of ["action_id"]) {
     expect(actionBranch.properties[field], field).toBeObject()
-  }
-  // The approval premise an author writes is the published action field, so
-  // it carries the unit guidance: code points, the UTF-8 byte admission, and
-  // its distinction from packet and model-token limits.
-  for (const fields of fieldsBranches) {
-    const premise = fields.properties.premise
-    expect(premise.maxLength).toBe(4_096)
-    expect(premise.description).toContain("Unicode code points")
-    expect(premise.description).toContain("UTF-8 bytes")
-    expect(premise.description).toContain("model-token limit")
-    expect(premise.description).toContain("Do not truncate an approved objective")
   }
 })
 
@@ -947,7 +934,7 @@ const runWorkflowAction = (runner: any, input: Record<string, unknown>, ask?: ()
 test("host publication round-trips legislative subjects unchanged", async () => {
   const input = {
     work_id: "work-1", expected_version: 2, action_id: "approve_contract", idempotency_key: "idem-subjects-1",
-    fields: { premise: "Review the proposed law change.", decision_domains: [], legislative_subjects: ["spec:one", "decision:one"] },
+    fields: { legislative_subjects: ["spec:one", "decision:one"] },
   }
   let sentInput: unknown
   const success = coreEnvelope("concord_work_transition", "workflow_action", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })

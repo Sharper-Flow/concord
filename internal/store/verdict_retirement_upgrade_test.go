@@ -106,8 +106,8 @@ DELETE FROM write_guard;`, actor, "sha256:"+strings.Repeat("b", 64))
 func retainedContractRows(t *testing.T, db *sql.DB) map[string][][]any {
 	t.Helper()
 	rows := map[string][][]any{}
-	rows["workflow_contracts"] = retirementUpgradeRows(t, db, `SELECT work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,superseded_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json,supersession_seq,last_healthy_seq,decision_domains,changes_product_truth FROM workflow_contracts ORDER BY work_id,contract_version`)
-	for _, table := range []string{"workflow_candidate_sets", "workflow_premise_confirmations", "workflow_architecture_bindings", "workflow_contract_affected_domains", "workflow_contract_domain_modifications", "workflow_contract_domain_relation_modifications", "workflow_law_addition_reservations", "workflow_contract_law_additions", "workflow_contract_verification_obligations", "workflow_contract_law_modifications", "workflow_overlap_resolutions", "relations"} {
+	rows["workflow_contracts"] = retirementUpgradeRows(t, db, `SELECT work_id,contract_version,consequence_class,approved_at,approved_by,superseded_by,spec_mandate,law_modifies,law_boundary_version,self_repair_json,supersession_seq,last_healthy_seq,changes_product_truth FROM workflow_contracts ORDER BY work_id,contract_version`)
+	for _, table := range []string{"workflow_premise_confirmations", "workflow_architecture_bindings", "workflow_contract_affected_domains", "workflow_contract_domain_modifications", "workflow_contract_domain_relation_modifications", "workflow_law_addition_reservations", "workflow_contract_law_additions", "workflow_contract_verification_obligations", "workflow_contract_law_modifications", "workflow_overlap_resolutions", "relations"} {
 		rows[table] = retirementUpgradeRows(t, db, `SELECT * FROM `+table+` ORDER BY rowid`)
 		if len(rows[table]) == 0 {
 			t.Fatalf("fixture missing retained rows in %s", table)
@@ -123,13 +123,13 @@ func assertRetirementContractGuards(t *testing.T, db *sql.DB) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	insert := `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,decision_domains) SELECT work_id,3,'Guard fixture',consequence_class,route_conventions,approved_at,approved_by,spec_mandate,?,? FROM workflow_contracts WHERE work_id='work-one' AND contract_version=2`
+	insert := `INSERT INTO workflow_contracts(work_id,contract_version,consequence_class,approved_at,approved_by,spec_mandate) SELECT work_id,3,consequence_class,approved_at,approved_by,spec_mandate FROM workflow_contracts WHERE work_id='work-one' AND contract_version=2`
 	for _, op := range []struct {
 		query string
 		args  []any
 	}{
-		{insert, []any{"prototype_internal", `["legal"]`}},
-		{`UPDATE workflow_contracts SET premise='changed' WHERE work_id='work-one' AND contract_version=2`, nil},
+		{insert, nil},
+		{`UPDATE workflow_contracts SET approved_by=? WHERE work_id='work-one' AND contract_version=2`, []any{"actor:guard"}},
 		{`DELETE FROM workflow_contracts WHERE work_id='work-one' AND contract_version=2`, nil},
 	} {
 		if _, err := tx.Exec(op.query, op.args...); err == nil || !strings.Contains(err.Error(), "write-seam-only") {
@@ -139,24 +139,10 @@ func assertRetirementContractGuards(t *testing.T, db *sql.DB) {
 	if err := enterWrite(t.Context(), tx); err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct {
-		query   string
-		args    []any
-		message string
-	}{
-		{insert, []any{"invalid", `["legal"]`}, "rigor class"},
-		{insert, []any{"prototype_internal", `["security","legal"]`}, "decision_domains"},
-		{`UPDATE workflow_contracts SET rigor_class='invalid' WHERE work_id='work-one' AND contract_version=2`, nil, "rigor class"},
-		{`UPDATE workflow_contracts SET decision_domains='["security","legal"]' WHERE work_id='work-one' AND contract_version=2`, nil, "decision_domains"},
-	} {
-		if _, err := tx.Exec(tc.query, tc.args...); err == nil || !strings.Contains(err.Error(), tc.message) {
-			t.Fatalf("invalid guarded operation %s: %v", tc.query, err)
-		}
-	}
-	if _, err := tx.Exec(insert, "production_public", `["legal","security"]`); err != nil {
+	if _, err := tx.Exec(insert); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.Exec(`UPDATE workflow_contracts SET rigor_class='critical_public', decision_domains='["product"]' WHERE work_id='work-one' AND contract_version=3`); err != nil {
+	if _, err := tx.Exec(`UPDATE workflow_contracts SET spec_mandate='["spec:guard"]' WHERE work_id='work-one' AND contract_version=3`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(`DELETE FROM workflow_contracts WHERE work_id='work-one' AND contract_version=3`); err != nil {
@@ -201,7 +187,7 @@ func TestOutcomeRetirementPreservesAllContractVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{185, 186, 187, 188, 189}) {
+	if !reflect.DeepEqual(report.Applied, []int{185, 186, 187, 188, 189, 190}) {
 		t.Fatalf("applied = %v", report.Applied)
 	}
 	if after := retainedContractRows(t, db); !reflect.DeepEqual(retained, after) {
@@ -257,8 +243,8 @@ func TestOutcomeRetirementPreservesAllContractVersions(t *testing.T) {
 		t.Fatalf("missing work: unverified=%v error=%v", unverified, err)
 	}
 	payload := workflowContractApprovedPayload{
-		ContractVersion: 3, Premise: "Future contract", ConsequenceClass: "internal_sqlite", RigorClass: "prototype_internal",
-		RouteConventions: []string{}, SpecMandate: []string{}, LawModifies: []string{}, DecisionDomains: []string{},
+		ContractVersion: 3, ConsequenceClass: "internal_sqlite",
+		SpecMandate: []string{}, LawModifies: []string{},
 		LegislativeSubjects: []string{"spec:future", "decision:future", "constitution:future"},
 		ArchitectureBinding: &WorkflowArchitectureBinding{HomeDomainID: "domain:fixture"},
 	}
@@ -427,7 +413,7 @@ func TestOutcomeRetirementEvidenceDeclarationsRequireSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upgrade of contracts without outcome rows: %v", err)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{185, 186, 187, 188, 189}) {
+	if !reflect.DeepEqual(report.Applied, []int{185, 186, 187, 188, 189, 190}) {
 		t.Fatalf("applied = %v", report.Applied)
 	}
 	var subjects string
@@ -615,7 +601,7 @@ func TestOutcomeRetirementTransfersExactPresenceAdmission(t *testing.T) {
 	path, db := outcomeRetirementFixture(t)
 	actor := DeriveWorkflowActorRef("principal:one", "client:one", "agent:one", "session:one")
 	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1);
-INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,changes_product_truth) VALUES('work-two',2,'Research','internal_sqlite','[]','[]','t',?,'[]',0);
+INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,changes_product_truth) VALUES('work-two',2,'Historical fixture','internal_sqlite','[]','[]','t',?,'[]',0);
 DELETE FROM write_guard;`, actor); err != nil {
 		t.Fatal(err)
 	}

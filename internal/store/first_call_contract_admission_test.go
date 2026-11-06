@@ -141,10 +141,6 @@ func firstCallActionInput(t *testing.T, defs map[string]any, workID string, vers
 			// follows oneOf and $ref-with-siblings exactly as the validators
 			// read them.
 			fields := crossFieldSampleObject(defs, property)
-			// Every fixture here pins a consequence_v1 live head, whose
-			// contract actions carry the explicit engineering decision
-			// fact the published consequence_v1 branch requires.
-			fields["decision_domains"] = []string{}
 			for key, value := range overrides {
 				fields[key] = value
 			}
@@ -152,6 +148,17 @@ func firstCallActionInput(t *testing.T, defs map[string]any, workID string, vers
 			continue
 		}
 		input[name] = firstCallSample(defs, property)
+	}
+	if _, ok := input["fields"]; !ok {
+		property, ok := properties["fields"].(map[string]any)
+		if !ok {
+			t.Fatalf("published variant %s declares no fields property", variant)
+		}
+		fields := crossFieldSampleObject(defs, property)
+		for key, value := range overrides {
+			fields[key] = value
+		}
+		input["fields"] = fields
 	}
 	input["work_id"] = workID
 	input["expected_version"] = version
@@ -385,7 +392,6 @@ func TestFirstCallContractUpdateAdmitsFromPublishedInput(t *testing.T) {
 		}
 		input := firstCallObject(defs, firstCallResolve(defs, map[string]any{"$ref": "#/$defs/work_define_revise_input"}))
 		fields := firstCallObject(defs, firstCallResolve(defs, map[string]any{"$ref": "#/$defs/workflow_contract_update"}))
-		fields["decision_domains"] = []string{}
 		for key, value := range overrides {
 			fields[key] = value
 		}

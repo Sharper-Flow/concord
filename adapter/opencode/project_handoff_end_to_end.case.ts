@@ -244,7 +244,6 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
     expect(response.outcome, `${actionID}: ${JSON.stringify(response)}`).toBe("ok")
   }
   await walk("record_intake", {
-    checks_found: ["freshness", "overtaken", "already_delivered", "still_reproducible", "observed_or_theoretical", "defect_or_feature", "duplicate_or_overlap", "right_owner", "conflicts", "value", "cost_against_value", "one_outcome_or_several", "checkable_end_state", "blocked"],
     outcome: "proceed",
   })
   await walk("pick_type", { type: "fix", reason: "The fixture reproduces a defect." })
@@ -263,14 +262,9 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
   const domainList = await invoke("concord_domain", "list", { product_id: PRODUCT_ID, page: { cursor: null, limit: 10 } }, sourceContext)
   expect(domainList.outcome).toBe("ok")
   await walk("approve_contract", {
-    premise: "Deliver the bounded cross-Project handoff.",
     legislative_subjects: [],
-    route_conventions: [],
     spec_mandate: [],
     law_modifies: [],
-    // The consequence_v1 head requires the decision fact; none declares
-    // engineering work, which records without a consent question.
-    decision_domains: [],
     architecture_binding: {
       home_domain_id: `product-root:${PRODUCT_ID}`,
       affected_domain_ids: [`product-root:${PRODUCT_ID}`],

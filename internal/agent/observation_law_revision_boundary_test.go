@@ -48,7 +48,7 @@ func seedObservationLawBoundary(t *testing.T) observationLawBoundary {
 	execProjection(t, s,
 		[]string{
 			`INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'human-1','client-1','agent-1','session-1','agent','2026-08-08T12:00:00Z')`,
-			`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'accept the merge result','internal_sqlite','[]','2026-08-08T12:00:00Z',?,?,'[]',1,'prototype_internal')`,
+			`INSERT INTO workflow_contracts(work_id,contract_version,consequence_class,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version) VALUES(?,1,'internal_sqlite','2026-08-08T12:00:00Z',?,?,'[]',1)`,
 		},
 		[][]any{
 			{actorRef},

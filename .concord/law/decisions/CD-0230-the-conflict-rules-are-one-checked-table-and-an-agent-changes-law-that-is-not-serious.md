@@ -225,16 +225,13 @@ review and goal A's spot checks own that detection.
 They do not establish D4 enforcement on the ad-hoc development route or
 whole-record runtime alignment under CD-0243 D6.
 
-P5 reuses the declared decision-domain fact. `internal/store.TestSixClassDecisionDomainsAuthoring`
-admits exactly the six classes and refuses every historical or unknown member,
-and `internal/store.TestSixClassDecisionDomainsRoundTrip` proves each authored
-class stores and projects byte-identically. The authored class remains a review
-judgment.
+P5 uses the existing operator boundary: the agent asks the operator directly
+when the choice falls within a CD-0243 D2 class. Whether a class applies
+remains a review judgment.
 
 U and A2 row 7 use the existing operator boundary. The agent asks the operator
 directly for preview and early visual-design approval under CD-0242 D9 and
-records the answer in the existing work record. `internal/store.TestSixClassDecisionDomainsAuthoring`
-proves the declared UI/UX class boundary. They do not prove approval of a final
+records the answer in the existing work record. They do not prove approval of a final
 preview or mockup, renewed approval of a changed experience, or interception of
 a Git push or merge.
 

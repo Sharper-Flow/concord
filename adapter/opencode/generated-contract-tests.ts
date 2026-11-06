@@ -126,8 +126,8 @@ export function expandedPublishedRequestSchema(published: unknown): unknown {
 // variant's fields surface: every oneOf/anyOf branch when publication
 // factored the fields union, or the single flat object when the action
 // declares one closed shape. Structural inspection reads fields through this
-// helper so a branch-only field (the consequence_v1 decision_domains
-// admission) is checked where it lives, never through the factored parent
+// helper so a branch-only field (a cross-field admission's variant field)
+// is checked where it lives, never through the factored parent
 // view that carries only the shared constraints. Inspection only: the
 // published compact document stays the admitted input.
 export function actionFieldsBranches(actionInput: unknown, fieldName: string = "fields"): any[] {
@@ -207,4 +207,4 @@ function validateSchema(schema: any, value: unknown, root: Record<string, unknow
   return pass(evaluated);
 }
 
-export const PINNED_PUBLISHED_TOTAL_BYTES = 55173;
+export const PINNED_PUBLISHED_TOTAL_BYTES = 49125;

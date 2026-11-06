@@ -7,7 +7,7 @@ import "context"
 func workflowRecordAction(action string) bool {
 	switch action {
 	case "record_intake", "record_clarify", "record_plan", "record_diagnosis",
-		"record_delivery", "record_review", "revise_candidates":
+		"record_delivery", "record_review":
 		return true
 	}
 	return false

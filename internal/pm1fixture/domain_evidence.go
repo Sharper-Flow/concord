@@ -137,10 +137,10 @@ func SeedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidence
 	if err != nil {
 		return err
 	}
-	return seedDomainEvidence(ctx, s, opts, repo, CommittedRegistryContentHash(registry), SingleDomainRootID, DomainEvidenceLawID, "domain evidence")
+	return seedDomainEvidence(ctx, s, opts, repo, CommittedRegistryContentHash(registry), SingleDomainRootID, DomainEvidenceLawID)
 }
 
-func seedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidenceOptions, repo, registryHash, domainID, lawID, premise string) error {
+func seedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidenceOptions, repo, registryHash, domainID, lawID string) error {
 	if err := execDomainFold(ctx, s,
 		domainStatement{"knowledge locator", `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES(?,?,'canonical_path',?,?,'now','now')`, []any{opts.LocatorID, opts.ProjectID, repo, repo}},
 		domainStatement{"knowledge home", `INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES(?,?,?)`, []any{opts.ProductID, opts.ProjectID, opts.LocatorID}},
@@ -152,11 +152,11 @@ func seedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidence
 	statements := []domainStatement{
 		{"workflow actor", `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'human-1','client-1','agent-1','session-1','operator','now')`, []any{actorRef}},
 	}
-	const contract = `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,?,'internal_sqlite','[]','now',?,'[]',?,1,'prototype_internal')`
+	const contract = `INSERT INTO workflow_contracts(work_id,contract_version,consequence_class,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version) VALUES(?,1,'internal_sqlite','now',?,'[]',?,1)`
 	const binding = `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES(?,1,?,?,?)`
 	for _, workID := range opts.WorkIDs {
 		statements = append(statements,
-			domainStatement{"contract " + workID, contract, []any{workID, premise, actorRef, `["` + lawID + `"]`}},
+			domainStatement{"contract " + workID, contract, []any{workID, actorRef, `["` + lawID + `"]`}},
 			domainStatement{"architecture binding " + workID, binding, []any{workID, opts.ProductID, domainID, registryHash}},
 			domainStatement{"affected Domain " + workID, `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES(?,1,?)`, []any{workID, domainID}},
 			domainStatement{"law modification " + workID, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES(?,1,?)`, []any{workID, lawID}},

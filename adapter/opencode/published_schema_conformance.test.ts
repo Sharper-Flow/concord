@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test"
 import { readFileSync } from "node:fs"
 import { contractOperations, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
-import { expandedPublishedRequestSchema, validateGeneratedPayload, actionFieldsBranches } from "./generated-contract-tests"
+import { expandedPublishedRequestSchema, validateGeneratedPayload } from "./generated-contract-tests"
 import { validateAgainstSchema } from "./core-runtime"
 
 const adapter = await import("./concord")
@@ -108,10 +108,8 @@ test("the published workflow_action variants state each action's exact required 
       expect(input.required).not.toContain(field)
     }
   }
-  // The registry declares approve_contract's fields required: the published
-  // variant input schema states that requirement.
   const approve = actionVariantInput(schema, "approve_contract")
-  expect(approve.required).toEqual(["work_id", "expected_version", "action_id", "idempotency_key", "fields"])
+  expect(approve.required).toEqual(["work_id", "expected_version", "action_id", "idempotency_key"])
   // The retired result-size budget object is named nowhere on the published
   // surface; time is bounded only by requested_budget_seconds.
   expect(JSON.stringify(schema)).not.toContain('"budget"')
@@ -129,60 +127,48 @@ test("the published workflow_action variants state each action's exact required 
 // the same validateAgainstSchema the request conformance suite uses.
 test("published string bounds admit and refuse with the core in both directions on multibyte boundaries", () => {
   const schema = publishedSchema("concord_work_transition")
-  // The premise lives on every branch of the fields union, so the bound
-  // check reads each branch, never the factored parent view alone.
-  const premises = actionFieldsBranches(actionVariantInput(schema, "approve_contract"))
-    .filter((fields: any) => fields.properties?.premise)
-    .map((fields: any) => fields.properties.premise)
-  expect(premises.length).toBeGreaterThan(0)
-  for (const premise of premises) {
-    expect(premise["x-maxBytes"]).toBe(4096)
-    expect(premise["x-minBytes"]).toBe(2)
-    expect(premise.minLength).toBe(1)
-    expect(premise.maxLength).toBe(4096)
-  }
-  const approveCall = (value: string) => ({
-    operation: "workflow_action",
-    input: {
-      work_id: "work-multibyte-parity",
-      expected_version: 4,
-      action_id: "approve_contract",
-      idempotency_key: "idem-multibyte-parity",
-      fields: {
-        premise: value,
-        route_conventions: [],
-        spec_mandate: [],
-        law_modifies: [],
-        decision_domains: [],
-        rigor_class: "prototype_internal",
-      },
+  const variant = actionVariantInput(schema, "record_diagnosis")
+  const searched = variant.properties.fields.properties.searched
+  expect(searched).toBeObject()
+  expect(searched["x-maxBytes"]).toBe(4096)
+  expect(searched["x-minBytes"]).toBe(2)
+  expect(searched.minLength).toBe(1)
+  expect(searched.maxLength).toBe(4096)
+  const diagnosisInput = (value: string) => ({
+    work_id: "work-multibyte-parity",
+    expected_version: 4,
+    action_id: "record_diagnosis",
+    idempotency_key: "idem-multibyte-parity",
+    fields: {
+      reproduction: "é",
+      searched: value,
+      outcome: "none_found",
+      root_cause: "é",
     },
   })
+  const diagnosisCall = (value: string) => ({ operation: "workflow_action", input: diagnosisInput(value) })
   // One code point of two bytes: the core byte floor admits it, so the
-  // published bounds must admit it too.
+  // published bounds must admit it too; the same holds for the ASCII
+  // maximum the byte ceiling admits.
   const failures: string[] = []
-  expect(validateAgainstSchema(schema, approveCall("é"), failures), failures.join("; ")).toBe(true)
+  expect(validateAgainstSchema(schema, diagnosisCall("é"), failures), failures.join("; ")).toBe(true)
+  expect(validateAgainstSchema(schema, diagnosisCall("v".repeat(4096)), failures), failures.join("; ")).toBe(true)
   // One byte under the two-byte floor: the core refuses it and
   // x-minBytes refuses it, though the derived code-point minLength is 1.
-  expect(validateAgainstSchema(schema, approveCall("v"), failures)).toBe(false)
-  expect(failures.join("; ")).toContain("carries 1 UTF-8 bytes against a minimum of 2")
-  // The byte maximum in ASCII: admitted on both counts.
-  expect(validateAgainstSchema(schema, approveCall("v".repeat(4096)), failures)).toBe(true)
-  // 4096 code points of two bytes each: 8192 bytes, over the byte maximum
-  // the core enforces, under the code-point maxLength — only x-maxBytes
-  // refuses it.
-  expect(validateAgainstSchema(schema, approveCall("é".repeat(4096)), failures)).toBe(false)
-  expect(failures.join("; ")).toContain("UTF-8 bytes against a limit of 4096")
+  // The whole-tool union reports the refusal as a branch mismatch, so the
+  // enforcing byte message is asserted against the matched variant branch.
+  expect(validateAgainstSchema(schema, diagnosisCall("v"), failures), failures.join("; ")).toBe(false)
+  const branchFailures: string[] = []
+  expect(validateAgainstSchema(variant, diagnosisInput("v"), branchFailures), branchFailures.join("; ")).toBe(false)
+  expect(branchFailures.join("; ")).toContain("carries 1 UTF-8 bytes against a minimum of 2")
+  // The other direction at the max bound: 4096 code points of two-byte
+  // characters are 8192 bytes — the core refuses them and the byte bound
+  // refuses them, where the code-point-equal maxLength admits them.
+  expect(validateAgainstSchema(schema, diagnosisCall("é".repeat(4096)), failures), failures.join("; ")).toBe(false)
+  branchFailures.length = 0
+  expect(validateAgainstSchema(variant, diagnosisInput("é".repeat(4096)), branchFailures), branchFailures.join("; ")).toBe(false)
+  expect(branchFailures.join("; ")).toContain("carries 8192 UTF-8 bytes against a limit of 4096")
 })
-
-// --- The parity oracle -----------------------------------------------------
-//
-// The compact publication must stay semantically lossless against the
-// authored payload contract. Two independent authorities decide every
-// verdict: the generated payload validator runs the authored schema
-// document, and the host validator runs the raw compact published document
-// and the final hooked argument root. The expanded view never decides
-// admission; it only selects branches for structural comparison.
 
 // authoredInput is the authored schema document for one operation input,
 // used as the independent oracle surface.

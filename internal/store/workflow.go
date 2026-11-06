@@ -19,19 +19,18 @@ import (
 
 // Workflow event names are deliberately closed. Adding one is a contract change.
 const (
-	WorkflowDefinitionSelected  = "workflow.definition_selected"
-	WorkflowContractApproved    = "workflow.contract_approved"
-	WorkflowOverlapResolved     = "workflow.overlap_resolved"
-	WorkflowContractSuperseded  = "workflow.contract_superseded"
-	WorkflowCandidateSetRevised = "workflow.candidate_set_revised"
-	WorkflowActorRecorded       = "workflow.actor_recorded"
-	WorkflowActionStarted       = "workflow.action_started"
-	WorkflowActionCheckpointed  = "workflow.action_checkpointed"
-	WorkflowActionCompleted     = "workflow.action_completed"
-	WorkflowActionFailed        = "workflow.action_failed"
-	WorkflowEvidenceBound       = "workflow.evidence_bound"
-	WorkflowPremiseConfirmed    = "workflow.premise_confirmed"
-	WorkflowSuccessorLinked     = "workflow.successor_linked"
+	WorkflowDefinitionSelected = "workflow.definition_selected"
+	WorkflowContractApproved   = "workflow.contract_approved"
+	WorkflowOverlapResolved    = "workflow.overlap_resolved"
+	WorkflowContractSuperseded = "workflow.contract_superseded"
+	WorkflowActorRecorded      = "workflow.actor_recorded"
+	WorkflowActionStarted      = "workflow.action_started"
+	WorkflowActionCheckpointed = "workflow.action_checkpointed"
+	WorkflowActionCompleted    = "workflow.action_completed"
+	WorkflowActionFailed       = "workflow.action_failed"
+	WorkflowEvidenceBound      = "workflow.evidence_bound"
+	WorkflowPremiseConfirmed   = "workflow.premise_confirmed"
+	WorkflowSuccessorLinked    = "workflow.successor_linked"
 	// WorkflowWorkContextRecorded is read only by frozen migration replay.
 	WorkflowWorkContextRecorded      = "workflow.work_context_recorded"
 	WorkflowProposalRecorded         = "workflow.proposal_recorded"
@@ -83,70 +82,17 @@ type workflowDefinitionSelectedPayload struct {
 type workflowContractApprovedPayload struct {
 	WorkflowVersionFields
 	ContractVersion     int64                        `json:"contract_version"`
-	Premise             string                       `json:"premise"`
-	RouteConventions    []string                     `json:"route_conventions"`
 	SpecMandate         []string                     `json:"spec_mandate"`
 	LawModifies         []string                     `json:"law_modifies"`
 	LegislativeSubjects []string                     `json:"legislative_subjects"`
 	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
 	LawBoundaryVersion  int                          `json:"law_boundary_version,omitempty"`
-	RigorClass          string                       `json:"rigor_class"`
 	ConsequenceClass    string                       `json:"consequence_class,omitempty"`
-	// DecisionDomains is the contract-owned declared classification fact: a
-	// canonical sorted unique subset of workflowDecisionDomainSet, where []
-	// records engineering and nil records historical absence. omitzero drops a
-	// nil fact from the encoding while a non-nil empty slice stays present.
-	DecisionDomains []string `json:"decision_domains,omitzero"`
 }
 
 // workflowContractPayloadVersion is the workflow.contract_approved
 // current payload version.
 const workflowContractPayloadVersion = 7
-
-// workflowDecisionDomainSet is the closed authoring set.
-var workflowDecisionDomainSet = []string{"increased_spending", "legal", "product", "production_data", "security", "ui_ux"}
-
-// validateWorkflowAuthoredDecisionDomains excludes the retired preference class
-// from new facts without changing the decoding of stored contracts.
-func validateWorkflowAuthoredDecisionDomains(domains []string) error {
-	if err := validateWorkflowDecisionDomains(domains); err != nil {
-		return err
-	}
-	for _, domain := range domains {
-		if domain == "preference" {
-			return newFailure(KindInvalidPayload, "fold_event", "contract decision_domains names the retired preference class", false, "declare only increased_spending, legal, product, production_data, security, or ui_ux")
-		}
-	}
-	return nil
-}
-
-// validateWorkflowDecisionDomains holds the typed fact to its canonical form:
-// a sorted unique subset of the closed set with at most one entry per domain.
-// Stored preference remains decodable; nil stays legal here, and the caller
-// decides what absence means.
-func validateWorkflowDecisionDomains(domains []string) error {
-	if len(domains) > len(workflowDecisionDomainSet)+1 {
-		return newFailure(KindInvalidPayload, "fold_event", "contract decision_domains exceeds the closed domain set", false, "declare at most one entry per decision domain")
-	}
-	previous := ""
-	for _, domain := range domains {
-		known := domain == "preference"
-		for _, candidate := range workflowDecisionDomainSet {
-			if domain == candidate {
-				known = true
-				break
-			}
-		}
-		if !known {
-			return newFailure(KindInvalidPayload, "fold_event", "contract decision_domains names a domain outside the closed set", false, "declare only increased_spending, legal, product, production_data, security, or ui_ux; preference is readable only on stored contracts")
-		}
-		if domain <= previous {
-			return newFailure(KindInvalidPayload, "fold_event", "contract decision_domains is not canonical sorted unique", false, "declare the domains in canonical order without duplicates")
-		}
-		previous = domain
-	}
-	return nil
-}
 
 type workflowOverlapResolvedPayload struct {
 	WorkflowVersionFields
@@ -161,15 +107,6 @@ type workflowOverlapResolvedPayload struct {
 
 func (p workflowOverlapResolvedPayload) workflowVersionFields() WorkflowVersionFields {
 	return p.WorkflowVersionFields
-}
-
-type workflowCandidateSetRevisedPayload struct {
-	WorkflowVersionFields
-	ContractVersion int64    `json:"contract_version"`
-	CandidateKind   string   `json:"candidate_kind"`
-	CandidateRef    string   `json:"candidate_ref"`
-	Added           []string `json:"added"`
-	Removed         []string `json:"removed"`
 }
 
 // workflowBacklogAlignmentRecordedPayload is the retired standalone
@@ -357,12 +294,11 @@ type workflowSuccessorLinkedPayload struct {
 
 type workflowCompletedPayload struct {
 	WorkflowVersionFields
-	TerminalState     string   `json:"terminal_state"`
-	PremiseConfirmed  bool     `json:"premise_confirmed"`
-	EvidenceCount     int64    `json:"evidence_count"`
-	ChangedRefsDigest string   `json:"changed_refs_digest"`
-	ImpactVerdict     string   `json:"impact_verdict"`
-	Warnings          []string `json:"warnings,omitempty"`
+	TerminalState     string `json:"terminal_state"`
+	PremiseConfirmed  bool   `json:"premise_confirmed"`
+	EvidenceCount     int64  `json:"evidence_count"`
+	ChangedRefsDigest string `json:"changed_refs_digest"`
+	ImpactVerdict     string `json:"impact_verdict"`
 }
 
 var workflowKinds = map[string]bool{
@@ -640,12 +576,7 @@ func normalizeWorkflowContractApproval(p *workflowContractApprovedPayload) error
 	if p.SpecMandate == nil {
 		p.SpecMandate = []string{}
 	}
-	if p.DecisionDomains != nil {
-		if err := validateWorkflowDecisionDomains(p.DecisionDomains); err != nil {
-			return err
-		}
-	}
-	if p.ContractVersion <= 0 || !workflowString(p.Premise, WorkflowPremiseMaxLength) || !workflowList(p.RouteConventions, 16, 0) || !workflowList(p.SpecMandate, 32, 0) || !workflowList(p.LawModifies, 32, 0) || !validLegislativeSubjects(p.LegislativeSubjects) {
+	if p.ContractVersion <= 0 || !workflowList(p.SpecMandate, 32, 0) || !workflowList(p.LawModifies, 32, 0) || !validLegislativeSubjects(p.LegislativeSubjects) {
 		return newFailure(KindInvalidPayload, "fold_event", "contract_approved contains invalid contract fields", false, "supply a strict closed workflow outcome and bounded contract fields")
 	}
 	if p.LawBoundaryVersion != 0 && p.LawBoundaryVersion != 1 {
@@ -693,13 +624,6 @@ func foldValidatedWorkflowContractApproval(ctx context.Context, tx *sql.Tx, even
 
 func validateWorkflowContractFacts(ctx context.Context, tx *sql.Tx, event Event, planType WorkflowStepPlanType, contractFields map[string]json.RawMessage, p workflowContractApprovedPayload) error {
 	changesProductTruth := planType != WorkflowStepPlanResearch
-	// The contract's declared decision-domain fact is the authored record of
-	// its decision class, so a contract under the typed declaration must
-	// carry the fact itself: nil is the legacy absence shape and [] is
-	// explicit engineering.
-	if p.DecisionDomains == nil {
-		return newFailure(KindInvalidPayload, "fold_event", "contract approval requires the declared decision-domain fact; absence is a legacy shape", false, "declare the contract's decision domains explicitly")
-	}
 	if err := validateWorkflowContractApprovalLaw(ctx, tx, event, planType, contractFields, p, changesProductTruth); err != nil {
 		return err
 	}
@@ -727,18 +651,11 @@ func validateWorkflowApprovalLawBoundaryTx(ctx context.Context, tx *sql.Tx, work
 
 func persistWorkflowContractApprovalTx(ctx context.Context, tx *sql.Tx, event Event, planType WorkflowStepPlanType, p workflowContractApprovedPayload) error {
 	changesProductTruth := planType != WorkflowStepPlanResearch
-	// NULL on the projection column is historical absence, never engineering:
-	// a contract that declares no array stores NULL, and [] stores the explicit
-	// empty array.
-	var decisionDomains any
-	if p.DecisionDomains != nil {
-		decisionDomains = workflowJSON(p.DecisionDomains)
-	}
 	truthValue := 0
 	if changesProductTruth {
 		truthValue = 1
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains,changes_product_truth,legislative_subjects) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.Premise, p.ConsequenceClass, workflowJSON(p.RouteConventions), event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, p.RigorClass, decisionDomains, truthValue, workflowJSON(p.LegislativeSubjects))
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_contracts(work_id,contract_version,consequence_class,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,changes_product_truth,legislative_subjects) VALUES(?,?,?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.ConsequenceClass, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor, workflowJSON(p.SpecMandate), workflowJSON(p.LawModifies), p.LawBoundaryVersion, truthValue, workflowJSON(p.LegislativeSubjects))
 	if err != nil {
 		return workflowProjectionError(err, "cannot record immutable workflow contract")
 	}
@@ -755,52 +672,11 @@ func persistWorkflowContractApprovalTx(ctx context.Context, tx *sql.Tx, event Ev
 	return nil
 }
 
-func foldWorkflowCandidateSetRevised(ctx context.Context, tx *sql.Tx, event Event) error {
-	var p workflowCandidateSetRevisedPayload
-	if err := decodeWorkflowPayload(event, &p); err != nil {
-		return err
-	}
-	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	if p.ContractVersion <= 0 || !slices.Contains([]string{"work_item", "product", "project"}, p.CandidateKind) || !workflowString(p.CandidateRef, 128) || !workflowList(p.Added, 100, 0) || !workflowList(p.Removed, 100, 0) || len(p.Added) == 0 && len(p.Removed) == 0 || overlap(p.Added, p.Removed) {
-		return newFailure(KindInvalidPayload, "fold_event", "candidate_set_revised has invalid candidate bounds", false, "supply disjoint bounded additions or removals")
-	}
-	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	role, scope := "include", "{}"
-	for _, ref := range p.Added {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_candidate_sets(work_id,contract_version,candidate_kind,candidate_ref,candidate_role,candidate_scope,recorded_at,recorded_by) VALUES(?,?,?,?,?,?,?,?)`, event.SubjectID, p.ContractVersion, p.CandidateKind, ref, role, scope, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Actor); err != nil {
-			return workflowProjectionError(err, "cannot add workflow candidate")
-		}
-	}
-	for _, ref := range p.Removed {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_candidate_sets WHERE work_id=? AND contract_version=? AND candidate_kind=? AND candidate_ref=?`, event.SubjectID, p.ContractVersion, p.CandidateKind, ref); err != nil {
-			return workflowProjectionError(err, "cannot remove workflow candidate")
-		}
-	}
-	return nil
-}
-
-func overlap(a, b []string) bool {
-	seen := map[string]bool{}
-	for _, x := range a {
-		seen[x] = true
-	}
-	for _, x := range b {
-		if seen[x] {
-			return true
-		}
-	}
-	return false
-}
-
 // foldWorkflowBacklogAlignmentRecorded writes the write-seam-only alignment
 // projection: one declaration row and, when the search found related work,
-// one row per named work id. It does not reuse workflow_candidate_sets, whose
-// foreign key binds to workflow_contracts(work_id, contract_version) and
-// which therefore cannot hold a row before planning approves a contract. The
+// one row per named work id. Its foreign keys bind to work_items, not to
+// workflow_contracts, so it can hold a row before planning approves a
+// contract. The
 // fold enforces the related_found bound — one to sixty-four unique related
 // ids. The fold evaluates the record_diagnosis declaration's outcome and
 // related_ids combinations because replay applies events without the action boundary.
@@ -1766,7 +1642,7 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event, scope *
 	}
 	// evidence_count derives from the item's total workflow.evidence_bound
 	// history, so any non-negative count the constructor produces is valid.
-	if p.TerminalState != "completed" && p.TerminalState != "cancelled" || p.EvidenceCount < 0 || !workflowDigest(p.ChangedRefsDigest) || !slices.Contains([]string{"breaking", "non-breaking"}, p.ImpactVerdict) || !workflowList(p.Warnings, 16, 0) {
+	if p.TerminalState != "completed" && p.TerminalState != "cancelled" || p.EvidenceCount < 0 || !workflowDigest(p.ChangedRefsDigest) || !slices.Contains([]string{"breaking", "non-breaking"}, p.ImpactVerdict) {
 		return newFailure(KindInvalidPayload, "fold_event", "completed has invalid terminal metadata", false, "supply closed terminal metadata including impact_verdict")
 	}
 	plan, err := readWorkflowPlanTx(ctx, tx, event.SubjectID)

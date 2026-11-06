@@ -35,7 +35,7 @@ amends D9 (law-change approval follows CD-0243 D2).
 
 CD-0006 D3 commits Concord to a full workflow coordination engine with native-effect
 preservation. CD-0008 commits to current-state resumption, expected versions, immutable
-evidence binding and schema evolution. CD-0012 retains the contract premise and
+evidence binding and schema evolution. CD-0012 retains the stated goal and
 independent Review ([CD-0242 D5](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)).
 
 The accepted law already defines:
@@ -114,9 +114,6 @@ The approved contract carries:
 - `legislative_subjects` — subjects recorded for the exact contract version;
   legislative standing requires the operator-approved contract and the other
   conditions in CD-0159 D2, not subject inclusion alone;
-- `route_conventions` — declared conventions that determine the operative verb
-  (CD-0012 D8);
-- `rigor_class` — the maturity × audience composition from CD-0006 D4.
 
 Modifications to specs outside the mandate route back to planning under CD-0006 D10.
 
@@ -146,15 +143,9 @@ work management outside those classes need no consent. Serious law and crucial
 size alone do not require approval. Approval-boundary changes require the
 operator's approval of their exact wording.
 
-The authenticated coordinator explicitly records every applicable
-approval class in the contract's `decision_domains` field. An explicit empty
-array means no class applies; an absent field is never treated as
-engineering. It does not infer consent from a title, tag, kind, path, or
-premise text. An attributed ordinary contract update changes that
-classification, with expected versions and a reason; it never rewrites an
-earlier operator decision. The field describes the contract; operator approval
-remains conversational under CD-0243. Every workflow records a valid contract
-and premise confirmation.
+Operator approval classes remain conversational under CD-0243: consent is
+never inferred from a title, tag, kind, path, or intent text. Every workflow
+records a valid contract and premise confirmation.
 
 Contract updates and corrections preserve actor, evidence, subject, version,
 source, scope, current-step and recovery checks at their owning actions.
@@ -223,16 +214,13 @@ The implementation acceptance suite must exercise:
 
 ### Outcome contract (CD-0012 binding)
 
-1. A premise revision appends a retained version without changing earlier content.
-2. Candidate-set revision during execution needs no re-approval, records current
-   rows in one transaction and leaves the premise byte-identical.
-3. Work discovered outside the approved scope forward-links as successor work.
-4. Independent Review may correct its candidate; final review requires a clean pass.
-5. A delivery route declares a pre-existing convention that determines its verb.
-6. The lowest maturity × audience band still requires an approved contract;
+1. An intent revision appends a retained contract version without changing earlier content.
+2. Work discovered outside the approved scope forward-links as successor work.
+3. Independent Review may correct its candidate; final review requires a clean pass.
+4. The lowest maturity × audience band still requires an approved contract;
    only proof depth differs.
-7. Premise confirmation and the reported delivery remain terminal facts.
-8. Terminal metadata, lifecycle change and delivery links commit atomically.
+5. Premise confirmation and the reported delivery remain terminal facts.
+6. Terminal metadata, lifecycle change and delivery links commit atomically.
 
 ### Current-state mutations (CD-0008 binding)
 
@@ -361,7 +349,7 @@ completion follows D10.
 |---|---|
 | `.concord/law/decisions/CD-0006-concord-root-product-policy.md` | Extends D3, D4, D5, D10 with engine-shaped definitions, rigor, and spec mandate enforcement. |
 | `.concord/law/decisions/CD-0008-concord-mechanism-hardening.md` | Extends D2, D4, D5, D6 with workflow evidence, checkpoints, conditions, and recovery. |
-| `.concord/law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md` | Preserves the contract premise, independent Review and forward-linking. |
+| `.concord/law/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md` | Preserves the stated goal, independent Review and forward-linking. |
 | `.concord/law/decisions/CD-0005-concord-agent-tool-surface.md` | Keeps `workflow_action` reserved; promotes `WorkflowActionAvailable` to registered-engine check. |
 | `.concord/docs/workflows.md` | Resolves the live-family shape with a single machine contract. |
 | `.concord/law/constitution/priorities.md` | New decision-tracker row; no priority reordering. |

@@ -31,16 +31,6 @@ func schemaDef(t *testing.T, name string) map[string]any {
 	return def
 }
 
-func TestGeneratedPremiseBoundMatchesStore(t *testing.T) {
-	t.Parallel()
-	variant := schemaDef(t, "work_transition_action_variant_approve_contract")
-	fields, _ := variant["properties"].(map[string]any)["fields"].(map[string]any)
-	premise, _ := fields["properties"].(map[string]any)["premise"].(map[string]any)
-	if got := premise["maxLength"]; got != float64(store.WorkflowPremiseMaxLength) {
-		t.Fatalf("approve_contract premise maxLength = %v, want %d: the published and store bounds drifted apart", got, store.WorkflowPremiseMaxLength)
-	}
-}
-
 func TestGeneratedReferenceDefMatchesStore(t *testing.T) {
 	t.Parallel()
 	schemaReference := schemaDef(t, "reference")
@@ -165,7 +155,7 @@ func TestBoundEvidenceReceiptsRoundTripThroughHistory(t *testing.T) {
 		t.Run(fmt.Sprintf("%d references", count), func(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
-			s, service, engine := workflowEngineFixture(t, "checkpoint evidence reaches history")
+			s, service, engine := workflowEngineFixture(t)
 			refs := make([]string, count)
 			for i := range refs {
 				prefix := fmt.Sprintf("artifact:checkpoint-%02d:", i)
@@ -219,23 +209,5 @@ func TestBoundEvidenceReceiptsRoundTripThroughHistory(t *testing.T) {
 				t.Fatalf("history evidence = %d entries, want all %d checkpoint references in order", len(got), count)
 			}
 		})
-	}
-}
-
-func TestWorkflowRoundTripLegalMaximum(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, _, engine := workflowEngineFixture(t, strings.Repeat("p", store.WorkflowPremiseMaxLength))
-	for _, kind := range []string{"verification", "review", "approval", "commit", "durable_note", "artifact"} {
-		ref, run, watermark := "roundtrip:"+kind, "producer:roundtrip-"+kind, "request:roundtrip-"+kind
-		seedAgentEvidenceProducer(t, s, "work-1", "human-1", ref, run, watermark)
-		engine("bind_evidence", map[string]any{"evidence_kind": kind, "evidence_ref": ref, "producer_id": "human-1", "producer_run_ref": run, "producer_watermark": watermark})
-	}
-	var premise string
-	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT premise FROM workflow_contracts WHERE work_id='work-1' AND superseded_by IS NULL`).Scan(&premise); err != nil {
-		t.Fatal(err)
-	}
-	if len(premise) != store.WorkflowPremiseMaxLength {
-		t.Fatal("contract premise did not round-trip at the legal maximum")
 	}
 }

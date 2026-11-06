@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:1cf9149e9d41e427800fbed034f26b21c1c27540471ae054fbc187ca04ab665b"
+const ManifestDigest = "sha256:c75b42f74463f404417789989e379b20be1040873384bc85cdd819bc2c5ed7ea"
 
 type OperationKind string
 
@@ -129,7 +129,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_trace_resume_input":                             {Required: []string{"work_id"}, Properties: []string{"work_id", "page", "limit", "requested_budget_seconds"}},
 	"work_transition_action_input":                        {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},
 	"work_transition_action_public_input":                 {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},
-	"work_transition_action_variant_approve_contract":     {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key", "fields"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},
+	"work_transition_action_variant_approve_contract":     {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},
 	"work_transition_action_variant_bind_evidence":        {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key", "fields"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},
 	"work_transition_action_variant_checkpoint_execution": {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},
 	"work_transition_action_variant_complete":             {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key", "fields"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},
@@ -149,14 +149,13 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_transition_action_variant_record_removal_scope": {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key", "fields"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},
 	"work_transition_action_variant_record_report":        {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},
 	"work_transition_action_variant_record_review":        {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key", "fields"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},
-	"work_transition_action_variant_revise_candidates":    {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},
 	"work_transition_action_variant_start_execution":      {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},
 	"work_transition_lifecycle_input":                     {Required: []string{"work_id", "expected_version", "target", "reason", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "target", "reason", "idempotency_key", "evidence", "requested_budget_seconds"}},
 	"work_transition_project_handoff_consume_input":       {Required: []string{"work_id", "handoff_id", "idempotency_key"}, Properties: []string{"idempotency_key", "work_id", "handoff_id", "requested_budget_seconds"}},
 	"work_transition_project_handoff_record_input":        {Required: []string{"work_id", "target_project_id", "bounded_job", "next_action", "idempotency_key"}, Properties: []string{"idempotency_key", "work_id", "target_project_id", "bounded_job", "next_action", "changes", "verification", "artifact_refs", "blockers", "requested_budget_seconds"}},
 	"work_transition_remove_input":                        {Required: []string{"operation_id", "idempotency_key", "work_id", "expected_version", "reason", "actor", "handoff", "execution_relinquished", "writes_reconciled", "effects_reconciled", "dependencies_resolved", "artifacts_verified"}, Properties: []string{"operation_id", "idempotency_key", "work_id", "expected_version", "reason", "actor", "product_id", "handoff", "linear", "execution_relinquished", "writes_reconciled", "effects_reconciled", "dependencies_resolved", "artifacts_verified"}},
 	"workflow_completion_payload":                         {Required: []string{}, Properties: []string{"evidence_commit", "current_commit", "staleness"}},
-	"workflow_contract_update":                            {Required: []string{"contract_version", "premise", "route_conventions", "spec_mandate", "law_modifies", "legislative_subjects", "rigor_class", "decision_domains"}, Properties: []string{"contract_version", "premise", "route_conventions", "spec_mandate", "law_modifies", "legislative_subjects", "rigor_class", "architecture_binding", "decision_domains"}},
+	"workflow_contract_update":                            {Required: []string{"contract_version", "spec_mandate", "law_modifies", "legislative_subjects"}, Properties: []string{"contract_version", "spec_mandate", "law_modifies", "legislative_subjects", "architecture_binding"}},
 	"workflow_design_decision":                            {Required: []string{"id", "question", "choice", "rationale", "rejected"}, Properties: []string{"id", "question", "choice", "rationale", "rejected"}},
 	"workflow_forward_relation":                           {Required: []string{"kind"}, Properties: []string{"kind", "class", "severity"}},
 	"workflow_law_context":                                {Required: []string{"laws", "domains"}, Properties: []string{"laws", "domains", "registry_path"}},

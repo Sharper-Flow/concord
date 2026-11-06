@@ -27,9 +27,7 @@ class WorkflowPlanProjectionTest(unittest.TestCase):
         fields = lambda action: {field["name"]: field for field in actions[action]["variants"][0]["payload"]["fields"]}
         self.assertEqual(set(fields("pick_type")["type"]["enum"]), {item["id"] for item in templates["types"]})
         self.assertFalse(fields("record_plan")["reason"]["required"])
-        self.assertIn("decision_domains", fields("approve_contract"))
         update = {field["name"] for field in projection["contract_updates"][0]["fields"]}
-        self.assertIn("decision_domains", update)
         self.assertTrue({"workflow_ref", "workflow_digest", "definition_digest"}.isdisjoint(update))
 
     def test_resume_schema_follows_templates(self):

@@ -46,7 +46,7 @@ INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at) VA
 INSERT INTO work_projects(work_id,project_id,role) VALUES('work:completion','project:completion','primary');
 INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?1,'principal:test','client:test','agent:test','session:test','operator','now');
 INSERT INTO workflow_instances(work_id,instance_state,workflow_type,step_plan) VALUES('work:completion','running','change',?2);
-INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work:completion',1,'test','internal_sqlite','[]','now',?1,'["law:unbound"]','[]',1,'prototype_internal');
+INSERT INTO workflow_contracts(work_id,contract_version,consequence_class,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version) VALUES('work:completion',1,'internal_sqlite','now',?1,'["law:unbound"]','[]',1);
 INSERT INTO workflow_premise_confirmations(work_id,contract_version,confirmed_by,confirmed_at) VALUES('work:completion',1,?1,'now');
 INSERT INTO workflow_delivery_state(work_id,assertion_seq,assertion_id,actor,occurred_at,payload_version,payload) VALUES('work:completion',1,'delivery:completion',?1,'now',1,'{"delivery_artifact":"https://example.com/delivery","delivery_state":"asserted"}');
 DELETE FROM write_guard;`, actorRef, string(planJSON))

@@ -17,7 +17,7 @@ func TestPremiseRevisionPreservesPlanAndContractHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	successor := pContractSuccessor(t, f.store, id, "corrected premise")
+	successor := pContractSuccessor(t, f.store, id)
 	if err := reviseContractRecord(t, f.store, id, f.owner, successor, readWorkVersion(t, f.store, id)); err != nil {
 		t.Fatalf("ordinary premise revision: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestPremiseRevisionPreservesPlanAndContractHistory(t *testing.T) {
 		t.Fatalf("revision changed historical contract: before=%+v after=%+v", beforeContract, previous)
 	}
 	current, err := readWorkflowContractVersion(t.Context(), f.store.db, id, 2)
-	if err != nil || current.Premise != "corrected premise" {
+	if err != nil || current.Version != 2 {
 		t.Fatalf("successor=%+v err=%v", current, err)
 	}
 }

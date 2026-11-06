@@ -14,7 +14,7 @@ func seedActiveBreakFixContract(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	actorRef := DeriveWorkflowActorRef("principal/withheld", "client/withheld", "agent/withheld", "session/withheld")
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,decision_domains) VALUES(?,1,'active contract premise','internal_sqlite','[]','2026-08-01T00:00:00Z',?,'[]','[]',1,'prototype_internal','[]');
+		INSERT INTO workflow_contracts(work_id,contract_version,consequence_class,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version) VALUES(?,1,'internal_sqlite','2026-08-01T00:00:00Z',?,'[]','[]',1);
 		DELETE FROM write_guard`, workID, actorRef); err != nil {
 		t.Fatal(err)
 	}

@@ -251,10 +251,10 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
         original = lane_checker._load_json(ROOT / ".concord/scenarios/workflow-engine.v1.json")
         approval = copy.deepcopy(original["scenarios"][0])
         approval["action"] = approval["request"]["action_id"] = "approve_contract"
-        approval["request"]["fields"] = {"premise": "A bounded objective.", "decision_domains": []}
+        approval["request"]["fields"] = {}
         original["scenarios"].append(approval)
         self.assertEqual(lane_checker._structured_scenario_check(original), [])
-        for action, field in (("approve_contract", "premise"), ("approve_contract", "decision_domains"), ("complete", "impact_verdict")):
+        for action, field in (("complete", "impact_verdict"),):
             with self.subTest(action=action, field=field):
                 corpus = copy.deepcopy(original)
                 scenario = next(item for item in corpus["scenarios"] if item["action"] == action)
@@ -317,7 +317,7 @@ class ContractGuidanceProjectionTests(unittest.TestCase):
     def test_contract_fields_publish_schema_derived_examples(self):
         actions, teaching, _, contract_updates = generator.load_workflow_action_contracts()
         projected, _ = generator.project_workflow_action_schema(payload_schema, actions, teaching, contract_updates)
-        field = projected["$defs"]["workflow_contract_update"]["properties"]["premise"]
+        field = projected["$defs"]["workflow_contract_update"]["properties"]["spec_mandate"]
         self.assertIn("Accepted shape:", field.get("description", ""))
         self.assertEqual(len(field.get("examples", [])), 1)
         generator.schema_validate(field["examples"][0], field, projected)

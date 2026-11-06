@@ -154,11 +154,6 @@ func validActionExecutionMode(value ActionExecutionMode) bool {
 	return value == ActionAdvance || value == ActionHold || value == ActionFenced || value == ActionCheckpoint
 }
 
-// WorkflowPremiseMaxLength is the single bound for a workflow contract
-// premise. The published approve_contract premise field carries the same
-// number; internal/agent's round-trip test fails when the two drift apart.
-const WorkflowPremiseMaxLength = 4096
-
 // ValidReference reports whether a new workflow reference is admissible.
 // The generated payload schema carries the same rule in $defs/reference; internal/agent's round-trip test fails when the two drift
 // apart.
@@ -446,19 +441,6 @@ func actionIDListField(name string, required bool, lower, upper int64) WorkflowP
 	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(lower), MaxItems: workflowInt(upper), ItemRef: "id"}
 }
 
-func actionEnumListField(name string, required bool, upper int64, values ...string) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MaxItems: workflowInt(upper), Enum: values}
-}
-
-// workflowDecisionFactField declares the copied decision-fact field a
-// consequence_v1 contract carries: a required closed string list whose
-// members answer to the six-class workflowDecisionDomainSet. The empty
-// list records engineering and absence has no declared shape. The enum storage
-// is copied, so the field never aliases the canonical set.
-func workflowDecisionFactField() WorkflowPayloadField {
-	return actionEnumListField("decision_domains", true, int64(len(workflowDecisionDomainSet)), slices.Clone(workflowDecisionDomainSet)...)
-}
-
 func actionProseListField(name string, required bool, lower, upper int64, itemRef string) WorkflowPayloadField {
 	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(lower), MaxItems: workflowInt(upper), ItemRef: itemRef}
 }
@@ -500,18 +482,6 @@ func evidenceBindingActionFields() []WorkflowPayloadField {
 	}
 }
 
-const workflowPremiseFallback = "workflow premise"
-
-func actionPremiseField() WorkflowPayloadField {
-	// The enforcing floor is workflowString's workflowStringMinBytes bytes
-	// (UTF-8 bytes, not runes — see validateWorkflowPayloadValue, which
-	// counts bytes like every fold guard). The current action catalog raises
-	// approve_contract's declared minimum to that floor (premiseFloor), and
-	// the contract-payload workflowString guard refuses a shorter premise
-	// wherever this base field applies.
-	return WorkflowPayloadField{Name: "premise", ValueType: PayloadString, Required: true, NonBlank: true, Forbidden: []string{workflowPremiseFallback}, MinLength: workflowInt(1), MaxLength: workflowInt(WorkflowPremiseMaxLength)}
-}
-
 func nativeRunActionFields(statuses ...string) []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		actionRefField("run_id", true),
@@ -533,17 +503,10 @@ const workflowAlignmentCombinationTeaching = "record_diagnosis couples outcome a
 var builtinActionPolicies = map[string]builtinActionPolicy{
 	"record_discovery": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric),
 	"approve_contract": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
-		actionEnumListField("decision_domains", true, 6, workflowDecisionDomainSet...),
-		actionEnumField("route_convention", false, "workflow_action"),
-		actionListField("route_conventions", false, 0, 16),
-		actionListField("proposed_route_conventions", false, 0, 16),
-		actionListField("required_route_conventions", false, 0, 16),
 		actionContractVersionField(false),
-		actionPremiseField(),
 		actionLawListField("spec_mandate", false),
 		actionLawListField("law_modifies", false),
 		actionListField("legislative_subjects", false, 0, 800),
-		actionEnumField("rigor_class", false, "prototype_internal", "prototype_trusted", "prototype_public", "prototype_safety_critical", "production_internal", "production_trusted", "production_public", "production_safety_critical", "critical_internal", "critical_trusted", "critical_public", "critical_safety_critical"),
 		actionObjectField("architecture_binding", "architecture_binding"),
 	),
 	"start_execution":      actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
@@ -590,13 +553,8 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		WorkflowPayloadCombination{Field: "outcome", Value: "related_found", Requires: []string{"related_ids"}, Remedy: "name the related work items the search found"},
 		WorkflowPayloadCombination{Field: "outcome", Value: "none_found", Forbids: []string{"related_ids"}, Remedy: "drop related_ids or record outcome related_found"},
 	),
-	"frame_research": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric),
-	"record_finding": actionPolicy(ActionCrossAuthority, ActionAdvance, ActionEventGeneric),
-	"revise_candidates": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
-		actionContractVersionField(false),
-		actionEnumField("candidate_kind", false, "work_item", "product", "project"), actionRefField("candidate_ref", false),
-		actionListField("added", false, 1, 64), actionListField("candidate_ids", false, 1, 64), actionListField("removed", false, 1, 64),
-	),
+	"frame_research":      actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric),
+	"record_finding":      actionPolicy(ActionCrossAuthority, ActionAdvance, ActionEventGeneric),
 	"record_report":       actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
 	"record_conclusion":   actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric),
 	"frame_question":      actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric),
@@ -627,9 +585,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	// requires. record_plan is the six-part plan a Change or Fix records;
 	// record_removal_scope lists what a Removal retires and its clauses.
 	"record_intake": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
-		actionIDListField("checks_found", false, 0, 14),
 		actionEnumField("outcome", true, "proceed", "already_handled", "decline", "split_or_merge"),
-		WorkflowPayloadField{Name: "note", ValueType: PayloadString, Required: false, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
 	),
 	"record_clarify": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
 		actionProseListField("resolved_questions", true, 0, 16, "clarification_answer_text"),

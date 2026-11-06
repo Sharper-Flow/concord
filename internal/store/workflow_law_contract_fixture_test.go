@@ -94,7 +94,7 @@ var lawChangeConstructorActor = WorkflowActor{PrincipalRef: "principal:law", Cli
 
 func lawChangeConstructorFields(t *testing.T, s *Store, version int, laws, domains []string) map[string]json.RawMessage {
 	t.Helper()
-	values := map[string]any{"contract_version": version, "premise": "revise the fixture law", "legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": laws, "law_modifies": laws, "rigor_class": "prototype_internal", "decision_domains": []string{}, "architecture_binding": map[string]any{"home_domain_id": "root", "affected_domain_ids": []string{"root", "agent-surface"}, "domain_modifies": domains, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{}}}
+	values := map[string]any{"contract_version": version, "legislative_subjects": []string{}, "spec_mandate": laws, "law_modifies": laws, "architecture_binding": map[string]any{"home_domain_id": "root", "affected_domain_ids": []string{"root", "agent-surface"}, "domain_modifies": domains, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{}}}
 	if version > 1 {
 		var subjects string
 		if err := s.DatabaseForTesting().QueryRow(`SELECT legislative_subjects FROM workflow_contracts WHERE superseded_by IS NULL`).Scan(&subjects); err != nil {

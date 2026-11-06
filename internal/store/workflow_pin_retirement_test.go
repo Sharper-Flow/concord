@@ -15,7 +15,7 @@ func TestWorkflowApprovalStoresNoLawFreshnessPins(t *testing.T) {
 	seedWorkflowLaw(t, s)
 	actor := WorkflowActor{PrincipalRef: "principal:pin-free", ClientRef: "client:pin-free", AgentRef: "agent:pin-free", SessionRef: "session:pin-free", ActorClass: ActorAgent}
 	version := seedDerivedRevisionWorkflow(t, s, workID, actor)
-	payload := json.RawMessage(`{"premise":"Research against current law without freshness pins.","spec_mandate":["spec:one"],"legislative_subjects":[]}`)
+	payload := json.RawMessage(`{"spec_mandate":["spec:one"],"legislative_subjects":[]}`)
 	if err := runDerivedLawApproval(t, s, workID, version, actor, payload); err != nil {
 		t.Fatal(err)
 	}

@@ -110,11 +110,11 @@ func TestValidateOperationPayloadPreservesSelectedGuidance(t *testing.T) {
 	for _, test := range []struct{ name, payload string }{
 		{
 			name:    "missing outer field",
-			payload: `{"expected_version":1,"action_id":"approve_contract","idempotency_key":"guidance","fields":{"premise":"A bounded change.","decision_domains":[],"legislative_subjects":[]}}`,
+			payload: `{"expected_version":1,"action_id":"approve_contract","idempotency_key":"guidance","fields":{"legislative_subjects":[]}}`,
 		},
 		{
 			name:    "selected nested field",
-			payload: `{"work_id":"work-1","expected_version":1,"action_id":"approve_contract","idempotency_key":"guidance","fields":{"premise":"A bounded change.","decision_domains":["bogus"],"legislative_subjects":[]}}`,
+			payload: `{"work_id":"work-1","expected_version":1,"action_id":"approve_contract","idempotency_key":"guidance","fields":{"legislative_subjects":["bad subject"]}}`,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

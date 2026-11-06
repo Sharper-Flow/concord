@@ -110,7 +110,7 @@ if (!process.env.TEST_CONCORD_TICKET_CASE || new RegExp(process.env.TEST_CONCORD
     context.directory = worktree
     context.worktree = worktree
     await bindHost()
-    await walk(workID, "record_intake", { checks_found: ["freshness", "value", "checkable_end_state"], outcome: "proceed", note: "The requested output and format are unspecified." })
+    await walk(workID, "record_intake", { outcome: "proceed" })
     await walk(workID, "pick_type", { type: "change", reason: "The requested output needs a bounded change." })
     const resume = await invoke("concord_work_trace", "resume", { work_id: workID })
     const state = resume.result as JSONRecord

@@ -16,7 +16,7 @@
 **Decision owner:** Operator
 **Accepted by operator:** 2026-08-08
 **Reviewer:** Independent review; three rounds, approved.
-**Scope:** Contract premise, independent Review, discovered work and revision authority.
+**Scope:** Stated goals, independent Review, discovered work and revision authority.
 **Amends:** CD-0006 D5 and D10 while preserving the spec mandate.
 **Amended:** 2026-10-18. [CD-0236](CD-0236-vacuity-is-judged-at-review.md) places vacuity judgment at Review.
 [CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D5 amends
@@ -49,7 +49,7 @@ conflating them is itself a failure:
    delivery route without anyone asking whether that convention deserves to exist, and the
    convention silently determines the operative verb.
 
-A wrong candidate list is not a wrong premise. Treating them as one thing either freezes
+A wrong candidate list is not a wrong stated goal. Treating them as one thing either freezes
 detail that research must be free to revise, or licenses replacing the deliverable
 whenever the detail moves.
 
@@ -74,16 +74,16 @@ not the supporting evidence, determines the shape below.
 
 ## Decisions
 
-A work item's approved contract records its premise. The authenticated
+A work item's recorded intent text states why the work exists. The authenticated
 non-worker coordinator records current-version premise confirmation. Operator
 decisions remain conversational under CD-0243.
 
-### D1. The contract retains its premise
+### D1. The work keeps its stated goal
 
-The premise states why the work exists. An ordinary complete contract update
-appends a version without changing earlier versions. The executing agent may
-revise the candidate set during execution. Each revision is recorded in one
-transaction, does not revise the premise and needs no re-approval.
+The item's recorded intent text states why the work exists, and an ordinary
+intent revision replaces it in one transaction. Research remains free to revise
+its working list of candidates without touching the stated goal: nothing
+stores the working list, so no revision of it needs recording or re-approval.
 
 ### D6. Work discovered mid-execution forward-links; it never substitutes
 
@@ -106,15 +106,10 @@ Main obtains independent native Task Review of the accumulated solution.
 Implement cannot accept its own result. Review's step record names the reviewer,
 result, commit and actual result link under CD-0242 D5.
 
-### D8. Route conventions that determine the operative verb are declared at approval
-
-Where the delivery route relies on a pre-existing convention that determines
-its operative verb, the approved contract names that convention.
-
 ### D9. Premise confirmation is recorded
 
 The authenticated coordinator records confirmation of the active contract's
-premise. Completion retains that terminal fact.
+stated goal. Completion retains that terminal fact.
 
 ### D10. Proportional rigor scales the evidence depth
 
@@ -134,16 +129,12 @@ review itself. Surface changes remain subject to TS8.
 
 ## Required conformance scenarios
 
-- A premise revision appends a retained contract version without changing an
+- An intent revision appends a retained contract version without changing an
   earlier version or creating a successor.
-- Candidate-set revision during execution succeeds without re-approval,
-  records its revision in one transaction and leaves the premise
-  byte-identical.
 - An out-of-scope discovery is forward-linked and does not substitute for the
   current work.
 - An independent Review may correct its candidate; a final review completes
   only with a clean pass.
-- A delivery route declares a pre-existing convention that determines its verb.
 - A work item at the lowest maturity and audience bands still requires an
   approved contract; only the proof depth differs from the highest bands.
 - Terminal metadata, lifecycle change, reported delivery links and the

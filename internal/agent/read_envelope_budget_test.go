@@ -35,7 +35,7 @@ func assertBoundedRead(t *testing.T, response agentcontract.Envelope) {
 func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _, _ := workflowEngineFixture(t, "budget fixture")
+	s, _, _ := workflowEngineFixture(t)
 	for i := 2; i <= 100; i++ {
 		id := fmt.Sprintf("work-%03d", i)
 		if err := pm1fixture.SeedWorkItem(ctx, s, "project-1", id, id, i%10); err != nil {
@@ -155,7 +155,7 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 
 func TestSingleMaximumTaskFitsFullWorkEnvelope(t *testing.T) {
 	t.Parallel()
-	s, _, _ := workflowEngineFixture(t, "maximum task")
+	s, _, _ := workflowEngineFixture(t)
 	task := strings.Repeat("<", 8192)
 	intent, err := json.Marshal(map[string]any{"title": "maximum task", "kind": "task", "task": task})
 	if err != nil {
@@ -186,7 +186,7 @@ func TestSingleMaximumTaskFitsFullWorkEnvelope(t *testing.T) {
 func TestWorkSummaryBytePagesKeepContinuation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _, _ := workflowEngineFixture(t, "summary byte pages")
+	s, _, _ := workflowEngineFixture(t)
 	for i := 2; i <= 100; i++ {
 		id := fmt.Sprintf("work-%03d", i)
 		if err := pm1fixture.SeedWorkItem(ctx, s, "project-1", id, strings.Repeat("<", 256), i%10); err != nil {
@@ -243,7 +243,7 @@ func TestWorkSummaryBytePagesKeepContinuation(t *testing.T) {
 
 func TestReadBudgetIncludesEnvelopeMetadata(t *testing.T) {
 	t.Parallel()
-	s, _, _ := workflowEngineFixture(t, "metadata budget")
+	s, _, _ := workflowEngineFixture(t)
 	for _, test := range []struct{ tool, operation, input string }{
 		{"concord_work_browse", "list", `{"product_id":"product-1","limit":1}`},
 		{"concord_work_trace", "history", `{"work_id":"work-1","limit":1}`},

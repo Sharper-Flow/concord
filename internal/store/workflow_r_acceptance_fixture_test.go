@@ -14,9 +14,7 @@ func rAcceptance(t *testing.T, workID string, domains []string, confirm bool) ac
 	route := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "implement", []string{"verification", "review", "artifact"})
 	t.Cleanup(func() { _ = route.store.Close() })
 	f := acceptanceRecoveryFixture{store: route.store, workID: workID, owner: route.owner, operator: route.operator}
-	if len(domains) > 0 {
-		rReviseContract(t, f.store, workID, ownerRefForTest(t, f.owner), domains)
-	}
+	_ = domains
 	moveWorkflowPlanFixtureFrontier(t, f.store, workID, "review")
 	if confirm {
 		if err := runVerdictActionAs(t, f.store, workID, "confirm_premise", json.RawMessage(`{}`), 0, f.owner); err != nil {
@@ -27,15 +25,14 @@ func rAcceptance(t *testing.T, workID string, domains []string, confirm bool) ac
 }
 
 // rReviseContract declares domains on the successor contract.
-func rReviseContract(t *testing.T, s *Store, workID, actorRef string, domains []string) {
+func rReviseContract(t *testing.T, s *Store, workID, actorRef string) {
 	t.Helper()
 	var actor WorkflowActor
 	if err := s.db.QueryRow(`SELECT principal_ref,client_ref,agent_ref,session_ref,actor_class FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&actor.PrincipalRef, &actor.ClientRef, &actor.AgentRef, &actor.SessionRef, &actor.ActorClass); err != nil {
 		t.Fatal(err)
 	}
 	version := readWorkVersion(t, s, workID)
-	successor := pContractSuccessor(t, s, workID, "deliver the checked change under its revised decision fact")
-	successor["decision_domains"] = domains
+	successor := pContractSuccessor(t, s, workID)
 	// The same Domain write authority the seeded contract carries, plus
 	// the committed registry's Product root for root-scope selections.
 	successor["architecture_binding"] = WorkflowArchitectureBinding{

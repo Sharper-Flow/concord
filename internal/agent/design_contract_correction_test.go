@@ -64,8 +64,6 @@ func TestContractReassessmentPreservesDesignAndRefusesInlineReplacement(t *testi
 	spineOK(t, dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_plan", "fields": plan, "idempotency_key": "design-plan"})}, env))
 	version = workOneVersion(t, s)
 	fields := workflowContractFieldsForSeededRegistry(t, s)
-	fields["route_conventions"] = []string{}
-	fields["rigor_class"] = "prototype_internal"
 	approved, _ := approvedWorkflowContract(t, s, service, env, version, fields, "design-correction-approve")
 	if approved.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("approve contract: %+v", approved.Error)
@@ -129,7 +127,6 @@ func TestContractReassessmentPreservesDesignAndRefusesInlineReplacement(t *testi
 		t.Fatalf("contract-only reassessment changed the plan: before=%s after=%s err=%v", beforePlan, afterPlan, err)
 	}
 	fields["contract_version"] = 3
-	fields["premise"] = "Use a replacement approach rather than the original design"
 	fields["design_record"] = map[string]any{
 		"approach":     "Use the replacement approach",
 		"decisions":    []map[string]any{{"id": "decision:replacement", "question": "Which approach?", "choice": "replacement", "rationale": "Matches the corrected objective", "rejected": []string{"original"}}},

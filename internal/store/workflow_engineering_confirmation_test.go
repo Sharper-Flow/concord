@@ -159,8 +159,7 @@ func TestEngineeringConfirmationLifecycle(t *testing.T) {
 		if err := s.DatabaseForTesting().QueryRow(`SELECT confirmed_by FROM workflow_premise_confirmations WHERE work_id=? AND contract_version=1`, workID).Scan(&coordinatorRef); err != nil {
 			t.Fatalf("engineering confirmation row genuinely missing: %v", err)
 		}
-		successor := pContractSuccessor(t, s, workID, "the decision-bearing successor premise")
-		successor["decision_domains"] = []string{"product"}
+		successor := pContractSuccessor(t, s, workID)
 		currentVersion := readWorkVersion(t, s, workID)
 		if err := reviseContractRecord(t, s, workID, coordinator, successor, currentVersion); err != nil {
 			t.Fatalf("class upgrade revision refused: %v", err)

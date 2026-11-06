@@ -65,19 +65,6 @@ func TestCurrentActionPayloadContractsRefuseCrossActionAndInvalidFields(t *testi
 	}
 }
 
-func TestContractPremiseRejectsBlankAndFallbackText(t *testing.T) {
-	t.Parallel()
-	valid := `{"decision_domains":[],"premise":"The operator stated this premise.","legislative_subjects":[]}`
-	if _, err := validateWorkflowPlanActionPayload("approve_contract", json.RawMessage(valid)); err != nil {
-		t.Fatalf("valid contract refused: %v", err)
-	}
-	for _, premise := range []string{"", "   ", "workflow premise"} {
-		payload := strings.Replace(valid, "The operator stated this premise.", premise, 1)
-		_, err := validateWorkflowPlanActionPayload("approve_contract", json.RawMessage(payload))
-		_ = requirePayloadFailure(t, err, "premise", "type or bounds")
-	}
-}
-
 func TestRecordPlanPayloadContractIsTyped(t *testing.T) {
 	t.Parallel()
 	typed := json.RawMessage(`{"outcomes":"Deliver the change","approach":"Use the current plan","decisions":[{"id":"decision:one","question":"Which route?","choice":"native","rationale":"The adapter owns the route","rejected":[]}],"touches":["work:item"],"merge_split":"One change","risks":"Check the boundary"}`)
@@ -111,12 +98,12 @@ func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
 	}
 	defer tx.Rollback()
 	_, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: beforeVersion, ActionID: "approve_contract", Payload: json.RawMessage(`{"decision_domains":[],"legislative_subjects":[]}`), Actor: actor,
+		WorkID: workID, ExpectedVersion: beforeVersion, ActionID: "record_intake", Payload: json.RawMessage(`{}`), Actor: actor,
 		AcceptedInputsDigest: "sha256:required-payload", IdempotencyIdentity: "required-payload", OperationID: "required-payload",
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "required-payload",
 		RequestID: "request:required-payload", ContractDigest: testManifestDigest, Now: time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC),
 	})
-	_ = requirePayloadFailure(t, actionErr, "premise", "required")
+	_ = requirePayloadFailure(t, actionErr, "outcome", "required")
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
@@ -135,11 +122,11 @@ func TestMissingRequiredActionFieldHasNoDurableEffect(t *testing.T) {
 func TestActionPayloadListItemSchemasMatchPreflight(t *testing.T) {
 	t.Parallel()
 	longLawID := "spec:" + strings.Repeat("a", 124)
-	payload := json.RawMessage(`{"premise":"The operator stated this premise.","legislative_subjects":[],"spec_mandate":["` + longLawID + `"],"decision_domains":[]}`)
+	payload := json.RawMessage(`{"legislative_subjects":[],"spec_mandate":["` + longLawID + `"]}`)
 	if _, err := validateWorkflowPlanActionPayload("approve_contract", payload); err != nil {
 		t.Fatalf("bounded law ID accepted by the generated law schema was refused: %v", err)
 	}
-	invalid := json.RawMessage(`{"premise":"The operator stated this premise.","legislative_subjects":[],"spec_mandate":[" spec:one"],"decision_domains":[]}`)
+	invalid := json.RawMessage(`{"legislative_subjects":[],"spec_mandate":[" spec:one"]}`)
 	_, err := validateWorkflowPlanActionPayload("approve_contract", invalid)
 	_ = requirePayloadFailure(t, err, "spec_mandate", "type or bounds")
 }

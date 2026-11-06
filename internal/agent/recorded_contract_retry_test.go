@@ -15,8 +15,6 @@ func TestRecordedContractCallRetry(t *testing.T) {
 		"work_id": "work-example", "expected_version": 10,
 		"action_id": "approve_contract", "idempotency_key": "request-example",
 		"fields": map[string]any{
-			"premise":              "Repair first-assistant-output detection without changing timeout recovery.",
-			"decision_domains":     []string{},
 			"legislative_subjects": subjects,
 		},
 	}
@@ -36,7 +34,7 @@ func TestRecordedContractCallRetry(t *testing.T) {
 	if err := validate(); err != nil {
 		t.Fatalf("corrected identifiers refused: %v", err)
 	}
-	t.Log("corrected identifiers accepted with decision_domains unchanged; no live workflow mutation issued")
+	t.Log("corrected identifiers accepted; no live workflow mutation issued")
 }
 
 func TestContractStructuralRefusalsDeliverCompleteGuidance(t *testing.T) {
@@ -44,11 +42,10 @@ func TestContractStructuralRefusalsDeliverCompleteGuidance(t *testing.T) {
 		{"missing outer", `{"work_id":"work-example","action_id":"approve_contract","idempotency_key":"request-example","fields":{}}`, "expected_version"},
 		{"unknown outer", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example","extra":true,"fields":{}}`, "extra"},
 		{"long unknown", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example","` + strings.Repeat("x", 1000) + `":true,"fields":{}}`, "member name sha256:"},
-		{"missing fields", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example"}`, "fields"},
-		{"invalid subject", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example","fields":{"premise":"A bounded change.","decision_domains":[],"legislative_subjects":["bad subject"]}}`, "legislative_subjects"},
-		{"many missing", `{"work_id":"work-example","expected_version":1,"title":"Updated plan","kind":"task","reason":"Revise the plan","idempotency_key":"request-example","contract":{"decision_domains":[]}}`, "contract_version"},
-		{"unknown nested", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example","fields":{"premise":"A bounded change.","decision_domains":[],"extra":true,"legislative_subjects":["example"]}}`, "extra"},
-		{"extended unknown", `{"work_id":"work-example","expected_version":1,"title":"Updated plan","kind":"task","reason":"Revise the plan","idempotency_key":"request-example","contract":{"contract_version":2,"premise":"A bounded change.","decision_domains":[],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"production_internal","extra":true,"legislative_subjects":["example"]}}`, "extra"},
+		{"invalid subject", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example","fields":{"legislative_subjects":["bad subject"]}}`, "legislative_subjects"},
+		{"many missing", `{"work_id":"work-example","expected_version":1,"title":"Updated plan","kind":"task","reason":"Revise the plan","idempotency_key":"request-example","contract":{}}`, "contract_version"},
+		{"unknown nested", `{"work_id":"work-example","expected_version":1,"action_id":"approve_contract","idempotency_key":"request-example","fields":{"extra":true,"legislative_subjects":["example"]}}`, "extra"},
+		{"extended unknown", `{"work_id":"work-example","expected_version":1,"title":"Updated plan","kind":"task","reason":"Revise the plan","idempotency_key":"request-example","contract":{"contract_version":2,"spec_mandate":[],"law_modifies":[],"extra":true,"legislative_subjects":["example"]}}`, "extra"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tool, operation := "concord_work_transition", "workflow_action"
@@ -65,9 +62,6 @@ func TestContractStructuralRefusalsDeliverCompleteGuidance(t *testing.T) {
 			}
 			if !strings.Contains(message, tc.field) || !strings.Contains(message, "Accepted shape:") || !strings.Contains(message, "example:") || strings.Contains(message, "[truncated]") || len(message) > 1000 {
 				t.Fatalf("incomplete guidance (%d bytes): %s", len(message), message)
-			}
-			if strings.Contains(message, "unknown property $.fields.decision_domains") {
-				t.Fatalf("branch-local field restriction leaked: %s", message)
 			}
 			if _, err := out.Encode(); err != nil {
 				t.Fatalf("refusal is undeliverable: %v", err)

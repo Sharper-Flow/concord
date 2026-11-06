@@ -7,6 +7,5 @@ func WorkflowPlanActionContract(id string) (WorkflowActionDefinition, error) {
 
 // WorkflowPlanContractUpdatePayload returns the declaration used by revise_intent.
 func WorkflowPlanContractUpdatePayload() WorkflowPayloadDefinition {
-	fields := append(BuiltinWorkflowContractUpdateFields(), workflowDecisionFactField())
-	return WorkflowPayloadDefinition{Closed: true, Fields: fields}
+	return WorkflowPayloadDefinition{Closed: true, Fields: BuiltinWorkflowContractUpdateFields()}
 }

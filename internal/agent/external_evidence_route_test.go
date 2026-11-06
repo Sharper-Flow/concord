@@ -27,7 +27,7 @@ func TestExternalEvidenceRecordingAndBinding(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT step_plan FROM workflow_instances WHERE work_id=?`, work).Scan(&plan); err != nil {
 		t.Fatal(err)
 	}
-	const contractQuery = `SELECT json_array(contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json,decision_domains,changes_product_truth,legislative_subjects) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`
+	const contractQuery = `SELECT json_array(contract_version,consequence_class,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,self_repair_json,changes_product_truth,legislative_subjects) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`
 	if err := s.DatabaseForTesting().QueryRow(contractQuery, work).Scan(&contract); err != nil {
 		t.Fatal(err)
 	}

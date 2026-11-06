@@ -8,7 +8,7 @@ import (
 func TestWorkflowPlanRevisedContractKeepsConfirmationRoute(t *testing.T) {
 	const workID = "plan-confirmation-revision"
 	f := rAcceptance(t, workID, []string{}, true)
-	rReviseContract(t, f.store, workID, mustActorRef(t, f.owner), []string{})
+	rReviseContract(t, f.store, workID, mustActorRef(t, f.owner))
 	if err := approvalPlanAction(t, f, "confirm_premise", json.RawMessage(`{}`)); err != nil {
 		t.Fatalf("confirm revised contract: %v", err)
 	}

@@ -28,7 +28,7 @@ type workListTestFragment struct {
 func TestFullWorkListProjectionMixedEnumeration(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _, _ := workflowEngineFixture(t, "mixed projection list")
+	s, _, _ := workflowEngineFixture(t)
 	for i := 2; i <= 3; i++ {
 		id := fmt.Sprintf("work-%d", i)
 		priority := 1
@@ -82,7 +82,7 @@ func TestFullWorkListProjectionMixedEnumeration(t *testing.T) {
 
 func projectionFixture(t *testing.T) (*store.Store, runtime, agentcontract.Envelope) {
 	t.Helper()
-	s, _, _ := workflowEngineFixture(t, "projection cursor")
+	s, _, _ := workflowEngineFixture(t)
 	task := strings.Repeat("<", 8192)
 	intent, err := json.Marshal(map[string]any{"title": "projection cursor", "kind": "task", "task": task})
 	if err != nil {
@@ -228,7 +228,7 @@ func TestFullWorkListProjectionFitsCapturedPageWithoutReread(t *testing.T) {
 func TestFullWorkListProjectionMultibyteEnvelopeFit(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, _, _ := workflowEngineFixture(t, "multibyte projection")
+	s, _, _ := workflowEngineFixture(t)
 	task := strings.Repeat("<", 8189) + "界"
 	intent, _ := json.Marshal(map[string]any{"task": task})
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1); UPDATE work_items SET intent_json=? WHERE id='work-1'; DELETE FROM write_guard`, string(intent)); err != nil {
@@ -293,7 +293,7 @@ func TestFullWorkListProjectionMultibyteEnvelopeFit(t *testing.T) {
 
 func TestFullWorkListProjectionUnshrinkableFrameNamesProducerRepair(t *testing.T) {
 	t.Parallel()
-	s, _, _ := workflowEngineFixture(t, "unshrinkable list frame")
+	s, _, _ := workflowEngineFixture(t)
 	r := runtime{Store: s, Tool: "concord_work_browse", Operation: "list", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
 	base := agentcontract.NewBase("unshrinkable-list", r.Tool, r.Operation)
 	for range 32 {

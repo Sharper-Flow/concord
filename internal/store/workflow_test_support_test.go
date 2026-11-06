@@ -99,12 +99,6 @@ func testApprovalPayload(t testing.TB, s *Store, workID, actionID string, payloa
 	if _, present := fields["legislative_subjects"]; !present {
 		fields["legislative_subjects"] = []string{}
 	}
-	if _, present := fields["premise"]; !present {
-		fields["premise"] = "The operator stated this premise."
-	}
-	if _, present := fields["decision_domains"]; !present {
-		fields["decision_domains"] = []string{}
-	}
 	if plan.Type != WorkflowStepPlanResearch {
 		if _, present := fields["architecture_binding"]; !present {
 			fields["architecture_binding"] = WorkflowArchitectureBinding{

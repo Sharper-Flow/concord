@@ -51,7 +51,7 @@ func planValue(plan *string) string {
 	return *plan
 }
 
-func pContractSuccessor(t *testing.T, s *Store, id, premise string) map[string]any {
+func pContractSuccessor(t *testing.T, s *Store, id string) map[string]any {
 	t.Helper()
 	version, err := activeWorkflowContractVersion(t.Context(), s.db, id, "test")
 	if err != nil {
@@ -61,10 +61,7 @@ func pContractSuccessor(t *testing.T, s *Store, id, premise string) map[string]a
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload := map[string]any{"contract_version": version + 1, "premise": premise, "legislative_subjects": contract.LegislativeSubjects, "route_conventions": contract.RouteConventions, "spec_mandate": contract.SpecMandate, "law_modifies": contract.LawModifies, "rigor_class": contract.RigorClass}
-	if contract.DecisionDomains != nil {
-		payload["decision_domains"] = contract.DecisionDomains
-	}
+	payload := map[string]any{"contract_version": version + 1, "legislative_subjects": contract.LegislativeSubjects, "spec_mandate": contract.SpecMandate, "law_modifies": contract.LawModifies}
 	if contract.ArchitectureBinding != nil {
 		payload["architecture_binding"] = contract.ArchitectureBinding
 	}
@@ -109,8 +106,8 @@ func latestStepStartEpoch(t *testing.T, s *Store, workID, stepID string) int64 {
 func seedDuplicateContractProjection(t *testing.T, s *Store, workID, ownerRef string) {
 	t.Helper()
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1);
-INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class,legislative_subjects)
-SELECT work_id,2,premise,consequence_class,route_conventions,approved_at,?,spec_mandate,law_modifies,law_boundary_version,rigor_class,legislative_subjects FROM workflow_contracts WHERE work_id=? AND contract_version=1;
+INSERT INTO workflow_contracts(work_id,contract_version,consequence_class,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,legislative_subjects)
+SELECT work_id,2,consequence_class,approved_at,?,spec_mandate,law_modifies,law_boundary_version,legislative_subjects FROM workflow_contracts WHERE work_id=? AND contract_version=1;
 DELETE FROM write_guard`, ownerRef, workID); err != nil {
 		t.Fatal(err)
 	}

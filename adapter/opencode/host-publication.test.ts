@@ -71,11 +71,10 @@ test("published approval validates contract fields", () => {
   const schema = adapter.publishedRequestSchema("concord_work_transition") as any
   const fields = actionFieldsBranches(actionInputBranch(schema, "approve_contract"))
   expect(fields).toHaveLength(1)
-  expect(fields[0].required).toContain("decision_domains")
   const request = { operation: "workflow_action", input: {
     work_id: "work-conformance", expected_version: 2, action_id: "approve_contract",
     idempotency_key: "idem-conformance", fields: {
-      premise: "Advertise the admission rules the store enforces.", decision_domains: [], legislative_subjects: ["spec:one"],
+      legislative_subjects: ["spec:one"],
     },
   } }
   expect(validateAgainstSchema(schema, request, [])).toBe(true)

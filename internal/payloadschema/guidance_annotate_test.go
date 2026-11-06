@@ -92,7 +92,7 @@ func guidanceNodeAtPath(t *testing.T, root map[string]any, path ...any) map[stri
 	return node
 }
 
-var approveVariantPath = []any{"$defs", "work_transition_action_variant_approve_contract", "properties", "fields", "properties", "decision_domains"}
+var approveVariantPath = []any{"$defs", "work_transition_action_variant_approve_contract", "properties", "fields", "properties", "legislative_subjects"}
 
 // AnnotateGuidance carries one schema-derived example and an appended bounded
 // description on the reachable property and ref schemas of the named
@@ -100,32 +100,32 @@ var approveVariantPath = []any{"$defs", "work_transition_action_variant_approve_
 func TestAnnotateGuidanceAnnotatesReachableSchemas(t *testing.T) {
 	root := annotateGuidanceNames(t, guidanceNamesBoth)
 
-	decisionDomains := guidanceNodeAtPath(t, root, approveVariantPath...)
-	examples, ok := decisionDomains["examples"].([]any)
+	subjects := guidanceNodeAtPath(t, root, approveVariantPath...)
+	examples, ok := subjects["examples"].([]any)
 	if !ok || len(examples) != 1 {
-		t.Fatalf("decision_domains carries %v, want one schema-derived example", decisionDomains["examples"])
+		t.Fatalf("legislative_subjects carries %v, want one schema-derived example", subjects["examples"])
 	}
 	// minItems is 0, so the minimal example is the empty array.
 	if encoded, err := json.Marshal(examples[0]); err != nil || string(encoded) != `[]` {
-		t.Fatalf("decision_domains example = %s (%v), want the minimal empty array", encoded, err)
+		t.Fatalf("legislative_subjects example = %s (%v), want the minimal empty array", encoded, err)
 	}
-	if description, _ := decisionDomains["description"].(string); !strings.HasPrefix(description, guidanceMarker) {
-		t.Fatalf("decision_domains description = %q, want the appended shape segment", description)
+	if description, _ := subjects["description"].(string); !strings.HasPrefix(description, guidanceMarker) {
+		t.Fatalf("legislative_subjects description = %q, want the appended shape segment", description)
 	}
 
 	// A shared definition reached through a ref carries guidance once.
-	subjects, ok := root["$defs"].(map[string]any)["id"].(map[string]any)
+	idNode, ok := root["$defs"].(map[string]any)["id"].(map[string]any)
 	if !ok {
 		t.Fatal("id definition is missing")
 	}
-	if examples, ok := subjects["examples"].([]any); !ok || len(examples) != 1 {
-		t.Fatalf("id carries %v, want one example", subjects["examples"])
+	if examples, ok := idNode["examples"].([]any); !ok || len(examples) != 1 {
+		t.Fatalf("id carries %v, want one example", idNode["examples"])
 	}
-	if description, _ := subjects["description"].(string); !strings.Contains(description, "matching") {
+	if description, _ := idNode["description"].(string); !strings.Contains(description, "matching") {
 		t.Fatalf("id description does not teach its pattern: %q", description)
 	}
 
-	if _, exists := subjects["required"]; exists {
+	if _, exists := idNode["required"]; exists {
 		// Guard against an annotation write leaking a validation keyword.
 		t.Fatal("annotation wrote a validation keyword onto a shared definition")
 	}
@@ -288,13 +288,10 @@ func TestAnnotateGuidanceIsIdempotent(t *testing.T) {
 
 // A refused contract request against the annotated document carries the
 // field, the failed constraint, the accepted shape, and one minimal example
-// inside the boundary's 1000-byte message budget, with no branch-local
-// unknown-property claim about decision_domains.
+// inside the boundary's 1000-byte message budget.
 func TestAnnotatedContractFailureCarriesShapeAndExample(t *testing.T) {
 	root := annotateGuidanceNames(t, guidanceNamesBoth)
 	fields := `{
-		"premise": "The premise states the bounded change.",
-		"decision_domains": [],
 		"legislative_subjects": ["The subject has spaces"]
 	}`
 	data := contractGuidanceInput(t, "guidance-approve-1", fields)
@@ -313,9 +310,6 @@ func TestAnnotatedContractFailureCarriesShapeAndExample(t *testing.T) {
 	if !strings.Contains(got, "matching") {
 		t.Fatalf("annotated refusal does not name the accepted shape: %s", got)
 	}
-	if strings.Contains(got, "unknown property $.fields.decision_domains") {
-		t.Fatalf("annotated refusal still carries the branch-local unknown-property claim: %s", got)
-	}
 	if len(got) > 1000 {
 		t.Fatalf("annotated refusal carries %d bytes against the 1000-byte message budget: %s", len(got), got)
 	}
@@ -326,8 +320,6 @@ func TestAnnotatedContractFailureCarriesShapeAndExample(t *testing.T) {
 // guidance segment appears, and generic bounds keep their exact messages.
 func TestUnannotatedRefusalCarriesNoGuidance(t *testing.T) {
 	fields := `{
-		"premise": "The premise states the bounded change.",
-		"decision_domains": [],
 		"legislative_subjects": ["has spaces"]
 	}`
 	data := contractGuidanceInput(t, "unguided-1", fields)
@@ -544,10 +536,10 @@ func TestAnnotateGuidanceBuildsTrulyMinimalShapes(t *testing.T) {
 	root := annotateGuidanceNames(t, guidanceNamesBoth)
 	defs := root["$defs"].(map[string]any)
 
-	// decision_domains: minItems 0 → empty array.
-	decisionDomains := guidanceNodeAtPath(t, root, approveVariantPath...)
-	if encoded, _ := json.Marshal(decisionDomains["examples"].([]any)[0]); string(encoded) != `[]` {
-		t.Fatalf("decision_domains example = %s, want []", encoded)
+	// legislative_subjects: minItems 0 → empty array.
+	subjects := guidanceNodeAtPath(t, root, approveVariantPath...)
+	if encoded, _ := json.Marshal(subjects["examples"].([]any)[0]); string(encoded) != `[]` {
+		t.Fatalf("legislative_subjects example = %s, want []", encoded)
 	}
 
 	// architecture_binding: exactly its required keys, nothing optional.

@@ -315,7 +315,7 @@ func TestWorkflowPreludeFoldsMigration183(t *testing.T) {
 		return workflowTypePickedPayload{WorkflowVersionFields: fields(), Type: WorkflowStepPlanChange, Reason: "initial type"}
 	}
 	intake := func(outcome WorkflowIntakeOutcome) workflowIntakeRecordedPayload {
-		return workflowIntakeRecordedPayload{WorkflowVersionFields: fields(), workflowIntakeRecord: workflowIntakeRecord{ChecksFound: []string{"freshness"}, Outcome: outcome}}
+		return workflowIntakeRecordedPayload{WorkflowVersionFields: fields(), workflowIntakeRecord: workflowIntakeRecord{Outcome: outcome}}
 	}
 	apply(foldWorkflowTypePicked, pick(), true)
 	apply(foldWorkflowIntakeRecorded, intake(WorkflowIntakeOutcome("clarify")), true)

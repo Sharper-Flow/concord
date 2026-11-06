@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"database/sql"
 	"path/filepath"
 	"slices"
@@ -88,33 +87,4 @@ func sixClassSnapshot(t *testing.T, db *sql.DB, tables ...string) map[string][]s
 		slices.Sort(out[table])
 	}
 	return out
-}
-
-func TestSixClassMigrationCanonicalConstraint(t *testing.T) {
-	t.Parallel()
-	db := seedSixClassMigration(t)
-	if err := Migrate(outcomeSnapshotContext(t, context.Background(), db), db); err != nil {
-		t.Fatal(err)
-	}
-	execSixClassSQL(t, db, `INSERT INTO write_guard(active) VALUES(1)`)
-	for _, set := range authoredDecisionDomainSets() {
-		execSixClassSQL(t, db, `UPDATE workflow_contracts SET decision_domains=? WHERE work_id='six-class' AND contract_version=9`, workflowJSON(set))
-	}
-	// The stored vocabulary includes preference to preserve historical decoding.
-	execSixClassSQL(t, db, `UPDATE workflow_contracts SET decision_domains='["preference"]' WHERE work_id='six-class' AND contract_version=9`)
-	for _, raw := range []string{`null`, `{}`, `"security"`, `[1]`, `[true]`, `[null]`, `["unknown"]`, `["legal","legal"]`, `["security","legal"]`, `[ "legal" ]`, `["\u006cegal"]`, `not-json`} {
-		for _, query := range []string{
-			`UPDATE workflow_contracts SET decision_domains=? WHERE work_id='six-class' AND contract_version=9`,
-			`INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,spec_mandate,decision_domains) VALUES('six-class',10,'Constraint witness','internal_sqlite','[]','t',(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]',?)`,
-		} {
-			if _, err := db.Exec(query, raw); err == nil {
-				t.Errorf("stored %s accepted by %s", raw, query)
-			}
-		}
-	}
-	var stored string
-	if err := db.QueryRow(`SELECT decision_domains FROM workflow_contracts WHERE work_id='six-class' AND contract_version=9`).Scan(&stored); err != nil || stored != `["preference"]` {
-		t.Fatalf("malformed writes changed existing fact to %s: %v", stored, err)
-	}
-	execSixClassSQL(t, db, `DELETE FROM write_guard`)
 }

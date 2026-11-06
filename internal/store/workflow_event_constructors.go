@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 )
@@ -61,27 +60,7 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, planType Wor
 }
 
 func workflowContractContent(ctx context.Context, tx *sql.Tx, planType WorkflowStepPlanType, workID string, fields map[string]json.RawMessage, requestedLawModifies []string) (map[string]any, error) {
-	if route, ok := workflowFieldString(fields, "route_convention"); ok && route != "workflow_action" {
-		return nil, newFailure(KindInvariantViolation, "workflow_action", "route convention is not declared by the workflow action boundary", false, "use a declared route convention")
-	}
-	declaredRoutes := workflowFieldStrings(fields, "route_conventions")
-	proposedRoutes := workflowFieldStrings(fields, "proposed_route_conventions")
-	for _, proposed := range proposedRoutes {
-		if !slices.Contains(declaredRoutes, proposed) {
-			return nil, newFailure(KindInvariantViolation, "workflow_action", "proposed route convention is not declared by the contract", false, "use a declared route convention")
-		}
-	}
-	for _, required := range workflowFieldStrings(fields, "required_route_conventions") {
-		if !slices.Contains(declaredRoutes, required) {
-			return nil, newFailure(KindInvariantViolation, "workflow_action", "required route convention is not declared by the contract", false, "declare every required route convention")
-		}
-	}
 	contractVersion := workflowContractVersionField(fields, 1)
-	premise, _ := workflowFieldString(fields, "premise")
-	routes := workflowFieldStrings(fields, "route_conventions")
-	if routes == nil {
-		routes = []string{}
-	}
 	spec := workflowFieldStrings(fields, "spec_mandate")
 	if spec == nil {
 		spec = []string{}
@@ -90,12 +69,11 @@ func workflowContractContent(ctx context.Context, tx *sql.Tx, planType WorkflowS
 	if len(lawModifies) == 0 && len(requestedLawModifies) != 0 {
 		lawModifies = append([]string(nil), requestedLawModifies...)
 	}
-	rigor := workflowFieldStringDefault(fields, "rigor_class", "prototype_internal")
 	subjects := workflowFieldStrings(fields, "legislative_subjects")
 	if subjects == nil {
 		subjects = []string{}
 	}
-	contract := map[string]any{"contract_version": contractVersion, "premise": premise, "route_conventions": routes, "spec_mandate": spec, "law_modifies": lawModifies, "legislative_subjects": subjects, "rigor_class": rigor, "consequence_class": string(ActionInternalSQLite)}
+	contract := map[string]any{"contract_version": contractVersion, "spec_mandate": spec, "law_modifies": lawModifies, "legislative_subjects": subjects, "consequence_class": string(ActionInternalSQLite)}
 	return workflowBoundContractContent(ctx, tx, planType, workID, fields, contract, spec, lawModifies)
 }
 
@@ -120,28 +98,8 @@ func workflowBoundContractContent(ctx context.Context, tx *sql.Tx, planType Work
 	if len(lawModifies) == 0 && !productChanging {
 		delete(contract, "law_modifies")
 	}
-	var decisionDomains []string
-	if raw, present := fields["decision_domains"]; !present || json.Unmarshal(raw, &decisionDomains) != nil || decisionDomains == nil {
-		return nil, newFailure(KindInvalidPayload, "workflow_contract", "approval requires the submitted decision-domain fact", false, "declare the contract's decision domains explicitly")
-	}
-	if err := validateWorkflowAuthoredDecisionDomains(decisionDomains); err != nil {
-		return nil, err
-	}
-	contract["decision_domains"] = decisionDomains
 	contract["law_boundary_version"] = 1
 	return contract, nil
-}
-
-func workflowReviseCandidatesEvents(request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	added := workflowFieldStrings(fields, "added")
-	if len(added) == 0 {
-		added = workflowFieldStrings(fields, "candidate_ids")
-	}
-	removed := workflowFieldStrings(fields, "removed")
-	if len(added) == 0 && len(removed) == 0 {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "candidate revision requires an addition or removal", false, "supply disjoint candidate IDs")
-	}
-	return []Event{workflowTypedEvent(eventID, WorkflowCandidateSetRevised, request.WorkID, actor, request.Now, expected, map[string]any{"contract_version": workflowContractVersionField(fields, 1), "candidate_kind": workflowFieldStringDefault(fields, "candidate_kind", "work_item"), "candidate_ref": workflowFieldStringDefault(fields, "candidate_ref", request.WorkID), "added": added, "removed": removed})}, nil
 }
 
 // workflowRecordDiagnosisEvents builds the typed diagnosis event.

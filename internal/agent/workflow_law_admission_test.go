@@ -132,19 +132,11 @@ func testWorkflowLawChangeAdmission(t *testing.T, tier string) {
 	fields["architecture_binding"] = workflowArchitectureBindingForSeededRegistry(t, s)
 	fields["spec_mandate"] = []string{lawID}
 	fields["law_modifies"] = []string{lawID}
-	fields["decision_domains"] = []string{}
 	fields["legislative_subjects"] = []string{}
 	for _, action := range []string{"approve_contract", "revise_intent"} {
 		var response agentcontract.Envelope
 		if action == "revise_intent" {
-			var routes, rigor string
-			if err := db.QueryRow(`SELECT route_conventions,rigor_class FROM workflow_contracts WHERE work_id='work-1' AND superseded_by IS NULL`).Scan(&routes, &rigor); err != nil {
-				t.Fatal(err)
-			}
-			fields["route_conventions"] = json.RawMessage(routes)
-			fields["rigor_class"] = rigor
 			fields["contract_version"] = 2
-			delete(fields, "route_convention")
 			response, _ = dispatchContractRevisionResult(t, s, service, env, "work-1", workVersion(t, s, "work-1"), fields, "law-revise-intent")
 		} else {
 			response = invoke(action, "law-"+action, fields)

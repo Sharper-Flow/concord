@@ -41,7 +41,7 @@ func currentLawUpgradeFixture(t *testing.T, contract, boundary int) (*Store, Wor
 	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
 	queries := map[string]string{
 		"actors":     `SELECT * FROM workflow_actors ORDER BY actor_ref`,
-		"contracts":  `SELECT work_id,contract_version,premise,consequence_class,route_conventions,approved_at,approved_by,superseded_by,spec_mandate,rigor_class,law_modifies,law_boundary_version,self_repair_json,supersession_seq,last_healthy_seq,decision_domains FROM workflow_contracts ORDER BY work_id,contract_version`,
+		"contracts":  `SELECT work_id,contract_version,consequence_class,approved_at,approved_by,superseded_by,spec_mandate,law_modifies,law_boundary_version,self_repair_json,supersession_seq,last_healthy_seq FROM workflow_contracts ORDER BY work_id,contract_version`,
 		"membership": `SELECT * FROM work_projects ORDER BY work_id`,
 		"identity":   `SELECT * FROM linear_issue_links ORDER BY work_id`,
 		"delivery":   `SELECT * FROM workflow_delivery_state ORDER BY work_id`,
@@ -128,9 +128,7 @@ func TestWorkflowLawUpgradeCurrentContractRoutes(t *testing.T) {
 			seedWorkflowLaw(t, s)
 			seedWorkflowPlanFrontier(t, s, "upgrade-law", WorkflowStepPlanResearch, firstCallApprovalFrontier(t, WorkflowStepPlanResearch))
 			fields := map[string]any{
-				"premise": "Record the bounded research result", "decision_domains": []string{},
-				"legislative_subjects": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "rigor_class": "prototype_internal",
-			}
+				"legislative_subjects": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}}
 			if action == "revise_intent" {
 				fields["contract_version"] = 2
 				if err := reviseContractRecord(t, s, "upgrade-law", owner, fields, readWorkVersion(t, s, "upgrade-law")); err != nil {

@@ -11,11 +11,6 @@ var designDecisionItemSchema = withPayloadFieldRevision("decisions", func(field 
 	return actionItemArrayField("decisions", field.Required, *field.MinItems, *field.MaxItems, field.SchemaRef)
 })
 
-var premiseFloor = withPayloadFieldRevision("premise", func(field WorkflowPayloadField) WorkflowPayloadField {
-	field.MinLength = workflowInt(workflowStringMinBytes)
-	return field
-})
-
 var (
 	confirmPremisePayload     = withClosedPayload(confirmPremiseActionFields)
 	proposalOutOfScopePayload = withClosedPayload(proposalOutOfScopeActionFields)

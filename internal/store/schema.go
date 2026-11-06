@@ -9193,6 +9193,97 @@ CREATE TRIGGER workflow_clarify_records_guard_update BEFORE UPDATE ON workflow_c
 CREATE TRIGGER workflow_clarify_records_guard_delete BEFORE DELETE ON workflow_clarify_records BEGIN SELECT RAISE(ABORT, 'workflow_clarify_records is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version: 190, Name: "retire_unread_workflow_records", Breaking: true,
+		SQL: `
+DROP TABLE workflow_candidate_sets;
+
+INSERT OR IGNORE INTO write_guard(active) VALUES(1);
+UPDATE workflow_instances SET prelude_state=json_remove(prelude_state,'$.intake.note','$.intake.checks_found')
+WHERE json_type(prelude_state)='object'
+  AND (json_extract(prelude_state,'$.intake.note') IS NOT NULL
+    OR json_extract(prelude_state,'$.intake.checks_found') IS NOT NULL);
+DELETE FROM write_guard;
+
+PRAGMA defer_foreign_keys = ON;
+
+CREATE TEMP TABLE workflow_premise_confirmations_v190_backup AS SELECT * FROM workflow_premise_confirmations;
+CREATE TEMP TABLE workflow_architecture_bindings_v190_backup AS SELECT * FROM workflow_architecture_bindings;
+CREATE TEMP TABLE workflow_contract_affected_domains_v190_backup AS SELECT * FROM workflow_contract_affected_domains;
+CREATE TEMP TABLE workflow_contract_domain_modifications_v190_backup AS SELECT * FROM workflow_contract_domain_modifications;
+CREATE TEMP TABLE workflow_contract_domain_relation_modifications_v190_backup AS SELECT * FROM workflow_contract_domain_relation_modifications;
+CREATE TEMP TABLE workflow_law_addition_reservations_v190_backup AS SELECT * FROM workflow_law_addition_reservations;
+CREATE TEMP TABLE workflow_contract_law_additions_v190_backup AS SELECT * FROM workflow_contract_law_additions;
+CREATE TEMP TABLE workflow_contract_verification_obligations_v190_backup AS SELECT * FROM workflow_contract_verification_obligations;
+CREATE TEMP TABLE workflow_contract_law_modifications_v190_backup AS SELECT * FROM workflow_contract_law_modifications;
+CREATE TEMP TABLE workflow_overlap_resolutions_v190_backup AS SELECT * FROM workflow_overlap_resolutions;
+
+CREATE TABLE workflow_contracts_v190_new (
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    contract_version INTEGER NOT NULL,
+    consequence_class TEXT NOT NULL CHECK(consequence_class IN ('internal_sqlite','cross_authority','external_effect')),
+    approved_at TEXT NOT NULL,
+    approved_by TEXT NOT NULL REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    superseded_by INTEGER,
+    spec_mandate TEXT NOT NULL CHECK(json_valid(spec_mandate) AND json_type(spec_mandate)='array'),
+    law_modifies TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(law_modifies) AND json_type(law_modifies)='array' AND json_array_length(law_modifies) BETWEEN 0 AND 32),
+    law_boundary_version INTEGER NOT NULL DEFAULT 0 CHECK(law_boundary_version IN (0,1)),
+    self_repair_json TEXT NOT NULL DEFAULT 'null' CHECK(json_valid(self_repair_json) AND json_type(self_repair_json) IN ('null','object')),
+    supersession_seq INTEGER NOT NULL DEFAULT 0,
+    last_healthy_seq INTEGER NOT NULL DEFAULT 0,
+    changes_product_truth INTEGER CHECK(changes_product_truth IS NULL OR changes_product_truth IN (0,1)),
+    legislative_subjects TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(legislative_subjects) AND json_type(legislative_subjects)='array'),
+    PRIMARY KEY(work_id, contract_version),
+    FOREIGN KEY(work_id, superseded_by) REFERENCES workflow_contracts_v190_new(work_id, contract_version) ON DELETE RESTRICT,
+    CHECK(contract_version > 0 AND contract_version <= 2147483647),
+    CHECK(json_array_length(spec_mandate) BETWEEN 0 AND 32)
+);
+INSERT INTO workflow_contracts_v190_new(work_id,contract_version,consequence_class,approved_at,approved_by,superseded_by,spec_mandate,law_modifies,law_boundary_version,self_repair_json,supersession_seq,last_healthy_seq,changes_product_truth,legislative_subjects)
+SELECT work_id,contract_version,consequence_class,approved_at,approved_by,superseded_by,spec_mandate,law_modifies,law_boundary_version,self_repair_json,supersession_seq,last_healthy_seq,changes_product_truth,legislative_subjects FROM workflow_contracts;
+
+INSERT OR IGNORE INTO write_guard(active) VALUES (1);
+DELETE FROM workflow_overlap_resolutions;
+DELETE FROM workflow_contract_law_additions;
+DELETE FROM workflow_contract_verification_obligations;
+DELETE FROM workflow_contract_domain_relation_modifications;
+DELETE FROM workflow_contract_domain_modifications;
+DELETE FROM workflow_contract_affected_domains;
+DELETE FROM workflow_contract_law_modifications;
+DELETE FROM workflow_law_addition_reservations;
+DELETE FROM workflow_premise_confirmations;
+DELETE FROM workflow_architecture_bindings;
+DELETE FROM workflow_contracts;
+DROP TABLE workflow_contracts;
+ALTER TABLE workflow_contracts_v190_new RENAME TO workflow_contracts;
+
+INSERT INTO workflow_premise_confirmations SELECT * FROM workflow_premise_confirmations_v190_backup;
+INSERT INTO workflow_architecture_bindings SELECT * FROM workflow_architecture_bindings_v190_backup;
+INSERT INTO workflow_contract_affected_domains SELECT * FROM workflow_contract_affected_domains_v190_backup;
+INSERT INTO workflow_contract_domain_modifications SELECT * FROM workflow_contract_domain_modifications_v190_backup;
+INSERT INTO workflow_contract_domain_relation_modifications SELECT * FROM workflow_contract_domain_relation_modifications_v190_backup;
+INSERT INTO workflow_law_addition_reservations SELECT * FROM workflow_law_addition_reservations_v190_backup;
+INSERT INTO workflow_contract_law_additions SELECT * FROM workflow_contract_law_additions_v190_backup;
+INSERT INTO workflow_contract_verification_obligations SELECT * FROM workflow_contract_verification_obligations_v190_backup;
+INSERT INTO workflow_contract_law_modifications SELECT * FROM workflow_contract_law_modifications_v190_backup;
+INSERT INTO workflow_overlap_resolutions SELECT * FROM workflow_overlap_resolutions_v190_backup;
+
+CREATE TRIGGER workflow_contracts_guard_insert BEFORE INSERT ON workflow_contracts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contracts is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contracts_guard_update BEFORE UPDATE ON workflow_contracts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contracts is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contracts_guard_delete BEFORE DELETE ON workflow_contracts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contracts is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+
+DELETE FROM write_guard WHERE active = 1;
+DROP TABLE workflow_premise_confirmations_v190_backup;
+DROP TABLE workflow_architecture_bindings_v190_backup;
+DROP TABLE workflow_contract_affected_domains_v190_backup;
+DROP TABLE workflow_contract_domain_modifications_v190_backup;
+DROP TABLE workflow_contract_domain_relation_modifications_v190_backup;
+DROP TABLE workflow_law_addition_reservations_v190_backup;
+DROP TABLE workflow_contract_law_additions_v190_backup;
+DROP TABLE workflow_contract_verification_obligations_v190_backup;
+DROP TABLE workflow_contract_law_modifications_v190_backup;
+DROP TABLE workflow_overlap_resolutions_v190_backup;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

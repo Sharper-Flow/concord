@@ -72,7 +72,7 @@ func attributionCompletionWithConfirmation(t *testing.T, s *Store, id string, ca
 	completeWorkflowPlanFixture(t, s, id)
 	v := readWorkVersion(t, s, id)
 	event := workflowEventWithActor("attribution-complete-"+id, WorkflowCompleted, id, owner, map[string]any{
-		"work_id": id, "expected_version": v, "resulting_version": v + 1, "terminal_state": "completed", "changed_refs_digest": testDigest("attribution"), "warnings": []string{}, "impact_verdict": "non-breaking",
+		"work_id": id, "expected_version": v, "resulting_version": v + 1, "terminal_state": "completed", "changed_refs_digest": testDigest("attribution"), "impact_verdict": "non-breaking",
 	})
 	event.PayloadVersion = CurrentEventPayloadVersion(WorkflowCompleted)
 	return event

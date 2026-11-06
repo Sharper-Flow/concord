@@ -122,7 +122,7 @@ func evidenceCorpusForWork(t *testing.T, work string) historicalFactCorpus {
 		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "durable_operations"}, map[string]map[string]string{
 			"work_items":         {"priority": "0", "urgency": "'standard'"},
 			"workflow_instances": {"outside_repair_state": "NULL", "definition_ref": "'workflow.break_fix'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "current_step": "'verify'", "completion_payload": "NULL", "completion_occurred_at": "NULL", "unhealthy_verdict_seq": "0", "result_disposition": "''", "latest_non_dispatch_start_seq": "0"},
-			"workflow_contracts": {"required_evidence": "'[]'", "definition_ref": "'workflow.break_fix'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "supersession_seq": "0", "last_healthy_seq": "0", "law_change": "NULL"},
+			"workflow_contracts": {"premise": "'retired historical fixture'", "route_conventions": "'[]'", "rigor_class": "'prototype_internal'", "decision_domains": "NULL", "required_evidence": "'[]'", "definition_ref": "'workflow.break_fix'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "supersession_seq": "0", "last_healthy_seq": "0", "law_change": "NULL"},
 			"durable_operations": {"workflow_type_version": "26", "resume_cursor": "NULL"},
 		}, guard)
 		if _, err := s.db.Exec(`INSERT INTO ` + guard + ` VALUES(1);

@@ -68,23 +68,17 @@ func (f *spineFixture) read(t *testing.T) spineResume {
 	result.Pinned.Pin = &pin
 	result.Pinned.Step = pin.Step
 	var contract store.WorkflowReadContract
-	var subjects, routes, mandates, modifies string
-	var domains sql.NullString
-	err = f.s.DatabaseForTesting().QueryRow(`SELECT contract_version,premise,legislative_subjects,route_conventions,spec_mandate,law_modifies,rigor_class,decision_domains FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, f.work).Scan(&contract.Version, &contract.Premise, &subjects, &routes, &mandates, &modifies, &contract.RigorClass, &domains)
+	var subjects, mandates, modifies string
+	err = f.s.DatabaseForTesting().QueryRow(`SELECT contract_version,legislative_subjects,spec_mandate,law_modifies FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, f.work).Scan(&contract.Version, &subjects, &mandates, &modifies)
 	if err == nil {
 		for _, item := range []struct {
 			raw string
 			dst *[]string
 		}{
-			{subjects, &contract.LegislativeSubjects}, {routes, &contract.RouteConventions},
+			{subjects, &contract.LegislativeSubjects},
 			{mandates, &contract.SpecMandate}, {modifies, &contract.LawModifies},
 		} {
 			if err := json.Unmarshal([]byte(item.raw), item.dst); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if domains.Valid {
-			if err := json.Unmarshal([]byte(domains.String), &contract.DecisionDomains); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -278,7 +272,7 @@ func TestSpineFreshSessionResumesCurrentState(t *testing.T) {
 	// Compare only surviving current state, never a definition version, event
 	// watermark, sequence, or historical action list.
 	if before.WorkID != after.WorkID || before.Pinned.Pin.Lifecycle != after.Pinned.Pin.Lifecycle || before.Pinned.Step != after.Pinned.Step ||
-		before.Pinned.Contract.Version != after.Pinned.Contract.Version || !reflect.DeepEqual(before.Pinned.Contract.LegislativeSubjects, after.Pinned.Contract.LegislativeSubjects) || before.Pinned.Contract.Premise != after.Pinned.Contract.Premise ||
+		before.Pinned.Contract.Version != after.Pinned.Contract.Version || !reflect.DeepEqual(before.Pinned.Contract.LegislativeSubjects, after.Pinned.Contract.LegislativeSubjects) ||
 		!reflect.DeepEqual(before.Pinned.Pin.NextValidIntents, after.Pinned.Pin.NextValidIntents) {
 		t.Fatalf("fresh session did not recover current state: before=%+v after=%+v", before.Pinned, after.Pinned)
 	}

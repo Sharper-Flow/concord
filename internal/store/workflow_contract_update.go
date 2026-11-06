@@ -13,12 +13,9 @@ import (
 func BuiltinWorkflowContractUpdateFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		actionContractVersionField(true),
-		actionPremiseField(),
-		actionListField("route_conventions", true, 0, 16),
 		actionLawListField("spec_mandate", true),
 		actionLawListField("law_modifies", true),
 		actionListField("legislative_subjects", true, 0, 800),
-		actionEnumField("rigor_class", true, "prototype_internal", "prototype_trusted", "prototype_public", "prototype_safety_critical", "production_internal", "production_trusted", "production_public", "production_safety_critical", "critical_internal", "critical_trusted", "critical_public", "critical_safety_critical"),
 		actionObjectField("architecture_binding", "architecture_binding"),
 	}
 }
@@ -42,7 +39,7 @@ func reviseWorkflowContractTx(ctx context.Context, tx *sql.Tx, event Event, _ *w
 	if err != nil {
 		return err
 	}
-	declaration := append(BuiltinWorkflowContractUpdateFields(), workflowDecisionFactField())
+	declaration := BuiltinWorkflowContractUpdateFields()
 	allowed := make(map[string]WorkflowPayloadField, len(declaration))
 	for _, field := range declaration {
 		allowed[field.Name] = field

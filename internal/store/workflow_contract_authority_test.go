@@ -34,7 +34,7 @@ DELETE FROM write_guard`, workID); err != nil {
 	if err := enterWrite(context.Background(), tx); err != nil {
 		t.Fatal(err)
 	}
-	err = foldWorkflowContractApproved(context.Background(), tx, event, nil)
+	err = foldWorkflowContractApproved(context.Background(), tx, event)
 	_ = leaveWrite(context.Background(), tx)
 	_ = tx.Rollback()
 	if err == nil || !strings.Contains(err.Error(), "requires no active workflow contract") {

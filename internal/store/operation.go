@@ -172,7 +172,6 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work_project.role_changed":         registerEventKind[membershipPayload](1, EventAppendAuthorityGeneric, workMembershipEdge.foldRoleChanged, nil),
 	"domain.observation_recorded":       registerEventKind[domainObservationRecordedPayload](1, EventAppendAuthorityGeneric, foldDomainObservationRecorded, nil),
 	"domain.observation_dismissed":      registerEventKind[domainObservationDismissedPayload](1, EventAppendAuthorityGeneric, foldDomainObservationDismissed, nil),
-	WorkflowDefinitionSelected:          workflowScopedRegistration[workflowDefinitionSelectedPayload](1, foldWorkflowDefinitionSelected),
 	WorkflowIntakeRecorded:              workflowRegistration[workflowIntakeRecordedPayload](1, foldWorkflowIntakeRecorded),
 	WorkflowClarifyRecorded:             workflowRegistration[workflowClarifyRecordedPayload](1, foldWorkflowClarifyRecorded),
 	WorkflowTypePicked:                  workflowRegistration[workflowTypePickedPayload](1, foldWorkflowTypePicked),
@@ -180,22 +179,22 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowStepCompleted:               workflowRegistration[workflowStepCompletedPayload](1, foldWorkflowStepCompleted),
 	WorkflowPlanRecorded:                workflowRegistration[workflowPlanRecordedPayload](1, foldWorkflowPlanRecorded),
 	WorkflowRemovalScopeRecorded:        workflowRegistration[workflowRemovalScopeRecordedPayload](1, foldWorkflowRemovalScopeRecorded),
-	WorkflowContractApproved:            workflowScopedRegistration[workflowContractApprovedPayload](workflowContractPayloadVersion, foldWorkflowContractApproved),
+	WorkflowContractApproved:            workflowRegistration[workflowContractApprovedPayload](workflowContractPayloadVersion, foldWorkflowContractApproved),
 	WorkflowOverlapResolved:             workflowRegistration[workflowOverlapResolvedPayload](2, foldWorkflowOverlapResolved),
 	WorkflowNativeRunRecorded:           registerEventKind[nativeRunPayload](2, EventAppendAuthorityGeneric, foldNativeRunRecorded, validateNativeRunPayload),
 	WorkflowActorRecorded:               workflowRegistration[workflowActorRecordedPayload](1, foldWorkflowActorRecorded),
-	WorkflowActionStarted:               workflowScopedRegistration[workflowActionStartedPayload](1, foldWorkflowActionStarted),
-	WorkflowActionCheckpointed:          workflowScopedRegistration[workflowActionCheckpointedPayload](1, foldWorkflowActionCheckpointed),
-	WorkflowActionCompleted:             workflowScopedRegistration[workflowActionCompletedPayload](8, foldWorkflowActionCompleted),
-	WorkflowActionFailed:                workflowScopedRegistration[workflowActionFailedPayload](1, foldWorkflowActionFailed),
+	WorkflowActionStarted:               workflowRegistration[workflowActionStartedPayload](1, foldWorkflowActionStarted),
+	WorkflowActionCheckpointed:          workflowRegistration[workflowActionCheckpointedPayload](1, foldWorkflowActionCheckpointed),
+	WorkflowActionCompleted:             workflowRegistration[workflowActionCompletedPayload](8, foldWorkflowActionCompleted),
+	WorkflowActionFailed:                workflowRegistration[workflowActionFailedPayload](1, foldWorkflowActionFailed),
 	WorkflowEvidenceBound:               workflowRegistration[workflowEvidenceBoundPayload](1, foldWorkflowEvidenceBound),
-	WorkflowPremiseConfirmed:            workflowScopedRegistration[workflowPremiseConfirmedPayload](2, foldWorkflowPremiseConfirmed),
+	WorkflowPremiseConfirmed:            workflowRegistration[workflowPremiseConfirmedPayload](2, foldWorkflowPremiseConfirmed),
 	WorkflowSuccessorLinked:             workflowRegistration[workflowSuccessorLinkedPayload](3, foldWorkflowSuccessorLinked),
 	WorkflowProposalRecorded:            workflowRegistration[workflowProposalRecordedPayload](1, foldWorkflowProposalRecorded),
 	WorkflowDesignRecorded:              workflowRegistration[workflowDesignRecordedPayload](1, foldWorkflowDesignRecorded),
 	WorkflowBacklogAlignmentRecorded:    workflowRegistration[workflowBacklogAlignmentRecordedPayload](1, foldWorkflowBacklogAlignmentRecorded),
 	WorkflowDiagnosisRecorded:           workflowRegistration[workflowDiagnosisRecordedPayload](1, foldWorkflowDiagnosisRecorded),
-	WorkflowCompleted:                   workflowScopedRegistration[workflowCompletedPayload](2, foldWorkflowCompleted),
+	WorkflowCompleted:                   workflowRegistration[workflowCompletedPayload](2, foldWorkflowCompleted),
 }
 
 // validateEventKindRegistry checks one registration map. It takes the map as a
@@ -225,7 +224,7 @@ type preparedRegisteredEvent struct {
 
 func prepareRegisteredEvent(event Event) (preparedRegisteredEvent, error) {
 	switch event.Kind {
-	case "work.sized", WorkResized, WorkerJobSplit, WorkerJobSplitDischarged,
+	case "work.sized", WorkResized, WorkerJobSplit, WorkerJobSplitDischarged, WorkflowDefinitionSelected,
 		"product.planning_mode_set", "initiative_entry.added", "initiative_entry.removed",
 		"initiative_entry.reordered", "initiative_entry.requiredness_changed", "initiative.narrative_revised":
 		return preparedRegisteredEvent{stage: StageDecode}, retiredEventAppendRefused(event.Kind)

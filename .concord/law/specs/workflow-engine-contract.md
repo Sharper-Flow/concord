@@ -10,7 +10,7 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "scenario": "WF37-action-availability-before-register"
+      "exemption": "No corpus scenario can express criterion 1's violating plan writes because dispatched actions compose well-formed writes. The production plan-write validator ValidateStepPlanWrite is covered by TestWorkflowStepPlanCompletionOrderingAndImmutability in internal/store/workflow_step_plan_test.go."
     },
     {
       "criterion": 2,
@@ -225,7 +225,7 @@ the rows below do not repeat this pair.
 
 | Record | Exact payload fields and bounds |
 |---|---|
-| `workflow.definition_selected` | `work_id`, `ref`, `version`, `digest`, `work_kind` (retained for pre-cutover rows; no action emits it — the type pick is `workflow.type_picked`) |
+| `workflow.definition_selected` | Registration is retired; appends refuse under [CD-0229 D1](../decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md) because no definition registry or selection exists. No action emits it; the type pick is `workflow.type_picked`. Stored pre-cutover rows keep their recorded meaning under [CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history). |
 | `workflow.contract_approved` | `work_id`, `contract_version`, `legislative_subjects` (0–800 unique subjects), `spec_mandate`, `law_modifies`, `architecture_binding`, `law_boundary_version`, and `consequence_class` |
 | `workflow.actor_recorded` | `work_id`, `actor_ref`, `principal_ref`, `client_ref`, `agent_ref`, `session_ref`, `actor_class` (`agent` or `operator`) |
 | `workflow.action_started` | `work_id`, `step_id`, `action_id`, `attempt_epoch`, `accepted_inputs_digest`, `idempotency_identity` (2–128), `actor_ref` |
@@ -238,7 +238,7 @@ the rows below do not repeat this pair.
 | `workflow.evidence_bound` | `work_id`, `evidence_kind`, `immutable_subject_ref`, and required `producer_watermark`; the authenticated binding supplies attribution. For `evidence_kind=native_run` the `immutable_subject_ref` is the record's `xobs:` observation and the attributed record must be verified (CD-0040 D9), so the binding fails closed until a verification record answers the observation. |
 | `workflow.native_run_recorded` | `work_id`, `run_id` (1–128), `native_subject_ref` (1–2048 opaque non-secret), `subject_digest` (core-derived), `phase` (`start`/`health`/`rollback`/`cleanup`, fixed by the action ID), `status` (closed per-phase vocabulary), `evidence_ref`, `evidence_digest`, `asserted_at` (RFC3339, within the two-minute report skew bound), `reporting_authority_ref` (the authenticated actor's client, never caller input), `actor_ref`, and the embedded CD-0040 capture component: `capture_method`, the closed `observed_universe` structure (one item, exactly scoped, complete by closed-structure digest — validated by the shared D4 rules when recorded and read), the derived content-hashed `freshness_policy_ref`/`divergence_policy_ref` from the reviewed per-kind register, and the `observation_id` the run's phases share. The mutation registers that observation in `external_observations` as its shared provenance home, so one verification record answers every phase row and the attributed read (`NativeRunReport`) carries the derived verification state. |
 | `workflow.premise_confirmed` | `work_id`, `contract_version`, `confirming_actor_ref` |
-| `workflow.successor_linked` | `work_id`, `successor_work_id`, `relation_kind` (`forward_link`) |
+| `workflow.successor_linked` | `work_id`, `successor_work_id`, `relation_kind` (`forward_link`), `successor_kind` (optional; the successor's work-item kind, checked against `work_items.kind` when present) |
 | `workflow.completed` | `work_id`, `terminal_state` (`completed`, `cancelled`), `premise_confirmed` (boolean), `evidence_count` (non-negative, derived from the item's bound evidence history), `changed_refs_digest` (digest), `impact_verdict` (`breaking` or `non-breaking`) |
 
 `legislative_subjects` belongs to the exact contract version that recorded it.
@@ -714,14 +714,22 @@ The contract does not invent audience storage or a new workflow type.
 
 ## Verification
 
-The two criteria bind scenarios of `.concord/scenarios/workflow-engine.v1.json`,
-executed against production dispatch by
 `TestWorkflowScenarioCorpusExecutesExactProductionActions`
-(`internal/store/workflow_conformance_test.go`).
+(`internal/store/workflow_conformance_test.go`) executes the scenarios in
+`.concord/scenarios/workflow-engine.v1.json`, using production dispatch for
+workflow actions and reading prepared state for capture.
 
-- Criterion 1 is proved by the bound `WF37-action-availability-before-register`
-  scenario, which dispatches before a workflow type is picked and asserts
-  an invalid_transition refusal with no fallback.
+- Criterion 1 is proved against the production `ValidateStepPlanWrite` validator
+  by `TestWorkflowStepPlanCompletionOrderingAndImmutability`
+  (`internal/store/workflow_step_plan_test.go`), which asserts each of the four
+  violating writes refuses. The refusal kind is `KindInvalidOperation`, which
+  surfaces as `invalid_input` at the agent boundary, and the validator runs
+  before the plan is stored (`internal/store/workflow_plan_storage.go`), so a
+  refused write records no plan change. Dispatched actions compose
+  well-formed writes, so no corpus scenario can express these violating writes.
+- `WF37-action-availability-before-register` proves the separate refusal of an
+  action before a workflow type is picked, with `invalid_transition` and no
+  fallback; it does not prove criterion 1.
 - Criterion 2 is proved by the bound `WF19-completion-one-transaction`
   scenario, which fails a completion inside its transaction and asserts that
   no completion record, terminal metadata, or lifecycle change

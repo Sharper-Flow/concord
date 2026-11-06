@@ -6,9 +6,8 @@ import (
 	"time"
 )
 
-// These reader fixtures call the current fact writer directly. The matching
-// log inputs establish the old reader's answer without requiring a full job
-// journey; completion-fold and migration parity are separate writer tests.
+// These reader fixtures call the current fact writer directly, without a full
+// job journey; completion-fold and migration parity are separate writer tests.
 func admissionExitFixture(t *testing.T, s *Store, ref string, p workflowActionCompletedPayload) int64 {
 	t.Helper()
 	ctx := t.Context()
@@ -24,14 +23,7 @@ func admissionExitFixture(t *testing.T, s *Store, ref string, p workflowActionCo
 	if err := tx.QueryRow(`SELECT last+1 FROM store_sequences WHERE name='effect'`).Scan(&next); err != nil {
 		t.Fatal(err)
 	}
-	event := Event{EventID: fmt.Sprintf("exit-pin-%d", next), Kind: WorkflowDefinitionSelected, SubjectType: SubjectWorkItem, SubjectID: "admission-exits", Actor: frontierActor, OccurredAt: time.Unix(next, 0).UTC(), PayloadVersion: 1}
-	if ref != "" {
-		event.Payload = mustJSONValue(map[string]any{"ref": ref, "version": 1})
-		if _, err := appendPreparedEvent(ctx, tx, event); err != nil {
-			t.Fatal(err)
-		}
-	}
-	event.EventID, event.Kind, event.Payload = fmt.Sprintf("exit-%d", next), WorkflowActionCompleted, mustJSONValue(p)
+	event := Event{EventID: fmt.Sprintf("exit-%d", next), Kind: WorkflowActionCompleted, SubjectType: SubjectWorkItem, SubjectID: "admission-exits", Actor: frontierActor, OccurredAt: time.Unix(next, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(p)}
 	seq, err := appendPreparedEvent(ctx, tx, event)
 	if err != nil {
 		t.Fatal(err)

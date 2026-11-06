@@ -141,18 +141,18 @@ DELETE FROM ` + guard); err != nil {
 	c.write = func(ctx context.Context, tx *sql.Tx, e Event) error {
 		switch e.Kind {
 		case WorkflowActionStarted:
-			return foldWorkflowActionStarted(ctx, tx, e, nil)
+			return foldWorkflowActionStarted(ctx, tx, e)
 		case WorkflowActionFailed:
-			return foldWorkflowActionFailed(ctx, tx, e, nil)
+			return foldWorkflowActionFailed(ctx, tx, e)
 		case WorkflowActionCompleted:
-			return foldWorkflowActionCompleted(ctx, tx, e, nil)
+			return foldWorkflowActionCompleted(ctx, tx, e)
 		case WorkflowEvidenceBound:
 			return foldWorkflowEvidenceBound(ctx, tx, e)
 		case "work.observation_recorded":
 			_, err := tx.ExecContext(ctx, `INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES('obs:aaaaaaaaaaaaaaaa',?,'The corpus records an explicit observation','[]','[]',?)`, e.SubjectID, e.OccurredAt.UTC().Format(time.RFC3339Nano))
 			return err
 		case WorkflowCompleted:
-			return foldWorkflowCompleted(ctx, tx, e, nil)
+			return foldWorkflowCompleted(ctx, tx, e)
 		}
 		return nil
 	}

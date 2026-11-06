@@ -482,17 +482,6 @@ func evidenceBindingActionFields() []WorkflowPayloadField {
 	}
 }
 
-func nativeRunActionFields(statuses ...string) []WorkflowPayloadField {
-	return []WorkflowPayloadField{
-		actionRefField("run_id", true),
-		actionStringField("native_subject_ref", true, 2048),
-		actionEnumField("status", true, statuses...),
-		actionStringField("evidence_ref", true, 2048),
-		{Name: "evidence_digest", ValueType: PayloadDigest, Required: true},
-		actionStringField("asserted_at", false, 64),
-	}
-}
-
 // workflowAlignmentCombinationTeaching states the outcome/related_ids
 // cross-field rule the record_diagnosis combination declaration enforces
 // through
@@ -564,11 +553,11 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"checkpoint_poc":      actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
 	"discard_poc":         actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric),
 	"approve_operation":   actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
-	"start_run":           actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric, nativeRunActionFields("started", "failed_to_start")...),
+	"start_run":           actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
 	"checkpoint_run":      actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
-	"record_health":       actionPolicy(ActionCrossAuthority, ActionAdvance, ActionEventGeneric, nativeRunActionFields("healthy", "degraded", "failed")...),
-	"rollback_run":        actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric, nativeRunActionFields("rolled_back", "partially_rolled_back", "rollback_failed")...),
-	"cleanup_run":         actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric, nativeRunActionFields("cleaned", "cleanup_failed")...),
+	"record_health":       actionPolicy(ActionCrossAuthority, ActionAdvance, ActionEventGeneric),
+	"rollback_run":        actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
+	"cleanup_run":         actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric),
 	"declare_scope":       actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric),
 	"run_analysis":        actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
 	"checkpoint_analysis": actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),

@@ -14,7 +14,7 @@ import (
 // production: any change in the widest shape fails this exact figure first,
 // and the pin moves only by a deliberate re-derivation beside the ceilings'
 // own next-power-of-two assertions.
-const derivedRequestWireMaxBytes = 2102334
+const derivedRequestWireMaxBytes = 2040463
 
 // The shared action ceilings derive from the widest admitted shape, not a
 // shortlist: this test enumerates every admitted workflow-action variant the

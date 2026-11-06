@@ -411,7 +411,7 @@ func committedWorkflowReplay(t *testing.T) (runtime, Authority, json.RawMessage,
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	raw := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_intake","fields":{"outcome":"proceed","note":"The bounded stakes statement."},"idempotency_key":"retained-replay"}`)
+	raw := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_intake","fields":{"outcome":"proceed"},"idempotency_key":"retained-replay"}`)
 	first, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
 	if err != nil || first.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("initial committed action=%+v err=%v", first, err)
@@ -430,7 +430,7 @@ func assertWorkflowReplayIdentity(t *testing.T, r runtime, grant Authority, raw 
 	if transaction.Outcome != agentcontract.OutcomeOK || !transaction.Replayed || string(transaction.Result) != string(first.Result) {
 		t.Fatalf("transaction replay=%+v", transaction)
 	}
-	conflicting := json.RawMessage(strings.Replace(string(raw), "The bounded stakes statement.", "A different stakes statement.", 1))
+	conflicting := json.RawMessage(strings.Replace(string(raw), `"outcome":"proceed"`, `"outcome":"decline"`, 1))
 	conflict := workflowTransactionReplay(t, r, grant, conflicting)
 	publicConflict, err := Dispatch(context.Background(), r.Store, r.Authority, InvokeRequest{Tool: r.Tool, Operation: r.Operation, Input: conflicting}, r.Envelope)
 	if err != nil || conflict.Error == nil || conflict.Error.Kind != "idempotency_conflict" || publicConflict.Error == nil || publicConflict.Error.Kind != "idempotency_conflict" {

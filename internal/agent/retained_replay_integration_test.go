@@ -52,7 +52,7 @@ func TestRetainedWorkflowInvokeAcrossManifestChange(t *testing.T) {
 		t.Fatalf("replay rewrote producer facts: before=%+v after=%+v err=%v", ownerBefore, ownerAfter, err)
 	}
 	commits = r.Store.DurableCommits()
-	conflicting := json.RawMessage(strings.Replace(string(raw), "The bounded stakes statement.", "A different stakes statement.", 1))
+	conflicting := json.RawMessage(strings.Replace(string(raw), `"outcome":"proceed"`, `"outcome":"decline"`, 1))
 	conflict, err := Invoke(ctx, r.Store, r.Authority, mustMarshalInvoke(t, InvokeRequest{Tool: r.Tool, Operation: r.Operation, Input: conflicting}, r.Envelope))
 	if err != nil || conflict.Error == nil || conflict.Error.Kind != "idempotency_conflict" {
 		t.Fatalf("changed workflow intent received retained response: err=%v error=%+v", err, conflict.Error)

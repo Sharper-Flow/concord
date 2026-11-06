@@ -30,7 +30,7 @@ func TestMutationResultReceiptFailureRollsBackEffect(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	raw := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_intake","fields":{"outcome":"proceed","note":"The bounded stakes statement."},"idempotency_key":"receipt-rollback"}`)
+	raw := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_intake","fields":{"outcome":"proceed"},"idempotency_key":"receipt-rollback"}`)
 	req := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}
 	if _, err := s.DatabaseForTesting().Exec(`CREATE TEMP TRIGGER reject_projection_receipt BEFORE UPDATE ON idempotency_records WHEN NEW.idempotency_key='receipt-rollback' BEGIN SELECT RAISE(ABORT,'synthetic projection receipt failure'); END`); err != nil {
 		t.Fatal(err)

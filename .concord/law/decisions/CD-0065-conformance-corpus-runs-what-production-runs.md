@@ -71,7 +71,7 @@ action boundary. Each keeps its stable ID.
 
 ## Consequences
 
-- Product-truth enforcement on the implementation workflow carries conformance
+- Product-truth enforcement on the change workflow carries conformance
   coverage: outcome contracts, completion rollback, evidence-commit binding,
   and current subject-bound Review results.
 - Store tests prove that a shared Domain alone blocks no boundary (CD-0222 D6).

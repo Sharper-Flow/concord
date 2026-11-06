@@ -8,18 +8,49 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WorkflowPlanProjectionTest(unittest.TestCase):
+    @staticmethod
+    def assert_advertised_matches_authoring(action):
+        # Intents and the served schema read public_payload; admission reads payload.
+        for variant in action["variants"]:
+            authoring = {field["name"]: field for field in variant["payload"]["fields"]}
+            advertised = {field["name"]: field for field in variant["public_payload"]["fields"]}
+            if set(advertised) != set(authoring):
+                raise AssertionError(f'{action["id"]}: field names differ: {sorted(set(advertised) ^ set(authoring))}')
+            for name in authoring:
+                if advertised[name]["required"] != authoring[name]["required"]:
+                    raise AssertionError(f'{action["id"]}: {name} required differs')
+
     def test_advertised_action_fields_match_authoring_fields(self):
         result = subprocess.run(["go", "run", "./scripts/workflow-action-contracts"], cwd=ROOT, text=True, capture_output=True, check=True)
         projection = json.loads(result.stdout)
-        # Intents and the served schema read public_payload; admission reads payload.
         for action in projection["actions"]:
-            for variant in action["variants"]:
-                authoring = {field["name"]: field for field in variant["payload"]["fields"]}
-                advertised = {field["name"]: field for field in variant["public_payload"]["fields"]}
-                with self.subTest(action=action["id"]):
-                    self.assertEqual(set(advertised), set(authoring), f'{action["id"]}: field names differ')
-                    for name in authoring:
-                        self.assertEqual(advertised[name]["required"], authoring[name]["required"], f'{action["id"]}: {name} required differs')
+            with self.subTest(action=action["id"]):
+                self.assert_advertised_matches_authoring(action)
+
+    def test_guard_catches_advertised_fields_admission_refuses(self):
+        # The pre-v60 catalog advertised required decision_domains and premise
+        # for approve_contract while the engine retired both; that divergence
+        # produced invalid_input refusals for agents following served
+        # guidance. No live action declares a divergent public payload, so the
+        # retired shape is seeded here to prove the guard fails on it.
+        retired = {
+            "id": "approve_contract",
+            "variants": [{
+                "payload": {"fields": [
+                    {"name": "contract_version", "required": False},
+                    {"name": "spec_mandate", "required": False},
+                    {"name": "law_modifies", "required": False},
+                    {"name": "legislative_subjects", "required": False},
+                    {"name": "architecture_binding", "required": False},
+                ]},
+                "public_payload": {"fields": [
+                    {"name": "decision_domains", "required": True},
+                    {"name": "premise", "required": True},
+                ]},
+            }],
+        }
+        with self.assertRaises(AssertionError):
+            self.assert_advertised_matches_authoring(retired)
 
     def test_action_route_is_available_at_intake(self):
         manifest = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text())

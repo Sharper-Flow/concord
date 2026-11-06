@@ -111,7 +111,7 @@ Recorded successor links read back with their recorded meaning, and no payload v
 ### D5. Scenarios state each concept at its owning record
 
 `work.created.work_kind` carries an operator kind. Scenarios select a workflow
-type by reference, and the schema rejects a family value in a kind field.
+type by reference, and the schema rejects a retired family value in a kind field.
 Rows recorded under the retired `workflow.definition_selected` event keep their
 recorded meaning ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history));
 no new selection event exists — the type pick is

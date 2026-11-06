@@ -4,7 +4,7 @@
 > [CD-0218](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md)
 > and
 > [CD-0229](../law/decisions/CD-0229-workflows-are-composed-from-shared-parts-and-a-decision-model-sets-each-work-items-size.md).
-> [CD-0242](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D4, D6, D13, and D14 govern generated definitions, current state, and finite snapshots.
+> [CD-0242](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2, D4, D6, D13, and D14 govern generated contracts, current state, and finite snapshots.
 > Companion to [`README.md`](./README.md),
 > [`specs-as-laws.md`](./specs-as-laws.md),
 > [`product-data-model.md`](./product-data-model.md).
@@ -15,8 +15,8 @@
 > panel or web UI is optional and secondary.
 
 **Approval amendment:** [CD-0243 D7](../law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
-qualifies current contract consent and revision authority. Definitions
-derive from one canonical source with no released definition version retained
+qualifies current contract consent and revision authority. Generated contracts
+derive from one canonical source with no released workflow-definition version retained
 for history (CD-0242 D14). The operator-owned release cutover retains its
 existing requirements.
 

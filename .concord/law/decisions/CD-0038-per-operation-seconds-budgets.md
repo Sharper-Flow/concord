@@ -133,7 +133,7 @@ store keeps the canonical envelope cap, and workflow action field
 constraints keep their own `max_items` bound; neither is a caller budget.
 
 Generated contract rules derive from the published input schemas; workflow-action
-variants are projected from the workflow registry. Closed input objects and
+variants are projected from the action catalog. Closed input objects and
 generic unknown-field admission refusals reject fields the schemas do not declare.
 Generated-contract parity checks verify that the derived artifacts match their sources.
 D3 defines the ceiling refusal shape with typed `supported_budget_seconds`

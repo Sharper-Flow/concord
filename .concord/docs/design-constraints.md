@@ -53,14 +53,14 @@ authority are forbidden.
 **Requirement.** Workflow and schema changes must be safe for in-flight work, per
 [`priorities.md` — Data safety](../law/constitution/priorities.md#data-safety-constraint).
 
-**Implication.** Current definitions and the cutover follow
+**Implication.** Current contracts and the cutover follow
 [CD-0242 D13–D14](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d13-the-cutover-is-one-documented-migration-with-a-verified-snapshot),
-not retained historical definitions.
+not retained historical versions.
 
 **Direction.** [`workflows.md`](./workflows.md) describes the current workflow
 types and composition model. [CD-0218 D1](../law/decisions/CD-0218-the-live-workflow-catalog-retains-three-execution-families.md#d1-four-workflow-types-own-new-execution)
 owns the type catalog and its step-template contract; CD-0242 D14 owns
-generated definitions.
+generated contracts.
 
 ---
 

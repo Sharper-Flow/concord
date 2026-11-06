@@ -141,7 +141,7 @@ a reachable state fails the
 liveness checks with a witness before merge.
 
 The checks count only exits the derived state proves, so a future strand
-surfaces as a failing check rather than a silent pass. Each later workflow type
+surfaces as a failing check rather than a silent pass. Each later admission family
 grows the same derivation and the same pure function
 ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 

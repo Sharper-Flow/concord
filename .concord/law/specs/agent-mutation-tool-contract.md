@@ -115,12 +115,12 @@ calls so each receives independent identity, value, scope, and conflict handling
 ### 2.2 `concord_work_transition`
 
 **Use when:** an agent must change canonical work lifecycle or perform one action
-offered by the work item's current workflow step.
+offered by the work item's current workflow plan.
 
 | Operation | Required domain input | Core effect |
 |---|---|---|
 | `lifecycle` | work ID, expected version, target `needed|in_progress|completed|cancelled|reopen`, reason, required evidence | Validate PM4 transition and workflow obligations; write the current rows atomically. |
-| `workflow_action` | work ID, expected version, stable action ID offered by the current workflow step, required fields/evidence | Execute the workflow-defined domain action atomically or reject it; action ID is authoritative data, not a caller-invented command. |
+| `workflow_action` | work ID, expected version, stable action ID offered by the current workflow plan, required fields/evidence | Execute the workflow-defined domain action atomically or reject it; action ID is authoritative data, not a caller-invented command. |
 
 Completed or cancelled work may be reopened to `needed` with a reason, subject
 to the one-live-Linear-issue rule in CD-0146. Contract changes use
@@ -128,7 +128,7 @@ to the one-live-Linear-issue rule in CD-0146. Contract changes use
 
 `workflow_action` does not decide workflow admission or gate vocabulary. It is a
 stable indirection to an action already declared by the work item's current
-workflow step. The core—not tool prose—validates whether the action is currently offered
+workflow plan. The core—not tool prose—validates whether the action is currently offered
 and which evidence it requires.
 
 ### 2.3 `concord_work_relate`

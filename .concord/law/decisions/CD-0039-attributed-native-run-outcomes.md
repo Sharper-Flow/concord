@@ -24,7 +24,7 @@
 
 ## Context
 
-The built-in ops runbook declares `start_run`, `checkpoint_run`, `record_health`,
+The built-in ops runbook then declared `start_run`, `checkpoint_run`, `record_health`,
 `rollback_run`, and `cleanup_run`. `start_run` and `rollback_run` are external-
 effect actions; `record_health` crosses authority. The workflow engine fences the actions and
 records generic completion, but it discards the native result. Concord can say
@@ -136,10 +136,10 @@ surface returns TS7 `partial` with:
 - `effect_state=partial`; and
 - `operation_conflict` with `reconcile_operation`.
 
-For a health failure followed by a successful rollback, `start_run`,
-`record_health`, and `rollback_run` are completed native steps, but the approved
-production change is not successful. `partial` describes that logical result;
-it does not claim rollback was incomplete.
+For a health failure followed by a successful rollback, the archived
+`start_run`, `record_health`, and `rollback_run` actions were completed native
+steps, but the approved production change was not successful. `partial`
+describes that logical result; it does not claim rollback was incomplete.
 
 An identical retry returns the same durable operation and attributed records.
 A changed payload under the same idempotency key receives

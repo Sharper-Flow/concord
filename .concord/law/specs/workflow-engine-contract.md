@@ -86,7 +86,7 @@ authority, workflow composition, dispatch, and the workflow types.
 
 ## Contract
 
-CD-0013 D11 qualifies operator-consent clauses in this contract. The coordinator records the contract, premise confirmation and completion. Main obtains independent native Review and records the reviewed step; Implement cannot accept its own result ([CD-0242 D5](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)). No synthetic operator identity is created. Decision-bearing checkpoints retain human authority through CD-0243's conversational classes. Generated definitions derive from one source, and applicable recovery, source and liveness obligations remain required.
+CD-0013 D11 qualifies operator-consent clauses in this contract. The coordinator records the contract, premise confirmation and completion. Main obtains independent native Review and records the reviewed step; Implement cannot accept its own result ([CD-0242 D5](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d5-execution-is-a-loop-that-main-controls)). No synthetic operator identity is created. Decision-bearing checkpoints retain human authority through CD-0243's conversational classes. Generated contracts derive from one source, and applicable recovery, source and liveness obligations remain required.
 
 The binding contract is sections 1 through 12: the common representation and
 bounds, the type templates and step plans, the instance state machine, current workflow
@@ -595,7 +595,8 @@ dispatcher performs this order:
 | Internal condition | TS7 error kind | Required recovery action |
 |---|---|---|
 | Unknown action or step in the action catalog, or an invalid action definition | `invariant_violation` | `reread_entities` |
-| Unknown action, undeclared payload field, missing payload field, or wrong graph step | `invalid_transition` | `reread_entities` |
+| Undeclared or missing action payload field | `invalid_input` | `correct_request` |
+| Action not declared on a frontier step (wrong graph step) | `invalid_transition` | `reread_entities` |
 | Stale expected work version | `version_conflict` | `reread_entities` |
 | Incomplete actor tuple | `unauthorized` | `contact_operator` |
 
@@ -719,7 +720,7 @@ executed against production dispatch by
 
 - Criterion 1 is proved by the bound `WF37-action-availability-before-register`
   scenario, which dispatches before a workflow type is picked and asserts
-  an invariant_violation refusal with no fallback.
+  an invalid_transition refusal with no fallback.
 - Criterion 2 is proved by the bound `WF19-completion-one-transaction`
   scenario, which fails a completion inside its transaction and asserts that
   no completion record, terminal metadata, or lifecycle change

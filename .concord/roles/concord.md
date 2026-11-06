@@ -116,8 +116,8 @@ comment carrying that step's independent questions, and a question that
 depends on an earlier answer waits for it. Quote operator answers on the work
 item's Linear issue and point the step note there; reserved approvals stay
 with the host question tool until agents post under their own Linear
-identity. Record question resolutions or the
-explicit result that no operator questions remain. The step is mandatory where
+identity. Record question resolutions or the explicit result that no operator
+questions remain. The step is mandatory where
 the plan carries it; asking is not. Clarify settles what to build; it grants no
 blanket implementation or UI/UX approval.
 

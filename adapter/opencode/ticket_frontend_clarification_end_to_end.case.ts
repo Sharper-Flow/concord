@@ -37,7 +37,8 @@ function ticketStub(path: string) {
       await Bun.write(path, JSON.stringify({ question }))
     },
     async readChanges() {
-      return { question, changes }
+      const { question: published } = await Bun.file(path).json()
+      return { question: published, changes }
     },
   }
 }
@@ -136,6 +137,7 @@ if (!process.env.TEST_CONCORD_TICKET_CASE || new RegExp(process.env.TEST_CONCORD
   expect(state).toMatchObject({ type: "change", state: "running", next_steps: ["clarify"] })
   expect(state.steps.find((step: JSONRecord) => step.id === "clarify").attempts ?? []).toEqual([])
   const stub = await ticketStub(ticket).readChanges()
+  expect(stub.question).toEqual(question)
   const fields = { resolved_questions: ["Retain the summary.", "Use plain text."], note: `Answer: "${stub.changes.answer.body}" Discussion: "${stub.changes.discussion.body}" Description: "${stub.changes.description.body}"` }
   await walk(workID, "record_clarify", fields)
   expect((captured.invoke?.input as JSONRecord).fields).toEqual(fields)

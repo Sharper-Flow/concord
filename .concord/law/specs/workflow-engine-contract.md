@@ -529,8 +529,8 @@ answer to the operator's own identity, which requires agents to post under
 their own identity; that identity is host-side work, the core builds no
 author-verification path, and until it lands reserved-approval questions and
 their answers stay with the host question tool whatever route the item uses.
-No adapter or
-store question route substitutes for either admitted route, and the core adds
+No adapter or store question route substitutes for either admitted route, and
+the core adds
 no question projection, pause state or selection envelope for either.
 
 An upgrade that removes a step kind first takes the existing verified snapshot.

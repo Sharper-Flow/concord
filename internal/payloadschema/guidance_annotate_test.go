@@ -121,11 +121,11 @@ func TestAnnotateGuidanceAnnotatesReachableSchemas(t *testing.T) {
 	if examples, ok := idNode["examples"].([]any); !ok || len(examples) != 1 {
 		t.Fatalf("id carries %v, want one example", idNode["examples"])
 	}
-	if description, _ := subjects["description"].(string); !strings.Contains(description, "matching") {
+	if description, _ := idNode["description"].(string); !strings.Contains(description, "matching") {
 		t.Fatalf("id description does not teach its pattern: %q", description)
 	}
 
-	if _, exists := subjects["required"]; exists {
+	if _, exists := idNode["required"]; exists {
 		// Guard against an annotation write leaking a validation keyword.
 		t.Fatal("annotation wrote a validation keyword onto a shared definition")
 	}

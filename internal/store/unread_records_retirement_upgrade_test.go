@@ -8,7 +8,7 @@ import (
 )
 
 // unreadRecordsMigration returns migration 190, which retires the
-// readerless workflow records (CON-1710, CD-0243 D3).
+// readerless workflow records.
 func unreadRecordsMigration(t *testing.T) migration {
 	t.Helper()
 	m := migrations[migrationPrefixBefore(t, "retire_unread_workflow_records")]

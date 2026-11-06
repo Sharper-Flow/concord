@@ -315,7 +315,6 @@ class ContractGuidanceProjectionTests(unittest.TestCase):
             generator.check_schema_keywords({"items": {"unknown_constraint": True}})
 
     def test_contract_fields_publish_schema_derived_examples(self):
-        # the projection obligation is asserted on a surviving contract field.
         actions, teaching, _, contract_updates = generator.load_workflow_action_contracts()
         projected, _ = generator.project_workflow_action_schema(payload_schema, actions, teaching, contract_updates)
         field = projected["$defs"]["workflow_contract_update"]["properties"]["spec_mandate"]

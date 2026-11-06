@@ -136,6 +136,7 @@ func retirementUpgradeSnapshot(t *testing.T, db *sql.DB) map[string][][]any {
 	for _, table := range retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name`) {
 		name := table[0].(string)
 		if name == "workflow_candidate_sets" {
+			// Migration 190 drops this table, so no comparison can require it.
 			continue
 		}
 		query := `SELECT * FROM "` + strings.ReplaceAll(name, `"`, `""`) + `" ORDER BY rowid`

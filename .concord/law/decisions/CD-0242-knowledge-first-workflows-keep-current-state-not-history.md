@@ -243,7 +243,7 @@ Main obtains independent review and records its actual outcome. A partial
 result remains progress with its remaining obligations. No attempt count,
 correction count, convergence basis, escalation wall, or reset exists.
 Removal of execution attestation never permits fabricated review or proof,
-skipped Review or Verify stages, or weaker required CI.
+skipped review stages, or weaker required CI.
 
 Main sizes each assignment by complexity and relatedness. No production-line
 cap, size measurement, or mandatory split applies. Scope, prerequisite,

@@ -1,6 +1,6 @@
 ---
 name: concord-ticket-writing
-description: Use when writing or editing a Linear issue, a Linear comment or a captured work item, including a defect report or a synthesized finding.
+description: Use when writing or editing a Linear issue, a Linear comment or a captured work item, including a defect report, a synthesized finding, or the step and event comments a ticket-frontend item posts on its linked issue.
 ---
 
 # Ticket writing
@@ -33,11 +33,48 @@ When an issue splits work into several outcomes, plan them with the shipped
 The description owns the current problem, scope, end state and decisions. When
 an agreed decision changes them, patch it in place so concurrent edits survive
 and link the approval evidence. A comment holds one event the description
-cannot hold: a quoted operator decision, synthesized finding, handoff, blocker or
-completion report.
+cannot hold: a quoted operator decision, synthesized finding, handoff, blocker,
+completion report or, for an item driven through a ticket frontend, a step or
+event update.
 
 Read the description and recent comments before commenting. Amend the
 description or your own earlier comment instead of restating it. Fold helper
 and delegated results into one synthesized finding rather than pasting reports.
 The result lets a later reader establish the current issue and its evidence
 without reconstructing a conversation.
+
+## Post step results on a ticket-frontend item
+
+A reader following an item driven through a ticket frontend sees the linked
+issue, not the agent's terminal. Each time a step of the item's plan completes,
+post one comment there: say which step finished and summarise its result, with
+links. The types and steps are the item's own plan; the four workflow types
+(change, fix, research, removal) are defined in
+`contracts/workflow-step-templates.v1.json`:
+
+| Type | Step | The comment states |
+| -- | -- | -- |
+| all | clarify | decisions recorded, or that no questions remained |
+| fix | diagnose | the confirmed cause and its evidence |
+| change, fix, removal | plan | outcomes, approach and main risks |
+| removal | list | what will be removed, and the retiring clause |
+| research | frame | the research question and its bounds |
+| research | investigate | the findings |
+| change, fix, removal | implement | what changed, with the PR link (the "PR opened" update) |
+| change, fix, removal | review | the review outcome (the "review passed" update) |
+| research | conclude | the conclusion and any follow-ups |
+
+Questions, blockers and the completion report stay as today, and no other
+progress comments are posted. Post one comment, outside the step plan, for
+each of these events:
+
+- **Stopped without finishing:** why it stopped and what resumes it, as the
+  driving role's stop rule already requires.
+- **Scope or plan changed after the plan step:** what changed, why, and the
+  approval link if one was needed.
+- **Follow-up filed:** link the new issue.
+- **Released or installed separately from merge:** one comment when it actually
+  lands.
+- **Superseded or cancelled:** what replaces the item, or why it was dropped.
+
+Do not post CI start or watch notices, rebases, or per-review-round comments.

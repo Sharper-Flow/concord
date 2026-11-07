@@ -29,7 +29,8 @@ Load [Ticket frontend](concord-ticket-frontend/SKILL.md) when work is driven
 through the ticket frontend and an operator question or resume arises.
 
 Load [Ticket writing](concord-ticket-writing/SKILL.md) to write a Linear issue,
-a Linear comment or a captured work item.
+a Linear comment or a captured work item, including the step and event comments
+a ticket-frontend item posts on its linked issue.
 
 Load [Project updates](concord-project-updates/SKILL.md) to write or edit a
 Linear project description or status update.

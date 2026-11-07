@@ -48,9 +48,8 @@ without reconstructing a conversation.
 A reader following an item driven through a ticket frontend sees the linked
 issue, not the agent's terminal. Each time a step of the item's plan completes,
 post one comment there: say which step finished and summarise its result, with
-links. The types and steps are the item's own plan; the four workflow types
-(change, fix, research, removal) are defined in
-`contracts/workflow-step-templates.v1.json`:
+links. The item's workflow type (change, fix, research or removal) sets the
+required steps its plan copies from `contracts/workflow-step-templates.v1.json`:
 
 | Type | Step | The comment states |
 | -- | -- | -- |
@@ -64,9 +63,9 @@ links. The types and steps are the item's own plan; the four workflow types
 | change, fix, removal | review | the review outcome (the "review passed" update) |
 | research | conclude | the conclusion and any follow-ups |
 
-Questions, blockers and the completion report stay as today, and no other
-progress comments are posted. Post one comment, outside the step plan, for
-each of these events:
+Questions, blockers and the completion report keep their own rules; post no
+other progress comments. Post one comment, outside the step plan, for each of
+these events:
 
 - **Stopped without finishing:** why it stopped and what resumes it, as the
   driving role's stop rule already requires.

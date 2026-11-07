@@ -1828,7 +1828,8 @@ func runOutputBoundLedger(rt *ledgerRuntime, census *boundCensus, registrations 
 		}
 		if evaluated.unbounded && len(matched) == 0 {
 			// An uncapped node an input root also reaches widens admission:
-			// the shared definition needs an output-only twin instead.
+			// the shared definition needs a separate output-only definition
+			// without the cap instead.
 			inputParents := []string{parent}
 			if wildcardParent {
 				inputParents = parentNodes
@@ -1838,7 +1839,7 @@ func runOutputBoundLedger(rt *ledgerRuntime, census *boundCensus, registrations 
 					failures = append(failures, ledgerFailure{
 						Kind:    "input-widened",
 						Subject: nodeKey,
-						Detail:  fmt.Sprintf("the row %s registers this node unbounded, but an input root reaches it, so the missing cap widens admission; keep the cap on the input definition and point the output at an output-only twin", reg.pattern),
+						Detail:  fmt.Sprintf("the row %s registers this node unbounded, but an input root reaches it, so the missing cap widens admission; keep the cap on the input definition and point the output at a separate output-only definition", reg.pattern),
 					})
 				}
 			}

@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:28250347b807140d90799edb5c5b31aa1ea8cf9a201e4013f37b9640c80962f0"
+const ManifestDigest = "sha256:385f3b3620b41e2172b0b9c35693698760252f12f734953d2a6daa04a7766378"
 
 type OperationKind string
 
@@ -128,7 +128,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_transition_action_input":                        {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},
 	"work_transition_action_public_input":                 {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},
 	"work_transition_action_variant_approve_contract":     {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},
-	"work_transition_action_variant_bind_evidence":        {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key", "fields"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},
+	"work_transition_action_variant_bind_evidence":        {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},
 	"work_transition_action_variant_checkpoint_execution": {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},
 	"work_transition_action_variant_complete":             {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key", "fields"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},
 	"work_transition_action_variant_complete_step":        {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key", "fields"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "requested_budget_seconds", "fields"}},

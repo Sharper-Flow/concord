@@ -504,7 +504,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 		actionRefField("evidence_ref", false),
 		actionEnumField("evidence_kind", false, "verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"),
 		actionRefField("immutable_subject_ref", false), actionRefField("producer_id", false),
-		actionRefField("producer_run_ref", false), actionRefField("producer_watermark", true),
+		actionRefField("producer_run_ref", false), actionRefField("producer_watermark", false),
 	),
 	"link_successor": actionPolicy(ActionInternalSQLite, ActionHold, ActionEventTyped,
 		actionEnumField("relation", false, "forward_link"), actionObjectField("relation_data", "workflow_forward_relation"), actionRefField("successor_work_id", true),

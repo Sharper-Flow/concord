@@ -1383,7 +1383,7 @@ func foldWorkflowActionFailed(ctx context.Context, tx *sql.Tx, event Event) erro
 func producerBindingMismatch(ctx context.Context, tx *sql.Tx, workID string, p workflowEvidenceBoundPayload) error {
 	producer := workflowRefExcerpt(p.ProducerRunRef)
 	const repair = "name the producer operation that recorded the evidence reference"
-	const externalRecovery = "submit the external locator in evidence on an otherwise admitted workflow action, then bind it with that action's returned operation_id as producer_run_ref, envelope request_id as producer_watermark, and recording principal as producer_id; omit producer_id when that principal binds"
+	const externalRecovery = "submit the external locator in the bind_evidence call, in top-level evidence or declared fields, and omit producer_id, producer_run_ref and producer_watermark to bind from that call; alternatively submit it on an otherwise admitted workflow action, then bind with its operation_id as producer_run_ref, request_id as producer_watermark, and recording principal as producer_id; omit producer_id when that principal binds"
 	var recordedWork, principal, requestID, result string
 	err := tx.QueryRowContext(ctx, `SELECT work_id, COALESCE(principal_ref,''), COALESCE(request_id,''), COALESCE(result_kind,'') FROM durable_operations WHERE op_id=? ORDER BY (work_id=?) DESC, (result_kind='completed') DESC, attempt_epoch DESC LIMIT 1`, p.ProducerRunRef, workID).Scan(&recordedWork, &principal, &requestID, &result)
 	switch {
@@ -1426,7 +1426,7 @@ func foldWorkflowEvidenceBound(ctx context.Context, tx *sql.Tx, event Event) err
 		return wrapFailure(KindUnavailable, "fold_event", "cannot verify evidence authority", true, "retry once the evidence authority is readable", err)
 	}
 	if recorded != 1 {
-		return newFailure(KindInvariantViolation, "fold_event", "locator mismatch: producer operation "+workflowRefExcerpt(p.ProducerRunRef)+" completed without "+workflowRefExcerpt(p.ImmutableSubjectRef)+" among its recorded evidence", false, "bind a locator the producer operation recorded, or rerun the producer with this evidence reference")
+		return newFailure(KindInvariantViolation, "fold_event", "locator mismatch: producer operation "+workflowRefExcerpt(p.ProducerRunRef)+" completed without "+workflowRefExcerpt(p.ImmutableSubjectRef)+" among its recorded evidence", false, "bind a locator the producer operation recorded, rerun the producer with this evidence reference, or submit the external locator in the bind_evidence call, in top-level evidence or declared fields, and omit producer_id, producer_run_ref and producer_watermark to bind from that call")
 	}
 	// A native-run report may back completion
 	// evidence only through this explicit binding, and only while its

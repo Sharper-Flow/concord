@@ -79,8 +79,8 @@ func TestWorkflowActionSchemaIsActionSpecific(t *testing.T) {
 			t.Fatalf("%s rejected ordinary evidence binding: %v", schema, err)
 		}
 		missingWatermark := json.RawMessage(`{"work_id":"work-1","expected_version":1,"action_id":"bind_evidence","idempotency_key":"bind-1","fields":{"evidence_kind":"verification","evidence_ref":"worktree_verify:one"}}`)
-		if err := payloadschema.Validate(schema, missingWatermark); err == nil {
-			t.Fatalf("%s accepted evidence without a producer watermark", schema)
+		if err := payloadschema.Validate(schema, missingWatermark); err != nil {
+			t.Fatalf("%s rejected evidence without a producer watermark: %v", schema, err)
 		}
 	}
 

@@ -15,13 +15,12 @@ payload_schema = json.loads((ROOT / "contracts/agent-tool-surface-payloads.schem
 
 
 class RetainedWorkflowPayloadTests(unittest.TestCase):
-    def test_evidence_binding_requires_producer_watermark(self):
+    def test_evidence_binding_accepts_optional_producer_watermark(self):
         schema = payload_schema["$defs"]["work_transition_action_variant_bind_evidence"]
         call = {"work_id": "work-1", "expected_version": 1, "action_id": "bind_evidence",
                 "idempotency_key": "key-1", "fields": {"producer_watermark": "watermark:one"}}
         generator.schema_validate(call, schema, payload_schema)
-        with self.assertRaises(ValueError):
-            generator.schema_validate(call | {"fields": {}}, schema, payload_schema)
+        generator.schema_validate(call | {"fields": {}}, schema, payload_schema)
 
     def test_review_requires_complete_step_attempt(self):
         schema = payload_schema["$defs"]["work_transition_action_variant_record_review"]

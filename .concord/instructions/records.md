@@ -7,7 +7,9 @@ outlives the session, and its later reader does not hold the context you hold no
 Record each fact with its owner and link to it elsewhere. Keep decisions, evidence,
 unresolved risks, and remaining scope in the work record, not a command and status
 transcript. Do not mirror routine progress in chat, receipts, or planning comments;
-required workflow transitions and planning state changes belong in their owning systems.
+required workflow transitions and planning state changes belong in their owning
+systems. The step and event comments a ticket-frontend item requires are
+work-record updates, not routine progress.
 
 Public repository content excludes private Product or customer data, credentials,
 and inaccessible private-source citations. Keep planning backlogs in the owning
@@ -41,8 +43,9 @@ paths, identifiers, and code. A paraphrased error is not searchable.
 
 ## Writing methods
 
-- Load `concord-ticket-writing` when writing a Linear issue, a Linear comment
-  or a captured work item.
+- Load `concord-ticket-writing` when writing a Linear issue, a Linear comment or
+  a captured work item; it owns the step and event comments a ticket-frontend
+  item posts on its linked issue.
 - Load `concord-project-updates` when writing a Linear project description or
   status update.
 - Load `concord-pr-writing` when writing a pull request body or completion report.

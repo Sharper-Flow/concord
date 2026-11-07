@@ -1,6 +1,6 @@
 ---
 name: concord-ticket-frontend
-description: Ask operator questions and resume managed work through a ticket frontend. Use when the item is driven through the ticket frontend — spawned or retriggered there, the operator directs that route, or an RTE directs it after more than 30 minutes of pane idleness — to publish step questions on the linked Linear issue, stop durably, and resume the same work after the operator answers. Also use when a frontend-started session must ask its question or report a permission refusal there.
+description: Ask operator questions and resume managed work through a ticket frontend. Use when the item is driven through the ticket frontend — spawned or retriggered there, the operator directs that route, or an RTE directs it after more than 30 minutes of pane idleness — to publish step questions on the linked Linear issue, stop durably, and resume the same work after the operator answers.
 ---
 
 # Ticket frontend
@@ -39,13 +39,8 @@ refused never opens an interactive dialog. It publishes operator questions,
 including reserved-approval questions, as comments on the linked Linear issue
 under the mention rule above. An instruction that switches the asking route
 does not lift this mode: the launch configuration that started the session
-decides it. Answer authority still follows the rules below.
-
-When the host refuses an action that an ask-gated permission rule would prompt
-for, the session does not perform the refused action, widen permission, or
-retry to bypass the refusal. It reports the refused action and its effect on
-the linked Linear issue, then continues admitted work or stops durably as
-described above. This section does not apply to directly driven sessions.
+decides it. Answer authority still follows the rules below. This section does
+not apply to directly driven sessions.
 
 ## Answer authority and resume
 

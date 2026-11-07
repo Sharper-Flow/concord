@@ -1018,6 +1018,50 @@ class MethodSkillTests(unittest.TestCase):
                     shutil.copy(ROOT / "skills" / name / "LICENSE", license_path)
 
 
+class TicketWritingStepTableTests(unittest.TestCase):
+    def setUp(self):
+        self.content = (ROOT / "skills/concord-ticket-writing/SKILL.md").read_text(encoding="utf-8")
+        self.templates = lane_checker._load_json(ROOT / "contracts/workflow-step-templates.v1.json")
+
+    def test_shipped_table_agrees_with_the_contract(self):
+        self.assertEqual(lane_checker.check_ticket_writing_step_table(), [])
+
+    def test_planted_plan_row_for_removal_is_rejected(self):
+        content = self.content.replace("| change, fix | plan |", "| change, fix, removal | plan |")
+        self.assertNotEqual(content, self.content)
+        findings = lane_checker.ticket_writing_step_table_findings(content, self.templates)
+        self.assertTrue(any("removal" in f and "plan" in f for f in findings), findings)
+
+    def test_missing_table_row_is_rejected(self):
+        content = re.sub(r"(?m)^\| removal \| list \|.*\n", "", self.content)
+        self.assertNotEqual(content, self.content)
+        findings = lane_checker.ticket_writing_step_table_findings(content, self.templates)
+        self.assertTrue(any("removal" in f and "list" in f for f in findings), findings)
+
+    def test_unknown_type_token_is_rejected(self):
+        content = self.content.replace("| fix | diagnose |", "| bogus | diagnose |")
+        self.assertNotEqual(content, self.content)
+        findings = lane_checker.ticket_writing_step_table_findings(content, self.templates)
+        self.assertTrue(any("bogus" in f and "unknown" in f for f in findings), findings)
+
+    def test_a_removed_or_unrecognizable_table_is_rejected(self):
+        content = self.content.replace("| Type | Step |", "| Kind | Step |")
+        self.assertNotEqual(content, self.content)
+        findings = lane_checker.ticket_writing_step_table_findings(content, self.templates)
+        self.assertTrue(any("table" in f and ("missing" in f or "recognizable" in f) for f in findings), findings)
+
+    def test_unreadable_inputs_are_findings(self):
+        for path in (ROOT / "skills/concord-ticket-writing/SKILL.md", ROOT / "contracts/workflow-step-templates.v1.json"):
+            read_text = Path.read_text
+            def unreadable(candidate, *args, **kwargs):
+                if candidate == path:
+                    raise OSError("unreadable fixture")
+                return read_text(candidate, *args, **kwargs)
+            with self.subTest(path=path), unittest.mock.patch.object(Path, "read_text", unreadable):
+                findings = lane_checker.check_ticket_writing_step_table()
+                self.assertTrue(any("unreadable fixture" in f for f in findings), findings)
+
+
 class EvidenceBoundParityTests(unittest.TestCase):
     """The request evidence declaration owns every evidence field bound.
 

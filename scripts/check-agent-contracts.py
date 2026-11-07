@@ -722,6 +722,51 @@ def shipped_skill_reference_findings(root: Path, content: str) -> list[str]:
             findings.append(f"reference path {match[1]} does not exist in this repository")
     return findings
 
+
+def ticket_writing_step_table_findings(content: str, templates: dict) -> list[str]:
+    """The skill is neither law nor docs, so its contract inventory copy needs this structural parity check."""
+    lines = content.splitlines()
+    header = next((i for i, line in enumerate(lines) if re.match(r"^\|\s*Type\s*\|\s*Step\s*\|", line)), None)
+    if header is None:
+        return ["step table missing or no longer recognizable"]
+    types = {item["id"] for item in templates["types"]}
+    expected = {(item["id"], step["id"]) for item in templates["types"] for step in item["steps"]}
+    actual: set[tuple[str, str]] = set()
+    findings: list[str] = []
+    for line in lines[header + 1:]:
+        if not line.startswith("|"):
+            break
+        cells = [cell.strip() for cell in line.split("|")[1:]]
+        if len(cells) < 2:
+            findings.append(f"unrecognizable step table row: {line}")
+            continue
+        if re.fullmatch(r":?-+:?", cells[0]) and re.fullmatch(r":?-+:?", cells[1]):
+            continue
+        for token in cells[0].split(","):
+            token = token.strip()
+            if token == "all":
+                actual.update((name, cells[1]) for name in types)
+            elif token in types:
+                actual.add((token, cells[1]))
+            else:
+                findings.append(f"unknown workflow type {token!r} for step {cells[1]!r}")
+    findings.extend(f"step table has pair absent from contract: {kind} / {step}" for kind, step in sorted(actual - expected))
+    findings.extend(f"step table omits contract pair: {kind} / {step}" for kind, step in sorted(expected - actual))
+    return findings
+
+
+def check_ticket_writing_step_table() -> list[str]:
+    skill = ROOT / "skills/concord-ticket-writing/SKILL.md"
+    contract = ROOT / "contracts/workflow-step-templates.v1.json"
+    relative = skill.relative_to(ROOT).as_posix()
+    try:
+        content = skill.read_text(encoding="utf-8")
+        templates = _load_json(contract)
+        return [f"{relative}: {finding}" for finding in ticket_writing_step_table_findings(content, templates)]
+    except (OSError, UnicodeError, ValueError, KeyError, TypeError) as exc:
+        return [f"{relative}: unable to check step table against {contract.relative_to(ROOT)}: {exc}"]
+
+
 def _check_envelope_operation_vocabulary() -> list[str]:
     """Prove the envelope tool/operation join (issue #352).
 
@@ -875,7 +920,7 @@ def main(argv: list[str] | None = None) -> int:
         if tamper.returncode: return tamper.returncode
     generated = subprocess.run([sys.executable, str(ROOT / "scripts/generate-agent-contracts.py"), "--check"], cwd=ROOT)
     if generated.returncode: return generated.returncode
-    profile_findings = _check_shipped_skills() + _check_envelope_operation_vocabulary()
+    profile_findings = _check_shipped_skills() + check_ticket_writing_step_table() + _check_envelope_operation_vocabulary()
     profiles = subprocess.run([sys.executable, str(ROOT / "scripts/generate-agent-profiles.py"), "--check"], cwd=ROOT, capture_output=True, text=True)
     if profiles.returncode:
         profile_findings.append(profiles.stderr.strip() or profiles.stdout.strip() or "profile generator failed")

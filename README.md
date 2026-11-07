@@ -65,8 +65,11 @@ reviewer identity. The coordinator owns the independence claim.
 
 ## Agents and helpers
 
-Concord ships with primary agent profiles for full sessions, specialized step
-helpers for individual workflow steps, and read-only utilities:
+Concord separates work into primary agents, specialized step helpers, and
+read-only utilities so you can match the model to the job. Choose models for
+demanding implementation or review and faster, lower-cost models for routine
+lookups, balancing capability, speed, and cost for each role. You configure
+those choices in OpenCode; Concord does not select models automatically.
 
 | Role or helper | Workflow stage | Responsibility |
 |---|---|---|

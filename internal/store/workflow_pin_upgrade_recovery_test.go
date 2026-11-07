@@ -172,13 +172,23 @@ func TestLawPinUpgradeRetainsReviewAndRecovers(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer s.Close()
+			home := KnowledgeHome{HomeProjectID: "project-upgrade", HomeLocatorID: "upgrade-home", RepoPath: initKnowledgeRepo(t), HeadRef: "HEAD"}
+			writeFixtureSpecLawSource(t, home, "spec:one")
+			authorizeKnowledgeProductHome(t, s, "product-upgrade", home)
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE projects SET repository_mode='on' WHERE id='project-upgrade'; DELETE FROM product_projects WHERE product_id='anchor-product-project-upgrade' AND project_id='project-upgrade'; DELETE FROM products WHERE id='anchor-product-project-upgrade'; DELETE FROM write_guard`); err != nil {
+				t.Fatal(err)
+			}
 			id := "upgrade-review-1-true"
 			actor := WorkflowActor{PrincipalRef: "operator-upgrade", ClientRef: "client-upgrade", AgentRef: "agent-producer", SessionRef: "session-producer", ActorClass: ActorAgent}
 			apply := func(action string, payload any, who WorkflowActor) error {
 				version := readWorkVersion(t, s, id)
 				key := fmt.Sprintf("%s-%s-%d", id, action, version)
-				return s.Transact(ctx, func(tx *Transaction) error {
-					_, err := ApplyWorkflowActionTx(ctx, tx, WorkflowActionExecutionRequest{
+				actionCtx, err := s.PrepareWorkflowActionProof(ctx, action, id, mustJSONValue(payload))
+				if err != nil {
+					return err
+				}
+				return s.Transact(actionCtx, func(tx *Transaction) error {
+					_, err := ApplyWorkflowActionTx(actionCtx, tx, WorkflowActionExecutionRequest{
 						WorkID: id, ExpectedVersion: version, ActionID: action, Payload: mustJSONValue(payload), Actor: who,
 						AcceptedInputsDigest: testManifestDigest, IdempotencyIdentity: key, OperationID: key, PrincipalRef: who.PrincipalRef,
 						Tool: "concord_work_transition", IdempotencyKey: key, RequestID: key, ContractDigest: testManifestDigest, Now: time.Unix(100, 0).UTC(),

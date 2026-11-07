@@ -60,6 +60,7 @@ func routineCoordinationFixture(t *testing.T) (*store.Store, *Service, CallEnvel
 
 func seedRoutineCoordinationDomainFixture(t *testing.T, s *store.Store, ctx context.Context) {
 	t.Helper()
+	setWorkflowFixtureHomeOn(t, s)
 	homeDir := t.TempDir()
 	var projectVersion int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM projects WHERE id=?`, "project-1").Scan(&projectVersion); err != nil {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -33,7 +34,7 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, request Workflow
 	if s == nil || s.db == nil {
 		return WorkflowActionDefinition{}, newFailure(KindUnavailable, "workflow_action_preflight", "store is not open", false, "open the authority database")
 	}
-	ctx, err := s.PrepareWorkflowActionProof(ctx, request.ActionID, request.WorkID)
+	ctx, err := s.PrepareWorkflowActionProof(ctx, request.ActionID, request.WorkID, request.Payload)
 	if err != nil {
 		return WorkflowActionDefinition{}, err
 	}
@@ -49,25 +50,103 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, request Workflow
 // action opens, the knowledge-source proof the action reads inside it.
 // Approval verifies the law and Domains the contract binds, including a
 // proposed contract that is not active yet; confirm_premise validates Domain
-// refs against the committed registry; completion reads no law and needs no
-// proof; every other action follows the work's own demand
+// refs against the committed registry; a Product-changing type pick verifies
+// the on-mode home its contract will bind; a research pick and completion need
+// no proof; every other action follows the work's own demand
 // (PrepareWorkLawProof). Git runs only here, outside the pool.
 // The agent boundary, the preflight, and the owning transaction share this one
 // rule, so none refuses for a missing proof another would hold. An
 // unreachable or invalid law home refuses: a law or registry boundary has no
 // degraded form. A context that already carries a proof passes through; the
 // transaction revalidates it against the live heads.
-func (s *Store) PrepareWorkflowActionProof(ctx context.Context, actionID, workID string) (context.Context, error) {
+func (s *Store) PrepareWorkflowActionProof(ctx context.Context, actionID, workID string, payload json.RawMessage) (context.Context, error) {
 	if knowledgeSourceSetProofFrom(ctx) != nil {
 		return ctx, nil
 	}
 	switch actionID {
 	case "complete":
 		return ctx, nil
+	case "pick_type":
+		if !productChangingPick(payload) {
+			return ctx, nil
+		}
+		var homeMode, workMode string
+		err := s.db.QueryRowContext(ctx, `SELECT p.repository_mode,w.repository_mode FROM work_projects wp JOIN projects w ON w.id=wp.project_id JOIN product_projects pp ON pp.project_id=wp.project_id JOIN product_knowledge_homes h ON h.product_id=pp.product_id JOIN projects p ON p.id=h.project_id WHERE wp.work_id=? AND wp.role='primary' LIMIT 1`, workID).Scan(&homeMode, &workMode)
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && homeMode != "on") {
+			return ctx, nil
+		}
+		if err != nil {
+			return ctx, wrapFailure(KindUnavailable, "workflow_action", "cannot resolve Product-law home mode", true, "retry once the Product projection is readable", err)
+		}
+		verified, err := s.EstablishKnowledgeSourceSetProof(ctx, workID)
+		return verified, pickTypeHomeFailure(err, workMode)
 	case "approve_contract", "confirm_premise":
 		return s.EstablishKnowledgeSourceSetProof(ctx, workID)
 	}
 	return s.PrepareWorkLawProof(ctx, workID)
+}
+
+func productChangingPick(payload json.RawMessage) bool {
+	var pick struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(payload, &pick) != nil {
+		return false
+	}
+	return pick.Type == "change" || pick.Type == "fix" || pick.Type == "removal"
+}
+
+func pickTypeHomeFailure(err error, workMode string) error {
+	if err == nil || workMode != "off" {
+		return err
+	}
+	const recovery = "repair or commit the Domain registry in the separate on-mode knowledge-home repository, designate such a repository, or handle the work outside Concord"
+	var failure *Failure
+	if errors.As(err, &failure) {
+		refusal := *failure
+		if refusal.RecoveryAction != "" {
+			refusal.RecoveryAction += "; or "
+		}
+		refusal.RecoveryAction += recovery
+		return &refusal
+	}
+	return wrapFailure(KindUnavailable, "workflow_action", "cannot verify the Product-law home", true, recovery, err)
+}
+
+func requirePickTypeKnowledgeHomeTx(ctx context.Context, tx *sql.Tx, workID string) error {
+	product, err := architectureBindingProductIDTx(ctx, tx, workID)
+	if err != nil {
+		return err
+	}
+	var mode string
+	if err := tx.QueryRowContext(ctx, `SELECT p.repository_mode FROM work_projects wp JOIN projects p ON p.id=wp.project_id WHERE wp.work_id=? AND wp.role='primary'`, workID).Scan(&mode); err != nil {
+		return err
+	}
+	recovery := "designate a separate on-mode knowledge-home repository with a committed Domain registry, or handle the work outside Concord"
+	home, locator, err := productKnowledgeHomeTx(ctx, tx, product)
+	if err != nil {
+		var failure *Failure
+		if mode == "off" && errors.As(err, &failure) && failure.Kind == KindUnknownScope {
+			return newFailure(KindUnknownScope, "workflow_action", "Product has no usable Product-law home", false, recovery)
+		}
+		return err
+	}
+	var homeMode string
+	if err := tx.QueryRowContext(ctx, `SELECT repository_mode FROM projects WHERE id=?`, home).Scan(&homeMode); err != nil {
+		return err
+	}
+	if homeMode != "on" {
+		return newFailure(KindUnknownScope, "workflow_action", "Product-law home is not an on-mode repository", false, recovery)
+	}
+	if err := requireKnowledgeSourceSetProof(ctx, tx, home, locator); err != nil {
+		return pickTypeHomeFailure(err, mode)
+	}
+	snapshot, err := lawSnapshotForSource(ctx, KnowledgeHome{HomeProjectID: home, HomeLocatorID: locator}, "workflow_action")
+	if err != nil {
+		return pickTypeHomeFailure(err, mode)
+	}
+	_, err = snapshot.Registry()
+	return pickTypeHomeFailure(err, mode)
 }
 
 // AuthorizeWorkflowActionAtBoundaryTx is the owning-action transaction
@@ -95,7 +174,7 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, reques
 	if mutate == nil {
 		return newFailure(KindInvalidOperation, "workflow_action_boundary", "owning action mutation is required", false, "supply the persisted action operation")
 	}
-	ctx, err := s.PrepareWorkflowActionProof(ctx, request.ActionID, request.WorkID)
+	ctx, err := s.PrepareWorkflowActionProof(ctx, request.ActionID, request.WorkID, request.Payload)
 	if err != nil {
 		return err
 	}
@@ -345,7 +424,14 @@ func workflowPlanCompleteActionTx(ctx context.Context, q queryer, workID string,
 
 func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, actionID, step string, plan *WorkflowStepPlan, fields map[string]json.RawMessage) (string, error) {
 	switch actionID {
-	case "record_intake", "pick_type", "insert_step":
+	case "record_intake", "insert_step":
+	case "pick_type":
+		typ, _ := workflowFieldString(fields, "type")
+		if typ != "research" {
+			if err := requirePickTypeKnowledgeHomeTx(ctx, tx, workID); err != nil {
+				return step, err
+			}
+		}
 	case "complete_step", "record_review":
 		step, _ = workflowFieldString(fields, "step_id")
 		return step, workflowPlanStepAttemptAdmissionTx(ctx, tx, workID, plan, step, actionID)

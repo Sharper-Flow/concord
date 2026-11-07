@@ -316,6 +316,9 @@ func TestWorkflowContractRevisionAdvancesEffectFrontier(t *testing.T) {
 
 func seedWorkflowLaw(t *testing.T, s *Store) {
 	t.Helper()
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE projects SET repository_mode='on' WHERE id='project'; DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
 	var projectVersion int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM projects WHERE id='project'`).Scan(&projectVersion); err != nil {
 		t.Fatal(err)

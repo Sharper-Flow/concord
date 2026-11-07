@@ -32,7 +32,7 @@ func planAdmissionPreflight(t *testing.T, s *Store, request WorkflowActionExecut
 
 func planAdmissionDispatch(t *testing.T, s *Store, request WorkflowActionExecutionRequest) error {
 	t.Helper()
-	ctx, err := s.PrepareWorkflowActionProof(context.Background(), request.ActionID, request.WorkID)
+	ctx, err := s.PrepareWorkflowActionProof(context.Background(), request.ActionID, request.WorkID, request.Payload)
 	if err != nil {
 		return err
 	}

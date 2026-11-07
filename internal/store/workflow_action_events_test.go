@@ -24,7 +24,7 @@ func issue31WorkflowActionWithPayload(t *testing.T, s *Store, workID string, ver
 		}
 		payload = mustJSONValue(fields)
 	}
-	ctx, err := s.PrepareWorkflowActionProof(context.Background(), actionID, workID)
+	ctx, err := s.PrepareWorkflowActionProof(context.Background(), actionID, workID, payload)
 	if err != nil {
 		t.Fatal(err)
 	}

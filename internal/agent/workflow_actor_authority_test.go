@@ -14,6 +14,7 @@ import (
 func TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+	seedCurrentWorkflowDomainFixture(t, s)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)

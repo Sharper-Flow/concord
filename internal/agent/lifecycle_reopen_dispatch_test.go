@@ -16,6 +16,7 @@ func TestReopenRestoresPlanAndAdmitsInsertStep(t *testing.T) {
 		t.Run(terminal, func(t *testing.T) {
 			ctx := context.Background()
 			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+			seedCurrentWorkflowDomainFixture(t, s)
 			scope, _, err := s.ScopeVersion(ctx, "project-1")
 			if err != nil {
 				t.Fatal(err)
@@ -103,6 +104,7 @@ func TestReopenRestoresPlanAndAdmitsInsertStep(t *testing.T) {
 func TestReopenDeclinedIntakeCanProceed(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+	seedCurrentWorkflowDomainFixture(t, s)
 	scope, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)

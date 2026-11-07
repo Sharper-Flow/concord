@@ -87,6 +87,7 @@ func testWorkflowLawChangeAdmission(t *testing.T, tier string) {
 	t.Helper()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+	setWorkflowFixtureHomeOn(t, s)
 	home, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir())
 	if err != nil {
 		t.Fatal(err)

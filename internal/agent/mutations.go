@@ -494,8 +494,8 @@ func (r runtime) workflowActionReplayPreflight(ctx context.Context, base agentco
 // action verifies inside its transaction (store.PrepareWorkflowActionProof).
 // It runs after replay and approval admission, with
 // no transaction open. A non-nil envelope carries the refusal.
-func (r runtime) knowledgeSourceProofForAction(ctx context.Context, base agentcontract.Envelope, actionID, workID string) (context.Context, *agentcontract.Envelope) {
-	verifiedCtx, proofErr := r.Store.PrepareWorkflowActionProof(ctx, actionID, workID)
+func (r runtime) knowledgeSourceProofForAction(ctx context.Context, base agentcontract.Envelope, actionID, workID string, payload json.RawMessage) (context.Context, *agentcontract.Envelope) {
+	verifiedCtx, proofErr := r.Store.PrepareWorkflowActionProof(ctx, actionID, workID, payload)
 	if proofErr != nil {
 		refusal := failureEnvelope(base, proofErr)
 		return ctx, &refusal
@@ -592,7 +592,7 @@ func (m *workflowActionMutation) execute(ctx context.Context, action store.Workf
 	// mandated-law boundary inside their transaction, so their registered
 	// source set verifies before the transaction opens (store connection
 	// invariant); the returned context carries the proof.
-	verifiedCtx, proofEnvelope := r.knowledgeSourceProofForAction(ctx, base, in.ActionID, in.WorkID)
+	verifiedCtx, proofEnvelope := r.knowledgeSourceProofForAction(ctx, base, in.ActionID, in.WorkID, payload)
 	if proofEnvelope != nil {
 		return *proofEnvelope, nil
 	}

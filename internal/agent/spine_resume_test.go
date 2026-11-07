@@ -143,6 +143,7 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 	}
 	service, _, grant := newAuthorizedService(t, s, "client-1", "human-1", []agentcontract.Capability{"product_read", "work_define", "work_transition"}, []string{"product-1"}, []string{"project-1"}, store.ProjectResolution{ProjectID: "project-1"})
 	s.Clock, service.Now = time.Now, time.Now
+	setWorkflowFixtureHomeOn(t, s)
 	home, err := pm1fixture.SeedCommittedProductDomain(context.Background(), s, "product-1", "project-1", t.TempDir())
 	if err != nil {
 		t.Fatal(err)

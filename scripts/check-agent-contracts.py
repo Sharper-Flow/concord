@@ -59,6 +59,14 @@ SKILL_REFERENCES = {
         "product_vision": ".concord/law/decisions/CD-0254-product-vision-documents.md",
         "architecture_reference": ".concord/law/decisions/CD-0251-architecture-reference-is-not-product-law.md",
     },
+    "concord-adoption": {
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md",
+        "placement": ".concord/law/decisions/CD-0194-product-knowledge-lives-under-concord.md",
+        "registry": ".concord/law/decisions/CD-0060-domain-registry-enactment.md",
+        "knowledge_home": ".concord/law/decisions/CD-0200-product-knowledge-resolves-through-one-designated-git-home.md",
+        "product_vision": ".concord/law/decisions/CD-0254-product-vision-documents.md",
+        "repository_mode": ".concord/law/decisions/CD-0255-per-project-repository-mode.md",
+    },
     # Portable engineering methods (CD-0246 D1 and D3).
     "concord-ui-design": {
         "admission": ".concord/law/decisions/CD-0246-concord-ships-portable-engineering-methods.md",

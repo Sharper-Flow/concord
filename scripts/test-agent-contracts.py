@@ -1030,13 +1030,13 @@ class TicketWritingStepTableTests(unittest.TestCase):
         content = self.content.replace("| change, fix | plan |", "| change, fix, removal | plan |")
         self.assertNotEqual(content, self.content)
         findings = lane_checker.ticket_writing_step_table_findings(content, self.templates)
-        self.assertTrue(any("removal" in f and "plan" in f for f in findings), findings)
+        self.assertEqual(findings, ["step table has pair absent from contract: removal / plan"])
 
     def test_missing_table_row_is_rejected(self):
         content = re.sub(r"(?m)^\| removal \| list \|.*\n", "", self.content)
         self.assertNotEqual(content, self.content)
         findings = lane_checker.ticket_writing_step_table_findings(content, self.templates)
-        self.assertTrue(any("removal" in f and "list" in f for f in findings), findings)
+        self.assertEqual(findings, ["step table omits contract pair: removal / list"])
 
     def test_unknown_type_token_is_rejected(self):
         content = self.content.replace("| fix | diagnose |", "| bogus | diagnose |")

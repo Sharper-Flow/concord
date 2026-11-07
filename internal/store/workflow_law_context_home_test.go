@@ -1,9 +1,8 @@
 package store
 
 // The workflow law context must resolve its file locators against the
-// Product's registered knowledge home, not against the repository a lane
-// happens to be dispatched into. A lane holds no Concord tool access
-// (CD-0223), so every locator it receives must open as a regular file in the
+// Product's registered knowledge home, not against another repository.
+// Every locator the context carries must open as a regular file in the
 // knowledge home's checkout, under a shard layout that checkout actually
 // carries (CD-0194 D5), and a required source that no longer resolves must
 // refuse typed instead of advertising an unreadable locator.
@@ -34,7 +33,7 @@ func approveCurrentLawContextContract(t *testing.T, s *Store, workID string, man
 }
 
 // seedCrossRepositoryLawFixture initializes one implementation workflow whose
-// work item sits in Project B (the dispatch repository) while the Product's
+// work item sits in Project B (the work repository) while the Product's
 // knowledge home is Project A. Project A carries a canonical-layout registry
 // and the bound law document; Project B carries a checkout with no registry
 // at all, so only a home-qualified locator can name a readable file.
@@ -42,7 +41,7 @@ func seedCrossRepositoryLawFixture(t *testing.T, s *Store, workID string) string
 	t.Helper()
 	seedWork(t, s, workID)
 	homeDir := initKnowledgeRepo(t)
-	dispatchDir := t.TempDir()
+	workDir := t.TempDir()
 	registryDir := filepath.Join(homeDir, ".concord", "docs", "knowledge")
 	if err := os.MkdirAll(registryDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -68,7 +67,7 @@ func seedCrossRepositoryLawFixture(t *testing.T, s *Store, workID string) string
 	// The driver binds placeholders per statement, so distinct path arguments
 	// must not share an Exec string.
 	seed(`INSERT INTO write_guard(active) VALUES(1)`)
-	seed(`INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('project-dispatch-locator','project','canonical_path',?,?,'now','now')`, dispatchDir, dispatchDir)
+	seed(`INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('project-work-locator','project','canonical_path',?,?,'now','now')`, workDir, workDir)
 	seed(`INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project-home','Home',1,'now','now')`)
 	seed(`INSERT INTO product_projects(product_id,project_id,role) VALUES('product','project-home','secondary')`)
 	seed(`INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('project-home-locator','project-home','canonical_path',?,?,'now','now')`, homeDir, homeDir)
@@ -143,9 +142,9 @@ func TestLawlessContractNeedsNoKnowledgeHomeInReads(t *testing.T) {
 	}
 }
 
-// Project A is the knowledge home and Project B is the dispatch repository:
+// Project A is the knowledge home and Project B is the work repository:
 // the law context's registry and law locators must name files inside Project
-// A's checkout, and the lane must be able to open both.
+// A's checkout, and both must open.
 func TestLawContextQualifiesWithTheRegisteredKnowledgeHome(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -185,8 +184,8 @@ func TestLawContextQualifiesWithTheRegisteredKnowledgeHome(t *testing.T) {
 }
 
 // A knowledge home whose committed revision carries no registry under any
-// supported layout refuses the law context typed: the packet must never
-// advertise a locator no lane can open, and must never silently drop the
+// supported layout refuses the law context typed: the context must never
+// advertise a locator that does not open, and must never silently drop the
 // binding. The contract is approved while the registry is committed; the
 // registry's committed retirement is the next revision the read verifies.
 func TestLawContextRefusesUnresolvableRegistrySource(t *testing.T) {
@@ -274,8 +273,8 @@ func TestLawContextRefusesRemovedBoundLawDocument(t *testing.T) {
 }
 
 // The whole knowledge home checkout disappearing before a law-only read must
-// refuse typed too: an absent home cannot ground any locator the packet
-// advertises, and the lane has no Concord route to repair it. The committed
+// refuse typed too: an absent home cannot ground any locator the context
+// advertises, and only restoring the knowledge home repairs it. The committed
 // read resolves the home's git head first, so the refusal is the
 // verification's git_unreachable, before any locator is qualified.
 func TestLawContextRefusesRemovedKnowledgeHomeBeforeLawOnlyRead(t *testing.T) {
@@ -296,8 +295,9 @@ func TestLawContextRefusesRemovedKnowledgeHomeBeforeLawOnlyRead(t *testing.T) {
 	}
 }
 
-// A registry locator occupied by a directory is not a registry the lane can
-// read: the context refuses typed instead of advertising the directory. The
+// A registry locator occupied by a directory is not a registry the reading
+// agent can open: the context refuses typed instead of advertising the
+// directory. The
 // contract is approved while the registry file is committed; the committed
 // revision that replaces it with a directory is what the read verifies.
 func TestLawContextRefusesRegistryReplacedByDirectory(t *testing.T) {

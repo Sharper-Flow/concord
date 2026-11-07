@@ -57,7 +57,7 @@ func ExportResearchDatabase(ctx context.Context, path, destination string) (resu
 	defer func() {
 		if err != nil {
 			err = wrapFailure(KindUnavailable, "research_export", "research export did not complete", false,
-				"keep the source database; rerun the upgrade, which re-exports to a fresh derived destination before dropping any research tables", err)
+				"keep the source database; never drop research tables on a partial export", err)
 		}
 	}()
 	ids := make([]string, 0, len(packs))

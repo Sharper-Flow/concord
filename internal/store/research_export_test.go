@@ -252,7 +252,7 @@ func TestExportResearchDatabaseWriteFailureExplainsRecovery(t *testing.T) {
 	})
 	_, err := ExportResearchDatabase(t.Context(), path, destination)
 	var failure *Failure
-	if !errors.As(err, &failure) || failure.Op != "research_export" || !strings.Contains(failure.RecoveryAction, "keep the source database") || !strings.Contains(failure.RecoveryAction, "rerun the upgrade") {
+	if !errors.As(err, &failure) || failure.Op != "research_export" || !strings.Contains(failure.RecoveryAction, "keep the source database") || !strings.Contains(failure.RecoveryAction, "never drop research tables on a partial export") {
 		t.Fatalf("write failure omits export recovery: %v", err)
 	}
 }

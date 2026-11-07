@@ -506,17 +506,16 @@ def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict 
     return schema
 
 
-# Retained read twins: workflow_law_context and its law entry carry
-# admission caps from their historical write-side origin, whose only
-# cap-enforcing consumer (the retired worker packet) is gone. Each read
-# parent points at a retained twin that drops only caps no store writer
-# enforces; the output bound ledger proves every dropped cap unbounded and
-# every kept cap finite.
+# Retained read twins: workflow_law_context and its law entry carry caps
+# set for the retired worker packet, their only cap-enforcing consumer.
+# Each read parent points at a retained twin that drops only caps no store
+# writer enforces; the output bound ledger proves every dropped cap
+# unbounded and every kept cap finite.
 RETAINED_OUTPUT_TWINS = {
     "workflow_law_context": ("/properties/registry_path/maxLength",),
     "workflow_law_context_law": ("/properties/path/maxLength",),
 }
-# Caps a retained twin raises above the stored definition's cap: the store's
+# Caps a retained twin raises above the source definition's cap: the store's
 # retained producer exceeds it, and the output bound ledger proves the
 # producer's finite maximum.
 RETAINED_OUTPUT_RAISES = {}

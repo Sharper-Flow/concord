@@ -61,6 +61,8 @@ safe workflow recording or execution of your own managed item.
   Product's existing design system, hold an accessibility floor with WCAG
   criteria, preview with an exact version before implementation, and verify in
   a browser with screenshots.
+- [Test design](concord-test-design/SKILL.md): choose what a change's tests must
+  prove and at which seam.
 - [Improve codebase architecture](concord-improve-codebase-architecture/SKILL.md):
   find and rank shallow modules and structural friction across a codebase.
 - [Work shaping](concord-work-shaping/SKILL.md): triage a request and decompose
@@ -146,6 +148,16 @@ owner co-authoring with a fresh-reader test from
 (no licence file at that commit), [agents.md](https://github.com/agentsmd/agents.md/blob/d001185d792eb6402a58e4cbef1c228b309ec25d/README.md)
 on where agent instructions live, and the [Diátaxis](https://diataxis.org/)
 document taxonomy.
+
+Test design adapts [tdd](https://github.com/mattpocock/skills/blob/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d/skills/engineering/tdd/SKILL.md)
+from mattpocock/skills, [test-driven development](https://github.com/obra/superpowers/blob/22f0b463e7a5e579904dd6211a520321035526f7/skills/test-driven-development/SKILL.md)
+and [verification before completion](https://github.com/obra/superpowers/blob/22f0b463e7a5e579904dd6211a520321035526f7/skills/verification-before-completion/SKILL.md)
+from obra/superpowers, and the independent-slice idea from the [specification template](https://github.com/github/spec-kit/blob/f3d6fb762c8e6718bf2dedcba38cc5dc93f65645/templates/spec-template.md)
+from github/spec-kit.
+It keeps their MIT notices in `concord-test-design/LICENSE`. Further reading,
+cited but not copied: [Software Engineering at Google, chapter 12](https://abseil.io/resources/swe-book/html/ch12.html),
+[What to look for in a code review](https://google.github.io/eng-practices/review/reviewer/looking-for.html),
+and [The Practical Test Pyramid](https://martinfowler.com/articles/practical-test-pyramid.html).
 
 ## Delivery
 

@@ -74,7 +74,8 @@ repository's test and editing instructions.
 
 Load `concord-law-writing` when placing or authoring Product knowledge, including
 Product law. Load `concord-codebase-design` when adding, changing or reviewing a
-repository check. These methods do not expand the assigned scope.
+repository check. Load `concord-test-design` when choosing, adding or changing tests.
+These methods do not expand the assigned scope.
 
 You may delegate bounded repository investigation to `concord-explore` and
 external investigation to `concord-lookup`; neither may delegate further. Keep

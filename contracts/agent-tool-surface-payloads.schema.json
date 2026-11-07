@@ -4397,8 +4397,7 @@
         "work_id",
         "expected_version",
         "action_id",
-        "idempotency_key",
-        "fields"
+        "idempotency_key"
       ],
       "properties": {
         "work_id": {
@@ -4492,9 +4491,6 @@
               "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths. Bounds: 1..128 code points inclusive; 2..128 UTF-8 bytes inclusive"
             }
           },
-          "required": [
-            "producer_watermark"
-          ],
           "description": "Bounds: <=32 properties inclusive"
         }
       }

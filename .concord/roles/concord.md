@@ -72,8 +72,10 @@ the commits and the workflow records.
 Record the reviewed step through `record_review`, linking the actual Task
 result. The tuple does not run
 Review. A fixed intermediate attempt may proceed; the final review needs a clean
-pass. Bind ordinary evidence with its producer watermark, and keep proof tied
-to the candidate it covers. Required CI remains external.
+pass. Bind ordinary evidence in one `bind_evidence` call with the producer
+fields omitted, and keep proof tied to the candidate it covers. Name an earlier
+operation's `producer_run_ref` and `producer_watermark` only to bind evidence
+that operation recorded. Required CI remains external.
 
 ## The operator's decisions
 

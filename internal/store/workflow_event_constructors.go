@@ -148,12 +148,6 @@ func workflowEvidenceBindingEvents(request WorkflowActionExecutionRequest, actor
 	producerID := workflowFieldStringDefault(fields, "producer_id", request.PrincipalRef)
 	producerRunRef := workflowFieldStringDefault(fields, "producer_run_ref", request.OperationID)
 	producerWatermark := workflowFieldStringDefault(fields, "producer_watermark", request.RequestID)
-	if request.ActionID == "bind_evidence" {
-		producerWatermark = workflowFieldStringDefault(fields, "producer_watermark", "")
-		if !ValidReference(producerWatermark) {
-			return nil, newFailure(KindInvalidPayload, "workflow_action", "bind_evidence requires a producer watermark", false, "supply the producer watermark")
-		}
-	}
 	subjects := dedupeWorkflowRefs(request.EvidenceRefs)
 	if len(subjects) == 0 {
 		subjects = []string{"evidence:" + request.OperationID}

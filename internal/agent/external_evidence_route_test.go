@@ -7,7 +7,60 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
+	"github.com/sharper-flow/concord/internal/store"
 )
+
+func TestExternalEvidenceBindingAfterReview(t *testing.T) {
+	t.Parallel()
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+	scope, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scope)
+	work, version := ekbWorkAtExecute(t, context.Background(), s, service, env, "after-review")
+	started, version := ekbDispatch(t, s, service, env, work, version, "start_execution", nil, nil, "after-review-start")
+	if started.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("start: %+v", started.Error)
+	}
+	for _, step := range []string{"implement", "review"} {
+		fields := map[string]any{"step_id": step, "note": "Review passed.", "reviewer": "concord-review", "result": "pass", "commit": "commit:fixture", "link": "https://example.com/review"}
+		var response agentcontract.Envelope
+		response, version = ekbDispatch(t, s, service, env, work, version, "record_review", fields, nil, "after-review-"+step)
+		if response.Outcome != agentcontract.OutcomeOK {
+			t.Fatalf("review %s: %+v", step, response.Error)
+		}
+	}
+	resume, err := store.ReadWorkflowResume(context.Background(), s, work)
+	if err != nil || resume.State != "running" || len(resume.NextSteps) != 0 {
+		t.Fatalf("resume after review: %+v, %v", resume, err)
+	}
+	locator := "https://github.com/example/project/actions/runs/123"
+	input := map[string]any{"work_id": work, "expected_version": version, "action_id": "bind_evidence", "idempotency_key": "after-review-bind", "evidence": []agentcontract.EvidenceRef{{Kind: "verification", Authority: "github", LocatorKind: "check_run", Locator: locator}}}
+	raw, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.RequestID = "request:after-review-bind"
+	bound := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+	after := agentCompositionWorkVersion(t, s, work)
+	if bound.Outcome != agentcontract.OutcomeOK || after <= version || len(ekbEvidenceBoundEvents(t, s, work)) != 1 {
+		t.Fatalf("bind: %+v version=%d want >%d", bound.Error, after, version)
+	}
+	var result struct {
+		OperationID string `json:"operation_id"`
+	}
+	if err := json.Unmarshal(bound.Result, &result); err != nil || result.OperationID == "" || bound.RequestID == "" {
+		t.Fatalf("result=%s request=%q err=%v", bound.Result, bound.RequestID, err)
+	}
+	var subject, kind, producer, op, watermark string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.immutable_subject_ref'),json_extract(payload,'$.evidence_kind'),json_extract(payload,'$.producer_id'),json_extract(payload,'$.producer_run_ref'),json_extract(payload,'$.producer_watermark') FROM workflow_evidence_bindings WHERE work_id=?`, work).Scan(&subject, &kind, &producer, &op, &watermark); err != nil {
+		t.Fatal(err)
+	}
+	if subject != locator || kind != "verification" || producer != env.PrincipalRef || op != result.OperationID || watermark != bound.RequestID {
+		t.Fatalf("unexpected binding: %q %q %q %q %q", subject, kind, producer, op, watermark)
+	}
+}
 
 func TestExternalEvidenceRecordingAndBinding(t *testing.T) {
 	t.Parallel()
@@ -72,10 +125,16 @@ func TestExternalEvidenceRecordingAndBinding(t *testing.T) {
 			if !ok {
 				t.Fatalf("missing recovery_detail: %+v", refused.Error.Details)
 			}
-			for _, instruction := range []string{"external locator in evidence on an otherwise admitted workflow action", "operation_id as producer_run_ref", "request_id as producer_watermark", "recording principal as producer_id", "omit producer_id when that principal binds"} {
+			for _, instruction := range []string{"external locator in the bind_evidence call", "top-level evidence or declared fields", "omit producer_id, producer_run_ref and producer_watermark", "otherwise admitted workflow action", "operation_id as producer_run_ref", "request_id as producer_watermark", "recording principal as producer_id", "omit producer_id when that principal binds"} {
 				if !strings.Contains(detail, instruction) {
 					t.Errorf("recovery_detail %q omits %q", detail, instruction)
 				}
+			}
+		}
+		if tc.name == "locator" {
+			detail, ok := refused.Error.Details["recovery_detail"].(string)
+			if !ok || !strings.Contains(detail, "bind a locator the producer operation recorded") || !strings.Contains(detail, "top-level evidence or declared fields") || !strings.Contains(detail, "omit producer_id, producer_run_ref and producer_watermark") {
+				t.Fatalf("locator recovery: %+v", refused.Error.Details)
 			}
 		}
 		if gotOperations, gotReceipts := counts(); gotOperations != operations || gotReceipts != receipts {

@@ -413,10 +413,13 @@ contracts carry no definition pin
 `workflow.evidence_bound` does not create a second evidence authority. Its
 `producer_run_ref` must identify an existing `durable_operations` row with
 `work_id` equal to the recorded subject, `principal_ref` equal to `producer_id`,
-`request_id` equal to `producer_watermark`, and a completed result whose
-authoritative `evidence_refs` contains the same immutable subject. Verification
-consumes these authoritative bindings, not workflow-only metadata or an
-operation from another work item
+`request_id` equal to the stored `producer_watermark`, and a completed result whose
+authoritative `evidence_refs` contains the same immutable subject. A caller may
+submit the locator in the `bind_evidence` call, in top-level `evidence` or declared
+fields, and omit the producer fields; the authenticated binding operation supplies
+its principal, operation ID, and request ID. A caller may instead name an earlier
+producer operation. The
+work-history reader lists these bindings; completion does not recheck them
 ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
 Evidence bindings are attributed claims, not producer attestations. Independent

@@ -269,8 +269,11 @@ its approval. A revision never erases an unresolved finding.
 ### D8. Evidence is captured by its producer and bound to its subject
 
 The coordinator binds ordinary evidence through `bind_evidence`, with an
-`immutable_subject_ref` and a required `producer_watermark`. The authenticated
-binding operation supplies attribution. A binding is an attributed claim, not
+`immutable_subject_ref`. The stored binding requires a `producer_watermark`.
+A caller submitting the locator in the `bind_evidence` call, in top-level
+`evidence` or declared fields, may omit the producer fields; the authenticated
+binding operation supplies its principal, operation ID, and request ID. A caller may instead name an earlier
+producer operation. A binding is an attributed claim, not
 attestation that a test ran. Concord does not inspect Git or GitHub to validate
 it, execute repository tests, or issue native verification receipts.
 Independent Review judges the adequacy of evidence. Required CI remains

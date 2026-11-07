@@ -82,8 +82,8 @@ where the source lived. Preserve decision status: binding content in an
 accepted ADR is candidate law, while a superseded ADR is history. The reviewed
 change that adds the migrated record removes or replaces the original, so one
 canonical location remains; the recorded source keeps the provenance. Within
-`.concord/law/`, a breaking replacement supersedes an accepted record through
-the amendment route rather than editing it in place. Use the routed skills and
+`.concord/law/`, change an accepted record only through `concord-law-writing`'s
+amendment and replacement rules. Use the routed skills and
 existing authority for validation, review, and acceptance; this method does
 not authorize publication. Finish when each migration has provenance and its
 acceptance status is explicit.

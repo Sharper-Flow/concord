@@ -14,7 +14,7 @@ required conditions before recording progress and completion.
 
 Concord models development as an evidence-gated state machine. It validates
 intake, builds a typed step plan for each work item, coordinates concurrent
-work across agents, and refuses completion until independent review and
+work across agents, and refuses completion until required review and
 verification evidence are recorded. Linear owns planning; Concord enforces
 execution state locally.
 
@@ -98,7 +98,7 @@ and checks which transitions are permitted. Linear owns planning, while host
 tools, not Concord, own worktree creation and placement.
 
 The trust boundary is the local workstation: the operating system user account,
-the OpenCode process, and the adapter. Concord does not defend against arbitrary
+the OpenCode process, and the OpenCode adapter. Concord does not defend against arbitrary
 code already running under that account. See the [architecture reference](.concord/docs/core-architecture.md).
 
 ## Specialized graphs
@@ -108,7 +108,7 @@ Concord uses separate graphs for distinct parts of the work:
 1. **Coordination.** Relations record dependencies between work items and help
    identify ready work. For two approved Product-changing contracts, an overlap
    resolution can record sequencing through dependency edges.
-2. **A task's plan.** Each work item has a step plan that can grow with
+2. **A work item's plan.** Each work item has a step plan that can grow with
    diagnostic or follow-up steps as work proceeds.
 3. **Product law and Domains.** Domains partition Product law by areas of
    responsibility. Each law has one home Domain, and relations describe
@@ -124,6 +124,10 @@ Concord targets Linux amd64 and requires Python 3 for installation.
 - Download the [latest release](https://github.com/Sharper-Flow/concord/releases/latest).
 - Follow the [installation guide](.concord/docs/installation.md).
 - Set up your client and repository using the [OpenCode setup guide](adapter/opencode/README.md#operator-bootstrap-cli).
+
+> **Headless servers:** Without an existing desktop login collection, the installer
+> initializes an unencrypted, user-scoped keyring collection protected by
+> operating-system file permissions.
 
 ## Key links
 

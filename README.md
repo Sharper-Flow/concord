@@ -15,8 +15,7 @@ required conditions before recording progress and completion.
 Concord models development as an evidence-gated state machine. It validates
 intake, builds a typed step plan for each work item, coordinates concurrent
 work across agents, and refuses completion until required review and
-verification evidence are recorded. Linear owns planning; Concord enforces
-execution state locally.
+verification evidence are recorded. Concord enforces execution state locally.
 
 [What's different](#whats-different) ·
 [How it works](#how-it-works) ·
@@ -94,8 +93,8 @@ flowchart TD
 ```
 
 OpenCode hosts the operator and agents. Concord holds execution state locally
-and checks which transitions are permitted. Linear owns planning, while host
-tools, not Concord, own worktree creation and placement.
+and checks which transitions are permitted. Host tools, not Concord, own
+worktree creation and placement.
 
 The trust boundary is the local workstation: the operating system user account,
 the OpenCode process, and the OpenCode adapter. Concord does not defend against arbitrary

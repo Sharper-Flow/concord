@@ -60,7 +60,7 @@ in the pane; on a [ticket frontend](https://github.com/Sharper-Flow/concord/tree
 independent questions, and a question that depends on an earlier answer waits
 for it. Quote operator answers on the work item's Linear issue and point the
 step note there; reserved approvals stay with the host question tool until
-agents post under their own Linear identity. Record question resolutions or
+agents post under their own Linear identity, except that a session the frontend starts with that tool refused publishes them through the frontend, where an answer carries approval only under the ticket-frontend skill's author rule. Record question resolutions or
 the explicit result that no operator questions remain. Running the step is
 mandatory where the plan carries it; asking is not. Clarify settles what to
 build and grants no blanket implementation or UI/UX

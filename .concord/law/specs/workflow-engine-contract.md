@@ -538,6 +538,7 @@ answer to the answering operator's own identity, which requires agents to post u
 their own identity; that identity is host-side work, the core builds no
 author-verification path, and until it lands reserved-approval questions and
 their answers stay with the host question tool whatever route the item uses.
+A host launch configuration may start a session with the host question tool refused, the mode a ticket frontend starts its sessions in. There the reserved-approval question publishes through the frontend under the same author rule: the answer decides it only when the frontend attributes that answer to the operator's own identity, and until that attribution exists the answer is context and the approval stays undecided until the operator decides it through a route that carries the decision. The clause above binds every session whose host question tool it can open.
 No adapter or store question route substitutes for either admitted route, and
 the core adds
 no question projection, pause state or selection envelope for either.

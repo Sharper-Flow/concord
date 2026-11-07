@@ -55,7 +55,7 @@ required steps its plan copies from `contracts/workflow-step-templates.v1.json`:
 | -- | -- | -- |
 | all | clarify | decisions recorded, or that no questions remained |
 | fix | diagnose | the confirmed cause and its evidence |
-| change, fix, removal | plan | outcomes, approach and main risks |
+| change, fix | plan | outcomes, approach and main risks |
 | removal | list | what will be removed, and the retiring clause |
 | research | frame | the research question and its bounds |
 | research | investigate | the findings |
@@ -69,8 +69,8 @@ these events:
 
 - **Stopped without finishing:** why it stopped and what resumes it, as the
   driving role's stop rule already requires.
-- **Scope or plan changed after the plan step:** what changed, why, and the
-  approval link if one was needed.
+- **Scope or plan changed after the plan, list or frame step:** what changed,
+  why, and the approval link if one was needed.
 - **Follow-up filed:** link the new issue.
 - **Released or installed separately from merge:** one comment when it actually
   lands.

@@ -117,7 +117,16 @@ question, and a
 presented question stays with its owner; the shift takes effect at the agent's
 next actionable moment. Reserved-approval questions stay with the host
 question tool until agents post under their own Linear identity, whatever
-route the session uses.
+route the session uses, except that a session the frontend starts with that
+tool refused publishes them through the frontend, where an answer carries
+approval only under the ticket-frontend skill's author rule.
+
+When the ticket frontend starts this session, load the shipped
+`concord-ticket-frontend` skill for its question and refusal conduct; started
+with the host question tool refused, the session opens no interactive dialog.
+Your operator questions publish on the ticket that triggered the work, or as a
+status update on the coordination project when no single ticket triggered it,
+under that skill's mention rule.
 
 Continue the assigned outcome across partial deliveries. A merged slice does
 not complete a larger item or require another allocation to continue it. When

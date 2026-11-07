@@ -410,14 +410,6 @@ def single_variant(action: dict) -> dict:
     return action["variants"][0]
 
 
-# Authoring guidance for a workflow action field whose bound units an author
-# cannot infer from the schema. The approval premise is the objective every
-# worker packet carries; its guidance states the count units.
-FIELD_GUIDANCE = {
-    "premise": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
-}
-
-
 def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict | None = None) -> dict:
     value_type = field["value_type"]
     schema_ref = field.get("schema_ref")
@@ -501,9 +493,6 @@ def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict 
         schema["pattern"] = r"\S"
     if field.get("forbidden_values"):
         schema["not"] = {"type": "string", "enum": field["forbidden_values"]}
-    guidance = FIELD_GUIDANCE.get(field["name"])
-    if guidance is not None and "$ref" not in schema:
-        schema["description"] = guidance
     # Guard-owned relational teaching: the description comes from the store
     # projection (WorkflowContractTeaching), authored beside the enforcing
     # guard, so the published field cannot teach a rule the store dropped.
@@ -517,23 +506,18 @@ def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict 
     return schema
 
 
-# Read outputs that replay stored values verbatim share some definitions with
-# worker packets, and dispatch admission validates packets against those
-# definitions (internal/store/workflow_preflight.go validates every payload
-# field against its declared schema). The packet copies keep the admission
-# caps; each read parent here points at a retained twin that drops only the
-# caps no store writer enforces. A twin that drops nothing exists because a
-# packet also embeds it (worker_packet embeds work_context_view), so the read
-# parents need their own copy to reach the other twins. The output bound
-# ledger proves every dropped cap unbounded and every kept cap finite.
+# Retained read twins: workflow_law_context and its law entry carry caps
+# set for the retired worker packet, their only cap-enforcing consumer.
+# Each read parent points at a retained twin that drops only caps no store
+# writer enforces; the output bound ledger proves every dropped cap
+# unbounded and every kept cap finite.
 RETAINED_OUTPUT_TWINS = {
     "workflow_law_context": ("/properties/registry_path/maxLength",),
     "workflow_law_context_law": ("/properties/path/maxLength",),
 }
-# Caps a retained twin raises: the store's retained producer exceeds the cap
-# dispatch admission enforces on the shared packet definition, so the read
-# copy carries the producer's finite maximum, which the output bound ledger
-# proves, while the packet keeps the admitted cap.
+# Caps a retained twin raises above the source definition's cap: the store's
+# retained producer exceeds it, and the output bound ledger proves the
+# producer's finite maximum.
 RETAINED_OUTPUT_RAISES = {}
 RETAINED_OUTPUT_RETYPES = {}
 # The read parents that replay stored values, each with the twinned
@@ -1539,7 +1523,7 @@ def main() -> int:
         projected_payload = project_schema_guidance(projected_payload, input_names, bounds_only=True)
         if payload != projected_payload:
             if check:
-                fail("generated payload contract drift (workflow action or worker packet projection): contracts/agent-tool-surface-payloads.schema.json")
+                fail("generated payload contract drift (workflow action projection): contracts/agent-tool-surface-payloads.schema.json")
             PAYLOAD.write_text(json.dumps(projected_payload, ensure_ascii=False, indent=2) + "\n")
             payload = projected_payload
         envelope = json.loads(ENVELOPE.read_text())

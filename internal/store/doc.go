@@ -32,16 +32,15 @@
 //   - store.go, transaction.go: domain-facing open and transaction lifecycles.
 //   - events.go, operation.go, fold.go: domain-facing effect identity, registered
 //     current-row writers, and transaction-owned write scopes.
-//   - work_context.go, worker_packet_binding.go,
-//     worker_context_findings.go: declared immutable readings, findings,
-//     dispatch packets, and typed bounds.
+//   - work_context_migration.go: frozen replay of historical work-context
+//     readings and findings for migration.
 //   - workflow_dispatch.go, workflow_preflight.go: action admission inside the
 //     owning transaction.
 //   - workflow_domain_overlap.go: the resolve_overlap work-relation writer.
 //   - project_handoffs.go: Project handoff record, consume, and recovery.
 //   - law_boundary.go, knowledge_*.go: accepted-law lookup and derived projections.
-//   - worker_lanes.go, worker_recovery.go: lane versions, packet and report
-//     schema identity, and retained-result recovery as a data reader.
+//   - session_resume_read.go: session identity, workflow resume, and pending
+//     Project handoff at one store revision.
 //
 // See .concord/docs/core-architecture.md for the cross-package entry-point
 // table and the accepted read-boundary invariants.

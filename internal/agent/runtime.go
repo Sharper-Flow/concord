@@ -754,7 +754,7 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "unauthorized"
 	case store.KindOutcomeMismatch:
 		return "outcome_mismatch"
-	case store.KindDefinitionActionOrStepUnknown:
+	case store.KindDefinitionActionUnknown:
 		return "invariant_violation"
 	case store.KindInvariantViolation, store.KindSchemaUnsupported:
 		return "invariant_violation"
@@ -782,10 +782,6 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "stale_requires_review"
 	case store.KindUnreachable, store.KindGitUnreachable:
 		return "unreachable"
-	case store.KindUnauthorizedDispatch:
-		// A dispatch admission refusal is an authority failure, not an internal
-		// fault, regardless of the store's more specific kind name.
-		return "unauthorized"
 	case store.KindProjectionConflict:
 		// Conflicting projection identities require coordination, not fault recovery.
 		return "operation_conflict"

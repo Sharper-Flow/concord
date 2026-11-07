@@ -274,7 +274,6 @@ func retainedTwinPattern(pattern string) string {
 }
 
 // registerRetainedTwinBound registers the retained output definition's producer.
-// CD-0242 D6 retires the shared definition's only output owner, worker packets.
 // Input reachability alone supplies no output registration.
 func registerRetainedTwinBound(pattern string, retained outputBoundSource) {
 	registerOutputBound(retainedTwinPattern(pattern), retained)

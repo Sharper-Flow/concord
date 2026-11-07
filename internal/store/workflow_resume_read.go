@@ -7,8 +7,9 @@ import (
 
 // The one resume view. A session resuming a work item reads the item's stored
 // step plan with the derived next steps and the work version. Before the type
-// is picked, the plan is nil and the read derives the remaining opening steps
-// from the recorded intake and clarification prelude.
+// is picked, the stored plan has no frontier: the plan is nil and the read
+// derives the remaining opening steps from the opening-phase prelude, which
+// records the intake outcome and type-pick reason.
 
 // WorkflowResumeRead is the single resume read's answer. Steps are the stored
 // plan exactly as written, attempts included; NextSteps holds the ids of the
@@ -107,9 +108,10 @@ func workflowInstanceTerminal(state string) bool {
 	return state == "completed" || state == "cancelled"
 }
 
-// readResumePreludeTx reads the intake/clarification prelude for the resume
-// read. Unlike readWorkflowPreludeTx, which guards writes, a terminal item
-// still answers: the read reports state, it never refuses on lifecycle.
+// readResumePreludeTx reads the opening-phase prelude's intake outcome and
+// type-pick reason for the resume read. Unlike readWorkflowPreludeTx, which
+// guards writes, a terminal item still answers: the read reports state, it
+// never refuses on lifecycle.
 func readResumePreludeTx(ctx context.Context, tx *sql.Tx, workID string) (*workflowPreludeState, error) {
 	var raw sql.NullString
 	if err := tx.QueryRowContext(ctx, `SELECT prelude_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&raw); err != nil && err != sql.ErrNoRows {

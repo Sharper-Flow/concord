@@ -653,7 +653,6 @@
     "workflow_action",
     "scope",
     "relation",
-    "supersession",
     "recovery"
   ],
   "bounds": {
@@ -681,6 +680,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:1390e4f84a77a8115743d4f8ce813c9e9110f26f9776fa6f71889e94594c27a8",
-  "digest": "sha256:f1194ce01c17530b52ae3026358e5a45950b24e7658b51e6a2a1076ae0d97a88"
+  "payload_digest": "sha256:9009615a51ba3909651f463099297064db787b131ae4c0041608cc995eea4e88",
+  "digest": "sha256:737f0d5b33369a23f3b980a5b182e6ced13d7e46924787472fbb703a08a5ebbe"
 }

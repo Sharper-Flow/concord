@@ -288,7 +288,6 @@ class ServedInputCorrectionTests(unittest.TestCase):
 
     def test_authorization_denial_replay_grants_no_correction(self):
         for denied in ({"reason_code": "authorization_denied"},
-                       {"adapter_reason": "lane_tool_refusal"},
                        {"kind": "unauthorized"},
                        {"kind": "unknown_scope"},
                        {"kind": "invalid_input", "recovery_action": {"kind": "contact_operator"}}):

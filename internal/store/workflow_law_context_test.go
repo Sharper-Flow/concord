@@ -97,8 +97,8 @@ func TestFullWorkListResolvesContractLawAndDomainContext(t *testing.T) {
 		t.Fatal("law context resolved nothing for a contract that binds law")
 	}
 	homeRepo := workflowLawFixtureRepo(t, s)
-	// The lane reads each law from the knowledge home's committed law folder,
-	// so the projected path is home-qualified and openable.
+	// Each projected law path is home-qualified and openable inside the
+	// knowledge home's committed law folder.
 	wantLaws := []WorkflowLawContextLaw{
 		{Roles: []string{"added", "mandated"}, LawID: "law:new"},
 		{Roles: []string{"mandated", "modified", "obligation"}, LawID: "spec:one", Kind: "spec", Status: "accepted", Title: "Fixture folder law spec:one", Path: filepath.Join(homeRepo, ".concord/law/specs/spec-one-fixture.md"), ObligationIDs: []string{"verification"}},
@@ -114,9 +114,8 @@ func TestFullWorkListResolvesContractLawAndDomainContext(t *testing.T) {
 	if !reflect.DeepEqual(snapshot.LawContext.Domains, wantDomains) {
 		t.Fatalf("law context Domains = %+v, want %+v", snapshot.LawContext.Domains, wantDomains)
 	}
-	// The lane reads Domain structure from the knowledge home's repository
-	// file, so a contract that binds Domains carries an absolute registry
-	// locator inside the home checkout, and the file it names opens.
+	// A contract that binds Domains carries an absolute registry locator
+	// inside the home checkout, and the file it names opens.
 	wantRegistry := filepath.Join(homeRepo, ".concord/docs/knowledge/domain-registry.json")
 	if snapshot.LawContext.RegistryPath != wantRegistry {
 		t.Fatalf("law context registry path = %q, want %q", snapshot.LawContext.RegistryPath, wantRegistry)
@@ -125,13 +124,13 @@ func TestFullWorkListResolvesContractLawAndDomainContext(t *testing.T) {
 		t.Fatalf("law context registry path = %q, want an absolute home-qualified locator", snapshot.LawContext.RegistryPath)
 	}
 	if _, err := os.ReadFile(snapshot.LawContext.RegistryPath); err != nil {
-		t.Fatalf("the dispatched lane could not open the registry the packet named: %v", err)
+		t.Fatalf("the recorded registry locator does not open: %v", err)
 	}
 }
 
 // A contract read that binds law but no Domain carries no registry path: the
 // law entries already name their own repository paths, and the registry file
-// would be a pointer the packet gives the lane no reason to follow. The
+// would be a pointer the context gives the reader no reason to follow. The
 // approval route always binds the home Domain, so this state is reachable
 // only through the read function's nil-binding contract, which is what the
 // field's presence rule keys on.
@@ -180,8 +179,7 @@ func TestFullWorkListLawOnlyContextCarriesNoRegistryPath(t *testing.T) {
 
 // Constitution records are law-bearing under the accepted law folder tiers,
 // so an approved contract can mandate one. The resolved law context must
-// carry the constitution kind, not only decision and spec, or the dispatched
-// lane packet refuses its own law context.
+// carry the constitution kind, not only decision and spec.
 func TestFullWorkListResolvesMandatedConstitutionLaw(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -210,7 +208,7 @@ func TestFullWorkListResolvesMandatedConstitutionLaw(t *testing.T) {
 	}
 }
 
-// A contract with no bound law still dispatches: the law context resolves
+// A contract with no bound law still resolves: the law context resolves
 // with an empty law list and the binding's Domains alone.
 func TestFullWorkListContractWithoutBoundLawCarriesDomainsOnly(t *testing.T) {
 	t.Parallel()
@@ -278,7 +276,7 @@ func TestFullWorkListReportsAbsentDeletedObligationLaw(t *testing.T) {
 }
 
 // A home or affected Domain that later disappears from the committed registry
-// would reach the packet with an empty name and purpose, so the law-context
+// would reach the context with an empty name and purpose, so the law-context
 // read refuses fail-closed.
 func TestFullWorkListRefusesDomainMissingFromRegistry(t *testing.T) {
 	t.Parallel()

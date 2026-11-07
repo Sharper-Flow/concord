@@ -547,7 +547,6 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"record_report":       actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
 	"record_conclusion":   actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric),
 	"frame_question":      actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric),
-	"record_research":     actionPolicy(ActionCrossAuthority, ActionAdvance, ActionEventTyped, evidenceBindingActionFields()...),
 	"record_option":       actionPolicy(ActionCrossAuthority, ActionAdvance, ActionEventGeneric),
 	"start_poc":           actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
 	"checkpoint_poc":      actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),

@@ -13,18 +13,16 @@ import (
 // WorkflowLawContext is the bounded, typed resolution of the approved
 // contract's binding law and Domain references. The core turns every
 // contract-bound law ID and home or affected Domain ID into its projection
-// state in the full work list, so a dispatched packet carries the title of
+// state in the full work list, so the context carries the title of
 // each binding law and a file locator that opens inside the Product's
-// designated knowledge home, not inside whatever repository the lane was
-// dispatched into.
+// designated knowledge home, not inside whatever repository the work
+// runs in.
 type WorkflowLawContext struct {
 	Laws    []WorkflowLawContextLaw    `json:"laws"`
 	Domains []WorkflowLawContextDomain `json:"domains"`
 	// RegistryPath is the knowledge home repository's absolute locator for
 	// the Domain registry shard the home checkout actually carries, set when
-	// the context binds at least one Domain. A dispatched lane holds no
-	// Concord tool access, so the path is how it reads Domain
-	// structure: from the file, never from a tool call.
+	// the context binds at least one Domain.
 	RegistryPath string `json:"registry_path,omitempty"`
 }
 
@@ -35,8 +33,8 @@ type WorkflowLawContextLaw struct {
 	Status string   `json:"status,omitempty"`
 	Title  string   `json:"title,omitempty"`
 	// Path is the knowledge home repository's absolute locator for the law
-	// document the projection recorded, so the lane opens it inside the home
-	// checkout rather than its own dispatch repository.
+	// document the projection recorded, so the reading agent opens it inside
+	// the home checkout rather than the repository the work runs in.
 	Path          string   `json:"path,omitempty"`
 	ObligationIDs []string `json:"obligation_ids,omitempty"`
 }
@@ -208,7 +206,7 @@ func domainRegistryHomeRepo(ctx context.Context, tx *sql.Tx, productID string) (
 // workflowLawHomeRepo reads the canonical repository path of one resolved Git
 // law home through whichever queryer the caller already holds. A knowledge
 // home locator is a canonical-path locator by designation rule, so its
-// normalized value is the absolute checkout a dispatched lane can open.
+// normalized value is the absolute checkout the reading agent can open.
 func workflowLawHomeRepo(ctx context.Context, q queryer, homeProjectID, homeLocatorID string) (string, error) {
 	var repo string
 	err := q.QueryRowContext(ctx, `SELECT normalized_value FROM project_locators WHERE project_id=? AND locator_id=? AND kind='canonical_path'`, homeProjectID, homeLocatorID).Scan(&repo)
@@ -222,14 +220,15 @@ func workflowLawHomeRepo(ctx context.Context, q queryer, homeProjectID, homeLoca
 }
 
 // knowledgeRegistryLocator returns the independent Domain registry's
-// existing repository path as a home-qualified absolute locator the lane can
-// open. Domain organization resolves against that one committed file; a home
-// carrying no registry, a non-regular registry file, or an unreadable path
-// refuses typed, so the packet never advertises a locator no lane can read
-// or silently drops the Domain binding. The locator runs after the committed
-// registry was read, so both absent-file shapes mean the checkout disagrees
-// with a commit that carries the registry: their recoveries restore the
-// checkout, they do not ask for a commit that already exists.
+// existing repository path as a home-qualified absolute locator the reading
+// agent can open. Domain organization resolves against that one committed
+// file; a home carrying no registry, a non-regular registry file, or an
+// unreadable path refuses typed, so the context never advertises a locator
+// the agent cannot read or silently drops the Domain binding. The locator
+// runs after the committed registry was read, so both absent-file shapes
+// mean the checkout disagrees with a commit that carries the registry:
+// their recoveries restore the checkout, they do not ask for a commit that
+// already exists.
 func knowledgeRegistryLocator(homeRepo string) (string, error) {
 	root, err := os.OpenRoot(homeRepo)
 	if err != nil {
@@ -255,8 +254,8 @@ func knowledgeRegistryLocator(homeRepo string) (string, error) {
 
 // knowledgeLawLocator qualifies one committed law document path with its
 // knowledge home repository and refuses typed unless the qualified locator is
-// a regular file there: a bound law is a required source, so the packet must
-// never advertise a document the dispatched lane cannot open. The verified
+// a regular file there: a bound law is a required source, so the context must
+// never advertise a document the reading agent cannot open. The verified
 // snapshot commit owns whether the recorded content hash is current; this
 // check owns only the locator's readability.
 func knowledgeLawLocator(homeRepo, lawID, subjectPath string) (string, error) {
@@ -332,7 +331,7 @@ func lawContextLaws(roleSet, obligationSet map[string]map[string]bool, lawIDs []
 // law-folder snapshot of the workflow home. The 128-entry ceiling is the
 // write-side sum of the mandate (32), additions (32), and obligations (64)
 // bounds. Each record's committed path is qualified with the knowledge home
-// repository and verified to open there before it reaches the packet. A bound
+// repository and verified to open there before it reaches the context. A bound
 // law may carry the qualified project_id/law_id reference form; in
 // this single-home path it resolves by its bare ID when the reference names
 // this home's own Project.

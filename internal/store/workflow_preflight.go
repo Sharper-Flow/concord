@@ -113,7 +113,13 @@ func pickTypeHomeFailure(err error, workMode string) error {
 	return wrapFailure(KindUnavailable, "workflow_action", "cannot verify the Product-law home", true, recovery, err)
 }
 
-func requirePickTypeKnowledgeHomeTx(ctx context.Context, tx *sql.Tx, workID string) error {
+// workflowPickTypeAdmissionTx admits a type pick. A research pick changes no
+// Product and needs no Product-law home; every other pick needs a usable
+// on-mode home with a committed Domain registry.
+func workflowPickTypeAdmissionTx(ctx context.Context, tx *sql.Tx, workID string, fields map[string]json.RawMessage) error {
+	if typ, _ := workflowFieldString(fields, "type"); typ == "research" {
+		return nil
+	}
 	product, err := architectureBindingProductIDTx(ctx, tx, workID)
 	if err != nil {
 		return err
@@ -426,12 +432,7 @@ func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 	switch actionID {
 	case "record_intake", "insert_step":
 	case "pick_type":
-		typ, _ := workflowFieldString(fields, "type")
-		if typ != "research" {
-			if err := requirePickTypeKnowledgeHomeTx(ctx, tx, workID); err != nil {
-				return step, err
-			}
-		}
+		return step, workflowPickTypeAdmissionTx(ctx, tx, workID, fields)
 	case "complete_step", "record_review":
 		step, _ = workflowFieldString(fields, "step_id")
 		return step, workflowPlanStepAttemptAdmissionTx(ctx, tx, workID, plan, step, actionID)

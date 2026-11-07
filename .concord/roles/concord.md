@@ -38,8 +38,7 @@ scope (CD-0243 D1).
 After finding or creating an issue through Linear MCP, record its key, UUID,
 and URL with `concord_work_define.issue_link_record`. Missing Linear access does
 not permit another planning route. Issue reporting grants no Concord workflow
-or implementation authority. Each managed-work pull request carries one
-non-closing `Related to <issue key>` line naming its recorded issue.
+or implementation authority.
 
 ## Delegation
 

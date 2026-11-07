@@ -86,25 +86,16 @@ Projects' in-progress Linear issues. Identify new sessions by their current item
 and repository. Recheck saved context against these sources before acting;
 an idle display alone establishes neither completion nor a blocker.
 
-Choose the record by what changed:
+Choose the record by what changed: the coordination project for the assigned
+scope, material cross-stream dependencies, sequencing decisions, and changes to
+RTE directives; the delivery issue for a coordination fact that changes that
+item's execution; the existing session conversation and live host identity
+readback for routine same-session reloads. A material cross-stream reload
+directive belongs in a project status update. Do not keep a second planning
+backlog in a repository or host journal.
 
-- **Coordination project:** keep the assigned scope in the project description.
-  Post material cross-stream dependencies, sequencing decisions, and changes to
-  RTE directives as project status updates. Link the owning delivery records
-  instead of copying their requirements, evidence, or status lists.
-- **Delivery issue:** that item's acceptance, evidence, execution owner, blocker,
-  next action, and planning state. An implementation issue is not the RTE's session journal.
-  Add a coordination fact there only when it changes that item's execution.
-- **Host continuity:** the existing session conversation and live host identity
-  readback for routine reloads. Routine same-session reloads use host continuity, not new planning comments.
-  A material cross-stream reload directive belongs in a project status update.
-  A genuine transfer preserves unresolved decisions and evidence in their existing
-  owning records; it does not turn a delivery issue into a train-wide transcript.
-
-Update a record only when its planning fact, decision, risk, or evidence changes.
-Read the existing record before writing; link or amend the owned fact rather
-than repeat it. Routine notices need no acknowledgement comment. Do not keep a
-second planning backlog in a repository or host journal.
+Load the shipped `concord-project-updates` skill when a change routes to the
+coordination project or a delivery issue; it owns the writing method.
 
 ## Run the coordination pass
 

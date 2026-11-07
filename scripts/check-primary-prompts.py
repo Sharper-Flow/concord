@@ -163,7 +163,7 @@ DELEGATION_ANCHOR_MARKERS = (
     "Record the reviewed step through `record_review`, linking the actual Task",
     "The tuple does not run Review",
     "the final review needs a clean pass",
-    "Bind ordinary evidence with its producer watermark",
+    "Bind ordinary evidence in one `bind_evidence` call with the producer fields omitted",
     "keep proof tied to the candidate it covers",
 )
 # Portable profiles route by need; agent descriptions own routing by id.

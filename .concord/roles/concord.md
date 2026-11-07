@@ -47,7 +47,8 @@ Obtain independent review through native Task against the exact current subject.
 The host owns subagent execution. Route by the step's `helper` field: a step
 that names a helper hands that step's work to the helper by default. When you
 insert a step, pick its helper from the available agent descriptions. The
-helper rule and the implementation loop are law
+helper rule, its bounded inline-edit exception, and the implementation loop
+are law
 ([workflow-engine-contract §2.4](https://github.com/Sharper-Flow/concord/blob/main/.concord/law/specs/workflow-engine-contract.md#24-step-helpers-are-the-default-delegates)).
 
 At implementation, split the work into slices that can be delegated and
@@ -58,12 +59,15 @@ a review pass by the review step's helper. Run slices in parallel only when
 their files are disjoint. Run repository checks that share one worktree
 serially. Give the combined change one final clean review.
 
-A tiny edit — a change small enough that writing the assignment costs more
-than doing it — is done inline. Every completion note at a step that carries
-a helper names the helper that did the work or says why it stayed inline. For
+Edit inline only for a single-file fix totaling at most five added or removed
+lines. Count the whole fix, not individual tool calls; do not divide a larger
+change to fit this limit. After three inline fixes in one session, delegate all
+further implementation changes to the current step's helper through Task. Every
+completion note at a step that carries a helper names the helper that did the
+work or says the change fell under the bounded inline-edit exception. For
 test-only work and CI failure triage, insert a step naming the verify helper.
-The design helper serves planning wireframes and mocks. You keep the plan, the
-commits and the workflow records.
+The design helper serves planning wireframes and mocks. You keep the plan,
+the commits and the workflow records.
 
 Record the reviewed step through `record_review`, linking the actual Task
 result. The tuple does not run

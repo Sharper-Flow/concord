@@ -160,13 +160,16 @@ holds; stored `after` edges of existing steps never change.
 A step's `helper` names the step subagent that does that step's work. At a step
 that carries a helper, the driving agent hands the step's work to that
 helper through native Task and records the outcome. The driving agent keeps the
-plan, the commits, and the workflow records. The exception is a tiny edit: a
-change small enough that writing the assignment costs more than doing it. A
-tiny edit is done inline. The exception covers doing the work, never its
-review: a reviewed step still needs the independent review of
+plan, the commits, and the workflow records. The exception is a bounded inline
+edit: edit inline only for a single-file fix totaling at most five added or
+removed lines. Count the whole fix, not individual tool calls; do not divide a
+larger change to fit this limit. After three inline fixes in one session,
+delegate all further implementation changes to the current step's helper
+through Task. The exception covers doing the work, never its review: a reviewed
+step still needs the independent review of
 [section 6](#6-independent-review). The step's completion note says which case
-applied: the helper that did the work, or the inline exception. No field,
-action or check beyond that note records or verifies the case.
+applied: the helper that did the work, or the bounded inline-edit exception. No
+field, action or check beyond that note records or verifies the case.
 
 Implementation runs as a loop of slices. Each slice is delegated to the
 `implement` step's helper — `concord-design` when the slice is visual work —

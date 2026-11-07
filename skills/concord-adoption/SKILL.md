@@ -15,11 +15,12 @@ vision; existing authority owns law acceptance.
 The agent establishes the Product and its designated Git knowledge home from
 the operator's instruction before changing documents. Neither directory layout
 nor Git remotes designate either. Read the Project's repository mode through
-`concord_product_view.resolve`: knowledge commits to the Product's own
-repository only in on mode, and an off-mode Project keeps `.concord/` out of
-Git, so its knowledge lives in a separately designated home when the operator
-names one. If a designation is missing, ask the operator; do not guess.
-Finish when the Product, the home, and the mode are explicit.
+`concord_product_view.resolve`: a new Project starts off, and the phases that
+follow write knowledge, so the operator decides now — turn the Project on, or
+designate a separate knowledge home for an off-mode Project. Knowledge commits
+to the Product's own repository only in on mode. If a designation is missing,
+ask the operator; do not guess. Finish when the Product, the home, and the
+operator's recorded mode are explicit.
 
 ## 2. Inventory existing documents
 
@@ -48,10 +49,10 @@ Finish when every item has a class and the evidence or uncertainty is recorded.
 Route every item's placement through `concord-law-writing`; it owns the four
 `.concord/` placement directories and the amendment rules, and binding rules
 become candidate law there. Route durable explanations and the glossary to
-`concord-architecture-writing`, and README material to `concord-readme-writing`;
-those skills own their documents' shapes and their own tests for what deserves
-a lasting record. Keep history reachable where readers find it. Finish when
-every item has a route or an explicit decision to leave it in place.
+`concord-architecture-writing`, whose method owns its own test for what
+deserves a lasting record, and README material to `concord-readme-writing`.
+Keep history reachable where readers find it. Finish when every item has a
+route or an explicit decision to leave it in place.
 
 ## 5. Bootstrap the Domain registry
 
@@ -80,19 +81,20 @@ The agent records each migrated record's source path and the commit or link
 where the source lived. Preserve decision status: binding content in an
 accepted ADR is candidate law, while a superseded ADR is history. The reviewed
 change that adds the migrated record removes or replaces the original, so one
-canonical location remains; the recorded source keeps the provenance, and
-superseding — not editing — retires an original. Use the routed skills and
+canonical location remains; the recorded source keeps the provenance. Within
+`.concord/law/`, a breaking replacement supersedes an accepted record through
+the amendment route rather than editing it in place. Use the routed skills and
 existing authority for validation, review, and acceptance; this method does
 not authorize publication. Finish when each migration has provenance and its
 acceptance status is explicit.
 
-## 8. Set repository mode
+## 8. Confirm repository mode
 
-The operator sets each Project's repository mode; the agent does not. Explain
-what each mode means — on commits `.concord/` and agent files as ordinary
-Product files, off keeps them out of Git — and confirm the recorded mode
-through `concord_product_view.resolve`. Finish when the read reflects the
-operator's recorded choice.
+Re-read the Project's repository mode through `concord_product_view.resolve`
+after the knowledge has landed: on mode must show the knowledge committed as
+ordinary Product files, and an off-mode Project must show its knowledge only
+in the separately designated home. Finish when the read matches the placement
+the adoption delivered.
 
 ## What a good result looks like
 
@@ -110,7 +112,7 @@ The adopting Product's own accepted law governs it afterward.
 | Migrate a superseded decision as binding law. | Preserve its status as history and route only still-governing obligations as candidate law. |
 | Leave the original in place after its record migrates. | The reviewed change that adds the migrated record removes or replaces the original; provenance lives in the record. |
 | Treat this order as approval to publish law. | Follow the Product's existing authority, review, and approval boundaries. |
-| Set repository mode as the agent. | The operator sets each Project's mode; the agent explains it and reads the recorded choice. |
+| Set repository mode as the agent. | The operator sets each Project's mode in step 1; the agent reads and confirms it. |
 | Fill the vision with agent-invented goals. | Gather the operator's words, propose a draft, and obtain their approval. |
 
 ## Canonical references

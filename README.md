@@ -12,95 +12,55 @@ goals, delegated work, and delivery evidence into a typed, durable workflow.
 Operators coordinate multiple agents on one workstation; the engine gates
 every state transition on verified evidence.
 
-[Why Concord](#why-concord-exists) ·
-[Workflow](#workflow) ·
+Concord models development as an evidence-gated state machine. It validates
+intake, builds a typed step plan for each work item, coordinates concurrent
+work across agents, and refuses completion until independent review and
+verification evidence are recorded. Linear owns planning; Concord enforces
+execution state locally.
+
+[What's different](#whats-different) ·
+[How it works](#how-it-works) ·
+[Agents and helpers](#agents-and-helpers) ·
+[Architecture](#architecture) ·
+[Specialized graphs](#specialized-graphs) ·
 [Engineering highlights](#engineering-highlights) ·
-[Batteries included](#batteries-included) ·
-[Architecture](#architecture-and-tradeoffs) ·
 [Install](#install-and-setup) ·
 [Key links](#key-links)
 
-## Why Concord exists
+## What's different
 
-Human intent is typed at the highest level of abstraction: goals, architectural
-boundaries, and product invariants. Machine code, by contrast, operates at the
-lowest: byte offsets, transaction boundaries, and exit codes.
+Most agent frameworks guide models by adding instructions and checklists to
+prompts. Prompts drift under context pressure: agents declare victory early,
+wander outside assigned scope, and approve their own code. Concord enforces a
+state machine outside the model's context window, requiring machine-checkable
+evidence before any task advances. Work contracts lock goals and safety
+boundaries before implementation begins, and every refusal returns a typed
+failure naming the exact remedy. Everything runs locally against a single
+workstation database with no cloud service, external account, or telemetry.
 
-Delegating a specification to an AI agent is an unverified downcast across that
-semantic gap. In traditional programming, casting from an abstract interface to
-a concrete type without a runtime guard invites undefined behavior and crashes.
-You cannot fix an unsafe cast by shouting at the compiler, and you cannot fix an
-agent's semantic drift by stuffing more instructions into a prompt.
+## How it works
 
-Concord supplies the structural runtime guard. It enforces workflow conditions
-and evidence bindings outside the model's context window before state
-transitions commit:
+```mermaid
+flowchart TD
+    Intake["Intake (typed checks)"] --> Pick["Pick workflow type"]
+    Pick -->|Change| C1["clarify"] --> C2["plan"] --> C3["implement (reviewed)"] --> C4["review (reviewed)"] --> Gate{"Completion gate"}
+    Pick -->|Fix| F1["diagnose"] --> F2["clarify"] --> F3["plan"] --> F4["implement (reviewed)"] --> F5["review (reviewed)"] --> Gate
+    Pick -->|Research| R1["clarify"] --> R2["frame"] --> R3["investigate"] --> R4["conclude (reviewed)"] --> Gate
+    Pick -->|Removal| M1["clarify"] --> M2["list"] --> M3["implement (reviewed)"] --> M4["review (reviewed)"] --> Gate
+    Gate -->|Evidence bound| Done(["Completed"])
+    Gate -.->|Missing evidence| Refused["Refused (missing_evidence)"]
+```
 
-- **Completion requires evidence.** Concord refuses completion requests until
-  the required evidence types are durably bound. An agent's claim that work is
-  finished cannot substitute for verified evidence.
-- **Contracts lock goals before implementation.** Each work item records an
-  approved contract before implementation. Operator approval is required for
-  product direction, UI/UX, production application data, security, increased
-  spending, and legal obligations.
-- **Domains organize Product law.** A registry partitions law across Domains.
-  Each law record has one home Domain, and dependency and shared-contract
-  relations between Domains name the governing law. Two items with approved
-  Product-changing contracts can record an overlap resolution that orders them.
-- **Every refusal names its remedy.** Refusals are strictly typed and state
-  which condition failed, directing a blocked agent to the corrective path
-  rather than leaving it to guess.
-
-## Workflow
-
-Concord models software development as a state machine. Instead of asking an
-agent if it finished, the engine advances a task only when verified evidence
-satisfies the transition conditions.
-
-### Why: prompts cannot enforce boundaries
-
-AI coding agents drift. Left on their own, they hallucinate completion, wander
-outside their assigned scope, and approve their own broken code. Prompts are soft
-suggestions that models can ignore under context pressure. Reliable multi-agent
-coordination requires mechanical gates enforced outside the context window.
-
-### How: the evidence-gated lifecycle
-
-Every item starts with intake and its typed checks. Intake can proceed, mark
-the work already handled, decline it, or split or merge it. The driving agent
-then picks a type. Concord copies its required steps from the
-[template contract](contracts/workflow-step-templates.v1.json) into one JSON plan
-on the item's workflow row:
-
-- **Change**: clarify, plan, implement, review.
-- **Fix**: diagnose, clarify, plan, implement, review.
-- **Research**: clarify, frame, investigate, conclude.
-- **Removal**: clarify, list, implement, review.
-
-Steps may be inserted between required steps; the plan stays a directed acyclic
-graph (DAG). A step that carries review passes only with a recorded typed review.
-Host tools own branch and worktree creation, placement, recovery, and removal.
-
-The lifecycle keeps these evidence gates:
-
-1. **Record verification evidence.**
-   - *Why*: Review needs test results for the same commit it judges.
-   - *How*: The coordinator binds an attributed local or required CI report with
-     its source, commit, result and run reference. Concord compares recorded
-     commits; independent review judges adequacy. Concord does not run the tests.
-2. **Require independent review.**
-   - *Why*: The author must not approve their own work.
-   - *How*: The coordinator obtains independent review through the host's native
-     Task tool and records its typed outcome against the current candidate.
-     Concord checks the recorded subject and findings, not which subagent
-     produced the review. The coordinator owns that independence claim.
-3. **Gate terminal transitions on recorded evidence.**
-   - *Why*: Keeps completion tied to recorded evidence for the reviewed commit.
-   - *How*: When an agent requests a `completed` transition, Concord validates
-     every required evidence binding and refuses the transition with
-     `missing_evidence` until the bindings stand.
-
-### Verification in practice
+Every work item begins at intake with typed checks that can proceed, mark the
+work already handled, decline it, or split or merge it. Once intake passes, the
+driving agent selects one of four workflow types: Change, Fix, Research, or
+Removal. Concord copies the type's required steps from the [template contract](contracts/workflow-step-templates.v1.json)
+into a per-item plan stored on the workflow record. Agents can insert
+intermediate steps, keeping the plan a directed acyclic graph (DAG): a send-back
+is a new step after the current one, never a backwards edge. Steps marked as
+reviewed pass only with a recorded typed review — reviewer, result, commit, and
+link. Terminal completion is refused with `missing_evidence` until every
+required evidence binding stands.
 
 The [terminal-gate integration test](internal/agent/trunk_firewall_test.go#L117-L163)
 demonstrates this gate directly:
@@ -117,144 +77,127 @@ bin/oc-test targeted -- go test ./internal/agent \
   -run '^TestMainCheckoutLifecyclePreservesTerminalGates$' -count=1 -v
 ```
 
-## Engineering highlights
+## Agents and helpers
 
-### Authority enforced outside the prompt
+Concord ships with primary agent profiles for full sessions, specialized step
+helpers for individual workflow steps, and read-only utilities:
 
-Registered-client policies restrict operations by capability, Product, Project,
-and agent scope. Workflow gates check current subjects, evidence, and approval
-boundaries. Native Task execution remains host-owned; Concord does not attest
-which subagent produced a recorded review.
+| Role or helper | Workflow stage | Responsibility |
+|---|---|---|
+| `Concord` | End to end | Primary coordinator; drives one work item with the operator |
+| `Concord-RTE` | Coordination | Optional; sequences multi-session dependencies |
+| `Concord-Planner` | Intake and planning | Optional; structures requirements and backlog refinement |
+| `concord-research` | Diagnose · frame · investigate | Investigates root causes and framed research questions |
+| `concord-design` | Implement (visual slices) | Builds UI changes, wireframes, and versioned previews |
+| `concord-implement` | Implement | Makes one bounded change; proves a Fix regression fails before the fix and passes after |
+| `concord-verify` | Inserted test-only steps | Runs named local checks or diagnoses completed CI runs without editing files |
+| `concord-review` | Review · conclude | Reviews implementation diffs and research conclusions against standards |
+| `concord-explore` | Any step (read-only) | Explores repository structure and evidence paths |
+| `concord-lookup` | Any step (read-only) | Researches external documentation and sources |
+| `concord-advisor` | Any step (read-only) | Provides independent second opinions on bounded decisions |
 
-Inspect the [authorization checks](internal/agent/authority.go) and
-[authority refusal tests](internal/agent/authority_refusal_kind_test.go).
+The host's native Task tool owns delegation; Concord neither launches subagents
+nor wraps their prompts or results. Specialized workflows and engineering
+methods load on demand from the maintained [skills index](skills/README.md).
 
-### Current-state authority and explicit durability
-
-SQLite holds current execution state and unresolved-effect receipts rather than
-replaying historical event logs. The store uses `synchronous=FULL` for designated
-durable transactions and `synchronous=NORMAL` for ordinary writes. Pinned readers
-never block durable commits, and low-level SQLite mechanics run in an isolated
-internal subsystem. This makes durability costs explicit instead of assuming every
-write needs the same disk-flush guarantees.
-
-Inspect the [transaction owner](internal/store/durable.go) and
-[durability tests](internal/store/durable_test.go). The separate
-[ten-process conformance harness](internal/store/conformance_test.go) exercises
-concurrent access to the local store.
-
-### Recoverable installation and automated releases
-
-The release workflow builds Linux amd64 binaries, generates an SPDX software
-bill of materials, checksums each asset, and attests build provenance. The
-installer journals file operations so interrupted transactions recover cleanly
-without overwriting operator edits.
-
-The [installer tests](scripts/test-installer.py) check recovery after process
-death at each journal phase from staging through cleanup during install,
-upgrade, and uninstall: `test_install_process_death_at_every_phase_recovers`,
-`test_upgrade_process_death_at_every_phase_recovers_old_or_new_coherently`, and
-`test_uninstall_process_death_at_every_phase_recovers`. The
-[release workflow](.github/workflows/release.yml) automates publication.
-
-## Batteries included
-
-Concord ships with primary agent profiles, native step helpers, read-only utilities, and
-portable skills ready for OpenCode out of the box.
-
-### Agent profiles and utilities
-
-- **Primary roles**: `Concord` coordinates work with the operator; `Concord-RTE`
-  sequences multi-session dependencies; `Concord-Planner` structures requirements
-  and planning intake.
-- **Read-only utilities**: `concord-explore` analyzes repository structure;
-  `concord-lookup` investigates external sources; `concord-advisor` provides
-  independent second opinions on bounded problems.
-- **Native review helper**: `concord-review` loads the [review method](skills/concord-review/SKILL.md),
-  repairs in-scope findings and leaves changes uncommitted for the caller.
-- **Native test-only helper**: `concord-verify` runs named local checks or diagnoses
-  completed CI, returning commands, exits and failure evidence without editing
-  files or waiting on CI.
-- **Native implementation helper**: `concord-implement` makes one bounded change,
-  proves a Fix regression fails before the fix and passes after, and returns
-  uncommitted changes and check results to the caller.
-- **Native research helper**: `concord-research` investigates a framed question
-  across repository and external sources within the caller's budget, returning
-  cited findings, uncertainty and gaps without editing files.
-- **Native design helper**: `concord-design` makes a bounded visual UI or UX change
-  in assigned files, or produces an assigned planning wireframe or mock, and
-  returns uncommitted changes, checks and a versioned preview
-  URL or screenshots. UI/UX approval stays with the operator; Product browser
-  tooling is optional and host-provided.
-
-The host's native Task tool owns delegation. Concord neither launches subagents
-nor wraps their prompts or results.
-
-### Portable skills and methods
-
-The installer registers on-demand skills in OpenCode without adding runtime
-overhead:
-
-- **`concord-law-writing`**: Draft, amend, or prune Product specifications and
-  decisions without altering obligations or approval boundaries.
-- **Concord structure**: Skills for architecture reference, README writing,
-  multi-repository work, self-repair, and ticket-frontend coordination.
-- **Engineering methods**: Portable skills for diagnosis, codebase design,
-  architecture improvement, work shaping, review, instruction writing, and
-  retrospectives.
-
-## Architecture and tradeoffs
+## Architecture
 
 ```mermaid
-flowchart LR
-    Host["OpenCode · operator and agents"] --> Adapter["TypeScript adapter"]
-    Adapter -->|typed operations| Core["Go core · authorization and workflow"]
-    Core --> Store[("SQLite · current state, effects, evidence")]
+flowchart TD
+    Host["Operator and AI agents (OpenCode)"]
+    Host --> Adapter["TypeScript adapter (thin transport)"]
+    Adapter -->|typed operations| Core["Go core (rules and workflow engine)"]
+    Core --> Store[("SQLite (single local durable state)")]
 ```
 
 Concord separates responsibilities across three focused layers:
 
-- **Single core for domain authority.**
-  - *What*: Go implements all workflow rules, admission logic, and state transitions.
-  - *Why*: Prevents dual-maintenance bugs and rule drift between host plugins and the engine.
-  - *How*: The TypeScript adapter acts as a thin transport layer for host context, process credentials, and OpenCode tools, proxying typed operations directly to the Go binary.
-- **Local workstation database.**
-  - *What*: A single SQLite database stores requirements, current execution state, evidence, and research.
-  - *Why*: Eliminates remote network latency and multi-tenant synchronization overhead during high-cadence local agent development.
-  - *How*: The store runs SQLite in WAL mode with `synchronous=NORMAL`, and switches a designated durable transaction to `synchronous=FULL`.
-- **Decoupled planning and execution.**
-  - *What*: Linear handles planning; Concord coordinates local execution.
-  - *Why*: Keeps external tracker state from polluting local runtime invariants while allowing operators to manage milestones in their tool of choice.
-  - *How*: Agents read and write Linear through the Linear MCP server. Concord records at most one issue key and URL per work item; the binary makes no Linear API call and holds no Linear credential.
+- **Single Go core for domain authority.** Go implements all workflow rules,
+  admission checks, and state transitions to prevent rule drift between host
+  plugins and the engine. The TypeScript adapter is a thin transport that
+  passes host session context and tool invocations to the Go binary.
+- **Single local database.** A local SQLite database holds all current
+  execution state, effects, and bound evidence. It runs in WAL mode with
+  `synchronous=NORMAL` for routine writes and switches to `synchronous=FULL`
+  only for designated durable transactions, making durability costs explicit
+  instead of paying full disk-flush guarantees on every write.
+- **Decoupled planning and execution.** Linear owns issue planning and
+  milestone tracking; Concord coordinates local execution. Agents interact
+  with Linear via the Linear MCP server; Concord records at most one issue
+  key and URL per work item, makes no Linear API call, and holds no Linear
+  credential.
 
-The trust boundary is the local workstation: the operating system user account, the OpenCode process, and the adapter. Concord does not defend against arbitrary code already running under that account. See the [transport contract](.concord/law/specs/agent-adapter-transport-contract.md), [core architecture](.concord/docs/core-architecture.md), and [managed development authority](.concord/law/specs/managed-development-authority.md).
+The trust boundary is the local workstation: the operating system user account,
+the OpenCode process, and the adapter. Concord does not defend against arbitrary
+code already running under that account. See the [transport contract](.concord/law/specs/agent-adapter-transport-contract.md),
+[core architecture](.concord/docs/core-architecture.md), and
+[managed development authority](.concord/law/specs/managed-development-authority.md).
 
-### Specialized graphs over monolithic DAGs
+## Specialized graphs
 
-Complex agent workflows cannot fit into a single directed acyclic graph (DAG) without conflating scheduling, execution recovery, and architectural authority. Concord isolates four specialized graphs:
+Complex agent workflows cannot fit into a single DAG without tangling
+scheduling, execution recovery, and architectural authority. Concord isolates
+four specialized graphs:
 
-1. **Task coordination graph (`blocks`, `depends_on`)**
-   - *Why*: Manages inter-task dependencies and parallel execution queues.
-   - *How*: Directed relations from the [relation vocabulary](contracts/relation-vocabulary.v1.json) filter tasks from the [ready queue](internal/store/query.go). A recorded [overlap resolution](internal/store/workflow_domain_overlap.go) adds a `depends_on` or `blocks` relation between two items that hold approved Product-changing contracts in the same Product.
-2. **Per-item step plans (Workflow execution)**
-   - *Why*: Real engineering needs inserted send-back steps, conditional clarify, and repeated attempts that a fixed chain cannot express.
-   - *How*: Every workflow starts with intake, then picks a type — change, fix, research, or removal — whose required steps are copied from the [template contract](contracts/workflow-step-templates.v1.json) into one JSON plan stored on the item's workflow row. Steps may be inserted between required steps; the plan stays a DAG because a send-back is a new step after the current one, never a backwards edge. One plan-write check guards every write; inspect the [plan module](internal/store/workflow_step_plan.go) and [action admission](internal/store/workflow_preflight.go).
-3. **Architectural authority graph (Domains and specifications)**
-   - *Why*: Tracks how law records and Domains relate within a Product.
-   - *How*: Law relations model refinement, subordination, and conflict across law records. Domain relations declare boundary dependencies, shared contracts, and replacements. Inspect the [committed law-folder snapshot](internal/store/law_snapshot.go) and [law validation](internal/store/law_boundary.go).
-4. **Provenance graph (Evidence bindings)**
-   - *Why*: Records who produced what without prematurely declaring work accepted.
-   - *How*: [Evidence bindings](internal/store/workflow.go) tie immutable artifacts to specific producers, run timestamps, and watermark digests. Gathering evidence and evaluating acceptance remain decoupled operations.
+1. **Task coordination graph (`blocks`, `depends_on`).** Manages inter-task
+   dependencies and parallel execution queues across agent sessions. Directed
+   relations from the [relation vocabulary](contracts/relation-vocabulary.v1.json)
+   filter ready tasks from the [ready queue](internal/store/query.go). When two
+   concurrent items change the same product area, a recorded [overlap resolution](internal/store/workflow_domain_overlap.go)
+   orders them with explicit dependency edges.
+2. **Per-item step plans (execution DAG).** Real delivery needs retries,
+   inserted diagnostic steps, and clarification that a fixed chain cannot
+   express. Each work item copies its required steps from the [template contract](contracts/workflow-step-templates.v1.json)
+   into a stored plan; inserted steps extend it forward, never backwards.
+   Contracts lock goals before implementation and require operator approval
+   for product direction, UI/UX, production application data, security,
+   increased spending, and legal obligations. All plan mutations pass a single
+   [plan validator](internal/store/workflow_step_plan.go) and [preflight check](internal/store/workflow_preflight.go).
+3. **Architectural authority graph (Domains and Product law).** A registry
+   partitions architectural rules across Domains (bounded areas of system
+   responsibility). Each law record has one home Domain, and Domain relations
+   declare boundary dependencies, shared contracts, and replacements. Relations
+   between law records model refinement, subordination, and conflict. Inspect
+   the committed [law-folder snapshot](internal/store/law_snapshot.go) and [boundary validation](internal/store/law_boundary.go).
+4. **Provenance graph (evidence bindings).** Completion requires proof, not
+   conversational assertions. [Evidence bindings](internal/store/workflow.go)
+   tie immutable test results, review attestations, and execution watermarks to
+   specific commits and producers. Concord refuses terminal completion requests
+   until all required evidence bindings are durably recorded, separating
+   evidence gathering from final acceptance evaluation.
+
+## Engineering highlights
+
+- **Authority enforced outside the prompt.** Registered-client policies
+  restrict operations by capability, Product, Project, and agent scope. Workflow
+  gates validate subjects, evidence bindings, and approval boundaries outside
+  model inference. Inspect the [authorization checks](internal/agent/authority.go)
+  and [authority refusal tests](internal/agent/authority_refusal_kind_test.go).
+- **Current-state authority and explicit durability.** SQLite stores current
+  state and unresolved-effect receipts rather than replaying historical event
+  logs. The store uses `synchronous=FULL` only for designated durable
+  transactions and `synchronous=NORMAL` for routine writes. Inspect the
+  [transaction owner](internal/store/durable.go),
+  [durability tests](internal/store/durable_test.go), and the
+  [ten-process conformance harness](internal/store/conformance_test.go).
+- **Recoverable installs and automated releases.** The [release workflow](.github/workflows/release.yml)
+  builds Linux amd64 binaries with SPDX software bills of materials, checksums,
+  and GitHub build provenance. The installer journals operations so interrupted
+  runs recover cleanly without overwriting operator changes; see the
+  [installer tests](scripts/test-installer.py) for process-death recovery across
+  install, upgrade, and uninstall.
 
 ## Build and verify from source
 
-Building Concord requires the Go toolchain pinned in [`go.mod`](go.mod). Testing the adapter also requires Bun.
+Building Concord requires the Go toolchain pinned in [`go.mod`](go.mod). Testing
+the TypeScript adapter also requires Bun.
 
-Local verification runs through the [`bin/oc-test`](bin/oc-test) test runner, which tiers workloads to give fast feedback without overloading the workstation. See [`TESTING.md`](TESTING.md) for suite selection details.
+Local tests run through [`bin/oc-test`](bin/oc-test), which tiers workloads to
+give fast feedback without overloading the workstation. Full suite selection,
+sharding, and CI requirements are documented in [`TESTING.md`](TESTING.md) and
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
-### Quick checks and documentation audit
-
-Verify the CLI build and validate documentation links and public content boundaries:
+### Quick checks
 
 ```sh
 go run ./cmd/concord --version
@@ -264,26 +207,10 @@ bin/oc-test targeted -- python3 scripts/check-public-content.py
 
 ### Full package and adapter suites
 
-Whole-package Go runs and full adapter test suites require broad workload admission:
-
 ```sh
 bin/oc-test broad -- go test ./cmd/concord
 bin/oc-test broad -- env -u CONCORD_SELECTED_PRODUCT_ID bun test adapter/opencode/
 ```
-
-### Tiered test suites
-
-- **Smoke tier (`bin/oc-test smoke`)**: Runs adapter tests, JSON schema validators, and unsharded Go package tests. It omits `cmd/concord`, `internal/agent`, and `internal/store`, which CI splits into shard jobs.
-- **Conformance tier (`bin/oc-test conformance`)**: Runs the ten-process SQLite harness to verify concurrency and transaction-locking invariants.
-- **Deterministic store sharding (`bin/oc-test store-shard`)**: The local route for reproducing or investigating one failing `internal/store` shard, because the unsharded store suite cannot finish inside one 15-minute alarm on a loaded host. Each invocation runs one CI shard under full admission and releases the shared slot before the next. For example, to run shard 1 of the 7 `internal/store` shards:
-
-```sh
-bin/oc-test store-shard 1 7
-```
-
-The tier uses CI's `scripts/go-test-shard.py` selection with discovery inside admission. Required CI owns the whole-suite store pass; locally, the tier reproduces or investigates one failing shard, and it is not a pre-push step. A shard is a CI-placement tool, not a default local coverage choice.
-
-Heavy tiers refuse to start without the host test gate. Every tier caps each file a test writes at 1024 MiB; a writer that reaches the cap is normally killed by SIGXFSZ. `PASS` reports the command's exit status, not proof that a named test matched. To see admission and selection without running tests, use `bin/oc-test plan targeted -- <command>`. [`bin/oc-test`](bin/oc-test) documents the per-run override and host admission; the [CI workflow](.github/workflows/ci.yml) defines the required repository checks.
 
 ## Install and setup
 
@@ -305,8 +232,8 @@ The installer verifies the release checksum and archive before changing any
 data, binary, adapter, or OpenCode configuration path. It journals file
 operations to recover from interrupted installs and never overwrites
 user-modified files. Release assets also carry GitHub build-provenance
-attestations, which the installer does not check.
-Restart OpenCode after installation completes.
+attestations, which the installer does not check. Restart OpenCode after
+installation completes.
 
 > **Keyring notice for headless servers:** On a headless system without an
 > existing desktop login collection, the installer initializes an unencrypted,
@@ -316,14 +243,13 @@ Restart OpenCode after installation completes.
 
 Before activating agent profiles (`Concord`, `Concord-RTE`, or optional
 `Concord-Planner`), [authorize the primary agent names](adapter/opencode/README.md#authorize-the-primary-agent-names-before-activation)
-on each trusted client. Installing profiles does not grant agent execution
-scope.
+on each trusted client. Installing profiles does not grant agent execution scope.
 
 ### 3. Bootstrap your project
 
 Initialize the repository using the [operator bootstrap CLI](adapter/opencode/README.md#operator-bootstrap-cli):
 
-1. **Register the client** (`concord client-register`): records the client's Ed25519 public key and its capability and scope grants. The private key stays in the host credential service.
+1. **Register the client** (`concord client-register`): records the client's Ed25519 public key and capability and scope grants. The private key stays in the host credential service.
 2. **Create the Product and Project** (`concord product-create`): establishes the coordination scope.
 3. **Add a repository locator** (`concord project-locator-add`): binds the Project to a checkout path or Git remote.
 
@@ -338,8 +264,7 @@ concord --help
 Once bootstrapped, launch agent sessions through your host environment.
 [Host tools own branch and worktree placement](.concord/law/decisions/CD-0088-host-owned-work-bootstrap-preserves-pre-readiness-authority.md#d1-host-tools-own-worktree-isolation).
 Inside a session, use the published capture and workflow operations for Concord
-state. Session preparation and explicit reads retain their identity and state checks;
-host placement grants no workflow authority.
+state.
 
 The [installation guide](.concord/docs/installation.md) covers artifact
 verification, managed paths, repair, upgrade, and uninstall.

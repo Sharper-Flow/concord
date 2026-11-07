@@ -7,7 +7,7 @@
   },
   "home_domain_id": "product-root:concord",
   "applies_to_domain_ids": [],
-  "product_wide_rationale": "Establishes the root Product identity, the single-operator rule, and the human-approval constitution. Every child Domain operates inside those constraints; none of them owns the constraint itself."
+  "product_wide_rationale": "Establishes the root Product identity, the one-installation-per-host rule, and the human-approval constitution. Every child Domain operates inside those constraints; none of them owns the constraint itself."
 }
 ---
 # CD-0006: Concord Root Product Policy
@@ -115,12 +115,16 @@ between unexplained internal labels.
 
 The same fact must never have two authorities.
 
-### D8. Single operator per installation is permanent scope
+### D8. One installation per host is permanent scope
 
-Concord remains single-operator per installation. Multiple humans may run separate
-Concord installations against shared repositories and git knowledge; their live
-workflow memories remain independent. Concord does not grow shared assignments,
-boards, identity, permissions, or team-server operation by default.
+Concord runs as one installation per host: one authority store and one set of host
+sessions. More than one human may hold the operator role on an installation. Each
+acts and approves under their own identity, as verified by the host or frontend
+that carries the answer. An approval binds only when its author is a human who
+holds the operator role; agent-authored text and shared credentials never count.
+Separate installations keep independent live workflow memories. Concord does not
+grow a team server, shared boards or a user directory of its own; the host decides
+who holds the operator role.
 
 ### D9. Initial release evidence is synthetic/scenario-based
 
@@ -187,15 +191,15 @@ rewrites.
 - Workflow ownership and native execution ownership have separate boundaries.
 - Product rigor reflects declared responsibility rather than repository visibility.
 - Human legislative authority and operator interaction are explicit.
-- Single-operator scope avoids speculative team-server architecture.
+- One-installation-per-host scope avoids speculative team-server architecture.
 - Release evidence does not depend on post-release calls before release exists.
 
 ### Cost
 
 - Full coordination is a larger Product commitment than a registry-only workflow
   surface.
-- Independent human installations may duplicate overlapping work; Concord does not
-  solve live cross-human coordination.
+- Separate installations may duplicate overlapping work; Concord does not
+  solve live cross-installation coordination.
 
 ## Supersession and amendments
 

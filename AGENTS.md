@@ -1,10 +1,10 @@
 # Concord Agent Instructions
 
 Concord is a public Go project: an agent-native Product coordination system for
-one operator and many local AI agents. It holds accepted Product law,
-machine-readable contracts and scenarios, a SQLite-backed storage and workflow
-engine, a JSON CLI, an OpenCode TypeScript adapter, and repository validators.
-Linux amd64 is the only release platform.
+one installation per host, its operator-role humans, and many local AI agents. It
+holds accepted Product law, machine-readable contracts and scenarios, a
+SQLite-backed storage and workflow engine, a JSON CLI, an OpenCode TypeScript
+adapter, and repository validators. Linux amd64 is the only release platform.
 
 ## Authority
 

@@ -74,7 +74,7 @@ re-litigate them silently.
 - **Direction:** The primary operator surface follows the operating envelope
   in [`../law/constitution/priorities.md`](../law/constitution/priorities.md). A lightweight grid/table admin panel
   and a web UI remain optional projections.
-- **Why:** Concord is optimized for a solo dev + many local agents. The terminal
+- **Why:** Concord is optimized for operator-role humans + many local agents. The terminal
   is the fastest path; optional views are for convenience, not correctness.
 - **Effect:** `design-constraints.md` §6, `workflows.md` §0,
   `self-documentation.md` §1.1 are aligned to this direction.
@@ -336,13 +336,15 @@ re-litigate them silently.
   owning release, maturity, and development-authority requirements.
 
 ### C13. Operator boundary (Accepted 2026-08-06)
-- **Question:** When does the Jira/Linear-for-teams ambition activate? (Solo +
-  agents now; non-goal defers multi-human.)
+- **Question:** When does the Jira/Linear-for-teams ambition activate? (Asked
+  as: solo + agents now; multi-human deferred.)
 - **Why:** defines when team features (assignments, sprints, boards for humans)
   become in-scope.
-- **Decision:** single operator per installation is an enduring Product boundary.
-  Other humans may run independent installations against shared git knowledge;
-  Concord does not become a shared team server by default.
+- **Decision:** one installation per host is an enduring Product boundary
+  ([CD-0006 D8](../law/decisions/CD-0006-concord-root-product-policy.md)). More
+  than one human may hold the operator role on an installation, each acting and
+  approving under their own identity; Concord does not become a shared team
+  server.
 
 ---
 
@@ -382,7 +384,7 @@ Accepted TS decisions do not by themselves authorize runtime/tool surfaces.
 > relation/membership fixture fields through explicit normalization notes; PM6 owns
 > completion and historical locator reads; compaction-retention-policy fixes retained post-delivery categories; PM8 excludes
 > WIP-byte storage and generic screenshot requirements; PM9 rejects a separate receipt.
-| **PM2 Accepted 2026-08-05** Memory authority scope + physical home. *Binding:* [`../law/specs/product-memory-authority-scope.md`](../law/specs/product-memory-authority-scope.md) narrowly supersedes CD-0002's per-Project file line. | **One global local SQLite database per Concord installation/operator-machine.** Product/Project are logical scopes; git remains durable-knowledge authority. | Accepted PM1 + official SQLite/Context7 guarantees + Exa architecture research. Reopen for multi-host, hard Product isolation/export/encryption/retention, CD-0002 load falsifiers, new PM1 jobs, or PM10 restore failure. | PM1 → **PM2 authority scope + PM3/PM5/TS5 input**, operator-approved. |
+| **PM2 Accepted 2026-08-05** Memory authority scope + physical home. *Binding:* [`../law/specs/product-memory-authority-scope.md`](../law/specs/product-memory-authority-scope.md) narrowly supersedes CD-0002's per-Project file line. | **One global local SQLite database per Concord installation/host.** Product/Project are logical scopes; git remains durable-knowledge authority. | Accepted PM1 + official SQLite/Context7 guarantees + Exa architecture research. Reopen for multi-host, hard Product isolation/export/encryption/retention, CD-0002 load falsifiers, new PM1 jobs, or PM10 restore failure. | PM1 → **PM2 authority scope + PM3/PM5/TS5 input**, operator-approved. |
 
 > **PM2–PM5 are accepted and binding.** Membership may not reintroduce duplicate
 > physical authority, application fan-out, copied work state, or a generic

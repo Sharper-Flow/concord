@@ -15,7 +15,7 @@ SQLite is Concord's sole
 durable local execution authority: transactional current state and finite
 verified snapshots, `synchronous=NORMAL`, WAL, and `busy_timeout=5000`; six binding invariants I1–I6
 remove the split-authority failure modes by construction. **PM2 selects one global local SQLite
-authority per Concord installation/operator-machine; Product/Project remain logical
+authority per Concord installation/host; Product/Project remain logical
 scopes.** Full records:
 [`../law/decisions/CD-0002-concord-state-authority.md`](../law/decisions/CD-0002-concord-state-authority.md).
 [`../law/specs/product-memory-authority-scope.md`](../law/specs/product-memory-authority-scope.md).

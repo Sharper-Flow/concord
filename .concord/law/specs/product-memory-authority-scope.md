@@ -28,7 +28,7 @@
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-05.
 > **Decision:** PM2; direct accepted authority for Concord's global physical Product-memory authority scope.
-> **Binding inputs:** accepted [`product-memory-query-contract.md`](product-memory-query-contract.md), CD-0002 invariants I1–I6, and the one-operator/one-machine operating envelope.
+> **Binding inputs:** accepted [`product-memory-query-contract.md`](product-memory-query-contract.md), CD-0002 invariants I1–I6, and the one-installation/one-host operating envelope.
 > **Research basis:** official SQLite documentation (also queried through Context7 `/sqlite/sqlite`) plus Exa-discovered comparable local-first/developer-tool architectures. No local benchmark or PoC is part of this decision.
 > **Engine requirements:** SQLite/WAL/NORMAL/library-in-process/I1–I6.
 
@@ -36,9 +36,9 @@
 
 Concord's live Product memory needs one physical authority scope. The binding
 inputs are the accepted PM1 query contract, CD-0002 invariants I1 through I6,
-and the one-operator one-machine operating envelope. This record decides where
-live authority lives: one global local SQLite database per operator
-installation, with logical boundaries kept first-class in the domain model.
+and the one-installation one-host operating envelope. This record decides where
+live authority lives: one global local SQLite database per installation,
+with logical boundaries kept first-class in the domain model.
 The SQLite engine, WAL, synchronous=NORMAL, and I1 through I6 remain binding.
 ## Contract
 
@@ -51,7 +51,7 @@ external alignment; sections 5 through 8 record portability, falsifiers,
 consequences, and sources, and carry no obligation.
 ## 1. Decision
 
-Concord uses **one global local SQLite database per operator installation** as the
+Concord uses **one global local SQLite database per installation** as the
 sole authority for live Product memory across every Product and Project on that
 machine.
 
@@ -185,7 +185,7 @@ authority for Concord.
 | Fossil | One self-contained SQLite corpus can hold repository, tickets, wiki, forum, and history | A Fossil repo is its full ownership unit; supports coherent-file principle |
 | Litestream | Reliable replication/backup around a single SQLite file/server | Supports operational mitigation for global-file blast radius |
 | Datasette | SQLite files as portable publication/query units | Supports logical/file export patterns, not authority partitioning |
-| Turso / Cloudflare D1 DB-per-tenant guidance | Per-tenant databases can serve tenant isolation and horizontal scale | Those are not current single-operator requirements; N-shard migrations are a cost |
+| Turso / Cloudflare D1 DB-per-tenant guidance | Per-tenant databases can serve tenant isolation and horizontal scale | Those are not current single-installation requirements; N-shard migrations are a cost |
 | File-backed agent-session memory | The OpenAI Agents SDK persists a session when given a SQLite file path | Illustrative only, not a Product-memory ownership or scope precedent |
 
 ### Source authority and caveats
@@ -236,7 +236,7 @@ Reopen PM2 when any becomes a real requirement:
 
 Accepted consequences:
 
-- One global local database serves each Concord installation/operator-machine.
+- One global local database serves each Concord installation/host.
 - CD-0002's SQLite engine, WAL, `synchronous=NORMAL`, library-in-process,
   `busy_timeout`, and I1–I6 remain binding.
 - PM3 now narrowly supersedes CD-0003 D1's generic materialized spine with explicit

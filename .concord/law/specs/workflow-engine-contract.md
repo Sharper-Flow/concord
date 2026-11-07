@@ -531,7 +531,7 @@ and not permission to advance, and missing or ambiguous answers leave the
 decision unresolved. An answer's authority comes from its author, not its
 text: a reserved approval (CD-0243 D2 classes and operator-only reservations)
 may be decided through the frontend only when the frontend attributes the
-answer to the operator's own identity, which requires agents to post under
+answer to the answering operator's own identity, which requires agents to post under
 their own identity; that identity is host-side work, the core builds no
 author-verification path, and until it lands reserved-approval questions and
 their answers stay with the host question tool whatever route the item uses.

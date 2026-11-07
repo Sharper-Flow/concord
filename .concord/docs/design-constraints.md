@@ -14,13 +14,14 @@ remain in `clarifications.md`.
 
 ---
 
-## 1. One user, one machine, many-agent concurrency
+## 1. One installation, one machine, many-agent concurrency
 
-**Requirement.** One human operator and many local AI agents work concurrently on one machine with **zero escaped busy failures on the accepted population, zero lost or duplicated effects**, and no manual coordination. Writes are serialized, not contention-free: one writer holds the lock at a time and the others queue. Writes must not force the caller into a retry storm.
+**Requirement.** Humans who hold the operator role and many local AI agents work concurrently on one machine with **zero escaped busy failures on the accepted population, zero lost or duplicated effects**, and no manual coordination. Writes are serialized, not contention-free: one writer holds the lock at a time and the others queue. Writes must not force the caller into a retry storm.
 
-**Implication.** One operator per installation is a permanent boundary. Other humans
-may run independent installations against shared git knowledge; live workflow state
-is not shared and Concord does not become a team server. Local concurrency must be
+**Implication.** One installation per host is a permanent boundary. More than one
+human may hold the operator role on an installation, each acting under their own
+identity; separate installations keep live workflow state unshared and Concord
+does not become a team server. Local concurrency must be
 non-blocking for reads and serialize writes without retry storms.
 [CD-0045](../law/decisions/CD-0045-writer-admission-invariant.md) requires
 ten-process correctness proof with exact effects; conformance imposes no
@@ -266,7 +267,7 @@ The cited decisions govern implementation conformance.
    CD-0008 D3 owns dependency-aware unreadable isolation.
 6. **Evidence-resolution completeness** (#325). **Resolved by CD-0008 D2 (2026-08-06):** verification, review, approval, commit, native-run, and durable-knowledge evidence binds to an immutable subject and an attributable producer record. The producer remains verdict authority. Concord atomically records the typed binding, and returns typed missing, unreachable, or degraded results when re-resolution cannot complete. Accepted mechanism: [`../law/decisions/CD-0008-concord-mechanism-hardening.md`](../law/decisions/CD-0008-concord-mechanism-hardening.md) §D2.
 7. **Validation-failure isolation** (#349). **Resolved by CD-0008 D3 (2026-08-06):** unreadable records contribute unknown, and independently provable positive reads may return typed degraded omissions. Negative and safety conclusions fail closed only when the unreadable record lies within the bounded closure needed for that conclusion. The unreadable set is explicit and unrelated operations are not globally blocked. Accepted mechanism: [`../law/decisions/CD-0008-concord-mechanism-hardening.md`](../law/decisions/CD-0008-concord-mechanism-hardening.md) §D3.
-8. **State-authority engine for a single-operator local orchestrator** (operator decision D1, 2026-08-05). **Resolved-by-CD-0002 + PM2–PM5** — SQLite is the sole authority per [`../law/decisions/CD-0002-concord-state-authority.md`](../law/decisions/CD-0002-concord-state-authority.md). Four records refine it:
+8. **State-authority engine for a single-installation local orchestrator** (operator decision D1, 2026-08-05). **Resolved-by-CD-0002 + PM2–PM5** — SQLite is the sole authority per [`../law/decisions/CD-0002-concord-state-authority.md`](../law/decisions/CD-0002-concord-state-authority.md). Four records refine it:
    - **one global local authority** per [`../law/specs/product-memory-authority-scope.md`](../law/specs/product-memory-authority-scope.md);
    - one authoritative current-state store per [`../law/specs/product-memory-domain-schema.md`](../law/specs/product-memory-domain-schema.md);
    - lifecycle and relation invariants per [`../law/specs/product-memory-lifecycle-relations.md`](../law/specs/product-memory-lifecycle-relations.md);

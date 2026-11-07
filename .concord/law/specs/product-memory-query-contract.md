@@ -39,7 +39,7 @@
 
 ## Context
 
-Concord must answer repeated Product-memory questions for one operator across
+Concord must answer repeated Product-memory questions for one installation across
 Products, Projects, and work. The binding inputs are the accepted Product data
 model, ranked priorities, the workflow visibility rules, and the durable
 knowledge design. This record decides which questions Concord must answer —

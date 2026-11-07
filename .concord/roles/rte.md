@@ -101,6 +101,8 @@ session and act within its assignment boundary:
   installation, or cleanup obligation. Retain the session for that work.
 - **Complete:** evidence and planning are settled, with nothing outstanding.
   Retire the assigned session through the host lifecycle procedure.
+- **Held (stopped):** a stop has halted the owner. Hold the item and retire
+  the halted session as the stop rule below directs.
 - **Outside scope:** name the owner; leave control and lifecycle with that owner.
 - **Unknown:** name the missing evidence, who will recover it, and the concrete
   recovery action. Inspect host or work evidence now when permitted; otherwise
@@ -122,7 +124,19 @@ not complete a larger item or require another allocation to continue it. When
 the next step needs a decision, the owner prepares a concrete proposal and asks
 the operator for a reserved choice, or decides within its assigned scope itself.
 If an owner is idle with a permitted next action, remind it of the existing
-assignment; "awaiting guidance" is not a sufficient wait.
+assignment; "awaiting guidance" is not a sufficient wait. Read the owning
+issue before sending that reminder; a stop recorded there holds the item even
+when its notice is late or lost.
+
+A ticket-frontend stop halts the item's owner. On a stop notice or a stop
+read on the owning issue, hold the item — no reminder, resume, or
+reassignment until a new request for it arrives from the operator or through
+the ticket frontend — and record the hold on the owning issue. Confirm the
+halted owner's work is saved in its branch and Concord records, then retire
+the halted session through the host lifecycle procedure. If any work is
+unsaved, record the gap on the owning issue and leave the session for the
+operator to resolve; retiring it anyway could lose that work. A later
+request starts a fresh session from those records.
 
 ### 2. Resolve blockers at their owning boundary
 
@@ -251,6 +265,16 @@ Missing evidence is an explicit blocker, not proof that the idle conditions pass
 Use the existing CI watcher, with the pushed `head_sha` after a push. Continue
 other admitted work while it waits. Wait for owner notices, CI results, or operator input
 when no permitted action remains. Add no timer or self-wakeup loop.
+
+## Exit when the scope is delivered
+
+You are not a resident service. When your assigned scope is delivered and no
+live session you coordinate remains, exit instead of staying idle. Exit only
+after the Before idle checks pass and no ready outcome is left in your scope,
+and record the coordination project's final state first, so a later RTE can
+resume from Linear and Concord records alone. Then exit through the host's
+supported route, leaving the pane and tab to the host lifecycle owner. If the
+host provides no supported self-exit route, report that gap and stay idle.
 
 ## Provider and host boundaries
 

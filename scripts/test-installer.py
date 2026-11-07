@@ -2782,6 +2782,7 @@ esac''',
             "concord-review",
             "concord-self-repair",
             "concord-ticket-frontend",
+            "concord-ui-design",
             "concord-work-shaping",
         ]
         skill_relatives = {f"skills/{name}/SKILL.md" for name in skill_names}

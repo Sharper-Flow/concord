@@ -78,7 +78,8 @@ helper rule and the implementation loop are law
 
 At implementation, split the work into slices that can be delegated and
 reviewed on their own. Delegate each slice to the implement step's helper —
-the design helper when the slice is visual work — and follow every slice with
+the design helper when the slice is visual work, loading the shipped
+`concord-ui-design` skill — and follow every slice with
 a review pass by the review step's helper. Run slices in parallel only when
 their files are disjoint. Run repository checks that share one worktree
 serially. Give the combined change one final clean review.

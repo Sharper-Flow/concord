@@ -37,6 +37,10 @@ safe workflow recording or execution of your own managed item.
   not yet proven.
 - [Codebase design](concord-codebase-design/SKILL.md): an interface, seam, or
   abstraction that must earn its place, or a repository check's authority.
+- [UI design](concord-ui-design/SKILL.md): visual UI or UX work — match the
+  Product's existing design system, hold an accessibility floor with WCAG
+  criteria, preview with an exact version before implementation, and verify in
+  a browser with screenshots.
 - [Improve codebase architecture](concord-improve-codebase-architecture/SKILL.md):
   find and rank shallow modules and structural friction across a codebase.
 - [Work shaping](concord-work-shaping/SKILL.md): triage a request and decompose
@@ -73,6 +77,33 @@ and keeps its upstream MIT notice in `concord-architecture-writing/LICENSE`.
 README writing adapts .agents/writing-docs.md and skills/in-progress/writing-shape
 from [mattpocock/skills](https://github.com/mattpocock/skills/commit/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d)
 and keeps its upstream MIT notice in `concord-readme-writing/LICENSE`.
+
+UI design adapts the design point of view, the preview artifact and the
+browser verification method from
+[anthropics/skills](https://github.com/anthropics/skills/tree/2c5958e)
+(frontend-design, web-artifacts-builder, webapp-testing; Apache-2.0 notice
+kept), the checkable interface rules from
+[vercel-labs/web-interface-guidelines](https://github.com/vercel-labs/web-interface-guidelines/blob/434b7f9/command.md)
+(MIT notice kept), and the throwaway preview discipline from
+[mattpocock/skills](https://github.com/mattpocock/skills/commit/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d)
+(engineering/prototype; MIT notice kept). All notices live in
+`concord-ui-design/LICENSE`.
+
+Cite-only sources are linked here, never copied: the skill names the WCAG 2.2
+success criteria it checks and this README pins their W3C links —
+[1.4.3 contrast (minimum)](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html),
+[1.4.11 non-text contrast](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html),
+[2.4.7 focus visible](https://www.w3.org/WAI/WCAG22/Understanding/focus-visible.html),
+[2.4.11 focus not obscured (minimum)](https://www.w3.org/WAI/WCAG22/Understanding/focus-not-obscured-minimum.html),
+[2.5.8 target size (minimum)](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html)
+and
+[2.3.3 animation from interactions](https://www.w3.org/WAI/WCAG22/Understanding/animation-from-interactions.html)
+— under the
+[W3C document licence](https://www.w3.org/copyright/document-license-2023/),
+which forbids derivatives.
+[vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/1a2c79d)
+web-design-guidelines carries no licence file at its pinned ref and is cited
+as a related thin fetch-wrapper, never adapted.
 
 ## Delivery
 

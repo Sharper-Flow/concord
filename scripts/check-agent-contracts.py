@@ -60,6 +60,10 @@ SKILL_REFERENCES = {
         "architecture_reference": ".concord/law/decisions/CD-0251-architecture-reference-is-not-product-law.md",
     },
     # Portable engineering methods (CD-0246 D1 and D3).
+    "concord-ui-design": {
+        "admission": ".concord/law/decisions/CD-0246-concord-ships-portable-engineering-methods.md",
+        "approval": ".concord/law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md",
+    },
     "concord-instruction-writing": {
         "admission": ".concord/law/decisions/CD-0246-concord-ships-portable-engineering-methods.md",
     },

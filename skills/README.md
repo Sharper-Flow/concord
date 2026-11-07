@@ -23,6 +23,21 @@ repository README, with audience resolution and repository-mode-aware key links.
 Load [Ticket frontend](concord-ticket-frontend/SKILL.md) when work is driven
 through the ticket frontend and an operator question or resume arises.
 
+Load [Ticket writing](concord-ticket-writing/SKILL.md) to write a Linear issue,
+a Linear comment or a captured work item.
+
+Load [Project updates](concord-project-updates/SKILL.md) to write or edit a
+Linear project description or status update.
+
+Load [PR writing](concord-pr-writing/SKILL.md) to write a PR body or completion
+report.
+
+Load [Research writing](concord-research-writing/SKILL.md) to write research
+findings or a research note.
+
+Load [Handoff writing](concord-handoff-writing/SKILL.md) to write an assignment
+brief, handoff, or subagent prompt.
+
 Load [Multi-repository](concord-multi-repository/SKILL.md) when a work item
 must edit a second Project in another Git repository.
 
@@ -104,6 +119,11 @@ which forbids derivatives.
 [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills/tree/1a2c79d)
 web-design-guidelines carries no licence file at its pinned ref and is cited
 as a related thin fetch-wrapper, never adapted.
+
+Ticket writing, PR writing, research writing and handoff writing adapt to-tickets,
+pr, research and handoff from [mattpocock/skills](https://github.com/mattpocock/skills/commit/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d)
+and keep the upstream MIT notice in each skill's `LICENSE`. Project updates is
+original Concord text carrying the repository license.
 
 ## Delivery
 

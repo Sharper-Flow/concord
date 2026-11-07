@@ -1,109 +1,72 @@
 # Records
 
 A record is anything durable that someone opens later: a work item, a ticket, a
-commit message, a pull request body, a review comment, a decision note. A
-conversation ends with the session. A record outlives it, and the reader who
-opens it does not hold the context you hold now.
+commit message, a pull request body, a review comment, a decision note. It
+outlives the session, and its later reader does not hold the context you hold now.
 
-Record each fact with its owner and link to it elsewhere. Keep decisions,
-evidence, unresolved risks, and remaining scope in the work record, not a
-transcript of commands and status changes. Do not mirror routine progress in
-chat, receipts, and planning comments. Required workflow transitions and planning
-state changes still belong in their owning systems.
+Record each fact with its owner and link to it elsewhere. Keep decisions, evidence,
+unresolved risks, and remaining scope in the work record, not a command and status
+transcript. Do not mirror routine progress in chat, receipts, or planning comments;
+required workflow transitions and planning state changes belong in their owning systems.
 
-Public repository content excludes private Product or customer data,
-credentials, and inaccessible private-source citations. Keep planning backlogs
-with the owning Product's team in its external planning system, never in a
-repository, including when you discover work for another Product.
+Public repository content excludes private Product or customer data, credentials,
+and inaccessible private-source citations. Keep planning backlogs in the owning
+Product team's external planning system, never a repository, even for work
+discovered for another Product.
 
-List every law change in the pull request and completion report with its record,
-its change in meaning or an explicit statement of none, and its reason.
-For Concord deletion under CD-0243 D3, name each retired law and its change in
-meaning, and cite the retiring clause for each deleted test.
-
-## State the problem and the end state
-
-Every Linear issue you create or rewrite, and every work item you capture,
-states three things before any plan:
-
-- the problem, with the evidence you observed: the error, the path, the
-  measurement, or the operator's words;
-- who or what the problem affects;
-- the end state that closes the item, written so a check or a reviewer can
-  decide it when the change is delivered.
-
-A goal, a feature request, or a law to implement is not yet a problem. Say what
-fails, is missing, or costs too much today without it.
-
-A defect record reports the failure, not its diagnosis. Its title and problem
-name what failed as the affected party saw it. Put a suspected cause only
-under a heading that marks it unverified, with the evidence for and against
-it. Write the end state as the outcome the affected party needs, never as a
-change to a suspected mechanism. The agent that takes the item reproduces the
-failure and confirms the cause before it designs a fix.
-
-## Keep Linear issues current
-
-The description holds the current problem, scope, end state and decisions. When
-an agreed decision changes them, patch the description in place so concurrent
-edits survive, and link the approval evidence. A comment holds one event a later
-reader needs that the description cannot hold: a quoted operator decision, a
-synthesized finding, a handoff, a blocker or a completion report. Before
-commenting, read the description and recent comments; amend the description or
-your own earlier comment instead of restating. Fold helper and delegated results
-into one synthesized finding; do not paste reports.
+- Every Linear issue you create or rewrite and every work item you capture
+  states the problem with observed evidence, who or what it affects, and a
+  checkable end state before any plan.
+- A defect record reports the failure as the affected party saw it, not its
+  diagnosis.
+- A Linear issue's description holds its current problem, scope, end state and
+  decisions; a comment holds one event the description cannot.
+- List every law change in the pull request and completion report with its
+  record, its change in meaning or an explicit statement of none, and its reason.
+- A delegation prompt names the agent's role and points to its assignment;
+  standing rules stay in the files that own them.
 
 ## Write for the later reader
 
-Name what the reader can open. Give the path, the symbol, the command, the
-identifier, or the error text. "The validator rejected the change" sends nobody
-anywhere. Name the validator and quote what it printed, and the reader goes
-straight to it.
+Name what the reader can open: the path, symbol, command, identifier, or quoted
+error text. State what you observed before what it means. Prefer the verb to the
+noun built from it, so the reader can tell who did what to what.
 
-Give delegated work durable context. Keep standing rules in the files that own
-them, and link those files instead of repeating their rules in an assignment.
-Put the task identity, scope, and stop conditions in the assignment. A delegation
-prompt names the agent's role and points to that assignment instead of restating
-it. Move added context into its owning file rather than expanding the prompt.
+Keep sentences under about forty words and give each thing one name throughout.
+Report cost, risk, and your own error in the record itself, not only in the
+conversation where you found them.
 
-State what you observed before you state what it means. An observation is
-checkable and a conclusion is not. A reader who doubts your conclusion can still
-use your observation, so the record keeps its worth even when you were wrong.
+Leave quoted material exactly as it came, including errors, log lines, commands,
+paths, identifiers, and code. A paraphrased error is not searchable.
 
-Prefer the verb to the noun built from it. Write "the check refused the request"
-rather than "refusal of the request occurred at the check". A noun made from a
-verb drops the actor, and the reader cannot tell who did what to what.
+## Writing methods
 
-Keep each sentence under about forty words, and give each thing one name
-throughout. A record that calls the same file two names reads as two files.
-
-Report the cost, the risk, and your own error in the record itself, not only in
-the conversation where you found them. The reader who needs that warning most is
-the one who arrives after the conversation is gone.
-
-Leave quoted material exactly as it came: errors, log lines, commands, paths,
-identifiers, and code. A paraphrased error string is no longer searchable, and
-the reader cannot match it against what they see.
+- Load `concord-ticket-writing` when writing a Linear issue, a Linear comment
+  or a captured work item.
+- Load `concord-project-updates` when writing a Linear project description or
+  status update.
+- Load `concord-pr-writing` when writing a pull request body or completion report.
+- Load `concord-research-writing` when writing research findings or a research
+  note.
+- Load `concord-handoff-writing` when writing an assignment brief, session
+  handoff or subagent prompt.
 
 ## Encountered inefficiencies
 
 Record actionable defects and recurring delivery costs once in the existing work
-record or assigned report. Name the affected surface, cite the evidence, and
-state the impact, workaround, and unresolved scope. Reuse an existing finding.
-Separate observations from suspected causes; do not invent timings or savings.
+record or assigned report; reuse an existing finding. Name the affected surface,
+evidence, impact, workaround, and unresolved scope. Separate observations from
+suspected causes; do not invent timings or savings.
 
-Resolved, incidental friction needs no separate log, ticket, or handoff entry.
+Resolved incidental friction needs no separate log, ticket, or handoff entry.
 Raise blockers and material safety risks when they need attention. Include other
 unresolved findings by reference in the next handoff or completion report, not
 in a status update for each occurrence. Subagents return their assigned report;
 no extra bookkeeping fields are required.
 
-File a planning follow-up when an actionable defect needs work outside the
-approved scope. Routine coordination does not require a ticket.
-
-Keep safe work moving within the current role and approved scope. Recording an
-inefficiency or filing a ticket does not authorize a repair, a bypass of a
-refusal, or a new task.
-
-A filed ticket goes to the backlog. It does not block the current work, and it
-joins a milestone only when the operator places it there.
+File a planning follow-up for an actionable defect outside approved scope;
+routine coordination needs no ticket. A filed ticket goes to the backlog, does
+not block current work, and joins a milestone only when the operator places it.
+Keep safe work moving within your role and approved scope. Recording an
+inefficiency or filing a ticket authorizes no repair, bypass of a refusal, or
+new task.

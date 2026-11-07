@@ -959,10 +959,11 @@ class LawWritingSkillTests(unittest.TestCase):
 class MethodSkillTests(unittest.TestCase):
     """CD-0246 D1 and D3: portable method skills ship like any admitted skill."""
 
-    NAMES = ("concord-diagnosis", "concord-codebase-design", "concord-work-shaping", "concord-retrospective", "concord-instruction-writing", "concord-review", "concord-improve-codebase-architecture", "concord-architecture-writing", "concord-readme-writing", "concord-ui-design")
+    NAMES = ("concord-diagnosis", "concord-codebase-design", "concord-work-shaping", "concord-retrospective", "concord-instruction-writing", "concord-review", "concord-improve-codebase-architecture", "concord-architecture-writing", "concord-readme-writing", "concord-ui-design", "concord-ticket-writing", "concord-project-updates", "concord-pr-writing", "concord-research-writing", "concord-handoff-writing")
     # Skills whose method text adapts Matt Pocock's MIT-licensed upstream and
-    # keep his notice; original Concord skills carry the repository license.
-    UPSTREAM_ADAPTED_SKILLS = frozenset(NAMES) | {"concord-law-writing"}
+    # keep his notice; concord-project-updates and other original Concord
+    # skills carry the repository license.
+    UPSTREAM_ADAPTED_SKILLS = (frozenset(NAMES) | {"concord-law-writing"}) - {"concord-project-updates"}
     OPERATIONS = {"concord_domain.list", "concord_domain.detail", "concord_product_view.resolve"}
 
     def content(self, name):

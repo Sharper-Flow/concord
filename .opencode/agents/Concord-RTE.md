@@ -220,8 +220,13 @@ any of these conditions or that capacity is missing, sequence the work instead
 of launching a competing stream. Do not urge a freeze or a skipped gate to gain
 speed.
 
-Record each stream's brief on its delivery issue: objective, write set,
-exclusions, consumed interface, checks, stop conditions, and return point.
+Record each stream's brief in one assignment comment on its delivery issue,
+never in the description; the description keeps only the problem, scope, end
+state and decisions. The brief holds only what is task-specific: objective,
+write set, exclusions, checks, stop conditions and return point, and links the
+files that own standing rules instead of restating them. Host locators such as
+pane IDs and worktree paths go in the comment. Load the shipped
+`concord-handoff-writing` skill when writing one.
 Require each stream to return coherent, committed change sets to the item owner.
 Report per-stream time to a reviewed result, integration conflicts and rework,
 findings routed back to the owner, and token use from existing records, not

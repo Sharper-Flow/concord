@@ -144,7 +144,7 @@ const GeneratedWorkflowStepTemplatesDocument = `{
         },
         {
           "id": "investigate",
-          "skill": "concord-work-shaping",
+          "skill": "concord-research-writing",
           "helper": "concord-research",
           "reviewed": false,
           "actions": [
@@ -155,7 +155,7 @@ const GeneratedWorkflowStepTemplatesDocument = `{
         },
         {
           "id": "conclude",
-          "skill": "concord-review",
+          "skill": "concord-research-writing",
           "helper": "concord-review",
           "reviewed": true,
           "actions": [

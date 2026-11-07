@@ -95,6 +95,7 @@ func transitionFixture(t *testing.T) (*store.Store, *Service, CallEnvelope, stri
 func TestVersionConflictOnExistingWorkMarshals(t *testing.T) {
 	t.Parallel()
 	s, service, env, workID := transitionFixture(t)
+	seedCurrentWorkflowDomainFixture(t, s)
 	advanceCapturedWorkToContract(t, s, service, env, workID, "pin-setup")
 
 	stale := workItemProjectionVersion(t, s, workID)

@@ -50,7 +50,10 @@ func TestWorkflowClarifyRequiredBeforePlanning(t *testing.T) {
 				t.Run(answers, func(t *testing.T) {
 					s := openTemp(t)
 					defer s.Close()
-					seedStepWork(t, s, "work-clarify")
+					seedWork(t, s, "work-clarify")
+					if tc.typ != "research" {
+						seedWorkflowLaw(t, s)
+					}
 					ctx := t.Context()
 					if err := s.Transact(ctx, func(tx *Transaction) error {
 						scope := newWriteScope(tx.tx)
@@ -74,9 +77,13 @@ func TestWorkflowClarifyRequiredBeforePlanning(t *testing.T) {
 						seq++
 						r := WorkflowActionExecutionRequest{WorkID: "work-clarify", ExpectedVersion: version, ActionID: action, Payload: json.RawMessage(payload), Actor: stepFixtureActor(), OperationID: fmt.Sprintf("clarify-op-%d", seq), IdempotencyIdentity: fmt.Sprintf("clarify-key-%d", seq), PrincipalRef: "principal-1", RequestID: fmt.Sprintf("clarify-request-%d", seq), AcceptedInputsDigest: testDigest("inputs"), ContractDigest: testManifestDigest, Now: time.Unix(100, 0).UTC()}
 						var result WorkflowActionExecutionResult
-						err := s.Transact(ctx, func(tx *Transaction) error {
+						actionCtx, err := s.PrepareWorkflowActionProof(ctx, action, "work-clarify", json.RawMessage(payload))
+						if err != nil {
+							return err
+						}
+						err = s.Transact(actionCtx, func(tx *Transaction) error {
 							var err error
-							result, err = ApplyWorkflowActionTx(ctx, tx, r)
+							result, err = ApplyWorkflowActionTx(actionCtx, tx, r)
 							return err
 						})
 						if err == nil {

@@ -36,7 +36,7 @@ func TestOrdinaryAlignmentReplacement(t *testing.T) {
 				return data
 			}
 			apply := func(key string, v int64, p json.RawMessage) error {
-				ctx, err := s.PrepareWorkflowActionProof(context.Background(), tc.action, work)
+				ctx, err := s.PrepareWorkflowActionProof(context.Background(), tc.action, work, p)
 				if err != nil {
 					return err
 				}

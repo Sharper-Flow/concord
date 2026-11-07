@@ -16,6 +16,7 @@ func TestInvokeContractRequestCorrection(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx := t.Context()
 			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+			setWorkflowFixtureHomeOn(t, s)
 			// The committed registry declares the child law-home Domain, and
 			// the committed decision CD-0002 homes there, so the modified
 			// law's canonical home exists in current law while starting

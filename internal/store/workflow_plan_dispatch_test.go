@@ -34,7 +34,7 @@ func TestWorkflowPlanActionDispatch(t *testing.T) {
 	seq := 0
 	apply := func(action, payload string, expected int64) (WorkflowActionExecutionResult, error) {
 		seq++
-		actionCtx, err := s.PrepareWorkflowActionProof(ctx, action, "work-plan-dispatch")
+		actionCtx, err := s.PrepareWorkflowActionProof(ctx, action, "work-plan-dispatch", json.RawMessage(payload))
 		if err != nil {
 			return WorkflowActionExecutionResult{}, err
 		}

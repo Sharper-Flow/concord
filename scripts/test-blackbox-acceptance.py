@@ -297,9 +297,23 @@ def _git_init(work: Path) -> tuple[Path, Path]:
     # Need an initial commit so HEAD resolves and a worktree can branch from it.
     readme = base / 'README.md'
     readme.write_text('harness-fixture\n', encoding='utf-8')
-    subprocess.run(['git', '-C', str(base), 'add', 'README.md'], check=True)
+    registry = base / '.concord' / 'docs' / 'knowledge' / 'domain-registry.json'
+    registry.parent.mkdir(parents=True)
+    registry.write_text(json.dumps({
+        'schema_version': '1.0',
+        'product_key': 'harness-product',
+        'root_domain_id': 'product-root:harness-product',
+        'domains': [{'domain_id': 'product-root:harness-product', 'name': 'Synthetic root',
+                     'purpose': 'Synthetic test domain', 'status': 'current', 'architecture_relations': []}],
+    }, indent=2), encoding='utf-8')
+    subprocess.run(['git', '-C', str(base), 'add', '.'], check=True)
     subprocess.run(['git', '-C', str(base), 'commit', '--quiet', '-m', 'harness-fixture'], check=True)
-    subprocess.run(['git', '-C', str(base), 'symbolic-ref', 'refs/remotes/origin/main', 'refs/heads/main'], check=True)
+    origin = work / 'origin.git'
+    subprocess.run(['git', 'init', '--quiet', '--bare', '--initial-branch=main', str(origin)], check=True)
+    subprocess.run(['git', '-C', str(base), 'remote', 'add', 'origin', 'https://example.invalid/synthetic.git'], check=True)
+    subprocess.run(['git', '-C', str(base), 'config', f'url.{origin}.insteadOf', 'https://example.invalid/synthetic.git'], check=True)
+    subprocess.run(['git', '-C', str(base), 'push', '--quiet', 'origin', 'main'], check=True)
+    subprocess.run(['git', '-C', str(base), 'fetch', '--quiet', 'origin'], check=True)
     subprocess.run(['git', '-C', str(base), 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main'], check=True)
     # Add a sibling worktree on a fresh branch. ``git worktree add`` of an
     # absolute path with --detach gives a clean checkout independent of the
@@ -416,9 +430,17 @@ def step_b_bootstrap(binary: Path, env: dict, repo: Path, public_key: bytes) -> 
     }, env)
     if not locator_add.get('ok'):
         raise HarnessError(f"locator-add response missing ok: {json.dumps(locator_add)[:300]}")
+    home = _run(binary, ['product', 'knowledge-home-designate'], {
+        'product_id': 'harness-product', 'project_id': 'harness-project-1',
+        'locator_id': 'harness-repo', 'expected_version': product_version_after_project_create,
+    }, env)
+    mode = _run(binary, ['project', 'repository-mode-update'], {
+        'project_id': 'harness-project-1', 'repository_mode': 'on',
+        'expected_version': _changed_ref_version(locator_add, 'project', 'harness-project-1'),
+    }, env)
     return {
-        'product_version': product_version_after_project_create,
-        'project_version': project_version_after_create + 1,
+        'product_version': _changed_ref_version(home, 'product', 'harness-product'),
+        'project_version': _changed_ref_version(mode, 'project', 'harness-project-1'),
         'secondary_product_version': final_secondary_product_version,
         'project3_version': project_version_3 + 1,
     }

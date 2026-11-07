@@ -38,7 +38,7 @@ func TestWorkflowPlanDocumentsMigrationFlow(t *testing.T) {
 			seq := 0
 			apply := func(action, payload string) error {
 				seq++
-				actionCtx, err := s.PrepareWorkflowActionProof(ctx, action, "work-document")
+				actionCtx, err := s.PrepareWorkflowActionProof(ctx, action, "work-document", json.RawMessage(payload))
 				if err != nil {
 					return err
 				}

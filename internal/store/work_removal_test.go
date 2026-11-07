@@ -238,9 +238,13 @@ func drivePlanDocumentForTest(t *testing.T, s *Store, workID, typ, action, docum
 		seq++
 		request := WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: json.RawMessage(payload), Actor: stepFixtureActor(), OperationID: fmt.Sprintf("removal-doc-op-%d", seq), IdempotencyIdentity: fmt.Sprintf("removal-doc-key-%d", seq), PrincipalRef: "principal-1", RequestID: fmt.Sprintf("removal-doc-request-%d", seq), AcceptedInputsDigest: testDigest("inputs"), ContractDigest: testManifestDigest, Now: time.Unix(100, 0).UTC()}
 		var result WorkflowActionExecutionResult
-		err := s.Transact(ctx, func(tx *Transaction) error {
+		actionCtx, err := s.PrepareWorkflowActionProof(ctx, action, workID, json.RawMessage(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = s.Transact(actionCtx, func(tx *Transaction) error {
 			var err error
-			result, err = ApplyWorkflowActionTx(ctx, tx, request)
+			result, err = ApplyWorkflowActionTx(actionCtx, tx, request)
 			return err
 		})
 		if err != nil {
@@ -265,6 +269,7 @@ func TestWorkRemovalDeletesPlanAndRemovalScopeRecords(t *testing.T) {
 			defer s.Close()
 			work := "plan-removal-" + tc.typ
 			seedWork(t, s, work)
+			seedWorkflowLaw(t, s)
 			drivePlanDocumentForTest(t, s, work, tc.typ, tc.action, tc.document)
 			// A cancelled item that already recorded its plan document must
 			// still be removable.

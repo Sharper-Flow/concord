@@ -19,6 +19,7 @@ func TestReadWorkPinReportsEveryCoordinatorSessionDrivingTheItem(t *testing.T) {
 	s := openTemp(t)
 	const workID = "workpin-codriver"
 	seedWork(t, s, workID)
+	seedWorkflowLaw(t, s)
 	first := WorkflowActor{PrincipalRef: "principal:fixture", ClientRef: "client:fixture", AgentRef: "agent:fixture", SessionRef: "session:fixture", ActorClass: ActorAgent}
 	if err := s.Transact(t.Context(), func(tx *Transaction) error {
 		return initializeWorkflowRawTx(t.Context(), tx.tx, WorkflowInitializationRequest{WorkID: workID, Actor: first, Now: time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)})

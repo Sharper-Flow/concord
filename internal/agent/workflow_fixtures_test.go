@@ -35,8 +35,24 @@ func mustScopeVersion(t *testing.T, s *store.Store) string {
 	return version
 }
 
+func setWorkflowFixtureHomeOn(t *testing.T, s *store.Store) {
+	t.Helper()
+	var mode string
+	var version int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT repository_mode,version FROM projects WHERE id='project-1'`).Scan(&mode, &version); err != nil {
+		t.Fatal(err)
+	}
+	if mode == "on" {
+		return
+	}
+	if _, err := s.SetProjectRepositoryMode(t.Context(), store.ProjectRepositoryModeChange{ProjectID: "project-1", RepositoryMode: "on", ExpectedVersion: version}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func seedCurrentWorkflowDomainFixture(t *testing.T, s *store.Store) {
 	t.Helper()
+	setWorkflowFixtureHomeOn(t, s)
 	ctx := context.Background()
 	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatalf("pm1fixture.SeedCommittedProductDomain: %v", err)

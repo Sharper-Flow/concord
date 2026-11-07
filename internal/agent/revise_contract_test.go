@@ -37,6 +37,7 @@ func dispatchContractRevisionResult(t *testing.T, s *store.Store, service *Servi
 
 func TestReviseIntentUpdatesContractAtomicallyAndReplays(t *testing.T) {
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+	setWorkflowFixtureHomeOn(t, s)
 	if _, err := pm1fixture.SeedCommittedProductDomain(t.Context(), s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatal(err)
 	}

@@ -52,7 +52,7 @@ func seedRoutineReviewersForSelection(t *testing.T, s *Store, workID string) (re
 // (PrepareWorkflowActionProof).
 func runEngineeringConfirmation(t *testing.T, s *Store, workID, invokerRef string, fields map[string]json.RawMessage) ([]Event, error) {
 	t.Helper()
-	ctx, err := s.PrepareWorkflowActionProof(context.Background(), "confirm_premise", workID)
+	ctx, err := s.PrepareWorkflowActionProof(context.Background(), "confirm_premise", workID, nil)
 	if err != nil {
 		return nil, err
 	}

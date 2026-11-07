@@ -48,7 +48,7 @@ func rReviseContract(t *testing.T, s *Store, workID, actorRef string) {
 // rComplete runs the ordinary public completion as the executing coordinator.
 func rComplete(t *testing.T, f acceptanceRecoveryFixture) error {
 	t.Helper()
-	ctx, err := f.store.PrepareWorkflowActionProof(t.Context(), "complete", f.workID)
+	ctx, err := f.store.PrepareWorkflowActionProof(t.Context(), "complete", f.workID, nil)
 	if err != nil {
 		return err
 	}

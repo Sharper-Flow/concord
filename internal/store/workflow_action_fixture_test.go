@@ -32,12 +32,16 @@ func seedTestWorkflow(t *testing.T, s *Store, workID string) (WorkflowActor, int
 
 func applyTestAction(t *testing.T, s *Store, workID string, version int64, actionID, operationID string, fields map[string]any, actor WorkflowActor) (int64, error) {
 	t.Helper()
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	payload, _ := json.Marshal(fields)
+	ctx, err := s.PrepareWorkflowActionProof(context.Background(), actionID, workID, payload)
+	if err != nil {
+		return 0, err
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(fields)
-	result, actionErr := applyWorkflowActionRawTx(context.Background(), tx, newWriteScope(tx), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor, AcceptedInputsDigest: "sha256:fixture", IdempotencyIdentity: operationID, OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)})
+	result, actionErr := applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), WorkflowActionExecutionRequest{WorkID: workID, ExpectedVersion: version, ActionID: actionID, Payload: payload, Actor: actor, AcceptedInputsDigest: "sha256:fixture", IdempotencyIdentity: operationID, OperationID: operationID, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID, ContractDigest: testManifestDigest, Now: time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)})
 	if actionErr != nil {
 		_ = tx.Rollback()
 		return 0, actionErr

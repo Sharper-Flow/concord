@@ -32,7 +32,7 @@ func (f acceptanceRecoveryFixture) version(ctx context.Context, t *testing.T) in
 }
 
 func (f acceptanceRecoveryFixture) run(ctx context.Context, actionID, label string, version int64, payload json.RawMessage, evidenceRefs []string) error {
-	ctx, err := f.store.PrepareWorkflowActionProof(ctx, actionID, f.workID)
+	ctx, err := f.store.PrepareWorkflowActionProof(ctx, actionID, f.workID, payload)
 	if err != nil {
 		return err
 	}

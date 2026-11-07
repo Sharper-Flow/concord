@@ -16,6 +16,7 @@ func TestAgentWorkflowCompositionUsesSelectedSuccessorFamily(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+	setWorkflowFixtureHomeOn(t, s)
 	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
 		t.Fatalf("pm1fixture.SeedCommittedProductDomain: %v", err)
 	}

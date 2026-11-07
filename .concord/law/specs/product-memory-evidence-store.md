@@ -29,7 +29,7 @@
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** PM8; binding CD-0002 §2d amendment.
 > **Binding inputs:** PM1, accepted PM2–PM6, compaction-retention-policy, CD-0002 I1–I6, and the
-> one-operator/one-machine envelope.
+> one-installation/one-host envelope.
 > **Operator decision:** WIP needs no durable byte-level proof. Do not introduce
 > hashing or a content-addressed blob store without a named user job. Screenshots are
 > not required generic evidence.
@@ -42,7 +42,7 @@
 CD-0002 proposed external evidence files with hash and path, and the
 operator decided WIP needs no durable byte-level proof. The binding inputs
 are PM1, the accepted PM2 through PM6 and compaction-retention-policy, CD-0002 invariants, and the
-one-operator one-machine envelope. This record rejects a content-addressed
+one-installation one-host envelope. This record rejects a content-addressed
 blob store for v1: process exhaust stays producer-owned, and no generic rule may
 require a screenshot.
 

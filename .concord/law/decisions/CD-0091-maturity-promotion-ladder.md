@@ -27,7 +27,7 @@
 ## Context
 
 Concord documents the floor it has reached but not the ground above it.
-`floor-readiness.md` defines first usability for one operator and many
+`floor-readiness.md` defines first usability for one installation and many
 agents on one machine. No document defines what promotes a Product past that
 floor.
 

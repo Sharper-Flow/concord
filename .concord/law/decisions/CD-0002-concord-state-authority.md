@@ -56,7 +56,7 @@ around it. Concord removes the split by construction, not by policy.
   process. *(A single-writer daemon is an explicitly documented **upgrade path**,
   not the default — see §2b.)*
 - **Physical authority scope (PM2): one global local database per Concord
-  installation/operator-machine.** Product and Project remain logical domain/
+  installation/host.** Product and Project remain logical domain/
   authorization scopes, not files. Cross-Project work and shared membership commit
   atomically inside this one authority. Full decision and falsifiers:
   [`../specs/product-memory-authority-scope.md`](../specs/product-memory-authority-scope.md).
@@ -99,7 +99,7 @@ SQLite single-authority won; the reasoning, condensed:
   Activities). Once steps can't replay, replay's value reduces to
   checkpoint-and-resume. Resumption works from current state and finite snapshots ([CD-0242 D11](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d11-a-fresh-session-resumes-from-current-state)).
 - **The scale does not warrant a workflow engine.** ~50 concurrent state machines,
-  one operator, one machine. One transaction per mutation over current rows is the entire mechanism ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). No worker pool, no task queue, no
+  one installation, one machine. One transaction per mutation over current rows is the entire mechanism ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). No worker pool, no task queue, no
   server process, no version pinning.
 - **Durability is a PRAGMA, not an architecture.** `synchronous=FULL` + WAL gives
   crash-safe committed transactions natively. Concord does not reimplement
@@ -107,7 +107,7 @@ SQLite single-authority won; the reasoning, condensed:
 
 Rejected alternatives (full tradeoffs in D1 research):
 - **DBOS on Postgres** — structurally avoids the split (Postgres sole authority),
-  but adds a Postgres dependency for a single-operator local tool. Strong "buy"
+  but adds a Postgres dependency for a single-installation local tool. Strong "buy"
   fallback if SQLite ever proves insufficient.
 - **Restate single-node** — journaled state, drift-impossible, but a separate
   server binary. Viable "buy" fallback.
@@ -248,7 +248,7 @@ is trivial.
 - **Concord owns its recovery model.** Recovery restores a verified snapshot and reconciles current rows; the crash-recovery test validates that restore first ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 - **No distributed guarantees.** Single-writer, single-machine. If Concord ever
   needs multi-writer or multi-machine, this decision is revisited (DBOS/Postgres is
-  the documented upgrade path). For a single-operator local tool this is a feature,
+  the documented upgrade path). For a single-installation local tool this is a feature,
   not a limitation.
 
 ### What this forecloses

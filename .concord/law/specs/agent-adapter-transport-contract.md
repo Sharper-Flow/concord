@@ -123,7 +123,7 @@ refuses a client that is not active. Session and path fields carry no
 authority of their own.
 
 This protects the model/tool-call boundary and rejects unregistered clients. Concord's
-local single-operator threat boundary still trusts the OS account, OpenCode process,
+local single-installation threat boundary still trusts the OS account, OpenCode process,
 installed adapter; arbitrary code already controlling
 that account/process is outside Concord's authority model.
 

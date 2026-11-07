@@ -400,7 +400,7 @@ triggers remain exact:
 
 - an escaped `SQLITE_BUSY`, lost/duplicate effect, or invariant violation;
 - queueing that materially blocks ordinary operator work;
-- deployment scope that stops being one local operator installation; or
+- deployment scope that stops being one local installation; or
 - failed backup, restore, rebuild, or upgrade evidence.
 
 Choosing a simple substrate is not permission to simplify the Product model.

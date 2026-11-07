@@ -22,7 +22,7 @@ operator's approval boundary.
 - Purpose of both: "many agents working separately on the same system can understand the greater picture and
   adhere to those different sources of alignment **or** modify them in a way that all agents will then also align
   to."
-- For whom: agents that work separately on the same system, under one operator.
+- For whom: agents that work separately on the same system, under one installation's operators.
 - The User Operator owns product direction and the six approval classes in
   [CD-0243 D2](../law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d2-the-operator-approves-six-classes-of-decision).
 - The Concord Agent owns its item through delivery. Concord-RTE, the release train engineer (RTE), coordinates concurrent work;

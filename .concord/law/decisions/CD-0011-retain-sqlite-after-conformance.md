@@ -30,7 +30,7 @@ The ten-process conformance review retained SQLite because:
 
 The current architecture therefore remains:
 
-1. one global local SQLite database per operator installation;
+1. one global local SQLite database per installation;
 2. short-lived processes using the in-process store library;
 3. `WAL`, `synchronous=NORMAL`, per-connection foreign keys and busy timeout;
 4. current-row writes checked by expected version and recorded by idempotency key,
@@ -53,7 +53,7 @@ Concord must reopen this decision when any of these occurs:
 
 - an escaped `SQLITE_BUSY`, lost/duplicate effect, or invariant violation;
 - queueing materially blocks ordinary operator work on the supported deployment;
-- the deployment scope stops being one local operator installation;
+- the deployment scope stops being one local installation;
 - backup, restore, rebuild, or upgrade evidence fails.
 
 Future reviews must compare the same operation population and establish correctness.

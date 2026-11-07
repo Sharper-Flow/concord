@@ -44,7 +44,7 @@
 
 ## Context
 
-Concord coordinates work for one operator across Products and Projects. The
+Concord coordinates work for one installation across Products and Projects. The
 binding inputs are the accepted PM1 query contract, PM2 global authority, PM3
 typed projection model, and PM4 lifecycle and relation semantics. This record
 decides how membership itself is stored and read: which Projects make up each

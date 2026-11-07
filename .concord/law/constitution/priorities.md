@@ -71,14 +71,19 @@ or admission gate until the operator sets one.
 
 ## Operating envelope
 
-Concord is permanently scoped to one operator per installation, while remaining
+Concord is permanently scoped to one installation per host, while remaining
 optimized for many concurrent agents.
 
 - **Many concurrent agent sessions.** Many OpenCode sessions run in parallel against the same local state.
-- **One operator per installation.** Another human may run an independent Concord installation against shared git knowledge, but live workflow memory is not shared.
+- **One installation per host.** More than one human may hold the operator role on
+  an installation; each acts and approves under their own identity, verified by
+  the host or frontend that carries the answer. A separate installation keeps
+  its own live workflow memory.
 - **Agents are first-class machine participants.** Agents read, write, and execute alongside the operator; they are not second-class consumers of a human-oriented GUI.
 - **Web UI is optional.** A browser-based view may appear later, but it is not the design center.
-- **No team-server ambition.** Shared assignments, boards, identity, permissions, and multi-human live workflow coordination are non-goals. Git shares durable Product knowledge between independent installations.
+- **No team-server ambition.** Concord grows no team server, shared boards, or
+  user directory of its own; the host decides who holds the operator role. Git
+  shares durable Product knowledge between independent installations.
 
 If a proposed capability conflicts with this envelope, it does not belong in
 Concord.

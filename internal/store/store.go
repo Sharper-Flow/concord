@@ -1,7 +1,7 @@
 // Package store holds Concord's local SQLite authority: current domain rows,
 // effect receipts, and transactional write guards.
 //
-// One database file is the whole live authority for an operator installation.
+// One database file is the whole live authority for an installation.
 // Product and Project scope are domain concepts inside that file, never
 // separate files.
 package store

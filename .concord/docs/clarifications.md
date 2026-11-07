@@ -336,15 +336,15 @@ re-litigate them silently.
   owning release, maturity, and development-authority requirements.
 
 ### C13. Operator boundary (Accepted 2026-08-06)
-- **Question:** When does the Jira/Linear-for-teams ambition activate? (Solo +
-  agents now; non-goal defers multi-human.)
+- **Question:** When does the Jira/Linear-for-teams ambition activate? (Asked
+  as: solo + agents now; multi-human deferred.)
 - **Why:** defines when team features (assignments, sprints, boards for humans)
   become in-scope.
 - **Decision:** one installation per host is an enduring Product boundary
   ([CD-0006 D8](../law/decisions/CD-0006-concord-root-product-policy.md)). More
   than one human may hold the operator role on an installation, each acting and
-  approving under their own identity; Concord does not become a shared team server
-  by default.
+  approving under their own identity; Concord does not become a shared team
+  server.
 
 ---
 

@@ -75,6 +75,9 @@ SKILL_REFERENCES = {
     "concord-instruction-writing": {
         "admission": ".concord/law/decisions/CD-0246-concord-ships-portable-engineering-methods.md",
     },
+    "concord-test-design": {
+        "admission": ".concord/law/decisions/CD-0246-concord-ships-portable-engineering-methods.md",
+    },
     "concord-improve-codebase-architecture": {
         "admission": ".concord/law/decisions/CD-0246-concord-ships-portable-engineering-methods.md",
     },

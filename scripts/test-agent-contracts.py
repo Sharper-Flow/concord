@@ -959,7 +959,7 @@ class LawWritingSkillTests(unittest.TestCase):
 class MethodSkillTests(unittest.TestCase):
     """CD-0246 D1 and D3: portable method skills ship like any admitted skill."""
 
-    NAMES = ("concord-adoption", "concord-diagnosis", "concord-codebase-design", "concord-work-shaping", "concord-retrospective", "concord-instruction-writing", "concord-review", "concord-improve-codebase-architecture", "concord-architecture-writing", "concord-readme-writing", "concord-ui-design", "concord-ticket-writing", "concord-project-updates", "concord-pr-writing", "concord-research-writing", "concord-handoff-writing")
+    NAMES = ("concord-adoption", "concord-diagnosis", "concord-codebase-design", "concord-work-shaping", "concord-retrospective", "concord-instruction-writing", "concord-review", "concord-improve-codebase-architecture", "concord-architecture-writing", "concord-readme-writing", "concord-ui-design", "concord-ticket-writing", "concord-project-updates", "concord-pr-writing", "concord-research-writing", "concord-handoff-writing", "concord-test-design")
     # Skills whose method text adapts Matt Pocock's MIT-licensed upstream and
     # keep his notice; concord-project-updates and other original Concord
     # skills carry the repository license.

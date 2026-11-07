@@ -14,8 +14,12 @@ vision; existing authority owns law acceptance.
 
 The agent establishes the Product and its designated Git knowledge home from
 the operator's instruction before changing documents. Neither directory layout
-nor Git remotes designate either. If the designation is missing, ask the
-operator; do not guess. Finish when both are explicitly identified.
+nor Git remotes designate either. Read the Project's repository mode through
+`concord_product_view.resolve`: knowledge commits to the Product's own
+repository only in on mode, and an off-mode Project keeps `.concord/` out of
+Git, so its knowledge lives in a separately designated home when the operator
+names one. If a designation is missing, ask the operator; do not guess.
+Finish when the Product, the home, and the mode are explicit.
 
 ## 2. Inventory existing documents
 
@@ -35,59 +39,60 @@ The agent assigns exactly one class to every inventory item:
 | History | A superseded or descriptive record. |
 
 Cite the document's own status where present, including ADR status lines.
-When its standing is uncertain, classify it as history and record why. Finish
-when every item has a class and the evidence or uncertainty is recorded.
+When standing is uncertain, classify the document as history, record why, and
+confirm with the operator before treating any record as a still-governing rule.
+Finish when every item has a class and the evidence or uncertainty is recorded.
 
 ## 4. Route the classes
 
-The agent routes binding rules as candidate law through `concord-law-writing`.
-That skill covers placement, frontmatter, Domain homing, and approval boundaries.
-For a decision record, prefer a consequential choice with a real trade-off that
-is hard to reverse or surprising without context; do not turn every note into law.
-Route durable explanations to `concord-architecture-writing` for architecture
-reference or glossary, and README material to `concord-readme-writing`.
-Keep history reachable where readers find it; supersede it rather than editing
-it into a different account. Finish when every item has a route or an explicit
-decision to leave it in place.
+Route every item's placement through `concord-law-writing`; it owns the four
+`.concord/` placement directories and the amendment rules, and binding rules
+become candidate law there. Route durable explanations and the glossary to
+`concord-architecture-writing`, and README material to `concord-readme-writing`;
+those skills own their documents' shapes and their own tests for what deserves
+a lasting record. Keep history reachable where readers find it. Finish when
+every item has a route or an explicit decision to leave it in place.
 
 ## 5. Bootstrap the Domain registry
 
 Before the first law record lands, the agent establishes the registry at
 `.concord/docs/knowledge/domain-registry.json` in the designated knowledge home.
-Law needs a home Domain, and Product reads refuse a Product without a registry.
-Derive Domains from the real codebase and the operator's description of the
-system, not filenames or directory guesses. Grow the registry lazily: add a
-Domain when the first record needs it, not as speculation about future work.
-Use the Product's declared registry validation and resolve Domains through
-`concord_domain.list` when available. Finish when the registry validates and
-the first candidate law has a real home Domain.
+Law needs a home Domain, and Domain and law reads refuse a Product without a
+registry. Derive Domains from the real codebase and the operator's description
+of the system, not filenames or directory guesses. Grow the registry lazily:
+add a Domain when the first record needs it, not as speculation about future
+work. Resolve the registry's Domains through `concord_domain.list`. Finish when
+the registry validates and the first candidate law has a real home Domain.
 
 ## 6. Co-author the vision
 
 The agent gathers the operator's own words and proposes a draft at
-`.concord/docs/product-vision.md`. Cover purpose, goals with measures, and
-non-goals. Let the operator refine the draft and approve it: changing the vision
-is Product direction and requires operator approval. A fresh reader without
-the conversation must be able to state the Product's purpose from the draft.
-Finish when that check succeeds and the operator's approval is recorded.
+`.concord/docs/product-vision.md` in the designated knowledge home. Cover
+purpose, goals with measures, and non-goals. Let the operator refine the draft
+and approve it: changing the vision is Product direction and requires operator
+approval. A fresh reader without the conversation must be able to state the
+Product's purpose from the draft. Finish when that check succeeds and the
+operator's approval is recorded.
 
 ## 7. Migrate with provenance
 
 The agent records each migrated record's source path and the commit or link
-where the source lived. Preserve decision status: binding content in an accepted
-ADR is candidate law, while a superseded ADR is history. Keep originals until
-the migrated placement is accepted. Supersede an original rather than silently
-editing its account. Use the routed skills and existing authority for validation,
-review, and acceptance; this method does not authorize publication. Finish when
-each migration has provenance and its acceptance status is explicit.
+where the source lived. Preserve decision status: binding content in an
+accepted ADR is candidate law, while a superseded ADR is history. The reviewed
+change that adds the migrated record removes or replaces the original, so one
+canonical location remains; the recorded source keeps the provenance, and
+superseding — not editing — retires an original. Use the routed skills and
+existing authority for validation, review, and acceptance; this method does
+not authorize publication. Finish when each migration has provenance and its
+acceptance status is explicit.
 
 ## 8. Set repository mode
 
-The agent sets and records repository mode with the operator for each Project.
-In on mode, `.concord/` and agent files commit as ordinary Product files. In off
-mode, they stay out of Git. Read the recorded mode through
-`concord_product_view.resolve`; never infer it from Git state. Finish when the
-read reflects the recorded choice.
+The operator sets each Project's repository mode; the agent does not. Explain
+what each mode means — on commits `.concord/` and agent files as ordinary
+Product files, off keeps them out of Git — and confirm the recorded mode
+through `concord_product_view.resolve`. Finish when the read reflects the
+operator's recorded choice.
 
 ## What a good result looks like
 
@@ -103,8 +108,9 @@ The adopting Product's own accepted law governs it afterward.
 | Derive Product identity or Domains from layout or remotes. | Use the operator's designation and evidence of the actual system. |
 | Invent registry entries for possible future work. | Add a real Domain when its first record needs it. |
 | Migrate a superseded decision as binding law. | Preserve its status as history and route only still-governing obligations as candidate law. |
-| Delete originals before acceptance. | Keep them reachable until the migrated placement is accepted. |
+| Leave the original in place after its record migrates. | The reviewed change that adds the migrated record removes or replaces the original; provenance lives in the record. |
 | Treat this order as approval to publish law. | Follow the Product's existing authority, review, and approval boundaries. |
+| Set repository mode as the agent. | The operator sets each Project's mode; the agent explains it and reads the recorded choice. |
 | Fill the vision with agent-invented goals. | Gather the operator's words, propose a draft, and obtain their approval. |
 
 ## Canonical references

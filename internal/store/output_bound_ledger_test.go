@@ -266,19 +266,6 @@ func registerOutputBound(pattern string, source outputBoundSource) {
 	ledgerRegistrations = append(ledgerRegistrations, reg)
 }
 
-// retainedTwinPattern maps a pattern under a shared payload definition to the
-// same pattern under its generator-owned retained output twin
-// (RETAINED_OUTPUT_TWINS in scripts/generate-agent-contracts.py).
-func retainedTwinPattern(pattern string) string {
-	return "/$defs/retained_" + strings.TrimPrefix(pattern, "/$defs/")
-}
-
-// registerRetainedTwinBound registers the retained output definition's producer.
-// Input reachability alone supplies no output registration.
-func registerRetainedTwinBound(pattern string, retained outputBoundSource) {
-	registerOutputBound(retainedTwinPattern(pattern), retained)
-}
-
 // splitLedgerPatternFile splits a registration pattern into its schema
 // document and JSON pointer. A pattern inside the payload document is a bare
 // pointer; a registered host/internal root is keyed "<file>#<pointer>" and
@@ -1841,7 +1828,8 @@ func runOutputBoundLedger(rt *ledgerRuntime, census *boundCensus, registrations 
 		}
 		if evaluated.unbounded && len(matched) == 0 {
 			// An uncapped node an input root also reaches widens admission:
-			// the shared definition needs an output-only twin instead.
+			// the shared definition needs a separate output-only definition
+			// without the cap instead.
 			inputParents := []string{parent}
 			if wildcardParent {
 				inputParents = parentNodes
@@ -1851,7 +1839,7 @@ func runOutputBoundLedger(rt *ledgerRuntime, census *boundCensus, registrations 
 					failures = append(failures, ledgerFailure{
 						Kind:    "input-widened",
 						Subject: nodeKey,
-						Detail:  fmt.Sprintf("the row %s registers this node unbounded, but an input root reaches it, so the missing cap widens admission; keep the cap on the input definition and point the output at an output-only twin", reg.pattern),
+						Detail:  fmt.Sprintf("the row %s registers this node unbounded, but an input root reaches it, so the missing cap widens admission; keep the cap on the input definition and point the output at a separate output-only definition", reg.pattern),
 					})
 				}
 			}

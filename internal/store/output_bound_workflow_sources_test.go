@@ -145,11 +145,11 @@ func init() {
 		workflowReturnLiteralsMaxItemsBound("internal/store/workflow_resume_read.go", "workflowOpeningSteps"))
 
 	// Law context.
-	registerRetainedTwinBound("/$defs/workflow_law_context/properties/domains/maxItems",
+	registerOutputBound("/$defs/workflow_law_context/properties/domains/maxItems",
 		workflowLawContextDomainsItemsBound())
-	registerRetainedTwinBound("/$defs/workflow_law_context/properties/laws/maxItems",
+	registerOutputBound("/$defs/workflow_law_context/properties/laws/maxItems",
 		sumBound(contractSpecMandate, bindingMaxLawAdditions, bindingMaxObligations)) // the 128-entry ceiling is the documented write-side sum (workflow_law_revision.go:941-943)
-	registerRetainedTwinBound("/$defs/workflow_law_context/properties/registry_path/maxLength",
+	registerOutputBound("/$defs/workflow_law_context/properties/registry_path/maxLength",
 		unboundedOutput("knowledgeRegistryLocator joins the knowledge home's canonical-path locator with one fixed shard file name (internal/store/workflow_law_revision.go:836,849); the home locator's normalized value derives through normalizePath, whose symlink resolution expands the path to filesystem-target text with no length guard (internal/store/project_locator.go:154-161), so the joined locator is byte-ceiling only", readSizeRefusalPath, mutationResultPath))
 	// Law context Domain identity: the full-string guards sit in the
 	// committed law read (knowledge_record.go,
@@ -157,18 +157,18 @@ func init() {
 	// the already-validated fields are the writer chain's bounds.
 	registerOutputBound("/$defs/workflow_law_context_domain/properties/name/maxLength", domainNameGuard)
 	registerOutputBound("/$defs/workflow_law_context_domain/properties/purpose/maxLength", domainPurposeGuard)
-	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/obligation_ids/maxItems",
+	registerOutputBound("/$defs/workflow_law_context_law/properties/obligation_ids/maxItems",
 		bindingMaxObligations) // the law's obligations are its subset of the binding's verification obligations
 	// Genuinely unbounded: the law file locator joins the knowledge home's
 	// normalized canonical-path locator, whose value derives through
 	// normalizePath — NUL is refused, but symlink resolution expands the
 	// path to filesystem-target text no code length bounds — with the
 	// record path.
-	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/path/maxLength",
+	registerOutputBound("/$defs/workflow_law_context_law/properties/path/maxLength",
 		unboundedOutput("the law locator joins the knowledge home's canonical-path locator, whose normalized value derives through normalizePath: NUL is refused (internal/store/project_locator.go:150-152) but filepath.EvalSymlinks expands symlinked ancestors to filesystem-target text with no length guard (internal/store/project_locator.go:154-161), so the joined locator is byte-ceiling only", readSizeRefusalPath, mutationResultPath))
-	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/roles/maxItems",
+	registerOutputBound("/$defs/workflow_law_context_law/properties/roles/maxItems",
 		workflowRoleMarkItemsBound("internal/store/workflow_law_revision.go", "foldWorkflowLawContextRoles", "markRole"))
-	registerRetainedTwinBound("/$defs/workflow_law_context_law/properties/title/maxLength",
+	registerOutputBound("/$defs/workflow_law_context_law/properties/title/maxLength",
 		manifestRecordTitle) // the law context copies the committed law title verbatim
 
 }

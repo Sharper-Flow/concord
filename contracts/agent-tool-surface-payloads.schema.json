@@ -1297,7 +1297,7 @@
           "$ref": "#/$defs/pending_project_handoff"
         },
         "law_context": {
-          "$ref": "#/$defs/retained_workflow_law_context"
+          "$ref": "#/$defs/workflow_law_context"
         },
         "native_runs": {
           "type": "array",
@@ -1679,8 +1679,7 @@
         "registry_path": {
           "description": "The repository path of the Domain registry shard. Present when the context binds at least one Domain.",
           "type": "string",
-          "minLength": 1,
-          "maxLength": 1024
+          "minLength": 1
         }
       }
     },
@@ -1745,8 +1744,7 @@
         },
         "path": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 1024
+          "minLength": 1
         }
       }
     },
@@ -6180,101 +6178,6 @@
       "maxLength": 2048,
       "pattern": "\\S",
       "description": "Bounds: 1..2048 code points inclusive"
-    },
-    "retained_workflow_law_context": {
-      "description": "The approved contract's binding law and Domains, resolved at read time from the committed law folder and Domain registry. Absent when the contract binds no law and no Domain.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "laws",
-        "domains"
-      ],
-      "properties": {
-        "laws": {
-          "type": "array",
-          "maxItems": 128,
-          "items": {
-            "$ref": "#/$defs/retained_workflow_law_context_law"
-          }
-        },
-        "domains": {
-          "type": "array",
-          "maxItems": 65,
-          "items": {
-            "$ref": "#/$defs/workflow_law_context_domain"
-          }
-        },
-        "registry_path": {
-          "description": "The repository path of the Domain registry shard. Present when the context binds at least one Domain.",
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
-    "retained_workflow_law_context_law": {
-      "description": "A bound law at the verified own-home snapshot. An absent law retains only identity, roles, obligation IDs and status absent; reserved additions carry identity and roles before publication. Present laws carry readable current metadata.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "roles",
-        "law_id"
-      ],
-      "properties": {
-        "roles": {
-          "description": "Every binding role the approved contract gives the law, sorted and deduplicated.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 4,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "enum": [
-              "mandated",
-              "modified",
-              "added",
-              "obligation"
-            ]
-          }
-        },
-        "law_id": {
-          "$ref": "#/$defs/law_id"
-        },
-        "obligation_ids": {
-          "description": "The contract's verification obligations that name the law, sorted and deduplicated. Present only when roles carries obligation.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 64,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/obligation_id"
-          }
-        },
-        "kind": {
-          "description": "The law kind its law-folder tier supplies. Constitution records are law, so a contract can mandate them.",
-          "type": "string",
-          "enum": [
-            "constitution",
-            "decision",
-            "spec"
-          ]
-        },
-        "status": {
-          "type": "string",
-          "enum": [
-            "accepted",
-            "absent"
-          ]
-        },
-        "title": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512
-        },
-        "path": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
     }
   }
 }

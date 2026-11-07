@@ -506,131 +506,6 @@ def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict 
     return schema
 
 
-# Retained read twins: workflow_law_context and its law entry carry caps
-# set for the retired worker packet, their only cap-enforcing consumer.
-# Each read parent points at a retained twin that drops only caps no store
-# writer enforces; the output bound ledger proves every dropped cap
-# unbounded and every kept cap finite.
-RETAINED_OUTPUT_TWINS = {
-    "workflow_law_context": ("/properties/registry_path/maxLength",),
-    "workflow_law_context_law": ("/properties/path/maxLength",),
-}
-# Caps a retained twin raises above the source definition's cap: the store's
-# retained producer exceeds it, and the output bound ledger proves the
-# producer's finite maximum.
-RETAINED_OUTPUT_RAISES = {}
-RETAINED_OUTPUT_RETYPES = {}
-# The read parents that replay stored values, each with the twinned
-# definitions it references directly.
-RETAINED_OUTPUT_PARENTS = {
-    "work_summary": ("workflow_law_context",),
-}
-
-
-def retained_twin_name(name: str) -> str:
-    return "retained_" + name
-
-
-def retained_cap_parent(node: dict, name: str, pointer: str) -> tuple[dict, str]:
-    tokens = pointer.split("/")[1:]
-    parent = node
-    for token in tokens[:-1]:
-        parent = parent[int(token)] if isinstance(parent, list) else parent.get(token)
-        if parent is None:
-            fail(f"retained twin {name} names {pointer}, which does not resolve")
-    if not isinstance(parent, dict) or tokens[-1] not in parent:
-        fail(f"retained twin {name} names {pointer}, which carries no such cap")
-    return parent, tokens[-1]
-
-
-def drop_retained_caps(node: dict, name: str) -> None:
-    """Remove from a copy of the named shared definition the caps its
-    retained output twin drops."""
-    for pointer in RETAINED_OUTPUT_TWINS[name]:
-        parent, keyword = retained_cap_parent(node, name, pointer)
-        del parent[keyword]
-
-
-def raise_retained_caps(node: dict, name: str) -> None:
-    """Raise in a twin the caps its retained producer exceeds."""
-    for pointer, value in RETAINED_OUTPUT_RAISES.get(name, {}).items():
-        parent, keyword = retained_cap_parent(node, name, pointer)
-        if parent[keyword] >= value:
-            fail(f"retained twin {name} raises {pointer} to {value}, which the shared cap {parent[keyword]} already admits")
-        parent[keyword] = value
-
-
-def retype_retained_items(node: dict, name: str) -> None:
-    """Point a twin's items at the wider definition its retained producer needs."""
-    for pointer, ref in RETAINED_OUTPUT_RETYPES.get(name, {}).items():
-        parent, keyword = retained_cap_parent(node, name, pointer)
-        if parent[keyword] == ref:
-            fail(f"retained twin {name} retypes {pointer} to {ref}, which the shared definition already references")
-        parent[keyword] = ref
-
-
-def install_retained_output_twins(defs: dict) -> None:
-    # The projection starts from the previous document, which already carries
-    # the twins and the retargeted refs. Undo both first, so every run derives
-    # the twins from the shared definitions and no ref to a twin survives
-    # outside the declared parents.
-    twin_names = {retained_twin_name(name): name for name in RETAINED_OUTPUT_TWINS}
-    for twin_name in twin_names:
-        defs.pop(twin_name, None)
-
-    def restore(value: object) -> None:
-        if isinstance(value, list):
-            for child in value:
-                restore(child)
-        elif isinstance(value, dict):
-            ref = value.get("$ref")
-            if isinstance(ref, str) and ref.removeprefix("#/$defs/") in twin_names:
-                value["$ref"] = "#/$defs/" + twin_names[ref.removeprefix("#/$defs/")]
-            for child in value.values():
-                restore(child)
-    restore(defs)
-
-    def retarget(node: object, where: str, allowed: set[str]) -> set[str]:
-        """Rewrite every ref to a twinned definition and return the names rewritten."""
-        seen: set[str] = set()
-        def walk(value: object) -> None:
-            if isinstance(value, list):
-                for child in value:
-                    walk(child)
-            elif isinstance(value, dict):
-                ref = value.get("$ref")
-                if isinstance(ref, str) and ref.startswith("#/$defs/"):
-                    target = ref.removeprefix("#/$defs/")
-                    if target in RETAINED_OUTPUT_TWINS:
-                        if target not in allowed:
-                            fail(f"{where} references {target}, which is not a declared retained twin target there")
-                        value["$ref"] = "#/$defs/" + retained_twin_name(target)
-                        seen.add(target)
-                for key, child in value.items():
-                    if key != "$ref":
-                        walk(child)
-        walk(node)
-        return seen
-
-    twins = {}
-    for name in RETAINED_OUTPUT_TWINS:
-        if name not in defs:
-            fail(f"retained twin source {name} is not defined")
-        twin = copy.deepcopy(defs[name])
-        drop_retained_caps(twin, name)
-        raise_retained_caps(twin, name)
-        retype_retained_items(twin, name)
-        retarget(twin, retained_twin_name(name), set(RETAINED_OUTPUT_TWINS))
-        twins[retained_twin_name(name)] = twin
-    defs.update(twins)
-    for parent, targets in RETAINED_OUTPUT_PARENTS.items():
-        if parent not in defs:
-            fail(f"retained twin parent {parent} is not defined")
-        seen = retarget(defs[parent], parent, set(targets))
-        if seen != set(targets):
-            fail(f"retained twin parent {parent} references {sorted(seen)}, want {sorted(targets)}")
-
-
 def workflow_payload_object_schema(payload: dict, defs: dict, field_teaching: dict | None = None, cross_field: dict | None = None) -> dict:
     result = workflow_payload_flat_object_schema(payload, defs, field_teaching)
     combinations = (cross_field or {}).get("combinations") or []
@@ -940,7 +815,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], teaching
     defs["workflow_contract_update"] = closed_field_union(update_branches, defs, "workflow_contract_update")
     defs["work_define_revise_input"]["properties"]["contract"] = {"$ref": "#/$defs/workflow_contract_update"}
     project_workflow_plan_template_defs(defs)
-    install_retained_output_twins(defs)
     contracts = {"approve_contract"}
     guidance_names = [f"work_transition_action_variant_{action}" for action in sorted(contracts)]
     guidance_names.extend(variant["schema"] for variant in public_variants if variant["action_id"] in contracts)
@@ -955,7 +829,6 @@ def prune_payload_definitions(payload: dict, manifest: dict, public_variants: li
     roots = {schema["ref"].rsplit("/", 1)[-1] for schema in manifest["schemas"].values()
              if schema["ref"].partition("#")[0] in {"", "contracts/agent-tool-surface-payloads.schema.json"}}
     roots.add("work_transition_action_public_input")
-    roots.update(RETAINED_OUTPUT_TWINS)
     roots.update(variant["schema"] for variant in public_variants)
     roots.update(schema_roots or [])
     reached: set[str] = set()

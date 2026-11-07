@@ -20,10 +20,6 @@ import (
 type Options struct {
 	// Defs is the generated contract's $defs map.
 	Defs map[string]any
-	// RefBounds pins a $defs name to a caller-derived maximum, for defs the
-	// caller composes once (the worker packet: its declared parts plus the
-	// context aggregate).
-	RefBounds map[string]int
 	// PathBounds pins writer-owned bounds by schema path (the serialized
 	// acceptance oracle at its writer's 32 KiB; writer-stamped date-times at
 	// their writer's RFC3339Nano UTC serialization, quotes included).
@@ -83,9 +79,6 @@ func walk(node any, path string, opt Options, stack map[string]bool, depth int) 
 
 func walkReference(ref, path string, opt Options, stack map[string]bool, depth int) (int, error) {
 	name := ref[strings.LastIndex(ref, "/")+1:]
-	if bound, ok := opt.RefBounds[name]; ok {
-		return bound, nil
-	}
 	if stack[name] {
 		return 0, fmt.Errorf("recursive schema reference %s at %s", name, path)
 	}

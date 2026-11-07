@@ -84,8 +84,8 @@ func seedOverlapProjection(t *testing.T, left, right string, relation bool) (*St
 	return s, actor
 }
 
-// resolveApprovedOverlap drives the live writer's graph and terminal-effect guards.
-func resolveApprovedOverlap(t *testing.T, s *Store, eventID, fromWorkID, toWorkID string, fromExpected, toExpected int64, kind, reason, actor string) error {
+// resolveDomainOverlap drives the live writer's graph and terminal-effect guards.
+func resolveDomainOverlap(t *testing.T, s *Store, eventID, fromWorkID, toWorkID string, fromExpected, toExpected int64, kind, reason, actor string) error {
 	t.Helper()
 	return s.Transact(context.Background(), func(tx *Transaction) error {
 		_, err := ResolveWorkflowDomainOverlapTx(context.Background(), tx, WorkflowDomainOverlapResolutionRequest{
@@ -307,7 +307,7 @@ func TestResolveOverlapRecordsRoutineRelations(t *testing.T) {
 func TestResolveOverlapInvalidPayloadRecoveryHint(t *testing.T) {
 	t.Parallel()
 	s, actor := seedOverlapProjection(t, "invalid-hint-left", "invalid-hint-right", false)
-	err := resolveApprovedOverlap(t, s, "invalid-hint", "invalid-hint-left", "invalid-hint-right", 2, 2, "invalid", "agent sequencing", actor)
+	err := resolveDomainOverlap(t, s, "invalid-hint", "invalid-hint-left", "invalid-hint-right", 2, 2, "invalid", "agent sequencing", actor)
 	assertFailureKind(t, err, KindInvalidPayload)
 	var failure *Failure
 	if !errors.As(err, &failure) {

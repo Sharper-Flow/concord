@@ -274,9 +274,10 @@ func TestLawContextRefusesRemovedBoundLawDocument(t *testing.T) {
 
 // The whole knowledge home checkout disappearing before a law-only read must
 // refuse typed too: an absent home cannot ground any locator the context
-// advertises, and only restoring the knowledge home repairs it. The committed
-// read resolves the home's git head first, so the refusal is the
-// verification's git_unreachable, before any locator is qualified.
+// advertises, and the recovery restores access to the knowledge home and
+// retries. The committed read resolves the home's git head first, so the
+// refusal is the verification's git_unreachable, before any locator is
+// qualified.
 func TestLawContextRefusesRemovedKnowledgeHomeBeforeLawOnlyRead(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -297,9 +298,9 @@ func TestLawContextRefusesRemovedKnowledgeHomeBeforeLawOnlyRead(t *testing.T) {
 
 // A registry locator occupied by a directory is not a registry the reading
 // agent can open: the context refuses typed instead of advertising the
-// directory. The
-// contract is approved while the registry file is committed; the committed
-// revision that replaces it with a directory is what the read verifies.
+// directory. The contract is approved while the registry file is committed;
+// the committed revision that replaces it with a directory is what the read
+// verifies.
 func TestLawContextRefusesRegistryReplacedByDirectory(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

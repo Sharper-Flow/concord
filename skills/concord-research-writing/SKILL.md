@@ -8,7 +8,7 @@ description: Use when writing or editing research findings, a research note, or 
 Answer the framed question in a cited findings record that a later reader can
 trace and check. Separate observed facts from inference and make uncertainty
 visible. This method adds no authority, approval or workflow gate under
-[skill admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
+[skill admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md).
 Respect the [workflow contract](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/specs/workflow-engine-contract.md).
 
 ## Trace the findings

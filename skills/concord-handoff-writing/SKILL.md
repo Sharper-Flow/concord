@@ -8,7 +8,7 @@ description: Use when writing or editing an assignment brief, session handoff, o
 Give the next agent compact, durable context tailored to its purpose. Point to
 the records that own facts rather than copying them into a second account. This
 method adds no authority, approval or workflow gate under
-[skill admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
+[skill admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md).
 Respect the [workflow contract](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/specs/workflow-engine-contract.md).
 
 ## Bound the work

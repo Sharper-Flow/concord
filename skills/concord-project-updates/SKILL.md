@@ -8,7 +8,7 @@ description: Use when writing or editing a Linear project description or status 
 Keep coordination records current without turning them into copies of delivery
 records. Lead an update with what changed, then any decision needed. This method
 adds no authority, approval or workflow gate under
-[skill admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
+[skill admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md).
 Follow [planning authority](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md).
 
 ## Put each fact with its owner

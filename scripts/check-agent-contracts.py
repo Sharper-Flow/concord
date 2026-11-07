@@ -105,24 +105,24 @@ SKILL_REFERENCES = {
     },
     # Document-writing methods for law-defined records (CD-0245 D1).
     "concord-ticket-writing": {
-        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md",
         "planning": ".concord/law/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md",
     },
     "concord-project-updates": {
-        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md",
         "planning": ".concord/law/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md",
     },
     "concord-pr-writing": {
-        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md",
         "deletions": ".concord/law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md",
         "planning": ".concord/law/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md",
     },
     "concord-research-writing": {
-        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md",
         "steps": ".concord/law/specs/workflow-engine-contract.md",
     },
     "concord-handoff-writing": {
-        "admission": ".concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md",
+        "admission": ".concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md",
         "steps": ".concord/law/specs/workflow-engine-contract.md",
     },
 }

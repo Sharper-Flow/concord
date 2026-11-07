@@ -8,7 +8,7 @@ description: Use when writing or editing a Linear issue, a Linear comment or a c
 Write for a reader who did not witness the work: state the observed problem,
 its impact and a checkable outcome, then keep decisions and events in their
 owning records. This method adds no authority, approval or workflow gate under
-[skill admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
+[skill admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md).
 Follow [planning authority](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md).
 
 ## State the problem and outcome

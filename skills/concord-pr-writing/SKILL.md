@@ -8,7 +8,7 @@ description: Use when writing or editing a pull request body or completion repor
 Treat the pull request body and completion report as one document family: make
 the change clear, tie evidence to its subject, and expose the danger and gaps.
 This method adds no authority, approval or workflow gate under
-[skill admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-the-skill-that-operates-its-domain-shape.md).
+[skill admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md).
 Apply [the operator boundary and Concord deletion exemption](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md).
 
 ## Show the change

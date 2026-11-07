@@ -118,7 +118,6 @@ def derive_adapter_files(adapter_dir: Path) -> tuple[str, ...]:
 # test_real_checkout_derivation_includes_the_plugin_entry compares this literal
 # against the live import graph and fails when the two drift.
 ADAPTER_FILES = (
-    "adapter-contract-defect.ts",
     "agent-switch-hook.ts",
     "concord-plugin.ts",
     "concord.ts",
@@ -149,6 +148,7 @@ RETIRED_ADAPTER_FILES = (
     "generated-lane-step-dispatch.ts", "lane_capabilities.ts", "lane_completion.ts", "lane_dispatch.ts",
     "oracle-readiness.ts", "packet.ts", "task-result.ts", "worker-report-protocol.js", "worker_control.ts",
     "worker_diff.ts", "worker_recovery.ts", "worker_source.ts", "worker_subject.ts",
+    "adapter-contract-defect.ts",
 )
 INSTRUCTION_FILES = (
     "asking.md",

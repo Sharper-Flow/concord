@@ -20,9 +20,9 @@ import (
 type Options struct {
 	// Defs is the generated contract's $defs map.
 	Defs map[string]any
-	// RefBounds pins a $defs name to a caller-derived maximum, for defs the
-	// caller composes once (the worker packet: its declared parts plus the
-	// context aggregate).
+	// RefBounds pins a $defs name to a caller-derived maximum, for a definition
+	// whose wire maximum the caller composes once from writer-owned parts rather
+	// than deriving from the schema walk.
 	RefBounds map[string]int
 	// PathBounds pins writer-owned bounds by schema path (the serialized
 	// acceptance oracle at its writer's 32 KiB; writer-stamped date-times at

@@ -266,19 +266,6 @@ func registerOutputBound(pattern string, source outputBoundSource) {
 	ledgerRegistrations = append(ledgerRegistrations, reg)
 }
 
-// retainedTwinPattern maps a pattern under a shared payload definition to the
-// same pattern under its generator-owned retained output twin
-// (RETAINED_OUTPUT_TWINS in scripts/generate-agent-contracts.py).
-func retainedTwinPattern(pattern string) string {
-	return "/$defs/retained_" + strings.TrimPrefix(pattern, "/$defs/")
-}
-
-// registerRetainedTwinBound registers the retained output definition's producer.
-// Input reachability alone supplies no output registration.
-func registerRetainedTwinBound(pattern string, retained outputBoundSource) {
-	registerOutputBound(retainedTwinPattern(pattern), retained)
-}
-
 // splitLedgerPatternFile splits a registration pattern into its schema
 // document and JSON pointer. A pattern inside the payload document is a bare
 // pointer; a registered host/internal root is keyed "<file>#<pointer>" and

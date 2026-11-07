@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:737f0d5b33369a23f3b980a5b182e6ced13d7e46924787472fbb703a08a5ebbe"
+const ManifestDigest = "sha256:28250347b807140d90799edb5c5b31aa1ea8cf9a201e4013f37b9640c80962f0"
 
 type OperationKind string
 
@@ -103,8 +103,6 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"projectable_mutation_result":                         {Required: []string{}, Properties: []string{"changed_refs", "next_valid_intents", "work_pins", "operation_id", "delivery", "projection_reference"}},
 	"resume_read_document":                                {Required: []string{"work_id", "version", "state"}, Properties: []string{"work_id", "version", "state", "type", "steps", "next_steps", "opening_steps"}},
 	"resume_read_result":                                  {Required: []string{}, Properties: []string{"work_id", "version", "state", "type", "steps", "next_steps", "opening_steps", "encoding", "digest", "total_bytes", "offset", "data", "fragment_bytes", "document_complete"}},
-	"retained_workflow_law_context":                       {Required: []string{"laws", "domains"}, Properties: []string{"laws", "domains", "registry_path"}},
-	"retained_workflow_law_context_law":                   {Required: []string{"roles", "law_id"}, Properties: []string{"roles", "law_id", "obligation_ids", "kind", "status", "title", "path"}},
 	"session_boot_packet":                                 {Required: []string{"schema_version", "session_type", "session_contract_version", "manifest_digest", "product_id", "project_id", "work_id", "source_version_watermark", "workflow_instance", "resume"}, Properties: []string{"schema_version", "session_type", "session_contract_version", "manifest_digest", "product_id", "project_id", "work_id", "source_version_watermark", "workflow_instance", "resume", "pending_project_handoff"}},
 	"work_browse_list_input":                              {Required: []string{}, Properties: []string{"linear_issue_key", "product_id", "project_ids", "work_ids", "lifecycle", "kind", "detail", "terminal_since", "page", "limit", "requested_budget_seconds"}},
 	"work_browse_list_result":                             {Required: []string{}, Properties: []string{"items", "next_cursor", "encoding", "digest", "total_bytes", "offset", "data", "fragment_bytes", "document_complete", "next_kind"}},

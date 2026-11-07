@@ -2818,23 +2818,11 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
 
 class WorkContextProjectionTests(unittest.TestCase):
 
-    @classmethod
-    def setUpClass(cls):
-        cls.projected = copy.deepcopy(payload_schema)
-        generator.install_retained_output_twins(cls.projected["$defs"])
-
     def test_unresolved_context_reference_fails_loudly(self):
         canonical = copy.deepcopy(payload_schema)
         canonical["$defs"]["workflow_law_context"]["properties"]["registry_path"] = {"$ref": "#/$defs/missing_law_member"}
         with self.assertRaisesRegex(ValueError, "missing_law_member"):
             generator.prune_payload_definitions(canonical, {"schemas": {"context": {"ref": "#/$defs/workflow_law_context"}}}, [])
-
-    def test_current_context_identity_matches_its_declared_source(self):
-        declared = payload_schema["$defs"]
-        for name in ("workflow_law_context", "workflow_law_context_law"):
-            self.assertEqual(self.projected["$defs"][name], declared[name],
-                             f"the {name} identity differs from its declared source")
-
 
 class _WorkloadReached(Exception):
     """Marks that a generator main entered its workload during a reach test."""

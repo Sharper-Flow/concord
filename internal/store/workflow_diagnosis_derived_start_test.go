@@ -354,7 +354,7 @@ func TestRevisedContractLivenessThroughProducerWork(t *testing.T) {
 
 func TestDiagnosisRecordDoesNotStartExecution(t *testing.T) {
 	t.Parallel()
-	const workID = "diagnosis-lane-cannot-strand"
+	const workID = "diagnosis-cannot-strand"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanFix, "diagnose")
 	s := fixture.store
 	actor := fixture.owner

@@ -106,8 +106,8 @@ func init() {
 		requiredIntentFieldsBound())
 
 	// obligation_id: values are copied verbatim from the approved contract's
-	// admitted architecture_binding.verification_obligations into worker
-	// packet law context and the item-scoped list law context
+	// admitted architecture_binding.verification_obligations into work summaries'
+	// law context in item-scoped full-detail lists
 	// (internal/store/workflow_law_revision.go law-context projection; no
 	// aggregation lengthens them), or admitted on the knowledge side at 256
 	// code points. The store re-check validWorkflowObligationID

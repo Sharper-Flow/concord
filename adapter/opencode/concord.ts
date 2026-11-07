@@ -2,10 +2,6 @@ import { clientRef } from "./credentials"
 import { contractOperations, maxEnvelopeBytes, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resolveDiskManifestDigest } from "./manifest-pin"
 import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePath, payloadFailurePath } from "./generated-contract-tests"
-import { AdapterContractDefect } from "./adapter-contract-defect"
-// The typed fail-closed error re-exports so callers of this module can catch
-// it by class without importing the shared owner.
-export { AdapterContractDefect }
 import { sessionDirectoryReader } from "./session-directory"
 import { concordBinaryPath, CoreBinaryUnavailable } from "./core-runtime"
 import { hostLeaseFault } from "./host-lease"
@@ -477,6 +473,23 @@ function adapterRetrySafe(tuple: AdapterErrorTuple): boolean {
 // The schema bounds the human diagnostic at 1000 code points; the bound here
 // is bytes, which never yields more code points than the schema admits.
 const ADAPTER_ERROR_MESSAGE_MAX_BYTES = 1000
+
+// The typed fail-closed error for the adapter envelope contract.
+// An adapter-origin envelope that fails the generated contract, or a factory
+// call that names no admitted tuple, is a programming defect: it is thrown at
+// the factory and at every adapter-origin host exit, rethrown unchanged by
+// every catch that can receive it, and never serialized, relabeled as a
+// transport failure, or mapped to a no-effect fallback. The class lives in
+// concord.ts, the module every consumer already imports, so all catchers see
+// one defect type. It is deliberately not an AdapterFailure: the failure
+// classes feed envelope construction, while this defect reports that
+// construction itself broke its contract.
+export class AdapterContractDefect extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "AdapterContractDefect"
+  }
+}
 
 // adapterContractDefect names the failing identity and member. For a
 // mutation it states that the effect is unknown and must be reconciled

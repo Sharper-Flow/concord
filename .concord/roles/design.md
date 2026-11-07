@@ -14,6 +14,9 @@ material under the same rules; it changes no Product behavior and is not UI/UX
 approval.
 
 Read the Product's existing UI and follow its design and repository instructions.
+Load the shipped `concord-ui-design` skill for this work: it covers matching
+the Product's design system, the accessibility floor, inspectable preview
+material with its exact version, and browser verification.
 Preserve unrelated work. For a Fix, add a regression test and establish that it
 fails for the reported behavior before the fix and passes after. If it does not
 fail before the fix, stop and report the gap. Run the named check and the checks

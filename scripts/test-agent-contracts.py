@@ -959,7 +959,7 @@ class LawWritingSkillTests(unittest.TestCase):
 class MethodSkillTests(unittest.TestCase):
     """CD-0246 D1 and D3: portable method skills ship like any admitted skill."""
 
-    NAMES = ("concord-diagnosis", "concord-codebase-design", "concord-work-shaping", "concord-retrospective", "concord-instruction-writing", "concord-review", "concord-improve-codebase-architecture", "concord-architecture-writing", "concord-readme-writing")
+    NAMES = ("concord-diagnosis", "concord-codebase-design", "concord-work-shaping", "concord-retrospective", "concord-instruction-writing", "concord-review", "concord-improve-codebase-architecture", "concord-architecture-writing", "concord-readme-writing", "concord-ui-design")
     # Skills whose method text adapts Matt Pocock's MIT-licensed upstream and
     # keep his notice; original Concord skills carry the repository license.
     UPSTREAM_ADAPTED_SKILLS = frozenset(NAMES) | {"concord-law-writing"}
@@ -1001,12 +1001,16 @@ class MethodSkillTests(unittest.TestCase):
             for name in sorted(lane_checker.ADMITTED_SKILLS):
                 with self.subTest(skill=name):
                     license_path = skills / name / "LICENSE"
-                    expected_notice = (
-                        "Copyright (c) 2026 Matt Pocock"
-                        if name in self.UPSTREAM_ADAPTED_SKILLS
-                        else "Copyright (c) 2026 Concord contributors"
-                    )
-                    self.assertIn(expected_notice, license_path.read_text(encoding="utf-8"))
+                    if name == "concord-ui-design":
+                        expected_notices = ("Copyright 2026 Anthropic, PBC.", "Copyright (c) 2025 Vercel Labs", "Copyright (c) 2026 Matt Pocock")
+                    else:
+                        expected_notices = (
+                            "Copyright (c) 2026 Matt Pocock"
+                            if name in self.UPSTREAM_ADAPTED_SKILLS
+                            else "Copyright (c) 2026 Concord contributors",
+                        )
+                    for notice in expected_notices:
+                        self.assertIn(notice, license_path.read_text(encoding="utf-8"))
                     license_path.unlink()
                     findings = lane_checker.shipped_skill_inventory_findings(skills)
                     self.assertTrue(any(f"{name}/LICENSE: missing admitted file" in finding for finding in findings))

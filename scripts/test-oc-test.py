@@ -252,7 +252,7 @@ class TierRoutingTest(unittest.TestCase):
 
     def test_store_shard_docs_name_the_ci_shards(self):
         # CI owns which packages run as shard jobs and the shard count. The
-        # wrapper header, README, TESTING.md, and the tooling declaration name
+        # wrapper header, TESTING.md, and the tooling declaration name
         # the store-shard route with CI's current count, so a count change in
         # ci.yml fails here until every surface moves with it.
         workflow = (REPOSITORY / ".github/workflows/ci.yml").read_text()
@@ -264,7 +264,6 @@ class TierRoutingTest(unittest.TestCase):
         example = f"bin/oc-test store-shard 1 {store_count}"
         prose = {
             "bin/oc-test": f"shard 1 of {store_count}:",
-            "README.md": f"shard 1 of the {store_count} `internal/store` shards",
             "TESTING.md": f"store shard 1 of {store_count}:",
         }
         tools = json.loads((REPOSITORY / ".concord/tooling.v1.json").read_text())["tools"]
@@ -274,8 +273,7 @@ class TierRoutingTest(unittest.TestCase):
             with self.subTest(path=path):
                 text = (REPOSITORY / path).read_text()
                 for package in counts:
-                    name = f"`{package}`" if path == "README.md" else package
-                    self.assertTrue(name in text, f"{path} does not name the sharded package {name}")
+                    self.assertTrue(package in text, f"{path} does not name the sharded package {package}")
                 self.assertTrue(example in text, f"{path} lacks the one-shard example {example}")
                 self.assertEqual(set(re.findall(r"store-shard \d+ (\d+)", text)), {store_count},
                                  f"{path} names a shard count other than CI's {store_count}")

@@ -110,8 +110,8 @@ func workflowInstanceTerminal(state string) bool {
 
 // readResumePreludeTx reads the opening-phase prelude's intake outcome and
 // type-pick reason for the resume read. Unlike readWorkflowPreludeTx, which
-// guards writes, a terminal item
-// still answers: the read reports state, it never refuses on lifecycle.
+// guards writes, a terminal item still answers: the read reports state, it
+// never refuses on lifecycle.
 func readResumePreludeTx(ctx context.Context, tx *sql.Tx, workID string) (*workflowPreludeState, error) {
 	var raw sql.NullString
 	if err := tx.QueryRowContext(ctx, `SELECT prelude_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&raw); err != nil && err != sql.ErrNoRows {

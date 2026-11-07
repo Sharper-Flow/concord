@@ -143,12 +143,6 @@ const (
 	// mistake it for a retryable action failure.
 	KindDefinitionActionUnknown FailureKind = "definition_action_unknown"
 	KindUnauthorized            FailureKind = "unauthorized"
-	// KindUnauthorizedDispatch marks a worker-dispatch evidence write that
-	// names a work item with no authorized, unconsumed dispatch window at
-	// the current step epoch. The refusal is structural: one
-	// authorization admits exactly one attempt, and a worker spawned
-	// outside the registered action is visible as absent evidence.
-	KindUnauthorizedDispatch FailureKind = "unauthorized_dispatch"
 )
 
 // Failure is a typed storage failure. The fields mirror the query contract's

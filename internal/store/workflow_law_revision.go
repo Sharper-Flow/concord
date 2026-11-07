@@ -22,10 +22,7 @@ type WorkflowLawContext struct {
 	Domains []WorkflowLawContextDomain `json:"domains"`
 	// RegistryPath is the knowledge home repository's absolute locator for
 	// the Domain registry shard the home checkout actually carries, set when
-	// the context binds at least one Domain. The agent session receives this
-	// context through the tool surface; the read holds no live tool session
-	// inside its transaction. The agent reads Domain structure from the file,
-	// never through a tool call.
+	// the context binds at least one Domain.
 	RegistryPath string `json:"registry_path,omitempty"`
 }
 
@@ -227,11 +224,11 @@ func workflowLawHomeRepo(ctx context.Context, q queryer, homeProjectID, homeLoca
 // agent can open. Domain organization resolves against that one committed
 // file; a home carrying no registry, a non-regular registry file, or an
 // unreadable path refuses typed, so the context never advertises a locator
-// the agent cannot read
-// or silently drops the Domain binding. The locator runs after the committed
-// registry was read, so both absent-file shapes mean the checkout disagrees
-// with a commit that carries the registry: their recoveries restore the
-// checkout, they do not ask for a commit that already exists.
+// the agent cannot read or silently drops the Domain binding. The locator
+// runs after the committed registry was read, so both absent-file shapes
+// mean the checkout disagrees with a commit that carries the registry:
+// their recoveries restore the checkout, they do not ask for a commit that
+// already exists.
 func knowledgeRegistryLocator(homeRepo string) (string, error) {
 	root, err := os.OpenRoot(homeRepo)
 	if err != nil {

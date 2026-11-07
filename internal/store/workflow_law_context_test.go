@@ -114,9 +114,8 @@ func TestFullWorkListResolvesContractLawAndDomainContext(t *testing.T) {
 	if !reflect.DeepEqual(snapshot.LawContext.Domains, wantDomains) {
 		t.Fatalf("law context Domains = %+v, want %+v", snapshot.LawContext.Domains, wantDomains)
 	}
-	// The lane reads Domain structure from the knowledge home's repository
-	// file, so a contract that binds Domains carries an absolute registry
-	// locator inside the home checkout, and the file it names opens.
+	// A contract that binds Domains carries an absolute registry locator
+	// inside the home checkout, and the file it names opens.
 	wantRegistry := filepath.Join(homeRepo, ".concord/docs/knowledge/domain-registry.json")
 	if snapshot.LawContext.RegistryPath != wantRegistry {
 		t.Fatalf("law context registry path = %q, want %q", snapshot.LawContext.RegistryPath, wantRegistry)
@@ -125,7 +124,7 @@ func TestFullWorkListResolvesContractLawAndDomainContext(t *testing.T) {
 		t.Fatalf("law context registry path = %q, want an absolute home-qualified locator", snapshot.LawContext.RegistryPath)
 	}
 	if _, err := os.ReadFile(snapshot.LawContext.RegistryPath); err != nil {
-		t.Fatalf("the dispatched lane could not open the registry the packet named: %v", err)
+		t.Fatalf("the recorded registry locator does not open: %v", err)
 	}
 }
 

@@ -410,14 +410,6 @@ def single_variant(action: dict) -> dict:
     return action["variants"][0]
 
 
-# Authoring guidance for a workflow action field whose bound units an author
-# cannot infer from the schema. The approval premise is the objective an
-# approved contract carries; its guidance states the count units.
-FIELD_GUIDANCE = {
-    "premise": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair contract projection.",
-}
-
-
 def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict | None = None) -> dict:
     value_type = field["value_type"]
     schema_ref = field.get("schema_ref")
@@ -501,9 +493,6 @@ def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict 
         schema["pattern"] = r"\S"
     if field.get("forbidden_values"):
         schema["not"] = {"type": "string", "enum": field["forbidden_values"]}
-    guidance = FIELD_GUIDANCE.get(field["name"])
-    if guidance is not None and "$ref" not in schema:
-        schema["description"] = guidance
     # Guard-owned relational teaching: the description comes from the store
     # projection (WorkflowContractTeaching), authored beside the enforcing
     # guard, so the published field cannot teach a rule the store dropped.
@@ -517,20 +506,19 @@ def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict 
     return schema
 
 
-# Read outputs that replay stored values verbatim share definitions with
-# admitted write payloads. Payload admission validates each field against its
-# declared schema (internal/store/workflow_preflight.go). Each read parent
-# points at a retained twin that drops only caps no store writer enforces;
-# twins also point at other twins where needed. The output bound ledger proves
-# every dropped cap unbounded and every kept cap finite.
+# Retained read twins: workflow_law_context and its law entry carry
+# admission caps from their historical write-side origin, whose only
+# cap-enforcing consumer (the retired worker packet) is gone. Each read
+# parent points at a retained twin that drops only caps no store writer
+# enforces; the output bound ledger proves every dropped cap unbounded and
+# every kept cap finite.
 RETAINED_OUTPUT_TWINS = {
     "workflow_law_context": ("/properties/registry_path/maxLength",),
     "workflow_law_context_law": ("/properties/path/maxLength",),
 }
-# Caps a retained twin raises: the store's retained producer exceeds the cap
-# admission enforces on the shared admitted definition, so the read
-# copy carries the producer's finite maximum, which the output bound ledger
-# proves, while the shared definition keeps the admitted cap.
+# Caps a retained twin raises above the stored definition's cap: the store's
+# retained producer exceeds it, and the output bound ledger proves the
+# producer's finite maximum.
 RETAINED_OUTPUT_RAISES = {}
 RETAINED_OUTPUT_RETYPES = {}
 # The read parents that replay stored values, each with the twinned

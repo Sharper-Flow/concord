@@ -170,7 +170,7 @@ func TestLawContextQualifiesWithTheRegisteredKnowledgeHome(t *testing.T) {
 		t.Fatalf("law context registry path = %q, want an absolute home-qualified locator", snapshot.LawContext.RegistryPath)
 	}
 	if _, err := os.ReadFile(snapshot.LawContext.RegistryPath); err != nil {
-		t.Fatalf("the dispatched lane could not open the registry the packet named: %v", err)
+		t.Fatalf("the recorded registry locator does not open: %v", err)
 	}
 	if len(snapshot.LawContext.Laws) != 1 {
 		t.Fatalf("law context laws = %+v, want one mandated spec", snapshot.LawContext.Laws)
@@ -180,7 +180,7 @@ func TestLawContextQualifiesWithTheRegisteredKnowledgeHome(t *testing.T) {
 		t.Fatalf("law path = %q, want the knowledge home's %q", snapshot.LawContext.Laws[0].Path, wantLawPath)
 	}
 	if _, err := os.ReadFile(snapshot.LawContext.Laws[0].Path); err != nil {
-		t.Fatalf("the dispatched lane could not open the law file the packet named: %v", err)
+		t.Fatalf("the recorded law locator does not open: %v", err)
 	}
 }
 
@@ -253,7 +253,7 @@ func readLawOnlyContext(t *testing.T, s *Store, workID string, mandate []string)
 
 // A bound law document the projection still records must open as a regular
 // file inside the knowledge home checkout: the context refuses typed rather
-// than advertise a locator the dispatched lane cannot read.
+// than advertise a locator the reading agent cannot open.
 func TestLawContextRefusesRemovedBoundLawDocument(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)

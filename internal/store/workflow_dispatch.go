@@ -279,6 +279,9 @@ func workflowActionEvidenceRefs(request WorkflowActionExecutionRequest, payload 
 		if reference != "" {
 			refs = dedupeWorkflowRefs(append(refs, reference))
 		}
+		if len(refs) == 0 {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "bind_evidence requires an evidence subject", false, "supply an evidence locator or subject reference")
+		}
 		return refs, nil
 	}
 	return refs, nil

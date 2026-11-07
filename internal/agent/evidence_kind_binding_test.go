@@ -17,6 +17,100 @@ import (
 // several subjects and are refused at the boundary (#945).
 const ekbMixed = "evidence array carries more than one kind"
 
+func TestBindEvidenceRefusesMissingSubject(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		fields map[string]any
+	}{
+		{"omitted", nil},
+		{"empty", map[string]any{}},
+		{"kind_only", map[string]any{"evidence_kind": "review"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+			scope, _, err := s.ScopeVersion(ctx, "project-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			env := mutationEnvelope(grant, scope)
+			workID, version := ekbWorkAtExecute(t, ctx, s, service, env, "missing-"+tc.name)
+			queries := map[string]string{
+				"bindings":   `SELECT count(*) FROM workflow_evidence_bindings WHERE work_id=?`,
+				"receipts":   `SELECT count(*) FROM effect_receipts WHERE subject_id=?`,
+				"operations": `SELECT count(*) FROM durable_operations WHERE work_id=?`,
+			}
+			counts := func() map[string]int {
+				result := make(map[string]int, len(queries))
+				for name, query := range queries {
+					var count int
+					if err := s.DatabaseForTesting().QueryRow(query, workID).Scan(&count); err != nil {
+						t.Fatal(err)
+					}
+					result[name] = count
+				}
+				return result
+			}
+			before := counts()
+			input := map[string]any{"work_id": workID, "expected_version": version, "action_id": "bind_evidence", "idempotency_key": "missing-" + tc.name}
+			if tc.fields != nil {
+				input["fields"] = tc.fields
+			}
+			raw, err := json.Marshal(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			env.RequestID = "request:missing-" + tc.name
+			response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+			if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" || response.Error.EffectState != agentcontract.EffectNone {
+				t.Errorf("missing subject outcome=%q error=%+v, want invalid_input with no effect", response.Outcome, response.Error)
+			}
+			if after := agentCompositionWorkVersion(t, s, workID); after != version {
+				t.Errorf("version changed from %d to %d", version, after)
+			}
+			for name, after := range counts() {
+				if after != before[name] {
+					t.Errorf("%s count changed from %d to %d", name, before[name], after)
+				}
+			}
+		})
+	}
+}
+
+func TestRecordReportWithoutSubjectUsesSyntheticSubject(t *testing.T) {
+	ctx := context.Background()
+	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+	scope, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scope)
+	workID, _ := ekbWorkAtExecute(t, ctx, s, service, env, "report-fallback")
+	seedAgentPlanFrontier(t, s, workID, store.WorkflowStepPlanResearch, "conclude")
+	version := agentCompositionWorkVersion(t, s, workID)
+	response, after := ekbDispatch(t, s, service, env, workID, version, "record_report", nil, nil, "report-fallback")
+	if response.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("record_report: %+v", response.Error)
+	}
+	if after <= version {
+		t.Fatal("record_report did not advance the work version")
+	}
+	var result struct {
+		OperationID string `json:"operation_id"`
+	}
+	if err := json.Unmarshal(response.Result, &result); err != nil || result.OperationID == "" {
+		t.Fatalf("record_report result %s: %v", response.Result, err)
+	}
+	var subject string
+	err = s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.immutable_subject_ref') FROM workflow_evidence_bindings WHERE work_id=?`, workID).Scan(&subject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "evidence:" + result.OperationID; subject != want {
+		t.Fatalf("subject=%q, want %q", subject, want)
+	}
+}
+
 func ekbDispatch(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID string, version int64, actionID string, fields map[string]any, evidence []agentcontract.EvidenceRef, key string) (agentcontract.Envelope, int64) {
 	t.Helper()
 	if actionID == "bind_evidence" {

@@ -2770,6 +2770,7 @@ esac''',
             if path.is_file() and (directory != "agents" or fnmatch.fnmatch(path.name, installer.AGENT_GLOB))
         }
         skill_names = [
+            "concord-adoption",
             "concord-architecture-writing",
             "concord-codebase-design",
             "concord-diagnosis",

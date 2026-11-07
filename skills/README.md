@@ -20,6 +20,11 @@ to law, reference, or glossary at final review.
 Load [README writing](concord-readme-writing/SKILL.md) to create or improve a
 repository README, with audience resolution and repository-mode-aware key links.
 
+Load [Adoption](concord-adoption/SKILL.md) to adopt Concord into an existing
+repository: inventory its documents, classify each as binding rule, reference or
+history, route them through the skills above, bootstrap the Domain registry,
+co-author the product vision with the operator, and set repository mode.
+
 Load [Ticket frontend](concord-ticket-frontend/SKILL.md) when work is driven
 through the ticket frontend and an operator question or resume arises.
 
@@ -124,6 +129,23 @@ Ticket writing, PR writing, research writing and handoff writing adapt to-ticket
 pr, research and handoff from [mattpocock/skills](https://github.com/mattpocock/skills/commit/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d)
 and keep the upstream MIT notice in each skill's `LICENSE`. Project updates is
 original Concord text carrying the repository license.
+
+Adoption adapts the brownfield onboarding order and the common-mistakes table
+from [wagglebot](https://github.com/swiknaba/wagglebot/blob/c974c21/skills/onboarding-a-repository/SKILL.md),
+lazy registry growth and the decision-record bar from
+[mattpocock/skills](https://github.com/mattpocock/skills/commit/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d)
+(domain-modeling and setup-matt-pocock-skills), and the binding-rule layer with
+an amendment path from
+[spec-kit](https://github.com/github/spec-kit/blob/f3d6fb7/templates/constitution-template.md).
+Its `LICENSE` keeps each upstream MIT notice. It also draws on cited-only
+sources, linked and never copied: the ADR status lifecycle of
+[madr](https://github.com/adr/madr/blob/ba75bb1/template/adr-template.md)
+and [adr-tools](https://github.com/npryce/adr-tools/blob/b3279ba/README.md),
+owner co-authoring with a fresh-reader test from
+[anthropics/skills doc-coauthoring](https://github.com/anthropics/skills/blob/2c5958e/skills/doc-coauthoring/SKILL.md)
+(no licence file at that commit), [agents.md](https://github.com/agentsmd/agents.md/blob/d001185/README.md)
+on where agent instructions live, and the [Diátaxis](https://diataxis.org/)
+document taxonomy.
 
 ## Delivery
 

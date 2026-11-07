@@ -17,7 +17,7 @@ intake, builds a typed step plan for each work item, coordinates concurrent
 work across agents, and refuses completion until required review and
 verification evidence are recorded. Concord enforces execution state locally.
 
-[What's different](#whats-different) ·
+[Why Concord](#why-concord-exists) ·
 [How it works](#how-it-works) ·
 [Agents and helpers](#agents-and-helpers) ·
 [Architecture](#architecture) ·
@@ -25,15 +25,18 @@ verification evidence are recorded. Concord enforces execution state locally.
 [Install](#install-and-setup) ·
 [Key links](#key-links)
 
-## What's different
+## Why Concord exists
 
-Instructions alone cannot enforce a workflow. Prompts drift under context
-pressure: agents can declare victory early, wander outside assigned scope, or
-approve their own code. Concord checks workflow conditions outside the model's
-context window, requiring recorded review and evidence before reviewed steps
-and completion pass. Work contracts record goals and safety boundaries before
-implementation begins. The engine needs no cloud service or account, and its
-diagnostics stay on the machine.
+Human intent starts with goals, boundaries, and trade-offs. Code deals in
+concrete details: files, transactions, and exit codes. Delegating a specification
+to an AI agent is an unverified cast across that gap—turning an abstract goal
+into code without a runtime guard. You cannot fix an unsafe cast by shouting at
+the compiler, or keep an agent on track by stuffing more rules into a prompt.
+
+Concord supplies a structural guard outside the model's context window. Work
+contracts record the agreed goals before implementation. The engine checks
+required conditions before recording progress and requires recorded reviews
+and verification evidence for completion.
 
 ## How it works
 

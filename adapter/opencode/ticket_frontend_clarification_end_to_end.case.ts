@@ -55,6 +55,13 @@ if (!process.env.TEST_CONCORD_TICKET_CASE || new RegExp(process.env.TEST_CONCORD
     await git(repo, "config", "user.email", "test@example.invalid")
     await git(repo, "config", "user.name", "Synthetic Test")
     await Bun.write(join(repo, "README.md"), "synthetic ticket fixture\n")
+    await mkdir(join(repo, ".concord/docs/knowledge"), { recursive: true })
+    await Bun.write(join(repo, ".concord/docs/knowledge", "domain-registry.json"), JSON.stringify({
+      schema_version: "1.0",
+      product_key: productID,
+      root_domain_id: `product-root:${productID}`,
+      domains: [{ domain_id: `product-root:${productID}`, name: "Synthetic root", purpose: "Synthetic test domain", status: "current", architecture_relations: [] }],
+    }, null, 2))
     await git(repo, "add", ".")
     await git(repo, "commit", "--quiet", "-m", "fixture")
     await git(repo, "remote", "add", "origin", "https://example.invalid/synthetic.git")
@@ -68,6 +75,8 @@ if (!process.env.TEST_CONCORD_TICKET_CASE || new RegExp(process.env.TEST_CONCORD
     expect(build.exitCode, build.stderr).toBe(0)
     await runJSON(binary, dbPath, "product-create", { product_id: productID, display_name: "Ticket E2E", stage_maturity: "prototype", stage_audience_commitment: "operator_only", project_id: projectID, project_display_name: "Ticket Project", role: "primary" })
     await runJSON(binary, dbPath, "project-locator-add", { project_id: projectID, locator_id: "repo-ticket", kind: "canonical_path", value: repo, expected_version: 1 })
+    await runJSON(binary, dbPath, "product-knowledge-home-designate", { product_id: productID, project_id: projectID, locator_id: "repo-ticket", expected_version: 2 })
+    await runJSON(binary, dbPath, "project-repository-mode-update", { project_id: projectID, repository_mode: "on", expected_version: 2 })
     await runJSON(binary, dbPath, "client-register", { client_ref: "opencode", key_id: "ticket-e2e-key", principal_ref: "operator-1", public_key: fixturePublicKeyBase64(new Uint8Array(32).fill(11)), capabilities: ["product_read", "work_define", "work_transition", "work_relate"], product_scope: [productID], project_scope: [projectID], agent_scope: ["Concord"] })
     const fixture = join(root, "fixture.json")
     await Bun.write(fixture, JSON.stringify({ binary, dbPath, repo, worktree: join(root, "worktree"), ticket: join(root, "ticket.json"), snapshot: join(root, "snapshot.json") }))

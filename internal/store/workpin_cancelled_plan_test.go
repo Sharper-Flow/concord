@@ -27,16 +27,17 @@ func TestWorkPinCancelledClosesPlanSeeksProjectInstances(t *testing.T) {
 	}
 	plan := strings.Join(details, " | ")
 	t.Logf("query plan: %s", plan)
-	if len(details) < 3 || !strings.Contains(details[0], "SEARCH wp USING COVERING INDEX work_projects_by_project (project_id=?)") {
-		t.Fatalf("cancelled closes must start with project membership: %s", plan)
+	want := []string{
+		"SEARCH wp USING COVERING INDEX work_projects_by_project (project_id=?)",
+		"SEARCH wi USING INDEX sqlite_autoindex_workflow_instances_1 (work_id=?)",
+		"SEARCH w USING INDEX sqlite_autoindex_work_items_1 (id=?)",
 	}
-	instanceSeek := -1
-	for i, detail := range details {
-		if strings.Contains(detail, "SEARCH wi USING INDEX sqlite_autoindex_workflow_instances_1 (work_id=?)") {
-			instanceSeek = i
+	if len(details) != len(want) {
+		t.Fatalf("cancelled closes must read project memberships, then key-probe instances and work items: %s", plan)
+	}
+	for i := range want {
+		if !strings.Contains(details[i], want[i]) {
+			t.Fatalf("cancelled closes must read project memberships, then key-probe instances and work items: %s", plan)
 		}
-	}
-	if instanceSeek <= 0 {
-		t.Fatalf("cancelled closes must probe instances by work ID: %s", plan)
 	}
 }

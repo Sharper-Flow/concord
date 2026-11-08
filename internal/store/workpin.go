@@ -165,6 +165,9 @@ func workPinReadIdentityTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 	return nil
 }
 
+// workPinCancelledInstanceClosesSQL uses CROSS JOIN to fix SQLite's join
+// order, so the count reads only the project's memberships and never the
+// store-wide cancelled-instance population.
 const workPinCancelledInstanceClosesSQL = `SELECT COUNT(*) FROM work_projects wp CROSS JOIN workflow_instances wi ON wi.work_id=wp.work_id CROSS JOIN work_items w ON w.id=wp.work_id WHERE wp.project_id=? AND wi.instance_state='cancelled' AND w.lifecycle='completed'`
 
 // workPinReadPlanTx derives the next actions from the current stored plan.

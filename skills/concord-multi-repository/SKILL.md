@@ -1,6 +1,6 @@
 ---
 name: concord-multi-repository
-description: Drive a work item that must edit a second Project in another Git repository. Use when a work item needs a second repository: record its Project membership, place a repository-local session in its isolated worktree, and follow placement and handoff refusals' served recovery.
+description: "Drive a work item that must edit a second Project in another Git repository. Use when a work item needs a second repository: record its Project membership, place a repository-local session in its isolated worktree, and follow placement and handoff refusals' served recovery."
 ---
 
 # Multi-repository work

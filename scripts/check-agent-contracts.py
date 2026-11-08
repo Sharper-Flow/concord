@@ -6,6 +6,11 @@ import shutil, subprocess, sys, tempfile
 from pathlib import Path
 import re
 
+try:
+    import yaml
+except ImportError:  # pragma: no cover - runner images carry PyYAML
+    yaml = None
+
 ROOT = Path(__file__).resolve().parents[1]
 
 _generator_spec = importlib.util.spec_from_file_location("concord_contract_generator", ROOT / "scripts/generate-agent-contracts.py")
@@ -670,8 +675,20 @@ def shipped_skill_inventory_findings(skills_dir: Path) -> list[str]:
 def shipped_skill_content_findings(content: str, *, skill_name: str, commands: set[str], operations: set[str]) -> list[str]:
     """Check portable named surfaces; review still owns the prose's meaning."""
     findings: list[str] = []
-    if not re.match(r"\A---\nname: " + re.escape(skill_name) + r"\ndescription: \S[^\n]{0,1023}\n---\n", content):
+    frontmatter = re.match(r"\A---\n(name: " + re.escape(skill_name) + r"\ndescription: \S[^\n]{0,1023}\n)---\n", content)
+    if not frontmatter:
         findings.append("frontmatter must name the admitted skill and supply its discovery description")
+    elif yaml is None:
+        findings.append("frontmatter valid YAML check requires PyYAML")
+    else:
+        try:
+            description = yaml.safe_load(frontmatter.group(1))["description"]
+        except yaml.YAMLError as exc:
+            findings.append(f"frontmatter must be valid YAML: {exc}")
+        else:
+            # Host skill loaders drop a skill whose description is not a string.
+            if not isinstance(description, str) or not description.strip():
+                findings.append("frontmatter description must load as a non-empty YAML string")
     for number, line in enumerate(content.splitlines(), 1):
         findings.extend(f"line {number}: {label}" for label, pattern in _public_content.PATTERNS if pattern.search(line))
         if any(fragment in line for fragment in _primary_prompts.HOST_TOOL_FRAGMENTS):

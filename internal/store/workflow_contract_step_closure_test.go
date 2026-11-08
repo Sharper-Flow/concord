@@ -25,7 +25,7 @@ func contractlessStepFixture(t *testing.T, id string, planType WorkflowStepPlanT
 	return acceptanceRecoveryFixture{store: s, workID: id, owner: owner}
 }
 
-const contractStepApprovalPayload = `{"legislative_subjects":[],"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`
+const contractStepApprovalPayload = `{"legislative_subjects":[],"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_additions":[],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`
 
 func TestContractStepRefusesWithoutApproval(t *testing.T) {
 	for _, tc := range []struct {

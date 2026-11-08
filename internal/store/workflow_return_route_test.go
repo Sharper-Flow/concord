@@ -65,7 +65,7 @@ func seedWorkflowReturnRouteFixtureWithPlan(t *testing.T, workID string, planTyp
 		// approved affected scope admits both.
 		contractPayload["architecture_binding"] = WorkflowArchitectureBinding{
 			HomeDomainID: "root", AffectedDomainIDs: []string{"root", "product-root:product"},
-			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
+			DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 			VerificationObligations: []WorkflowVerificationObligation{},
 		}
 	}

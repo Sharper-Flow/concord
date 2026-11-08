@@ -142,6 +142,7 @@ func workflowArchitectureBindingFixture() map[string]any {
 	return map[string]any{
 		"home_domain_id":           pm1fixture.FixtureRootDomainID,
 		"affected_domain_ids":      []string{pm1fixture.FixtureRootDomainID},
+		"domain_additions":         []string{},
 		"domain_modifies":          []string{},
 		"domain_relation_modifies": []any{},
 		"law_additions":            []any{},

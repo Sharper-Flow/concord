@@ -110,7 +110,8 @@ func seedWorkContextFixtureWithPlan(t *testing.T, workID string, planType Workfl
 		"law_boundary_version": 1, "consequence_class": "internal_sqlite",
 		"architecture_binding": WorkflowArchitectureBinding{
 			HomeDomainID: workContextTestRoot, AffectedDomainIDs: []string{workContextTestRoot, workContextTestChild},
-			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
+			DomainAdditions: []string{},
+			DomainModifies:  []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
 		},
 	}
 	if planType == WorkflowStepPlanResearch {

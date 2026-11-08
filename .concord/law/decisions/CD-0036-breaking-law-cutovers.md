@@ -81,8 +81,11 @@ An own-home bound law missing from the verified committed snapshot carries
 status `absent`, its law ID, contract roles and obligation IDs, without a title,
 kind, file path or criteria. Reserved additions, including foreign-qualified
 additions, retain only their identity and roles before publication, without an
-`absent` status. Other foreign-home references, missing Domains, and unreadable
-locators for present law files still refuse. Same-operation snapshot
+`absent` status. A Domain declared in the approved contract's `domain_additions`
+remains readable before publication with its identity and status `added`; its
+name and purpose are empty until the registry supplies them. Other foreign-home
+references, missing Domains not declared as additions, and unreadable locators
+for present law files still refuse. Same-operation snapshot
 revalidation remains required. No compatibility decoder or alternate pin list
 replaces the retired contract data.
 

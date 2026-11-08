@@ -43,6 +43,7 @@ type WorkflowLawContextDomain struct {
 	DomainID string `json:"domain_id"`
 	Name     string `json:"name"`
 	Purpose  string `json:"purpose"`
+	Status   string `json:"status,omitempty"`
 }
 
 // Role vocabulary for the law context. The sources overlap — a modified law
@@ -403,13 +404,17 @@ func resolveLawContextDomains(ctx context.Context, tx *sql.Tx, productID string,
 	domains := make([]WorkflowLawContextDomain, 0, len(ordered))
 	for _, domainID := range ordered {
 		var domain WorkflowLawContextDomain
+		found := false
 		for _, entry := range registry.Domains {
 			if entry.DomainID == domainID {
+				found = true
 				domain.Name, domain.Purpose = entry.Name, entry.Purpose
 				break
 			}
 		}
-		if domain.Name == "" && domain.Purpose == "" {
+		if !found && slices.Contains(binding.DomainAdditions, domainID) {
+			domain.Status = "added"
+		} else if !found {
 			failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "bound Domain is missing from the committed Domain registry at the verified snapshot commit", false, "commit the Domain under the registry at the Product knowledge home through an ordinary reviewed pull request")
 			failure.CandidateIDs = []string{domainID}
 			return nil, failure

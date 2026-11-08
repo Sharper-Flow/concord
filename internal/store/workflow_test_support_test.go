@@ -103,7 +103,7 @@ func testApprovalPayload(t testing.TB, s *Store, workID, actionID string, payloa
 		if _, present := fields["architecture_binding"]; !present {
 			fields["architecture_binding"] = WorkflowArchitectureBinding{
 				HomeDomainID: "root", AffectedDomainIDs: []string{"root", "product-root:product"},
-				DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{},
+				DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{},
 				LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
 			}
 		}

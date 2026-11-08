@@ -11,14 +11,14 @@ import (
 
 func TestWorkflowArchitectureBindingStrictShape(t *testing.T) {
 	t.Parallel()
-	valid := `{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
+	valid := `{"home_domain_id":"root","affected_domain_ids":["root"],"domain_additions":[],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
 	var binding WorkflowArchitectureBinding
 	if err := json.Unmarshal([]byte(valid), &binding); err != nil {
 		t.Fatalf("valid binding rejected: %v", err)
 	}
 	for _, malformed := range []string{
-		`{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[],"future":true}`,
-		`{"home_domain_id":"root","affected_domain_ids":null,"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`,
+		`{"home_domain_id":"root","affected_domain_ids":["root"],"domain_additions":[],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[],"future":true}`,
+		`{"home_domain_id":"root","affected_domain_ids":null,"domain_additions":[],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`,
 	} {
 		if err := json.Unmarshal([]byte(malformed), &binding); err == nil {
 			t.Fatalf("malformed binding accepted: %s", malformed)
@@ -28,7 +28,7 @@ func TestWorkflowArchitectureBindingStrictShape(t *testing.T) {
 	if err := json.Unmarshal([]byte(valid), &validObject); err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"home_domain_id", "affected_domain_ids", "domain_modifies", "domain_relation_modifies", "law_additions", "verification_obligations"} {
+	for _, field := range []string{"home_domain_id", "affected_domain_ids", "domain_additions", "domain_modifies", "domain_relation_modifies", "law_additions", "verification_obligations"} {
 		for _, mode := range []string{"missing", "null"} {
 			candidate := map[string]any{}
 			for key, value := range validObject {
@@ -54,6 +54,33 @@ func TestWorkflowArchitectureBindingStrictShape(t *testing.T) {
 		LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
 	}); err == nil {
 		t.Fatal("non-canonical symmetric relation accepted")
+	}
+}
+
+func TestArchitectureBindingProjectionHashIncludesDomainAdditions(t *testing.T) {
+	base := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root", "new-a", "new-b"}}
+	added := base
+	added.DomainAdditions = []string{"new-a", "new-b"}
+	if architectureBindingProjectionHash(base) == architectureBindingProjectionHash(added) {
+		t.Fatal("domain additions do not affect projection hash")
+	}
+	reordered := added
+	reordered.DomainAdditions = []string{"new-b", "new-a"}
+	if architectureBindingProjectionHash(added) != architectureBindingProjectionHash(reordered) {
+		t.Fatal("domain addition order changed projection hash")
+	}
+}
+
+func TestArchitectureBindingRejectsRegisteredDomainAdditionsAtAnyStatus(t *testing.T) {
+	for _, status := range []string{"current", "retired"} {
+		t.Run(status, func(t *testing.T) {
+			registry := KnowledgeDomainRegistry{Domains: []KnowledgeDomain{{DomainID: "domain:existing", Status: status}}}
+			err := validateArchitectureBindingDomainsTx(registry, map[string]struct{}{"domain:existing": {}}, []string{"domain:existing"})
+			var failure *Failure
+			if !failureAs(err, &failure) || failure.Kind != KindProjectionConflict {
+				t.Fatalf("registered %s Domain addition: %v; want projection conflict", status, err)
+			}
+		})
 	}
 }
 
@@ -83,7 +110,7 @@ func approveQualifiedAdditionAtSeam(t *testing.T, s *Store, workID string, manda
 	}
 	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
 	version := readWorkVersion(t, s, workID)
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: additions, VerificationObligations: []WorkflowVerificationObligation{}}
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: additions, VerificationObligations: []WorkflowVerificationObligation{}}
 	fields := map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "legislative_subjects": []string{}, "spec_mandate": mandate, "law_modifies": []string{}, "law_boundary_version": 1, "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	}
@@ -296,7 +323,7 @@ func architectureValidationFixture(t *testing.T, workID string) (*Store, Workflo
 	seedWorkflowLaw(t, s)
 	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
 	commitWorkflowFixtureRegistry(t, home, workflowArchitectureFixtureRegistry)
-	binding := WorkflowArchitectureBinding{HomeDomainID: "child", AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{"child"}, DomainRelationModifies: []WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}}
+	binding := WorkflowArchitectureBinding{HomeDomainID: "child", AffectedDomainIDs: []string{"root", "child"}, DomainAdditions: []string{}, DomainModifies: []string{"child"}, DomainRelationModifies: []WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}}
 	return s, WorkflowStepPlanChange, binding, []string{"spec:one"}
 }
 
@@ -602,7 +629,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	}
 	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
 	version := readWorkVersion(t, s, workID)
-	binding := WorkflowArchitectureBinding{HomeDomainID: "child", AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{"child"}, DomainRelationModifies: []WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}}
+	binding := WorkflowArchitectureBinding{HomeDomainID: "child", AffectedDomainIDs: []string{"root", "child"}, DomainAdditions: []string{}, DomainModifies: []string{"child"}, DomainRelationModifies: []WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "depends_on", TargetDomainID: "root"}}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}}
 	event := workflowEventWithActor("architecture-binding-approval", WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "legislative_subjects": []string{}, "spec_mandate": []string{"spec:one", "law:new"}, "law_modifies": []string{}, "law_boundary_version": 1, "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})
@@ -729,7 +756,7 @@ func TestProductChangingApprovalMissingBindingIsAtomic(t *testing.T) {
 	version := readWorkVersion(t, s, workID)
 	fields := map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "legislative_subjects": []string{}, "spec_mandate": []string{}, "law_modifies": []string{}, "law_boundary_version": 1, "consequence_class": "internal_sqlite",
-		"architecture_binding": WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}},
+		"architecture_binding": WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}},
 	}
 	for _, omitted := range []string{"spec_mandate", "law_modifies", "architecture_binding"} {
 		candidate := map[string]any{}

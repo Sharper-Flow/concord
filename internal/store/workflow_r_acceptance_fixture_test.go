@@ -37,7 +37,8 @@ func rReviseContract(t *testing.T, s *Store, workID, actorRef string) {
 	// the committed registry's Product root for root-scope selections.
 	successor["architecture_binding"] = WorkflowArchitectureBinding{
 		HomeDomainID: "root", AffectedDomainIDs: []string{"root", "product-root:product"},
-		DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
+		DomainAdditions: []string{},
+		DomainModifies:  []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 		VerificationObligations: []WorkflowVerificationObligation{},
 	}
 	if err := reviseContractRecord(t, s, workID, actor, successor, version); err != nil {

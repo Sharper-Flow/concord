@@ -49,7 +49,7 @@ func TestInvokeResearchArchitectureBindingCorrection(t *testing.T) {
 		"legislative_subjects": []string{},
 		"architecture_binding": map[string]any{
 			"home_domain_id": "root", "affected_domain_ids": []string{"root"},
-			"domain_modifies": []string{}, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{},
+			"domain_additions": []string{}, "domain_modifies": []string{}, "domain_relation_modifies": []any{}, "law_additions": []any{}, "verification_obligations": []any{},
 		},
 	}
 	before := snapshot()

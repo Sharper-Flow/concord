@@ -269,6 +269,7 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
     architecture_binding: {
       home_domain_id: `product-root:${PRODUCT_ID}`,
       affected_domain_ids: [`product-root:${PRODUCT_ID}`],
+      domain_additions: [],
       domain_modifies: [],
       domain_relation_modifies: [],
       law_additions: [],

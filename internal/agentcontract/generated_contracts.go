@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:e7ec5868da06c5f8a199a71c9d367a363583e4669af9faae8a5de3fa6a5acfc1"
+const ManifestDigest = "sha256:24d84ccf56960956ddcc2777ef2d160c4f4296c2f580984da0dd52a9acd3dd37"
 
 type OperationKind string
 
@@ -72,7 +72,7 @@ type GeneratedPayloadRule struct {
 }
 
 var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
-	"architecture_binding":                                {Required: []string{"home_domain_id", "affected_domain_ids", "domain_modifies", "domain_relation_modifies", "law_additions", "verification_obligations"}, Properties: []string{"home_domain_id", "affected_domain_ids", "domain_modifies", "domain_relation_modifies", "law_additions", "verification_obligations"}},
+	"architecture_binding":                                {Required: []string{"home_domain_id", "affected_domain_ids", "domain_additions", "domain_modifies", "domain_relation_modifies", "law_additions", "verification_obligations"}, Properties: []string{"home_domain_id", "affected_domain_ids", "domain_additions", "domain_modifies", "domain_relation_modifies", "law_additions", "verification_obligations"}},
 	"boot_handoff_reference":                              {Required: []string{"projection_omitted", "digest", "total_bytes", "read_pointer", "projection_path"}, Properties: []string{"projection_omitted", "digest", "total_bytes", "projection_path", "read_pointer"}},
 	"boot_resume_reference":                               {Required: []string{"projection_omitted", "digest", "total_bytes", "read_pointer"}, Properties: []string{"projection_omitted", "digest", "total_bytes", "read_pointer"}},
 	"domain_detail_input":                                 {Required: []string{"product_id", "domain_id"}, Properties: []string{"product_id", "domain_id", "requested_budget_seconds"}},
@@ -157,7 +157,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_design_decision":                            {Required: []string{"id", "question", "choice", "rationale", "rejected"}, Properties: []string{"id", "question", "choice", "rationale", "rejected"}},
 	"workflow_forward_relation":                           {Required: []string{"kind"}, Properties: []string{"kind", "class", "severity"}},
 	"workflow_law_context":                                {Required: []string{"laws", "domains"}, Properties: []string{"laws", "domains", "registry_path"}},
-	"workflow_law_context_domain":                         {Required: []string{"domain_id", "name", "purpose"}, Properties: []string{"domain_id", "name", "purpose"}},
+	"workflow_law_context_domain":                         {Required: []string{"domain_id", "name", "purpose"}, Properties: []string{"domain_id", "name", "purpose", "status"}},
 	"workflow_law_context_law":                            {Required: []string{"roles", "law_id"}, Properties: []string{"roles", "law_id", "obligation_ids", "kind", "status", "title", "path"}},
 	"workflow_plan_attempt":                               {Required: []string{"note", "completed_at"}, Properties: []string{"note", "completed_at", "completion_seq", "actor", "reviewer", "result", "commit", "link"}},
 	"workflow_plan_step":                                  {Required: []string{"id", "required", "after", "reviewed"}, Properties: []string{"id", "required", "after", "skill", "helper", "reviewed", "reason", "attempts"}},

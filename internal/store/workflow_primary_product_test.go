@@ -45,7 +45,7 @@ func crossProductBindingApproval(t *testing.T, s *Store, workID string, actor Wo
 	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
 	version := readWorkVersion(t, s, workID)
 	version = issue31WorkflowActionWithPayload(t, s, workID, version, "record_plan", "cross-product-"+workID+"-plan", actor, json.RawMessage(testWorkflowPlanDocument))
-	approval := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
+	approval := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_additions":[],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
 	issue31WorkflowActionWithPayload(t, s, workID, version, "approve_contract", "cross-product-"+workID+"-approve", actor, approval)
 }
 
@@ -78,7 +78,7 @@ func TestWorkflowBindingProductFollowsThePrimaryMembership(t *testing.T) {
 	if productID != "product" {
 		t.Fatalf("binding Product = %q, want the primary Product product", productID)
 	}
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 	if err := validateArchitectureBindingTx(ctx, tx, workID, WorkflowStepPlanChange, &binding, []string{}, []string{}); err != nil {
 		t.Fatalf("cross-Product work refused architecture binding validation: %v", err)
 	}

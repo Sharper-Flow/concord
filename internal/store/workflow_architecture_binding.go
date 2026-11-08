@@ -27,6 +27,7 @@ const (
 type WorkflowArchitectureBinding struct {
 	HomeDomainID            string                               `json:"home_domain_id"`
 	AffectedDomainIDs       []string                             `json:"affected_domain_ids"`
+	DomainAdditions         []string                             `json:"domain_additions"`
 	DomainModifies          []string                             `json:"domain_modifies"`
 	DomainRelationModifies  []WorkflowDomainRelationModification `json:"domain_relation_modifies"`
 	LawAdditions            []WorkflowLawAddition                `json:"law_additions"`
@@ -64,7 +65,7 @@ func (b *WorkflowArchitectureBinding) UnmarshalJSON(data []byte) error {
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		return fmt.Errorf("architecture_binding contains trailing data")
 	}
-	if decoded.AffectedDomainIDs == nil || decoded.DomainModifies == nil || decoded.DomainRelationModifies == nil || decoded.LawAdditions == nil || decoded.VerificationObligations == nil {
+	if decoded.AffectedDomainIDs == nil || decoded.DomainAdditions == nil || decoded.DomainModifies == nil || decoded.DomainRelationModifies == nil || decoded.LawAdditions == nil || decoded.VerificationObligations == nil {
 		return fmt.Errorf("architecture_binding arrays must be explicitly present and non-null")
 	}
 	if err := validateWorkflowArchitectureBindingShape(WorkflowArchitectureBinding(decoded)); err != nil {
@@ -89,10 +90,10 @@ func parseWorkflowArchitectureBinding(raw json.RawMessage) (*WorkflowArchitectur
 }
 
 func validateWorkflowArchitectureBindingShape(binding WorkflowArchitectureBinding) error {
-	if !validDomainBindingID(binding.HomeDomainID) || len(binding.AffectedDomainIDs) == 0 || len(binding.AffectedDomainIDs) > workflowArchitectureBindingMaxDomains || len(binding.DomainModifies) > workflowArchitectureBindingMaxDomains || len(binding.DomainRelationModifies) > workflowArchitectureBindingMaxRelations || len(binding.LawAdditions) > workflowArchitectureBindingMaxLawAdditions || len(binding.VerificationObligations) > workflowArchitectureBindingMaxObligations {
+	if !validDomainBindingID(binding.HomeDomainID) || len(binding.AffectedDomainIDs) == 0 || len(binding.AffectedDomainIDs) > workflowArchitectureBindingMaxDomains || len(binding.DomainAdditions) > workflowArchitectureBindingMaxDomains || len(binding.DomainModifies) > workflowArchitectureBindingMaxDomains || len(binding.DomainRelationModifies) > workflowArchitectureBindingMaxRelations || len(binding.LawAdditions) > workflowArchitectureBindingMaxLawAdditions || len(binding.VerificationObligations) > workflowArchitectureBindingMaxObligations {
 		return newFailure(KindInvalidPayload, "workflow_architecture_binding", "architecture binding identity or bounds are invalid", false, "supply bounded non-empty Domain and law binding fields")
 	}
-	if !uniqueDomainBindingIDs(binding.AffectedDomainIDs) || !uniqueDomainBindingIDs(binding.DomainModifies) {
+	if !uniqueDomainBindingIDs(binding.AffectedDomainIDs) || !uniqueDomainBindingIDs(binding.DomainAdditions) || !uniqueDomainBindingIDs(binding.DomainModifies) {
 		return newFailure(KindInvalidPayload, "workflow_architecture_binding", "architecture binding Domain lists contain duplicates or invalid IDs", false, "supply unique bounded Domain IDs")
 	}
 	seenRelations := map[string]struct{}{}
@@ -164,10 +165,10 @@ func uniqueDomainBindingIDs(values []string) bool {
 const workflowLawAdditionMandateTeaching = "Every law addition must be authorized by spec_mandate of the contract being approved and must stay disjoint from law modifications and existing law; the store refuses an addition outside the mandate."
 
 // workflowArchitectureDomainTeaching states the Domain-membership rule the
-// binding guards above enforce: added and modified law must name a home
-// Domain that exists in the current domain registry, and Domain relation
-// modifications must use current canonical relations.
-const workflowArchitectureDomainTeaching = "Architecture bindings must name Domains that exist in the current domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+// binding guards enforce: additions are explicit and absent from the registry,
+// each has a homed law addition, other affected Domains are current, and
+// Domain relation modifications use current canonical relations.
+const workflowArchitectureDomainTeaching = "Architecture bindings must declare new Domains in domain_additions, include them in affected_domain_ids, and home at least one added law in each; additions must be absent from the registry and disjoint from domain_modifies. Every other affected Domain must be current, every added or modified law must have an affected home, and modified relations must be current canonical tuples."
 
 // architectureBindingCurrentMandate returns the mandated references the
 // contract still owes as committed current law: every mandate entry whose
@@ -236,11 +237,13 @@ func WorkflowContractTeachingRules() WorkflowContractTeaching {
 func architectureBindingProjectionHash(binding WorkflowArchitectureBinding) string {
 	canonical := binding
 	canonical.AffectedDomainIDs = append([]string(nil), binding.AffectedDomainIDs...)
+	canonical.DomainAdditions = append([]string(nil), binding.DomainAdditions...)
 	canonical.DomainModifies = append([]string(nil), binding.DomainModifies...)
 	canonical.DomainRelationModifies = append([]WorkflowDomainRelationModification(nil), binding.DomainRelationModifies...)
 	canonical.LawAdditions = append([]WorkflowLawAddition(nil), binding.LawAdditions...)
 	canonical.VerificationObligations = append([]WorkflowVerificationObligation(nil), binding.VerificationObligations...)
 	sort.Strings(canonical.AffectedDomainIDs)
+	sort.Strings(canonical.DomainAdditions)
 	sort.Strings(canonical.DomainModifies)
 	sort.Slice(canonical.DomainRelationModifies, func(i, j int) bool {
 		return relationBindingKey(canonical.DomainRelationModifies[i]) < relationBindingKey(canonical.DomainRelationModifies[j])
@@ -275,6 +278,14 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 	if _, ok := affected[binding.HomeDomainID]; !ok {
 		return newFailure(KindInvalidPayload, "workflow_architecture_binding", "home Domain is not in affected_domain_ids", false, "include the home Domain in the affected set")
 	}
+	for _, domainID := range binding.DomainAdditions {
+		if _, ok := affected[domainID]; !ok {
+			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "domain_additions contains a Domain outside affected_domain_ids", false, "add only affected Domains")
+		}
+		if slices.Contains(binding.DomainModifies, domainID) {
+			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "domain_additions overlaps domain_modifies", false, "choose addition or modification for each Domain")
+		}
+	}
 	if err := validateLawModificationSubset(specMandate, lawModifies); err != nil {
 		return err
 	}
@@ -306,7 +317,7 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 	if err != nil {
 		return err
 	}
-	if err := validateArchitectureBindingDomainsTx(registry, affected); err != nil {
+	if err := validateArchitectureBindingDomainsTx(registry, affected, binding.DomainAdditions); err != nil {
 		return err
 	}
 	if err := validateArchitectureBindingRelationsTx(registry, affected, binding.DomainRelationModifies); err != nil {
@@ -317,6 +328,11 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 	}
 	if err := validateArchitectureBindingLawAdditionsTx(snapshot, homeProjectID, affected, binding.LawAdditions, specMandate, lawModifies); err != nil {
 		return err
+	}
+	for _, domainID := range binding.DomainAdditions {
+		if !slices.ContainsFunc(binding.LawAdditions, func(law WorkflowLawAddition) bool { return law.HomeDomainID == domainID }) {
+			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "Domain addition has no homed law addition: "+domainID, false, "home at least one added law in each added Domain")
+		}
 	}
 	remaining, err := architectureBindingCurrentMandate(specMandate, homeProjectID, binding.LawAdditions)
 	if err != nil {
@@ -366,17 +382,21 @@ func architectureBindingProductID(ctx context.Context, q queryer, workID string)
 	return productIDs[0], nil
 }
 
-// validateArchitectureBindingDomainsTx refuses affected Domains the verified
-// committed registry does not declare current. The registry is the snapshot's
-// own, so a named Domain is never stale against a projection: it is present
-// and current, or absent.
-func validateArchitectureBindingDomainsTx(registry KnowledgeDomainRegistry, affected map[string]struct{}) error {
+// validateArchitectureBindingDomainsTx checks explicit additions against all
+// registry statuses and requires every other affected Domain to be current.
+func validateArchitectureBindingDomainsTx(registry KnowledgeDomainRegistry, affected map[string]struct{}, additions []string) error {
 	statuses := make(map[string]string, len(registry.Domains))
 	for _, domain := range registry.Domains {
 		statuses[domain.DomainID] = domainRegistryStatus(domain.Status)
 	}
 	for domainID := range affected {
 		status, ok := statuses[domainID]
+		if slices.Contains(additions, domainID) {
+			if ok {
+				return newFailure(KindProjectionConflict, "workflow_architecture_binding", "Domain addition already exists: "+domainID, false, "modify the registered Domain or choose a new ID")
+			}
+			continue
+		}
 		if !ok {
 			return newFailure(KindInvalidPayload, "workflow_architecture_binding", "architecture_binding.affected_domain_ids names an unknown Domain: "+domainID, false, "name a current Domain in the Product registry")
 		}
@@ -562,6 +582,11 @@ func persistWorkflowArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workI
 			return workflowProjectionError(err, "cannot record affected Domain")
 		}
 	}
+	for _, domainID := range binding.DomainAdditions {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contract_domain_additions(work_id,contract_version,domain_id) VALUES(?,?,?)`, workID, contractVersion, domainID); err != nil {
+			return workflowProjectionError(err, "cannot record added Domain")
+		}
+	}
 	for _, domainID := range binding.DomainModifies {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contract_domain_modifications(work_id,contract_version,domain_id) VALUES(?,?,?)`, workID, contractVersion, domainID); err != nil {
 			return workflowProjectionError(err, "cannot record modified Domain")
@@ -636,12 +661,16 @@ func readWorkflowArchitectureBinding(ctx context.Context, q interface {
 		return nil, wrapFailure(KindUnavailable, "workflow_read", "cannot read workflow architecture binding", true, "retry once the workflow projection is readable", err)
 	}
 	binding.AffectedDomainIDs = []string{}
+	binding.DomainAdditions = []string{}
 	binding.DomainModifies = []string{}
 	binding.DomainRelationModifies = []WorkflowDomainRelationModification{}
 	binding.LawAdditions = []WorkflowLawAddition{}
 	binding.VerificationObligations = []WorkflowVerificationObligation{}
 	var err error
 	if binding.AffectedDomainIDs, err = readWorkflowBindingStringList(ctx, q, `SELECT domain_id FROM workflow_contract_affected_domains WHERE work_id=? AND contract_version=? ORDER BY domain_id`, workID, contractVersion); err != nil {
+		return nil, err
+	}
+	if binding.DomainAdditions, err = readWorkflowBindingStringList(ctx, q, `SELECT domain_id FROM workflow_contract_domain_additions WHERE work_id=? AND contract_version=? ORDER BY domain_id`, workID, contractVersion); err != nil {
 		return nil, err
 	}
 	if binding.DomainModifies, err = readWorkflowBindingStringList(ctx, q, `SELECT domain_id FROM workflow_contract_domain_modifications WHERE work_id=? AND contract_version=? ORDER BY domain_id`, workID, contractVersion); err != nil {

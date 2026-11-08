@@ -44,7 +44,7 @@ func TestSmallFixPreparationDepthNeedsNoArchitectureDocument(t *testing.T) {
 			act("complete_step", map[string]any{"step_id": "clarify", "note": "Clarification complete."})
 			act("approve_contract", map[string]any{
 				"legislative_subjects": []string{},
-				"architecture_binding": WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}},
+				"architecture_binding": WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}},
 			})
 			if workflowPlanFixtureFrontier(t, s, workID) != "plan" {
 				t.Fatal("approving the contract advanced the plan frontier")

@@ -49,7 +49,7 @@ func TestPlanCompleteContractlessItemHasApprovalRoute(t *testing.T) {
 	if !workPinContainsAction(pin.NextValidIntents, "approve_contract") {
 		t.Fatalf("completed-plan pin intents omit approve_contract: %v", pin.NextValidIntents)
 	}
-	approval := json.RawMessage(`{"legislative_subjects":[],"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
+	approval := json.RawMessage(`{"legislative_subjects":[],"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_additions":[],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
 	assertCompletedPlanOwner(t, s, id, "approve_contract", "list", pin.Version, route.owner, approval)
 	if approveErr := f.run(t.Context(), "approve_contract", "approve-after-complete", f.version(t.Context(), t), approval, nil); approveErr != nil {
 		t.Fatalf("plan-complete contract approval refused: %v", approveErr)
@@ -167,7 +167,7 @@ func TestApproveContractStaysFrontierBoundBeforePlanComplete(t *testing.T) {
 	f := acceptanceRecoveryFixture{store: route.store, workID: id, owner: route.owner}
 	removeFixtureWorkflowContract(t, route.store, id)
 
-	err := f.run(t.Context(), "approve_contract", "approve-midplan", f.version(t.Context(), t), json.RawMessage(`{"legislative_subjects":[],"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`), nil)
+	err := f.run(t.Context(), "approve_contract", "approve-midplan", f.version(t.Context(), t), json.RawMessage(`{"legislative_subjects":[],"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_additions":[],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`), nil)
 	if !hasFailureKind(err, KindIllegalLifecycleTransition) || !strings.Contains(errDetail(err), "action is not declared on a frontier step") {
 		t.Fatalf("mid-plan approval refusal=%v, want the frontier bound", err)
 	}

@@ -9303,6 +9303,15 @@ CREATE TRIGGER workflow_contract_domain_additions_guard_update BEFORE UPDATE ON 
 CREATE TRIGGER workflow_contract_domain_additions_guard_delete BEFORE DELETE ON workflow_contract_domain_additions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_domain_additions is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version: 193, Name: "retire_redundant_indexes", Breaking: false,
+		SQL: `
+DROP INDEX work_removal_operations_work;
+DROP INDEX workflow_design_records_latest;
+DROP INDEX workflow_proposal_records_latest;
+DROP INDEX workflow_native_runs_work;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

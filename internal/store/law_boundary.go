@@ -628,7 +628,7 @@ func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeL
 	anyQualified := false
 	for _, id := range mandated {
 		if _, _, qualified, parseErr := parseQualifiedKnowledgeID("check_mandated_laws", id); parseErr != nil {
-			return parseErr
+			return newFailure(KindInvalidFilter, "check_mandated_laws", "spec_mandate contains a malformed law reference", false, "use a bare law ID or project_id/law_id in spec_mandate; put repository paths in record_plan.touches and scope prose in the plan or intent")
 		} else if qualified {
 			anyQualified = true
 		}
@@ -778,7 +778,7 @@ func mandatedLawProjectionFailure(ctx context.Context, q queryer, sources []Know
 		details = append(details, "mandated records are archived notes, not law files in the committed law folder: "+strings.Join(nonaccepted, ","))
 	}
 	details = append(details, "checked law snapshot commits: "+strings.Join(commits, ","))
-	failure := newFailure(KindProjectionNotFound, "check_mandated_laws", strings.Join(details, "; "), false, "verify the mandate IDs against the committed law folder at the checked snapshot commit; publish missing law through an ordinary reviewed pull request, or revise the contract to remove an unrelated missing mandate; completion permits an absent law only when the active contract declares it in law_modifies")
+	failure := newFailure(KindProjectionNotFound, "check_mandated_laws", strings.Join(details, "; "), false, "verify each spec_mandate law ID against the committed law folder at the checked snapshot commit; put repository paths in record_plan.touches and scope prose in the plan or intent; publish missing law through an ordinary reviewed pull request, or revise the contract to remove an unrelated missing mandate; completion permits an absent law only when the active contract declares it in law_modifies")
 	failure.CandidateIDs = missing
 	return failure
 }

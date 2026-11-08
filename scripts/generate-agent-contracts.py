@@ -315,7 +315,7 @@ def load_workflow_action_contracts() -> tuple[list[dict], dict, dict, list[dict]
         if not isinstance(refs, list) or any(not isinstance(ref, str) or not ref for ref in refs) or len(set(refs)) != len(refs) or refs != sorted(refs):
             fail(f"workflow action contract projection {side} schema refs are not a sorted unique name list")
     teaching = projection["teaching"]
-    if set(teaching) != {"law_addition_mandate_rule", "obligation_membership_rule", "architecture_domain_rule", "alignment_combination_rule"}:
+    if set(teaching) != {"spec_mandate_rule", "law_addition_mandate_rule", "obligation_membership_rule", "architecture_domain_rule", "alignment_combination_rule"}:
         fail("workflow action contract projection carries no guard-owned teaching rules")
     for rule in teaching.values():
         if not isinstance(rule, str) or not rule.strip():
@@ -736,6 +736,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], teaching
     # whose rules a schema range cannot encode; the values come from the store
     # projection beside the enforcing guards.
     field_teaching = {
+        "spec_mandate": teaching["spec_mandate_rule"],
         "law_additions": teaching["law_addition_mandate_rule"],
         "related_ids": teaching["alignment_combination_rule"],
         "architecture_binding": teaching["architecture_domain_rule"],

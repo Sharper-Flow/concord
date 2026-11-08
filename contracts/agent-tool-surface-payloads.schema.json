@@ -4318,7 +4318,7 @@
               },
               "minItems": 0,
               "maxItems": 32,
-              "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
+              "description": "spec_mandate lists governing or authorized law IDs as a bare law_id or project_id/law_id; an empty list is legal when no referenced law applies. Put repository paths in record_plan.touches and scope prose in the plan or intent. Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
               "examples": [
                 []
               ]
@@ -5384,7 +5384,7 @@
           },
           "minItems": 0,
           "maxItems": 32,
-          "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
+          "description": "spec_mandate lists governing or authorized law IDs as a bare law_id or project_id/law_id; an empty list is legal when no referenced law applies. Put repository paths in record_plan.touches and scope prose in the plan or intent. Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
           "examples": [
             []
           ]

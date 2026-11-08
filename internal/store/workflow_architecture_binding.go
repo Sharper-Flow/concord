@@ -205,6 +205,7 @@ const workflowObligationMembershipTeaching = "Evidence obligations must name a k
 // renders these strings into the published schema; no second policy enforces
 // them.
 type WorkflowContractTeaching struct {
+	SpecMandateRule string `json:"spec_mandate_rule"`
 	// LawAdditionMandateRule states the mandate subset and disjointness the
 	// law boundary and architecture-binding guards enforce.
 	LawAdditionMandateRule string `json:"law_addition_mandate_rule"`
@@ -222,6 +223,7 @@ type WorkflowContractTeaching struct {
 // consuming each guard-site constant directly.
 func WorkflowContractTeachingRules() WorkflowContractTeaching {
 	return WorkflowContractTeaching{
+		SpecMandateRule:          "spec_mandate lists governing or authorized law IDs as a bare law_id or project_id/law_id; an empty list is legal when no referenced law applies. Put repository paths in record_plan.touches and scope prose in the plan or intent.",
 		LawAdditionMandateRule:   workflowLawAdditionMandateTeaching,
 		ObligationMembershipRule: workflowObligationMembershipTeaching,
 		ArchitectureDomainRule:   workflowArchitectureDomainTeaching,

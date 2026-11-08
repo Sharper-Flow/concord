@@ -68,6 +68,9 @@ SKILL_REFERENCES = {
         "repository_mode": ".concord/law/decisions/CD-0255-per-project-repository-mode.md",
     },
     # Portable engineering methods (CD-0246 D1 and D3).
+    "concord-diagram-writing": {
+        "admission": ".concord/law/decisions/CD-0246-concord-ships-portable-engineering-methods.md",
+    },
     "concord-ui-design": {
         "admission": ".concord/law/decisions/CD-0246-concord-ships-portable-engineering-methods.md",
         "approval": ".concord/law/decisions/CD-0243-four-roles-and-six-operator-approval-classes.md",

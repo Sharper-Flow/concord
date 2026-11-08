@@ -16,6 +16,7 @@ Apply [the operator boundary and Concord deletion exemption](https://github.com/
 Choose the smallest view that makes the key point clear: a tree, diff sketch,
 short call flow or, when smaller, prose. Keep only the boundaries and details
 the reader needs. Put each visual beside the explanation it supports.
+For choosing, writing or reviewing a diagram, load `concord-diagram-writing`.
 
 Include one non-closing Related to line naming the recorded issue key under
 [planning authority](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md).

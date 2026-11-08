@@ -68,6 +68,7 @@ Domains when useful to explain an interaction, using their exact registry IDs.
 An explanatory flow diagram is not another governed relationship graph: label
 boxes, arrows, and scope, and prefer C4 context and container views only when
 they clarify an answer. A small system may use a paragraph and a list instead.
+For choosing, writing or reviewing a diagram, load `concord-diagram-writing`.
 
 ### Domain reference
 

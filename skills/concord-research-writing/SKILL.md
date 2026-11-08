@@ -23,6 +23,7 @@ diagnostic commands and exit codes where used. Label partial inventories. Keep
 observations separate from inferences; show conflicting evidence rather than
 averaging it away. Name remaining uncertainty, gaps and decisions the caller
 must make.
+For choosing, writing or reviewing a diagram, load `concord-diagram-writing`.
 
 ## Leave a retraceable record
 

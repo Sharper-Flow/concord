@@ -253,23 +253,6 @@ func foldWorkflowStepInserted(ctx context.Context, tx *sql.Tx, event Event) erro
 	if plan == nil {
 		return newFailure(KindInvalidOperation, "fold_event", "workflow has no plan", false, "pick a workflow type")
 	}
-	seen := map[string]bool{}
-	var reviewedAncestor func(string) bool
-	reviewedAncestor = func(id string) bool {
-		if seen[id] {
-			return false
-		}
-		seen[id] = true
-		step, found := stepByID(plan.Steps, id)
-		if !found {
-			return false
-		}
-		if step.Reviewed {
-			return true
-		}
-		return slices.ContainsFunc(step.After, reviewedAncestor)
-	}
-	p.Reviewed = p.Reviewed || slices.ContainsFunc(p.After, reviewedAncestor)
 	plan.Steps = append(plan.Steps, WorkflowPlanStep{ID: p.ID, After: p.After, Skill: p.Skill, Helper: p.Helper, Reviewed: p.Reviewed, Reason: p.Reason})
 	return writeWorkflowPlanTx(ctx, tx, event.SubjectID, *plan)
 }

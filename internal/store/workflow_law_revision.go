@@ -65,8 +65,9 @@ const (
 // every role it carries; missing own-home laws retain their identity and
 // roles with status absent, except reserved additions, which carry identity
 // and roles only, including foreign-qualified additions. Other foreign-home
-// references and missing Domains refuse. Every advertised file locator must
-// open inside the knowledge home.
+// references refuse. Declared Domain additions missing from the registry carry
+// status added; missing Domains not declared as additions refuse. Every
+// advertised file locator must open inside the knowledge home.
 func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, contract *WorkflowReadContract) (*WorkflowLawContext, error) {
 	if contract == nil {
 		return nil, nil
@@ -379,6 +380,8 @@ func resolveLawContextSubjects(ctx context.Context, homeProjectID, homeLocatorID
 
 // resolveLawContextDomains resolves the binding's home Domain first, then its
 // affected Domains in ID order, from the verified committed Domain registry.
+// Declared additions missing from the registry carry status added; missing
+// Domains not declared as additions refuse.
 func resolveLawContextDomains(ctx context.Context, tx *sql.Tx, productID string, binding WorkflowArchitectureBinding) ([]WorkflowLawContextDomain, error) {
 	home, err := resolveKnowledgeQueryHome(ctx, tx, productID, "read_workflow_law_context")
 	if err != nil {

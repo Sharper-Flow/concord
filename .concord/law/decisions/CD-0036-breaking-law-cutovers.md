@@ -109,6 +109,8 @@ replaces the retired contract data.
   contract-freshness refusal.
 - Current-law identity, Domain scope and evidence dependencies retain their own
   checks.
+- `internal/store.TestFirstCallApproveContractAdmitsAddedDomainWithLaw` proves
+  D6's added-Domain read representation before publication.
 - `internal/store.TestLawAttributionStateRetired` proves obsolete attribution
   state is absent. `internal/store.TestLawAttributionVerifiedSnapshotUpgrade`
   proves the destructive upgrade preserves a verified predecessor snapshot and

@@ -27,7 +27,7 @@ func TestResearchRetirementUpgradePreservesVerifiedExportAndSnapshot(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(report.Applied, []int{183, 184, 185, 186, 187, 188, 189, 190, 191, 192}) || report.ResearchExport != snapshot+".research" {
+	if !slices.Equal(report.Applied, []int{183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193}) || report.ResearchExport != snapshot+".research" {
 		t.Fatalf("upgrade = %+v", report)
 	}
 	if err := VerifyResearchExport(t.Context(), snapshot, report.ResearchExport); err != nil {

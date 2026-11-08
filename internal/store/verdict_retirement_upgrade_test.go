@@ -187,7 +187,7 @@ func TestOutcomeRetirementPreservesAllContractVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{185, 186, 187, 188, 189, 190, 191, 192}) {
+	if !reflect.DeepEqual(report.Applied, []int{185, 186, 187, 188, 189, 190, 191, 192, 193}) {
 		t.Fatalf("applied = %v", report.Applied)
 	}
 	if after := retainedContractRows(t, db); !reflect.DeepEqual(retained, after) {
@@ -413,7 +413,7 @@ func TestOutcomeRetirementEvidenceDeclarationsRequireSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upgrade of contracts without outcome rows: %v", err)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{185, 186, 187, 188, 189, 190, 191, 192}) {
+	if !reflect.DeepEqual(report.Applied, []int{185, 186, 187, 188, 189, 190, 191, 192, 193}) {
 		t.Fatalf("applied = %v", report.Applied)
 	}
 	var subjects string

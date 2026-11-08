@@ -298,12 +298,13 @@ Every replay path reads the same authoritative result owner.
 
 Legacy idempotency records written before response snapshotting may replay the
 valid, complete original result from the immutable owner with no new effect.
-When a legacy workflow record retains no original WorkPin
-([CD-0113](../decisions/CD-0113-mutation-results-carry-a-workpin.md)), that
-mutation result is unrecoverable; the core must not reconstruct or substitute a
-subsequent pin. Replaying such a record returns `malformed_response` with
+When a legacy record retains neither an original WorkPin nor facts establishing
+a permitted omission under [CD-0113](../decisions/CD-0113-mutation-results-carry-a-workpin.md),
+that mutation result is unrecoverable; the core must not reconstruct or substitute
+a subsequent pin or invent omission facts. Replaying such a record returns `malformed_response` with
 `contact_operator`, `retry_safe=false`, and `effect_state=possible`. The refusal
-states that the original pin was not retained and directs the caller to inspect
+states that the original pin or facts establishing a permitted omission were not
+retained and directs the caller to inspect
 current state through `concord_work_trace.resume` (or `concord_work_browse.list`
 scoped to the work IDs when the work is no longer resumable). Current-state
 inspection does not reconstruct the original response or authorize repeating the

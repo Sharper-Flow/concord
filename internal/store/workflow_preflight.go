@@ -850,6 +850,10 @@ func validateWorkflowPayloadStringList(field WorkflowPayloadField, value any) bo
 		if !ok || !validWorkflowPayloadListItem(field.ItemRef, text) || len(field.Enum) != 0 && !slices.Contains(field.Enum, text) {
 			return false
 		}
+		count := int64(len([]rune(text)))
+		if field.ItemMinCodePoints != nil && count < *field.ItemMinCodePoints || field.ItemMaxCodePoints != nil && count > *field.ItemMaxCodePoints {
+			return false
+		}
 		if _, exists := seen[text]; exists {
 			return false
 		}

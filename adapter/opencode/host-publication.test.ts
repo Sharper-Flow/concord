@@ -100,7 +100,7 @@ test("published workflow action variants state their guard-owned requirements", 
   }
   const fields = actionFieldsBranches(actionInputBranch(schema, "approve_contract"))[0]
   expect(fields.properties.architecture_binding.description).toContain("required for change, fix, and removal")
-  expect(fields.properties.spec_mandate.description).toContain("2..128 bytes")
+  expect(fields.properties.spec_mandate.description).toContain("2..128 Unicode code points")
 })
 
 test("the request definition hook publishes an isolated root per tool and hoists no definitions anywhere else", async () => {

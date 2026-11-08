@@ -53,20 +53,22 @@ const (
 )
 
 type WorkflowPayloadField struct {
-	Name      string           `json:"name"`
-	ValueType PayloadValueType `json:"value_type"`
-	Required  bool             `json:"required"`
-	NonBlank  bool             `json:"non_blank,omitempty"`
-	Forbidden []string         `json:"forbidden_values,omitempty"`
-	MinLength *int64           `json:"min_length,omitempty"`
-	MaxLength *int64           `json:"max_length,omitempty"`
-	MinItems  *int64           `json:"min_items,omitempty"`
-	MaxItems  *int64           `json:"max_items,omitempty"`
-	Minimum   *int64           `json:"minimum,omitempty"`
-	Maximum   *int64           `json:"maximum,omitempty"`
-	Enum      []string         `json:"enum,omitempty"`
-	SchemaRef string           `json:"schema_ref,omitempty"`
-	ItemRef   string           `json:"item_ref,omitempty"`
+	Name              string           `json:"name"`
+	ValueType         PayloadValueType `json:"value_type"`
+	Required          bool             `json:"required"`
+	NonBlank          bool             `json:"non_blank,omitempty"`
+	Forbidden         []string         `json:"forbidden_values,omitempty"`
+	MinLength         *int64           `json:"min_length,omitempty"`
+	MaxLength         *int64           `json:"max_length,omitempty"`
+	MinItems          *int64           `json:"min_items,omitempty"`
+	MaxItems          *int64           `json:"max_items,omitempty"`
+	Minimum           *int64           `json:"minimum,omitempty"`
+	Maximum           *int64           `json:"maximum,omitempty"`
+	Enum              []string         `json:"enum,omitempty"`
+	SchemaRef         string           `json:"schema_ref,omitempty"`
+	ItemRef           string           `json:"item_ref,omitempty"`
+	ItemMinCodePoints *int64           `json:"item_min_code_points,omitempty"`
+	ItemMaxCodePoints *int64           `json:"item_max_code_points,omitempty"`
 }
 
 type WorkflowPayloadDefinition struct {
@@ -445,8 +447,17 @@ func actionProseListField(name string, required bool, lower, upper int64, itemRe
 	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(lower), MaxItems: workflowInt(upper), ItemRef: itemRef}
 }
 
+const workflowLawListMax = 32
+
 func actionLawListField(name string, required bool) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(0), MaxItems: workflowInt(32), ItemRef: "law_id"}
+	return WorkflowPayloadField{Name: name, ValueType: PayloadStringList, Required: required, MinItems: workflowInt(0), MaxItems: workflowInt(workflowLawListMax), ItemRef: "law_id"}
+}
+
+func actionContractLawListField(name string, required bool) WorkflowPayloadField {
+	field := actionLawListField(name, required)
+	field.ItemMinCodePoints = workflowInt(2)
+	field.ItemMaxCodePoints = workflowInt(128)
+	return field
 }
 
 func actionContractVersionField(required bool) WorkflowPayloadField {
@@ -493,8 +504,8 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"record_discovery": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric),
 	"approve_contract": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
 		actionContractVersionField(false),
-		actionLawListField("spec_mandate", false),
-		actionLawListField("law_modifies", false),
+		actionContractLawListField("spec_mandate", false),
+		actionContractLawListField("law_modifies", false),
 		actionListField("legislative_subjects", false, 0, 800),
 		actionObjectField("architecture_binding", "architecture_binding"),
 	),

@@ -86,9 +86,8 @@ func init() {
 	registerOutputBound("/$defs/id/maxLength",
 		inputBound("/$defs/id/maxLength"))
 
-	// law_id: two writer families. Contract-fold mandated and modified law
-	// lists hold each entry to 128 bytes via
-	// internal/store/workflow.go:workflowList (workflowString at 128).
+	// law_id: contract-fold mandated and modified law lists admit at most
+	// 128 code points, below the knowledge admission cited here.
 	// Architecture-binding law additions and obligations are held to
 	// 2..256 bytes by the no-argument store guards (validLawBindingID /
 	// validWorkflowObligationID), and the knowledge-side admission caps law
@@ -96,10 +95,8 @@ func init() {
 	// writers are therefore cited at their widest expressible source, the
 	// knowledge admission constant counted in code points, which admits the
 	// byte guards.
-	registerOutputBound("/$defs/law_id/maxLength", maxBound(
-		goCallBound("internal/store/workflow.go", "workflowList", "workflowString", "", 1, boundBytes),
-		goConstantBound("internal/store/knowledge_record.go", "maxManifestID", boundCharacters),
-	))
+	registerOutputBound("/$defs/law_id/maxLength",
+		goConstantBound("internal/store/knowledge_record.go", "maxManifestID", boundCharacters))
 
 	// Pins project catalog fields; agent mutations also construct direct intents.
 	registerOutputBound("/$defs/next_valid_intent/properties/required_fields/maxItems",

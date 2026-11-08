@@ -32,8 +32,8 @@ func TestContractApprovalRefusalNamesInvalidMandate(t *testing.T) {
 	event := workflowEventWithActor("contract-refusal-mandate-event", WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), fields)
 	event.PayloadVersion = CurrentEventPayloadVersion(WorkflowContractApproved)
 	err = applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
-	if err == nil || !strings.Contains(err.Error(), "spec_mandate") || !strings.Contains(err.Error(), "128 bytes") {
-		t.Fatalf("refusal should name spec_mandate and the 128 bytes bound: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "spec_mandate") || !strings.Contains(err.Error(), "128 code points") {
+		t.Fatalf("refusal should name spec_mandate and the 128 code points bound: %v", err)
 	}
 }
 

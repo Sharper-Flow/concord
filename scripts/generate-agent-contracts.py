@@ -455,6 +455,12 @@ def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict 
             items = {"type": "string", "enum": field["enum"]}
         else:
             items = {"$ref": f"#/$defs/{field.get('item_ref', 'reference')}"}
+        if "item_min_code_points" in field or "item_max_code_points" in field:
+            items = copy.deepcopy(defs[field.get("item_ref", "reference")])
+            if "item_min_code_points" in field:
+                items["minLength"] = field["item_min_code_points"]
+            if "item_max_code_points" in field:
+                items["maxLength"] = field["item_max_code_points"]
         schema = {"type": "array", "uniqueItems": True, "items": items}
     else:
         fail(f"workflow action field {field.get('name')} has unsupported type {value_type}")

@@ -251,6 +251,93 @@ func firstCallRequireRefusal(t *testing.T, err error, fragment string) {
 	}
 }
 
+func TestFirstCallMandateCodePointBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name, id string
+		valid    bool
+	}{
+		{"minimum", "ab", true},
+		{"below minimum", "a", false},
+		{"ascii maximum", strings.Repeat("a", 128), true},
+		{"ascii above maximum", strings.Repeat("a", 129), false},
+		{"unicode maximum", strings.Repeat("é", 128), true},
+		{"unicode above maximum", strings.Repeat("é", 129), false},
+		{"qualified maximum", "project/" + strings.Repeat("b", 120), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := openTemp(t)
+			defer s.Close()
+			const workID = "work-mandate-bound"
+			actor := seedFirstCallWorkflow(t, s, workID, "mandate-bound", WorkflowStepPlanChange)
+			home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
+			lawID := strings.TrimPrefix(tc.id, "project/")
+			writeKnowledgeFile(t, home.RepoPath, ".concord/law/decisions/bound-fixture.md", fixtureLawFolderLawWithCriteria(lawID, "[]"))
+			commitKnowledgeRepo(t, home.RepoPath, "commit bound fixture")
+			version := readWorkVersion(t, s, workID)
+			binding := map[string]any{
+				"home_domain_id": "root", "affected_domain_ids": []string{"root"},
+				"domain_additions": []string{}, "domain_modifies": []string{}, "domain_relation_modifies": []map[string]any{},
+				"law_additions": []map[string]any{}, "verification_obligations": []map[string]any{{"law_id": "spec:one", "obligation_id": "verification"}},
+			}
+			input := firstCallActionInput(t, firstCallPublishedDefs(t), workID, version, map[string]any{
+				"legislative_subjects": []string{}, "spec_mandate": []string{"spec:one", tc.id}, "law_modifies": []string{tc.id}, "architecture_binding": binding,
+			})
+			err := firstCallApproveContract(t, s, workID, version, "mandate-bound", actor, input)
+			if !tc.valid {
+				if err == nil {
+					t.Fatal("invalid mandate admitted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("valid mandate refused: %v", err)
+			}
+			contract, err := readWorkflowContractVersion(t.Context(), s.DatabaseForTesting(), workID, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(contract.SpecMandate, []string{"spec:one", tc.id}) || !slices.Equal(contract.LawModifies, []string{tc.id}) {
+				t.Fatalf("persisted identities: mandate=%q modifies=%q", contract.SpecMandate, contract.LawModifies)
+			}
+		})
+	}
+}
+
+func TestContractLawListSchemaPreflightParity(t *testing.T) {
+	root := payloadschema.Document()
+	defs := root["$defs"].(map[string]any)
+	approve := defs["work_transition_action_variant_approve_contract"].(map[string]any)["properties"].(map[string]any)["fields"].(map[string]any)["properties"].(map[string]any)
+	update := defs["workflow_contract_update"].(map[string]any)["properties"].(map[string]any)
+	for _, fieldName := range []string{"spec_mandate", "law_modifies"} {
+		for _, shape := range []map[string]any{approve, update} {
+			field := shape[fieldName].(map[string]any)
+			for _, tc := range []struct {
+				value string
+				valid bool
+			}{
+				{"a", false}, {"ab", true}, {strings.Repeat("a", 128), true}, {strings.Repeat("a", 129), false},
+				{strings.Repeat("é", 128), true}, {strings.Repeat("é", 129), false},
+			} {
+				values := []any{tc.value}
+				schemaOK := payloadschema.ValidateValue(values, field, root, "$") == nil
+				storeOK := validateWorkflowPayloadStringList(actionContractLawListField(fieldName, true), values)
+				if schemaOK != tc.valid || storeOK != tc.valid {
+					t.Errorf("%s length %d: schema=%v preflight=%v want=%v", fieldName, len([]rune(tc.value)), schemaOK, storeOK, tc.valid)
+				}
+			}
+		}
+	}
+	for _, n := range []int{128, 129, 256, 257} {
+		value := strings.Repeat("a", n)
+		want := n <= 256
+		genericOK := payloadschema.ValidateValue(value, defs["law_id"].(map[string]any), root, "$") == nil
+		retiringOK := validateWorkflowPayloadStringList(actionLawListField("retiring_clauses", true), []any{value})
+		if genericOK != want || retiringOK != want {
+			t.Errorf("generic and retiring length %d: schema=%v preflight=%v want=%v", n, genericOK, retiringOK, want)
+		}
+	}
+}
+
 func TestFirstCallApproveContractAdmitsAddedDomainWithLaw(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -652,9 +739,25 @@ func TestFirstCallContractUpdateAdmitsFromPublishedInput(t *testing.T) {
 
 	// The unchanged successor admits on its first submission after every
 	// mutant was refused without effect.
-	valid := updateInput(nil)
+	longID := strings.Repeat("é", 128)
+	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
+	writeKnowledgeFile(t, home.RepoPath, ".concord/law/decisions/update-bound-fixture.md", fixtureLawFolderLawWithCriteria(longID, "[]"))
+	commitKnowledgeRepo(t, home.RepoPath, "commit update bound fixture")
+	invalidBound := updateInput(nil)
+	invalidBound["contract"].(map[string]any)["law_modifies"] = []string{strings.Repeat("é", 129)}
+	if err := applyUpdate(invalidBound); err == nil {
+		t.Fatal("contract update admitted a 129-code-point law modification")
+	}
+	valid := updateInput(func(fields map[string]any) {
+		fields["spec_mandate"] = []string{"spec:one", "law:successor", longID}
+		fields["law_modifies"] = []string{longID}
+	})
 	if err := applyUpdate(valid); err != nil {
 		t.Fatalf("first-call contract update refused after the mutants: %v", err)
+	}
+	updated, err := readWorkflowContractVersion(t.Context(), s.DatabaseForTesting(), workID, 2)
+	if err != nil || !slices.Equal(updated.LawModifies, []string{longID}) || !slices.Contains(updated.SpecMandate, longID) {
+		t.Fatalf("updated contract lost law identity: %+v err=%v", updated, err)
 	}
 	var successorVersion int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&successorVersion); err != nil || successorVersion != 2 {

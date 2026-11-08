@@ -22,9 +22,10 @@ func TestWorkflowActionServedGuidance(t *testing.T) {
 		action string
 		terms  []string
 	}{
-		{"complete_step", []string{"step_reviewed", "unreviewed"}},
+		{"complete_step", []string{"step_reviewed", "pin's named step", "steps[].reviewed", "concord_work_trace.resume", "unreviewed"}},
 		{"approve_contract", []string{"research", "128 bytes", "change", "removal"}},
-		{"bind_evidence", []string{"one immutable subject", "one evidence kind"}},
+		{"bind_evidence", []string{"one immutable subject", "same locator", "fields.evidence_kind is omitted", "must match every entry's kind", "fields.immutable_subject_ref", "second subject"}},
+		{"record_report", []string{"one immutable subject", "same locator", "fields.evidence_kind is omitted", "must match every entry's kind"}},
 		{"record_diagnosis", []string{"concord_work_browse", "linear_issue_key", "work ID"}},
 		{"complete", []string{"confirm_premise", "delivery"}},
 	} {

@@ -168,6 +168,8 @@ const workflowLawAdditionMandateTeaching = "Every law addition must be authorize
 // binding guards enforce: additions are explicit and absent from the registry,
 // each has a homed law addition, other affected Domains are current, and
 // Domain relation modifications use current canonical relations.
+const workflowArchitectureBindingRecovery = "list the Product's Domains with concord_domain.list, then supply the complete architecture_binding with home_domain_id and affected_domain_ids; only research contracts omit it"
+
 const workflowArchitectureDomainTeaching = "architecture_binding is required for change, fix, and removal; omit it for research. Architecture bindings must declare new Domains in domain_additions, include them in affected_domain_ids, and home at least one added law in each; additions must be absent from the registry and disjoint from domain_modifies. Every other affected Domain must be current, every added or modified law must have an affected home, and modified relations must be current canonical tuples."
 
 // architectureBindingCurrentMandate returns the mandated references the
@@ -219,8 +221,10 @@ type WorkflowContractTeaching struct {
 	ArchitectureDomainRule string `json:"architecture_domain_rule"`
 	// AlignmentCombinationRule states the cross-field rule the
 	// record_diagnosis registry declaration enforces at payload validation.
-	AlignmentCombinationRule string            `json:"alignment_combination_rule"`
-	ActionRules              map[string]string `json:"action_rules"`
+	AlignmentCombinationRule string `json:"alignment_combination_rule"`
+	// ActionRules maps a workflow action ID to the guard-owned rule its
+	// published variant states before a call.
+	ActionRules map[string]string `json:"action_rules"`
 }
 
 // WorkflowContractTeachingRules returns the guard-owned teaching texts,
@@ -234,7 +238,8 @@ func WorkflowContractTeachingRules() WorkflowContractTeaching {
 		AlignmentCombinationRule: workflowAlignmentCombinationTeaching,
 		ActionRules: map[string]string{
 			"complete_step": workflowStepReviewTeaching,
-			"bind_evidence": workflowEvidenceBindingTeaching,
+			"bind_evidence": workflowBindEvidenceTeaching,
+			"record_report": workflowEvidenceBindingTeaching,
 			"complete":      workflowCompletionTeaching,
 		},
 	}
@@ -269,7 +274,7 @@ func relationBindingKey(relation WorkflowDomainRelationModification) string {
 
 func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID string, planType WorkflowStepPlanType, binding *WorkflowArchitectureBinding, specMandate, lawModifies []string) error {
 	if binding == nil {
-		return newFailure(KindInvalidPayload, "workflow_architecture_binding", "Product-changing contract is missing architecture_binding", false, "supply the complete architecture binding")
+		return newFailure(KindInvalidPayload, "workflow_architecture_binding", "Product-changing contract is missing architecture_binding", false, workflowArchitectureBindingRecovery)
 	}
 	if err := validateWorkflowArchitectureBindingShape(*binding); err != nil {
 		return err

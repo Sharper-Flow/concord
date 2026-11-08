@@ -325,6 +325,9 @@ def load_workflow_action_contracts() -> tuple[list[dict], dict, dict, list[dict]
     actions = projection["actions"]
     if not actions or len({action.get("id") for action in actions}) != len(actions):
         fail("workflow action contract projection has no unique actions")
+    unknown_rules = sorted(set(teaching["action_rules"]) - {action["id"] for action in actions})
+    if unknown_rules:
+        fail(f"action teaching rules name unknown actions: {', '.join(unknown_rules)}")
     for action in actions:
         if set(action) != {"id", "variants", "cross_field"}:
             fail("workflow action contract projection contains an open record")

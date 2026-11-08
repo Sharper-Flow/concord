@@ -4342,7 +4342,7 @@
               },
               "minItems": 0,
               "maxItems": 32,
-              "description": "spec_mandate lists up to 32 unique governing or authorized law IDs as a bare law_id or project_id/law_id; an empty list is legal when no referenced law applies. Each reference must satisfy the published law ID shape of 2..256 code points and the fold bound of 2..128 bytes. Put repository paths in record_plan.touches and scope prose in the plan or intent. Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
+              "description": "spec_mandate lists up to 32 unique governing or authorized law IDs as a bare law_id or project_id/law_id; an empty list is legal when no referenced law applies. Each reference must be 2..128 bytes of UTF-8, narrower than the 2..256 code points the law ID item shape publishes. Put repository paths in record_plan.touches and scope prose in the plan or intent. Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
               "examples": [
                 []
               ]
@@ -4519,7 +4519,7 @@
           "description": "Bounds: <=32 properties inclusive"
         }
       },
-      "description": "Bind one evidence kind and one immutable subject per call. Split different kinds or subjects into separate calls."
+      "description": "Bind one immutable subject per call: every evidence entry must name the same locator. Several evidence kinds may share that locator only when fields.evidence_kind is omitted; a supplied fields.evidence_kind must match every entry's kind. Split other kinds or locators into separate calls. fields.immutable_subject_ref, or fields.evidence_ref when it is absent, must name that same subject; a different value adds a second subject and is refused."
     },
     "work_transition_action_variant_checkpoint_execution": {
       "type": "object",
@@ -5080,7 +5080,8 @@
           },
           "description": "Bounds: <=32 properties inclusive"
         }
-      }
+      },
+      "description": "Bind one immutable subject per call: every evidence entry must name the same locator. Several evidence kinds may share that locator only when fields.evidence_kind is omitted; a supplied fields.evidence_kind must match every entry's kind. Split other kinds or locators into separate calls."
     },
     "work_transition_action_variant_start_execution": {
       "type": "object",
@@ -5411,7 +5412,7 @@
           },
           "minItems": 0,
           "maxItems": 32,
-          "description": "spec_mandate lists up to 32 unique governing or authorized law IDs as a bare law_id or project_id/law_id; an empty list is legal when no referenced law applies. Each reference must satisfy the published law ID shape of 2..256 code points and the fold bound of 2..128 bytes. Put repository paths in record_plan.touches and scope prose in the plan or intent. Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
+          "description": "spec_mandate lists up to 32 unique governing or authorized law IDs as a bare law_id or project_id/law_id; an empty list is legal when no referenced law applies. Each reference must be 2..128 bytes of UTF-8, narrower than the 2..256 code points the law ID item shape publishes. Put repository paths in record_plan.touches and scope prose in the plan or intent. Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
           "examples": [
             []
           ]
@@ -5588,7 +5589,7 @@
           "description": "Bounds: <=32 properties inclusive"
         }
       },
-      "description": "Read step_reviewed from the work pin. For an unreviewed step omit reviewer, result, commit, and link; for a reviewed step supply all four."
+      "description": "The work pin's step_reviewed applies only to the pin's named step; for another step read steps[].reviewed from concord_work_trace.resume. For an unreviewed step omit reviewer, result, commit, and link; for a reviewed step supply all four."
     },
     "work_transition_action_variant_insert_step": {
       "type": "object",

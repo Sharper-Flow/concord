@@ -1663,6 +1663,13 @@ class ProjectionAdmissionTests(unittest.TestCase):
             self.load(self.canned(filler))
         self.assertIn("no unique actions", str(caught.exception))
 
+    def test_the_projection_refuses_a_teaching_rule_for_an_unknown_action(self):
+        fake = json.loads(self.canned([{"id": "known-action"}]))
+        fake["teaching"]["action_rules"] = {"missing-action": "rule"}
+        with self.assertRaises(ValueError) as caught:
+            self.load(json.dumps(fake))
+        self.assertIn("unknown actions: missing-action", str(caught.exception))
+
     def test_the_projection_refuses_an_old_projection_version(self):
         fake = json.dumps({
             "schema_version": "1.0",

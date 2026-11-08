@@ -82,7 +82,7 @@ func workflowBoundContractContent(ctx context.Context, tx *sql.Tx, planType Work
 		return nil, err
 	}
 	productChanging := planType != WorkflowStepPlanResearch
-	binding, bindingErr := workflowContractProductGuard(ctx, tx, workID, fields, lawModifies, productChanging, "contract", "supply the complete architecture binding")
+	binding, bindingErr := workflowContractProductGuard(ctx, tx, workID, fields, lawModifies, productChanging, "contract", workflowArchitectureBindingRecovery)
 	if bindingErr != nil {
 		return nil, bindingErr
 	}
@@ -102,7 +102,14 @@ func workflowBoundContractContent(ctx context.Context, tx *sql.Tx, planType Work
 	return contract, nil
 }
 
-const workflowEvidenceBindingTeaching = "Bind one evidence kind and one immutable subject per call. Split different kinds or subjects into separate calls."
+// workflowEvidenceBindingTeaching states the one-subject rule
+// workflowEvidenceBindingEvents enforces together with the agent boundary's
+// evidence-kind check, which every bind-family action shares.
+const workflowEvidenceBindingTeaching = "Bind one immutable subject per call: every evidence entry must name the same locator. Several evidence kinds may share that locator only when fields.evidence_kind is omitted; a supplied fields.evidence_kind must match every entry's kind. Split other kinds or locators into separate calls."
+
+// workflowBindEvidenceTeaching adds the declared subject fields that only
+// bind_evidence merges into its subject set (workflowActionEvidenceRefs).
+const workflowBindEvidenceTeaching = workflowEvidenceBindingTeaching + " fields.immutable_subject_ref, or fields.evidence_ref when it is absent, must name that same subject; a different value adds a second subject and is refused."
 
 // workflowRecordDiagnosisEvents builds the typed diagnosis event.
 // The action records all three required sections in one act: the

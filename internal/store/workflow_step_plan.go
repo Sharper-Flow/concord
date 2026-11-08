@@ -237,7 +237,7 @@ func validateStepPlanStepShape(steps []WorkflowPlanStep, step WorkflowPlanStep, 
 	return validateStepPlanAttemptsShape(step, refuse)
 }
 
-const workflowStepReviewTeaching = "Read step_reviewed from the work pin. For an unreviewed step omit reviewer, result, commit, and link; for a reviewed step supply all four."
+const workflowStepReviewTeaching = "The work pin's step_reviewed applies only to the pin's named step; for another step read steps[].reviewed from concord_work_trace.resume. For an unreviewed step omit reviewer, result, commit, and link; for a reviewed step supply all four."
 
 func validateStepPlanAttemptsShape(step WorkflowPlanStep, refuse func(string) error) error {
 	if len(step.Attempts) > 64 {
@@ -248,7 +248,7 @@ func validateStepPlanAttemptsShape(step WorkflowPlanStep, refuse func(string) er
 			return refuse("plan step attempt is invalid")
 		}
 		if step.Reviewed && (attempt.Reviewer == "" || (attempt.Result != "pass" && attempt.Result != "fixed") || attempt.Commit == "" || attempt.Link == "") {
-			return refuse("a reviewed step's attempt requires its reviewer, result, commit and link")
+			return newFailure(KindInvalidOperation, "workflow_step_plan", "a reviewed step's attempt requires its reviewer, result, commit and link", false, workflowStepReviewTeaching)
 		}
 		if !step.Reviewed && (attempt.Reviewer != "" || attempt.Result != "" || attempt.Commit != "" || attempt.Link != "") {
 			return newFailure(KindInvalidOperation, "workflow_step_plan", "an unreviewed step's attempt carries review fields", false, workflowStepReviewTeaching)

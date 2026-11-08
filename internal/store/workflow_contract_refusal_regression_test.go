@@ -51,6 +51,21 @@ func TestWorkflowRefusalsExplainRecovery(t *testing.T) {
 			t.Fatalf("unreviewed-step recovery = %v", err)
 		}
 	})
+	t.Run("reviewed step", func(t *testing.T) {
+		step := WorkflowPlanStep{ID: "review", Reviewed: true, Attempts: []WorkflowPlanAttempt{{Note: "review complete", CompletedAt: "2026-01-01T00:00:00Z"}}}
+		err := validateStepPlanAttemptsShape(step, func(detail string) error { return errors.New(detail) })
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.RecoveryAction != workflowStepReviewTeaching {
+			t.Fatalf("reviewed-step recovery = %v", err)
+		}
+	})
+	t.Run("missing architecture binding", func(t *testing.T) {
+		_, err := workflowBoundContractContent(context.Background(), nil, WorkflowStepPlanChange, "recovery-binding", map[string]json.RawMessage{}, map[string]any{}, []string{}, []string{})
+		var failure *Failure
+		if !errors.As(err, &failure) || !strings.Contains(failure.Detail, "requires architecture_binding") || !strings.Contains(failure.RecoveryAction, "concord_domain.list") {
+			t.Fatalf("missing-binding recovery = %v", err)
+		}
+	})
 	t.Run("related work", func(t *testing.T) {
 		const workID = "recovery-related-work"
 		fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanFix, "diagnose")

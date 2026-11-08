@@ -140,12 +140,12 @@ func TestLegacyRemovalReplayKeepsPermittedPinOmission(t *testing.T) {
 	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != prior.ResultPayload || len(replay.Omissions) != 1 || replay.Omissions[0].Kind != "work_pin_unavailable" || replay.Omissions[0].Count != 1 {
 		t.Fatalf("legacy removal replay=%+v error=%+v", replay, replay.Error)
 	}
-	two := append(changed, agentcontract.ChangedRef{EntityKind: "work_item", ID: "work-2", Version: "2"})
-	refs, err = json.Marshal(two)
+	changed = append(changed, agentcontract.ChangedRef{EntityKind: "work_item", ID: "work-2", Version: "2"})
+	refs, err = json.Marshal(changed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	extra := r.recordedMutationResult(agentcontract.NewBase("retry", r.Tool, r.Operation), store.MutationIdempotencyRecord{AuthorizedScopeSnapshot: `{}`, ChangedRefs: string(refs), ResultPayload: string(mutationPayload(two, nil))})
+	extra := r.recordedMutationResult(agentcontract.NewBase("retry", r.Tool, r.Operation), store.MutationIdempotencyRecord{AuthorizedScopeSnapshot: `{}`, ChangedRefs: string(refs), ResultPayload: string(mutationPayload(changed, nil))})
 	if extra.Error == nil || extra.Error.Kind != "malformed_response" || extra.Error.EffectState != agentcontract.EffectPossible || !strings.Contains(extra.Error.Message, "permitted omission") {
 		t.Fatalf("removal listing another pinless item became success: %+v", extra)
 	}

@@ -232,13 +232,14 @@ func TestLegacyWorkflowReplayOwnerValidation(t *testing.T) {
 			}
 			transaction := workflowTransactionReplay(t, r, grant, raw)
 			for _, replay := range []agentcontract.Envelope{public, transaction} {
-				if tc.success {
+				switch {
+				case tc.success:
 					if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != payload || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) || len(replay.EvidenceRefs) != 0 {
 						t.Errorf("complete owner replay=%+v error=%+v", replay, replay.Error)
 					}
-				} else if replay.Outcome != agentcontract.OutcomeError || replay.Error == nil || replay.Error.EffectState != agentcontract.EffectPossible || replay.Error.RetrySafe {
+				case replay.Outcome != agentcontract.OutcomeError || replay.Error == nil || replay.Error.EffectState != agentcontract.EffectPossible || replay.Error.RetrySafe:
 					t.Errorf("incomplete owner became success or safe retry: %+v", replay)
-				} else if tc.missing && (replay.Error.Kind != "malformed_response" || replay.Error.RecoveryAction.Kind != "contact_operator" || !strings.Contains(replay.Error.Message, "durable workflow result owner was not retained") || !strings.Contains(replay.Error.Message, `"work-1"`) || !strings.Contains(replay.Error.Message, "concord_work_trace.resume") || !strings.Contains(replay.Error.Message, "concord_work_browse.list")) {
+				case tc.missing && (replay.Error.Kind != "malformed_response" || replay.Error.RecoveryAction.Kind != "contact_operator" || !strings.Contains(replay.Error.Message, "durable workflow result owner was not retained") || !strings.Contains(replay.Error.Message, `"work-1"`) || !strings.Contains(replay.Error.Message, "concord_work_trace.resume") || !strings.Contains(replay.Error.Message, "concord_work_browse.list")):
 					t.Errorf("missing owner refusal did not name the lost owner and current-state recovery: %+v", replay.Error)
 				}
 			}

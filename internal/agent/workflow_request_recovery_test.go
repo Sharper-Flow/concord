@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -179,6 +180,9 @@ func TestMandateRefusalGuidesCorrection(t *testing.T) {
 			}
 			if !reflect.DeepEqual(before, contractRequestCorrectionState(t, s, work)) {
 				t.Fatal("refusal changed durable state")
+			}
+			if !slices.Contains(refused.Error.Candidates, test.mandate) {
+				t.Errorf("refusal candidates %v omit the refused entry %q", refused.Error.Candidates, test.mandate)
 			}
 			detail, _ := refused.Error.Details["recovery_detail"].(string)
 			for _, want := range []string{"spec_mandate", "law ID", "record_plan.touches"} {

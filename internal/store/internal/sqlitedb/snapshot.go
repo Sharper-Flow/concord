@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	sqlite "modernc.org/sqlite"
@@ -14,6 +15,7 @@ const (
 	BackupStepPages    = int32(100)
 	backupRetryLimit   = 100
 	backupRetryBackoff = 50 * time.Millisecond
+	journalModeWAL     = "wal"
 )
 
 // BackupStartedContextKey carries a notification after live backup initialization.
@@ -107,6 +109,59 @@ func copyOnlineBackup(ctx context.Context, raw any, destinationURI string) error
 	}
 	if err := finish(); err != nil {
 		return failure(Unavailable, "backup", "cannot finish SQLite online backup", true, "discard the partial snapshot and retry", err)
+	}
+	return nil
+}
+
+// CompactSnapshot writes destination from an unpublished Online Backup copy
+// with VACUUM INTO, which leaves out the free pages that copy carries. Plain
+// VACUUM can renumber the implicit rowids of a table without an index, and
+// the current-state digest does not cover rowids; VACUUM INTO keeps them.
+// VACUUM INTO refuses an existing non-empty destination and, at
+// synchronous=FULL, syncs the output before it returns. Its output is always
+// in rollback-journal mode, so a WAL copy's mode is restored on the
+// destination: a snapshot keeps its source's journal mode, and opening it
+// with the store's WAL settings does not rewrite its header. The copy is only
+// read.
+func CompactSnapshot(ctx context.Context, copyPath, destination string) error {
+	db, err := Open(FileURI(copyPath) + "?mode=ro&_pragma=synchronous(FULL)")
+	if err != nil {
+		return failure(Unavailable, "backup", "cannot open the backup copy for compaction", true, "discard the snapshot and retry", err)
+	}
+	var mode string
+	compactErr := db.QueryRowContext(ctx, `PRAGMA journal_mode`).Scan(&mode)
+	if compactErr == nil {
+		_, compactErr = db.ExecContext(ctx, `VACUUM INTO ?`, FileURI(destination))
+	}
+	closeErr := db.Close()
+	if compactErr != nil {
+		return failure(Unavailable, "backup", "cannot write the compacted snapshot", true, "discard the snapshot and retry", compactErr)
+	}
+	if closeErr != nil {
+		return failure(Unavailable, "backup", "cannot close the backup copy after compaction", true, "discard the snapshot and retry", closeErr)
+	}
+	if mode != journalModeWAL {
+		return nil
+	}
+	return restoreSnapshotWAL(ctx, destination)
+}
+
+func restoreSnapshotWAL(ctx context.Context, destination string) error {
+	db, err := Open(FileURI(destination) + "?mode=rw&_pragma=synchronous(FULL)")
+	if err != nil {
+		return failure(Unavailable, "backup", "cannot open the compacted snapshot", true, "discard the snapshot and retry", err)
+	}
+	var mode string
+	modeErr := db.QueryRowContext(ctx, `PRAGMA journal_mode=WAL`).Scan(&mode)
+	closeErr := db.Close()
+	if modeErr != nil {
+		return failure(Unavailable, "backup", "cannot set the compacted snapshot's journal mode", true, "discard the snapshot and retry", modeErr)
+	}
+	if mode != journalModeWAL {
+		return failure(Unavailable, "backup", fmt.Sprintf("compacted snapshot journal mode is %q, not wal", mode), true, "discard the snapshot and retry", nil)
+	}
+	if closeErr != nil {
+		return failure(Unavailable, "backup", "cannot close the compacted snapshot", true, "discard the snapshot and retry", closeErr)
 	}
 	return nil
 }

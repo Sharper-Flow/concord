@@ -532,6 +532,10 @@ func TestInterruptedBackupAfterInitReleasesSourceSnapshot(t *testing.T) {
 	if _, statErr := os.Stat(manifestPath(destination)); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("interrupted manifest stat error = %v", statErr)
 	}
+	// The full-size Online Backup copy beside the destination is discarded too.
+	if entries, readErr := os.ReadDir(filepath.Dir(destination)); readErr != nil || len(entries) != 0 {
+		t.Fatalf("interrupted backup left files beside the destination: %v (err=%v)", entries, readErr)
+	}
 	// The pinned source transaction released the store connection: the
 	// sensitive probe must find no retained WAL reader on the store file.
 	if sourceReaderBlocksCheckpoint(t, s.Path()) {

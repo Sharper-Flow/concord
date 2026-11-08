@@ -43,6 +43,9 @@ const CurrentFenceProtocol = 1
 // or foreign operation authorizes neither migration nor activation.
 const FenceOperationUpgrade = "concord-upgrade-incompatible-migration"
 
+// FenceOperationCompact identifies stopped-session store maintenance.
+const FenceOperationCompact = "concord-compact-store"
+
 // ErrStaleLease marks a lease whose process no longer matches. Write uses it
 // so a session cannot claim liveness for a process that already ended.
 var ErrStaleLease = errors.New("hostlease: the process is not live with the recorded start time")

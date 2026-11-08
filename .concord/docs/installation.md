@@ -384,6 +384,28 @@ it matches neither the installed manifest nor the release. The refusal names
 the offending artifact or path. The work database, worktrees, credentials, and
 unrelated configuration are outside the managed paths and are never touched.
 
+### Compact a stopped store
+
+Stop all Concord sessions and standalone Concord commands, then run
+`printf '{}\n' | concord compact`. The admission fence blocks new leased sessions;
+standalone commands do not claim a host lease and must remain stopped for the
+whole maintenance window. The command
+takes the maintenance lock and admission fence, refuses live leases and release
+trees that cannot honor the fence, and takes a verified compact snapshot. It
+proves a scratch restore, then takes SQLite's exclusive lock on the store and
+refuses while any other process has the store open. Under that lock it compares
+all source rows, including implicit rowids, writes the snapshot back in one
+SQLite backup transaction, checkpoints, and verifies the result. The report
+names the snapshot and its hold, page counts, sizes, available and required
+disk space, and timings. A store with no free pages needs no write-back.
+
+Keep the reported snapshot and hold until the operator releases the hold. To
+release it, stop maintenance operations and remove the exact reported hold file;
+do not remove the snapshot or its manifest. A failure before write-back closes
+the fence and changes no row. A failure after write-back starts retains the
+maintenance fence. Keep sessions stopped and recover using the held
+snapshot through the operator-owned offline recovery route.
+
 ### Managed snapshot retention
 
 After a successful upgrade that made a verified snapshot, Concord
@@ -407,9 +429,11 @@ Any maintenance fence (`maintenance.json`), prepared activation
 (`prepared-release.json`), entry in `.concord-transactions`, or
 `.concord-restore-*` staging in the data root or its backups directory excludes
 the entire snapshot set from cleanup. Malformed records also exclude cleanup;
-their age never proves recovery finished. No new recovery record or per-snapshot
-pin is created. A breaking upgrade that retains its activation fence therefore
-reports deferred cleanup rather than pruning.
+their age never proves recovery finished. A compact snapshot's
+`.compact-hold.json` file also defers cleanup of the entire set until the
+operator releases that hold, including when the hold is unreadable or malformed.
+A breaking upgrade that retains its activation fence therefore reports deferred
+cleanup rather than pruning.
 
 Upgrade reports `snapshot_retention` in its JSON result, including the
 deleted count, protected excess, and any exclusion reason. Protected excess

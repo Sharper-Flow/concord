@@ -389,9 +389,17 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 // upgradeFence owns only the boundary this invocation opened. An adopted
 // boundary can authorize migration, but this invocation never removes it.
 type upgradeFence struct {
-	dataRoot string
-	id       string
-	owned    bool
+	dataRoot      string
+	id            string
+	owned         bool
+	strictCompact bool
+}
+
+func (boundary upgradeFence) command() string {
+	if boundary.strictCompact {
+		return "compact"
+	}
+	return "upgrade"
 }
 
 func openUpgradeFence(dataRoot string, errOut io.Writer) (upgradeFence, int) {
@@ -438,7 +446,7 @@ func (boundary upgradeFence) close(errOut io.Writer) {
 		return
 	}
 	if removeErr := hostlease.RemoveFenceOwned(boundary.dataRoot, boundary.id); removeErr != nil {
-		writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(removeErr))
+		writeOperatorDiagnostic(errOut, boundary.command(), diagnosticText(removeErr))
 	}
 }
 
@@ -451,7 +459,11 @@ func (boundary upgradeFence) refuseLiveSessions(required bool, held []store.Held
 		holders = append(holders, fmt.Sprintf("pid %d holds %s at schema version %d", lease.PID, lease.ReleaseRoot, lease.SchemaVersion))
 	}
 	boundary.close(errOut)
-	writeOperatorDiagnostic(errOut, "upgrade", "prepared cutover requires no live sessions: "+strings.Join(holders, "; "))
+	message := "prepared cutover requires no live sessions: "
+	if boundary.strictCompact {
+		message = "store maintenance requires no live sessions: "
+	}
+	writeOperatorDiagnostic(errOut, boundary.command(), message+strings.Join(holders, "; "))
 	return 1
 }
 
@@ -489,7 +501,7 @@ func (boundary upgradeFence) observeSessions(maintenanceRequired, confirmSession
 	}
 	if err != nil {
 		boundary.close(errOut)
-		writeOperatorDiagnostic(errOut, "upgrade", "cannot observe live host sessions: "+diagnosticText(err))
+		writeOperatorDiagnostic(errOut, boundary.command(), "cannot observe live host sessions: "+diagnosticText(err))
 		return nil, 1
 	}
 	// A legacy lease names a core that admits sessions without reading the
@@ -511,6 +523,10 @@ func (boundary upgradeFence) observeSessions(maintenanceRequired, confirmSession
 		}
 		if len(legacy) > 0 {
 			boundary.close(errOut)
+			if boundary.strictCompact {
+				writeOperatorDiagnostic(errOut, "compact", "store maintenance refuses unfenceable live sessions: "+strings.Join(legacy, "; "))
+				return nil, 1
+			}
 			writeOperatorDiagnostic(errOut, "upgrade",
 				"an incompatible migration requires every live session's release to honor the maintenance fence; unfenceable legacy participant(s) hold the boundary open: "+
 					strings.Join(legacy, "; ")+
@@ -539,11 +555,7 @@ func (boundary upgradeFence) observeSessions(maintenanceRequired, confirmSession
 			return nil, 1
 		}
 		if len(unfenceable) > 0 && !confirmSessionsStopped {
-			boundary.close(errOut)
-			writeOperatorDiagnostic(errOut, "upgrade",
-				"release tree(s) without a fence-protocol marker can start a session the maintenance fence cannot exclude: "+
-					strings.Join(unfenceable, "; ")+
-					`; make sure no session runs on them, then re-run with {"confirm_sessions_stopped":true}`)
+			boundary.refuseUnfenceable(unfenceable, errOut)
 			return nil, 1
 		}
 		if len(unfenceable) > 0 {
@@ -557,6 +569,18 @@ func (boundary upgradeFence) observeSessions(maintenanceRequired, confirmSession
 		held = append(held, store.HeldSchema{PID: lease.PID, ReleaseRoot: lease.ReleaseRoot, SchemaVersion: lease.SchemaVersion, Directory: lease.Directory, Worktree: lease.Worktree})
 	}
 	return held, 0
+}
+
+func (boundary upgradeFence) refuseUnfenceable(roots []string, errOut io.Writer) {
+	boundary.close(errOut)
+	if boundary.strictCompact {
+		writeOperatorDiagnostic(errOut, "compact", "release tree(s) without a fence-protocol marker cannot be excluded: "+strings.Join(roots, "; ")+"; compact refuses until those release trees can honor the fence")
+		return
+	}
+	writeOperatorDiagnostic(errOut, "upgrade",
+		"release tree(s) without a fence-protocol marker can start a session the maintenance fence cannot exclude: "+
+			strings.Join(roots, "; ")+
+			`; make sure no session runs on them, then re-run with {"confirm_sessions_stopped":true}`)
 }
 
 func (boundary upgradeFence) reportFailure(err error, path string, pendingBreaking []store.PendingMigration, snapshotPath string, errOut io.Writer) int {
@@ -699,12 +723,16 @@ func decodeReleaseInput(args []string, in io.Reader, errOut io.Writer, command s
 		writeCommandUsageSection(errOut, command)
 		return 2
 	}
-	if command == "upgrade" {
+	if command == "upgrade" || command == "compact" {
 		if file, ok := in.(*os.File); ok {
 			var terminal syscall.Termios
 			_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), syscall.TCGETS, uintptr(unsafe.Pointer(&terminal))) //nolint:gosec // TCGETS writes to a correctly sized Termios buffer; no request data enters the ioctl.
 			if errno == 0 {
-				writeOperatorDiagnostic(errOut, command, `upgrade requires JSON on stdin; pipe '{}' for defaults or '{"plan":true}' for a read-only plan`)
+				message := `upgrade requires JSON on stdin; pipe '{}' for defaults or '{"plan":true}' for a read-only plan`
+				if command == "compact" {
+					message = `compact requires JSON on stdin; pipe '{}'`
+				}
+				writeOperatorDiagnostic(errOut, command, message)
 				return 1
 			}
 		}

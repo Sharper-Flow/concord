@@ -31,6 +31,10 @@
     {
       "criterion": 6,
       "exemption": "Tamper and schema-direction rejection is a verification property. The guarantee is proved by TestBackupVerifyTamperAndOlderSchemaRejection (internal/store/atomic_operation_test.go)."
+    },
+    {
+      "criterion": 7,
+      "exemption": "Stopped maintenance is an operation property. TestCompactCompletesAndReleasesFence and TestCompactRefusesBusyForeignFenceAndLiveLease (cmd/concord/compact_cli_test.go), TestCompactRefusesChangedImplicitRowidBeforeMutation, TestCompactRefusesStoreOpenByAnotherConnection and TestCompactRefusesWhenScratchRestoreProofFails (internal/store/compact_test.go), TestManagedSnapshotRetentionDefersForCompactHold (cmd/concord/snapshot_retention_test.go), and TestExclusiveRestoreInterruptedAfterFirstStepKeepsPriorDatabase (internal/store/internal/sqlitedb/compact_test.go) prove the boundary, proof, retention and interruption requirements."
     }
   ]
 }
@@ -133,6 +137,15 @@ temporary backup files. It never deletes canonical git history, the newest
 verified snapshot, or a backup required by the configured retention policy
 ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)). In-place `VACUUM` is stopped-only;
 online reclaim uses a fresh verified snapshot rather than a live-file copy.
+Stopped maintenance may write a verified compact snapshot back to the existing
+database in one SQLite Online Backup destination transaction. Before mutation,
+maintenance holds the exclusive admission fence, refuses every live lease,
+acquires SQLite's exclusive lock from comparison through verification, verifies
+a scratch restore, and compares every declared row and implicit rowid
+with the source. The transaction leaves only the prior or verified-next state;
+maintenance checkpoints and verifies the result. The verified original snapshot
+remains held until the operator releases the hold. This exception does not change
+the ordinary restore protocol or its no-replace promotion.
 Git GC retains Git's configured grace window.
 
 Existing research rows must be exported to files and verified before their tables
@@ -211,6 +224,11 @@ restore proof before introducing a daemon, remote store, or blob mechanism.
   When restore verifies it
   Then it is rejected before serving.
 
+- Given stopped maintenance of the store
+  When it writes a compact snapshot back
+  Then the held snapshot and scratch restore are verified, every row and implicit
+  rowid match before the transaction, and the fenced result is prior or verified-next.
+
 ## Verification
 
 No corpus scenario exercises backup machinery, so every criterion carries a
@@ -242,5 +260,14 @@ typed exemption naming the backup test that proves the guarantee.
   `TestInterruptedRestoreRemovesStagingAndLeavesDestinationAbsent`
   (`internal/store/backup_test.go`).
 - Criterion 6 is proved by `TestBackupVerifyTamperAndOlderSchemaRejection`
-  (`internal/store/atomic_operation_test.go`). Section 6 records the reopen criteria
+  (`internal/store/atomic_operation_test.go`).
+- Criterion 7 is proved by `TestCompactCompletesAndReleasesFence` and
+  `TestCompactRefusesBusyForeignFenceAndLiveLease` (`cmd/concord/compact_cli_test.go`),
+  `TestCompactRefusesChangedImplicitRowidBeforeMutation`,
+  `TestCompactRefusesStoreOpenByAnotherConnection` and
+  `TestCompactRefusesWhenScratchRestoreProofFails` (`internal/store/compact_test.go`),
+  `TestManagedSnapshotRetentionDefersForCompactHold`
+  (`cmd/concord/snapshot_retention_test.go`),
+  and `TestExclusiveRestoreInterruptedAfterFirstStepKeepsPriorDatabase`
+  (`internal/store/internal/sqlitedb/compact_test.go`). Section 6 records the reopen criteria
   for each guarantee.

@@ -86,9 +86,10 @@ func BackupDatabase(ctx context.Context, path, destination string) (BackupManife
 	return Backup(ctx, s, destination)
 }
 
-// Backup creates a self-contained SQLite snapshot with the Online Backup API.
-// The destination and its manifest must not already exist; a live database or
-// WAL copy is never used.
+// Backup copies the store with the Online Backup API, then writes a
+// self-contained SQLite snapshot from that copy without free pages. The
+// destination and its manifest must not already exist; a live database or WAL
+// copy is never used.
 func Backup(ctx context.Context, s *Store, destination string) (BackupManifest, error) {
 	return BackupWithOptions(ctx, s, destination, BackupOptions{})
 }
@@ -126,20 +127,43 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 		return manifest, newFailure(KindInvalidOperation, "backup", "snapshot ID is empty", false, "supply a non-empty snapshot ID")
 	}
 
+	// The Online Backup API copies every source page, free ones included, so
+	// it writes a disposable copy beside the destination. The destination is
+	// the compacted copy that the checksum and verification gates read.
+	copyFile, err := os.CreateTemp(filepath.Dir(destination), ".concord-backup-copy-*")
+	if err != nil {
+		return manifest, wrapFailure(KindUnavailable, "backup", "cannot create backup copy staging file", true, "check destination permissions", err)
+	}
+	copyPath := copyFile.Name()
+	removeCopy := func() {
+		for _, path := range []string{copyPath, copyPath + "-wal", copyPath + "-shm", copyPath + "-journal"} {
+			_ = os.Remove(path)
+		}
+	}
+	defer removeCopy()
+	if err := copyFile.Close(); err != nil {
+		return manifest, wrapFailure(KindUnavailable, "backup", "cannot close backup copy staging file", true, "check destination permissions", err)
+	}
+
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return manifest, wrapFailure(KindUnavailable, "backup", "cannot acquire a SQLite connection", true, "retry once the database is readable", err)
 	}
 	defer func() {
 		if err != nil {
-			for _, path := range []string{destination, destination + "-wal", destination + "-shm", manifestPath(destination)} {
+			for _, path := range []string{destination, destination + "-wal", destination + "-shm", destination + "-journal", manifestPath(destination)} {
 				_ = os.Remove(path)
 			}
 		}
 	}()
-	if err := mechanismFailure(sqlitedb.BackupSnapshot(ctx, conn, SQLiteFileURI(destination))); err != nil {
+	if err := mechanismFailure(sqlitedb.BackupSnapshot(ctx, conn, SQLiteFileURI(copyPath))); err != nil {
 		return manifest, err
 	}
+	if err := mechanismFailure(sqlitedb.CompactSnapshot(ctx, copyPath, destination)); err != nil {
+		return manifest, err
+	}
+	// Release the full-size copy before the restore gate clones the snapshot.
+	removeCopy()
 
 	manifest, err = verifyBackupFile(ctx, destination, CurrentSchemaVersion(), s.Clock)
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -271,6 +272,12 @@ func TestEventLogRetirementUpgradePreservesCurrentRows(t *testing.T) {
 		}
 		wantAfter[table] = kept
 	}
+	// Migration 194 adds workflow_overlap_resolutions' invalidation-predicate
+	// indexes; every index the fixture held must survive unchanged beside them.
+	indexes["workflow_overlap_resolutions"] = append(indexes["workflow_overlap_resolutions"],
+		[]any{"workflow_overlap_resolutions_from_to_invalidated", int64(0), "c", int64(0)},
+		[]any{"workflow_overlap_resolutions_to_from_invalidated", int64(0), "c", int64(0)})
+	slices.SortFunc(indexes["workflow_overlap_resolutions"], func(a, b []any) int { return strings.Compare(a[0].(string), b[0].(string)) })
 	for _, table := range tables {
 		if got := retirementUpgradeRows(t, db, `SELECT * FROM `+table+` ORDER BY rowid`); !reflect.DeepEqual(got, wantAfter[table]) {
 			t.Errorf("%s changed bytes/types: before=%#v after=%#v", table, wantAfter[table], got)

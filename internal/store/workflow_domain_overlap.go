@@ -96,6 +96,7 @@ const overlapPairDeleteSQL = `DELETE FROM relations WHERE resolution_id IN (
 const overlapPairUpdateSQL = `UPDATE workflow_overlap_resolutions SET invalidated_seq=?
 		WHERE invalidated_seq IS NULL
 		  AND ((from_work_id=? AND to_work_id=?) OR (from_work_id=? AND to_work_id=?))`
+//nolint:gosec // G101 matches "pW" in the name; the value is fixed SQL, not a credential.
 const overlapWorkDeleteSQL = `DELETE FROM relations WHERE resolution_id IN (
 			SELECT resolution_id FROM workflow_overlap_resolutions
 			WHERE (from_work_id=? OR to_work_id=?) AND invalidated_seq IS NULL

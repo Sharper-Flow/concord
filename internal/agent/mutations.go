@@ -276,9 +276,9 @@ func preflightWorkflowActionRequest(ctx context.Context, s *store.Store, raw []b
 		}
 		return nil
 	}
-	// One bind-family action records one durable evidence_kind. The refusal
-	// sits after the replay window so an exact replay of a request recorded
-	// before this rule keeps answering with its stored result.
+	// A bind-family action records evidence for one immutable subject. The
+	// refusal sits after the replay window so an exact replay of a request
+	// recorded before this rule keeps answering with its stored result.
 	if err := validateEvidenceKindBinding(in.ActionID, payload, in.Evidence); err != nil {
 		return newRuntimeFailure("invalid_input", err.Error(), "", false)
 	}
@@ -316,10 +316,8 @@ func preflightWorkflowActionRequest(ctx context.Context, s *store.Store, raw []b
 	return nil
 }
 
-// evidenceBindingFamily names the actions whose caller-supplied evidence
-// array one durable event records under a single evidence_kind. The default
-// fill and the consistency refusal both read this one list, so the two can
-// never disagree about which actions they govern.
+// evidenceBindingFamily names the actions that bind caller-supplied evidence.
+// The default fill and consistency refusal share this list.
 func evidenceBindingFamily(actionID string) bool {
 	switch actionID {
 	case "bind_evidence", "record_report", "approve_operation":
@@ -374,12 +372,10 @@ func withEvidenceKindDefault(actionID string, payload json.RawMessage, evidence 
 	return encoded
 }
 
-// validateEvidenceKindBinding refuses an evidence array that carries
-// different kinds under different locators, and an explicit
-// fields.evidence_kind that contradicts any entry's kind. Kinds submitted for
-// one locator thread into the store per entry and bind one event per kind;
-// kinds spread over several locators name several subjects, which the store
-// refuses, so the boundary refuses first and names both kinds.
+// validateEvidenceKindBinding refuses different kinds under different
+// locators and an explicit fields.evidence_kind that contradicts an entry.
+// A bind accepts one subject per call; the store also refuses multiple
+// subjects when their kinds match. One subject may bind an event per kind.
 func validateEvidenceKindBinding(actionID string, payload json.RawMessage, evidence []agentcontract.EvidenceRef) error {
 	if !evidenceBindingFamily(actionID) || len(evidence) == 0 {
 		return nil
@@ -390,7 +386,7 @@ func validateEvidenceKindBinding(actionID string, payload json.RawMessage, evide
 		}
 		for _, prior := range evidence[:i] {
 			if prior.Kind != "" && entry.Kind != prior.Kind && entry.Locator != prior.Locator {
-				return fmt.Errorf("evidence array carries more than one kind (%s, %s); issue one bind per evidence kind", prior.Kind, entry.Kind)
+				return fmt.Errorf("evidence array carries more than one kind (%s at %q, %s at %q); split the submission into one bind per subject, and in each bind omit fields.evidence_kind unless every entry carries that kind", prior.Kind, prior.Locator, entry.Kind, entry.Locator)
 			}
 		}
 	}
@@ -405,7 +401,7 @@ func validateEvidenceKindBinding(actionID string, payload json.RawMessage, evide
 	}
 	for _, entry := range evidence {
 		if entry.Kind != "" && entry.Kind != fields.EvidenceKind {
-			return fmt.Errorf("fields.evidence_kind %q contradicts evidence array kind %q; issue one bind per evidence kind", fields.EvidenceKind, entry.Kind)
+			return fmt.Errorf("fields.evidence_kind %q contradicts evidence array kind %q at %q; a bind accepts one immutable subject per call, so split the submission into one bind per subject when it names more than one, and in each bind omit fields.evidence_kind so each entry binds under its own kind, or keep it only when every entry kind in that bind matches fields.evidence_kind", fields.EvidenceKind, entry.Kind, entry.Locator)
 		}
 	}
 	return nil

@@ -182,6 +182,90 @@ func ekbEvidenceBoundEvents(t *testing.T, s *store.Store, workID string) []strin
 	return kinds
 }
 
+func ekbAssertBoundSubjects(t *testing.T, s *store.Store, workID string, want [][2]string) {
+	t.Helper()
+	rows, err := s.DatabaseForTesting().Query(`SELECT json_extract(b.payload,'$.evidence_kind'), json_extract(b.payload,'$.immutable_subject_ref') FROM workflow_evidence_bindings b JOIN effect_receipts r ON r.event_id=b.binding_id WHERE b.work_id=? AND r.kind=? ORDER BY b.binding_seq`, workID, store.WorkflowEvidenceBound)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got [][2]string
+	for rows.Next() {
+		var event [2]string
+		if err := rows.Scan(&event[0], &event[1]); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, event)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("bound events = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("bound events = %v, want %v", got, want)
+		}
+	}
+}
+
+// The refused submission optionally carries an explicit fields.evidence_kind.
+// The corrected binds keep it only where every entry carries that kind.
+func TestBindEvidenceMixedKindRefusalCorrectionBySubject(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		fields map[string]any
+	}{
+		{"inferred_kind", nil},
+		{"explicit_kind", map[string]any{"evidence_kind": "verification"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+			scope, _, err := s.ScopeVersion(ctx, "project-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			env := mutationEnvelope(grant, scope)
+			workID, version := ekbWorkAtExecute(t, ctx, s, service, env, "mixed-correction-"+tc.name)
+			evidence := []agentcontract.EvidenceRef{
+				{Kind: "verification", Authority: "github-actions", LocatorKind: "check_run", Locator: "check:one"},
+				{Kind: "verification", Authority: "github-actions", LocatorKind: "check_run", Locator: "check:two"},
+				{Kind: "review", Authority: "concord-1", LocatorKind: "pull_request_review", Locator: "check:one"},
+			}
+			response, after := ekbDispatch(t, s, service, env, workID, version, "bind_evidence", tc.fields, evidence, "ekb-mixed-refusal-"+tc.name)
+			if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" || response.Error.EffectState != agentcontract.EffectNone {
+				t.Fatalf("mixed bind outcome=%q error=%+v, want invalid_input with no effect", response.Outcome, response.Error)
+			}
+			for _, text := range []string{ekbMixed, "check:one", "check:two", "split the submission into one bind per subject", "omit fields.evidence_kind unless every entry carries that kind"} {
+				if !strings.Contains(response.Error.Message, text) {
+					t.Errorf("mixed bind message=%q, want %q", response.Error.Message, text)
+				}
+			}
+			if after != version || len(ekbEvidenceBoundEvents(t, s, workID)) != 0 {
+				t.Fatal("refused bind changed the work version or recorded an event")
+			}
+			oneKey, twoKey := "ekb-mixed-one-"+tc.name, "ekb-mixed-two-"+tc.name
+			seedAgentEvidenceProducer(t, s, workID, env.PrincipalRef, "check:one", "producer:mixed-one", "request:"+oneKey)
+			first, after := ekbDispatch(t, s, service, env, workID, version, "bind_evidence", map[string]any{"producer_id": env.PrincipalRef, "producer_run_ref": "producer:mixed-one"}, []agentcontract.EvidenceRef{evidence[0], evidence[2]}, oneKey)
+			if first.Outcome != agentcontract.OutcomeOK || after <= version {
+				t.Fatalf("first corrected bind: outcome=%q error=%+v version=%d", first.Outcome, first.Error, after)
+			}
+			seedAgentEvidenceProducer(t, s, workID, env.PrincipalRef, "check:two", "producer:mixed-two", "request:"+twoKey)
+			secondFields := map[string]any{"producer_id": env.PrincipalRef, "producer_run_ref": "producer:mixed-two"}
+			for k, v := range tc.fields {
+				secondFields[k] = v
+			}
+			second, final := ekbDispatch(t, s, service, env, workID, after, "bind_evidence", secondFields, []agentcontract.EvidenceRef{evidence[1]}, twoKey)
+			if second.Outcome != agentcontract.OutcomeOK || final <= after {
+				t.Fatalf("second corrected bind: outcome=%q error=%+v version=%d", second.Outcome, second.Error, final)
+			}
+			ekbAssertBoundSubjects(t, s, workID, [][2]string{{"verification", "check:one"}, {"review", "check:one"}, {"verification", "check:two"}})
+		})
+	}
+}
+
 func TestBindEvidenceRefusesMixedKindEvidenceArray(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -328,29 +412,85 @@ func TestBindEvidenceSuccessfulReplayKeepsOriginalResult(t *testing.T) {
 	}
 }
 
+// Each case submits an explicit fields.evidence_kind that contradicts an
+// entry, then submits the refusal's correction one bind per subject.
 func TestBindEvidenceRefusesContradictedExplicitKind(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
+	type bind struct {
+		fields   map[string]any
+		evidence []int
 	}
-	env := mutationEnvelope(grant, scopeVersion)
-	workID, version := ekbWorkAtExecute(t, ctx, s, service, env, "contradiction")
+	verificationOne := agentcontract.EvidenceRef{Kind: "verification", Authority: "github-actions", LocatorKind: "check_run", Locator: "check:one"}
+	verificationTwo := agentcontract.EvidenceRef{Kind: "verification", Authority: "github-actions", LocatorKind: "check_run", Locator: "check:two"}
+	reviewOne := agentcontract.EvidenceRef{Kind: "review", Authority: "concord-1", LocatorKind: "pull_request_review", Locator: "check:one"}
+	for _, tc := range []struct {
+		name     string
+		evidence []agentcontract.EvidenceRef
+		binds    []bind
+		want     [][2]string
+	}{
+		{
+			name:     "one_locator_mixed_kinds",
+			evidence: []agentcontract.EvidenceRef{verificationOne, reviewOne},
+			binds:    []bind{{evidence: []int{0, 1}}},
+			want:     [][2]string{{"verification", "check:one"}, {"review", "check:one"}},
+		},
+		{
+			name:     "two_locators_same_kind",
+			evidence: []agentcontract.EvidenceRef{verificationOne, verificationTwo},
+			binds:    []bind{{evidence: []int{0}}, {fields: map[string]any{"evidence_kind": "verification"}, evidence: []int{1}}},
+			want:     [][2]string{{"verification", "check:one"}, {"verification", "check:two"}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+			scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			env := mutationEnvelope(grant, scopeVersion)
+			workID, version := ekbWorkAtExecute(t, ctx, s, service, env, "contradiction-"+tc.name)
 
-	response, after := ekbDispatch(t, s, service, env, workID, version, "bind_evidence", map[string]any{"evidence_kind": "review"}, []agentcontract.EvidenceRef{{Kind: "verification", Authority: "github-actions", LocatorKind: "check_run", Locator: "check:one"}}, "ekb-contradiction")
-	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
-		t.Fatalf("contradicted kind outcome=%q error=%+v, want invalid_input", response.Outcome, response.Error)
-	}
-	if !strings.Contains(response.Error.Message, "contradicts") {
-		t.Fatalf("contradicted kind message=%q", response.Error.Message)
-	}
-	if after != version {
-		t.Fatalf("refused contradiction changed version from %d to %d", version, after)
-	}
-	if kinds := ekbEvidenceBoundEvents(t, s, workID); len(kinds) != 0 {
-		t.Fatalf("refused contradiction recorded evidence kinds %v", kinds)
+			response, after := ekbDispatch(t, s, service, env, workID, version, "bind_evidence", map[string]any{"evidence_kind": "review"}, tc.evidence, "ekb-contradiction-"+tc.name)
+			if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" || response.Error.EffectState != agentcontract.EffectNone {
+				t.Fatalf("contradicted kind outcome=%q error=%+v, want invalid_input with no effect", response.Outcome, response.Error)
+			}
+			if !strings.Contains(response.Error.Message, "contradicts") {
+				t.Fatalf("contradicted kind message=%q", response.Error.Message)
+			}
+			for _, text := range []string{"verification", "check:one", "one immutable subject per call", "split the submission into one bind per subject when it names more than one", "omit fields.evidence_kind so each entry binds under its own kind", "keep it only when every entry kind in that bind matches fields.evidence_kind"} {
+				if !strings.Contains(response.Error.Message, text) {
+					t.Errorf("contradicted kind message=%q, want %q", response.Error.Message, text)
+				}
+			}
+			if after != version {
+				t.Fatalf("refused contradiction changed version from %d to %d", version, after)
+			}
+			if kinds := ekbEvidenceBoundEvents(t, s, workID); len(kinds) != 0 {
+				t.Fatalf("refused contradiction recorded evidence kinds %v", kinds)
+			}
+			for i, b := range tc.binds {
+				key := "ekb-contradiction-retry-" + tc.name + "-" + strconv.Itoa(i)
+				producer := "producer:contradiction-" + strconv.Itoa(i)
+				evidence := make([]agentcontract.EvidenceRef, 0, len(b.evidence))
+				for _, index := range b.evidence {
+					evidence = append(evidence, tc.evidence[index])
+				}
+				seedAgentEvidenceProducer(t, s, workID, env.PrincipalRef, evidence[0].Locator, producer, "request:"+key)
+				fields := map[string]any{"producer_id": env.PrincipalRef, "producer_run_ref": producer}
+				for k, v := range b.fields {
+					fields[k] = v
+				}
+				retry, next := ekbDispatch(t, s, service, env, workID, version, "bind_evidence", fields, evidence, key)
+				if retry.Outcome != agentcontract.OutcomeOK || next <= version {
+					t.Fatalf("corrected bind %d: outcome=%q error=%+v version=%d", i, retry.Outcome, retry.Error, next)
+				}
+				version = next
+			}
+			ekbAssertBoundSubjects(t, s, workID, tc.want)
+		})
 	}
 }
 

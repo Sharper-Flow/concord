@@ -9288,6 +9288,21 @@ DROP TABLE workflow_overlap_resolutions_v190_backup;
 		Version: 191, Name: "project_repository_mode", Breaking: true, FoldMaintained: "advance",
 		SQL: `ALTER TABLE projects ADD COLUMN repository_mode TEXT NOT NULL DEFAULT 'off' CHECK(repository_mode IN ('on','off'));`,
 	},
+	{
+		Version: 192, Name: "workflow_contract_domain_additions", Breaking: true, FoldMaintained: "advance",
+		SQL: `
+CREATE TABLE workflow_contract_domain_additions (
+    work_id TEXT NOT NULL,
+    contract_version INTEGER NOT NULL,
+    domain_id TEXT NOT NULL CHECK(length(domain_id) BETWEEN 1 AND 256),
+    PRIMARY KEY(work_id, contract_version, domain_id),
+    FOREIGN KEY(work_id, contract_version) REFERENCES workflow_architecture_bindings(work_id, contract_version) ON DELETE RESTRICT
+);
+CREATE TRIGGER workflow_contract_domain_additions_guard_insert BEFORE INSERT ON workflow_contract_domain_additions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_domain_additions is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_domain_additions_guard_update BEFORE UPDATE ON workflow_contract_domain_additions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_domain_additions is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+CREATE TRIGGER workflow_contract_domain_additions_guard_delete BEFORE DELETE ON workflow_contract_domain_additions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_contract_domain_additions is write-seam-only') WHERE NOT EXISTS (SELECT 1 FROM write_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

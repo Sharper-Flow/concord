@@ -136,7 +136,7 @@ func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 		seedWorkflowLaw(t, s)
 		seedDerivedLawExtension(t, s)
 		version := seedDerivedRevisionWorkflow(t, s, workID, actor)
-		payload := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]},"legislative_subjects":[]}`)
+		payload := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_additions":[],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]},"legislative_subjects":[]}`)
 		err := runDerivedLawApproval(t, s, workID, version, actor, payload)
 		if err == nil {
 			t.Fatal("an architecture binding was admitted on a non-Product-changing contract")

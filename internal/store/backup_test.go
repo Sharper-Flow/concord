@@ -385,7 +385,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		"law_boundary_version": 1, "consequence_class": "internal_sqlite",
 		"architecture_binding": WorkflowArchitectureBinding{
 			HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
-			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
+			DomainAdditions: []string{},
+			DomainModifies:  []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
 		},
 	})
 	approval.PayloadVersion = CurrentEventPayloadVersion(WorkflowContractApproved)
@@ -433,7 +434,8 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 		"law_boundary_version": 1, "consequence_class": "internal_sqlite",
 		"architecture_binding": WorkflowArchitectureBinding{
 			HomeDomainID: workContextTestRoot, AffectedDomainIDs: []string{workContextTestRoot, workContextTestChild},
-			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
+			DomainAdditions: []string{},
+			DomainModifies:  []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{},
 		},
 	})
 	boundContract.PayloadVersion = CurrentEventPayloadVersion(WorkflowContractApproved)

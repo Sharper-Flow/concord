@@ -152,7 +152,7 @@ func TestLawContextQualifiesWithTheRegisteredKnowledgeHome(t *testing.T) {
 	workID := "law-context-cross-repo"
 	homeRepo := seedCrossRepositoryLawFixture(t, s, workID)
 	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, currentWorkflowPlanFixture(t, WorkflowStepPlanChange).Steps[0].ID)
-	binding := WorkflowArchitectureBinding{HomeDomainID: "product-root:product", AffectedDomainIDs: []string{"product-root:product"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	binding := WorkflowArchitectureBinding{HomeDomainID: "product-root:product", AffectedDomainIDs: []string{"product-root:product"}, DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveCurrentLawContextContract(t, s, workID, []string{"spec:one"}, []string{}, binding)
 	snapshot, err := readLawContextItem(ctx, s, workID)
 	if err != nil {
@@ -195,7 +195,7 @@ func TestLawContextRefusesUnresolvableRegistrySource(t *testing.T) {
 	workID := "law-context-missing-registry"
 	seedLawContextFixture(t, s, workID)
 	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, currentWorkflowPlanFixture(t, WorkflowStepPlanChange).Steps[0].ID)
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveCurrentLawContextContract(t, s, workID, []string{}, []string{}, binding)
 	homeRepo := workflowLawFixtureRepo(t, s)
 	if err := os.Remove(filepath.Join(homeRepo, ".concord/docs/knowledge/domain-registry.json")); err != nil {
@@ -308,7 +308,7 @@ func TestLawContextRefusesRegistryReplacedByDirectory(t *testing.T) {
 	workID := "law-context-registry-directory"
 	seedLawContextFixture(t, s, workID)
 	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, currentWorkflowPlanFixture(t, WorkflowStepPlanChange).Steps[0].ID)
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveCurrentLawContextContract(t, s, workID, []string{}, []string{}, binding)
 	homeRepo := workflowLawFixtureRepo(t, s)
 	registryPath := filepath.Join(homeRepo, ".concord", "docs", "knowledge", "domain-registry.json")
@@ -431,7 +431,7 @@ func TestLawContextRegistryDoesNotFallBackAcrossTheSelectedLayout(t *testing.T) 
 	workID := "law-context-selected-layout"
 	seedLawContextFixture(t, s, workID)
 	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, currentWorkflowPlanFixture(t, WorkflowStepPlanChange).Steps[0].ID)
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveCurrentLawContextContract(t, s, workID, []string{}, []string{}, binding)
 	homeRepo := workflowLawFixtureRepo(t, s)
 	if err := os.Remove(filepath.Join(homeRepo, filepath.FromSlash(knowledgeRegistryPath))); err != nil {

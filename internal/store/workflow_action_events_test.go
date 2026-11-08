@@ -20,7 +20,7 @@ func issue31WorkflowActionWithPayload(t *testing.T, s *Store, workID string, ver
 			t.Fatal(err)
 		}
 		if _, ok := fields["architecture_binding"]; !ok {
-			fields["architecture_binding"] = WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+			fields["architecture_binding"] = WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 		}
 		payload = mustJSONValue(fields)
 	}
@@ -101,7 +101,7 @@ func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing
 	initialVersion := version
 	plan := json.RawMessage(`{"outcomes":"working outcome","approach":"bounded change","decisions":[{"id":"decision:one","question":"which?","choice":"one","rationale":"fits","rejected":[]}],"touches":["file:one"],"merge_split":"one item","risks":"bounded risk"}`)
 	version = issue31WorkflowActionWithPayload(t, s, "workflow-issue31-actions", version, "record_plan", "issue31-plan", actor, plan)
-	approval := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
+	approval := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_additions":[],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
 	version = issue31WorkflowActionWithPayload(t, s, "workflow-issue31-actions", version, "approve_contract", "issue31-approve", actor, approval)
 	if version != initialVersion+4 {
 		t.Fatalf("approve_contract resulting version=%d, want %d", version, initialVersion+4)
@@ -173,7 +173,7 @@ func TestApproveContractPersistsSubjectsAndRigor(t *testing.T) {
 			}
 			seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, "plan")
 			version := readWorkVersion(t, s, workID)
-			approval := json.RawMessage(`{` + testCase.extraFields + `"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
+			approval := json.RawMessage(`{` + testCase.extraFields + `"spec_mandate":[],"law_modifies":[],"architecture_binding":{"home_domain_id":"root","affected_domain_ids":["root"],"domain_additions":[],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
 			issue31WorkflowActionWithPayload(t, s, workID, version, "approve_contract", "contract-fields-"+testCase.name+"-approve", actor, approval)
 			var subjects string
 			if err := s.DatabaseForTesting().QueryRow(`SELECT legislative_subjects FROM workflow_contracts WHERE work_id=? AND contract_version=1`, workID).Scan(&subjects); err != nil {

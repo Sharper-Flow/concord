@@ -70,7 +70,7 @@ func TestQ3ItemScopedFullRegistryAbsentNamesCommittingOwner(t *testing.T) {
 	workID := "law-context-list-registry-absent"
 	seedLawContextFixture(t, s, workID)
 	seedWorkflowPlanFrontier(t, s, workID, WorkflowStepPlanChange, currentWorkflowPlanFixture(t, WorkflowStepPlanChange).Steps[0].ID)
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveCurrentLawContextContract(t, s, workID, []string{}, []string{}, binding)
 	homeRepo := workflowLawFixtureRepo(t, s)
 	if err := os.Remove(filepath.Join(homeRepo, filepath.FromSlash(knowledgeRegistryPath))); err != nil {
@@ -126,7 +126,7 @@ func TestQ3ItemScopedLawContext(t *testing.T) {
 	s := openTemp(t)
 	workID := "law-context-list"
 	seedLawContextFixture(t, s, workID)
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}}
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root", "child"}, DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}}
 	approveLawContextContract(t, s, workID, []string{"spec:one", "law:new"}, []string{"spec:one"}, binding)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

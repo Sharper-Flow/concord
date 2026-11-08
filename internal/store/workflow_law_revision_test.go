@@ -134,7 +134,7 @@ func seedLawRevisionContract(t *testing.T, workID, frontier string) (*Store, Wor
 	t.Helper()
 	s := openTemp(t)
 	seedLawContextFixture(t, s, workID)
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveLawContextContract(t, s, workID, []string{"spec:one"}, []string{}, binding)
 	moveWorkflowPlanFixtureFrontier(t, s, workID, frontier)
 	actor := WorkflowActor{PrincipalRef: "principal:law-context", ClientRef: "client:law-context", AgentRef: "agent:law-context", SessionRef: "session:law-context", ActorClass: ActorAgent}

@@ -66,6 +66,7 @@ func TestProductChangingApprovalDerivesTheRegistryItPins(t *testing.T) {
 	fields["architecture_binding"] = map[string]any{
 		"home_domain_id":           listed.Registry.RootDomainID,
 		"affected_domain_ids":      []string{listed.Registry.RootDomainID},
+		"domain_additions":         []string{},
 		"domain_modifies":          []string{},
 		"domain_relation_modifies": []any{},
 		"law_additions":            []any{},
@@ -129,6 +130,7 @@ func TestProductChangingApprovalDerivesTheRegistryWithoutAPriorRead(t *testing.T
 	fields["architecture_binding"] = map[string]any{
 		"home_domain_id":           rootDomainID,
 		"affected_domain_ids":      []string{rootDomainID},
+		"domain_additions":         []string{},
 		"domain_modifies":          []string{},
 		"domain_relation_modifies": []any{},
 		"law_additions":            []any{},

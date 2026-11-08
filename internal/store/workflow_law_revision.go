@@ -43,6 +43,7 @@ type WorkflowLawContextDomain struct {
 	DomainID string `json:"domain_id"`
 	Name     string `json:"name"`
 	Purpose  string `json:"purpose"`
+	Status   string `json:"status,omitempty"`
 }
 
 // Role vocabulary for the law context. The sources overlap — a modified law
@@ -64,8 +65,9 @@ const (
 // every role it carries; missing own-home laws retain their identity and
 // roles with status absent, except reserved additions, which carry identity
 // and roles only, including foreign-qualified additions. Other foreign-home
-// references and missing Domains refuse. Every advertised file locator must
-// open inside the knowledge home.
+// references refuse. Declared Domain additions missing from the registry carry
+// status added; missing Domains not declared as additions refuse. Every
+// advertised file locator must open inside the knowledge home.
 func readWorkflowLawContext(ctx context.Context, tx *sql.Tx, workID string, contract *WorkflowReadContract) (*WorkflowLawContext, error) {
 	if contract == nil {
 		return nil, nil
@@ -378,6 +380,8 @@ func resolveLawContextSubjects(ctx context.Context, homeProjectID, homeLocatorID
 
 // resolveLawContextDomains resolves the binding's home Domain first, then its
 // affected Domains in ID order, from the verified committed Domain registry.
+// Declared additions missing from the registry carry status added; missing
+// Domains not declared as additions refuse.
 func resolveLawContextDomains(ctx context.Context, tx *sql.Tx, productID string, binding WorkflowArchitectureBinding) ([]WorkflowLawContextDomain, error) {
 	home, err := resolveKnowledgeQueryHome(ctx, tx, productID, "read_workflow_law_context")
 	if err != nil {
@@ -403,13 +407,17 @@ func resolveLawContextDomains(ctx context.Context, tx *sql.Tx, productID string,
 	domains := make([]WorkflowLawContextDomain, 0, len(ordered))
 	for _, domainID := range ordered {
 		var domain WorkflowLawContextDomain
+		found := false
 		for _, entry := range registry.Domains {
 			if entry.DomainID == domainID {
+				found = true
 				domain.Name, domain.Purpose = entry.Name, entry.Purpose
 				break
 			}
 		}
-		if domain.Name == "" && domain.Purpose == "" {
+		if !found && slices.Contains(binding.DomainAdditions, domainID) {
+			domain.Status = "added"
+		} else if !found {
 			failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "bound Domain is missing from the committed Domain registry at the verified snapshot commit", false, "commit the Domain under the registry at the Product knowledge home through an ordinary reviewed pull request")
 			failure.CandidateIDs = []string{domainID}
 			return nil, failure

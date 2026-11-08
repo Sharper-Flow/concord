@@ -1043,6 +1043,7 @@
       "required": [
         "home_domain_id",
         "affected_domain_ids",
+        "domain_additions",
         "domain_modifies",
         "domain_relation_modifies",
         "law_additions",
@@ -1073,6 +1074,22 @@
             [
               "a"
             ]
+          ]
+        },
+        "domain_additions": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/domain_id",
+            "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..256 code points inclusive; example: \"a\"",
+            "examples": [
+              "a"
+            ]
+          },
+          "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: <=64 items inclusive; example: []",
+          "examples": [
+            []
           ]
         },
         "domain_modifies": {
@@ -1223,12 +1240,13 @@
           ]
         }
       },
-      "description": "Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
+      "description": "Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_additions\":[],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
       "examples": [
         {
           "affected_domain_ids": [
             "a"
           ],
+          "domain_additions": [],
           "domain_modifies": [],
           "domain_relation_modifies": [],
           "home_domain_id": "a",
@@ -1767,6 +1785,10 @@
         "purpose": {
           "type": "string",
           "maxLength": 4096
+        },
+        "status": {
+          "type": "string",
+          "enum": ["added"]
         }
       }
     },
@@ -4359,12 +4381,13 @@
             },
             "architecture_binding": {
               "$ref": "#/$defs/architecture_binding",
-              "description": "Architecture bindings must name Domains that exist in the current domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
+              "description": "Architecture bindings must declare new Domains in domain_additions, include them in affected_domain_ids, and home at least one added law in each; additions must be absent from the registry and disjoint from domain_modifies. Every other affected Domain must be current, every added or modified law must have an affected home, and modified relations must be current canonical tuples. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_additions\":[],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
               "examples": [
                 {
                   "affected_domain_ids": [
                     "a"
                   ],
+                  "domain_additions": [],
                   "domain_modifies": [],
                   "domain_relation_modifies": [],
                   "home_domain_id": "a",
@@ -5425,12 +5448,13 @@
         },
         "architecture_binding": {
           "$ref": "#/$defs/architecture_binding",
-          "description": "Architecture bindings must name Domains that exist in the current domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
+          "description": "Architecture bindings must declare new Domains in domain_additions, include them in affected_domain_ids, and home at least one added law in each; additions must be absent from the registry and disjoint from domain_modifies. Every other affected Domain must be current, every added or modified law must have an affected home, and modified relations must be current canonical tuples. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_additions\":[],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
           "examples": [
             {
               "affected_domain_ids": [
                 "a"
               ],
+              "domain_additions": [],
               "domain_modifies": [],
               "domain_relation_modifies": [],
               "home_domain_id": "a",

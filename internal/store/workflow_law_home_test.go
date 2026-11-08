@@ -119,7 +119,7 @@ func TestCrossProductWorkRecordsContractApproval(t *testing.T) {
 
 	event := withPlanDecisionFact(t, WorkflowStepPlanChange, workflowEventWithActor("cross-product-approval-event", WorkflowContractApproved, workID, DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": int64(1), "legislative_subjects": []string{}, "spec_mandate": []string{"spec:one"}, "law_modifies": []string{}, "law_boundary_version": 1, "consequence_class": "internal_sqlite",
-		"architecture_binding": WorkflowArchitectureBinding{HomeDomainID: "product-root:product", AffectedDomainIDs: []string{"product-root:product"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}},
+		"architecture_binding": WorkflowArchitectureBinding{HomeDomainID: "product-root:product", AffectedDomainIDs: []string{"product-root:product"}, DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}},
 	}))
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, version)}); err != nil {
 		t.Fatalf("cross-Product contract approval refused: %v", err)

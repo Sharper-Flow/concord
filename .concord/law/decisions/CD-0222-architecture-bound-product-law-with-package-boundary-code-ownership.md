@@ -213,7 +213,7 @@ family has its own owner, endpoint constraints, metadata, and graph rules.
 | Law | `applies_to` | Domain | Zero or more explicit applicability targets |
 | Law | `supersedes`, `refines`, `subordinate_to`, `conflicts_with` | Law | CD-0015/CD-0036 rules remain authoritative |
 | Work | `home_in` | Domain | Exactly one for Product-changing work |
-| Work | `impacts`, `modifies` | Domain | Closed contract fields; all modified Domains are impacted |
+| Work | `impacts`, `modifies`, `adds` | Domain | Closed contract fields; all modified and added Domains are impacted |
 | Work | `governed_by`, `modifies`, `adds`, `verifies` | Law | Law-ID contract fields; modified/added law follows the approved mandate |
 | Work | `blocks`, `depends_on`, `raised_from` | Work | Closed work-pair grammar; `resolve_overlap` pins both contract versions |
 
@@ -247,6 +247,7 @@ architecture binding:
 home_domain_id
 affected_domain_ids[]            # non-empty and includes home
 domain_modifies[]                 # subset of affected domains
+domain_additions[]                # subset of affected domains
 domain_relation_modifies[]        # exact source/kind/target tuples
 spec_mandate[]                   # governing and authorized law IDs
 law_modifies[]                    # subset authorized by spec_mandate
@@ -258,14 +259,20 @@ The binding composes with, rather than duplicates, the contract,
 `spec_mandate`, `law_modifies`, and evidence policy:
 
 - `home_domain_id` says where the work belongs;
-- affected and modified Domains say where architectural assumptions may change;
+- affected, modified, and added Domains say where architectural assumptions may
+  change;
 - governing law IDs name the mandate the contract approves;
 - `law_modifies` and `law_additions` bound legislative authority; and
 - verification obligations map workflow-owned proof requirements to the law they
   prove.
 
-Every named Domain and law must resolve inside the derived Product scope. A
-modified Domain must be affected. A modified or added law must be owned by an
+Every named law must resolve inside the derived Product scope. Every named
+Domain outside `domain_additions` must resolve there with `current` status in
+the Product's committed registry. An added Domain must be affected, disjoint
+from `domain_modifies`, and absent from that registry in every status. Each
+added Domain must be the declared home of at least one `law_additions` entry
+([CD-0060 D4](CD-0060-domain-registry-enactment.md#d4-a-declared-domain-owns-law-at-enactment)).
+A modified Domain must be affected. A modified or added law must be owned by an
 affected Domain. Law modifications remain a subset of the approved mandate.
 Law additions stay disjoint from modifications and existing law. Verification
 obligations name current mandated law and a closed workflow evidence kind.
@@ -314,8 +321,10 @@ owns each authoritative workflow mutation. They apply at:
 
 The preflight validates local attachment versions and relation grammar.
 Contract approval and revision also validate the architecture binding against
-the current Domain registry and accepted law by identity and membership. Neither
-contract law hashes nor registry approval hashes are stored.
+the current Domain registry and accepted law by identity and membership. They
+refuse an added Domain the registry holds in any status and any other named
+Domain the registry does not hold as `current`. Neither contract law hashes nor
+registry approval hashes are stored.
 
 A Product law or Domain registry change merged on main never invalidates work
 already in progress. After approval, no action compares contract freshness
@@ -537,6 +546,7 @@ graph. Product law approval does not authorize live-state cutover.
 
 ## Verification
 
+- `internal/store.TestFirstCallApproveContractAdmitsAddedDomainWithLaw` proves approval of a declared Domain addition with its first law against the registry.
 - Committed law-folder snapshot validation proves record identity, folder
   placement, and the relation graph.
 - `python3 scripts/test-check-domain-registry.py` proves the referential checks without a participation rule.

@@ -128,6 +128,24 @@ func TestInitiativeRetirementUpgrade(t *testing.T) {
 	}
 }
 
+func TestInitiativeRetirementUpgradeProtectsDomainAdditions(t *testing.T) {
+	db, path := initiativeRetirementFixture(t)
+	snapshot := filepath.Join(t.TempDir(), "before.db")
+	if _, err := BackupDatabase(t.Context(), path, snapshot); err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if _, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
+		t.Fatalf("upgrade predecessor with a retiring initiative: %v", err)
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT id FROM work_items WHERE id='initiative-old'`); len(got) != 0 {
+		t.Fatalf("retired initiative remains: %v", got)
+	}
+	_, err := db.Exec(`INSERT INTO workflow_contract_domain_additions(work_id,contract_version,domain_id) VALUES('work-live',1,'new-domain')`)
+	if err == nil || !strings.Contains(err.Error(), "workflow_contract_domain_additions is write-seam-only") {
+		t.Fatalf("unguarded Domain addition after upgrade: %v", err)
+	}
+}
+
 func TestInitiativeRetirementPartialFailureRollback(t *testing.T) {
 	db, path := initiativeRetirementFixture(t)
 	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1);

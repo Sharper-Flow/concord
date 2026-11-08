@@ -87,7 +87,7 @@ func TestFullWorkListResolvesContractLawAndDomainContext(t *testing.T) {
 	s := openTemp(t)
 	workID := "law-context-bound"
 	seedLawContextFixture(t, s, workID)
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}}
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root", "child"}, DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}}
 	approveLawContextContract(t, s, workID, []string{"spec:one", "law:new"}, []string{"spec:one"}, binding)
 	snapshot, err := readLawContextItem(ctx, s, workID)
 	if err != nil {
@@ -191,7 +191,7 @@ func TestFullWorkListResolvesMandatedConstitutionLaw(t *testing.T) {
 			`{"id":"const:one","title":"Synthetic constitution","authority":{"tier":"derived"},"home_domain_id":"root","applies_to_domain_ids":[]}`+"\n"+
 			"---\n\nSynthetic constitution body.\n")
 	})
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveLawContextContract(t, s, workID, []string{"const:one"}, []string{}, binding)
 	snapshot, err := readLawContextItem(ctx, s, workID)
 	if err != nil {
@@ -216,7 +216,7 @@ func TestFullWorkListContractWithoutBoundLawCarriesDomainsOnly(t *testing.T) {
 	s := openTemp(t)
 	workID := "law-context-unbound"
 	seedLawContextFixture(t, s, workID)
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveLawContextContract(t, s, workID, []string{}, []string{}, binding)
 	snapshot, err := readLawContextItem(ctx, s, workID)
 	if err != nil {
@@ -240,7 +240,7 @@ func TestFullWorkListReportsAbsentDeletedModifiedLaw(t *testing.T) {
 	s := openTemp(t)
 	workID := "law-context-drift-modified"
 	seedLawContextFixture(t, s, workID)
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{}}
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root", "child"}, DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveLawContextContract(t, s, workID, []string{"spec:one", "law:new"}, []string{"spec:one"}, binding)
 	removeCommittedFixtureLaw(t, KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"})
 	snapshot, err := readLawContextItem(ctx, s, workID)
@@ -262,7 +262,7 @@ func TestFullWorkListReportsAbsentDeletedObligationLaw(t *testing.T) {
 	s := openTemp(t)
 	workID := "law-context-drift-obligation"
 	seedLawContextFixture(t, s, workID)
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}}
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root"}, DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{}, VerificationObligations: []WorkflowVerificationObligation{{LawID: "spec:one", ObligationID: "verification"}}}
 	approveLawContextContract(t, s, workID, []string{"spec:one"}, []string{}, binding)
 	removeCommittedFixtureLaw(t, KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"})
 	snapshot, err := readLawContextItem(ctx, s, workID)
@@ -284,7 +284,7 @@ func TestFullWorkListRefusesDomainMissingFromRegistry(t *testing.T) {
 	s := openTemp(t)
 	workID := "law-context-drift-domain"
 	seedLawContextFixture(t, s, workID)
-	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root", "child"}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{}}
+	binding := WorkflowArchitectureBinding{HomeDomainID: "root", AffectedDomainIDs: []string{"root", "child"}, DomainAdditions: []string{}, DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{{LawID: "law:new", HomeDomainID: "child"}}, VerificationObligations: []WorkflowVerificationObligation{}}
 	approveLawContextContract(t, s, workID, []string{"spec:one", "law:new"}, []string{"spec:one"}, binding)
 	// The registry revision that retires the child Domain commits at the home:
 	// a committed registry change is the only way the registry read changes.

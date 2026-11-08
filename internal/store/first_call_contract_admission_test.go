@@ -251,6 +251,192 @@ func firstCallRequireRefusal(t *testing.T, err error, fragment string) {
 	}
 }
 
+func TestFirstCallApproveContractAdmitsAddedDomainWithLaw(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	defer s.Close()
+	const workID = "work-first-call-added-domain"
+	actor := seedFirstCallWorkflow(t, s, workID, "first-call-added-domain", WorkflowStepPlanChange)
+	version := readWorkVersion(t, s, workID)
+	defs := firstCallPublishedDefs(t)
+	// frontend-experience is absent from the committed fixture registry; the
+	// contract declares it added and homes its first law there.
+	addedBinding := func(affected []string) map[string]any {
+		return map[string]any{
+			"home_domain_id":           "root",
+			"affected_domain_ids":      affected,
+			"domain_additions":         []string{"frontend-experience"},
+			"domain_modifies":          []string{},
+			"domain_relation_modifies": []map[string]any{},
+			"law_additions":            []map[string]any{{"law_id": "law:new", "home_domain_id": "frontend-experience"}},
+			"verification_obligations": []map[string]any{{"law_id": "spec:one", "obligation_id": "verification"}},
+		}
+	}
+	input := firstCallActionInput(t, defs, workID, version, map[string]any{
+		"legislative_subjects": []string{},
+		"spec_mandate":         []string{"spec:one", "law:new"},
+		"architecture_binding": addedBinding([]string{"root", "child", "frontend-experience"}),
+	})
+	payload, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := payloadschema.Validate("work_transition_action_variant_approve_contract", payload); err != nil {
+		t.Fatalf("published variant refused a declared Domain addition: %v", err)
+	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(map[string]any)
+		want   string
+	}{
+		{"registered", func(b map[string]any) {
+			b["domain_additions"] = []string{"root"}
+			b["affected_domain_ids"] = []string{"root"}
+			b["law_additions"] = []map[string]any{{"law_id": "law:new", "home_domain_id": "root"}}
+		}, "Domain addition already exists"},
+		{"outside affected", func(b map[string]any) { b["affected_domain_ids"] = []string{"root"} }, "domain_additions contains a Domain outside affected_domain_ids"},
+		{"overlap", func(b map[string]any) { b["domain_modifies"] = []string{"frontend-experience"} }, "domain_additions overlaps domain_modifies"},
+		{"missing law", func(b map[string]any) {
+			b["law_additions"] = []map[string]any{{"law_id": "law:new", "home_domain_id": "root"}}
+		}, "Domain addition has no homed law addition"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			binding := addedBinding([]string{"root", "frontend-experience"})
+			tc.mutate(binding)
+			mutant := firstCallActionInput(t, defs, workID, version, map[string]any{
+				"legislative_subjects": []string{}, "spec_mandate": []string{"spec:one", "law:new"}, "architecture_binding": binding,
+			})
+			err := firstCallApproveContract(t, s, workID, version, "added-domain-"+strings.ReplaceAll(tc.name, " ", "-"), actor, mutant)
+			firstCallRequireRefusal(t, err, tc.want)
+			if tc.name == "registered" {
+				var failure *Failure
+				if !failureAs(err, &failure) || failure.Kind != KindProjectionConflict {
+					t.Fatalf("registered Domain refusal = %v, want projection conflict", err)
+				}
+			}
+		})
+	}
+
+	// A declared addition exempts only itself: another affected Domain that
+	// is neither registered nor added still refuses without effect.
+	ghostMutant := firstCallActionInput(t, defs, workID, version, map[string]any{
+		"legislative_subjects": []string{},
+		"spec_mandate":         []string{"spec:one", "law:new"},
+		"architecture_binding": addedBinding([]string{"root", "child", "frontend-experience", "ghost"}),
+	})
+	mutantErr := firstCallApproveContract(t, s, workID, version, "first-call-added-domain-ghost", actor, ghostMutant)
+	firstCallRequireRefusal(t, mutantErr, "architecture_binding.affected_domain_ids names an unknown Domain: ghost")
+
+	if err := firstCallApproveContract(t, s, workID, version, "first-call-added-domain", actor, input); err != nil {
+		t.Fatalf("approve_contract refused a declared Domain addition with its first law: %v", err)
+	}
+	// The approved contract keeps the addition, so a read of it, or a
+	// successor contract built from that read, still declares the Domain added.
+	contract, err := readWorkflowContractVersion(t.Context(), s.DatabaseForTesting(), workID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded, err := json.Marshal(contract.ArchitectureBinding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var additions struct {
+		DomainAdditions []string `json:"domain_additions"`
+	}
+	if err := json.Unmarshal(recorded, &additions); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(additions.DomainAdditions, []string{"frontend-experience"}) {
+		t.Fatalf("approved architecture binding = %s, want domain_additions [frontend-experience]", recorded)
+	}
+	for _, query := range []string{
+		`INSERT INTO workflow_contract_domain_additions(work_id,contract_version,domain_id) VALUES(?,1,'other')`,
+		`UPDATE workflow_contract_domain_additions SET domain_id='other' WHERE work_id=? AND contract_version=1`,
+		`DELETE FROM workflow_contract_domain_additions WHERE work_id=? AND contract_version=1`,
+	} {
+		if _, err := s.DatabaseForTesting().Exec(query, workID); err == nil || !strings.Contains(err.Error(), "write-seam-only") {
+			t.Fatalf("unguarded Domain addition write %q: %v", query, err)
+		}
+	}
+	detail, err := readLawContextItem(t.Context(), s, workID)
+	if err != nil {
+		t.Fatalf("full detail refused the added Domain: %v", err)
+	}
+	encodedDetail, err := json.Marshal(detail.LawContext.Domains)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encodedDetail), `"domain_id":"frontend-experience","name":"","purpose":"","status":"added"`) {
+		t.Fatalf("full detail Domains = %s, want the declared addition", encodedDetail)
+	}
+	for _, domain := range detail.LawContext.Domains {
+		encoded, err := json.Marshal(domain)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := payloadschema.Validate("workflow_law_context_domain", encoded); err != nil {
+			t.Fatalf("published Domain output rejected %s: %v", encoded, err)
+		}
+	}
+	if err := payloadschema.Validate("workflow_law_context_domain", []byte(`{"domain_id":"frontend-experience","name":"","purpose":"","status":"current"}`)); err == nil {
+		t.Fatal("published Domain output accepted an undeclared status")
+	}
+	successor := pContractSuccessor(t, s, workID)
+	if err := reviseContractRecord(t, s, workID, actor, successor, readWorkVersion(t, s, workID)); err != nil {
+		t.Fatalf("unchanged added Domain revision refused: %v", err)
+	}
+	revised, err := readWorkflowContractVersion(t.Context(), s.DatabaseForTesting(), workID, 2)
+	if err != nil || revised.ArchitectureBinding == nil || !slices.Equal(revised.ArchitectureBinding.DomainAdditions, []string{"frontend-experience"}) {
+		t.Fatalf("revised binding = %+v, err = %v", revised, err)
+	}
+	var registry KnowledgeDomainRegistry
+	if err := json.Unmarshal([]byte(workflowArchitectureFixtureRegistry), &registry); err != nil {
+		t.Fatal(err)
+	}
+	missingRegistry := registry
+	missingRegistry.Domains = slices.DeleteFunc(slices.Clone(registry.Domains), func(domain KnowledgeDomain) bool { return domain.DomainID == "child" })
+	missingJSON, err := json.Marshal(missingRegistry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := KnowledgeHome{HomeProjectID: "project", HomeLocatorID: "workflow-law-locator", RepoPath: workflowLawFixtureRepo(t, s), HeadRef: "HEAD"}
+	commitWorkflowFixtureRegistry(t, home, string(missingJSON))
+	_, err = readLawContextItem(t.Context(), s, workID)
+	var missing *Failure
+	if !failureAs(err, &missing) || missing.Kind != KindProjectionNotFound || !slices.Contains(missing.CandidateIDs, "child") {
+		t.Fatalf("missing non-addition Domain refusal = %+v, err = %v", missing, err)
+	}
+	registry.Domains = append(registry.Domains, KnowledgeDomain{DomainID: "frontend-experience", Name: "Frontend", Purpose: "Fixture frontend Domain.", ParentDomainID: "product-root:product", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}})
+	registryJSON, err := json.Marshal(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commitWorkflowFixtureRegistry(t, home, string(registryJSON))
+	detail, err = readLawContextItem(t.Context(), s, workID)
+	if err != nil {
+		t.Fatalf("full detail refused the registered Domain: %v", err)
+	}
+	encodedDetail, err = json.Marshal(detail.LawContext.Domains)
+	if err != nil || !strings.Contains(string(encodedDetail), `"domain_id":"frontend-experience","name":"Frontend","purpose":"Fixture frontend Domain."}`) {
+		t.Fatalf("registered Domain detail = %s, err = %v", encodedDetail, err)
+	}
+	err = reviseContractRecord(t, s, workID, actor, pContractSuccessor(t, s, workID), readWorkVersion(t, s, workID))
+	var conflict *Failure
+	if !failureAs(err, &conflict) || conflict.Kind != KindProjectionConflict || !strings.Contains(conflict.RecoveryAction, "modify the registered Domain") {
+		t.Fatalf("registered Domain revision refusal = %+v, err = %v", conflict, err)
+	}
+	req := removalTestRequest()
+	req.WorkID, req.ExpectedVersion = workID, readWorkVersion(t, s, workID)
+	confirmRemovalHandoff(t, s, &req)
+	if err := removeWorkForTest(t.Context(), s, req); err != nil {
+		t.Fatalf("remove work with added Domain: %v", err)
+	}
+	var count int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contract_domain_additions WHERE work_id=?`, workID).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("removed work retains %d Domain additions: %v", count, err)
+	}
+}
+
 func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -268,6 +454,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 		return map[string]any{
 			"home_domain_id":           "root",
 			"affected_domain_ids":      []string{"root"},
+			"domain_additions":         []string{},
 			"domain_modifies":          []string{},
 			"domain_relation_modifies": []map[string]any{},
 			"law_additions":            []map[string]any{{"law_id": "law:new", "home_domain_id": "root"}},
@@ -345,6 +532,7 @@ func firstCallBreakFixSeed(t *testing.T, workID string) (*Store, WorkflowActor) 
 		return map[string]any{
 			"home_domain_id":           "root",
 			"affected_domain_ids":      []string{"root"},
+			"domain_additions":         []string{},
 			"domain_modifies":          []string{},
 			"domain_relation_modifies": []map[string]any{},
 			"law_additions":            []map[string]any{{"law_id": "law:new", "home_domain_id": "root"}},
@@ -377,6 +565,7 @@ func TestFirstCallContractUpdateAdmitsFromPublishedInput(t *testing.T) {
 		return map[string]any{
 			"home_domain_id":           "root",
 			"affected_domain_ids":      []string{"root"},
+			"domain_additions":         []string{},
 			"domain_modifies":          []string{},
 			"domain_relation_modifies": []map[string]any{},
 			"law_additions":            []map[string]any{{"law_id": "law:successor", "home_domain_id": "root"}},

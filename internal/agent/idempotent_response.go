@@ -3,10 +3,19 @@ package agent
 import (
 	"encoding/json"
 	"strconv"
+	"strings"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
+
+func missingLegacyIndexDocument(payload string) bool {
+	if strings.TrimSpace(payload) == "" {
+		return true
+	}
+	var object map[string]json.RawMessage
+	return json.Unmarshal([]byte(payload), &object) == nil && object != nil && len(object) == 0
+}
 
 func hasMutationResponse(scopeJSON string) (bool, error) {
 	var scope map[string]json.RawMessage
@@ -183,4 +192,32 @@ func (r runtime) legacyWorkflowResult(base agentcontract.Envelope, operation sto
 		return incompleteMutationResponse(base, "durable workflow changed references are incomplete; contact the operator before retrying the same request")
 	}
 	return r.legacyMutationResult(base, operation.ResultPayload, string(refs))
+}
+
+func (r runtime) legacyWorkflowIndexResult(base agentcontract.Envelope, prior store.MutationIdempotencyRecord, owner store.OperationResult) agentcontract.Envelope {
+	var changed []agentcontract.ChangedRef
+	var document struct {
+		Refs []mutationResultChangedRef `json:"changed_refs"`
+		Pins []store.WorkPin            `json:"work_pins"`
+	}
+	if err := json.Unmarshal([]byte(prior.ChangedRefs), &changed); err != nil || changed == nil {
+		return incompleteMutationResponse(base, "committed workflow changed references are incomplete; contact the operator before retrying the same request")
+	}
+	if err := json.Unmarshal([]byte(prior.ResultPayload), &document); err != nil || document.Refs == nil || len(document.Refs) != len(changed) {
+		return incompleteMutationResponse(base, "committed workflow result and changed references disagree; contact the operator before retrying the same request")
+	}
+	for i, ref := range document.Refs {
+		if ref.EntityKind != changed[i].EntityKind || ref.ID != changed[i].ID || strconv.FormatInt(ref.Version, 10) != changed[i].Version {
+			return incompleteMutationResponse(base, "committed workflow result and changed references disagree; contact the operator before retrying the same request")
+		}
+	}
+	if len(pinlessMutationWorkIDs(changed, document.Pins)) != 0 {
+		var durable struct {
+			Pins []store.WorkPin `json:"work_pins"`
+		}
+		if json.Unmarshal([]byte(owner.ResultPayload), &durable) == nil && len(pinlessMutationWorkIDs(changed, durable.Pins)) == 0 {
+			return incompleteMutationResponse(base, "committed workflow index lacks a required WorkPin; contact the operator before retrying the same request")
+		}
+	}
+	return r.legacyMutationResult(base, prior.ResultPayload, prior.ChangedRefs)
 }

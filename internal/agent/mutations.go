@@ -470,6 +470,9 @@ func (r runtime) replayWorkflowActionTx(ctx context.Context, tx *store.Transacti
 		return response, nil
 	}
 	if present, err := hasMutationResponse(prior.AuthorizedScopeSnapshot); err == nil && !present {
+		if !missingLegacyIndexDocument(prior.ResultPayload) {
+			return r.legacyWorkflowIndexResult(base, prior, operation), nil
+		}
 		return r.legacyWorkflowResult(base, operation), nil
 	}
 	return r.recordedMutationResult(base, prior), nil

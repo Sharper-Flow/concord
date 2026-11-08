@@ -11,6 +11,121 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
+func TestLegacyWorkflowReplayUsesRetainedIndexResult(t *testing.T) {
+	ctx := t.Context()
+	r, grant, raw, first := committedWorkflowReplay(t)
+	opID := "workflow-" + mutationDigest(r.Tool, r.Operation, r.Envelope, raw)[7:31]
+	db := r.Store.DatabaseForTesting()
+	owner, err := readOperationResult(ctx, r.Store, opID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ownerPayload struct {
+		Pins []store.WorkPin `json:"work_pins"`
+	}
+	if err := json.Unmarshal([]byte(owner.ResultPayload), &ownerPayload); err != nil || len(ownerPayload.Pins) != 0 {
+		t.Fatalf("durable owner must lack original pin: owner=%+v err=%v", owner, err)
+	}
+	result, err := db.Exec(`UPDATE idempotency_records SET authorized_scope_snapshot=json_remove(authorized_scope_snapshot,'$.mutation_response') WHERE op_id=?`, opID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count, err := result.RowsAffected(); err != nil || count != 1 {
+		t.Fatalf("legacy fixture rows=%d err=%v", count, err)
+	}
+	key := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: "retained-replay"}
+	prior, found, err := r.Store.LookupMutationIdempotency(ctx, key)
+	if err != nil || !found || prior.ResultPayload != string(first.Result) || prior.ChangedRefs == "[]" {
+		t.Fatalf("index missing committed result: found=%t prior=%+v err=%v", found, prior, err)
+	}
+	driftWorkPinVersion(t, r.Store, "work-1")
+	before, index := workflowReplayEffectCounts(t, r.Store), mutationProjectionState(t, r.Store)["idempotency"]
+	public, err := Dispatch(ctx, r.Store, r.Authority, InvokeRequest{Tool: r.Tool, Operation: r.Operation, Input: raw}, r.Envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transaction := workflowTransactionReplay(t, r, grant, raw)
+	for name, replay := range map[string]agentcontract.Envelope{"public": public, "transaction": transaction} {
+		if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) || !reflect.DeepEqual(replay.NextValidIntents, first.NextValidIntents) {
+			t.Errorf("%s did not replay original index result: response=%+v error=%+v", name, replay, replay.Error)
+		}
+	}
+	if workflowReplayEffectCounts(t, r.Store) != before || mutationProjectionState(t, r.Store)["idempotency"] != index {
+		t.Error("replay changed effects or immutable index content")
+	}
+	after, err := readOperationResult(ctx, r.Store, opID)
+	if err != nil || !reflect.DeepEqual(owner, after) {
+		t.Errorf("replay changed durable owner: before=%+v after=%+v err=%v", owner, after, err)
+	}
+}
+
+func TestLegacyWorkflowReplayRefusesCorruptIndex(t *testing.T) {
+	for _, vector := range []struct {
+		name, payload, refs         string
+		invalidOwner, unpinnedIndex bool
+	}{
+		{name: "invalid document", payload: `{"unexpected":true}`},
+		{name: "null document", payload: `null`},
+		{name: "invalid references", refs: `null`},
+		{name: "mismatched references", refs: `[]`},
+		{name: "invalid durable owner", invalidOwner: true},
+		{name: "unpinned index with pinned owner", unpinnedIndex: true},
+	} {
+		t.Run(vector.name, func(t *testing.T) {
+			ctx := t.Context()
+			r, grant, raw, first := committedWorkflowReplay(t)
+			opID := "workflow-" + mutationDigest(r.Tool, r.Operation, r.Envelope, raw)[7:31]
+			db := r.Store.DatabaseForTesting()
+			originalOwner, err := readOperationResult(ctx, r.Store, opID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ownerPayload := string(first.Result)
+			if vector.invalidOwner {
+				ownerPayload = `{}`
+			}
+			if _, err := db.Exec(`UPDATE durable_operations SET result_payload=? WHERE op_id=?`, ownerPayload, opID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`UPDATE idempotency_records SET authorized_scope_snapshot=json_remove(authorized_scope_snapshot,'$.mutation_response') WHERE op_id=?`, opID); err != nil {
+				t.Fatal(err)
+			}
+			if vector.unpinnedIndex {
+				if _, err := db.Exec(`UPDATE idempotency_records SET result_payload=? WHERE op_id=?`, originalOwner.ResultPayload, opID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if vector.payload != "" {
+				if _, err := db.Exec(`UPDATE idempotency_records SET result_payload=? WHERE op_id=?`, vector.payload, opID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if vector.refs != "" {
+				if _, err := db.Exec(`UPDATE idempotency_records SET changed_refs=? WHERE op_id=?`, vector.refs, opID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, index := workflowReplayEffectCounts(t, r.Store), mutationProjectionState(t, r.Store)["idempotency"]
+			public, err := Dispatch(ctx, r.Store, r.Authority, InvokeRequest{Tool: r.Tool, Operation: r.Operation, Input: raw}, r.Envelope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			transaction := workflowTransactionReplay(t, r, grant, raw)
+			for _, replay := range []agentcontract.Envelope{public, transaction} {
+				if replay.Outcome != agentcontract.OutcomeError || replay.Error == nil || replay.Error.Kind != "malformed_response" || replay.Error.EffectState != agentcontract.EffectPossible || replay.Error.RetrySafe {
+					t.Errorf("corrupt index became success: response=%+v error=%+v", replay, replay.Error)
+				}
+				if vector.unpinnedIndex && replay.Error != nil && strings.Contains(replay.Error.Message, "original WorkPin was not retained") {
+					t.Errorf("refusal ignored the pinned owner: %+v", replay.Error)
+				}
+			}
+			if workflowReplayEffectCounts(t, r.Store) != before || mutationProjectionState(t, r.Store)["idempotency"] != index {
+				t.Error("corrupt index replay changed effects or index")
+			}
+		})
+	}
+}
+
 func TestLegacyWorkflowReplayUsesDurableOwner(t *testing.T) {
 	ctx := t.Context()
 	r, grant, raw, _ := committedWorkflowReplay(t)

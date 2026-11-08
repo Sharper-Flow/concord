@@ -27,11 +27,17 @@ For choosing, writing or reviewing a diagram, load `concord-diagram-writing`.
 
 ## Leave a retraceable record
 
-The driving session records the findings and conclusion in the work record. A
-returned briefing gives that session the same claim-level evidence. Where a
-separate note is requested, write one cited findings document where the
-requester or the Product's documentation places such notes, and say where it
-is. Keep private material out of a public repository.
+Keep the canonical durable research record under `.concord/docs/` in the
+Product's designated Git knowledge home. During development, copy research,
+audit and inventory findings into a Linear Document attached to the owning issue
+or project, not only in host files or long issue comments, so Linear readers can
+follow progress. Link the Document from the issue and the issue from the
+Document. This is a development-time copy, not a second long-term home. A
+returned briefing gives the driving session the same claim-level evidence.
+
+Keep law, architecture reference and product vision in Git. Keep assignment
+briefs, quoted decisions and completion reports in comments. Keep private data
+out of Linear and public repository content.
 
 The reader should be able to follow every claim to its source, understand what
 remains unknown and re-run the decisive checks from the recorded details.

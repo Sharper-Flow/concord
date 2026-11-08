@@ -1005,6 +1005,33 @@ class MethodSkillTests(unittest.TestCase):
         content = self.content("concord-law-writing")
         self.assertIn("Load the shipped `concord-instruction-writing` skill", content)
 
+    def test_research_findings_use_linked_linear_documents(self):
+        expectations = {
+            "concord-research-writing": (
+                "canonical durable research record under `.concord/docs/` in the Product's designated Git knowledge home",
+                "During development, copy research, audit and inventory findings into a Linear Document",
+                "attached to the owning issue or project",
+                "Link the Document from the issue and the issue from the Document",
+                "development-time copy, not a second long-term home",
+                "not only in host files or long issue comments",
+                "law, architecture reference and product vision in Git",
+                "assignment briefs, quoted decisions and completion reports in comments",
+                "private data out of Linear and public repository content",
+            ),
+            "concord-project-updates": (
+                "copy coordination research, audit and inventory findings into a Linear Document",
+                "attached to the owning issue or project",
+                "Link the Document from the issue and the issue from the Document",
+                "development-time copy, not a second long-term home",
+                "`concord-research-writing`",
+            ),
+        }
+        for name, phrases in expectations.items():
+            content = " ".join(self.content(name).split())
+            for phrase in phrases:
+                with self.subTest(skill=name, meaning=phrase):
+                    self.assertIn(phrase, content)
+
     def test_every_skill_keeps_its_license_notice(self):
         with tempfile.TemporaryDirectory() as temporary:
             skills = Path(temporary) / "skills"

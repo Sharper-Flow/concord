@@ -14,6 +14,7 @@ func TestProductKnowledgeHomeCLIDesignatesWithoutFilesystemSetup(t *testing.T) {
 		locator := product + "-home"
 		runCLIJSON(t, []string{"product-create"}, map[string]any{"product_id": product, "display_name": product, "stage_maturity": "prototype", "stage_audience_commitment": "operator_only", "project_id": project, "project_display_name": project, "role": "primary"})
 		runCLIJSON(t, []string{"project-locator-add"}, map[string]any{"project_id": project, "locator_id": locator, "kind": "canonical_path", "value": repo, "expected_version": 1})
+		runCLIJSON(t, []string{"project-repository-mode-update"}, map[string]any{"project_id": project, "repository_mode": "on", "expected_version": 2})
 		for _, version := range []int{2, 3} {
 			raw := runCLIJSON(t, []string{"product-knowledge-home-designate"}, map[string]any{"product_id": product, "project_id": project, "locator_id": locator, "expected_version": version})
 			assertChangedRefVersion(t, raw, "product", product, "3")

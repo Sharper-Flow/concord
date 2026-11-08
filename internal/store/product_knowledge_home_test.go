@@ -19,6 +19,9 @@ func designateFixture(t *testing.T, s *Store) string {
 	}, 1); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.SetProjectRepositoryMode(context.Background(), ProjectRepositoryModeChange{ProjectID: "home-project", RepositoryMode: "on", ExpectedVersion: 2}); err != nil {
+		t.Fatal(err)
+	}
 	secondPath := t.TempDir()
 	return secondPath
 }
@@ -64,7 +67,7 @@ func TestProductKnowledgeHomeDesignationReplacesThePriorRow(t *testing.T) {
 	secondPath := designateFixture(t, s)
 	if err := s.AddProjectLocator(ctx, "home-project", ProjectLocator{
 		ID: "second-locator", ProjectID: "home-project", Kind: LocatorCanonicalPath, Value: secondPath, NormalizedValue: secondPath,
-	}, 2); err != nil {
+	}, 3); err != nil {
 		t.Fatal(err)
 	}
 
@@ -135,7 +138,7 @@ func TestProductKnowledgeHomeDesignationEnforcesEligibility(t *testing.T) {
 		designateFixture(t, s)
 		if err := s.AddProjectLocator(ctx, "home-project", ProjectLocator{
 			ID: "remote-locator", ProjectID: "home-project", Kind: LocatorGitRemote, Value: "git@example.com:home.git", NormalizedValue: "git@example.com:home.git",
-		}, 2); err != nil {
+		}, 3); err != nil {
 			t.Fatal(err)
 		}
 		_, err := s.DesignateProductKnowledgeHome(ctx, ProductKnowledgeHomeDesignation{
@@ -215,16 +218,15 @@ func TestRemovingADesignatedLocatorIsRefusedWithATypedFailure(t *testing.T) {
 	}
 
 	// The locator removal competes for the Project version, which the
-	// designation does not touch: after create (1) and locator-add (2) the
-	// Project sits at version 2.
-	err := s.RemoveProjectLocator(ctx, "home-project", "home-locator", 2)
+	// designation does not touch: the Project sits at version 3.
+	err := s.RemoveProjectLocator(ctx, "home-project", "home-locator", 3)
 	assertFailureKind(t, err, KindProjectionConflict)
 
 	// Clearing the designation releases the locator.
 	if _, err := s.ClearProductKnowledgeHome(ctx, ProductKnowledgeHomeDesignation{ProductID: "home-product", ExpectedVersion: 3}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RemoveProjectLocator(ctx, "home-project", "home-locator", 2); err != nil {
+	if err := s.RemoveProjectLocator(ctx, "home-project", "home-locator", 3); err != nil {
 		t.Fatalf("locator removal after clear failed: %v", err)
 	}
 }

@@ -319,6 +319,30 @@ func TestResolveOverlapInvalidPayloadRecoveryHint(t *testing.T) {
 	}
 }
 
+func TestResolveOverlapReplacesBothOrientations(t *testing.T) {
+	s, actor := seedOverlapProjection(t, "replace-left", "replace-right", false)
+	for _, r := range []struct {
+		id, from, to string
+		version      int64
+	}{
+		{"first", "replace-left", "replace-right", 2},
+		{"same", "replace-left", "replace-right", 3},
+		{"reverse", "replace-right", "replace-left", 4},
+	} {
+		if err := resolveDomainOverlap(t, s, r.id, r.from, r.to, r.version, r.version, ResolutionDependsOn, "sequencing", actor); err != nil {
+			t.Fatalf("resolve %s: %v", r.id, err)
+		}
+	}
+	rows := retirementUpgradeRows(t, s.DatabaseForTesting(), `SELECT resolution_id, invalidated_seq IS NULL FROM workflow_overlap_resolutions ORDER BY resolution_id`)
+	if len(rows) != 3 || rows[0][0] != "first" || rows[0][1] != int64(0) || rows[1][0] != "reverse" || rows[1][1] != int64(1) || rows[2][0] != "same" || rows[2][1] != int64(0) {
+		t.Fatalf("resolution history = %v", rows)
+	}
+	rows = retirementUpgradeRows(t, s.DatabaseForTesting(), `SELECT work_id_from,work_id_to,resolution_id FROM relations`)
+	if len(rows) != 1 || rows[0][0] != "replace-right" || rows[0][1] != "replace-left" || rows[0][2] != "reverse" {
+		t.Fatalf("resolution relations = %v", rows)
+	}
+}
+
 // merged_into and supersedes terminalize one endpoint atomically;
 
 // Ordinary relation writes cannot create resolution-owned relations.

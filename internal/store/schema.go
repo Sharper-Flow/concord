@@ -9312,6 +9312,14 @@ DROP INDEX workflow_proposal_records_latest;
 DROP INDEX workflow_native_runs_work;
 `,
 	},
+	{
+		Version: 194, Name: "overlap_invalidation_indexes", Breaking: false,
+		SQL: `
+CREATE INDEX workflow_overlap_resolutions_from_to_invalidated ON workflow_overlap_resolutions(from_work_id,to_work_id,invalidated_seq);
+CREATE INDEX workflow_overlap_resolutions_to_from_invalidated ON workflow_overlap_resolutions(to_work_id,from_work_id,invalidated_seq);
+CREATE INDEX relations_resolution ON relations(resolution_id);
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

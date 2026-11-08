@@ -88,21 +88,31 @@ func workflowOverlapResolutionProjectionError(err error) error {
 	return wrapFailure(KindUnavailable, "workflow_domain_overlap", fmt.Sprintf("cannot update overlap resolution projection: %v", err), true, "retry once the database is writable", err)
 }
 
+const overlapPairDeleteSQL = `DELETE FROM relations WHERE resolution_id IN (
+		SELECT resolution_id FROM workflow_overlap_resolutions
+		WHERE invalidated_seq IS NULL
+		  AND ((from_work_id=? AND to_work_id=?) OR (from_work_id=? AND to_work_id=?))
+	)`
+const overlapPairUpdateSQL = `UPDATE workflow_overlap_resolutions SET invalidated_seq=?
+		WHERE invalidated_seq IS NULL
+		  AND ((from_work_id=? AND to_work_id=?) OR (from_work_id=? AND to_work_id=?))`
+
+//nolint:gosec // G101 matches "pW" in the name; the value is fixed SQL, not a credential.
+const overlapWorkDeleteSQL = `DELETE FROM relations WHERE resolution_id IN (
+			SELECT resolution_id FROM workflow_overlap_resolutions
+			WHERE (from_work_id=? OR to_work_id=?) AND invalidated_seq IS NULL
+		)`
+const overlapWorkUpdateSQL = `UPDATE workflow_overlap_resolutions SET invalidated_seq=? WHERE (from_work_id=? OR to_work_id=?) AND invalidated_seq IS NULL`
+
 func invalidateWorkflowOverlapResolutionPairTx(ctx context.Context, tx *sql.Tx, eventID, fromWorkID, toWorkID string) error {
 	seq, err := eventSequenceTx(ctx, tx, eventID)
 	if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM relations WHERE resolution_id IN (
-		SELECT resolution_id FROM workflow_overlap_resolutions
-		WHERE invalidated_seq IS NULL
-		  AND ((from_work_id=? AND to_work_id=?) OR (from_work_id=? AND to_work_id=?))
-	)`, fromWorkID, toWorkID, toWorkID, fromWorkID); err != nil {
+	if _, err := tx.ExecContext(ctx, overlapPairDeleteSQL, fromWorkID, toWorkID, toWorkID, fromWorkID); err != nil {
 		return workflowOverlapResolutionProjectionError(err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE workflow_overlap_resolutions SET invalidated_seq=?
-		WHERE invalidated_seq IS NULL
-		  AND ((from_work_id=? AND to_work_id=?) OR (from_work_id=? AND to_work_id=?))`, seq, fromWorkID, toWorkID, toWorkID, fromWorkID); err != nil {
+	if _, err := tx.ExecContext(ctx, overlapPairUpdateSQL, seq, fromWorkID, toWorkID, toWorkID, fromWorkID); err != nil {
 		return workflowOverlapResolutionProjectionError(err)
 	}
 	return nil
@@ -123,13 +133,10 @@ func invalidateWorkflowOverlapResolutionsForWorkTx(ctx context.Context, tx *sql.
 		if workID == "" {
 			continue
 		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM relations WHERE resolution_id IN (
-			SELECT resolution_id FROM workflow_overlap_resolutions
-			WHERE (from_work_id=? OR to_work_id=?) AND invalidated_seq IS NULL
-		)`, workID, workID); err != nil {
+		if _, err := tx.ExecContext(ctx, overlapWorkDeleteSQL, workID, workID); err != nil {
 			return workflowOverlapResolutionProjectionError(err)
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE workflow_overlap_resolutions SET invalidated_seq=? WHERE (from_work_id=? OR to_work_id=?) AND invalidated_seq IS NULL`, seq, workID, workID); err != nil {
+		if _, err := tx.ExecContext(ctx, overlapWorkUpdateSQL, seq, workID, workID); err != nil {
 			return workflowOverlapResolutionProjectionError(err)
 		}
 	}

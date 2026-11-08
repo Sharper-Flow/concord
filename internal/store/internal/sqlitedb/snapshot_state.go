@@ -13,7 +13,7 @@ import (
 // CurrentStateDigest includes persistent state and schema definitions.
 // Physical page locations are excluded: an online copy can change those without
 // changing state.
-func CurrentStateDigest(ctx context.Context, db *sql.DB) (string, error) {
+func CurrentStateDigest(ctx context.Context, db BeginTxSource) (string, error) {
 	tx, err := BeginRead(ctx, db)
 	if err != nil {
 		return "", backupStateReadFailure(err)
@@ -138,7 +138,7 @@ func backupStateReadFailure(err error) error {
 }
 
 // VerifySQLiteTriple runs SQLite's integrity, quick and foreign-key checks.
-func VerifySQLiteTriple(ctx context.Context, db *sql.DB) (string, string, []string, error) {
+func VerifySQLiteTriple(ctx context.Context, db Queryer) (string, string, []string, error) {
 	integrity, err := pragmaSingle(ctx, db, `PRAGMA integrity_check`)
 	if err != nil {
 		return "", "", nil, err
@@ -154,7 +154,7 @@ func VerifySQLiteTriple(ctx context.Context, db *sql.DB) (string, string, []stri
 	return integrity, quick, foreign, nil
 }
 
-func pragmaSingle(ctx context.Context, db *sql.DB, query string) (string, error) {
+func pragmaSingle(ctx context.Context, db Queryer, query string) (string, error) {
 	var value string
 	if err := db.QueryRowContext(ctx, query).Scan(&value); err != nil {
 		return "", failure(Unavailable, "verify_backup", "cannot run "+query, false, "supply a readable SQLite snapshot", err)
@@ -162,7 +162,7 @@ func pragmaSingle(ctx context.Context, db *sql.DB, query string) (string, error)
 	return value, nil
 }
 
-func foreignKeyCheck(ctx context.Context, db *sql.DB) ([]string, error) {
+func foreignKeyCheck(ctx context.Context, db Queryer) ([]string, error) {
 	rows, err := db.QueryContext(ctx, `PRAGMA foreign_key_check`)
 	if err != nil {
 		return nil, failure(Unavailable, "verify_backup", "cannot run foreign_key_check", false, "supply a readable SQLite snapshot", err)

@@ -117,6 +117,47 @@ func TestManagedSnapshotRetentionNewestExemptFromAge(t *testing.T) {
 	requireSnapshot(t, older, false)
 }
 
+func TestManagedSnapshotRetentionDefersForCompactHold(t *testing.T) {
+	f := newRetentionFixture(t)
+	newest := f.snapshot(t, 0, 0)
+	older := f.snapshot(t, 1, 40*24*time.Hour)
+	ordinary := f.snapshot(t, 2, 41*24*time.Hour)
+	// A malformed hold must fail closed just as a valid hold does.
+	hold := older + ".compact-hold.json"
+	if err := os.WriteFile(hold, []byte("invalid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report, err := pruneManagedSnapshots(f.root, newest, f.now)
+	if err != nil || report.DeferredReason == "" || len(report.Deleted) != 0 {
+		t.Fatalf("held retention = %+v, %v", report, err)
+	}
+	requireSnapshot(t, older, true)
+	requireSnapshot(t, ordinary, true)
+	if err := os.Remove(hold); err != nil {
+		t.Fatal(err)
+	}
+	report, err = pruneManagedSnapshots(f.root, newest, f.now)
+	if err != nil || len(report.Deleted) != 2 {
+		t.Fatalf("released retention = %+v, %v", report, err)
+	}
+	requireSnapshot(t, older, false)
+	requireSnapshot(t, ordinary, false)
+}
+
+func TestManagedSnapshotRetentionDefersForUnreadableCompactHold(t *testing.T) {
+	f := newRetentionFixture(t)
+	newest := f.snapshot(t, 0, 0)
+	old := f.snapshot(t, 1, 40*24*time.Hour)
+	if err := os.Symlink("missing", old+compactHoldSuffix); err != nil {
+		t.Fatal(err)
+	}
+	report, err := pruneManagedSnapshots(f.root, newest, f.now)
+	if err != nil || report.DeferredReason == "" || len(report.Deleted) != 0 {
+		t.Fatalf("unreadable hold = %+v, %v", report, err)
+	}
+	requireSnapshot(t, old, true)
+}
+
 func TestManagedSnapshotRetentionRecoveryExclusions(t *testing.T) {
 	for _, marker := range []string{"maintenance.json", "prepared-release.json", ".concord-transactions/pending/journal.json", ".concord-restore-interrupted", "backups/.concord-restore-interrupted"} {
 		t.Run(marker, func(t *testing.T) {

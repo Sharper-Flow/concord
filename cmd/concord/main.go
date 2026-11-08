@@ -66,6 +66,9 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) > 0 && args[0] == "upgrade" {
 		return runUpgradeCommand(args[1:], in, out, errOut)
 	}
+	if len(args) > 0 && args[0] == "compact" {
+		return runCompactCommand(args[1:], in, out, errOut)
+	}
 	command, commandArgs, ok := routeCommand(args)
 	if ok {
 		return runJSONCommand(command, commandArgs, in, out, errOut)
@@ -143,6 +146,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "host-lease", RequiredFields: requiredFields(field("pid")), Optional: "directory, worktree: session location, named by a breaking-migration refusal; advisory, never interpreted", Enums: "pid: the host process that holds this release; the core writes the lease under the data root"},
 	{Canonical: "host-leases", RequiredFields: requiredFields(), Optional: "read_only: observe live leases without pruning stale files", Enums: "prints the live host leases and prunes stale ones by default (CD-0111 D2)"},
 	{Canonical: "upgrade", RequiredFields: requiredFields(), Optional: "plan: read-only readiness report; confirm_sessions_stopped: no session runs on an unfenceable release tree; require_no_sessions: refuse every live session behind the maintenance fence for a prepared cutover; maintenance_fd: inherited data-root directory descriptor, validated and flocked by the native lock owner", Enums: "applies pending migrations; a breaking step runs only inside the maintenance boundary, which excludes session admission until activation and refuses under a live older session (CD-0111 D3)"},
+	{Canonical: "compact", RequiredFields: requiredFields(), Optional: "none", Enums: "stopped-session maintenance; retains a verified snapshot and operator-release hold"},
 }
 
 // matchCommandSpec resolves canonical and two-word forms and returns remaining arguments.
@@ -178,6 +182,7 @@ var verbUsages = []struct {
 	{"host-lease", []string{"host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)"}},
 	{"host-leases", []string{"host-leases                  # print live release leases; prunes stale ones"}},
 	{"upgrade", []string{"upgrade < JSON stdin      # apply pending migrations; {\"plan\":true} reports readiness"}},
+	{"compact", []string{"compact < JSON stdin      # compact the stopped store after verified snapshot and restore"}},
 }
 
 // isHelpFlag reports whether an argument asks for help; -h is an alias for

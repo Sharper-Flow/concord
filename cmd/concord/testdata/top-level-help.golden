@@ -4,6 +4,7 @@ Usage:
   concord host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)
   concord host-leases                  # print live release leases; prunes stale ones
   concord upgrade < JSON stdin      # apply pending migrations; {"plan":true} reports readiness
+  concord compact < JSON stdin      # compact the stopped store after verified snapshot and restore
 
 Required-field refusals exit 64 before dispatch.
 Commands read one strict JSON object from stdin:
@@ -109,3 +110,6 @@ Commands read one strict JSON object from stdin:
     required: 
     optional: plan: read-only readiness report; confirm_sessions_stopped: no session runs on an unfenceable release tree; require_no_sessions: refuse every live session behind the maintenance fence for a prepared cutover; maintenance_fd: inherited data-root directory descriptor, validated and flocked by the native lock owner
     accepted values: applies pending migrations; a breaking step runs only inside the maintenance boundary, which excludes session admission until activation and refuses under a live older session (CD-0111 D3)
+  concord compact < JSON stdin
+    required: 
+    accepted values: stopped-session maintenance; retains a verified snapshot and operator-release hold

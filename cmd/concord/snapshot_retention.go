@@ -16,6 +16,7 @@ import (
 
 const managedSnapshotCount = 8
 const managedSnapshotAge = 30 * 24 * time.Hour
+const compactHoldSuffix = ".compact-hold.json"
 
 var managedSnapshotName = regexp.MustCompile(`^pre-(upgrade|repair)-(.+)-(\d{8}T\d{6}\.\d{9}Z)$`)
 
@@ -228,6 +229,9 @@ func snapshotRecoveryExclusion(dataRoot string) (string, error) {
 		for _, entry := range entries {
 			if strings.HasPrefix(entry.Name(), ".concord-restore-") {
 				return "unfinished restore staging: " + filepath.Join(directory, entry.Name()), nil
+			}
+			if directory == filepath.Join(dataRoot, "backups") && strings.HasSuffix(entry.Name(), compactHoldSuffix) {
+				return "compact snapshot hold: " + filepath.Join(directory, entry.Name()), nil
 			}
 		}
 	}

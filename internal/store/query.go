@@ -846,7 +846,7 @@ func attachDerivedFlags(ctx context.Context, tx *sql.Tx, items []WorkItem) ([]Wo
 		args[i] = items[i].ID
 		byID[items[i].ID] = i
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT w.id, EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress')) FROM work_items w WHERE w.id IN (`+strings.Join(ph, ",")+`)`, args...) //nolint:gosec // placeholders and every work ID stay parameter-bound.
+	rows, err := tx.QueryContext(ctx, `SELECT w.id, EXISTS (SELECT 1 FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to=w.id AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress')), (SELECT count(*) FROM workflow_decision_records d WHERE d.work_id=w.id), NULLIF(w.last_progress_at,'') FROM work_items w WHERE w.id IN (`+strings.Join(ph, ",")+`)`, args...) //nolint:gosec // placeholders and every work ID stay parameter-bound.
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "query", "cannot derive work readiness", true, "retry once the database is readable", err)
 	}
@@ -854,24 +854,21 @@ func attachDerivedFlags(ctx context.Context, tx *sql.Tx, items []WorkItem) ([]Wo
 	for rows.Next() {
 		var id string
 		var blocked bool
-		if err := rows.Scan(&id, &blocked); err != nil {
+		var decisions int64
+		var latest sql.NullString
+		if err := rows.Scan(&id, &blocked, &decisions, &latest); err != nil {
 			return nil, err
 		}
 		if i, ok := byID[id]; ok {
 			items[i].Blocked = blocked
 			items[i].Ready = items[i].Lifecycle == "needed" && !blocked
 			items[i].Active = items[i].Lifecycle == "in_progress"
+			liveness := workLivenessFromCounts(id, decisions, latest)
+			items[i].Liveness = &liveness
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
-	}
-	for i := range items {
-		liveness, err := deriveWorkLivenessQ(ctx, tx, items[i].ID)
-		if err != nil {
-			return nil, err
-		}
-		items[i].Liveness = &liveness
 	}
 	return items, nil
 }

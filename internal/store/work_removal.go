@@ -515,18 +515,6 @@ type WorkLiveness struct {
 	LastProgress string   `json:"last_progress,omitempty"`
 }
 
-func deriveWorkLivenessQ(ctx context.Context, q queryer, workID string) (WorkLiveness, error) {
-	var decisions int64
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_decision_records WHERE work_id=?`, workID).Scan(&decisions); err != nil {
-		return WorkLiveness{}, err
-	}
-	var latest sql.NullString
-	if err := q.QueryRowContext(ctx, `SELECT max(NULLIF(last_progress_at,'')) FROM work_items WHERE id=?`, workID).Scan(&latest); err != nil {
-		return WorkLiveness{}, err
-	}
-	return workLivenessFromCounts(workID, decisions, latest), nil
-}
-
 func workLivenessFromCounts(workID string, decisions int64, latest sql.NullString) WorkLiveness {
 	out := WorkLiveness{WorkID: workID}
 	if latest.Valid {

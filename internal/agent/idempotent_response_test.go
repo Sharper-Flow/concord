@@ -122,7 +122,7 @@ func TestLegacyGenericMutationReplaysRetainedResult(t *testing.T) {
 	row := func() string {
 		t.Helper()
 		var value string
-		err := db.QueryRow(`SELECT json_array(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,result_event_ids,result_payload,changed_refs,authorized_scope_snapshot,first_observed_at,last_observed_at,replayed_count) FROM idempotency_records WHERE idempotency_key=?`, "legacy-generic").Scan(&value)
+		err := db.QueryRow(`SELECT json_array(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,result_event_ids,result_payload,changed_refs,authorized_scope_snapshot,first_observed_at) FROM idempotency_records WHERE idempotency_key=?`, "legacy-generic").Scan(&value)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -133,7 +133,7 @@ func TestLegacyGenericMutationReplaysRetainedResult(t *testing.T) {
 	replay := tiersInvoke(t, s, service, grant, "concord_work_transition", "lifecycle", input)
 	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
 		t.Errorf("legacy replay outcome=%s replayed=%t error=%+v", replay.Outcome, replay.Replayed, replay.Error)
-	} else if string(replay.Result) != string(first.Result) || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) {
+	} else if string(replay.Result) != string(first.Result) || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) || !reflect.DeepEqual(replay.NextValidIntents, first.NextValidIntents) {
 		t.Errorf("legacy replay changed committed result or references: first=%+v replay=%+v", first, replay)
 	}
 	_, after := readWorkFromStore(t, s, "work-1")
@@ -158,6 +158,22 @@ func TestIdempotentResponseMissingFactsKeepPossibleEffects(t *testing.T) {
 		response := r.recordedMutationResult(base, prior)
 		if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "malformed_response" || response.Error.EffectState != agentcontract.EffectPossible || response.Error.RecoveryAction.Kind != "contact_operator" || response.Error.RetrySafe {
 			t.Fatalf("missing facts became success or a no-effect retry: %+v", response)
+		}
+	}
+}
+
+func TestLegacyGenericReplayRejectsIncompleteFacts(t *testing.T) {
+	r := runtime{Tool: "concord_work_transition", Operation: "lifecycle"}
+	base := agentcontract.NewBase("legacy-incomplete", r.Tool, r.Operation)
+	for _, prior := range []store.MutationIdempotencyRecord{
+		{ResultPayload: `{}`, ChangedRefs: `[]`, AuthorizedScopeSnapshot: `{}`},
+		{ResultPayload: `{"changed_refs":[],"next_valid_intents":[]}`, ChangedRefs: `null`, AuthorizedScopeSnapshot: `{}`},
+		{ResultPayload: `{"changed_refs":[],"next_valid_intents":[]}`, ChangedRefs: `[]`, AuthorizedScopeSnapshot: `{"mutation_response":null}`},
+		{ResultPayload: `{"changed_refs":[],"next_valid_intents":[]}`, ChangedRefs: `[]`, AuthorizedScopeSnapshot: `{"mutation_response":{}}`},
+	} {
+		response := r.recordedMutationResult(base, prior)
+		if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "malformed_response" || response.Error.EffectState != agentcontract.EffectPossible || response.Error.RetrySafe {
+			t.Fatalf("incomplete legacy result became success or safe retry: record=%+v response=%+v", prior, response)
 		}
 	}
 }

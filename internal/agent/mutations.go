@@ -441,16 +441,19 @@ func workflowActionFields(raw json.RawMessage) (json.RawMessage, error) {
 }
 
 func (r runtime) replayWorkflowActionTx(ctx context.Context, tx *store.Transaction, base agentcontract.Envelope, prior store.MutationIdempotencyRecord, scope map[string]any) (agentcontract.Envelope, error) {
+	base.Replayed = true
 	operation, err := store.OperationResultTx(ctx, tx, prior.OperationID)
 	if err != nil {
-		return agentcontract.Envelope{}, err
+		return incompleteMutationResponse(base, "durable workflow result is unavailable; contact the operator before retrying the same request"), nil
 	}
-	base.Replayed = true
 	base.ResolvedScope = scopeFromMap(scope)
 	if err := agentcontract.ValidateOperationPayload(base.Tool, base.Operation, json.RawMessage(operation.ResultPayload), true); err != nil {
 		response := coreError(base, "malformed_response", fmt.Sprintf("durable workflow result is not a valid current result: %v", err), "contact_operator", false)
 		response.Error.EffectState = agentcontract.EffectPossible
 		return response, nil
+	}
+	if present, err := hasMutationResponse(prior.AuthorizedScopeSnapshot); err == nil && !present {
+		return r.legacyWorkflowResult(base, operation), nil
 	}
 	return r.recordedMutationResult(base, prior), nil
 }

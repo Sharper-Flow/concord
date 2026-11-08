@@ -13,7 +13,7 @@ import (
 
 func TestLegacyWorkflowReplayUsesDurableOwner(t *testing.T) {
 	ctx := t.Context()
-	r, grant, raw, first := committedWorkflowReplay(t)
+	r, grant, raw, _ := committedWorkflowReplay(t)
 	opID := "workflow-" + mutationDigest(r.Tool, r.Operation, r.Envelope, raw)[7:31]
 	db := r.Store.DatabaseForTesting()
 	if _, err := db.Exec(`UPDATE idempotency_records SET authorized_scope_snapshot=json_remove(authorized_scope_snapshot,'$.mutation_response'),result_payload='{}',changed_refs='[]' WHERE op_id=?`, opID); err != nil {
@@ -25,26 +25,116 @@ func TestLegacyWorkflowReplayUsesDurableOwner(t *testing.T) {
 	}
 	driftWorkPinVersion(t, r.Store, "work-1")
 	before := workflowReplayEffectCounts(t, r.Store)
-	index := workflowReplayIndex(t, r.Store)
+	index := mutationProjectionState(t, r.Store)["idempotency"]
 	public, err := Dispatch(ctx, r.Store, r.Authority, InvokeRequest{Tool: r.Tool, Operation: r.Operation, Input: raw}, r.Envelope)
 	if err != nil {
 		t.Fatal(err)
 	}
 	transaction := workflowTransactionReplay(t, r, grant, raw)
 	for name, replay := range map[string]agentcontract.Envelope{"public": public, "transaction": transaction} {
-		if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != owner.ResultPayload || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) {
-			t.Errorf("%s legacy replay: response=%+v error=%+v", name, replay, replay.Error)
+		if replay.Outcome != agentcontract.OutcomeError || !replay.Replayed || replay.Error == nil || replay.Error.Kind != "malformed_response" || replay.Error.RecoveryAction.Kind != "contact_operator" || replay.Error.EffectState != agentcontract.EffectPossible || replay.Error.RetrySafe || !strings.Contains(replay.Error.Message, "original WorkPin was not retained") || !strings.Contains(replay.Error.Message, `"work-1"`) || !strings.Contains(replay.Error.Message, "concord_work_trace.resume") || !strings.Contains(replay.Error.Message, "concord_work_browse.list") || !strings.Contains(replay.Error.Message, "if the work was removed, no current work state is available") {
+			t.Errorf("%s legacy replay did not name the missing original WorkPin and current-state recovery: error=%+v", name, replay.Error)
 		}
 	}
 	if workflowReplayEffectCounts(t, r.Store) != before {
 		t.Error("legacy workflow replay repeated an effect or changed later work")
 	}
-	if workflowReplayIndex(t, r.Store) != index {
-		t.Error("legacy workflow replay changed retained row")
+	if mutationProjectionState(t, r.Store)["idempotency"] != index {
+		t.Error("legacy workflow replay changed immutable retained row content")
 	}
 	after, err := readOperationResult(ctx, r.Store, opID)
 	if err != nil || !reflect.DeepEqual(owner, after) {
 		t.Errorf("legacy workflow replay changed durable owner: before=%+v after=%+v err=%v", owner, after, err)
+	}
+}
+
+func TestLegacyWorkflowReplayOwnerValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name, scope, payload, evidence string
+		missing, success, mismatch     bool
+	}{
+		{name: "complete", success: true},
+		{name: "default owner evidence", evidence: "default", success: true},
+		{name: "owner reference mismatch", mismatch: true},
+		{name: "missing owner", missing: true},
+		{name: "invalid owner", payload: `{"unexpected":true}`},
+		{name: "null snapshot", scope: `null`},
+		{name: "partial snapshot", scope: `{"manifest_digest":"incomplete"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			r, grant, raw, first := committedWorkflowReplay(t)
+			opID := "workflow-" + mutationDigest(r.Tool, r.Operation, r.Envelope, raw)[7:31]
+			db := r.Store.DatabaseForTesting()
+			payload := string(first.Result)
+			if tc.payload != "" {
+				payload = tc.payload
+			}
+			evidence := []string{}
+			if tc.evidence == "default" {
+				owner, err := readOperationResult(ctx, r.Store, opID)
+				if err != nil || !reflect.DeepEqual(owner.EvidenceRefs, []string{"evidence:" + opID}) {
+					t.Fatalf("default durable evidence=%+v err=%v", owner.EvidenceRefs, err)
+				}
+				evidence = owner.EvidenceRefs
+			} else if tc.evidence != "" {
+				if err := json.Unmarshal([]byte(tc.evidence), &evidence); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := db.Exec(`UPDATE durable_operations SET result_payload=?,evidence_refs=? WHERE op_id=?`, payload, string(retryJSON(evidence)), opID); err != nil {
+				t.Fatal(err)
+			}
+			if tc.mismatch {
+				if _, err := db.Exec(`UPDATE durable_operations SET changed_refs='[]' WHERE op_id=?`, opID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := db.Exec(`UPDATE idempotency_records SET authorized_scope_snapshot=json_remove(authorized_scope_snapshot,'$.mutation_response'),result_payload='{}',changed_refs='[]' WHERE op_id=?`, opID); err != nil {
+				t.Fatal(err)
+			}
+			if tc.scope != "" {
+				if _, err := db.Exec(`UPDATE idempotency_records SET authorized_scope_snapshot=json_set(authorized_scope_snapshot,'$.mutation_response',json(?)) WHERE op_id=?`, tc.scope, opID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.missing {
+				if _, err := db.Exec(`DELETE FROM durable_operations WHERE op_id=?`, opID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			driftWorkPinVersion(t, r.Store, "work-1")
+			before, index := workflowReplayEffectCounts(t, r.Store), mutationProjectionState(t, r.Store)["idempotency"]
+			var evidenceBefore string
+			if !tc.missing {
+				if err := db.QueryRow(`SELECT evidence_refs FROM durable_operations WHERE op_id=?`, opID).Scan(&evidenceBefore); err != nil {
+					t.Fatal(err)
+				}
+			}
+			public, err := Dispatch(ctx, r.Store, r.Authority, InvokeRequest{Tool: r.Tool, Operation: r.Operation, Input: raw}, r.Envelope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			transaction := workflowTransactionReplay(t, r, grant, raw)
+			for _, replay := range []agentcontract.Envelope{public, transaction} {
+				if tc.success {
+					if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != payload || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) || len(replay.EvidenceRefs) != 0 {
+						t.Errorf("complete owner replay=%+v error=%+v", replay, replay.Error)
+					}
+				} else if replay.Outcome != agentcontract.OutcomeError || replay.Error == nil || replay.Error.EffectState != agentcontract.EffectPossible || replay.Error.RetrySafe {
+					t.Errorf("incomplete owner became success or safe retry: %+v", replay)
+				}
+			}
+			if workflowReplayEffectCounts(t, r.Store) != before || mutationProjectionState(t, r.Store)["idempotency"] != index {
+				t.Error("replay changed effects or immutable retained content")
+			}
+			if !tc.missing {
+				var evidenceAfter string
+				if err := db.QueryRow(`SELECT evidence_refs FROM durable_operations WHERE op_id=?`, opID).Scan(&evidenceAfter); err != nil || evidenceBefore != evidenceAfter {
+					t.Errorf("durable evidence changed: before=%s after=%s err=%v", evidenceBefore, evidenceAfter, err)
+				}
+			}
+		})
 	}
 }
 
@@ -150,13 +240,30 @@ func TestRetainedMutationInvokeAcrossManifestChange(t *testing.T) {
 	if !reflect.DeepEqual(before, after) {
 		t.Fatal("ordinary replay changed retained state or replay metadata")
 	}
+	legacyKey := key
+	legacyKey.IdempotencyKey = "legacy-missing-metadata"
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		legacyScope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}}
+		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: legacyKey, CanonicalDigest: digest, OperationID: "mutation-legacy-missing-metadata", ResultPayload: string(first.Result), ChangedRefs: "[]", AuthorizedScopeSnapshot: string(retryJSON(legacyScope)), ResultEventIDs: "[]", ObservedAt: fixedTime()})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	legacyBefore := mutationProjectionState(t, s)
+	legacy, err := Invoke(ctx, s, service, mustMarshalInvoke(t, InvokeRequest{Tool: tool, Operation: operation, Input: lifecycleInput(legacyKey.IdempotencyKey, 1)}, env))
+	if err != nil || legacy.Outcome != agentcontract.OutcomeOK || !legacy.Replayed || string(legacy.Result) != string(first.Result) || !reflect.DeepEqual(legacy.ChangedRefs, first.ChangedRefs) {
+		t.Fatalf("legacy missing metadata replay: err=%v response=%+v", err, legacy)
+	}
+	if !reflect.DeepEqual(legacyBefore, mutationProjectionState(t, s)) {
+		t.Fatal("legacy replay changed retained state")
+	}
 	for _, vector := range []struct {
 		name    string
 		payload string
 		changed string
 		scope   map[string]any
 	}{
-		{"missing metadata", string(first.Result), "[]", map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}}},
+		{"null metadata", string(first.Result), "[]", map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "mutation_response": nil}},
+		{"partial metadata", string(first.Result), "[]", map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "mutation_response": map[string]any{"manifest_digest": agentcontract.ManifestDigest}}},
 		{"incompatible result", `{"unexpected":"field"}`, "[]", scope},
 		{"uncaptured references", string(first.Result), "null", scope},
 	} {

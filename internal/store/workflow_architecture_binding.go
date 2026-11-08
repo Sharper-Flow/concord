@@ -205,6 +205,9 @@ const workflowObligationMembershipTeaching = "Evidence obligations must name a k
 // renders these strings into the published schema; no second policy enforces
 // them.
 type WorkflowContractTeaching struct {
+	// SpecMandateRule states the law-reference form the mandate guards
+	// parse and where non-law scope belongs instead.
+	SpecMandateRule string `json:"spec_mandate_rule"`
 	// LawAdditionMandateRule states the mandate subset and disjointness the
 	// law boundary and architecture-binding guards enforce.
 	LawAdditionMandateRule string `json:"law_addition_mandate_rule"`
@@ -222,6 +225,7 @@ type WorkflowContractTeaching struct {
 // consuming each guard-site constant directly.
 func WorkflowContractTeachingRules() WorkflowContractTeaching {
 	return WorkflowContractTeaching{
+		SpecMandateRule:          workflowSpecMandateTeaching,
 		LawAdditionMandateRule:   workflowLawAdditionMandateTeaching,
 		ObligationMembershipRule: workflowObligationMembershipTeaching,
 		ArchitectureDomainRule:   workflowArchitectureDomainTeaching,

@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -139,6 +140,60 @@ func TestInvokeContractRequestCorrection(t *testing.T) {
 				t.Fatal("corrected contract did not bind the mandated law addition")
 			}
 			t.Log("corrected identical-key request admitted with unchanged authority")
+		})
+	}
+}
+
+func TestMandateRefusalGuidesCorrection(t *testing.T) {
+	for _, test := range []struct{ name, mandate string }{
+		{"path", ".concord/law/decisions/CD-0001.md"},
+		{"prose", "the governing workflow rules"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := t.Context()
+			s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"work_define", "work_transition"})
+			setWorkflowFixtureHomeOn(t, s)
+			if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
+				t.Fatal(err)
+			}
+			env := mutationEnvelope(grant, scopeVersionForProject(t, s, "project-1"))
+			work := captureCompositionWork(t, ctx, s, service, env, "Correct mandate", "task", "workflow.implementation", "mandate-capture")
+			version := advanceCapturedWorkToContract(t, s, service, env, work, "mandate")
+			fields := workflowContractFieldsForSeededRegistry(t, s)
+			fields["spec_mandate"] = []string{test.mandate}
+			input := map[string]any{"work_id": work, "expected_version": version, "action_id": "approve_contract", "fields": fields, "idempotency_key": "mandate-correction"}
+			invoke := func() agentcontract.Envelope {
+				raw, err := json.Marshal(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				result, err := Invoke(ctx, s, service, mustMarshalInvoke(t, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env))
+				if err != nil {
+					t.Fatal(err)
+				}
+				return result
+			}
+			before := contractRequestCorrectionState(t, s, work)
+			refused := invoke()
+			if refused.Error == nil || refused.Error.EffectState != agentcontract.EffectNone {
+				t.Fatalf("expected no-effect refusal: %+v", refused)
+			}
+			if !reflect.DeepEqual(before, contractRequestCorrectionState(t, s, work)) {
+				t.Fatal("refusal changed durable state")
+			}
+			if !slices.Contains(refused.Error.Candidates, test.mandate) {
+				t.Errorf("refusal candidates %v omit the refused entry %q", refused.Error.Candidates, test.mandate)
+			}
+			detail, _ := refused.Error.Details["recovery_detail"].(string)
+			for _, want := range []string{"spec_mandate", "law ID", "record_plan.touches"} {
+				if !strings.Contains(detail, want) {
+					t.Errorf("recovery %q missing %q", detail, want)
+				}
+			}
+			fields["spec_mandate"] = []string{}
+			if corrected := invoke(); corrected.Outcome != agentcontract.OutcomeOK {
+				t.Fatalf("corrected request: %+v", corrected.Error)
+			}
 		})
 	}
 }

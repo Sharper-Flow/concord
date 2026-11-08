@@ -47,3 +47,18 @@ func TestCompletedDeliverySameIdentityReplay(t *testing.T) {
 		t.Fatal("cached replay was not recorded")
 	}
 }
+
+func TestSmallChangeCompletesWithLawfulContract(t *testing.T) {
+	f := newSpineFixtureForFamily(t, "workflow.implementation")
+	f.advanceToAcceptance(t)
+	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{
+		"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise", "idempotency_key": "small-change-confirm",
+	}))
+	f.completeReview(t)
+	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{
+		"work_id": f.work, "expected_version": workVersion(t, f.s, f.work), "action_id": "complete", "fields": map[string]any{"impact_verdict": "non-breaking"}, "idempotency_key": "small-change-complete",
+	}))
+	if pin := f.read(t).Pinned.Pin; pin.Lifecycle != "completed" {
+		t.Fatalf("change not completed: %+v", pin)
+	}
+}

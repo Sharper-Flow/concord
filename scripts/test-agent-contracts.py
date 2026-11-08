@@ -302,6 +302,16 @@ class CurrentScenarioCarrierTests(unittest.TestCase):
 
 
 class ContractGuidanceProjectionTests(unittest.TestCase):
+    def test_spec_mandate_teaches_law_references(self):
+        actions, teaching, _, updates = generator.load_workflow_action_contracts()
+        projected, _ = generator.project_workflow_action_schema(payload_schema, actions, teaching, updates)
+        defs = projected["$defs"]
+        fields = [defs["work_transition_action_variant_approve_contract"]["properties"]["fields"]["properties"]["spec_mandate"],
+                  defs["workflow_contract_update"]["properties"]["spec_mandate"]]
+        for field in fields:
+            for phrase in ("law_id", "project_id/law_id", "record_plan.touches", "intent", "empty"):
+                self.assertIn(phrase, field.get("description", ""))
+
     def test_guidance_keeps_schema_key_order(self):
         document = {"title": "Example", "$defs": {"code": {"type": "string", "minLength": 2}}}
         projected = generator.project_schema_guidance(document, ["code"])
@@ -1599,7 +1609,7 @@ class ProjectionAdmissionTests(unittest.TestCase):
     @staticmethod
     def canned(actions):
         teaching = {rule: "rule" for rule in (
-            "law_addition_mandate_rule", "obligation_membership_rule",
+            "spec_mandate_rule", "law_addition_mandate_rule", "obligation_membership_rule",
             "architecture_domain_rule", "alignment_combination_rule")}
         return json.dumps({
             "schema_version": "2.0", "actions": actions,

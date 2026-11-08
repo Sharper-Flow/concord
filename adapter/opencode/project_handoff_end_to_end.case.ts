@@ -195,8 +195,8 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
   await runJSON("project-create", { project_id: RECEIVE_PROJECT, display_name: "Receiving Project", product_id: PRODUCT_ID, role: "secondary", expected_product_version: 2 })
   await runJSON("project-locator-add", { project_id: SOURCE_PROJECT, locator_id: "repo-source", kind: "canonical_path", value: repoSource, expected_version: 1 })
   await runJSON("project-locator-add", { project_id: RECEIVE_PROJECT, locator_id: "repo-receive", kind: "canonical_path", value: repoReceive, expected_version: 1 })
-  await runJSON("product-knowledge-home-designate", { product_id: PRODUCT_ID, project_id: SOURCE_PROJECT, locator_id: "repo-source", expected_version: 3 })
   await runJSON("project-repository-mode-update", { project_id: SOURCE_PROJECT, repository_mode: "on", expected_version: 2 })
+  await runJSON("product-knowledge-home-designate", { product_id: PRODUCT_ID, project_id: SOURCE_PROJECT, locator_id: "repo-source", expected_version: 3 })
   await runJSON("client-register", {
     client_ref: CLIENT_REF,
     key_id: "handoff-e2e-key",

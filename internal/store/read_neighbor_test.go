@@ -440,6 +440,9 @@ func seedNeighborKnowledgeHome(t *testing.T, s *Store) (string, KnowledgeHome) {
 	if err := s.AddProjectLocator(ctx, "home", ProjectLocator{ID: "neighbor-locator", Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.SetProjectRepositoryMode(ctx, ProjectRepositoryModeChange{ProjectID: "home", RepositoryMode: "on", ExpectedVersion: 2}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.DesignateProductKnowledgeHome(ctx, ProductKnowledgeHomeDesignation{ProductID: "neighbor-knowledge-product", ProjectID: "home", LocatorID: "neighbor-locator", Reason: "neighbor read fixture", ExpectedVersion: 2}); err != nil {
 		t.Fatal(err)
 	}

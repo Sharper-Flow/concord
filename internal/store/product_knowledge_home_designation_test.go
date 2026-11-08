@@ -2,13 +2,105 @@ package store
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
+func TestProductKnowledgeHomeRejectsOffModeWithoutEffects(t *testing.T) {
+	s := openTemp(t)
+	request, repo := operatorOffModeKnowledgeHome(t, s, "off-product", "off-project")
+	var before int
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.DesignateProductKnowledgeHome(t.Context(), request)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation {
+		t.Errorf("off-mode designation error = %v, want invalid operation", err)
+	} else if failure.RecoveryAction == "" || failure.RetrySafe {
+		t.Errorf("off-mode failure lacks actionable recovery: %+v", failure)
+	}
+	var after int
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	version, versionErr := s.EntityVersion(t.Context(), SubjectProduct, request.ProductID)
+	entries, readErr := os.ReadDir(repo)
+	if len(result.EventIDs) != 0 || countKnowledgeHomes(t, s) != 0 || before != after || versionErr != nil || version != request.ExpectedVersion || readErr != nil || len(entries) != 0 {
+		t.Errorf("refusal changed state: result=%+v receipts=%d->%d version=%d (%v) files=%v (%v)", result, before, after, version, versionErr, entries, readErr)
+	}
+}
+
+func TestProductKnowledgeHomeDirectEventRejectsOffMode(t *testing.T) {
+	s := openTemp(t)
+	request, _ := operatorOffModeKnowledgeHome(t, s, "event-product", "event-project")
+	event := operationEvent("off-home-event", "product.knowledge_home_designated", SubjectProduct, request.ProductID, map[string]any{
+		"product_id": request.ProductID, "project_id": request.ProjectID, "locator_id": request.LocatorID,
+		"reason": "operator designation", "expected_version": 2, "resulting_version": 3,
+	})
+	_, err := ApplyOperationWithResult(t.Context(), s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, request.ProductID): 2}})
+	assertFailureKind(t, err, KindInvalidOperation)
+	var receipts int
+	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE event_id=?`, event.EventID).Scan(&receipts); err != nil {
+		t.Fatal(err)
+	}
+	version, err := s.EntityVersion(t.Context(), SubjectProduct, request.ProductID)
+	if err != nil || version != 2 || receipts != 0 || countKnowledgeHomes(t, s) != 0 {
+		t.Fatalf("direct event changed state: version=%d receipts=%d error=%v", version, receipts, err)
+	}
+}
+
+func TestProductKnowledgeHomeOffModeMemberAndInvalidHomeRecovery(t *testing.T) {
+	s := openTemp(t)
+	ctx := t.Context()
+	old, _ := operatorKnowledgeHome(t, s, "recovery-product", "old-home")
+	if _, err := s.DesignateProductKnowledgeHome(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetProjectRepositoryMode(ctx, ProjectRepositoryModeChange{ProjectID: old.ProjectID, RepositoryMode: "off", ExpectedVersion: 3}); err != nil {
+		t.Fatal(err)
+	}
+	old.ExpectedVersion = 3
+	_, err := s.DesignateProductKnowledgeHome(ctx, old)
+	assertFailureKind(t, err, KindInvalidOperation)
+	var stored string
+	if err := s.db.QueryRow(`SELECT project_id FROM product_knowledge_homes WHERE product_id=?`, old.ProductID).Scan(&stored); err != nil || stored != old.ProjectID {
+		t.Fatalf("invalid home changed on refusal: %q %v", stored, err)
+	}
+	if _, err := s.ClearProductKnowledgeHome(ctx, ProductKnowledgeHomeDesignation{ProductID: old.ProductID, ExpectedVersion: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateProjectForProduct(ctx, ProjectCreation{ProjectID: "new-home", DisplayName: "New Home", ProductID: old.ProductID, Role: "secondary", ExpectedProductVersion: 4}); err != nil {
+		t.Fatal(err)
+	}
+	path := t.TempDir()
+	if err := s.AddProjectLocator(ctx, "new-home", ProjectLocator{ID: "new-home-locator", ProjectID: "new-home", Kind: LocatorCanonicalPath, Value: path, NormalizedValue: path}, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetProjectRepositoryMode(ctx, ProjectRepositoryModeChange{ProjectID: "new-home", RepositoryMode: "on", ExpectedVersion: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DesignateProductKnowledgeHome(ctx, ProductKnowledgeHomeDesignation{ProductID: old.ProductID, ProjectID: "new-home", LocatorID: "new-home-locator", ExpectedVersion: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT project_id FROM product_knowledge_homes WHERE product_id=?`, old.ProductID).Scan(&stored); err != nil || stored != "new-home" {
+		t.Fatalf("replacement home = %q: %v", stored, err)
+	}
+}
+
 func operatorKnowledgeHome(t *testing.T, s *Store, product, project string) (ProductKnowledgeHomeDesignation, string) {
+	t.Helper()
+	request, repo := operatorOffModeKnowledgeHome(t, s, product, project)
+	if _, err := s.SetProjectRepositoryMode(t.Context(), ProjectRepositoryModeChange{ProjectID: project, RepositoryMode: "on", ExpectedVersion: 2}); err != nil {
+		t.Fatal(err)
+	}
+	return request, repo
+}
+
+func operatorOffModeKnowledgeHome(t *testing.T, s *Store, product, project string) (ProductKnowledgeHomeDesignation, string) {
 	t.Helper()
 	ctx := context.Background()
 	if _, err := s.CreateProductWithProject(ctx, ProductCreation{ProductID: product, DisplayName: product, StageMaturity: "prototype", StageAudienceCommitment: "operator_only", ProjectID: project, ProjectDisplayName: project, Role: "primary"}); err != nil {

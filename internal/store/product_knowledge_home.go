@@ -34,7 +34,8 @@ func decodeKnowledgeHomePayload(event Event) (knowledgeHomePayload, error) {
 
 // verifyKnowledgeHomeEligibility enforces PM6 §2: the home is a member
 // Project's designated git locator, and Q9 Product scope resolves through the
-// canonical-path join, so only a canonical-path locator can serve.
+// canonical-path join, so only a canonical-path locator can serve. CD-0255 D4
+// admits only an on-mode Project: an off-mode Project commits no Product law.
 func verifyKnowledgeHomeEligibility(ctx context.Context, tx queryer, payload knowledgeHomePayload) error {
 	var locatorProject string
 	var locatorKind string
@@ -60,6 +61,14 @@ func verifyKnowledgeHomeEligibility(ctx context.Context, tx queryer, payload kno
 			"add the Product/Project membership before designating the knowledge home")
 	} else if err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot read Product membership", true, "retry once the database is readable", err)
+	}
+	var mode string
+	if err := tx.QueryRowContext(ctx, `SELECT repository_mode FROM projects WHERE id = ?`, payload.ProjectID).Scan(&mode); err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot read Project repository mode", true, "retry once the database is readable", err)
+	}
+	if mode != "on" {
+		return newFailure(KindInvalidOperation, "fold_event", "knowledge home Project repository mode is off", false,
+			"designate a member Project with repository mode on, or turn on the designated Project's repository mode")
 	}
 	return nil
 }

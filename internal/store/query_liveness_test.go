@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"reflect"
+	"slices"
 	"sync/atomic"
 	"testing"
 )
@@ -125,6 +126,9 @@ func TestBrowseLivenessParity(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO workflow_decision_records(work_id,question,options_considered,decision,rationale,consequences,inputs,poc_findings,recorded_at) VALUES('matrix-completed','single','["option"]','accepted_decision','reason','["effect"]','["input"]','finding','2026-01-01T00:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,created_at,updated_at) VALUES('matrix-in_progress','remote-matrix','SYN-7','https://example.invalid/issues/SYN-7','2026-01-01','2026-01-01')`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(`DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
@@ -147,53 +151,77 @@ func TestBrowseLivenessParity(t *testing.T) {
 			t.Errorf("unexpected flags: %+v", item)
 		}
 	}
+	lifecycles := []string{"needed", "in_progress", "completed", "cancelled"}
+	since := "1970-01-01T00:00:00Z"
+	filters := []struct {
+		name  string
+		req   Q3Request
+		admit func(state string) bool
+	}{
+		{"unfiltered", Q3Request{Product: "product"}, func(string) bool { return true }},
+		{"project", Q3Request{Product: "product", Project: "project"}, func(string) bool { return true }},
+		{"project-ids", Q3Request{Product: "product", ProjectIDs: []string{"project"}}, func(string) bool { return true }},
+		{"kind", Q3Request{Product: "product", Kind: "task"}, func(string) bool { return true }},
+		{"other-kind", Q3Request{Product: "product", Kind: "decision"}, func(string) bool { return false }},
+		{"work-ids", Q3Request{Product: "product", WorkIDs: []string{"matrix-needed", "matrix-completed"}}, func(state string) bool { return state == "needed" || state == "completed" }},
+		{"linear-issue", Q3Request{Product: "product", LinearIssueKey: "SYN-7"}, func(state string) bool { return state == "in_progress" }},
+		{"terminal-since", Q3Request{Product: "product", TerminalSince: &since}, func(state string) bool { return state == "completed" || state == "cancelled" }},
+		{"not-owned-project", Q3Request{Product: "product", ProjectIDs: []string{"not-owned"}}, func(string) bool { return false }},
+		{"other-product", Q3Request{Product: "other-product", WorkIDs: []string{"matrix-needed"}}, func(string) bool { return false }},
+	}
 	for _, detail := range []string{"summary", "full"} {
-		for _, state := range []string{"needed", "in_progress", "completed", "cancelled"} {
-			r, err := s.QueryQ3(t.Context(), Q3Request{Product: "product", Detail: detail, LifecycleStates: []string{state}, ProjectIDs: []string{"project"}})
-			if err != nil || len(r.Items) != 1 || r.Items[0].ID != "matrix-"+state {
-				t.Fatalf("%s %s: %+v %v", detail, state, r.Items, err)
+		for mask := 0; mask < 1<<len(lifecycles); mask++ {
+			var states []string
+			for i, state := range lifecycles {
+				if mask&(1<<i) != 0 {
+					states = append(states, state)
+				}
 			}
-			assertItem(r.Items[0])
-		}
-		req := Q3Request{Product: "product", Detail: detail, Limit: 1}
-		seen := map[string]bool{}
-		for {
-			r, err := s.QueryQ3(t.Context(), req)
-			if err != nil || len(r.Items) != 1 {
-				t.Fatalf("page: %+v %v", r.Items, err)
+			for _, filter := range filters {
+				want := map[string]bool{}
+				for _, state := range lifecycles {
+					if (len(states) == 0 || slices.Contains(states, state)) && filter.admit(state) {
+						want["matrix-"+state] = true
+					}
+				}
+				name := fmt.Sprintf("%s/%s/%v", detail, filter.name, states)
+				req := filter.req
+				req.Detail, req.LifecycleStates = detail, states
+				whole, err := s.QueryQ3(t.Context(), req)
+				if err != nil {
+					t.Fatalf("%s: %v", name, err)
+				}
+				got := map[string]bool{}
+				for _, item := range whole.Items {
+					got[item.ID] = true
+					assertItem(item)
+				}
+				if !reflect.DeepEqual(got, want) {
+					t.Fatalf("%s: items=%v want=%v", name, got, want)
+				}
+				req.Limit = 1
+				paged := map[string]bool{}
+				for {
+					page, err := s.QueryQ3(t.Context(), req)
+					if err != nil || len(page.Items) > 1 {
+						t.Fatalf("%s page: %+v %v", name, page.Items, err)
+					}
+					for _, item := range page.Items {
+						if paged[item.ID] {
+							t.Fatalf("%s: duplicate page item %s", name, item.ID)
+						}
+						paged[item.ID] = true
+						assertItem(item)
+					}
+					if page.NextCursor == nil {
+						break
+					}
+					req.Cursor = *page.NextCursor
+				}
+				if !reflect.DeepEqual(paged, want) {
+					t.Fatalf("%s: paged items=%v want=%v", name, paged, want)
+				}
 			}
-			item := r.Items[0]
-			if seen[item.ID] {
-				t.Fatalf("duplicate page item %s", item.ID)
-			}
-			seen[item.ID] = true
-			assertItem(item)
-			if r.NextCursor == nil {
-				break
-			}
-			req.Cursor = *r.NextCursor
-		}
-		if len(seen) != 4 {
-			t.Fatalf("page items: %v", seen)
-		}
-		empty, err := s.QueryQ3(t.Context(), Q3Request{Product: "product", ProjectIDs: []string{"not-owned"}, Detail: detail})
-		if err != nil || len(empty.Items) != 0 {
-			t.Fatalf("outside scope: %+v %v", empty.Items, err)
-		}
-		filtered, err := s.QueryQ3(t.Context(), Q3Request{Product: "product", Detail: detail, Kind: "decision"})
-		if err != nil || len(filtered.Items) != 0 {
-			t.Fatalf("kind filter: %+v %v", filtered.Items, err)
-		}
-		outside, err := s.QueryQ3(t.Context(), Q3Request{Product: "other-product", Detail: detail, WorkIDs: []string{"matrix-needed"}})
-		if err != nil || len(outside.Items) != 0 {
-			t.Fatalf("other Product: %+v %v", outside.Items, err)
-		}
-		all, err := s.QueryQ3(t.Context(), Q3Request{Product: "product", Detail: detail})
-		if err != nil || len(all.Items) != 4 {
-			t.Fatalf("all: %+v %v", all.Items, err)
-		}
-		for _, item := range all.Items {
-			assertItem(item)
 		}
 	}
 	preview, err := s.QueryQ2(t.Context(), Q2Request{Product: "product", PreviewLimit: 10})

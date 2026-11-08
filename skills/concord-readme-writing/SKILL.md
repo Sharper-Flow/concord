@@ -58,6 +58,7 @@ never a paragraph. For each other block, choose and justify prose, list, table
 or code according to what it helps the reader do. Use absolute links when
 the README is published beyond the repository; otherwise choose links that work
 where the page is read. Verify each destination.
+For choosing, writing or reviewing a diagram, load `concord-diagram-writing`.
 
 A public README supports external adoption and omits non-public internals. A
 non-public README may include verified internal context useful to its readers.

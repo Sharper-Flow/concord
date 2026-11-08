@@ -52,6 +52,8 @@ safe workflow recording or execution of your own managed item.
 
 ## Portable engineering methods
 
+- [Diagram writing](concord-diagram-writing/SKILL.md): decide when to draw a
+  diagram and write or review readable Mermaid.
 - [Instruction writing](concord-instruction-writing/SKILL.md): write, edit, or
   prune agent profiles, shared instructions, skills and definition manifests.
 - [Diagnosis](concord-diagnosis/SKILL.md): a defect or regression whose cause is
@@ -159,6 +161,22 @@ It keeps their MIT notices in `concord-test-design/LICENSE`. Further reading,
 cited but not copied: [Software Engineering at Google, chapter 12](https://abseil.io/resources/swe-book/html/ch12.html),
 [What to look for in a code review](https://google.github.io/eng-practices/review/reviewer/looking-for.html),
 and [The Practical Test Pyramid](https://martinfowler.com/articles/practical-test-pyramid.html).
+
+Diagram writing adapts type selection and rendering checks from
+[Pretty-mermaid-skills](https://github.com/imxv/Pretty-mermaid-skills/blob/e234ab73c2992f03c36db04fd55ebb90abca9c45/SKILL.md),
+rendering pitfalls from [awesome-copilot](https://github.com/github/awesome-copilot/blob/797337f33f73e35d08d82f840e21c4b8c4932d88/skills/threat-model-analyst/references/diagram-conventions.md),
+type selection and C4 zoom levels from
+[Mermaid expert](https://github.com/wshobson/agents/blob/4bde3168b43c0655c4d00ea2726e631719908a6d/plugins/documentation-generation/agents/mermaid-expert.md),
+[C4 context](https://github.com/wshobson/agents/blob/4bde3168b43c0655c4d00ea2726e631719908a6d/plugins/c4-architecture/agents/c4-context.md)
+and [C4 container](https://github.com/wshobson/agents/blob/4bde3168b43c0655c4d00ea2726e631719908a6d/plugins/c4-architecture/agents/c4-container.md),
+and type, layout and syntax ideas from
+[mermaid-visualizer](https://github.com/axtonliu/axton-obsidian-visual-skills/blob/1265976d9746a84858b4b7b42fb86a215aa93de9/mermaid-visualizer/SKILL.md).
+All four MIT notices are in `concord-diagram-writing/LICENSE`. The skill names
+its cite-only sources and this README pins their links, never copied:
+[GitHub diagram guidance](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/creating-diagrams),
+Mermaid's [accessibility](https://mermaid.js.org/config/accessibility.html) and
+[syntax](https://mermaid.js.org/intro/syntax-reference.html) docs, and
+[C4 diagrams](https://c4model.com/diagrams).
 
 ## Delivery
 

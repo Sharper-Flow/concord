@@ -958,11 +958,12 @@ class LawWritingSkillTests(unittest.TestCase):
 class MethodSkillTests(unittest.TestCase):
     """CD-0246 D1 and D3: portable method skills ship like any admitted skill."""
 
-    NAMES = ("concord-adoption", "concord-diagnosis", "concord-codebase-design", "concord-work-shaping", "concord-retrospective", "concord-instruction-writing", "concord-review", "concord-improve-codebase-architecture", "concord-architecture-writing", "concord-readme-writing", "concord-ui-design", "concord-ticket-writing", "concord-project-updates", "concord-pr-writing", "concord-research-writing", "concord-handoff-writing", "concord-test-design")
+    NAMES = ("concord-adoption", "concord-diagnosis", "concord-codebase-design", "concord-work-shaping", "concord-retrospective", "concord-instruction-writing", "concord-review", "concord-improve-codebase-architecture", "concord-architecture-writing", "concord-readme-writing", "concord-ui-design", "concord-ticket-writing", "concord-project-updates", "concord-pr-writing", "concord-research-writing", "concord-handoff-writing", "concord-test-design", "concord-diagram-writing")
     # Skills whose method text adapts Matt Pocock's MIT-licensed upstream and
-    # keep his notice; concord-project-updates and other original Concord
-    # skills carry the repository license.
-    UPSTREAM_ADAPTED_SKILLS = (frozenset(NAMES) | {"concord-law-writing"}) - {"concord-project-updates"}
+    # keep his notice; concord-diagram-writing keeps its own upstream notices;
+    # concord-project-updates and other original Concord skills carry the
+    # repository license.
+    UPSTREAM_ADAPTED_SKILLS = (frozenset(NAMES) | {"concord-law-writing"}) - {"concord-project-updates", "concord-diagram-writing"}
     OPERATIONS = {"concord_domain.list", "concord_domain.detail", "concord_product_view.resolve"}
 
     def content(self, name):
@@ -1003,6 +1004,13 @@ class MethodSkillTests(unittest.TestCase):
                     license_path = skills / name / "LICENSE"
                     if name == "concord-ui-design":
                         expected_notices = ("Copyright 2026 Anthropic, PBC.", "Copyright (c) 2025 Vercel Labs", "Copyright (c) 2026 Matt Pocock")
+                    elif name == "concord-diagram-writing":
+                        expected_notices = (
+                            "Copyright (c) 2026 Beautiful-Mermaid Contributors",
+                            "Copyright GitHub, Inc.",
+                            "Copyright (c) 2024 Seth Hobson",
+                            "Copyright (c) 2025 Axton Liu",
+                        )
                     else:
                         expected_notices = (
                             "Copyright (c) 2026 Matt Pocock"

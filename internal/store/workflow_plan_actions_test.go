@@ -10,6 +10,34 @@ import (
 	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
 )
 
+func TestWorkflowInsertUnreviewedHelperAfterReviewedStep(t *testing.T) {
+	const workID = "work-insert-unreviewed-helper"
+	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanChange, "review", nil)
+	defer f.store.Close()
+	if err := runVerdictAction(t, f.store, workID, "insert_step", json.RawMessage(`{"id":"helper","after":["implement"],"helper":"concord-implement","reviewed":false,"reason":"additional work"}`)); err != nil {
+		t.Fatalf("insert helper: %v", err)
+	}
+	plan, err := readWorkflowPlanTx(t.Context(), f.store.db, workID)
+	if err != nil || plan == nil {
+		t.Fatalf("read plan: %v", err)
+	}
+	step, found := stepByID(plan.Steps, "helper")
+	if !found || step.Reviewed {
+		t.Fatalf("inserted helper = %+v, found=%v; want reviewed=false", step, found)
+	}
+	if err := runVerdictAction(t, f.store, workID, "complete_step", json.RawMessage(`{"step_id":"helper","note":"helper completed"}`)); err != nil {
+		t.Fatalf("complete helper with note: %v", err)
+	}
+	plan, err = readWorkflowPlanTx(t.Context(), f.store.db, workID)
+	if err != nil || plan == nil {
+		t.Fatalf("read completed plan: %v", err)
+	}
+	step, found = stepByID(plan.Steps, "helper")
+	if !found || len(step.Attempts) != 1 || step.Attempts[0].Note != "helper completed" {
+		t.Fatalf("completed helper = %+v, found=%v", step, found)
+	}
+}
+
 func TestWorkflowPlanActionFolds(t *testing.T) {
 	ctx := t.Context()
 	s := openTemp(t)
@@ -98,6 +126,10 @@ func TestWorkflowPlanActionFolds(t *testing.T) {
 	plan := read()
 	apply(foldWorkflowStepCompleted, workflowStepCompletedPayload{WorkflowVersionFields: fields(), StepID: plan.Steps[1].ID, Note: "too early"}, true)
 	apply(foldWorkflowStepInserted, workflowStepInsertedPayload{WorkflowVersionFields: fields(), ID: "extra", After: []string{plan.Steps[0].ID}, Reviewed: true, Reason: "review needed"}, false)
+	insertedReviewed, found := stepByID(read().Steps, "extra")
+	if !found || !insertedReviewed.Reviewed {
+		t.Fatal("inserted step did not retain reviewed=true")
+	}
 	var rawPlan string
 	if err := db.QueryRowContext(ctx, `SELECT step_plan FROM workflow_instances WHERE work_id='work'`).Scan(&rawPlan); err != nil {
 		t.Fatal(err)
@@ -149,14 +181,14 @@ func TestWorkflowPlanActionFolds(t *testing.T) {
 	for _, ancestor := range plan.Steps {
 		if ancestor.Reviewed {
 			apply(foldWorkflowStepInserted, workflowStepInsertedPayload{WorkflowVersionFields: fields(), ID: "after-review", After: []string{ancestor.ID}, Reason: "additional work"}, false)
-			inserted, _ := stepByID(read().Steps, "after-review")
-			if !inserted.Reviewed {
-				t.Fatal("inserted descendant bypassed review")
+			inserted, found := stepByID(read().Steps, "after-review")
+			if !found || inserted.Reviewed {
+				t.Fatal("inserted step did not retain reviewed=false")
 			}
 			apply(foldWorkflowStepInserted, workflowStepInsertedPayload{WorkflowVersionFields: fields(), ID: "after-inserted", After: []string{"after-review"}, Reason: "additional follow-up"}, false)
-			transitive, _ := stepByID(read().Steps, "after-inserted")
-			if !transitive.Reviewed {
-				t.Fatal("transitive inserted descendant bypassed review")
+			transitive, found := stepByID(read().Steps, "after-inserted")
+			if !found || transitive.Reviewed {
+				t.Fatal("transitive inserted step did not retain reviewed=false")
 			}
 			break
 		}

@@ -225,11 +225,7 @@ func writeCommandSection(out io.Writer, spec commandSpec) {
 	if spec.TwoWord != "" {
 		_, _ = fmt.Fprintf(out, "  concord %s < JSON stdin\n", spec.TwoWord)
 	}
-	required := formatRequiredFields(spec.RequiredFields)
-	if required == "" {
-		required = "none"
-	}
-	_, _ = fmt.Fprintf(out, "    required: %s\n", required)
+	_, _ = fmt.Fprintf(out, "    required: %s\n", formatRequiredFields(spec.RequiredFields))
 	if spec.Optional != "" && spec.Optional != "none" {
 		_, _ = fmt.Fprintf(out, "    optional: %s\n", spec.Optional)
 	}

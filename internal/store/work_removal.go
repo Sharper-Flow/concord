@@ -442,8 +442,9 @@ func deleteWorkProjectionTx(ctx context.Context, tx migrationRunner, table, work
 		return nil
 	}
 	// Migration 182 runs this cleanup before the plan and removal tables in
-	// migration 183 and the clarification table in migration 189 can exist.
-	if (table == "workflow_clarify_records" || table == "workflow_plan_records" || table == "workflow_removal_scopes") && strings.Contains(deleteErr.Error(), "no such table: "+table) {
+	// migration 183, the clarification table in migration 189, and the Domain
+	// additions table in migration 192 can exist.
+	if (table == "workflow_clarify_records" || table == "workflow_plan_records" || table == "workflow_removal_scopes" || table == "workflow_contract_domain_additions") && strings.Contains(deleteErr.Error(), "no such table: "+table) {
 		return nil
 	}
 	// workflow_law_addition_reservations carries no direct foreign key into

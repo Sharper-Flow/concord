@@ -27,13 +27,18 @@ For choosing, writing or reviewing a diagram, load `concord-diagram-writing`.
 
 ## Leave a retraceable record
 
-Keep the canonical durable research record under `.concord/docs/` in the
-Product's designated Git knowledge home. During development, copy research,
-audit and inventory findings into a Linear Document attached to the owning issue
-or project, not only in host files or long issue comments, so Linear readers can
-follow progress. Link the Document from the issue and the issue from the
-Document. This is a development-time copy, not a second long-term home. A
-returned briefing gives the driving session the same claim-level evidence.
+The driving session records the findings and conclusion in the work record. A
+returned briefing gives that session the same claim-level evidence. Keep
+research with a durable result as one cited research record under
+`.concord/docs/` in the Product's designated Git knowledge home, and say where
+it is. Where no knowledge home is designated, place it where the requester or
+the repository's documentation places such notes.
+
+During development, copy research, audit and inventory findings into a Linear
+Document attached to the owning issue or project, rather than leaving them only
+in host files or long issue comments, so Linear readers can follow progress.
+Link the Document from the issue and the issue from the Document. This is a
+development-time copy, not a second long-term home.
 
 Keep law, architecture reference and product vision in Git. Keep assignment
 briefs, quoted decisions and completion reports in comments. Keep private data

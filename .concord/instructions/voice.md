@@ -1,7 +1,11 @@
 # Voice
 
-Write plain technical English. Short sentences. Active voice. Ordinary words in
-preference to impressive ones.
+Write plain technical English. Short sentences. Ordinary words in preference to
+impressive ones. Name each thing specifically instead of using a pronoun or
+generic noun, and give each thing one name throughout. Use a pronoun only for a
+noun named earlier in the same sentence. Use active voice: Name the actor instead
+of using an agentless passive, and prefer the verb to the noun built from it, so
+the reader can tell who did what to what.
 
 Lead with the outcome. Say what is true, what changed, or what you decided, and
 put the reasoning after it. Do not narrate the process of arriving at an answer;

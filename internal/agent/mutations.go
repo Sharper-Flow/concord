@@ -133,6 +133,19 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base agentcontra
 	if !scopeWithinAuthority(authorizedScope, grant) {
 		return coreError(base, "unauthorized", "original mutation scope is no longer authorized by the current grant", "contact_operator", false), true, nil
 	}
+	if r.Tool == "concord_work_transition" && r.Operation == "lifecycle" {
+		present, err := hasMutationResponse(scopeJSON)
+		if err == nil && !present {
+			var input lifecycleMutationInput
+			if err := decodeOperationInput(raw, &input); err != nil {
+				base.Replayed = true
+				return incompleteMutationResponse(base, "committed lifecycle request is unreadable; contact the operator before retrying the same request"), true, nil
+			}
+			if input.Target == "completed" {
+				base.EvidenceRefs = append([]agentcontract.EvidenceRef{}, input.Evidence...)
+			}
+		}
+	}
 	// The replay acknowledges the original authority, not only its observation
 	// count. The operation's declared replay baseline and the persisted
 	// durability binding select FULL; records without that binding use FULL
@@ -441,16 +454,29 @@ func workflowActionFields(raw json.RawMessage) (json.RawMessage, error) {
 }
 
 func (r runtime) replayWorkflowActionTx(ctx context.Context, tx *store.Transaction, base agentcontract.Envelope, prior store.MutationIdempotencyRecord, scope map[string]any) (agentcontract.Envelope, error) {
+	base.Replayed = true
 	operation, err := store.OperationResultTx(ctx, tx, prior.OperationID)
 	if err != nil {
+		var failure *store.Failure
+		if errors.As(err, &failure) && !failure.RetrySafe && failure.Kind == store.KindProjectionNotFound {
+			return unrecoverableMutationResult(base, "durable workflow result owner was not retained", scopeListValues(scope["work_ids"])), nil
+		}
+		if errors.As(err, &failure) && !failure.RetrySafe && (failure.Kind == store.KindSchemaUnsupported || failure.Kind == store.KindUnavailable || failure.Kind == store.KindInvalidOperation) {
+			return incompleteMutationResponse(base, "durable workflow result is unavailable; contact the operator before retrying the same request"), nil
+		}
 		return agentcontract.Envelope{}, err
 	}
-	base.Replayed = true
 	base.ResolvedScope = scopeFromMap(scope)
 	if err := agentcontract.ValidateOperationPayload(base.Tool, base.Operation, json.RawMessage(operation.ResultPayload), true); err != nil {
 		response := coreError(base, "malformed_response", fmt.Sprintf("durable workflow result is not a valid current result: %v", err), "contact_operator", false)
 		response.Error.EffectState = agentcontract.EffectPossible
 		return response, nil
+	}
+	if present, err := hasMutationResponse(prior.AuthorizedScopeSnapshot); err == nil && !present {
+		if !missingLegacyIndexDocument(prior.ResultPayload) {
+			return r.legacyWorkflowIndexResult(base, prior, operation), nil
+		}
+		return r.legacyWorkflowResult(base, operation), nil
 	}
 	return r.recordedMutationResult(base, prior), nil
 }

@@ -296,6 +296,22 @@ copy in the replay index. Removing that copy must preserve the original scope,
 request digest, result classification, evidence, and no-second-effect guarantee.
 Every replay path reads the same authoritative result owner.
 
+Legacy idempotency records written before response snapshotting may replay the
+valid, complete original result from its retained result owner with no new
+effect. That owner is the replay index copy, or the durable operation when the
+index copy is a placeholder. A legacy mutation result is unrecoverable when its
+record retains neither an original WorkPin nor facts establishing a permitted
+omission under [CD-0113](../decisions/CD-0113-mutation-results-carry-a-workpin.md),
+or when a placeholder's durable operation no longer exists. The core must not
+reconstruct or substitute a subsequent pin, invent omission facts, or treat the
+missing owner as an uncommitted attempt. Replaying such a record returns
+`malformed_response` with `contact_operator`, `retry_safe=false`, and
+`effect_state=possible`. The refusal states which original fact was not
+retained and directs the caller to inspect current state through
+`concord_work_trace.resume` (or `concord_work_browse.list` scoped to the work
+IDs when the work is no longer resumable). Current-state inspection does not
+reconstruct the original response or authorize repeating the mutation.
+
 ## 8. Request identity and audit
 
 `request_id` is unique per transport attempt and links logs/metrics. It does not

@@ -210,7 +210,7 @@ func TestWorkflowReplayOwnerClassifications(t *testing.T) {
 		{name: "incompatible result from different producer manifest", kind: "completed", ownerDigest: "sha256:" + strings.Repeat("0", 64), ownerPayload: "{}", want: agentcontract.OutcomeError},
 		{name: "missing owner", kind: "completed", missing: true, want: agentcontract.OutcomeError},
 		{name: "missing response payload", kind: "completed", missingPayload: true, want: agentcontract.OutcomeError},
-		{name: "missing response metadata", kind: "completed", scope: `{"product_id":"product-1","project_ids":["project-1"]}`, want: agentcontract.OutcomeError},
+		{name: "missing response metadata", kind: "completed", scope: `{"product_id":"product-1","project_ids":["project-1"]}`, want: agentcontract.OutcomeOK},
 		{name: "unreadable scope", kind: "completed", scope: "not JSON", want: agentcontract.OutcomeError},
 		{name: "unauthorized original scope", kind: "completed", scope: `{"product_id":"another-product","project_ids":["project-1"]}`, want: agentcontract.OutcomeError},
 	} {
@@ -279,7 +279,7 @@ func TestWorkflowReplayOwnerClassifications(t *testing.T) {
 			if vector.want == agentcontract.OutcomeError && (replayMetadataCount(t, s, "owner-classification") != 0 || s.DurableCommits() != beforeCommits) {
 				t.Fatal("refused replay committed metadata or a durable write")
 			}
-			if vector.missingPayload || vector.name == "missing response metadata" {
+			if vector.missingPayload {
 				if transaction.Error == nil || transaction.Error.EffectState != agentcontract.EffectPossible || transaction.Error.RetrySafe {
 					t.Fatalf("incomplete committed response lost effect truth: %+v", transaction.Error)
 				}

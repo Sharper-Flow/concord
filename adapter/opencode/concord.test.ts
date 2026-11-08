@@ -25,6 +25,7 @@ const source = await Bun.file(new URL("./concord.ts", import.meta.url)).text()
 const askingSource = await Bun.file(new URL("../../.concord/instructions/asking.md", import.meta.url)).text()
 const continuationSource = await Bun.file(new URL("../../.concord/instructions/continuation.md", import.meta.url)).text()
 const recordsSource = (await Bun.file(new URL("../../.concord/instructions/records.md", import.meta.url)).text()).replace(/\s+/g, " ")
+const voiceSource = (await Bun.file(new URL("../../.concord/instructions/voice.md", import.meta.url)).text()).replace(/\s+/g, " ")
 const handoffWritingSource = (await Bun.file(new URL("../../skills/concord-handoff-writing/SKILL.md", import.meta.url)).text()).replace(/\s+/g, " ")
 // The tests run against a fake runner, so bind the transport to a nominal
 // core path instead of the unstamped repository placeholder (CD-0111 D1).
@@ -1415,6 +1416,15 @@ test("portable continuation posture leaves host protocol names to the host surfa
   expect(recordsSource).toContain("the problem with observed evidence")
   expect(recordsSource).toContain("who or what it affects")
   expect(recordsSource).toContain("checkable end state before any plan")
+  const sharedRules = [
+    /Name each thing specifically/g,
+    /one name throughout/g,
+    /Use a pronoun only for a noun named earlier in the same sentence/g,
+    /Name the actor/g,
+    /who did what to what/g,
+  ]
+  expect(sharedRules.map(rule => (voiceSource.match(rule) ?? []).length)).toEqual([1, 1, 1, 1, 1])
+  expect(sharedRules.map(rule => (`${voiceSource} ${recordsSource}`.match(rule) ?? []).length)).toEqual([1, 1, 1, 1, 1])
 })
 
 test("tools forward the coordinator's reviewed step without launch authorization", async () => {

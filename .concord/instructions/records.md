@@ -31,12 +31,10 @@ discovered for another Product.
 ## Write for the later reader
 
 Name what the reader can open: the path, symbol, command, identifier, or quoted
-error text. State what you observed before what it means. Prefer the verb to the
-noun built from it, so the reader can tell who did what to what.
+error text. State what you observed before what it means.
 
-Keep sentences under about forty words and give each thing one name throughout.
-Report cost, risk, and your own error in the record itself, not only in the
-conversation where you found them.
+Keep sentences under about forty words. Report cost, risk, and your own error in
+the record itself, not only in the conversation where you found them.
 
 Leave quoted material exactly as it came, including errors, log lines, commands,
 paths, identifiers, and code. A paraphrased error is not searchable.

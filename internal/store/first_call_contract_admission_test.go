@@ -284,9 +284,9 @@ func TestFirstCallMandateCodePointBounds(t *testing.T) {
 			})
 			err := firstCallApproveContract(t, s, workID, version, "mandate-bound", actor, input)
 			if !tc.valid {
-				if err == nil {
-					t.Fatal("invalid mandate admitted")
-				}
+				// Preflight validates fields in sorted order, so the
+				// length refusal names law_modifies before any law lookup.
+				_ = requirePayloadFailure(t, err, `"law_modifies"`, "type or bounds")
 				return
 			}
 			if err != nil {
@@ -745,9 +745,7 @@ func TestFirstCallContractUpdateAdmitsFromPublishedInput(t *testing.T) {
 	commitKnowledgeRepo(t, home.RepoPath, "commit update bound fixture")
 	invalidBound := updateInput(nil)
 	invalidBound["contract"].(map[string]any)["law_modifies"] = []string{strings.Repeat("é", 129)}
-	if err := applyUpdate(invalidBound); err == nil {
-		t.Fatal("contract update admitted a 129-code-point law modification")
-	}
+	firstCallRequireRefusal(t, applyUpdate(invalidBound), "invalid field: law_modifies")
 	valid := updateInput(func(fields map[string]any) {
 		fields["spec_mandate"] = []string{"spec:one", "law:successor", longID}
 		fields["law_modifies"] = []string{longID}

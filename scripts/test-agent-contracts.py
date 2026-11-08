@@ -1639,6 +1639,7 @@ class ProjectionAdmissionTests(unittest.TestCase):
         teaching = {rule: "rule" for rule in (
             "spec_mandate_rule", "law_addition_mandate_rule", "obligation_membership_rule",
             "architecture_domain_rule", "alignment_combination_rule")}
+        teaching["action_rules"] = {}
         return json.dumps({
             "schema_version": "2.0", "actions": actions,
             "teaching": teaching, "schema_refs": {"current": []},

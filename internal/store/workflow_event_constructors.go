@@ -102,6 +102,8 @@ func workflowBoundContractContent(ctx context.Context, tx *sql.Tx, planType Work
 	return contract, nil
 }
 
+const workflowEvidenceBindingTeaching = "Bind one evidence kind and one immutable subject per call. Split different kinds or subjects into separate calls."
+
 // workflowRecordDiagnosisEvents builds the typed diagnosis event.
 // The action records all three required sections in one act: the
 // reproduction record, the alignment search, and the root-cause record. The
@@ -117,7 +119,7 @@ func workflowRecordDiagnosisEvents(ctx context.Context, tx *sql.Tx, request Work
 		var exists int
 		err := tx.QueryRowContext(ctx, `SELECT 1 FROM work_items WHERE id=?`, relatedID).Scan(&exists)
 		if err == sql.ErrNoRows {
-			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_diagnosis related id "+workflowRefExcerpt(relatedID)+" does not name a work item", false, "supply a real related work item id")
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_diagnosis related id "+workflowRefExcerpt(relatedID)+" does not name a work item", false, "supply a Concord work ID; look up a Linear issue with concord_work_browse.list using linear_issue_key")
 		} else if err != nil {
 			return nil, workflowProjectionError(err, "cannot read the diagnosis related work item")
 		}

@@ -605,7 +605,7 @@ func checkMandatedLawsTxAtHome(ctx context.Context, tx *sql.Tx, homeProjectID, h
 // workflowSpecMandateTeaching states what spec_mandate admits. The mandate
 // refusals carry it as their correction, and the published schema carries it
 // as the field description.
-const workflowSpecMandateTeaching = "spec_mandate lists governing or authorized law IDs as a bare law_id or project_id/law_id; an empty list is legal when no referenced law applies. Put repository paths in record_plan.touches and scope prose in the plan or intent."
+const workflowSpecMandateTeaching = "spec_mandate lists up to 32 unique governing or authorized law IDs as a bare law_id or project_id/law_id; an empty list is legal when no referenced law applies. Each reference must satisfy the published law ID shape of 2..256 code points and the fold bound of 2..128 bytes. Put repository paths in record_plan.touches and scope prose in the plan or intent."
 
 func checkMandatedLawsQuery(ctx context.Context, q queryer, homeProjectID, homeLocatorID string, mandated, modified []string, allowAmendment bool) error {
 	if homeProjectID == "" || homeLocatorID == "" {

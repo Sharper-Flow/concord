@@ -540,8 +540,17 @@ func normalizeWorkflowContractApproval(p *workflowContractApprovedPayload) error
 	if p.SpecMandate == nil {
 		p.SpecMandate = []string{}
 	}
-	if p.ContractVersion <= 0 || !workflowList(p.SpecMandate, 32, 0) || !workflowList(p.LawModifies, 32, 0) || !validLegislativeSubjects(p.LegislativeSubjects) {
-		return newFailure(KindInvalidPayload, "fold_event", "contract_approved contains invalid contract fields", false, "supply a strict closed workflow outcome and bounded contract fields")
+	if p.ContractVersion <= 0 {
+		return newFailure(KindInvalidPayload, "fold_event", "contract_version must be positive", false, "supply a positive contract_version")
+	}
+	if !workflowList(p.SpecMandate, 32, 0) {
+		return newFailure(KindInvalidPayload, "fold_event", "spec_mandate requires at most 32 unique references of 2..128 bytes each", false, workflowSpecMandateTeaching)
+	}
+	if !workflowList(p.LawModifies, 32, 0) {
+		return newFailure(KindInvalidPayload, "fold_event", "law_modifies requires at most 32 unique references of 2..128 bytes each", false, "supply unique bounded law_modifies references")
+	}
+	if !validLegislativeSubjects(p.LegislativeSubjects) {
+		return newFailure(KindInvalidPayload, "fold_event", "legislative_subjects requires at most 800 unique valid references of 2..128 bytes each", false, "supply unique bounded legislative_subjects references")
 	}
 	if p.LawBoundaryVersion != 0 && p.LawBoundaryVersion != 1 {
 		return newFailure(KindInvalidPayload, "fold_event", "contract_approved law boundary version is invalid", false, "use the supported law boundary version")

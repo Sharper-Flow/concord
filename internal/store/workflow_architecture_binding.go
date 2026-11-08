@@ -168,7 +168,7 @@ const workflowLawAdditionMandateTeaching = "Every law addition must be authorize
 // binding guards enforce: additions are explicit and absent from the registry,
 // each has a homed law addition, other affected Domains are current, and
 // Domain relation modifications use current canonical relations.
-const workflowArchitectureDomainTeaching = "Architecture bindings must declare new Domains in domain_additions, include them in affected_domain_ids, and home at least one added law in each; additions must be absent from the registry and disjoint from domain_modifies. Every other affected Domain must be current, every added or modified law must have an affected home, and modified relations must be current canonical tuples."
+const workflowArchitectureDomainTeaching = "architecture_binding is required for change, fix, and removal; omit it for research. Architecture bindings must declare new Domains in domain_additions, include them in affected_domain_ids, and home at least one added law in each; additions must be absent from the registry and disjoint from domain_modifies. Every other affected Domain must be current, every added or modified law must have an affected home, and modified relations must be current canonical tuples."
 
 // architectureBindingCurrentMandate returns the mandated references the
 // contract still owes as committed current law: every mandate entry whose
@@ -219,7 +219,8 @@ type WorkflowContractTeaching struct {
 	ArchitectureDomainRule string `json:"architecture_domain_rule"`
 	// AlignmentCombinationRule states the cross-field rule the
 	// record_diagnosis registry declaration enforces at payload validation.
-	AlignmentCombinationRule string `json:"alignment_combination_rule"`
+	AlignmentCombinationRule string            `json:"alignment_combination_rule"`
+	ActionRules              map[string]string `json:"action_rules"`
 }
 
 // WorkflowContractTeachingRules returns the guard-owned teaching texts,
@@ -231,6 +232,11 @@ func WorkflowContractTeachingRules() WorkflowContractTeaching {
 		ObligationMembershipRule: workflowObligationMembershipTeaching,
 		ArchitectureDomainRule:   workflowArchitectureDomainTeaching,
 		AlignmentCombinationRule: workflowAlignmentCombinationTeaching,
+		ActionRules: map[string]string{
+			"complete_step": workflowStepReviewTeaching,
+			"bind_evidence": workflowEvidenceBindingTeaching,
+			"complete":      workflowCompletionTeaching,
+		},
 	}
 }
 

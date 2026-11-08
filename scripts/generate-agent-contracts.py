@@ -315,11 +315,13 @@ def load_workflow_action_contracts() -> tuple[list[dict], dict, dict, list[dict]
         if not isinstance(refs, list) or any(not isinstance(ref, str) or not ref for ref in refs) or len(set(refs)) != len(refs) or refs != sorted(refs):
             fail(f"workflow action contract projection {side} schema refs are not a sorted unique name list")
     teaching = projection["teaching"]
-    if set(teaching) != {"spec_mandate_rule", "law_addition_mandate_rule", "obligation_membership_rule", "architecture_domain_rule", "alignment_combination_rule"}:
+    if set(teaching) != {"spec_mandate_rule", "law_addition_mandate_rule", "obligation_membership_rule", "architecture_domain_rule", "alignment_combination_rule", "action_rules"}:
         fail("workflow action contract projection carries no guard-owned teaching rules")
-    for rule in teaching.values():
+    for rule in (value for key, value in teaching.items() if key != "action_rules"):
         if not isinstance(rule, str) or not rule.strip():
             fail("a guard-owned teaching rule is empty")
+    if not isinstance(teaching["action_rules"], dict) or any(not isinstance(key, str) or not key or not isinstance(value, str) or not value.strip() for key, value in teaching["action_rules"].items()):
+        fail("action teaching rules are invalid")
     actions = projection["actions"]
     if not actions or len({action.get("id") for action in actions}) != len(actions):
         fail("workflow action contract projection has no unique actions")
@@ -792,6 +794,8 @@ def project_workflow_action_schema(document: dict, actions: list[dict], teaching
             if all(requires_fields(branch) for branch in branches):
                 required.append("fields")
         defs[name] = {"type": "object", "additionalProperties": False, "required": required, "properties": properties}
+        if action_id in teaching.get("action_rules", {}):
+            defs[name]["description"] = teaching["action_rules"][action_id]
     public_variants: list[dict] = []
     current_variant_refs: list[dict] = []
     for action in actions:

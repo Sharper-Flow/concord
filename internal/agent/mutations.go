@@ -401,7 +401,7 @@ func validateEvidenceKindBinding(actionID string, payload json.RawMessage, evide
 	}
 	for _, entry := range evidence {
 		if entry.Kind != "" && entry.Kind != fields.EvidenceKind {
-			return fmt.Errorf("fields.evidence_kind %q contradicts evidence array kind %q at %q; omit fields.evidence_kind so each entry binds under its own kind, or make every entry kind match fields.evidence_kind", fields.EvidenceKind, entry.Kind, entry.Locator)
+			return fmt.Errorf("fields.evidence_kind %q contradicts evidence array kind %q at %q; a bind accepts one immutable subject per call, so split the submission into one bind per subject when it names more than one, and in each bind omit fields.evidence_kind so each entry binds under its own kind, or keep it only when every entry kind in that bind matches fields.evidence_kind", fields.EvidenceKind, entry.Kind, entry.Locator)
 		}
 	}
 	return nil

@@ -36,7 +36,8 @@ import (
 // reconciled against the declared unit. Zero or several calls measuring the
 // same expression fail as absent or ambiguous; a non-constant limit fails
 // closed.
-func pkGuardArgBound(file, function, callee, measured string, limitArgument int, unit boundUnit) outputBoundSource {
+func pkGuardArgBound(file, function, callee, measured string, limitArgument int) outputBoundSource {
+	const unit = boundBytes
 	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, census *boundCensus) (evaluatedBound, error) {
 		value, err := parser.ParseExpr(measured)
 		if err != nil {
@@ -756,7 +757,7 @@ func pkSprintfDigestRefBound() outputBoundSource {
 		if matches != 1 || format != "%s@sha256:%s" {
 			return evaluatedBound{}, fmt.Errorf("policy ref: %d matching Sprintf calls render %q; the traced derivation changed", matches, format)
 		}
-		kind, err := rt.evaluateSource(pkGuardArgBound(file, "ValidateExternalObservationCapture", "boundedString", "capture.SubjectKind", 2, boundBytes), census)
+		kind, err := rt.evaluateSource(pkGuardArgBound(file, "ValidateExternalObservationCapture", "boundedString", "capture.SubjectKind", 2), census)
 		if err != nil {
 			return evaluatedBound{}, fmt.Errorf("policy ref: %w", err)
 		}
@@ -892,9 +893,9 @@ func init() {
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/entry_id/maxLength", unboundedOutput("internal/store/q7_current.go:currentQ7EntriesSQL composes current row identities without a global length guard", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/observed_at/maxLength", unboundedOutput("internal/store/workflow.go:foldWorkflowEvidenceBound requires nonempty observed_at but imposes no length guard", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/immutable_subject_ref/maxLength", goInlineBound("internal/store/workflow.go", "workflowEvidenceRef", "len(value)", boundBytes))
-	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/producer_id/maxLength", pkGuardArgBound("internal/store/workflow.go", "foldWorkflowEvidenceBound", "workflowString", "p.ProducerID", 1, boundBytes))
-	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/producer_run_ref/maxLength", pkGuardArgBound("internal/store/workflow.go", "foldWorkflowEvidenceBound", "workflowString", "p.ProducerRunRef", 1, boundBytes))
-	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/producer_watermark/maxLength", pkGuardArgBound("internal/store/workflow.go", "foldWorkflowEvidenceBound", "workflowString", "p.ProducerWatermark", 1, boundBytes))
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/producer_id/maxLength", pkGuardArgBound("internal/store/workflow.go", "foldWorkflowEvidenceBound", "workflowString", "p.ProducerID", 1))
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/producer_run_ref/maxLength", pkGuardArgBound("internal/store/workflow.go", "foldWorkflowEvidenceBound", "workflowString", "p.ProducerRunRef", 1))
+	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/producer_watermark/maxLength", pkGuardArgBound("internal/store/workflow.go", "foldWorkflowEvidenceBound", "workflowString", "p.ProducerWatermark", 1))
 	registerOutputBound("/$defs/work_event_page/properties/entries/items/properties/created_at/maxLength", pkTimeLayoutWidthBound("internal/store/lifecycle.go", "insertRelation", "time.RFC3339Nano"))
 	registerOutputBound("/$defs/work_event_page/properties/entries/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
 
@@ -2211,9 +2212,9 @@ func TestPkDerivations(t *testing.T) {
 	_, err = evaluate("pk_len2.go", preamble+"func site(value string, want int) bool {\n\tif len(value) != want {\n\t\treturn false\n\t}\n\treturn true\n}\n", pkLengthSetBound("pk_len2.go", "site", "len(value)"))
 	wantFailure("length set mutation", err, "absent or ambiguous")
 
-	evaluated, err = evaluate("pk_guard.go", preamble+"func bounded(value string, lower, upper int) bool {\n\treturn len(value) >= lower && len(value) <= upper\n}\n\nfunc site(v string) bool {\n\treturn bounded(v.Name, 1, 256)\n}\n", pkGuardArgBound("pk_guard.go", "site", "bounded", "v.Name", 2, boundBytes))
+	evaluated, err = evaluate("pk_guard.go", preamble+"func bounded(value string, lower, upper int) bool {\n\treturn len(value) >= lower && len(value) <= upper\n}\n\nfunc site(v string) bool {\n\treturn bounded(v.Name, 1, 256)\n}\n", pkGuardArgBound("pk_guard.go", "site", "bounded", "v.Name", 2))
 	firstValue("guard argument", evaluated, err, 256)
-	evaluated, err = evaluate("pk_guard2.go", preamble+"func bounded(value string, lower, upper int) bool {\n\treturn len(value) >= lower && len(value) <= upper\n}\n\nfunc site(a, b string) bool {\n\treturn bounded(a, 1, 8) && bounded(b, 1, 16)\n}\n", pkGuardArgBound("pk_guard2.go", "site", "bounded", "a", 2, boundBytes))
+	evaluated, err = evaluate("pk_guard2.go", preamble+"func bounded(value string, lower, upper int) bool {\n\treturn len(value) >= lower && len(value) <= upper\n}\n\nfunc site(a, b string) bool {\n\treturn bounded(a, 1, 8) && bounded(b, 1, 16)\n}\n", pkGuardArgBound("pk_guard2.go", "site", "bounded", "a", 2))
 	firstValue("guard argument selects by value", evaluated, err, 8)
 
 	evaluated, err = evaluate("pk_emptyguard.go", preamble+"func site(task string) bool {\n\tif task != \"\" && (len(task) > 8192 || task == \"x\") {\n\t\treturn false\n\t}\n\treturn true\n}\n", pkEmptyGuardedLenBound("pk_emptyguard.go", "site", "len(task)"))

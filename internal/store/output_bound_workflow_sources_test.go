@@ -73,7 +73,7 @@ func init() {
 	// validation helper carries, or the deterministic digest identity the
 	// writer derives.
 	contractSpecMandate := goConstantBound("internal/store/workflow_action_policy.go", "workflowLawListMax", boundItems)
-	sessionRefGuard := pkGuardArgBound("internal/store/workflow.go", "persistWorkflowActorTuple", "workflowString", "p.SessionRef", 1, boundBytes)
+	sessionRefGuard := pkGuardArgBound("internal/store/workflow.go", "persistWorkflowActorTuple", "workflowString", "p.SessionRef", 1)
 	linearIssueKeyGuard := goInlineBound("internal/store/linear_issue_link.go", "validateLinearIssueLink", "len(link.HumanKey)", boundBytes)
 
 	declaredPayloadFields := requiredIntentFieldsBound()

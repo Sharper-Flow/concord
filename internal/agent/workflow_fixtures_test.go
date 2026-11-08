@@ -255,6 +255,7 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 	t.Parallel()
 	domainID := strings.Repeat("d", 256)
 	lawID := strings.Repeat("l", 256)
+	mandateLawID := strings.Repeat("l", 128)
 	obligationID := strings.Repeat("o", 256)
 	binding := workflowArchitectureBindingFixture()
 	binding["home_domain_id"] = domainID
@@ -269,8 +270,8 @@ func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T)
 		"fields": map[string]any{
 			"architecture_binding": binding,
 			"legislative_subjects": workflowContractFieldsFixture()["legislative_subjects"],
-			"spec_mandate":         []string{lawID},
-			"law_modifies":         []string{lawID},
+			"spec_mandate":         []string{mandateLawID},
+			"law_modifies":         []string{mandateLawID},
 		},
 		"idempotency_key": "wide-architecture-ids",
 	})

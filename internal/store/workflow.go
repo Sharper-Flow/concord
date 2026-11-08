@@ -543,11 +543,11 @@ func normalizeWorkflowContractApproval(p *workflowContractApprovedPayload) error
 	if p.ContractVersion <= 0 {
 		return newFailure(KindInvalidPayload, "fold_event", "contract_version must be positive", false, "supply a positive contract_version")
 	}
-	if !workflowList(p.SpecMandate, 32, 0) {
-		return newFailure(KindInvalidPayload, "fold_event", "spec_mandate requires at most 32 unique references of 2..128 bytes each", false, workflowSpecMandateTeaching)
+	if !validContractLawList("spec_mandate", p.SpecMandate) {
+		return newFailure(KindInvalidPayload, "fold_event", "spec_mandate requires at most 32 unique references of 2..128 code points each", false, workflowSpecMandateTeaching)
 	}
-	if !workflowList(p.LawModifies, 32, 0) {
-		return newFailure(KindInvalidPayload, "fold_event", "law_modifies requires at most 32 unique references of 2..128 bytes each", false, "supply unique bounded law_modifies references")
+	if !validContractLawList("law_modifies", p.LawModifies) {
+		return newFailure(KindInvalidPayload, "fold_event", "law_modifies requires at most 32 unique references of 2..128 code points each", false, "supply unique bounded law_modifies references")
 	}
 	if !validLegislativeSubjects(p.LegislativeSubjects) {
 		return newFailure(KindInvalidPayload, "fold_event", "legislative_subjects requires at most 800 unique valid references of 2..128 bytes each", false, "supply unique bounded legislative_subjects references")
@@ -556,6 +556,14 @@ func normalizeWorkflowContractApproval(p *workflowContractApprovedPayload) error
 		return newFailure(KindInvalidPayload, "fold_event", "contract_approved law boundary version is invalid", false, "use the supported law boundary version")
 	}
 	return nil
+}
+
+func validContractLawList(name string, values []string) bool {
+	items := make([]any, len(values))
+	for i, value := range values {
+		items[i] = value
+	}
+	return validateWorkflowPayloadStringList(actionContractLawListField(name, true), items)
 }
 
 func foldValidatedWorkflowContractApproval(ctx context.Context, tx *sql.Tx, event Event, p workflowContractApprovedPayload) error {

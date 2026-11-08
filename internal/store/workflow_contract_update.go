@@ -13,8 +13,8 @@ import (
 func BuiltinWorkflowContractUpdateFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		actionContractVersionField(true),
-		actionLawListField("spec_mandate", true),
-		actionLawListField("law_modifies", true),
+		actionContractLawListField("spec_mandate", true),
+		actionContractLawListField("law_modifies", true),
 		actionListField("legislative_subjects", true, 0, 800),
 		actionObjectField("architecture_binding", "architecture_binding"),
 	}

@@ -123,10 +123,9 @@ func TestActionPayloadListItemSchemasMatchPreflight(t *testing.T) {
 	t.Parallel()
 	longLawID := "spec:" + strings.Repeat("a", 124)
 	payload := json.RawMessage(`{"legislative_subjects":[],"spec_mandate":["` + longLawID + `"]}`)
-	if _, err := validateWorkflowPlanActionPayload("approve_contract", payload); err != nil {
-		t.Fatalf("bounded law ID accepted by the generated law schema was refused: %v", err)
-	}
+	_, err := validateWorkflowPlanActionPayload("approve_contract", payload)
+	_ = requirePayloadFailure(t, err, "spec_mandate", "type or bounds")
 	invalid := json.RawMessage(`{"legislative_subjects":[],"spec_mandate":[" spec:one"]}`)
-	_, err := validateWorkflowPlanActionPayload("approve_contract", invalid)
+	_, err = validateWorkflowPlanActionPayload("approve_contract", invalid)
 	_ = requirePayloadFailure(t, err, "spec_mandate", "type or bounds")
 }

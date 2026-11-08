@@ -101,6 +101,50 @@ func TestIdempotentResponseKeepsCommittedSubjectWithoutHistory(t *testing.T) {
 	}
 }
 
+func TestLegacyGenericMutationReplaysRetainedResult(t *testing.T) {
+	s, service, grant := tiersRepoFixture(t)
+	initializeMutationPinWorkflow(t, s, "work-1")
+	_, version := readWorkFromStore(t, s, "work-1")
+	input := map[string]any{"work_id": "work-1", "target": "in_progress", "reason": "begin work", "expected_version": version, "idempotency_key": "legacy-generic"}
+	first := tiersInvoke(t, s, service, grant, "concord_work_transition", "lifecycle", input)
+	if first.Outcome != agentcontract.OutcomeOK || len(first.Result) == 0 || first.ChangedRefs == nil || len(*first.ChangedRefs) == 0 {
+		t.Fatalf("first mutation did not retain a result and references: %+v", first)
+	}
+	_, committed := readWorkFromStore(t, s, "work-1")
+	db := s.DatabaseForTesting()
+	result, err := db.Exec(`UPDATE idempotency_records SET authorized_scope_snapshot=json_remove(authorized_scope_snapshot,'$.mutation_response') WHERE idempotency_key=?`, "legacy-generic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := result.RowsAffected(); err != nil || n != 1 {
+		t.Fatalf("legacy fixture rows=%d err=%v", n, err)
+	}
+	row := func() string {
+		t.Helper()
+		var value string
+		err := db.QueryRow(`SELECT json_array(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,result_event_ids,result_payload,changed_refs,authorized_scope_snapshot,first_observed_at,last_observed_at,replayed_count) FROM idempotency_records WHERE idempotency_key=?`, "legacy-generic").Scan(&value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	retained := row()
+	driftWorkPinVersion(t, s, "work-1")
+	replay := tiersInvoke(t, s, service, grant, "concord_work_transition", "lifecycle", input)
+	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
+		t.Errorf("legacy replay outcome=%s replayed=%t error=%+v", replay.Outcome, replay.Replayed, replay.Error)
+	} else if string(replay.Result) != string(first.Result) || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) {
+		t.Errorf("legacy replay changed committed result or references: first=%+v replay=%+v", first, replay)
+	}
+	_, after := readWorkFromStore(t, s, "work-1")
+	if after != committed+1 {
+		t.Errorf("replay repeated an effect: version=%d want=%d", after, committed+1)
+	}
+	if got := row(); got != retained {
+		t.Errorf("replay changed retained row: before=%s after=%s", retained, got)
+	}
+}
+
 func TestIdempotentResponseMissingFactsKeepPossibleEffects(t *testing.T) {
 	r := runtime{Tool: "concord_work_transition", Operation: "workflow_action"}
 	base := agentcontract.NewBase("incomplete", r.Tool, r.Operation)

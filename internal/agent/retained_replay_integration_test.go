@@ -11,6 +11,43 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
+func TestLegacyWorkflowReplayUsesDurableOwner(t *testing.T) {
+	ctx := t.Context()
+	r, grant, raw, first := committedWorkflowReplay(t)
+	opID := "workflow-" + mutationDigest(r.Tool, r.Operation, r.Envelope, raw)[7:31]
+	db := r.Store.DatabaseForTesting()
+	if _, err := db.Exec(`UPDATE idempotency_records SET authorized_scope_snapshot=json_remove(authorized_scope_snapshot,'$.mutation_response'),result_payload='{}',changed_refs='[]' WHERE op_id=?`, opID); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := readOperationResult(ctx, r.Store, opID)
+	if err != nil || len(owner.ResultPayload) == 0 || len(owner.ChangedRefs) == 0 {
+		t.Fatalf("durable fixture missing result: owner=%+v err=%v", owner, err)
+	}
+	driftWorkPinVersion(t, r.Store, "work-1")
+	before := workflowReplayEffectCounts(t, r.Store)
+	index := workflowReplayIndex(t, r.Store)
+	public, err := Dispatch(ctx, r.Store, r.Authority, InvokeRequest{Tool: r.Tool, Operation: r.Operation, Input: raw}, r.Envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transaction := workflowTransactionReplay(t, r, grant, raw)
+	for name, replay := range map[string]agentcontract.Envelope{"public": public, "transaction": transaction} {
+		if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != owner.ResultPayload || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) {
+			t.Errorf("%s legacy replay: response=%+v error=%+v", name, replay, replay.Error)
+		}
+	}
+	if workflowReplayEffectCounts(t, r.Store) != before {
+		t.Error("legacy workflow replay repeated an effect or changed later work")
+	}
+	if workflowReplayIndex(t, r.Store) != index {
+		t.Error("legacy workflow replay changed retained row")
+	}
+	after, err := readOperationResult(ctx, r.Store, opID)
+	if err != nil || !reflect.DeepEqual(owner, after) {
+		t.Errorf("legacy workflow replay changed durable owner: before=%+v after=%+v err=%v", owner, after, err)
+	}
+}
+
 func TestRetainedWorkflowInvokeAcrossManifestChange(t *testing.T) {
 	ctx := t.Context()
 	r, grant, raw, first := committedWorkflowReplay(t)

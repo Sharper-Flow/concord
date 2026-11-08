@@ -34,7 +34,7 @@
     },
     {
       "criterion": 7,
-      "exemption": "Stopped maintenance is an operation property. TestCompactCompletesAndReleasesFence and TestCompactRefusesBusyForeignFenceAndLiveLease (cmd/concord/compact_cli_test.go), TestCompactRefusesChangedImplicitRowidBeforeMutation, TestCompactRefusesStoreOpenByAnotherConnection and TestCompactRefusesWhenScratchRestoreProofFails (internal/store/compact_test.go), TestManagedSnapshotRetentionDefersForCompactHold (cmd/concord/snapshot_retention_test.go), and TestExclusiveRestoreInterruptedAfterFirstStepKeepsPriorDatabase (internal/store/internal/sqlitedb/compact_test.go) prove the boundary, proof, retention and interruption requirements."
+      "exemption": "TestCompactCompletesAndReleasesFence; TestCompactRefusesBusyForeignFenceAndLiveLease; TestCompactRefusesChangedImplicitRowidBeforeMutation; TestCompactRefusesStoreOpenByAnotherConnection; TestCompactRefusesWhenScratchRestoreProofFails; TestManagedSnapshotRetentionDefersForCompactHold; TestExclusiveRestoreInterruptedAfterFirstStepKeepsPriorDatabase. These operation tests prove exclusion, restore and rowid checks, retention, and interrupted write-back."
     }
   ]
 }

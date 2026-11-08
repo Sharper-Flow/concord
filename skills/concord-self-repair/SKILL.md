@@ -1,6 +1,6 @@
 ---
 name: concord-self-repair
-description: Repair a Concord defect that blocks your own managed item. Use when Concord's own defect blocks safe workflow recording or execution of your item: run the CD-0122 D2 authorized repair outside workflow on its own branch and PR, keep the managed item held, and resume through typed operations.
+description: "Repair a Concord defect that blocks your own managed item. Use when Concord's own defect blocks safe workflow recording or execution of your item: run the CD-0122 D2 authorized repair outside workflow on its own branch and PR, keep the managed item held, and resume through typed operations."
 ---
 
 # Concord self-repair

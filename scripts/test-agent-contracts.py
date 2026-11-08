@@ -814,6 +814,18 @@ class ShippedSkillTests(unittest.TestCase):
             with self.subTest(content=content[:80]):
                 self.assertTrue(any("frontmatter" in f for f in self.findings(content)))
 
+    def test_unquoted_colon_space_in_description_is_rejected(self):
+        content = re.sub(r"(?m)^description:.*$", "description: Use when a defect blocks your item: run the repair route", self.content())
+        findings = self.findings(content)
+        self.assertTrue(any("valid YAML" in finding for finding in findings), findings)
+
+    def test_description_must_load_as_a_nonempty_string(self):
+        for description in ("[Use when x]", "42", "true", '""', "|"):
+            with self.subTest(description=description):
+                content = re.sub(r"(?m)^description:.*$", "description: " + description, self.content())
+                findings = self.findings(content)
+                self.assertTrue(any("non-empty YAML string" in finding for finding in findings), findings)
+
     def test_private_content_uses_existing_public_content_patterns(self):
         for forbidden in ("/" + "home" + "/synthetic/notes", "127." + "0.0.1", "gh" + "p_" + "a" * 32):
             with self.subTest(forbidden=forbidden):

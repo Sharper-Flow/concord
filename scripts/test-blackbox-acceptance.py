@@ -430,13 +430,13 @@ def step_b_bootstrap(binary: Path, env: dict, repo: Path, public_key: bytes) -> 
     }, env)
     if not locator_add.get('ok'):
         raise HarnessError(f"locator-add response missing ok: {json.dumps(locator_add)[:300]}")
-    home = _run(binary, ['product', 'knowledge-home-designate'], {
-        'product_id': 'harness-product', 'project_id': 'harness-project-1',
-        'locator_id': 'harness-repo', 'expected_version': product_version_after_project_create,
-    }, env)
     mode = _run(binary, ['project', 'repository-mode-update'], {
         'project_id': 'harness-project-1', 'repository_mode': 'on',
         'expected_version': _changed_ref_version(locator_add, 'project', 'harness-project-1'),
+    }, env)
+    home = _run(binary, ['product', 'knowledge-home-designate'], {
+        'product_id': 'harness-product', 'project_id': 'harness-project-1',
+        'locator_id': 'harness-repo', 'expected_version': product_version_after_project_create,
     }, env)
     return {
         'product_version': _changed_ref_version(home, 'product', 'harness-product'),

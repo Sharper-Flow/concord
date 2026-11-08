@@ -26,6 +26,9 @@ func TestCLIDesignatesAndClearsProductKnowledgeHome(t *testing.T) {
 		"value":            repo,
 		"expected_version": 1,
 	})
+	runCLIJSON(t, []string{"project-repository-mode-update"}, map[string]any{
+		"project_id": "project-1", "repository_mode": "on", "expected_version": 2,
+	})
 
 	designateRaw := runCLIJSON(t, []string{"product-knowledge-home-designate"}, map[string]any{
 		"product_id":       "product-1",

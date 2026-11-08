@@ -1010,9 +1010,9 @@ class MethodSkillTests(unittest.TestCase):
             "concord-research-writing": (
                 "research with a durable result as one cited research record under `.concord/docs/` in the Product's designated Git knowledge home",
                 "Where no knowledge home is designated, place it where the requester or the repository's documentation places such notes",
-                "During development, copy research, audit and inventory findings into a Linear Document",
+                "During development, the driving session copies research, audit and inventory findings into a Linear Document",
                 "attached to the owning issue or project",
-                "Link the Document from the issue and the issue from the Document",
+                "That session links the Document from the issue and the issue from the Document",
                 "development-time copy, not a second long-term home",
                 "rather than leaving them only in host files or long issue comments",
                 "law, architecture reference and product vision in Git",

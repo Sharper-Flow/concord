@@ -120,6 +120,12 @@ func TestLegacyGenericReplayNamesMissingOriginalPin(t *testing.T) {
 	if replay.Error == nil || replay.Error.Kind != "malformed_response" || replay.Error.EffectState != agentcontract.EffectPossible || replay.Error.RetrySafe || replay.Error.RecoveryAction.Kind != "contact_operator" || !strings.Contains(replay.Error.Message, "original WorkPin") || !strings.Contains(replay.Error.Message, "permitted omission") || !strings.Contains(replay.Error.Message, "concord_work_trace.resume") || !strings.Contains(replay.Error.Message, "concord_work_browse.list") {
 		t.Fatalf("missing pin refusal=%+v", replay.Error)
 	}
+	overlap := runtime{Tool: "concord_work_relate", Operation: "resolve_overlap"}
+	both := store.MutationIdempotencyRecord{AuthorizedScopeSnapshot: `{}`, ChangedRefs: `[{"entity_kind":"work_item","id":"work-1","version":"3"},{"entity_kind":"work_item","id":"work-2","version":"5"}]`, ResultPayload: `{"changed_refs":[{"entity_kind":"work_item","id":"work-1","version":3},{"entity_kind":"work_item","id":"work-2","version":5}],"next_valid_intents":[]}`}
+	refused := overlap.recordedMutationResult(agentcontract.NewBase("retry", overlap.Tool, overlap.Operation), both)
+	if refused.Error == nil || refused.Error.Kind != "malformed_response" || !strings.Contains(refused.Error.Message, `"work-1"`) || !strings.Contains(refused.Error.Message, `"work-2"`) {
+		t.Fatalf("missing pin refusal did not name every pinless work item: %+v", refused.Error)
+	}
 }
 
 func TestLegacyRemovalReplayKeepsPermittedPinOmission(t *testing.T) {

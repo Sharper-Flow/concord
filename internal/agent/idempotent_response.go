@@ -84,16 +84,28 @@ func incompleteMutationResponse(base agentcontract.Envelope, message string) age
 	return response
 }
 
-func missingLegacyWorkPin(base agentcontract.Envelope, workID string, omissionUnknown bool) agentcontract.Envelope {
-	work := ""
-	if len(workID) > 0 && len(workID) <= 128 {
-		work = " for work " + strconv.Quote(workID)
+// unrecoverableMutationResult refuses a replay whose original result facts
+// were not retained and names the current-state inspection route.
+func unrecoverableMutationResult(base agentcontract.Envelope, reason string, workIDs []string) agentcontract.Envelope {
+	quoted := []string{}
+	for _, id := range workIDs {
+		if len(id) > 0 && len(id) <= 128 && len(quoted) < 3 {
+			quoted = append(quoted, strconv.Quote(id))
+		}
 	}
+	work := ""
+	if len(quoted) > 0 {
+		work = " for work " + strings.Join(quoted, ", ")
+	}
+	return incompleteMutationResponse(base, reason+work+"; inspect current state with concord_work_trace.resume, or concord_work_browse.list scoped to the work IDs if no longer resumable; if the work was removed, no current work state is available; this does not recover the original result or permit repeating the effect")
+}
+
+func missingLegacyWorkPin(base agentcontract.Envelope, workIDs []string, omissionUnknown bool) agentcontract.Envelope {
 	reason := "original WorkPin was not retained"
 	if omissionUnknown {
 		reason += " or facts establishing a permitted omission were not retained"
 	}
-	return incompleteMutationResponse(base, reason+work+"; inspect current state with concord_work_trace.resume, or concord_work_browse.list scoped to the work ID if no longer resumable; if the work was removed, no current work state is available; this does not recover the original pin or permit repeating the effect")
+	return unrecoverableMutationResult(base, reason, workIDs)
 }
 
 // recordedMutationResult never reads mutable work state or the event log.
@@ -139,7 +151,7 @@ func (r runtime) legacyMutationResult(base agentcontract.Envelope, payload, refs
 		// D2 leaves pinless; the retained operation identity establishes that
 		// omission. No other legacy record retains the facts for one.
 		if r.Tool != "concord_work_transition" || r.Operation != "remove" || len(changed) != 1 || len(missing) != 1 {
-			return missingLegacyWorkPin(base, missing[0], true)
+			return missingLegacyWorkPin(base, missing, true)
 		}
 		base.Omissions = mutationPinOmissions(missing)
 	}
@@ -185,7 +197,7 @@ func (r runtime) legacyWorkflowResult(base agentcontract.Envelope, operation sto
 		}
 	}
 	if len(pinlessMutationWorkIDs(changed, doc.Pins)) != 0 {
-		return missingLegacyWorkPin(base, operation.WorkID, false)
+		return missingLegacyWorkPin(base, []string{operation.WorkID}, false)
 	}
 	refs, err := json.Marshal(changed)
 	if err != nil {

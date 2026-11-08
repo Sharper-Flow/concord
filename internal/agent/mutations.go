@@ -458,7 +458,10 @@ func (r runtime) replayWorkflowActionTx(ctx context.Context, tx *store.Transacti
 	operation, err := store.OperationResultTx(ctx, tx, prior.OperationID)
 	if err != nil {
 		var failure *store.Failure
-		if errors.As(err, &failure) && !failure.RetrySafe && (failure.Kind == store.KindProjectionNotFound || failure.Kind == store.KindSchemaUnsupported || failure.Kind == store.KindUnavailable || failure.Kind == store.KindInvalidOperation) {
+		if errors.As(err, &failure) && !failure.RetrySafe && failure.Kind == store.KindProjectionNotFound {
+			return unrecoverableMutationResult(base, "durable workflow result owner was not retained", scopeListValues(scope["work_ids"])), nil
+		}
+		if errors.As(err, &failure) && !failure.RetrySafe && (failure.Kind == store.KindSchemaUnsupported || failure.Kind == store.KindUnavailable || failure.Kind == store.KindInvalidOperation) {
 			return incompleteMutationResponse(base, "durable workflow result is unavailable; contact the operator before retrying the same request"), nil
 		}
 		return agentcontract.Envelope{}, err

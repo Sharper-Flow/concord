@@ -238,6 +238,8 @@ func TestLegacyWorkflowReplayOwnerValidation(t *testing.T) {
 					}
 				} else if replay.Outcome != agentcontract.OutcomeError || replay.Error == nil || replay.Error.EffectState != agentcontract.EffectPossible || replay.Error.RetrySafe {
 					t.Errorf("incomplete owner became success or safe retry: %+v", replay)
+				} else if tc.missing && (replay.Error.Kind != "malformed_response" || replay.Error.RecoveryAction.Kind != "contact_operator" || !strings.Contains(replay.Error.Message, "durable workflow result owner was not retained") || !strings.Contains(replay.Error.Message, `"work-1"`) || !strings.Contains(replay.Error.Message, "concord_work_trace.resume") || !strings.Contains(replay.Error.Message, "concord_work_browse.list")) {
+					t.Errorf("missing owner refusal did not name the lost owner and current-state recovery: %+v", replay.Error)
 				}
 			}
 			if workflowReplayEffectCounts(t, r.Store) != before || mutationProjectionState(t, r.Store)["idempotency"] != index {

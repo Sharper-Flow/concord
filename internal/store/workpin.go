@@ -149,7 +149,7 @@ func workPinReadIdentityTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 		return wrapFailure(KindUnavailable, "work_pin", "cannot read work item", true, "retry once the database is readable", err)
 	}
 	pin.WorkID = workID
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflow_instances wi INDEXED BY workflow_instances_state JOIN work_items w ON w.id=wi.work_id JOIN work_projects wp ON wp.work_id=w.id WHERE wi.instance_state='cancelled' AND w.lifecycle='completed' AND wp.project_id=?`, pin.ProjectID).Scan(&pin.CancelledInstanceCloses); err != nil {
+	if err := tx.QueryRowContext(ctx, workPinCancelledInstanceClosesSQL, pin.ProjectID).Scan(&pin.CancelledInstanceCloses); err != nil {
 		return wrapFailure(KindUnavailable, "work_pin", "cannot read cancelled-instance lifecycle closes", true, "retry once the database is readable", err)
 	}
 	watermark, err := readWorkEffectSeq(ctx, tx, workID)
@@ -164,6 +164,11 @@ func workPinReadIdentityTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 	pin.DrivingSessions = sessions
 	return nil
 }
+
+// workPinCancelledInstanceClosesSQL uses CROSS JOIN to fix SQLite's join
+// order, so the count reads only the project's memberships and never the
+// store-wide cancelled-instance population.
+const workPinCancelledInstanceClosesSQL = `SELECT COUNT(*) FROM work_projects wp CROSS JOIN workflow_instances wi ON wi.work_id=wp.work_id CROSS JOIN work_items w ON w.id=wp.work_id WHERE wp.project_id=? AND wi.instance_state='cancelled' AND w.lifecycle='completed'`
 
 // workPinReadPlanTx derives the next actions from the current stored plan.
 func workPinReadPlanTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin) (string, error) {

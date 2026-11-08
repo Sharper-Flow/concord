@@ -44,7 +44,7 @@ func init() {
 	// time representation, without assuming a four-digit year or bounded zone.
 	handoffRecordedAt := pkTimeLayoutWidthBound("internal/store/project_handoffs.go", "recordProjectHandoffCore", "time.RFC3339Nano")
 	// advanceWorkEffectSeqTx retains the lexical maximum in
-	// work_items.last_progress_at. deriveWorkLivenessQ reads that column;
+	// work_items.last_progress_at. attachDerivedFlags reads that column;
 	// workLivenessFromCounts copies it to LastProgress without reformatting.
 	lastProgressAt := pkTimeLayoutWidthBound("internal/store/work_effect_seq.go", "advanceWorkEffectSeqTx", "time.RFC3339Nano")
 

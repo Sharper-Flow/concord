@@ -9320,6 +9320,18 @@ CREATE INDEX workflow_overlap_resolutions_to_from_invalidated ON workflow_overla
 CREATE INDEX relations_resolution ON relations(resolution_id);
 `,
 	},
+	{
+		Version: 195, Name: "runtime_delete_foreign_key_indexes", Breaking: false,
+		SQL: `
+CREATE INDEX workflow_overlap_resolutions_from_contract ON workflow_overlap_resolutions(from_work_id,from_contract_version);
+CREATE INDEX workflow_overlap_resolutions_to_contract ON workflow_overlap_resolutions(to_work_id,to_contract_version);
+CREATE INDEX workflow_contract_law_additions_reservation ON workflow_contract_law_additions(product_id,law_id,reservation_owner_work_id,reservation_owner_contract_version,home_domain_id);
+CREATE INDEX workflow_law_addition_reservations_owner_contract ON workflow_law_addition_reservations(owner_work_id,owner_contract_version);
+CREATE INDEX product_knowledge_homes_locator ON product_knowledge_homes(locator_id);
+CREATE INDEX workflow_contracts_superseded_by ON workflow_contracts(work_id,superseded_by);
+CREATE INDEX workflow_contract_law_additions_architecture ON workflow_contract_law_additions(work_id,contract_version,product_id);
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

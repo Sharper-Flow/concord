@@ -272,10 +272,11 @@ func TestEventLogRetirementUpgradePreservesCurrentRows(t *testing.T) {
 		}
 		wantAfter[table] = kept
 	}
-	// Migration 194 adds workflow_overlap_resolutions' invalidation-predicate
-	// indexes; every index the fixture held must survive unchanged beside them.
+	// Additive migrations add indexes; the fixture's indexes must survive unchanged.
 	indexes["workflow_overlap_resolutions"] = append(indexes["workflow_overlap_resolutions"],
+		[]any{"workflow_overlap_resolutions_from_contract", int64(0), "c", int64(0)},
 		[]any{"workflow_overlap_resolutions_from_to_invalidated", int64(0), "c", int64(0)},
+		[]any{"workflow_overlap_resolutions_to_contract", int64(0), "c", int64(0)},
 		[]any{"workflow_overlap_resolutions_to_from_invalidated", int64(0), "c", int64(0)})
 	slices.SortFunc(indexes["workflow_overlap_resolutions"], func(a, b []any) int { return strings.Compare(a[0].(string), b[0].(string)) })
 	for _, table := range tables {

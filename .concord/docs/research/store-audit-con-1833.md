@@ -1,6 +1,6 @@
 # CON-1833 store audit: schema, indexes, triggers, shape and growth
 
-This is the canonical CON-1833 research record. A readable Linear Document copy will be linked both ways after publication.
+This is the canonical CON-1833 research record. The [readable Linear Document copy](https://linear.app/sharper-flow/document/con-1833-store-audit-schema-indexes-triggers-shape-and-growth-f017e948f741) links back to this note's [delivery PR](https://github.com/Sharper-Flow/concord/pull/2399).
 
 ## Executive summary
 

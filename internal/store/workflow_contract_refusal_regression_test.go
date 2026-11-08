@@ -53,7 +53,7 @@ func TestWorkflowRefusalsExplainRecovery(t *testing.T) {
 	})
 	t.Run("reviewed step", func(t *testing.T) {
 		step := WorkflowPlanStep{ID: "review", Reviewed: true, Attempts: []WorkflowPlanAttempt{{Note: "review complete", CompletedAt: "2026-01-01T00:00:00Z"}}}
-		err := validateStepPlanAttemptsShape(step, func(detail string) error { return errors.New(detail) })
+		err := validateStepPlanAttemptsShape(step, errors.New)
 		var failure *Failure
 		if !errors.As(err, &failure) || failure.RecoveryAction != workflowStepReviewTeaching {
 			t.Fatalf("reviewed-step recovery = %v", err)

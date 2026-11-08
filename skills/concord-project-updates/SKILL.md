@@ -23,6 +23,12 @@ next action and planning state. Add a coordination fact there only when it
 changes that item's execution. Preserve unresolved decisions and evidence in
 their existing owning records during a transfer.
 
+During development, copy coordination research, audit and inventory findings
+into a Linear Document attached to the owning issue or project. Link the Document
+from the issue and the issue from the Document. This is a development-time copy,
+not a second long-term home. Load `concord-research-writing` for canonical
+placement and the writing method.
+
 ## Write the update
 
 Read the existing record first. Update it only when a planning fact, decision,

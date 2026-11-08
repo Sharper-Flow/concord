@@ -83,6 +83,26 @@ test("published approval validates contract fields", () => {
   expect(validateAgainstSchema(schema, duplicate, [])).toBe(false)
 })
 
+test("published workflow action variants state their guard-owned requirements", () => {
+  const schema = adapter.publishedRequestSchema("concord_work_transition") as any
+  // The provider reads each requirement on the compact document's action
+  // variant, so inspect that node rather than the expanded view.
+  const operation = schema.oneOf.find((candidate: any) => candidate.properties.operation.const === "workflow_action")
+  const variants = operation.properties.input.oneOf.map((variant: any) => typeof variant.$ref === "string" ? schema.$defs[variant.$ref.slice("#/$defs/".length)] : variant)
+  for (const [actionId, term] of [
+    ["complete_step", "step_reviewed"],
+    ["bind_evidence", "one immutable subject"],
+    ["record_report", "one immutable subject"],
+    ["complete", "confirm_premise"],
+  ]) {
+    const variant = variants.find((candidate: any) => candidate.properties?.action_id?.const === actionId)
+    expect(variant?.description, actionId).toContain(term)
+  }
+  const fields = actionFieldsBranches(actionInputBranch(schema, "approve_contract"))[0]
+  expect(fields.properties.architecture_binding.description).toContain("required for change, fix, and removal")
+  expect(fields.properties.spec_mandate.description).toContain("2..128 bytes")
+})
+
 test("the request definition hook publishes an isolated root per tool and hoists no definitions anywhere else", async () => {
   const outputFor = async (toolID: string) => {
     const output = { description: "kept", parameters: { kept: true } as Record<string, unknown>, jsonSchema: undefined as unknown }

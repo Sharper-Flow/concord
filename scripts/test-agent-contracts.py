@@ -1639,6 +1639,7 @@ class ProjectionAdmissionTests(unittest.TestCase):
         teaching = {rule: "rule" for rule in (
             "spec_mandate_rule", "law_addition_mandate_rule", "obligation_membership_rule",
             "architecture_domain_rule", "alignment_combination_rule")}
+        teaching["action_rules"] = {}
         return json.dumps({
             "schema_version": "2.0", "actions": actions,
             "teaching": teaching, "schema_refs": {"current": []},
@@ -1661,6 +1662,13 @@ class ProjectionAdmissionTests(unittest.TestCase):
         with self.assertRaises(ValueError) as caught:
             self.load(self.canned(filler))
         self.assertIn("no unique actions", str(caught.exception))
+
+    def test_the_projection_refuses_a_teaching_rule_for_an_unknown_action(self):
+        fake = json.loads(self.canned([{"id": "known-action"}]))
+        fake["teaching"]["action_rules"] = {"missing-action": "rule"}
+        with self.assertRaises(ValueError) as caught:
+            self.load(json.dumps(fake))
+        self.assertIn("unknown actions: missing-action", str(caught.exception))
 
     def test_the_projection_refuses_an_old_projection_version(self):
         fake = json.dumps({

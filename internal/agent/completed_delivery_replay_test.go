@@ -51,6 +51,9 @@ func TestCompletedDeliverySameIdentityReplay(t *testing.T) {
 func TestSmallChangeCompletesWithLawfulContract(t *testing.T) {
 	f := newSpineFixtureForFamily(t, "workflow.implementation")
 	f.advanceToAcceptance(t)
+	if pin := f.read(t).Pinned.Pin; pin.StepReviewed == nil || !*pin.StepReviewed {
+		t.Fatalf("review frontier did not publish step_reviewed: %+v", pin)
+	}
 	spineOK(t, f.call(t, "concord_work_transition", "workflow_action", map[string]any{
 		"work_id": f.work, "expected_version": f.read(t).Pinned.Pin.Version, "action_id": "confirm_premise", "idempotency_key": "small-change-confirm",
 	}))

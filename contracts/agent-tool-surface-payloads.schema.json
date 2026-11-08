@@ -1788,7 +1788,9 @@
         },
         "status": {
           "type": "string",
-          "enum": ["added"]
+          "enum": [
+            "added"
+          ]
         }
       }
     },
@@ -4340,7 +4342,7 @@
               },
               "minItems": 0,
               "maxItems": 32,
-              "description": "spec_mandate lists governing or authorized law IDs as a bare law_id or project_id/law_id; an empty list is legal when no referenced law applies. Put repository paths in record_plan.touches and scope prose in the plan or intent. Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
+              "description": "spec_mandate lists up to 32 unique governing or authorized law IDs as a bare law_id or project_id/law_id; an empty list is legal when no referenced law applies. Each reference must be 2..128 bytes of UTF-8, narrower than the 2..256 code points the law ID item shape publishes. Put repository paths in record_plan.touches and scope prose in the plan or intent. Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
               "examples": [
                 []
               ]
@@ -4381,7 +4383,7 @@
             },
             "architecture_binding": {
               "$ref": "#/$defs/architecture_binding",
-              "description": "Architecture bindings must declare new Domains in domain_additions, include them in affected_domain_ids, and home at least one added law in each; additions must be absent from the registry and disjoint from domain_modifies. Every other affected Domain must be current, every added or modified law must have an affected home, and modified relations must be current canonical tuples. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_additions\":[],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
+              "description": "architecture_binding is required for change, fix, and removal; omit it for research. Architecture bindings must declare new Domains in domain_additions, include them in affected_domain_ids, and home at least one added law in each; additions must be absent from the registry and disjoint from domain_modifies. Every other affected Domain must be current, every added or modified law must have an affected home, and modified relations must be current canonical tuples. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_additions\":[],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
               "examples": [
                 {
                   "affected_domain_ids": [
@@ -4516,7 +4518,8 @@
           },
           "description": "Bounds: <=32 properties inclusive"
         }
-      }
+      },
+      "description": "Bind one immutable subject per call: every evidence entry must name the same locator. Several evidence kinds may share that locator only when fields.evidence_kind is omitted; a supplied fields.evidence_kind must match every entry's kind. Split other kinds or locators into separate calls. fields.immutable_subject_ref, or fields.evidence_ref when it is absent, must name that same subject; a different value adds a second subject and is refused."
     },
     "work_transition_action_variant_checkpoint_execution": {
       "type": "object",
@@ -4652,7 +4655,8 @@
           ],
           "description": "Bounds: <=32 properties inclusive"
         }
-      }
+      },
+      "description": "Before complete, confirm_premise for the active contract and record delivery for change, fix, or removal. Research requires premise confirmation but not delivery."
     },
     "work_transition_action_variant_confirm_premise": {
       "type": "object",
@@ -5076,7 +5080,8 @@
           },
           "description": "Bounds: <=32 properties inclusive"
         }
-      }
+      },
+      "description": "Bind one immutable subject per call: every evidence entry must name the same locator. Several evidence kinds may share that locator only when fields.evidence_kind is omitted; a supplied fields.evidence_kind must match every entry's kind. Split other kinds or locators into separate calls."
     },
     "work_transition_action_variant_start_execution": {
       "type": "object",
@@ -5202,7 +5207,7 @@
                   },
                   "minItems": 1,
                   "maxItems": 64,
-                  "description": "record_diagnosis couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination. Bounds: 1..64 items inclusive"
+                  "description": "record_diagnosis couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination. Each related ID must be a Concord work ID, not a Linear issue key. Look up a Linear issue with concord_work_browse.list using linear_issue_key. Bounds: 1..64 items inclusive"
                 },
                 "root_cause": {
                   "type": "string",
@@ -5407,7 +5412,7 @@
           },
           "minItems": 0,
           "maxItems": 32,
-          "description": "spec_mandate lists governing or authorized law IDs as a bare law_id or project_id/law_id; an empty list is legal when no referenced law applies. Put repository paths in record_plan.touches and scope prose in the plan or intent. Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
+          "description": "spec_mandate lists up to 32 unique governing or authorized law IDs as a bare law_id or project_id/law_id; an empty list is legal when no referenced law applies. Each reference must be 2..128 bytes of UTF-8, narrower than the 2..256 code points the law ID item shape publishes. Put repository paths in record_plan.touches and scope prose in the plan or intent. Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
           "examples": [
             []
           ]
@@ -5448,7 +5453,7 @@
         },
         "architecture_binding": {
           "$ref": "#/$defs/architecture_binding",
-          "description": "Architecture bindings must declare new Domains in domain_additions, include them in affected_domain_ids, and home at least one added law in each; additions must be absent from the registry and disjoint from domain_modifies. Every other affected Domain must be current, every added or modified law must have an affected home, and modified relations must be current canonical tuples. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_additions\":[],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
+          "description": "architecture_binding is required for change, fix, and removal; omit it for research. Architecture bindings must declare new Domains in domain_additions, include them in affected_domain_ids, and home at least one added law in each; additions must be absent from the registry and disjoint from domain_modifies. Every other affected Domain must be current, every added or modified law must have an affected home, and modified relations must be current canonical tuples. Accepted shape: object; example: {\"affected_domain_ids\":[\"a\"],\"domain_additions\":[],\"domain_modifies\":[],\"domain_relation_modifies\":[],\"home_domain_id\":\"a\",\"law_additions\":[],\"verification_obligations\":[]}",
           "examples": [
             {
               "affected_domain_ids": [
@@ -5583,7 +5588,8 @@
           ],
           "description": "Bounds: <=32 properties inclusive"
         }
-      }
+      },
+      "description": "The work pin's step_reviewed applies only to the pin's named step; for another step read steps[].reviewed from concord_work_trace.resume. For an unreviewed step omit reviewer, result, commit, and link; for a reviewed step supply all four."
     },
     "work_transition_action_variant_insert_step": {
       "type": "object",

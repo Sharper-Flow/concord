@@ -487,7 +487,7 @@ func evidenceBindingActionFields() []WorkflowPayloadField {
 // through
 // validateWorkflowPayloadCrossFieldRules; the teaching projection publishes
 // the same text from this declaration site.
-const workflowAlignmentCombinationTeaching = "record_diagnosis couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination."
+const workflowAlignmentCombinationTeaching = "record_diagnosis couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination. Each related ID must be a Concord work ID, not a Linear issue key. Look up a Linear issue with concord_work_browse.list using linear_issue_key."
 
 var builtinActionPolicies = map[string]builtinActionPolicy{
 	"record_discovery": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric),

@@ -56,6 +56,8 @@ func completionActiveContractVersion(ctx context.Context, q queryer, workID stri
 	return version, err
 }
 
+const workflowCompletionTeaching = "Before complete, confirm_premise for the active contract and record delivery for change, fix, or removal. Research requires premise confirmation but not delivery."
+
 // The active premise confirmation and delivery are recorded terminal facts.
 func requireWorkflowCompletionFactsTx(ctx context.Context, q queryer, workID string, planType WorkflowStepPlanType, contractVersion int64) error {
 	var confirmed int

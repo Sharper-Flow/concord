@@ -630,14 +630,8 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 		if err := attachItemScopedResumeFacts(tx, items, proofs, req.AmbientProject); err != nil {
 			return out, err
 		}
-		if len(req.WorkIDs) > 0 {
-			selected := items
-			if len(selected) > limit {
-				selected = selected[:limit]
-			}
-			if err := attachDecisionRecords(ctx, tx, selected); err != nil {
-				return out, err
-			}
+		if err := attachQ3SelectedDecisionRecords(ctx, tx, items, req.WorkIDs, limit); err != nil {
+			return out, err
 		}
 	}
 	out.Items = items
@@ -649,6 +643,16 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 		return out, err
 	}
 	return out.LimitPage(req, limit)
+}
+
+func attachQ3SelectedDecisionRecords(ctx context.Context, tx *sql.Tx, items []WorkItem, workIDs []string, limit int) error {
+	if len(workIDs) == 0 {
+		return nil
+	}
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	return attachDecisionRecords(ctx, tx, items)
 }
 
 func attachDecisionRecords(ctx context.Context, tx *sql.Tx, items []WorkItem) error {

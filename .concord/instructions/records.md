@@ -28,6 +28,18 @@ discovered for another Product.
 - A delegation prompt names the agent's role and points to its assignment;
   standing rules stay in the files that own them.
 
+## New Linear records
+
+Linear is for people. Concord and git hold agent state. For each new Linear
+record, use one heading that names the event and lead with two or three plain
+sentences saying what happened, what it means and what is needed, if anything.
+Write for someone who has not read the issue.
+
+Put paths, IDs, commands and counts in a collapsed Agent detail section or behind
+a link. Use bullets for lists, tables for comparisons and minimal bold. Use code
+formatting only for copyable commands, paths and identifiers. This standard
+applies to new records; do not rewrite existing comments to conform.
+
 ## Write for the later reader
 
 Name what the reader can open: the path, symbol, command, identifier, or quoted

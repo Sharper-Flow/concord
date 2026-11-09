@@ -21,6 +21,10 @@ comment, incomplete step, and resume read (`concord_work_trace.resume`) are
 the durable wait. The operator's
 answer plus a retrigger resumes the same work, assigned through the RTE.
 
+Follow the new Linear record standard in `records.md`. Use an event heading such
+as "Your decision needed", and keep the question, recommendation, options and
+consequences visible outside collapsed detail.
+
 Each question comment @mentions every person whose answer it needs: the
 requester of the work, and the operator for a reserved-approval question. If
 the requester is unknown, it mentions the operator. After posting, read the

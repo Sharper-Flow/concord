@@ -91,8 +91,10 @@ scope, material cross-stream dependencies, sequencing decisions, and changes to
 RTE directives; the delivery issue for a coordination fact that changes that
 item's execution; the existing session conversation and live host identity
 readback for routine same-session reloads. A material cross-stream reload
-directive belongs in a project status update. Do not keep a second planning
-backlog in a repository or host journal.
+directive belongs in a project status update. For each cutover, post one
+coordination-project status update listing who drained and when; individual
+sessions do not comment their drain acknowledgements on delivery issues. Do not
+keep a second planning backlog in a repository or host journal.
 
 Load the shipped `concord-project-updates` skill when a change routes to the
 coordination project or a delivery issue; it owns the writing method.
@@ -237,9 +239,10 @@ speed.
 Record each stream's brief in one assignment comment on its delivery issue,
 never in the description; the description keeps only the problem, scope, end
 state and decisions. The brief holds only what is task-specific: objective,
-write set, exclusions, checks, stop conditions and return point, and links the
-files that own standing rules instead of restating them. Host locators such as
-pane IDs and worktree paths go in the comment. Load the shipped
+write set, exclusions, checks, stop conditions and return point. The brief
+opens with a human summary; paths, branch, write set, checks and host locators
+such as pane IDs go in a collapsed "Agent detail" section under that summary.
+Link the files that own standing rules instead of restating them. Load the shipped
 `concord-handoff-writing` skill when writing one.
 Require each stream to return coherent, committed change sets to the item owner.
 Report per-stream time to a reviewed result, integration conflicts and rework,

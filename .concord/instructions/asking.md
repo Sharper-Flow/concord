@@ -13,6 +13,10 @@ explicit instruction switches the route, and an RTE may direct that switch
 after more than 30 minutes of pane idleness with no operator activity. A
 retrigger is not an answer and not permission to advance.
 
+For a Linear question comment, follow the new-record standard in `records.md`.
+Name the event with a heading such as "Your decision needed". Keep the question,
+recommendation, options and consequences visible outside collapsed detail.
+
 Write the question so it stands alone. Say what is being decided and what turns
 on it. The operator should not have to read anything else to answer.
 

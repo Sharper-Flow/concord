@@ -1045,6 +1045,21 @@ class MethodSkillTests(unittest.TestCase):
                 with self.subTest(skill=name, meaning=phrase):
                     self.assertIn(phrase, content)
 
+    def test_linear_writing_methods_carry_the_standard_and_placement(self):
+        for name in ("concord-ticket-writing", "concord-project-updates", "concord-handoff-writing", "concord-pr-writing"):
+            content = " ".join(self.content(name).split())
+            for phrase in (
+                "two or three plain sentences", "one heading that names the event",
+                "+++ Agent detail", "tables for comparisons", "active voice",
+                "code formatting only for copyable commands", "not per-session issue comments",
+                "rare: start, blocker and done", "Linear Document linked from the issue",
+                "### Example:",
+            ):
+                with self.subTest(skill=name, meaning=phrase):
+                    self.assertIn(phrase, content)
+        frontend = " ".join(self.content("concord-ticket-frontend").split())
+        self.assertIn("question, recommendation, options and consequences visible outside collapsed detail", frontend)
+
     def test_every_skill_keeps_its_license_notice(self):
         with tempfile.TemporaryDirectory() as temporary:
             skills = Path(temporary) / "skills"

@@ -41,8 +41,10 @@ import release  # noqa: E402  the release module is the grammar authority
 # mapping; this set exists so the guard can explain the consequence.
 RELEASING_TYPES = {"feat": "minor", "fix": "patch"}
 
-# Types accepted with no version bump. Additions here are a deliberate widening
-# of release vocabulary and belong in review, not in a passing build.
+# Types accepted with no title-driven version bump. release.select_bump still
+# releases at least a patch when a commit changes content copied into a
+# release, whatever its type. Additions here are a deliberate widening of
+# release vocabulary and belong in review, not in a passing build.
 NON_RELEASING_TYPES = {
     "build",
     "chore",
@@ -96,7 +98,7 @@ def findings_for(subject: str) -> list[str]:
             "  expected <type>[(scope)][!]: <subject>, for example "
             "'feat(store): record worker attempt evidence'\n"
             "  release.py reads this subject verbatim; an unparseable subject "
-            "contributes no version bump and no changelog entry"
+            "contributes no title-driven version bump and no changelog entry"
         ]
 
     commit_type = match.group("type").lower()
@@ -104,8 +106,9 @@ def findings_for(subject: str) -> list[str]:
         findings.append(
             f"unknown commit type {commit_type!r}\n"
             f"  allowed: {', '.join(sorted(ALLOWED_TYPES))}\n"
-            "  release.py bumps only on 'feat' and 'fix'; an unrecognised type "
-            "parses cleanly and silently releases nothing"
+            "  release.py bumps by title only on 'feat' and 'fix'; an "
+            "unrecognised type parses cleanly and silently contributes no "
+            "title-driven bump"
         )
 
     scope = match.group("scope")
@@ -140,7 +143,10 @@ def describe(subject: str) -> str:
         return f"{subject.strip()!r} -> major release bump"
     if commit.bump:
         return f"{subject.strip()!r} -> {commit.bump} release bump"
-    return f"{subject.strip()!r} -> no release bump"
+    return (
+        f"{subject.strip()!r} -> no title-driven release bump; a change to "
+        "content copied into a release still releases at least a patch"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

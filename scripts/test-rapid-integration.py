@@ -52,7 +52,7 @@ sys.exit(int(os.getenv("FAIL_GATE", "0")))
             file.write_text(body)
         (self.repo / "bin/oc-test").chmod(0o755)
         (self.repo / "scripts").mkdir()
-        for name in ("check-commit-title.py", "release.py"):
+        for name in ("check-commit-title.py", "release.py", "install.py"):
             (self.repo / "scripts" / name).write_bytes((ROOT / "scripts" / name).read_bytes())
         self.git("add", ".")
         self.git("commit", "-m", "test: initialize synthetic repository")

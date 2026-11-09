@@ -27,10 +27,10 @@ def test_non_conventional_subject_is_rejected() -> None:
 
 
 def test_near_miss_type_is_rejected() -> None:
-    # release.CONVENTIONAL_HEADER parses these cleanly and bumps nothing, which
-    # is precisely why an open type vocabulary is unsafe here.
+    # release.CONVENTIONAL_HEADER parses these cleanly and derives no bump from
+    # the title, which is precisely why an open type vocabulary is unsafe here.
     for subject in ("feature: add worker evidence", "fixes: close the boundary"):
-        assert rejects(subject), f"{subject!r} parses but releases nothing"
+        assert rejects(subject), f"{subject!r} parses but bumps nothing by title"
         parsed = guard.release.parse_commit("0" * 40, subject, "")
         assert parsed.bump is None, "near-miss types must be proven bump-free"
 
@@ -59,7 +59,9 @@ def test_breaking_marker_reports_major() -> None:
 def test_describe_matches_release_bump_mapping() -> None:
     assert "minor" in guard.describe("feat: add worker evidence")
     assert "patch" in guard.describe("fix: close the boundary")
-    assert "no release bump" in guard.describe("docs: explain the boundary")
+    docs = guard.describe("docs: explain the boundary")
+    assert "no title-driven release bump" in docs
+    assert "at least a patch" in docs, "the shipped-content floor must be stated"
 
 
 def test_malformed_shapes_are_rejected() -> None:

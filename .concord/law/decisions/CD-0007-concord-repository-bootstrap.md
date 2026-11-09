@@ -75,7 +75,9 @@ private history, and local-only precedent are excluded from this snapshot.
 - Distribution uses GitHub Releases plus a Concord-owned idempotent installer.
 - Source checkout is development-only.
 - Auto-release activates only after an installable artifact exists.
-- Conventional commits determine subsequent version bumps.
+- Conventional commit titles determine the bump kind. Any change to content
+  copied into a release produces at least a patch, including shipped skills
+  under [CD-0245 D2](CD-0245-concord-ships-release-versioned-portable-skills.md#d2-a-shipped-skill-is-versioned-by-the-release).
 - Releases include Linux amd64 artifacts, matched adapter/assets, checksums,
   changelog, and migration guidance.
 

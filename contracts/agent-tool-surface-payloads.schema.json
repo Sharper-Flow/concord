@@ -4525,7 +4525,7 @@
           "description": "Bounds: <=32 properties inclusive"
         }
       },
-      "description": "Bind one immutable subject per call: every evidence entry must name the same locator. Several evidence kinds may share that locator only when fields.evidence_kind is omitted; a supplied fields.evidence_kind must match every entry's kind. Split other kinds or locators into separate calls. fields.immutable_subject_ref, or fields.evidence_ref when it is absent, must name that same subject; a different value adds a second subject and is refused."
+      "description": "Bind one immutable subject per call: every evidence entry must name the same locator. Several evidence kinds may share that locator only when fields.evidence_kind is omitted; a supplied fields.evidence_kind must match every entry's kind. Split other kinds or locators into separate calls. fields.immutable_subject_ref, or fields.evidence_ref when it is absent, must name that same subject; a different value adds a second subject and is refused. native_run requires a captured, producer-attributed native-run record with verification state verified. Bind host oc-run and ordinary command results as verification."
     },
     "work_transition_action_variant_checkpoint_execution": {
       "type": "object",

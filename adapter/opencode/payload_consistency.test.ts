@@ -33,6 +33,27 @@ test("string bounds count Unicode characters, not UTF-16 code units", () => {
   expect(validateAgainstSchema(textSchema, "😀")).toBe(false)
 })
 
+test("retained decision payload is closed and preserves nullable links", () => {
+  const record = {
+    work_id: "work-1", question: "Which option?", options_considered: ["one", "two"],
+    decision: "insufficient_evidence", rationale: "Need evidence", consequences: ["delay"],
+    inputs: ["input"], poc_findings: "No finding", supersedes: "earlier", superseded_by: null,
+    recorded_at: "2026-08-20T12:00:00Z",
+  }
+  expect(validateGeneratedPayload("retained_decision_record", record)).toBe(true)
+  expect(validateGeneratedPayload("retained_decision_record", { ...record, decision: "accepted_decision", supersedes: null, superseded_by: "later" })).toBe(true)
+  expect(validateGeneratedPayload("retained_decision_record", { ...record, inputs: ["x".repeat(200)] })).toBe(true)
+  expect(validateGeneratedPayload("retained_decision_record", { ...record, decision: "unknown" })).toBe(false)
+  expect(validateGeneratedPayload("retained_decision_record", { ...record, extra: true })).toBe(false)
+  expect(validateGeneratedPayload("retained_decision_record", { ...record, inputs: [] })).toBe(false)
+  expect(validateGeneratedPayload("retained_decision_record", { ...record, options_considered: Array(17).fill("one") })).toBe(false)
+  for (const key of Object.keys(record)) {
+    const incomplete: Record<string, unknown> = { ...record }
+    delete incomplete[key]
+    expect(validateGeneratedPayload("retained_decision_record", incomplete), key).toBe(false)
+  }
+})
+
 test("the retired payload schemas carry no public alias", () => {
   for (const name of ["decision_record_text", "native_report_timestamp"]) {
     expect(Object.hasOwn(payloadSchemas as Record<string, unknown>, name), `${name} must stay out of the live generated corpus`).toBe(false)

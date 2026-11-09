@@ -11,6 +11,74 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
+func TestWorkListDispatchRetainedDecisions(t *testing.T) {
+	s, _, _ := workflowEngineFixture(t)
+	_, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1);
+		INSERT INTO workflow_decision_records(work_id,question,options_considered,decision,rationale,consequences,inputs,poc_findings,supersedes,superseded_by,recorded_at)
+		VALUES('work-1','Which option?','["one","two"]','insufficient_evidence','Need evidence','["delay"]','["input"]','No finding','earlier',NULL,'2026-08-20T12:00:00Z'); DELETE FROM write_guard`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := runtime{Store: s, Tool: "concord_work_browse", Operation: "list", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
+	for _, tc := range []struct {
+		name, detail string
+		ids          []string
+		want         bool
+	}{
+		{"item-full", "full", []string{"work-1"}, true}, {"item-summary", "summary", []string{"work-1"}, false}, {"broad-full", "full", nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input, err := json.Marshal(map[string]any{"product_id": "product-1", "detail": tc.detail, "work_ids": tc.ids})
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := r.read(context.Background(), agentcontract.NewBase("decisions", r.Tool, r.Operation), input, "PM1.Q3")
+			if err != nil || response.Error != nil {
+				t.Fatalf("dispatch: %+v %v", response.Error, err)
+			}
+			var page struct {
+				Items []map[string]json.RawMessage `json:"items"`
+			}
+			if err := json.Unmarshal(response.Result, &page); err != nil {
+				t.Fatal(err)
+			}
+			if len(page.Items) != 1 {
+				t.Fatalf("items: %+v", page.Items)
+			}
+			raw, present := page.Items[0]["decision_records"]
+			if present != tc.want {
+				t.Fatalf("decision_records present = %v, want %v", present, tc.want)
+			}
+			if !present {
+				return
+			}
+			var got []map[string]any
+			if err := json.Unmarshal(raw, &got); err != nil {
+				t.Fatal(err)
+			}
+			want := []map[string]any{{"work_id": "work-1", "question": "Which option?", "options_considered": []any{"one", "two"}, "decision": "insufficient_evidence", "rationale": "Need evidence", "consequences": []any{"delay"}, "inputs": []any{"input"}, "poc_findings": "No finding", "supersedes": "earlier", "superseded_by": nil, "recorded_at": "2026-08-20T12:00:00Z"}}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("records = %#v, want %#v", got, want)
+			}
+		})
+	}
+	largeInput := strings.Repeat("x", 60000)
+	largeInputs, err := json.Marshal([]string{largeInput})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1); UPDATE workflow_decision_records SET inputs=? WHERE work_id='work-1'; DELETE FROM write_guard`, string(largeInputs)); err != nil {
+		t.Fatal(err)
+	}
+	items, fragments := readFullListDocuments(t, context.Background(), r, map[string]any{"product_id": "product-1", "detail": "full", "work_ids": []string{"work-1"}})
+	if fragments == 0 || len(items) != 1 || len(items[0].DecisionRecords) != 1 {
+		t.Fatalf("projection lost decision: fragments=%d items=%d", fragments, len(items))
+	}
+	if record := items[0].DecisionRecords[0]; record.Question != "Which option?" || !reflect.DeepEqual(record.Inputs, []string{largeInput}) {
+		t.Fatalf("reconstructed decision differs: question=%q inputs=%d", record.Question, len(record.Inputs))
+	}
+}
+
 func TestWorkListDispatchItemFullNativeRun(t *testing.T) {
 	s, _, _ := workflowEngineFixture(t)
 	_, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES (1);

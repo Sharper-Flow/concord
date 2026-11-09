@@ -147,6 +147,21 @@ type WorkItem struct {
 	PendingProjectHandoff *ProjectHandoff     `json:"pending_project_handoff,omitempty"`
 	LawContext            *WorkflowLawContext `json:"law_context,omitempty"`
 	NativeRuns            []NativeRunReport   `json:"native_runs,omitempty"`
+	DecisionRecords       []DecisionRecord    `json:"decision_records,omitempty"`
+}
+
+type DecisionRecord struct {
+	WorkID            string   `json:"work_id"`
+	Question          string   `json:"question"`
+	OptionsConsidered []string `json:"options_considered"`
+	Decision          string   `json:"decision"`
+	Rationale         string   `json:"rationale"`
+	Consequences      []string `json:"consequences"`
+	Inputs            []string `json:"inputs"`
+	POCFindings       string   `json:"poc_findings"`
+	Supersedes        *string  `json:"supersedes"`
+	SupersededBy      *string  `json:"superseded_by"`
+	RecordedAt        string   `json:"recorded_at"`
 }
 
 type Q7Result struct {
@@ -615,6 +630,9 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 		if err := attachItemScopedResumeFacts(tx, items, proofs, req.AmbientProject); err != nil {
 			return out, err
 		}
+		if err := attachQ3SelectedDecisionRecords(ctx, tx, items, req.WorkIDs, limit); err != nil {
+			return out, err
+		}
 	}
 	out.Items = items
 	if out.Items == nil {
@@ -625,6 +643,64 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 		return out, err
 	}
 	return out.LimitPage(req, limit)
+}
+
+func attachQ3SelectedDecisionRecords(ctx context.Context, tx *sql.Tx, items []WorkItem, workIDs []string, limit int) error {
+	if len(workIDs) == 0 {
+		return nil
+	}
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	return attachDecisionRecords(ctx, tx, items)
+}
+
+func attachDecisionRecords(ctx context.Context, tx *sql.Tx, items []WorkItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	placeholders := make([]string, len(items))
+	args := make([]any, len(items))
+	byID := make(map[string]int, len(items))
+	for i := range items {
+		placeholders[i], args[i] = "?", items[i].ID
+		byID[items[i].ID] = i
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT work_id,question,options_considered,decision,rationale,consequences,inputs,poc_findings,supersedes,superseded_by,recorded_at FROM workflow_decision_records WHERE work_id IN (`+strings.Join(placeholders, ",")+`) ORDER BY work_id,recorded_at,question`, args...) //nolint:gosec // Only placeholders are interpolated; work IDs are bound.
+	if err != nil {
+		return wrapFailure(KindUnavailable, "PM1.Q3", "cannot read decision records", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var record DecisionRecord
+		var options, consequences, inputs string
+		if err := rows.Scan(&record.WorkID, &record.Question, &options, &record.Decision, &record.Rationale, &consequences, &inputs, &record.POCFindings, &record.Supersedes, &record.SupersededBy, &record.RecordedAt); err != nil {
+			return wrapFailure(KindInvariantViolation, "PM1.Q3", "cannot decode decision record", false, "restore the current rows from a verified snapshot", err)
+		}
+		for _, field := range []struct {
+			raw  string
+			dest *[]string
+		}{{options, &record.OptionsConsidered}, {consequences, &record.Consequences}, {inputs, &record.Inputs}} {
+			var elements []json.RawMessage
+			if err := json.Unmarshal([]byte(field.raw), &elements); err != nil || elements == nil {
+				return newFailure(KindInvariantViolation, "PM1.Q3", "stored decision record array is invalid", false, "restore the current rows from a verified snapshot")
+			}
+			*field.dest = make([]string, 0, len(elements))
+			for _, element := range elements {
+				var value string
+				if len(element) == 0 || element[0] != '"' || json.Unmarshal(element, &value) != nil {
+					return newFailure(KindInvariantViolation, "PM1.Q3", "stored decision record array contains a non-string", false, "restore the current rows from a verified snapshot")
+				}
+				*field.dest = append(*field.dest, value)
+			}
+		}
+		i := byID[record.WorkID]
+		items[i].DecisionRecords = append(items[i].DecisionRecords, record)
+	}
+	if err := rows.Err(); err != nil {
+		return wrapFailure(KindUnavailable, "PM1.Q3", "cannot read decision records", true, "retry once the database is readable", err)
+	}
+	return nil
 }
 
 // prepareItemScopedLawProofs prepares the per-item verified law-folder

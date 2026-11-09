@@ -102,7 +102,9 @@ rather than historical explanation.
 | `list` | Q3 | Product scope; closed lifecycle/Project/kind/terminal-window/Linear-issue-key filters; optional stable work IDs; `detail`; cursor/limit | `work_page`: ordered unique summaries or bounded full records; each linked item's summary carries its recorded Linear issue key |
 
 `list` with one stable work ID and `detail=full` replaces a separate `show` tool.
-It supplies current law context, pending handoff and native runs.
+Item-scoped `list` with `detail=full` supplies current law context, pending
+handoff, native runs and retained decision records. Broad full reads and summary
+reads do not load decision records; an item with none omits `decision_records`.
 List readiness is derived from lifecycle and live canonical blockers, not a
 caller-authored filter. A needed item whose `ready` is absent or false is
 blocked. The `relations` read supplies the bounded blocker graph.

@@ -216,13 +216,13 @@ any of these conditions or that capacity is missing, sequence the work instead
 of launching a competing stream. Do not urge a freeze or a skipped gate to gain
 speed.
 
-Record each stream's brief in one assignment comment on its delivery issue,
-never in the description; the description keeps only the problem, scope, end
-state and decisions. The brief holds only what is task-specific: objective,
-write set, exclusions, checks, stop conditions and return point. The brief
-opens with a human summary; paths, branch, write set, checks and host locators
-such as pane IDs go in a collapsed "Agent detail" section under that summary.
-Link the files that own standing rules instead of restating them. Load the shipped
+Follow the shared `records.md` standard when assigning a stream. Keep every
+new-session assignment's complete task-specific brief in one assignment comment
+on its delivery issue, under collapsed Agent detail: objective, write set,
+exclusions, checks, stop conditions and return point. Do this before or after
+capture; no Concord work item is required first. Concord records supplement
+execution and resume context; the RTE need not write another item's step notes.
+Link standing rules and longer evidence. Load the shipped
 `concord-handoff-writing` skill when writing one.
 Require each stream to return coherent, committed change sets to the item owner.
 Report per-stream time to a reviewed result, integration conflicts and rework,

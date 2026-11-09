@@ -1417,8 +1417,9 @@ test("portable continuation posture leaves host protocol names to the host surfa
   expect(recordsSource).toContain("who or what it affects")
   expect(recordsSource).toContain("checkable end state before any plan")
   expect(recordsSource).toContain("Linear is for people. Concord and git hold agent state.")
-  expect(recordsSource).toContain("two or three plain sentences saying what happened, what it means and what is needed")
-  expect(recordsSource).toContain("collapsed Agent detail section or behind a link")
+  expect(recordsSource).toContain("visible prose to about 600 characters at most")
+  expect(recordsSource).toContain("operator answers word-for-word in Linear")
+  expect(recordsSource).toContain("has no few-line cap")
   expect(recordsSource).toContain("applies to new records; do not rewrite existing comments")
   expect(askingSource.replace(/\s+/g, " ")).toContain("recommendation, options and consequences visible outside collapsed detail")
   const sharedRules = [

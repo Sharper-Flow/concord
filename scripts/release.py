@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import fnmatch
 import json
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+import install
 
 
 SEMVER_TAG = re.compile(r"^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
@@ -38,6 +41,7 @@ class Commit:
     scope: str | None
     breaking: bool
     bump: str | None
+    paths: tuple[str, ...] = ()
 
 
 def run_git(repo: Path, *args: str) -> str:
@@ -192,15 +196,30 @@ def commits_since(repo: Path, boundary: str | None) -> list[Commit]:
         fields = record.split("\x1f", 2)
         if len(fields) != 3:
             raise ValueError("unexpected git log record")
-        commits.append(parse_commit(*fields))
+        commit = parse_commit(*fields)
+        paths = run_git(
+            repo, "diff-tree", "--no-commit-id", "--name-only", "--no-renames", "-r", "-z", commit.sha
+        ).split("\0")
+        commits.append(dataclasses.replace(commit, paths=tuple(path for path in paths if path)))
     return commits
+
+
+def shipped_path(path: str) -> bool:
+    if path.startswith(("skills/", ".concord/instructions/")):
+        return True
+    parent, _, name = path.rpartition("/")
+    return (
+        (parent == ".opencode/agents" and fnmatch.fnmatchcase(name, "[Cc]oncord*.md"))
+        or (parent == "adapter/opencode" and name in install.ADAPTER_FILES)
+        or path == "scripts/install.py"
+    )
 
 
 def select_bump(commits: list[Commit]) -> str | None:
     for bump in ("major", "minor", "patch"):
         if any(commit.bump == bump for commit in commits):
             return bump
-    return None
+    return "patch" if any(shipped_path(path) for commit in commits for path in commit.paths) else None
 
 
 def next_version(base: tuple[int, int, int], bump: str) -> tuple[int, int, int]:

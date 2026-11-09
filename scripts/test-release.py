@@ -191,10 +191,11 @@ class ReleaseTests(unittest.TestCase):
         subprocess.check_call(command)
         return destination
 
-    def commit(self, subject: str, body: str = "") -> None:
-        path = self.repo / "history.txt"
+    def commit(self, subject: str, body: str = "", *, filename: str = "history.txt") -> None:
+        path = self.repo / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(path.read_text() + subject + "\n" if path.exists() else subject + "\n")
-        self.git("add", "history.txt")
+        self.git("add", filename)
         command = ["git", "-C", str(self.repo), "commit", "--quiet", "-m", subject]
         if body:
             command.extend(["-m", body])
@@ -236,6 +237,75 @@ class ReleaseTests(unittest.TestCase):
         result = release.compute(self.repo)
         self.assertEqual(result["bump"], "patch")
         self.assertEqual(result["version"], "v0.0.1")
+
+    def test_shipped_skill_docs_trigger_patch_release(self) -> None:
+        self.commit("fix: first released fix")
+        self.git("tag", "v0.0.1")
+        subject = "docs(agent): add Linear readability standard (#2415)"
+        self.commit(subject, filename="skills/concord-ticket-writing/SKILL.md")
+
+        result = release.compute(self.repo)
+
+        self.assertEqual((result["release"], result["bump"]), (True, "patch"))
+        self.assertEqual(result["version"], "v0.0.2")
+        self.assertIn("## Other Changes\n\n- **agent:** " + subject, result["changelog"])
+
+    def test_other_shipped_families_trigger_patch(self) -> None:
+        for filename in (
+            ".concord/instructions/nested/rule.md",
+            ".opencode/agents/concord-review.md",
+            ".opencode/agents/Concord-Planner.md",
+            "adapter/opencode/concord-plugin.ts",
+            "scripts/install.py",
+        ):
+            with self.subTest(filename=filename):
+                self.commit("docs: update shipped content", filename=filename)
+                result = release.compute(self.repo)
+                self.assertTrue(result["release"])
+                self.assertEqual(result["bump"], "patch")
+                self.assertEqual(result["version"], "v0.0.1")
+                self.git("reset", "--hard", "--quiet", "constitutional-bootstrap")
+
+    def test_non_shipped_paths_do_not_trigger_release(self) -> None:
+        for filename in (
+            "history.txt", "docs/guide.md", "adapter/opencode/plugin.test.ts",
+            ".opencode/agents/other.md", ".opencode/agents/concord-not-markdown.txt",
+            ".concord/instructions-extra/rule.md", "skills-extra/guide.md",
+        ):
+            with self.subTest(filename=filename):
+                self.commit("docs: update unshipped content", filename=filename)
+                result = release.compute(self.repo)
+                self.assertFalse(result["release"])
+                self.assertIsNone(result["bump"])
+                self.assertIsNone(result["version"])
+                self.git("reset", "--hard", "--quiet", "constitutional-bootstrap")
+
+    def test_title_bump_precedes_shipped_content_patch_floor(self) -> None:
+        for subject, bump, version in (
+            ("feat: new feature", "minor", "v0.1.0"),
+            ("fix!: incompatible repair", "major", "v1.0.0"),
+        ):
+            with self.subTest(subject=subject):
+                self.commit("docs: update skill", filename="skills/example/SKILL.md")
+                self.commit(subject)
+                result = release.compute(self.repo)
+                self.assertEqual(result["bump"], bump)
+                self.assertEqual(result["version"], version)
+                self.git("reset", "--hard", "--quiet", "constitutional-bootstrap")
+
+    def test_shipped_content_release_rerun_at_head(self) -> None:
+        self.commit("fix: first release")
+        self.git("tag", "v0.0.1")
+        self.commit("docs: update skill", filename="skills/example/SKILL.md")
+        self.git("tag", "v0.0.2")
+
+        result = release.compute(self.repo)
+
+        self.assertTrue(result["release"])
+        self.assertEqual(result["version"], "v0.0.2")
+        self.assertIsNone(result["bump"])
+        self.assertEqual(result["commit_boundary"], "v0.0.1")
+        self.assertIn("docs: update skill", result["changelog"])
 
     def test_other_and_nonconventional_commits_are_noop(self) -> None:
         self.commit("docs: explain release process")
@@ -358,6 +428,38 @@ class ReleaseTests(unittest.TestCase):
                         "the archive cannot fall behind what the installer requires."
                     ),
                 )
+
+    def test_every_repository_file_the_packing_step_copies_is_shipped(self) -> None:
+        """release.shipped_path must cover each source the build step copies.
+
+        A packing source that shipped_path misses releases nothing when only
+        that source changes under a non-releasing title.
+        """
+        document = parse_release_workflow(WORKFLOW_PATH.read_text(encoding="utf-8"))
+        steps = document["jobs"]["build-and-publish"]["steps"]
+        run = next(step["run"] for step in steps if step.get("name") == "Build Linux amd64 binary")
+        root = WORKFLOW_PATH.parents[2]
+        sources = [
+            word.strip('"')
+            for line in run.splitlines()
+            if line.lstrip().startswith("cp ")
+            for word in line.split()[1:-1]
+            if not word.startswith("-") and not word.strip('"').startswith("release/")
+        ]
+        self.assertTrue(sources, "the build step copies no repository source")
+        for source in sources:
+            if "$adapter_name" in source:
+                paths = [source.replace("$adapter_name", name) for name in install.ADAPTER_FILES]
+            elif source.endswith("/."):
+                paths = [source[:-1] + "probe/file.md"]
+            elif any(char in source for char in "*?["):
+                paths = [path.relative_to(root).as_posix() for path in root.glob(source)]
+            else:
+                paths = [source]
+            self.assertTrue(paths, f"copy source {source} matches no repository file")
+            for path in paths:
+                with self.subTest(source=source, path=path):
+                    self.assertTrue(release.shipped_path(path))
 
     def split_step_heredoc(self, run: str) -> tuple[str, str, str]:
         """Split a step's run block into its command, Python body, and trailing."""

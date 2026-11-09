@@ -109,7 +109,7 @@ const workflowEvidenceBindingTeaching = "Bind one immutable subject per call: ev
 
 // workflowBindEvidenceTeaching adds the declared subject fields that only
 // bind_evidence merges into its subject set (workflowActionEvidenceRefs).
-const workflowBindEvidenceTeaching = workflowEvidenceBindingTeaching + " fields.immutable_subject_ref, or fields.evidence_ref when it is absent, must name that same subject; a different value adds a second subject and is refused."
+const workflowBindEvidenceTeaching = workflowEvidenceBindingTeaching + " fields.immutable_subject_ref, or fields.evidence_ref when it is absent, must name that same subject; a different value adds a second subject and is refused. native_run requires that subject to be the observation_id of a captured, attributed native-run record on this work whose verification state is verified. Bind host oc-run and ordinary command results as verification."
 
 // workflowRecordDiagnosisEvents builds the typed diagnosis event.
 // The action records all three required sections in one act: the

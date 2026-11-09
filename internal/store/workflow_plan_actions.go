@@ -253,6 +253,9 @@ func foldWorkflowStepInserted(ctx context.Context, tx *sql.Tx, event Event) erro
 	if plan == nil {
 		return newFailure(KindInvalidOperation, "fold_event", "workflow has no plan", false, "pick a workflow type")
 	}
+	if len(plan.Steps) >= workflowStepPlanMaxSteps {
+		return newFailure(KindInvalidOperation, "fold_event", "workflow plan has reached the 64-step limit", false, "use link_successor before workflow completion for additional work")
+	}
 	plan.Steps = append(plan.Steps, WorkflowPlanStep{ID: p.ID, After: p.After, Skill: p.Skill, Helper: p.Helper, Reviewed: p.Reviewed, Reason: p.Reason})
 	return writeWorkflowPlanTx(ctx, tx, event.SubjectID, *plan)
 }

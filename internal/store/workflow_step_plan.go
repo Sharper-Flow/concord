@@ -77,6 +77,8 @@ type WorkflowStepPlan struct {
 // by the plan_schema in the template contract.
 const workflowStepPlanSchemaVersion = "1.0"
 
+const workflowStepPlanMaxSteps = 64
+
 // workflowTemplateStep is one template step as the contract declares it.
 type workflowTemplateStep struct {
 	ID       string   `json:"id"`
@@ -201,7 +203,7 @@ func validateStepPlanShape(plan WorkflowStepPlan) error {
 	if !slices.Contains(WorkflowStepPlanTypes, plan.Type) {
 		return refuse("plan type is not declared by the template contract")
 	}
-	if len(plan.Steps) < 1 || len(plan.Steps) > 64 {
+	if len(plan.Steps) < 1 || len(plan.Steps) > workflowStepPlanMaxSteps {
 		return refuse("plan step count is out of bounds")
 	}
 	ids := make(map[string]bool, len(plan.Steps))

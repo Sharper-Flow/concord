@@ -401,7 +401,7 @@ func workflowPlanCompletePrerequisiteTx(ctx context.Context, q queryer, workID s
 // workflowPlanCompleteActionTx shares the completed-plan admission state
 // between preflight, projection and folding. Paired events record the contract
 // and confirmation before action completion; delivery and evidence bindings
-// are recorded afterwards. Evidence binding remains available for fresh evidence.
+// are recorded afterwards. Successor links and fresh evidence remain available.
 func workflowPlanCompleteActionTx(ctx context.Context, q queryer, workID string, plan *WorkflowStepPlan, actionID string, folding bool) (string, error) {
 	owner, recorded, afterAdmission, err := workflowPlanCompletePrerequisiteTx(ctx, q, workID, plan, actionID)
 	if err != nil {
@@ -420,6 +420,10 @@ func workflowPlanCompleteActionTx(ctx context.Context, q queryer, workID string,
 		}
 		// The route never closes: every binding is fresh independent
 		// evidence, so the recorded flag stays false on both paths.
+		recorded, afterAdmission = false, true
+	}
+	if actionID == "link_successor" && plan != nil && WorkflowStepPlanComplete(*plan) {
+		owner = workflowPlanDeclaringStep(plan, actionID)
 		recorded, afterAdmission = false, true
 	}
 	if owner != "" && recorded == (folding && !afterAdmission) {

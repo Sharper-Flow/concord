@@ -309,6 +309,10 @@ missing active contract does not block binding; an ambiguous active-contract
 projection still refuses. After the plan completes, the route requires exactly
 one active contract. Prior bindings do not prevent binding fresh independent
 evidence.
+On a completed plan whose instance remains nonterminal, the step declaring
+`link_successor` keeps admitting that action under the existing actor, lifecycle,
+version, idempotency, successor and relation checks. Distinct prior links do not
+close the route. A terminal instance refuses `link_successor`.
 `confirm_premise` also remains available once the plan completes while the
 active contract's confirmation is missing: a completed plan has no frontier
 step to declare it, yet completion requires that confirmation, so its

@@ -19,6 +19,7 @@ import (
 	"go/parser"
 	"go/token"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -27,6 +28,51 @@ import (
 )
 
 // Family-local derivations (shared with output_bound_knowledge_sources_test.go)
+
+// decisionRecordSQLBound reads the retained table's CHECK, which also applies
+// to rows written before the current fold's stricter byte guards.
+func decisionRecordSQLBound(column, measure string, unit boundUnit) outputBoundSource {
+	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, _ *boundCensus) (evaluatedBound, error) {
+		source, err := rt.loadGo("internal/store/schema.go")
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		var limits []string
+		pattern := regexp.MustCompile(`CHECK\(` + regexp.QuoteMeta(measure) + `\(` + regexp.QuoteMeta(column) + `\) BETWEEN 1 AND ([0-9]+)\)`)
+		ast.Inspect(source.file, func(n ast.Node) bool {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			text, err := strconv.Unquote(lit.Value)
+			if err != nil {
+				return true
+			}
+			start := strings.Index(text, "CREATE TABLE workflow_decision_records (")
+			if start < 0 {
+				return true
+			}
+			table := text[start:]
+			end := strings.Index(table, "\n);")
+			if end < 0 {
+				return true
+			}
+			for _, match := range pattern.FindAllStringSubmatch(table[:end], -1) {
+				limits = append(limits, match[1])
+			}
+			return true
+		})
+		if len(limits) != 1 {
+			return evaluatedBound{}, fmt.Errorf("decision record %s: expected one SQL bound, found %d", column, len(limits))
+		}
+		limit, err := strconv.Atoi(limits[0])
+		if err != nil {
+			return evaluatedBound{}, err
+		}
+		description := "workflow_decision_records SQL CHECK for " + column
+		return evaluatedBound{constraints: []boundConstraint{{unit: unit, value: int64(limit), from: description}}, kind: "derived", describe: description}, nil
+	}}
+}
 
 // pkGuardArgBound derives the limit argument of the single guard call in
 // function that measures the exact value expression: boundedString(value,
@@ -900,6 +946,14 @@ func init() {
 	registerOutputBound("/$defs/work_event_page/properties/entries/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
 
 	registerOutputBound("/$defs/work_page/properties/items/maxItems", goConstantBound("internal/store/query.go", "queryMaxLimit", boundItems))
+	for _, column := range []string{"question", "rationale", "poc_findings"} {
+		registerOutputBound("/$defs/retained_decision_record/properties/"+column+"/maxLength", decisionRecordSQLBound(column, "length", boundCharacters))
+	}
+	for _, column := range []string{"options_considered", "consequences", "inputs"} {
+		registerOutputBound("/$defs/retained_decision_record/properties/"+column+"/maxItems", decisionRecordSQLBound(column, "json_array_length", boundItems))
+		registerOutputBound("/$defs/retained_decision_record/properties/"+column+"/items/maxLength", unboundedOutput("internal/store/query.go:attachDecisionRecords reads legacy array elements with no string length guard; the table checks array length only", "internal/agent/runtime.go:readSizeRefusal"))
+	}
+	registerOutputBound("/$defs/work_summary/properties/decision_records/maxItems", unboundedOutput("internal/store/query.go:attachDecisionRecords reads all retained rows for each work with no per-work limit", "internal/agent/runtime.go:readSizeRefusal"))
 	registerOutputBound("/$defs/work_summary/properties/native_runs/maxItems", unboundedOutput("internal/store/native_runs.go:readWorkflowNativeRunsTx reads every workflow_native_runs row for the work without LIMIT; upsertWorkflowNativeRunTx and the primary key in internal/store/schema.go do not cap the number of run IDs", "internal/agent/runtime.go:readSizeRefusal"))
 	// readWorkflowNativeRunsTx projects the rows written by upsertWorkflowNativeRunTx;
 	// validateNativeRunShape bounds the corresponding native-run input strings.

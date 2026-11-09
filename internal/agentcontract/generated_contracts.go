@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:949ef2d90eccb2cff6423d83248cce4fa2dee617d1e44748507bffe3eb9bc13b"
+const ManifestDigest = "sha256:6e3e816952179f429f42b3f06dc88baae7a0369d11133223c42dc67fcbdaa2d7"
 
 type OperationKind string
 
@@ -103,6 +103,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"projectable_mutation_result":                         {Required: []string{}, Properties: []string{"changed_refs", "next_valid_intents", "work_pins", "operation_id", "delivery", "projection_reference"}},
 	"resume_read_document":                                {Required: []string{"work_id", "version", "state"}, Properties: []string{"work_id", "version", "state", "type", "steps", "next_steps", "opening_steps"}},
 	"resume_read_result":                                  {Required: []string{}, Properties: []string{"work_id", "version", "state", "type", "steps", "next_steps", "opening_steps", "encoding", "digest", "total_bytes", "offset", "data", "fragment_bytes", "document_complete"}},
+	"retained_decision_record":                            {Required: []string{"work_id", "question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "recorded_at"}, Properties: []string{"work_id", "question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "recorded_at"}},
 	"session_boot_packet":                                 {Required: []string{"schema_version", "session_type", "session_contract_version", "manifest_digest", "product_id", "project_id", "work_id", "source_version_watermark", "workflow_instance", "resume"}, Properties: []string{"schema_version", "session_type", "session_contract_version", "manifest_digest", "product_id", "project_id", "work_id", "source_version_watermark", "workflow_instance", "resume", "pending_project_handoff"}},
 	"work_browse_list_input":                              {Required: []string{}, Properties: []string{"linear_issue_key", "product_id", "project_ids", "work_ids", "lifecycle", "kind", "detail", "terminal_since", "page", "limit", "requested_budget_seconds"}},
 	"work_browse_list_result":                             {Required: []string{}, Properties: []string{"items", "next_cursor", "encoding", "digest", "total_bytes", "offset", "data", "fragment_bytes", "document_complete", "next_kind"}},
@@ -119,7 +120,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_relate_resolve_overlap_input":                   {Required: []string{"from_work_id", "to_work_id", "from_expected_version", "to_expected_version", "from_contract_version", "to_contract_version", "resolution_kind", "reason", "idempotency_key"}, Properties: []string{"from_work_id", "to_work_id", "from_expected_version", "to_expected_version", "from_contract_version", "to_contract_version", "resolution_kind", "reason", "idempotency_key", "requested_budget_seconds"}},
 	"work_relation_graph":                                 {Required: []string{"nodes", "edges"}, Properties: []string{"nodes", "edges"}},
 	"work_removal_handoff":                                {Required: []string{"findings", "remaining_scope", "blockers", "artifacts", "renewal_conditions"}, Properties: []string{"findings", "remaining_scope", "blockers", "artifacts", "renewal_conditions"}},
-	"work_summary":                                        {Required: []string{"id", "kind", "title", "lifecycle", "version"}, Properties: []string{"id", "kind", "title", "linear_issue_key", "task", "lifecycle", "version", "project_ids", "ready", "terminal_at", "created_at", "pending_project_handoff", "law_context", "native_runs", "liveness"}},
+	"work_summary":                                        {Required: []string{"id", "kind", "title", "lifecycle", "version"}, Properties: []string{"id", "kind", "title", "linear_issue_key", "task", "lifecycle", "version", "project_ids", "ready", "terminal_at", "created_at", "pending_project_handoff", "law_context", "native_runs", "decision_records", "liveness"}},
 	"work_trace_history_input":                            {Required: []string{"work_id"}, Properties: []string{"work_id", "direction", "record_kinds", "page", "limit", "requested_budget_seconds"}},
 	"work_trace_mutation_result_input":                    {Required: []string{"source_tool", "source_operation", "idempotency_key", "digest"}, Properties: []string{"source_tool", "source_operation", "idempotency_key", "digest", "page", "limit", "requested_budget_seconds"}},
 	"work_trace_project_retirement_input":                 {Required: []string{"work_id"}, Properties: []string{"work_id", "requested_budget_seconds"}},

@@ -233,9 +233,9 @@ func workPinCompletedPlanIntentsTx(ctx context.Context, tx *sql.Tx, workID strin
 	if err != nil {
 		return nil, err
 	}
-	actions := []string{"record_delivery"}
+	actions := []string{"record_delivery", "link_successor"}
 	if len(versions) <= 1 {
-		actions = []string{"approve_contract", "confirm_premise", "record_delivery", "bind_evidence"}
+		actions = []string{"approve_contract", "confirm_premise", "record_delivery", "bind_evidence", "link_successor"}
 	}
 	var ids []string
 	for _, action := range actions {

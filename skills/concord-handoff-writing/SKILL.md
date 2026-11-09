@@ -13,51 +13,25 @@ Respect the [workflow contract](https://github.com/Sharper-Flow/concord/tree/mai
 
 ## Linear records: writing and placement
 
-Linear is for people; Concord and git hold agent state. Apply these principles
-to new records, not as a template or a reason to rewrite old comments:
+Follow the shared `records.md` instructions for the Linear writing standard and
+placement.
 
-1. Lead with two or three plain sentences for someone who has not read the issue:
-   what happened, what it means and what is needed, if anything.
-2. Use one heading that names the event.
-3. Keep agent detail out of the reader's path. Put paths, IDs, commands and counts
-   in a collapsed section, opened with +++ Agent detail and closed with +++.
-   Prefer a link to a PR, run or Document over pasted evidence.
-4. Use bullets for lists, tables for comparisons, and bold only for the one
-   thing the reader must not miss.
-5. Follow the voice rules: name things, use active voice, avoid a pronoun without
-   its noun, restated standing rules and history narration.
-6. Use code formatting only for copyable commands, file paths and identifiers,
-   not ordinary words.
+### Example: pending timer handoff
 
-| Record kind | Home and content |
-| -- | -- |
-| Problem, scope, end state, decisions | Issue description; current state only. |
-| Operator answer | Short Linear comment: question, exact answer and what it decides. |
-| Blocker or wait | Linear comment: what is blocked, on whom and what unblocks it. |
-| Completion | Linear comment: reader-facing change and links to the PR, release and Document; collapse SHAs and checks or leave them to the PR. |
-| Readiness sort or placement | Linear comment: one-sentence verdict and reason. |
-| Assignment brief | One Linear comment, human summary first; collapse paths, panes and branch in Agent detail; link standing rules. |
-| Rehearsal transcripts, backup IDs, row counts, checksums, test commands | PR body, release or Concord work record, linked; at most a collapsed Evidence section in Linear. |
-| Drain acknowledgements, notice receipts and delivery confirmations | Coordination project status update or Concord work record, not per-session issue comments. One RTE status update records each cutover drain. |
-| Live progress | Ordinary issue comments, rare: start, blocker and done. A ticket-frontend item instead follows the step-comment rules in `concord-ticket-writing`. |
-| Research, audit, inventory | Linear Document linked from the issue. |
-| Coordination across streams | Short project status update. |
-
-### Example: assignment
-
-Before: worktree, branch, exclusions and test commands with no explanation.
+Before: a long history of the repair with no timer or resume owner.
 
 After:
 
-> #### Assigned
+> #### Resume handoff
 >
-> An agent is repairing the export summary. The agent will work only on the
-> export files and report back after the checks; no operator action is needed.
+> The export repair waits for the verification timer before the next check.
 >
 > +++ Agent detail
-> - Worktree: `worktrees/export`; branch: `fix/export`.
-> - Write set: `export/summary.go` and `export/summary_test.go`.
-> - Check: run the export package tests. Return the result to the assigning agent.
+> - Scope: finish the export summary repair under the linked assignment.
+> - Timer: pending until 14:00 UTC on 2026-01-02; no check before then.
+> - Notification: the verification owner will notify the repair owner at expiry.
+> - Stop state: no stop recorded; if a stop arrives, hold until its resume condition is met.
+> - After notification, run the assigned check and report to the assigning agent.
 > +++
 
 ## Bound the work

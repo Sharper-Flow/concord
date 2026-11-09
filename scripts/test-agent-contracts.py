@@ -1045,18 +1045,52 @@ class MethodSkillTests(unittest.TestCase):
                 with self.subTest(skill=name, meaning=phrase):
                     self.assertIn(phrase, content)
 
-    def test_linear_writing_methods_carry_the_standard_and_placement(self):
-        for name in ("concord-ticket-writing", "concord-project-updates", "concord-handoff-writing", "concord-pr-writing"):
+    def test_linear_writing_standard_and_placement_have_one_home(self):
+        records = " ".join((ROOT / ".concord/instructions/records.md").read_text().split())
+        canonical = ("about 600 characters", "no few-line cap", "one fact each", "every new-session assignment")
+        for phrase in canonical + (
+            "operator answers word-for-word", "the question and what the answer decides",
+            "has not read the issue", "paths, IDs, commands, counts",
+            "one sentence", "two lines", "2–3 columns", "bold only for the one thing",
+            "one event heading", "code formatting only for things a reader copies",
+            "Cut restated rules, history, hedging", "+++ Agent detail",
+            "rare: start, blocker and done", "delivery issue assignment comment",
+            "never only a host file or chat", "Concord step notes, review or bound evidence",
+            "concord_work_trace.resume", "blockers and waits", "drain acknowledgements",
+            "knowledge home", "coordination project updates", "no Concord item",
+            "complete task-specific detail in collapsed Agent detail",
+            "all visible text outside every collapse", "including text after a collapse",
+            "one event per record", "earlier diagnosis and evidence", "not investigation or review journals",
+            "cross-stream changes or waits", "owner's completion report", "unresolved questions",
+            "known limitations", "merged, deployed and verified visible", "exact approval and quoted wording",
+            "timers", "notification owners", "safe-resume detail",
+            "question, recommendation, options and consequences", "visible and concise",
+            "supplement execution and resume context",
+        ):
+            with self.subTest(meaning=phrase):
+                self.assertIn(phrase, records)
+        for name in ("concord-ticket-writing", "concord-project-updates", "concord-handoff-writing", "concord-pr-writing", "concord-research-writing"):
             content = " ".join(self.content(name).split())
-            for phrase in (
-                "two or three plain sentences", "one heading that names the event",
-                "+++ Agent detail", "tables for comparisons", "active voice",
-                "code formatting only for copyable commands", "not per-session issue comments",
-                "rare: start, blocker and done", "Linear Document linked from the issue",
-                "### Example:",
-            ):
+            for phrase in ("records.md", "### Example:", "Before:", "After:"):
                 with self.subTest(skill=name, meaning=phrase):
                     self.assertIn(phrase, content)
+            for phrase in canonical:
+                with self.subTest(skill=name, single_home=phrase):
+                    self.assertNotIn(phrase, content)
+        examples = {
+            "concord-handoff-writing": ("Timer: pending", "Notification:", "Stop state:"),
+            "concord-project-updates": ("merged, but release waits", "Next decision:", "+++ Agent detail"),
+            "concord-pr-writing": ("merged and deployed",),
+        }
+        for name, phrases in examples.items():
+            content = " ".join(self.content(name).split())
+            for phrase in phrases:
+                with self.subTest(example=name, meaning=phrase):
+                    self.assertIn(phrase, content)
+        rte = " ".join((ROOT / ".concord/roles/rte.md").read_text().split())
+        for phrase in ("records.md", "every new-session assignment", "objective, write set, exclusions, checks, stop conditions and return point", "collapsed Agent detail", "before or after capture", "another item's step notes"):
+            with self.subTest(role="RTE", meaning=phrase):
+                self.assertIn(phrase, rte)
         frontend = " ".join(self.content("concord-ticket-frontend").split())
         self.assertIn("question, recommendation, options and consequences visible outside collapsed detail", frontend)
 

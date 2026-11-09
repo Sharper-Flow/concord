@@ -31,14 +31,59 @@ discovered for another Product.
 ## New Linear records
 
 Linear is for people. Concord and git hold agent state. For each new Linear
-record, use one heading that names the event and lead with two or three plain
-sentences saying what happened, what it means and what is needed, if anything.
-Write for someone who has not read the issue.
+record, keep visible prose to about 600 characters at most, for someone who has
+not read the issue. Count all visible text outside every collapse, including text
+after a collapse. Lead with one sentence saying what happened or what is needed.
+Use one event heading; add subheadings only for distinct parts. Use a
+few short bullets, one fact each and none over about two lines. Use tables only
+for real comparisons, with 2–3 columns, and bold only for the one thing a reader
+must not miss. Use code formatting only for things a reader copies. Cut restated
+rules, history, hedging and content already linked.
 
-Put paths, IDs, commands and counts in a collapsed Agent detail section or behind
-a link. Use bullets for lists, tables for comparisons and minimal bold. Use code
-formatting only for copyable commands, paths and identifiers. This standard
+Preserve full operator answers word-for-word in Linear, with the question and
+what the answer decides; only surrounding prose is capped. A collapsed Agent
+detail section, opened with +++ Agent detail and closed with +++, holds the
+paths, IDs, commands, counts and other detail agents need on the ticket, and
+has no few-line cap. Keep collapsed content scannable. Prefer links for long
+evidence, transcripts and check output with a better home. This standard
 applies to new records; do not rewrite existing comments to conform.
+
+Keep one event per record: each required step or event comment states that event's
+result and consequence and links earlier diagnosis and evidence. Keep assignments
+as current assignments, not investigation or review journals. RTE and project
+updates add cross-stream changes or waits, not a duplicate of the owner's completion
+report. Do not omit required ticket-frontend step or event comments.
+
+Keep unresolved questions, known limitations and the difference between merged,
+deployed and verified visible. Preserve exact approval and quoted wording, timers,
+notification owners and safe-resume detail where their consumer can use them.
+For Linear question comments, keep the question, recommendation, options and
+consequences visible and concise, as the shared asking instructions require.
+
+### Placement and consumers
+
+- Keep every new-session assignment complete in the delivery issue assignment
+  comment's collapsed Agent detail, before or after capture, never only a host
+  file or chat. Include the objective, write set, exclusions, checks, stop
+  conditions and return point; link standing rules and longer evidence. No Concord
+  item is required first.
+- Once captured, Concord step notes, review or bound evidence supplement execution
+  and resume context; they do not replace the complete assignment comment.
+  Ticket-frontend resume remains Linear comments plus `concord_work_trace.resume`;
+  link moved detail from the comments.
+- Put evidence, test runs, CI, rehearsals, counts and digests in a PR body,
+  release or Concord work record linked from Linear.
+- For host or toolbox work with no Concord item, link its PR or assignment
+  record, or keep its complete task-specific detail in collapsed Agent detail.
+- Summarize blockers and waits in Linear, linking the blocking records and naming
+  what unblocks the work. Put drain acknowledgements in a coordination project
+  update or Concord record, not per-session issue comments.
+- Keep research in its canonical knowledge home and copy development-time
+  findings into a linked Linear Document; use `concord-research-writing` for
+  the placement route. Keep routine coordination in coordination project updates.
+- Keep readiness and completion comments concise and link their owning records.
+  Ordinary issue progress comments are rare: start, blocker and done; a
+  ticket-frontend item follows its required step and event comments.
 
 ## Write for the later reader
 

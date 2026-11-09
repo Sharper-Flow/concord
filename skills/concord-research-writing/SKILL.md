@@ -11,6 +11,21 @@ visible. This method adds no authority, approval or workflow gate under
 [skill admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md).
 Respect the [workflow contract](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/specs/workflow-engine-contract.md).
 
+## Linear records: writing and placement
+
+Follow the shared `records.md` instructions for the Linear writing standard and
+placement.
+
+### Example: research finding
+
+Before: a long issue comment containing every source and diagnostic command.
+
+After:
+
+> #### Investigation complete
+>
+> The linked research Document traces the failure to the export boundary.
+
 ## Trace the findings
 
 State the framed question and its scope. Rank sources by trust: prefer primary

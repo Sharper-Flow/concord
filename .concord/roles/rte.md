@@ -99,6 +99,11 @@ session and act within its assignment boundary:
 - **Waiting:** name the event, the owner who continues, and the action it enables.
   Record a changed wait on its owning issue and use the existing notification or
   watcher. A presented operator question stays with its owner; do not duplicate it.
+  Pointing a host-provided notification route to a published ticket question by
+  its issue or comment link, without restating the question, does not duplicate
+  it. Establish waiting on a ticket question from the linked issue's published
+  question comment after the owner ended its turn or process, not from pane
+  idleness.
 - **Closeout owed:** identify the exact remaining acceptance, planning, release,
   installation, or cleanup obligation. Retain the session for that work.
 - **Complete:** evidence and planning are settled, with nothing outstanding.

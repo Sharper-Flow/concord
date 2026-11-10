@@ -49,9 +49,13 @@ func TestRedundantIndexesUpgrade(t *testing.T) {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("upgrade: %v", err)
 	}
-	var version int
+	var version, breaking int
 	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version < 193 {
 		t.Fatalf("upgrade must apply migration 193: version=%d err=%v", version, err)
+	}
+	// Open applies an additive step without the upgrade gate.
+	if err := db.QueryRowContext(ctx, `SELECT breaking FROM schema_migrations WHERE version=193`).Scan(&breaking); err != nil || breaking != 0 {
+		t.Fatalf("migration 193 breaking=%d err=%v", breaking, err)
 	}
 	for i, table := range tables {
 		if got := retirementUpgradeRows(t, db, `SELECT * FROM `+table+` ORDER BY rowid`); !reflect.DeepEqual(got, before[table]) {

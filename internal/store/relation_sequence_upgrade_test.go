@@ -53,6 +53,10 @@ func TestRelationSequenceUpgradePreservesRowsAndRetries(t *testing.T) {
 	if err := db.QueryRow(`SELECT last FROM store_sequences WHERE name='relation'`).Scan(&last); err != nil || last != 10 {
 		t.Fatalf("upgraded relation frontier = %d, err %v; want 10", last, err)
 	}
+	var breaking int
+	if err := db.QueryRow(`SELECT breaking FROM schema_migrations WHERE version=196`).Scan(&breaking); err != nil || breaking != 0 {
+		t.Fatalf("migration 196 breaking=%d err=%v", breaking, err)
+	}
 	if got := retirementUpgradeRows(t, db, `SELECT * FROM relations ORDER BY id`); !reflect.DeepEqual(got, beforeRelations) {
 		t.Fatalf("migration changed relations: %v -> %v", beforeRelations, got)
 	}

@@ -44,7 +44,7 @@ DELETE FROM write_guard`)
 		t.Fatal(err)
 	}
 	before := retirementUpgradeSnapshot(t, db)
-	triggers := retirementUpgradeRows(t, db, `SELECT name,tbl_name,sql FROM sqlite_schema WHERE type='trigger' AND tbl_name<>'workflow_backlog_alignment' ORDER BY name`)
+	triggers := retirementUpgradeRows(t, db, `SELECT name,tbl_name,sql FROM sqlite_schema WHERE type='trigger' AND tbl_name NOT IN ('workflow_backlog_alignment','workflow_design_records','workflow_proposal_records') ORDER BY name`)
 	if len(before["workflow_backlog_alignment"]) != 2 {
 		t.Fatal("predecessor alignment fixture missing")
 	}
@@ -88,6 +88,8 @@ DELETE FROM write_guard`)
 	}
 	current := retirementUpgradeSnapshot(t, db)
 	delete(before, "workflow_backlog_alignment")
+	delete(before, "workflow_design_records")
+	delete(before, "workflow_proposal_records")
 	for _, state := range []map[string][][]any{before, current} {
 		delete(state, "schema")
 		delete(state, "schema_migrations")
@@ -108,8 +110,8 @@ DELETE FROM write_guard`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.RestoredDatabase.SchemaVersion != 198 {
-		t.Fatalf("restored schema = %d, want 198", report.RestoredDatabase.SchemaVersion)
+	if report.RestoredDatabase.SchemaVersion != 199 {
+		t.Fatalf("restored schema = %d, want 199", report.RestoredDatabase.SchemaVersion)
 	}
 	restoredDB, err := sql.Open(driverName, readOnlyDataSource(restored))
 	if err != nil {

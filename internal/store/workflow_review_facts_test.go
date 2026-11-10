@@ -13,7 +13,6 @@ func g32ReviewFixture(t *testing.T) (*sql.DB, func(string, any) int64) {
 CREATE TABLE fold_guard(active INTEGER); INSERT INTO fold_guard VALUES(1);
 CREATE TABLE workflow_contracts(work_id TEXT,contract_version INTEGER,superseded_by INTEGER);
 CREATE TABLE workflow_contract_predicates(work_id TEXT,contract_version INTEGER,predicate_id TEXT,outcome_kind TEXT,outcome_payload TEXT);
-CREATE TABLE workflow_design_records(work_id TEXT,work_version INTEGER,approach TEXT,decisions TEXT,touched_refs TEXT,recorded_at TEXT);
 ` + workflowReviewFactsDDL); err != nil {
 		t.Fatal(err)
 	}

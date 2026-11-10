@@ -7,6 +7,11 @@ import (
 	"fmt"
 )
 
+// Migration 182 consumes the schema-181 projection set in foreign-key order.
+var initiativeRetirementProjectionTables = []string{
+	"workflow_overlap_resolutions", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_impact_edges", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "project_handoffs", "external_observations", "relations", "work_projects", "linear_issue_links",
+}
+
 func retireInitiativeWork(ctx context.Context, q migrationRunner) error {
 	checks := []struct{ table, query string }{
 		{"workflow_impact_edges", `SELECT target_work_id,work_id FROM workflow_impact_edges WHERE target_work_id IN (SELECT id FROM work_items WHERE kind='initiative') AND work_id NOT IN (SELECT id FROM work_items WHERE kind='initiative') ORDER BY target_work_id,work_id LIMIT 1`},
@@ -63,7 +68,7 @@ ORDER BY alignment.related_work_id,alignment.work_id LIMIT 1`},
 		if _, err := q.ExecContext(ctx, `DELETE FROM workflow_backlog_alignment WHERE work_id=? OR related_work_id=?`, id, id); err != nil {
 			return fmt.Errorf("initiative retirement: clear alignment: %w", err)
 		}
-		if err := deleteWorkOwnedProjections(ctx, q, id); err != nil {
+		if err := deleteWorkOwnedProjections(ctx, q, id, initiativeRetirementProjectionTables); err != nil {
 			return fmt.Errorf("initiative retirement: %s: %w", id, err)
 		}
 	}

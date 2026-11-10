@@ -32,20 +32,6 @@ func withAppendedPayloadField(field func() WorkflowPayloadField) workflowActionR
 	}
 }
 
-// withPayloadFieldRevision rewrites each payload field with the given name.
-func withPayloadFieldRevision(name string, revise func(WorkflowPayloadField) WorkflowPayloadField) workflowActionRevision {
-	return func(action WorkflowActionDefinition) WorkflowActionDefinition {
-		fields := slices.Clone(action.Payload.Fields)
-		for index := range fields {
-			if fields[index].Name == name {
-				fields[index] = revise(fields[index])
-			}
-		}
-		action.Payload.Fields = fields
-		return action
-	}
-}
-
 // workflowActionCatalog owns each action contract once: an
 // action's definition is its policy-table base with the catalog's revisions
 // for it applied in order. Workflow steps name action IDs whose definitions

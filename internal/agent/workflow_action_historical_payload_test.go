@@ -18,3 +18,14 @@ func TestWorkflowActionSchemaRefusesLegacyRecordDesignAndAdmitsTheTypedShape(t *
 		t.Fatal("retired typed record_design was admitted at the agent boundary")
 	}
 }
+
+func TestWorkflowActionSchemaRefusesRetiredProposal(t *testing.T) {
+	for _, payload := range []string{
+		`{"work_id":"work-1","expected_version":7,"action_id":"record_proposal","idempotency_key":"proposal-v1"}`,
+		`{"work_id":"work-1","expected_version":7,"action_id":"record_proposal","fields":{"problem":"Problem","affected":["People"],"stakes":"Stakes","user_outcomes":["Outcome"]},"idempotency_key":"proposal-v2"}`,
+	} {
+		if err := agentcontract.ValidateOperationPayload("concord_work_transition", "workflow_action", []byte(payload), false); err == nil {
+			t.Fatal("retired record_proposal was admitted at the agent boundary")
+		}
+	}
+}

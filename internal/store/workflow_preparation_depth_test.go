@@ -61,10 +61,6 @@ func TestSmallFixPreparationDepthNeedsNoArchitectureDocument(t *testing.T) {
 			if workflowPlanFixtureFrontier(t, s, workID) != "implement" {
 				t.Fatal("small fix required an architecture document before implementation")
 			}
-			var designs int
-			if err := s.db.QueryRowContext(t.Context(), `SELECT count(*) FROM workflow_design_records WHERE work_id=?`, workID).Scan(&designs); err != nil || designs != 0 {
-				t.Fatalf("small fix acquired %d redundant architecture documents: %v", designs, err)
-			}
 			var declarations int
 			if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowDiagnosisRecorded).Scan(&declarations); err != nil {
 				t.Fatal(err)

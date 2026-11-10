@@ -357,7 +357,7 @@ func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := validateRemovalGatesQ(ctx, tx, WorkRemovalRequest{WorkID: event.SubjectID, ExpectedVersion: payload.ExpectedVersion}); err != nil {
 		return err
 	}
-	if err := deleteWorkOwnedProjections(ctx, tx, event.SubjectID); err != nil {
+	if err := deleteWorkOwnedProjections(ctx, tx, event.SubjectID, workRemovalProjectionTables); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM durable_operations WHERE work_id=?`, event.SubjectID); err != nil {
@@ -387,7 +387,7 @@ func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 // foreign-key owner of work_items that is not ON DELETE CASCADE to be cleared
 // through this list or that map, so a new uncleared owner fails the suite
 // instead of failing removal at runtime.
-var workRemovalProjectionTables = []string{"workflow_overlap_resolutions", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_additions", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_impact_edges", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_clarify_records", "workflow_removal_scopes", "workflow_plan_records", "workflow_instances", "project_handoffs", "external_observations", "relations", "work_projects", "linear_issue_links"}
+var workRemovalProjectionTables = []string{"workflow_overlap_resolutions", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_additions", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_impact_edges", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_clarify_records", "workflow_removal_scopes", "workflow_plan_records", "workflow_instances", "project_handoffs", "external_observations", "relations", "work_projects", "linear_issue_links"}
 
 // workRemovalProjectionOwnerColumns maps each projection table whose
 // work-item owner columns are not a bare work_id to those exact columns.
@@ -406,10 +406,10 @@ var workRemovalProjectionOwnerColumns = map[string][]string{
 	"relations":                    {"work_id_from", "work_id_to"},
 }
 
-func deleteWorkOwnedProjections(ctx context.Context, tx migrationRunner, workID string) error {
+func deleteWorkOwnedProjections(ctx context.Context, tx migrationRunner, workID string, tables []string) error {
 	// This order follows the FK graph. Shared Product, Project, actor, and law
 	// rows have no work-item ownership predicate and remain untouched.
-	for _, table := range workRemovalProjectionTables {
+	for _, table := range tables {
 		if err := deleteWorkProjectionTx(ctx, tx, table, workID); err != nil {
 			return err
 		}
@@ -435,14 +435,8 @@ func deleteWorkProjectionTx(ctx context.Context, tx migrationRunner, table, work
 		}
 		return nil
 	}
-	_, deleteErr := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE work_id=?`, workID) //nolint:gosec // table comes only from the closed projection list in workRemovalProjectionTables and the work ID stays parameter-bound.
+	_, deleteErr := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE work_id=?`, workID) //nolint:gosec // table comes only from the closed source-owned projection lists and the work ID stays parameter-bound.
 	if deleteErr == nil {
-		return nil
-	}
-	// Migration 182 runs this cleanup before the plan and removal tables in
-	// migration 183, the clarification table in migration 189, and the Domain
-	// additions table in migration 192 can exist.
-	if (table == "workflow_clarify_records" || table == "workflow_plan_records" || table == "workflow_removal_scopes" || table == "workflow_contract_domain_additions") && strings.Contains(deleteErr.Error(), "no such table: "+table) {
 		return nil
 	}
 	// workflow_law_addition_reservations carries no direct foreign key into

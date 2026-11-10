@@ -87,7 +87,10 @@ func TestCaptureRetirementPreservesSeededRows(t *testing.T) {
 	db := captureRetirementFixture(t)
 	// A superseded holder's link survives beside a live holder of the same key,
 	// as a cancelled holder's link must after migration 186.
-	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET lifecycle='needed' WHERE id='work-two'; INSERT INTO linear_issue_links VALUES('work-one','uuid:terminal','TEST-7','https://example.com/7','t','t'),('work-two','uuid:live','TEST-7','https://example.com/7','t','t'); DELETE FROM write_guard`); err != nil {
+	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET lifecycle='needed' WHERE id='work-two'; INSERT INTO linear_issue_links VALUES('work-one','uuid:terminal','TEST-7','https://example.com/7','t','t'),('work-two','uuid:live','TEST-7','https://example.com/7','t','t');
+INSERT INTO workflow_design_records(work_id,work_version,approach,decisions,touched_refs,recorded_at) VALUES('work-one',1,'Approach','[1]','[1]','time');
+INSERT INTO workflow_proposal_records(work_id,work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at) VALUES('work-one',1,'Problem','[1]','Stakes','[1]','[]','[]','time');
+DELETE FROM write_guard`); err != nil {
 		t.Fatal(err)
 	}
 	before := retirementUpgradeSnapshot(t, db)
@@ -99,7 +102,7 @@ func TestCaptureRetirementPreservesSeededRows(t *testing.T) {
 	instanceQuery := `SELECT work_id,workflow_type,step_plan,prelude_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY work_id`
 	workBefore := retirementUpgradeRows(t, db, workQuery)
 	instanceBefore := retirementUpgradeRows(t, db, instanceQuery)
-	for _, table := range []string{"workflow_step_epochs", "workflow_phase_exits", "workflow_evidence_bindings", "work_version_actions", "workflow_completed_exits", "workflow_coordinator_actions", "workflow_delivery_state", "idempotency_records", "effect_receipts", "workflow_contracts", "work_projects", "product_projects", "linear_issue_links"} {
+	for _, table := range []string{"workflow_step_epochs", "workflow_phase_exits", "workflow_evidence_bindings", "work_version_actions", "workflow_completed_exits", "workflow_coordinator_actions", "workflow_delivery_state", "idempotency_records", "effect_receipts", "workflow_contracts", "work_projects", "product_projects", "linear_issue_links", "workflow_design_records", "workflow_proposal_records"} {
 		if len(before[table]) == 0 {
 			t.Fatalf("empty fixture table %s", table)
 		}
@@ -122,6 +125,11 @@ func TestCaptureRetirementPreservesSeededRows(t *testing.T) {
 	}
 	for table, rows := range before {
 		switch table {
+		case "workflow_design_records", "workflow_proposal_records":
+			if schema := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name=? OR tbl_name=?`, table, table); len(schema) != 0 {
+				t.Errorf("retired schema %s survives: %v", table, schema)
+			}
+			continue
 		case "schema", "schema_migrations", "sqlite_sequence", "store_revision", "work_items", "workflow_instances", "relations", "workflow_overlap_resolutions", "work_context_state", "work_context_findings", "project_governing_requirements", "workflow_context_checkpoints", "workflow_context_boundaries", "workflow_backlog_alignment":
 			continue
 		}

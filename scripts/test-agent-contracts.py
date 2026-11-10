@@ -1089,6 +1089,8 @@ class MethodSkillTests(unittest.TestCase):
             "timers", "notification owners", "safe-resume detail",
             "question, recommendation, options and consequences", "visible and concise",
             "Your decision needed", "names the delegated agent's role", "complete task-specific brief",
+            "objective, write set, exclusions, checks, stop conditions and return point",
+            "the item owner preserves the durable assignment",
             "RTE succession, before acting", "read the work's durable records and relevant ticket events",
             "never omit them", "Herdr tab title", "Concord work record for the ticket",
         ):

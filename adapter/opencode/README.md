@@ -278,3 +278,8 @@ targets under its plugin tuple, for example:
 
 This configuration is host-owned. The native Task runtime owns model selection;
 Concord ships no model pin and neither reads nor asserts the host's routing.
+
+## Instruction evaluation harness
+
+The [instruction evaluation harness](evals/instructions/README.md) offers offline
+fixture tests and bounded private calibration. It does not execute a full pilot.

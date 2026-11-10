@@ -91,6 +91,10 @@ func TestCaptureRetirementPreservesSeededRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := retirementUpgradeSnapshot(t, db)
+	if want := [][]any{{"effect", int64(0)}, {"relation", int64(0)}}; !reflect.DeepEqual(before["store_sequences"], want) {
+		t.Fatalf("pre-upgrade store sequences = %v, want %v", before["store_sequences"], want)
+	}
+	before["store_sequences"] = [][]any{{"effect", int64(0)}, {"relation", int64(3)}}
 	workQuery := `SELECT id,kind,title,version,created_at,updated_at,terminal_time,narrative,effect_seq,last_progress_at,version_actions_floor,transition_reason,transition_actor,transition_evidence_refs,transition_seq,transition_version FROM work_items ORDER BY id`
 	instanceQuery := `SELECT work_id,workflow_type,step_plan,prelude_state,execution_actor_ref,execution_model,started_at,completed_at,last_checkpoint_at,execution_started_at,completion_payload,completion_occurred_at FROM workflow_instances ORDER BY work_id`
 	workBefore := retirementUpgradeRows(t, db, workQuery)

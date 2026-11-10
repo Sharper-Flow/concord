@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"slices"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/version"
@@ -69,8 +70,14 @@ func TestUnreadRecordsRetirementUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(report.Applied) != 6 || report.Applied[0] != 190 || report.Applied[1] != 191 || report.Applied[2] != 192 || report.Applied[3] != 193 || report.Applied[4] != 194 || report.Applied[5] != 195 {
-		t.Fatalf("applied = %v, want exactly [190 191 192 193 194 195]", report.Applied)
+	var wantApplied []int
+	for _, m := range migrations {
+		if m.Version > 189 {
+			wantApplied = append(wantApplied, m.Version)
+		}
+	}
+	if !slices.Equal(report.Applied, wantApplied) {
+		t.Fatalf("applied = %v, want %v", report.Applied, wantApplied)
 	}
 	var candidateTable int
 	if err := db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='workflow_candidate_sets'`).Scan(&candidateTable); err != nil || candidateTable != 0 {

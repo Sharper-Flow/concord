@@ -2617,11 +2617,7 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
     - missing-required, unknown-field, cross-variant-field, bad-enum,
       bad-type, and bad-range mutants are refused by the variant schema AND
       by the core input union AND by the public variant, so the published
-      closed branch and the core cannot admit differently;
-    - the legal input combinations the store's guards enforce (the registry
-      projection's combinations, authored beside the guards) are exact: each
-      discriminator value's required fields are required and its forbidden
-      fields are refused, in every published and core shape.
+      closed branch and the core cannot admit differently.
     """
 
     @classmethod

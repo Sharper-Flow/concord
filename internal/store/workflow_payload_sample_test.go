@@ -95,7 +95,7 @@ func mergeRefSiblingsValue(defs map[string]any, value any) any {
 	}
 }
 
-func TestCrossFieldSampleObjectUnion(t *testing.T) {
+func TestSchemaSampleObjectUnion(t *testing.T) {
 	defs := firstCallPublishedDefs(t)
 	id := map[string]any{"$ref": "#/$defs/id"}
 	// An enclosing requirement plus exclusive branch requirements: a sample
@@ -128,9 +128,9 @@ func TestCrossFieldSampleObjectUnion(t *testing.T) {
 				node := mergeRefSiblings(defs, union(keyword))
 				var sample any
 				if entry == "object" {
-					sample = crossFieldSampleObject(defs, node)
+					sample = schemaSampleObject(defs, node)
 				} else {
-					sample = crossFieldSampleValue(defs, node)
+					sample = schemaSampleValue(defs, node)
 				}
 				encoded, err := json.Marshal(sample)
 				if err != nil {
@@ -158,16 +158,16 @@ func TestCrossFieldSampleObjectUnion(t *testing.T) {
 	}
 }
 
-// crossFieldSampleObject samples one admitted object, following oneOf/anyOf
+// schemaSampleObject samples one admitted object, following oneOf/anyOf
 // into the first branch and filling required properties from both levels.
-func crossFieldSampleObject(defs map[string]any, node map[string]any) map[string]any {
+func schemaSampleObject(defs map[string]any, node map[string]any) map[string]any {
 	node = mergeRefSiblings(defs, node)
 	object := map[string]any{}
 	required := requiredNames(node)
 	for _, keyword := range []string{"oneOf", "anyOf"} {
 		if branches, ok := node[keyword].([]any); ok && len(branches) > 0 {
 			if branch, ok := branches[0].(map[string]any); ok {
-				for name, value := range crossFieldSampleObject(defs, branch) {
+				for name, value := range schemaSampleObject(defs, branch) {
 					object[name] = value
 				}
 				required = append(required, requiredNames(branch)...)
@@ -180,7 +180,7 @@ func crossFieldSampleObject(defs map[string]any, node map[string]any) map[string
 			continue
 		}
 		if property, ok := properties[name].(map[string]any); ok {
-			object[name] = crossFieldSampleValue(defs, property)
+			object[name] = schemaSampleValue(defs, property)
 		}
 	}
 	return object
@@ -198,11 +198,11 @@ func requiredNames(node map[string]any) []string {
 	return names
 }
 
-// crossFieldLiteralPrefix matches an identifier pattern that opens with a
+// schemaSampleLiteralPrefix matches an identifier pattern that opens with a
 // literal lowercase prefix and colon.
-var crossFieldLiteralPrefix = regexp.MustCompile(`^\^([a-z_]+:)`)
+var schemaSampleLiteralPrefix = regexp.MustCompile(`^\^([a-z_]+:)`)
 
-func crossFieldSampleValue(defs map[string]any, node map[string]any) any {
+func schemaSampleValue(defs map[string]any, node map[string]any) any {
 	node = mergeRefSiblings(defs, node)
 	if value, ok := node["const"]; ok {
 		return value
@@ -211,12 +211,12 @@ func crossFieldSampleValue(defs map[string]any, node map[string]any) any {
 		return enum[0]
 	}
 	if _, object := node["properties"]; object || node["type"] == "object" {
-		return crossFieldSampleObject(defs, node)
+		return schemaSampleObject(defs, node)
 	}
 	for _, keyword := range []string{"oneOf", "anyOf"} {
 		if branches, ok := node[keyword].([]any); ok && len(branches) > 0 {
 			if branch, ok := branches[0].(map[string]any); ok {
-				return crossFieldSampleValue(defs, branch)
+				return schemaSampleValue(defs, branch)
 			}
 		}
 	}
@@ -233,11 +233,11 @@ func crossFieldSampleValue(defs map[string]any, node map[string]any) any {
 		if minimum, ok := node["minItems"].(float64); ok && minimum > 0 {
 			list := make([]any, int(minimum))
 			for i := range list {
-				list[i] = crossFieldSampleValue(defs, items)
+				list[i] = schemaSampleValue(defs, items)
 				if unique, _ := node["uniqueItems"].(bool); unique {
 					if binding, ok := list[i].(map[string]any); ok {
 						if _, hasJob := binding["job_id"]; hasJob {
-							binding["job_id"] = fmt.Sprintf("job:cross-field-%d", i)
+							binding["job_id"] = fmt.Sprintf("job:schema-sample-%d", i)
 						}
 					}
 				}
@@ -258,14 +258,14 @@ func crossFieldSampleValue(defs map[string]any, node map[string]any) any {
 			return "https://example.test/pull/1"
 		case strings.Contains(pattern, "[0-9a-f]{40"):
 			return strings.Repeat("0", 40)
-		case crossFieldLiteralPrefix.MatchString(pattern):
+		case schemaSampleLiteralPrefix.MatchString(pattern):
 			// An identifier pattern with a literal prefix such as
 			// predicate:, case:, owner:, or control: takes that prefix.
-			return crossFieldLiteralPrefix.FindStringSubmatch(pattern)[1] + "cross-field-sample"
+			return schemaSampleLiteralPrefix.FindStringSubmatch(pattern)[1] + "schema-sample"
 		}
 		// The default sample clears the two-byte floor every fold holds
 		// workflow strings to, which minLength alone does not encode.
-		return "cross-field-sample"
+		return "schema-sample"
 	}
-	return "cross-field-sample"
+	return "schema-sample"
 }

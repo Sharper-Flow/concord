@@ -16,8 +16,8 @@ import (
 // others admit; a payload any refuses for shape reasons, the others refuse.
 // Mutants are derived from the variant's own nodes — missing requireds,
 // unknown and cross-variant fields, bad enums, wrong types, violated bounds,
-// and the legal-combination branches a fields oneOf declares — so an
-// authored rule that generation drops fails here rather than at a caller.
+// and the alternative branches a fields oneOf declares — so an authored rule
+// that generation drops fails here rather than at a caller.
 
 // corpusCase is one shape mutant every schema under comparison must refuse.
 type corpusCase struct {
@@ -335,61 +335,7 @@ func corpusMutants(document map[string]any, variantName string, sample map[strin
 		for _, field := range crossVariantFields {
 			add("cross-variant field "+field, corpusSetValue(corpusCopy(sample), []string{"fields", field}, "corpus-cross-variant"))
 		}
-		// Legal-combination mutants derive from a fields oneOf whose
-		// branches discriminate on a const: pairing one branch's
-		// discriminator value with another branch's exclusive fields is the
-		// combination the store guard refuses, so the schema must refuse it
-		// too.
 		if branches, ok := fieldsSchema["oneOf"].([]any); ok && len(branches) > 1 {
-			for index, raw := range branches {
-				branch, ok := raw.(map[string]any)
-				if !ok {
-					continue
-				}
-				discriminator := corpusBranchConstField(branch)
-				if discriminator == "" {
-					continue
-				}
-				value := corpusBranchConstValue(branch, discriminator)
-				for other, rawOther := range branches {
-					if other == index {
-						continue
-					}
-					otherBranch, ok := rawOther.(map[string]any)
-					if !ok {
-						continue
-					}
-					for _, exclusive := range corpusRequired(otherBranch) {
-						if exclusive == discriminator {
-							continue
-						}
-						if _, declared := corpusProperty(branch, exclusive); declared {
-							continue
-						}
-						mutant := corpusCopy(sample)
-						mutant = corpusSetValue(mutant, []string{"fields", discriminator}, value)
-						if property, ok := corpusProperty(otherBranch, exclusive); ok {
-							mutant = corpusSetValue(mutant, []string{"fields", exclusive}, corpusSample(document, property))
-						} else {
-							mutant = corpusSetValue(mutant, []string{"fields", exclusive}, "corpus-exclusive-field")
-						}
-						add(fmt.Sprintf("legal combination %s=%v carries %s", discriminator, value, exclusive), mutant)
-					}
-				}
-				// A branch's own required field is not optional under its
-				// discriminator value.
-				for _, required := range corpusRequired(branch) {
-					if required == discriminator {
-						continue
-					}
-					if _, optionalElsewhere := corpusProperty(fieldsSchema, required); optionalElsewhere {
-						mutant := corpusCopy(sample)
-						mutant = corpusSetValue(mutant, []string{"fields", discriminator}, value)
-						mutant = corpusDeleteValue(mutant, []string{"fields", required})
-						add(fmt.Sprintf("legal combination %s=%v drops %s", discriminator, value, required), mutant)
-					}
-				}
-			}
 			// Alternative-group branches carry no const discriminator: their
 			// own invalid mutant pairs two groups' exclusive fields, the
 			// exactly-one rule the registry's alternative declaration states
@@ -558,15 +504,6 @@ func corpusBranchConstField(branch map[string]any) string {
 	return ""
 }
 
-func corpusBranchConstValue(branch map[string]any, field string) any {
-	properties, _ := branch["properties"].(map[string]any)
-	property, ok := properties[field].(map[string]any)
-	if !ok {
-		return nil
-	}
-	return property["const"]
-}
-
 func corpusSortedKeys(object map[string]any) []string {
 	keys := make([]string, 0, len(object))
 	for key := range object {
@@ -599,8 +536,8 @@ func corpusVariantFieldNames(defs map[string]any, variantName string) []string {
 	if fieldProperties, ok := fields["properties"].(map[string]any); ok {
 		collect(fieldProperties)
 	}
-	// A fields object the registry's cross-field declarations split declares
-	// its fields per branch; the variant's field set is the union.
+	// A fields object split into branches declares its fields per branch;
+	// the variant's field set is the union.
 	for _, keyword := range []string{"oneOf", "anyOf"} {
 		branches, _ := fields[keyword].([]any)
 		for _, raw := range branches {

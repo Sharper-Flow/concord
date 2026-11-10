@@ -137,7 +137,7 @@ func firstCallActionInput(t *testing.T, defs map[string]any, workID string, vers
 		}
 		if name == "fields" {
 			// Sample the first union branch while preserving $ref siblings.
-			fields := crossFieldSampleObject(defs, property)
+			fields := schemaSampleObject(defs, property)
 			for key, value := range overrides {
 				fields[key] = value
 			}
@@ -151,7 +151,7 @@ func firstCallActionInput(t *testing.T, defs map[string]any, workID string, vers
 		if !ok {
 			t.Fatalf("published variant %s declares no fields property", variant)
 		}
-		fields := crossFieldSampleObject(defs, property)
+		fields := schemaSampleObject(defs, property)
 		for key, value := range overrides {
 			fields[key] = value
 		}

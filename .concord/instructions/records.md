@@ -21,12 +21,13 @@ discovered for another Product.
   checkable end state before any plan.
 - A defect record reports the failure as the affected party saw it, not its
   diagnosis.
-- A Linear issue's description holds its current problem, scope, end state and
-  decisions; a comment holds one event the description cannot.
+- A Linear issue's description holds its current problem, impact, scope, success
+  criteria, consequential decisions and constraints, and links execution detail;
+  a comment holds one event the description cannot.
 - List every law change in the pull request and completion report with its
   record, its change in meaning or an explicit statement of none, and its reason.
-- A delegation prompt names the agent's role and points to its assignment;
-  standing rules stay in the files that own them.
+- A delegation prompt names the agent's role and carries its complete task-specific
+  brief; standing rules stay in the files that own them.
 
 ## New Linear records
 
@@ -40,8 +41,9 @@ for real comparisons, with 2–3 columns, and bold only for the one thing a read
 must not miss. Use code formatting only for things a reader copies. Cut restated
 rules, history, hedging and content already linked.
 
-Preserve full operator answers word-for-word in Linear, with the question and
-what the answer decides; only surrounding prose is capped. A collapsed Agent
+Preserve exact approval evidence and attribution. Record settled decisions and
+consequences, not a transcript. Concord step records quote operator answers under
+existing law; do not copy ordinary answers verbatim to Linear. A collapsed Agent
 detail section, opened with +++ Agent detail and closed with +++, holds the
 paths, IDs, commands, counts and other detail agents need on the ticket, and
 has no few-line cap. Keep collapsed content scannable. Prefer links for long
@@ -49,8 +51,7 @@ evidence, transcripts and check output with a better home. This standard
 applies to new records; do not rewrite existing comments to conform.
 
 Keep one event per record: each required step or event comment states that event's
-result and consequence and links earlier diagnosis and evidence. Keep assignments
-as current assignments, not investigation or review journals. RTE and project
+result and consequence and links earlier diagnosis and evidence. RTE and project
 updates add cross-stream changes or waits, not a duplicate of the owner's completion
 report. Do not omit required ticket-frontend step or event comments.
 
@@ -58,29 +59,34 @@ Keep unresolved questions, known limitations and the difference between merged,
 deployed and verified visible. Preserve exact approval and quoted wording, timers,
 notification owners and safe-resume detail where their consumer can use them.
 For Linear question comments, keep the question, recommendation, options and
-consequences visible and concise, as the shared asking instructions require.
+consequences visible and concise, as the shared asking instructions require;
+collapse supporting explanation. Include an exact error or small reproduction
+when useful and link full diagnostics.
 
 ### Placement and consumers
 
-- Keep every new-session assignment complete in the delivery issue assignment
-  comment's collapsed Agent detail, before or after capture, never only a host
-  file or chat. Include the objective, write set, exclusions, checks, stop
-  conditions and return point; link standing rules and longer evidence. No Concord
-  item is required first.
-- Once captured, Concord step notes, review or bound evidence supplement execution
-  and resume context; they do not replace the complete assignment comment.
-  Ticket-frontend resume remains Linear comments plus `concord_work_trace.resume`;
-  link moved detail from the comments.
+- The assigning agent gives the complete task-specific brief in the spawning message,
+  never Linear: objective, write set, exclusions, checks, stop conditions and return
+  point, with links to standing rules and evidence. For managed work, preserve the
+  durable assignment in the captured work task and revise it when scope changes.
+- For captured work, at launch, retrigger, restart, context reset or RTE
+  succession, read the captured task with item-scoped `concord_work_browse.list`
+  using `detail=full`, and `concord_work_trace.resume`, plus relevant ticket events.
+- Before capture, the Herdr tab title names the ticket; after capture, the Concord
+  work record for the ticket and the Herdr tab title identify the owner. Do not post
+  owner or assignment comments; use Linear status for planning state.
 - Put evidence, test runs, CI, rehearsals, counts and digests in a PR body,
   release or Concord work record linked from Linear.
-- For host or toolbox work with no Concord item, link its PR or assignment
-  record, or keep its complete task-specific detail in collapsed Agent detail.
+- Before capture, and for host work with no Concord item, no supported non-Linear
+  carrier for a fresh-session brief is established. Report the gap; do not invent
+  a route.
 - Summarize blockers and waits in Linear, linking the blocking records and naming
   what unblocks the work. Put drain acknowledgements in a coordination project
   update or Concord record, not per-session issue comments.
-- Keep research in its canonical knowledge home and copy development-time
-  findings into a linked Linear Document; use `concord-research-writing` for
-  the placement route. Keep routine coordination in coordination project updates.
+- Keep research in its canonical knowledge home and link its full report from
+  Linear; copy to a Linear Document only on operator request. Use
+  `concord-research-writing` for placement. Keep routine coordination in
+  coordination project updates.
 - Keep readiness and completion comments concise and link their owning records.
   Ordinary issue progress comments are rare: start, blocker and done; a
   ticket-frontend item follows its required step and event comments.

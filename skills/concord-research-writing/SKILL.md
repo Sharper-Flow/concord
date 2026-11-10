@@ -24,7 +24,7 @@ After:
 
 > #### Investigation complete
 >
-> The linked research Document traces the failure to the export boundary.
+> The export boundary caused the failure; the linked report holds the evidence. The retry path remains untested.
 
 ## Trace the findings
 
@@ -49,15 +49,13 @@ research with a durable result as one cited research record under
 it is. Where no knowledge home is designated, place it where the requester or
 the repository's documentation places such notes.
 
-During development, the driving session copies research, audit and inventory
-findings into a Linear Document attached to the owning issue or project, rather
-than leaving them only in host files or long issue comments, so Linear readers
-can follow progress. That session links the Document from the issue and the
-issue from the Document. This is a development-time copy, not a second
-long-term home.
+Put the result and limitations on the ticket and link the full report from the issue
+at its accessible owning record. Copy findings into a Linear Document only when
+the operator requests it; such a copy is not a second long-term home.
 
-Keep law, architecture reference and product vision in Git. Keep assignment
-briefs, quoted decisions and completion reports in comments. Keep private data
+Keep law, architecture reference and product vision in Git. Keep settled
+decisions and consequences on the ticket, with exact approval evidence and
+attribution; keep complete assignment briefs out of Linear. Keep private data
 out of Linear and public repository content.
 
 The reader should be able to follow every claim to its source, understand what

@@ -1017,25 +1017,21 @@ class MethodSkillTests(unittest.TestCase):
         content = self.content("concord-law-writing")
         self.assertIn("Load the shipped `concord-instruction-writing` skill", content)
 
-    def test_research_findings_use_linked_linear_documents(self):
+    def test_research_findings_link_one_home_without_automatic_copy(self):
         expectations = {
             "concord-research-writing": (
                 "research with a durable result as one cited research record under `.concord/docs/` in the Product's designated Git knowledge home",
                 "Where no knowledge home is designated, place it where the requester or the repository's documentation places such notes",
-                "During development, the driving session copies research, audit and inventory findings into a Linear Document",
-                "attached to the owning issue or project",
-                "That session links the Document from the issue and the issue from the Document",
-                "development-time copy, not a second long-term home",
-                "rather than leaving them only in host files or long issue comments",
+                "only when the operator requests it",
+                "link the full report from the issue",
+                "result and limitations on the ticket",
                 "law, architecture reference and product vision in Git",
-                "assignment briefs, quoted decisions and completion reports in comments",
+                "settled decisions and consequences",
                 "private data out of Linear and public repository content",
             ),
             "concord-project-updates": (
-                "copy coordination research, audit and inventory findings into a Linear Document",
-                "attached to the owning issue or project",
-                "Link the Document from the issue and the issue from the Document",
-                "development-time copy, not a second long-term home",
+                "only on operator request",
+                "link the full report",
                 "`concord-research-writing`",
             ),
         }
@@ -1044,28 +1040,28 @@ class MethodSkillTests(unittest.TestCase):
             for phrase in phrases:
                 with self.subTest(skill=name, meaning=phrase):
                     self.assertIn(phrase, content)
+            self.assertNotIn("development-time copy, not a second long-term home", content)
 
     def test_linear_writing_standard_and_placement_have_one_home(self):
         records = " ".join((ROOT / ".concord/instructions/records.md").read_text().split())
-        canonical = ("about 600 characters", "no few-line cap", "one fact each", "every new-session assignment")
+        canonical = ("about 600 characters", "no few-line cap", "one fact each", "no supported non-Linear carrier")
         for phrase in canonical + (
-            "operator answers word-for-word", "the question and what the answer decides",
+            "exact approval evidence", "ordinary answers", "Concord step records",
             "has not read the issue", "paths, IDs, commands, counts",
             "one sentence", "two lines", "2–3 columns", "bold only for the one thing",
             "one event heading", "code formatting only for things a reader copies",
             "Cut restated rules, history, hedging", "+++ Agent detail",
-            "rare: start, blocker and done", "delivery issue assignment comment",
-            "never only a host file or chat", "Concord step notes, review or bound evidence",
+            "rare: start, blocker and done", "spawning message", "never Linear",
+            "captured work task", "concord_work_browse.list", "detail=full",
             "concord_work_trace.resume", "blockers and waits", "drain acknowledgements",
-            "knowledge home", "coordination project updates", "no Concord item",
-            "complete task-specific detail in collapsed Agent detail",
+            "knowledge home", "coordination project updates", "no Concord item", "Before capture",
             "all visible text outside every collapse", "including text after a collapse",
-            "one event per record", "earlier diagnosis and evidence", "not investigation or review journals",
+            "one event per record", "earlier diagnosis and evidence", "not a transcript",
             "cross-stream changes or waits", "owner's completion report", "unresolved questions",
             "known limitations", "merged, deployed and verified visible", "exact approval and quoted wording",
             "timers", "notification owners", "safe-resume detail",
             "question, recommendation, options and consequences", "visible and concise",
-            "supplement execution and resume context",
+            "complete task-specific brief", "Herdr tab title", "Concord work record for the ticket",
         ):
             with self.subTest(meaning=phrase):
                 self.assertIn(phrase, records)
@@ -1078,9 +1074,11 @@ class MethodSkillTests(unittest.TestCase):
                 with self.subTest(skill=name, single_home=phrase):
                     self.assertNotIn(phrase, content)
         examples = {
-            "concord-handoff-writing": ("Timer: pending", "Notification:", "Stop state:"),
+            "concord-handoff-writing": ("Timer: pending", "Notification:", "Stop state:", "Spawning message:"),
             "concord-project-updates": ("merged, but release waits", "Next decision:", "+++ Agent detail"),
             "concord-pr-writing": ("merged and deployed",),
+            "concord-work-shaping": ("Before:", "After:", "Concord step record quotes the answer"),
+            "concord-ticket-writing": ("one simple visible result line", "collapse why and how", "Implement complete", "+++ Agent detail"),
         }
         for name, phrases in examples.items():
             content = " ".join(self.content(name).split())
@@ -1088,9 +1086,11 @@ class MethodSkillTests(unittest.TestCase):
                 with self.subTest(example=name, meaning=phrase):
                     self.assertIn(phrase, content)
         rte = " ".join((ROOT / ".concord/roles/rte.md").read_text().split())
-        for phrase in ("records.md", "every new-session assignment", "objective, write set, exclusions, checks, stop conditions and return point", "collapsed Agent detail", "before or after capture", "another item's step notes"):
+        for phrase in ("records.md", "spawning message", "objective, write set, exclusions, checks, stop conditions and return point", "captured work task", "concord_work_browse.list", "concord_work_trace.resume", "Herdr tab title", "Concord work record for the ticket", "another item's step notes"):
             with self.subTest(role="RTE", meaning=phrase):
                 self.assertIn(phrase, rte)
+        self.assertNotIn("new-session assignment's complete task-specific brief in one assignment comment", rte)
+        self.assertNotIn("Preserve full operator answers word-for-word in Linear", records)
         frontend = " ".join(self.content("concord-ticket-frontend").split())
         self.assertIn("question, recommendation, options and consequences visible outside collapsed detail", frontend)
 

@@ -9,6 +9,7 @@ import (
 )
 
 func TestOverlapInvalidationUpgradeAndOwnership(t *testing.T) {
+	useStampedBuild(t)
 	ctx := context.Background()
 	db := openMigratedTo(t, filepath.Join(t.TempDir(), "upgrade.db"), 193)
 	exec := func(q string, args ...any) { retirementUpgradeExec(t, db, q, args...) }
@@ -38,7 +39,7 @@ func TestOverlapInvalidationUpgradeAndOwnership(t *testing.T) {
 	exec(`DELETE FROM write_guard`)
 	beforeRes := retirementUpgradeRows(t, db, `SELECT * FROM workflow_overlap_resolutions ORDER BY resolution_id`)
 	beforeRel := retirementUpgradeRows(t, db, `SELECT * FROM relations ORDER BY id`)
-	if err := migrateAtOpen(ctx, db); err != nil {
+	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 	if got := retirementUpgradeRows(t, db, `SELECT * FROM workflow_overlap_resolutions ORDER BY resolution_id`); !reflect.DeepEqual(got, beforeRes) {

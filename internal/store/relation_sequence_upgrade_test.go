@@ -10,6 +10,7 @@ import (
 )
 
 func TestRelationSequenceUpgradePreservesRowsAndRetries(t *testing.T) {
+	useStampedBuild(t)
 	db := openMigratedTo(t, filepath.Join(t.TempDir(), "upgrade.db"), 195)
 	s := &Store{db: db}
 	for _, id := range []string{"a", "b", "c", "d"} {
@@ -45,12 +46,16 @@ func TestRelationSequenceUpgradePreservesRowsAndRetries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := migrateAtOpen(t.Context(), db); err != nil {
+	if err := Migrate(t.Context(), db); err != nil {
 		t.Fatalf("upgrade: %v", err)
 	}
 	var last int64
 	if err := db.QueryRow(`SELECT last FROM store_sequences WHERE name='relation'`).Scan(&last); err != nil || last != 10 {
 		t.Fatalf("upgraded relation frontier = %d, err %v; want 10", last, err)
+	}
+	var breaking int
+	if err := db.QueryRow(`SELECT breaking FROM schema_migrations WHERE version=196`).Scan(&breaking); err != nil || breaking != 0 {
+		t.Fatalf("migration 196 breaking=%d err=%v", breaking, err)
 	}
 	if got := retirementUpgradeRows(t, db, `SELECT * FROM relations ORDER BY id`); !reflect.DeepEqual(got, beforeRelations) {
 		t.Fatalf("migration changed relations: %v -> %v", beforeRelations, got)
@@ -99,6 +104,7 @@ func TestRelationSequenceUpgradePreservesRowsAndRetries(t *testing.T) {
 }
 
 func TestRelationSequenceUpgradeHighWaterSources(t *testing.T) {
+	useStampedBuild(t)
 	for _, tc := range []struct {
 		name  string
 		setup string
@@ -123,7 +129,7 @@ func TestRelationSequenceUpgradeHighWaterSources(t *testing.T) {
 			if tc.setup != "" {
 				retirementUpgradeExec(t, db, tc.setup)
 			}
-			if err := migrateAtOpen(t.Context(), db); err != nil {
+			if err := Migrate(t.Context(), db); err != nil {
 				t.Fatal(err)
 			}
 			var got int64

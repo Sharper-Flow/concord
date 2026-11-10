@@ -189,7 +189,7 @@ during planning.
 ## 3. Workflow instance state machine
 
 `instance_state` is closed:
-`intake`, `running`, `blocked`, `verifying`,
+`intake`, `running`, `blocked`,
 `completed`, `cancelled`.
 
 | From | To | Operation | Authority/fence |
@@ -198,9 +198,8 @@ during planning.
 | `intake` | `running` | type picked and the plan written | one expected-version-checked transaction |
 | `running` | `running` | action checkpoint or successful action | one expected-version-checked transaction |
 | `running` | `blocked` | unresolved dependency discovered | internal-inline |
-| `running` | `verifying` | execution steps are complete and verification begins | internal-inline |
-| `verifying` | `completed` | ordered completion gate succeeds | one internal transaction |
-| `running`, `blocked`, `verifying` | `cancelled` | explicit authorized cancellation | one expected-version-checked transaction |
+| `running` | `completed` | ordered completion gate succeeds | one internal transaction |
+| `running`, `blocked` | `cancelled` | explicit authorized cancellation | one expected-version-checked transaction |
 | `completed`, `cancelled` | `running`, or `intake` when no plan exists | explicit work reopen | the reopen's expected-version-checked transaction |
 
 An action failure records its typed failure result; it does not invent a state.

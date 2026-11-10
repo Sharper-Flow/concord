@@ -1958,7 +1958,6 @@
             "intake",
             "running",
             "blocked",
-            "verifying",
             "completed",
             "cancelled"
           ],

@@ -40,15 +40,14 @@ Its status updates carry material cross-stream dependencies, sequencing
 decisions and changes to coordination directives. Link owning delivery records
 instead of copying their requirements, evidence or status lists.
 
-The delivery issue owns its acceptance, evidence, execution owner, blocker,
+The delivery issue owns its acceptance, evidence, blocker,
 next action and planning state. Add a coordination fact there only when it
 changes that item's execution. Preserve unresolved decisions and evidence in
 their existing owning records during a transfer.
 
-During development, copy coordination research, audit and inventory findings
-into a Linear Document attached to the owning issue or project. Link the Document
-from the issue and the issue from the Document. This is a development-time copy,
-not a second long-term home. Load `concord-research-writing` for canonical
+Put results and limitations on the ticket and link the full report at its accessible
+owning record. Copy findings into a Linear Document only on operator request.
+Load `concord-research-writing` for canonical
 placement and the writing method.
 
 ## Write the update

@@ -15,8 +15,10 @@ the wait, and a fresh session resumes the same work from those records; load
 
 Context size alone does not justify a stop, handoff, or restart. Preserve work
 on disk as it proceeds, through commits, checkpoints, reports, and logs. After
-a context boundary, read the work's durable records, including any assignment
-and the latest progress report, before acting.
+a launch, retrigger, restart or context reset, read the work's durable records
+before acting: the captured work task and resume read that `records.md` names,
+and relevant ticket events. Where `records.md` reports no supported non-Linear
+carrier for a fresh-session brief, report that gap rather than invent a route.
 A summary does not replace durable records or carry authority, approval, law,
 workflow position, or evidence.
 

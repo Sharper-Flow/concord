@@ -18,21 +18,23 @@ placement.
 
 ### Example: pending timer handoff
 
-Before: a long history of the repair with no timer or resume owner.
+Before: a Linear assignment comment holding a long history of the repair, with
+no timer or resume owner.
 
 After:
 
-> #### Resume handoff
+> Spawning message: As the implementation helper, resume the export repair in
+> the assigned worktree and report the result to the assigning agent.
 >
 > The export repair waits for the verification timer before the next check.
 >
-> +++ Agent detail
-> - Scope: finish the export summary repair under the linked assignment.
+> - Objective: finish the export summary repair.
+> - Write set: the export summary and its tests; exclude the storage layer.
+> - Check: run the export summary tests.
 > - Timer: pending until 14:00 UTC on 2026-01-02; no check before then.
 > - Notification: the verification owner will notify the repair owner at expiry.
 > - Stop state: no stop recorded; if a stop arrives, hold until its resume condition is met.
 > - After notification, run the assigned check and report to the assigning agent.
-> +++
 
 ## Bound the work
 
@@ -41,16 +43,16 @@ For a delivery stream, specify its write set, exclusions, checks and return
 point: who reports what to whom. Say what the next agent will
 be used for and tailor the handoff to that purpose.
 
-An assignment brief attached to a tracked delivery item goes in one assignment
-comment on that item, never in the item's description; the description keeps
-only the problem, scope, end state and decisions. The brief holds only what is
+The assigning agent puts the complete brief in the spawning message, never Linear.
+For managed work, preserve the durable assignment in the captured work task and
+revise it as scope changes. The brief holds only what is
 task-specific: objective, write set, exclusions, checks, stop conditions and
 return point, linking the files that own standing rules instead of restating
 them. Host locators such as session identifiers and worktree paths belong in
-the comment, not the description.
+the spawning message, not the description.
 
-A delegation prompt names the agent's role and points to the assignment rather
-than restating it. Name relevant methods when they help the next agent carry out
+A delegation prompt names the agent's role and gives the complete brief.
+Name relevant methods when they help the next agent carry out
 the assigned work, without granting a new scope or authority.
 
 ## Preserve the source of truth

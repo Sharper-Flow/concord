@@ -173,7 +173,7 @@ func TestNativeExecutionStartFenceAndAtomicRefusals(t *testing.T) {
 		ref, producer := "artifact:"+id, "producer-"+id
 		seedWorkflowAuthority(t, s, producer, workID, "principal:hold", "request:"+id, []string{ref})
 		payload := mustJSONValue(map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": ref, "producer_id": "principal:hold", "producer_run_ref": producer, "producer_watermark": "request:" + id})
-		if err := runWorkflowActionWithIdentity(t, s, workID, "bind_evidence", payload, 0, first, id); err != nil {
+		if err := runWorkflowActionWithIdentity(t, s, workID, "bind_evidence", payload, first, id); err != nil {
 			t.Fatalf("bind evidence %s: %v", id, err)
 		}
 	}
@@ -345,11 +345,9 @@ func runVerdictActionAtVersion(t *testing.T, s *Store, workID, action string, pa
 // runWorkflowActionWithIdentity runs one action under a distinct operation
 // identity, so a repeated action on one version mints its own durable
 // operation instead of colliding with the first call's identity.
-func runWorkflowActionWithIdentity(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64, owner WorkflowActor, suffix string) error {
+func runWorkflowActionWithIdentity(t *testing.T, s *Store, workID, action string, payload json.RawMessage, owner WorkflowActor, suffix string) error {
 	t.Helper()
-	if version == 0 {
-		version = readWorkVersion(t, s, workID)
-	}
+	version := readWorkVersion(t, s, workID)
 	operation := action + "-" + suffix + "-" + workID + "-" + fmt.Sprint(version)
 	ctx, err := prepareTerminalTestContext(context.Background(), s, workID, action)
 	if err != nil {

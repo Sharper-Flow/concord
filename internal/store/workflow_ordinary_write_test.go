@@ -12,7 +12,7 @@ func TestOrdinaryDiagnosisReplacementRollback(t *testing.T) {
 	const work = "diagnosis-replacement-rollback"
 	f := seedWorkflowReturnRouteFixture(t, work, WorkflowStepPlanFix, "diagnose")
 	s := f.store
-	if err := runWorkflowActionWithIdentity(t, s, work, "record_diagnosis", diagnosisPayload("first reproduction", "first cause"), 0, f.owner, "first"); err != nil {
+	if err := runWorkflowActionWithIdentity(t, s, work, "record_diagnosis", diagnosisPayload("first reproduction", "first cause"), f.owner, "first"); err != nil {
 		t.Fatal(err)
 	}
 	version := readWorkVersion(t, s, work)
@@ -25,7 +25,7 @@ func TestOrdinaryDiagnosisReplacementRollback(t *testing.T) {
 	if _, err := s.db.Exec(`CREATE TRIGGER fail_diagnosis_receipt BEFORE INSERT ON effect_receipts WHEN NEW.kind='workflow.diagnosis_recorded' BEGIN SELECT RAISE(ABORT, 'injected diagnosis failure'); END`); err != nil {
 		t.Fatal(err)
 	}
-	if err := runWorkflowActionWithIdentity(t, s, work, "record_diagnosis", diagnosisPayload("second reproduction", "second cause"), 0, f.owner, "failure"); err == nil {
+	if err := runWorkflowActionWithIdentity(t, s, work, "record_diagnosis", diagnosisPayload("second reproduction", "second cause"), f.owner, "failure"); err == nil {
 		t.Fatal("injected receipt failure was accepted")
 	}
 	if got := readWorkVersion(t, s, work); got != version || currentStep(t, s, work) != "diagnose" {
@@ -34,7 +34,7 @@ func TestOrdinaryDiagnosisReplacementRollback(t *testing.T) {
 	if _, err := s.db.Exec(`DROP TRIGGER fail_diagnosis_receipt`); err != nil {
 		t.Fatal(err)
 	}
-	if err := runWorkflowActionWithIdentity(t, s, work, "record_diagnosis", diagnosisPayload("second reproduction", "second cause"), 0, f.owner, "second"); err != nil {
+	if err := runWorkflowActionWithIdentity(t, s, work, "record_diagnosis", diagnosisPayload("second reproduction", "second cause"), f.owner, "second"); err != nil {
 		t.Fatal(err)
 	}
 }

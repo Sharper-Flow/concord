@@ -58,6 +58,9 @@ ORDER BY alignment.related_work_id,alignment.work_id LIMIT 1`},
 		return err
 	}
 	for _, id := range ids {
+		if _, err := q.ExecContext(ctx, `DELETE FROM workflow_backlog_alignment WHERE work_id=? OR related_work_id=?`, id, id); err != nil {
+			return fmt.Errorf("initiative retirement: clear alignment: %w", err)
+		}
 		if err := deleteWorkOwnedProjections(ctx, q, id); err != nil {
 			return fmt.Errorf("initiative retirement: %s: %w", id, err)
 		}

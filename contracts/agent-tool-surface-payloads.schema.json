@@ -5264,110 +5264,34 @@
           "description": "Bounds: >=1 value inclusive"
         },
         "fields": {
-          "oneOf": [
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "maxProperties": 32,
-              "properties": {
-                "reproduction": {
-                  "type": "string",
-                  "maxLength": 4096,
-                  "x-maxBytes": 4096,
-                  "minLength": 1,
-                  "x-minBytes": 2,
-                  "pattern": "\\S",
-                  "description": "Bounds: 1..4096 code points inclusive; 2..4096 UTF-8 bytes inclusive"
-                },
-                "searched": {
-                  "type": "string",
-                  "maxLength": 4096,
-                  "x-maxBytes": 4096,
-                  "minLength": 1,
-                  "x-minBytes": 2,
-                  "pattern": "\\S",
-                  "description": "Bounds: 1..4096 code points inclusive; 2..4096 UTF-8 bytes inclusive"
-                },
-                "outcome": {
-                  "type": "string",
-                  "const": "related_found"
-                },
-                "related_ids": {
-                  "type": "array",
-                  "uniqueItems": true,
-                  "items": {
-                    "$ref": "#/$defs/id",
-                    "description": "Bounds: 1..128 code points inclusive"
-                  },
-                  "minItems": 1,
-                  "maxItems": 64,
-                  "description": "record_diagnosis couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination. Each related ID must be a Concord work ID, not a Linear issue key. Look up a Linear issue with concord_work_browse.list using linear_issue_key. Bounds: 1..64 items inclusive"
-                },
-                "root_cause": {
-                  "type": "string",
-                  "maxLength": 4096,
-                  "x-maxBytes": 4096,
-                  "minLength": 1,
-                  "x-minBytes": 2,
-                  "pattern": "\\S",
-                  "description": "Bounds: 1..4096 code points inclusive; 2..4096 UTF-8 bytes inclusive"
-                }
-              },
-              "required": [
-                "reproduction",
-                "searched",
-                "outcome",
-                "related_ids",
-                "root_cause"
-              ],
-              "description": "Bounds: <=32 properties inclusive"
+          "type": "object",
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "reproduction": {
+              "type": "string",
+              "maxLength": 4096,
+              "x-maxBytes": 4096,
+              "minLength": 1,
+              "x-minBytes": 2,
+              "pattern": "\\S",
+              "description": "Bounds: 1..4096 code points inclusive; 2..4096 UTF-8 bytes inclusive"
             },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "maxProperties": 32,
-              "properties": {
-                "reproduction": {
-                  "type": "string",
-                  "maxLength": 4096,
-                  "x-maxBytes": 4096,
-                  "minLength": 1,
-                  "x-minBytes": 2,
-                  "pattern": "\\S",
-                  "description": "Bounds: 1..4096 code points inclusive; 2..4096 UTF-8 bytes inclusive"
-                },
-                "searched": {
-                  "type": "string",
-                  "maxLength": 4096,
-                  "x-maxBytes": 4096,
-                  "minLength": 1,
-                  "x-minBytes": 2,
-                  "pattern": "\\S",
-                  "description": "Bounds: 1..4096 code points inclusive; 2..4096 UTF-8 bytes inclusive"
-                },
-                "outcome": {
-                  "type": "string",
-                  "const": "none_found"
-                },
-                "root_cause": {
-                  "type": "string",
-                  "maxLength": 4096,
-                  "x-maxBytes": 4096,
-                  "minLength": 1,
-                  "x-minBytes": 2,
-                  "pattern": "\\S",
-                  "description": "Bounds: 1..4096 code points inclusive; 2..4096 UTF-8 bytes inclusive"
-                }
-              },
-              "required": [
-                "reproduction",
-                "searched",
-                "outcome",
-                "root_cause"
-              ],
-              "description": "Bounds: <=32 properties inclusive"
+            "root_cause": {
+              "type": "string",
+              "maxLength": 4096,
+              "x-maxBytes": 4096,
+              "minLength": 1,
+              "x-minBytes": 2,
+              "pattern": "\\S",
+              "description": "Bounds: 1..4096 code points inclusive; 2..4096 UTF-8 bytes inclusive"
             }
-          ]
+          },
+          "required": [
+            "reproduction",
+            "root_cause"
+          ],
+          "description": "Bounds: <=32 properties inclusive"
         }
       }
     },

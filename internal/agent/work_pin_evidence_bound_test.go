@@ -37,12 +37,9 @@ func TestBindEvidenceRefusesLocatorPastReferenceBound(t *testing.T) {
 	compositionAction(t, ctx, s, service, env, workID, "pick_type", map[string]any{"type": "fix", "reason": "Repair the locator defect."})
 	version := agentCompositionWorkVersion(t, s, workID)
 
-	// CD-0198 D2: one typed record_diagnosis carries the three sections the
-	// separate reproduction, alignment, and root-cause actions recorded.
+	// CD-0198 D2: one typed diagnosis carries reproduction and root cause.
 	response, _ := ekbDispatch(t, s, service, env, workID, version, "record_diagnosis", map[string]any{
 		"reproduction": "The bounded defect reproduction statement.",
-		"searched":     "The bounded backlog search statement.",
-		"outcome":      "none_found",
 		"root_cause":   "The bounded root cause statement.",
 	}, nil, "wpeb-diagnosis")
 	if response.Outcome != agentcontract.OutcomeOK {

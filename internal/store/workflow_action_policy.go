@@ -347,15 +347,6 @@ func actionPolicy(consequence ActionConsequence, mode ActionExecutionMode, shape
 	return builtinActionPolicy{Consequence: consequence, ExecutionMode: mode, EventShape: shape, Payload: WorkflowPayloadDefinition{Closed: true, Fields: fields}}
 }
 
-// actionPolicyWithCombinations attaches the action's cross-field legal input
-// combinations to its engine policy declaration: the one typed declaration
-// core validation enforces and the published variants generate their closed
-// per-value branches from.
-func actionPolicyWithCombinations(policy builtinActionPolicy, combinations ...WorkflowPayloadCombination) builtinActionPolicy {
-	policy.CrossField = &WorkflowActionCrossField{Combinations: combinations}
-	return policy
-}
-
 // workflowActionCrossField resolves one action's cross-field declaration
 // from the builtin engine policy table. An action without a policy entry
 // resolves an empty declaration. Core payload validation and the
@@ -493,13 +484,6 @@ func evidenceBindingActionFields() []WorkflowPayloadField {
 	}
 }
 
-// workflowAlignmentCombinationTeaching states the outcome/related_ids
-// cross-field rule the record_diagnosis combination declaration enforces
-// through
-// validateWorkflowPayloadCrossFieldRules; the teaching projection publishes
-// the same text from this declaration site.
-const workflowAlignmentCombinationTeaching = "record_diagnosis couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination. Each related ID must be a Concord work ID, not a Linear issue key. Look up a Linear issue with concord_work_browse.list using linear_issue_key."
-
 var builtinActionPolicies = map[string]builtinActionPolicy{
 	"record_discovery": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric),
 	"approve_contract": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
@@ -534,24 +518,9 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"checkpoint_repair":   actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
 	"start_refine":        actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
 	"checkpoint_refine":   actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
-	// The typed diagnosis record. The payload carries one
-	// required section per merged source action: the reproduction record,
-	// the alignment search with its searched/outcome/related_ids
-	// fields and legal input combinations, and the root-cause record. The
-	// projection fold writes the same workflow_backlog_alignment rows the
-	// alignment fold writes and creates no relation.
-	"record_diagnosis": actionPolicyWithCombinations(actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
-		// The bounds match the searched floor the fold enforces through
-		// workflowString: a schema-valid section cannot be refused by the
-		// fold.
+	"record_diagnosis": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
 		WorkflowPayloadField{Name: "reproduction", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
-		WorkflowPayloadField{Name: "searched", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
-		actionEnumField("outcome", true, "related_found", "none_found"),
-		actionIDListField("related_ids", false, 1, 64),
 		WorkflowPayloadField{Name: "root_cause", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
-	),
-		WorkflowPayloadCombination{Field: "outcome", Value: "related_found", Requires: []string{"related_ids"}, Remedy: "name the related work items the search found"},
-		WorkflowPayloadCombination{Field: "outcome", Value: "none_found", Forbids: []string{"related_ids"}, Remedy: "drop related_ids or record outcome related_found"},
 	),
 	"frame_research":      actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric),
 	"record_finding":      actionPolicy(ActionCrossAuthority, ActionAdvance, ActionEventGeneric),

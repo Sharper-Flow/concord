@@ -198,7 +198,6 @@ func newSpineExecutionFixtureForFamily(t *testing.T, family string) *spineFixtur
 		spineOK(t, f.action(t, "pick_type", map[string]any{"type": "fix", "reason": "The work repairs a defect."}))
 		spineOK(t, f.action(t, "record_diagnosis", map[string]any{
 			"reproduction": "Run the declared value check.", "root_cause": "The value implementation needs a checked repair.",
-			"searched": "The isolated fixture has no related repair.", "outcome": "none_found",
 		}))
 		spineOK(t, f.action(t, "complete_step", map[string]any{"step_id": "diagnose", "note": "Diagnosis recorded."}))
 		spineOK(t, f.action(t, "record_clarify", map[string]any{"resolved_questions": []string{}, "note": "No operator questions remain."}))

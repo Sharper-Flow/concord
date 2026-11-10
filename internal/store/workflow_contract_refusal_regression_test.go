@@ -41,7 +41,7 @@ func TestWorkflowRefusalsExplainRecovery(t *testing.T) {
 	t.Run("unreviewed step", func(t *testing.T) {
 		const workID = "recovery-unreviewed-step"
 		fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanFix, "diagnose")
-		if err := runVerdictActionAs(t, fixture.store, workID, "record_diagnosis", diagnosisPayload("reproduce", "searched", "none_found", nil, "cause"), 0, fixture.owner); err != nil {
+		if err := runVerdictActionAs(t, fixture.store, workID, "record_diagnosis", diagnosisPayload("reproduce", "cause"), 0, fixture.owner); err != nil {
 			t.Fatal(err)
 		}
 		payload := json.RawMessage(`{"step_id":"diagnose","note":"diagnosis complete","reviewer":"concord-review","result":"pass","commit":"commit:one","link":"https://example.com/review"}`)
@@ -64,16 +64,6 @@ func TestWorkflowRefusalsExplainRecovery(t *testing.T) {
 		var failure *Failure
 		if !errors.As(err, &failure) || !strings.Contains(failure.Detail, "requires architecture_binding") || !strings.Contains(failure.RecoveryAction, "concord_domain.list") {
 			t.Fatalf("missing-binding recovery = %v", err)
-		}
-	})
-	t.Run("related work", func(t *testing.T) {
-		const workID = "recovery-related-work"
-		fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanFix, "diagnose")
-		payload := json.RawMessage(`{"reproduction":"reproduce","searched":"searched","outcome":"related_found","related_ids":["ZZ-42"],"root_cause":"cause"}`)
-		err := runVerdictActionAs(t, fixture.store, workID, "record_diagnosis", payload, 0, fixture.owner)
-		var failure *Failure
-		if !errors.As(err, &failure) || !strings.Contains(failure.RecoveryAction, "concord_work_browse.list") || !strings.Contains(failure.RecoveryAction, "linear_issue_key") {
-			t.Fatalf("related-work recovery = %v", err)
 		}
 	})
 }

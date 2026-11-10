@@ -35,13 +35,9 @@ authenticated coordinator identity. Concord attests no subagent identity.
 
 ### D2. The fix type records one typed diagnosis
 
-`record_diagnosis` records its reproduction, alignment-search and
-root-cause sections, each retaining its fields and guards. The search
-includes `searched`, `outcome` and `related_ids`. It writes the same
-alignment declaration and creates no relation. An outcome of found-nothing
-is distinct from not searched. The record holds the diagnose step; the
-step completes only through `complete_step` with the typed diagnosis
-recorded. Analysis cannot complete without the search beside it.
+`record_diagnosis` records the reproduction and root-cause sections atomically,
+each with its fields and guards. The record holds the diagnose step; the step
+completes only through `complete_step` with the typed diagnosis recorded.
 
 ### D3. The fenced implement start derives the step-start fact
 

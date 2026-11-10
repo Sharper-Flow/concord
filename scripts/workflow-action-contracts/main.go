@@ -34,7 +34,6 @@ type contractTeaching struct {
 	LawAdditionMandateRule   string            `json:"law_addition_mandate_rule"`
 	ObligationMembershipRule string            `json:"obligation_membership_rule"`
 	ArchitectureDomainRule   string            `json:"architecture_domain_rule"`
-	AlignmentCombinationRule string            `json:"alignment_combination_rule"`
 	ActionRules              map[string]string `json:"action_rules"`
 }
 
@@ -168,7 +167,7 @@ func main() {
 		refs[ref] = true
 	}
 	teaching := store.WorkflowContractTeachingRules()
-	projection := contractProjection{SchemaVersion: "2.0", Actions: make([]actionContract, 0, len(ids)), Teaching: contractTeaching{teaching.SpecMandateRule, teaching.LawAdditionMandateRule, teaching.ObligationMembershipRule, teaching.ArchitectureDomainRule, teaching.AlignmentCombinationRule, teaching.ActionRules}, SchemaRefs: schemaRefProjection{Current: sortedRefNames(refs)}, ContractUpdates: []store.WorkflowPayloadDefinition{update}}
+	projection := contractProjection{SchemaVersion: "2.0", Actions: make([]actionContract, 0, len(ids)), Teaching: contractTeaching{teaching.SpecMandateRule, teaching.LawAdditionMandateRule, teaching.ObligationMembershipRule, teaching.ArchitectureDomainRule, teaching.ActionRules}, SchemaRefs: schemaRefProjection{Current: sortedRefNames(refs)}, ContractUpdates: []store.WorkflowPayloadDefinition{update}}
 	for _, id := range ids {
 		projection.Actions = append(projection.Actions, contracts[id])
 	}

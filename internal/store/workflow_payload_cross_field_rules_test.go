@@ -54,22 +54,35 @@ func TestDeclaredCrossFieldRulesAreRegistryValid(t *testing.T) {
 		}
 	}
 	if declared == 0 {
-		t.Fatal("no action declares cross-field rules; the declaration owner and its differential would prove nothing")
+		fields, rules := syntheticCrossFieldFixture()
+		if !validateCrossFieldDeclaration(fields, rules) {
+			t.Fatal("registry refused a valid synthetic cross-field declaration")
+		}
 	}
+}
+
+func syntheticCrossFieldFixture() ([]WorkflowPayloadField, WorkflowActionCrossField) {
+	return []WorkflowPayloadField{
+			{Name: "choice", ValueType: PayloadString, Enum: []string{"with", "without"}},
+			{Name: "detail", ValueType: PayloadString},
+		}, WorkflowActionCrossField{Combinations: []WorkflowPayloadCombination{
+			{Field: "choice", Value: "with", Requires: []string{"detail"}},
+			{Field: "choice", Value: "without", Forbids: []string{"detail"}},
+		}}
 }
 
 // declarationMutants are engine cross-field declarations the registry must
 // refuse: each one is a way a cross-field declaration can drift from its
 // own fields.
 func TestRegistryRefusesDriftedCrossFieldDeclarations(t *testing.T) {
-	base := builtinActionPolicies["record_diagnosis"].Payload
+	base, valid := syntheticCrossFieldFixture()
 	mutate := func(cross WorkflowActionCrossField) WorkflowActionCrossField { return cross }
-	incomplete := WorkflowActionCrossField{Combinations: builtinActionPolicies["record_diagnosis"].CrossField.Combinations[:1]}
-	undeclaredDiscriminator := mutate(WorkflowActionCrossField{Combinations: []WorkflowPayloadCombination{{Field: "searched", Value: "xx", Requires: []string{"related_ids"}}}})
-	undeclaredSide := mutate(WorkflowActionCrossField{Combinations: []WorkflowPayloadCombination{{Field: "outcome", Value: "related_found", Requires: []string{"no_such_field"}}}})
-	nonEnumValue := mutate(WorkflowActionCrossField{Combinations: []WorkflowPayloadCombination{{Field: "outcome", Value: "partially_found", Requires: []string{"related_ids"}}, {Field: "outcome", Value: "none_found", Forbids: []string{"related_ids"}}}})
-	twoDiscriminators := mutate(WorkflowActionCrossField{Combinations: append(append([]WorkflowPayloadCombination{}, builtinActionPolicies["record_diagnosis"].CrossField.Combinations...), WorkflowPayloadCombination{Field: "searched", Value: "xx"})})
-	ruleWithoutConstraint := WorkflowActionCrossField{Combinations: []WorkflowPayloadCombination{{Field: "outcome", Value: "related_found"}, {Field: "outcome", Value: "none_found"}}}
+	incomplete := WorkflowActionCrossField{Combinations: valid.Combinations[:1]}
+	undeclaredDiscriminator := mutate(WorkflowActionCrossField{Combinations: []WorkflowPayloadCombination{{Field: "unknown", Value: "xx", Requires: []string{"detail"}}}})
+	undeclaredSide := mutate(WorkflowActionCrossField{Combinations: []WorkflowPayloadCombination{{Field: "choice", Value: "with", Requires: []string{"no_such_field"}}}})
+	nonEnumValue := mutate(WorkflowActionCrossField{Combinations: []WorkflowPayloadCombination{{Field: "choice", Value: "other", Requires: []string{"detail"}}, {Field: "choice", Value: "without", Forbids: []string{"detail"}}}})
+	twoDiscriminators := mutate(WorkflowActionCrossField{Combinations: append(append([]WorkflowPayloadCombination{}, valid.Combinations...), WorkflowPayloadCombination{Field: "unknown", Value: "xx"})})
+	ruleWithoutConstraint := WorkflowActionCrossField{Combinations: []WorkflowPayloadCombination{{Field: "choice", Value: "with"}, {Field: "choice", Value: "without"}}}
 	for name, cross := range map[string]WorkflowActionCrossField{
 		"incomplete enum coverage":  incomplete,
 		"undeclared discriminator":  undeclaredDiscriminator,
@@ -78,7 +91,7 @@ func TestRegistryRefusesDriftedCrossFieldDeclarations(t *testing.T) {
 		"two discriminators":        twoDiscriminators,
 		"rule without a constraint": ruleWithoutConstraint,
 	} {
-		if validateCrossFieldDeclaration(base.Fields, cross) {
+		if validateCrossFieldDeclaration(base, cross) {
 			t.Fatalf("registry accepted a drifted cross-field declaration: %s", name)
 		}
 	}
@@ -208,7 +221,23 @@ func TestDeclaredCrossFieldRulesMatchCoreAndPublishedVerdicts(t *testing.T) {
 		}
 	}
 	if !declaredAny {
-		t.Fatal("the differential exercised no declared cross-field rule")
+		valid := json.RawMessage(`{"reproduction":"reproduces","root_cause":"cause"}`)
+		old := json.RawMessage(`{"reproduction":"reproduces","root_cause":"cause","searched":"search","outcome":"none_found"}`)
+		if _, err := validateWorkflowPlanActionPayload("record_diagnosis", valid); err != nil {
+			t.Fatalf("current diagnosis refused by core: %v", err)
+		}
+		if _, err := validateWorkflowPlanActionPayload("record_diagnosis", old); err == nil {
+			t.Fatal("retired diagnosis input admitted by core")
+		}
+		for _, tc := range []struct {
+			fields json.RawMessage
+			admit  bool
+		}{{valid, true}, {old, false}} {
+			payload := json.RawMessage(`{"work_id":"work","expected_version":1,"action_id":"record_diagnosis","idempotency_key":"key","fields":` + string(tc.fields) + `}`)
+			if err := payloadschema.Validate("work_transition_action_variant_record_diagnosis", payload); (err == nil) != tc.admit {
+				t.Fatalf("published diagnosis admission = %v, want %v: %v", err == nil, tc.admit, err)
+			}
+		}
 	}
 }
 

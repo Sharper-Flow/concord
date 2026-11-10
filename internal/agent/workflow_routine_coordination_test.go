@@ -116,7 +116,7 @@ func routineCoordinationDriveWorkflow(t *testing.T, s *store.Store, workID strin
 	act("pick_type", map[string]any{"type": "fix", "reason": "The work repairs a defect."})
 	act("record_diagnosis", map[string]any{
 		"reproduction": "The bounded defect reproduction statement.",
-		"searched":     "The bounded backlog search statement.", "outcome": "none_found", "root_cause": "The bounded root cause statement.",
+		"root_cause":   "The bounded root cause statement.",
 	})
 	act("complete_step", map[string]any{"step_id": "diagnose", "note": "Diagnosis recorded."})
 	act("record_clarify", map[string]any{"resolved_questions": []string{}, "note": "No operator questions remain."})

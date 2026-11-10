@@ -100,7 +100,7 @@ func TestWorkflowClarifyRequiredBeforePlanning(t *testing.T) {
 					must("record_intake", `{"outcome":"proceed"}`)
 					must("pick_type", fmt.Sprintf(`{"type":%q,"reason":"initial choice"}`, tc.typ))
 					if tc.typ == "fix" {
-						must("record_diagnosis", `{"reproduction":"The defect reproduces.","searched":"Searched related work.","outcome":"none_found","root_cause":"The cause is confirmed."}`)
+						must("record_diagnosis", `{"reproduction":"The defect reproduces.","root_cause":"The cause is confirmed."}`)
 						must("complete_step", `{"step_id":"diagnose","note":"Diagnosis complete."}`)
 					}
 					if err := apply(tc.planning, tc.document); err == nil {

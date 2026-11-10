@@ -127,7 +127,7 @@ func TestDefectRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 				t.Errorf("retired table %s survives: %v", table, rows)
 			}
 			continue
-		case "schema", "schema_migrations", "store_revision", "work_items":
+		case "schema", "schema_migrations", "store_revision", "work_items", "workflow_backlog_alignment":
 			continue
 		case "workflow_architecture_bindings":
 			want = retainedBindings
@@ -380,7 +380,7 @@ func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 				t.Errorf("ordinary completed operations changed or retired intermediate results survived: got %v, want %v", got, ordinaryOperations)
 			}
 			continue
-		case "schema", "schema_migrations", "store_revision", "workflow_instances", "work_projects", "work_items":
+		case "schema", "schema_migrations", "store_revision", "workflow_instances", "work_projects", "work_items", "workflow_backlog_alignment":
 			continue
 		case "workflow_architecture_bindings":
 			expected = retainedBindings

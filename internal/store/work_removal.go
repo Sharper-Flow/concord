@@ -387,14 +387,13 @@ func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 // foreign-key owner of work_items that is not ON DELETE CASCADE to be cleared
 // through this list or that map, so a new uncleared owner fails the suite
 // instead of failing removal at runtime.
-var workRemovalProjectionTables = []string{"workflow_overlap_resolutions", "workflow_backlog_alignment", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_additions", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_impact_edges", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_clarify_records", "workflow_removal_scopes", "workflow_plan_records", "workflow_instances", "project_handoffs", "external_observations", "relations", "work_projects", "linear_issue_links"}
+var workRemovalProjectionTables = []string{"workflow_overlap_resolutions", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_additions", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_impact_edges", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_clarify_records", "workflow_removal_scopes", "workflow_plan_records", "workflow_instances", "project_handoffs", "external_observations", "relations", "work_projects", "linear_issue_links"}
 
 // workRemovalProjectionOwnerColumns maps each projection table whose
 // work-item owner columns are not a bare work_id to those exact columns.
 // deleteWorkProjectionTx deletes rows matching ANY listed column, so a row
-// naming the removed work at either end clears: an alignment row names the
-// searching item and, for a related_found outcome, one item the search found;
-// an overlap resolution, an impact edge, and a relation each name two ends.
+// naming the removed work at either end clears. An overlap resolution, an
+// impact edge, and a relation each name two ends.
 // Every key must also appear in workRemovalProjectionTables: only that list
 // drives the deletes, so an entry missing from it builds a predicate that
 // never runs. TestWorkRemovalClearsEveryForeignKeyIntoWorkItems binds the
@@ -403,7 +402,6 @@ var workRemovalProjectionTables = []string{"workflow_overlap_resolutions", "work
 // suite.
 var workRemovalProjectionOwnerColumns = map[string][]string{
 	"workflow_overlap_resolutions": {"from_work_id", "to_work_id"},
-	"workflow_backlog_alignment":   {"work_id", "related_work_id"},
 	"workflow_impact_edges":        {"work_id", "target_work_id"},
 	"relations":                    {"work_id_from", "work_id_to"},
 }

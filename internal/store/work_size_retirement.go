@@ -21,6 +21,8 @@ func retireSizeEventAppendRefused(kind string) error {
 // names the decision that retired it.
 func retiredEventAppendRefused(kind string) error {
 	switch kind {
+	case "workflow.backlog_alignment_recorded":
+		return newFailure(KindInvalidOperation, "apply_operation", "event kind "+kind+" is retired", false, "record reproduction and root cause through record_diagnosis")
 	case WorkflowDefinitionSelected:
 		return newFailure(KindInvalidOperation, "apply_operation", "event kind "+kind+" is retired by CD-0229 D1: no definition registry or definition selection exists", false, "pick the workflow type through the pick_type action")
 	case "work.sized":

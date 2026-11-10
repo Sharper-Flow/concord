@@ -185,7 +185,6 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowSuccessorLinked:             workflowRegistration[workflowSuccessorLinkedPayload](3, foldWorkflowSuccessorLinked),
 	WorkflowProposalRecorded:            workflowRegistration[workflowProposalRecordedPayload](1, foldWorkflowProposalRecorded),
 	WorkflowDesignRecorded:              workflowRegistration[workflowDesignRecordedPayload](1, foldWorkflowDesignRecorded),
-	WorkflowBacklogAlignmentRecorded:    workflowRegistration[workflowBacklogAlignmentRecordedPayload](1, foldWorkflowBacklogAlignmentRecorded),
 	WorkflowDiagnosisRecorded:           workflowRegistration[workflowDiagnosisRecordedPayload](1, foldWorkflowDiagnosisRecorded),
 	WorkflowCompleted:                   workflowRegistration[workflowCompletedPayload](2, foldWorkflowCompleted),
 }
@@ -217,7 +216,7 @@ type preparedRegisteredEvent struct {
 
 func prepareRegisteredEvent(event Event) (preparedRegisteredEvent, error) {
 	switch event.Kind {
-	case "work.sized", WorkResized, WorkerJobSplit, WorkerJobSplitDischarged, WorkflowDefinitionSelected,
+	case "work.sized", WorkResized, WorkerJobSplit, WorkerJobSplitDischarged, WorkflowDefinitionSelected, "workflow.backlog_alignment_recorded",
 		"product.planning_mode_set", "initiative_entry.added", "initiative_entry.removed",
 		"initiative_entry.reordered", "initiative_entry.requiredness_changed", "initiative.narrative_revised":
 		return preparedRegisteredEvent{stage: StageDecode}, retiredEventAppendRefused(event.Kind)

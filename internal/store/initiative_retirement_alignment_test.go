@@ -45,7 +45,6 @@ func TestInitiativeRetirementTerminalAlignment(t *testing.T) {
 					row[4] = "cancelled"
 				}
 			}
-			alignment := retirementUpgradeRows(t, db, `SELECT * FROM workflow_backlog_alignment WHERE related_work_id IS NULL OR related_work_id<>'initiative-old' ORDER BY related_work_id`)
 			snapshot := filepath.Join(t.TempDir(), "before.db")
 			if _, err := BackupDatabase(t.Context(), path, snapshot); err != nil {
 				t.Fatalf("candidate cannot verify its pre-upgrade snapshot: %v", err)
@@ -71,9 +70,6 @@ func TestInitiativeRetirementTerminalAlignment(t *testing.T) {
 			}
 			if got := retirementUpgradeRows(t, db, `SELECT * FROM work_items WHERE kind<>'initiative' ORDER BY id`); !reflect.DeepEqual(got, beforeWork) {
 				t.Error("surviving work changed")
-			}
-			if got := retirementUpgradeRows(t, db, `SELECT * FROM workflow_backlog_alignment ORDER BY related_work_id`); !reflect.DeepEqual(got, alignment) {
-				t.Error("search declaration or surviving matches changed")
 			}
 			retirementUpgradeHealthy(t, db)
 			restored := filepath.Join(t.TempDir(), "restored.db")

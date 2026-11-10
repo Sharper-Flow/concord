@@ -111,34 +111,10 @@ const workflowEvidenceBindingTeaching = "Bind one immutable subject per call: ev
 // bind_evidence merges into its subject set (workflowActionEvidenceRefs).
 const workflowBindEvidenceTeaching = workflowEvidenceBindingTeaching + " fields.immutable_subject_ref, or fields.evidence_ref when it is absent, must name that same subject; a different value adds a second subject and is refused. native_run requires that subject to be the observation_id of a captured, attributed native-run record on this work whose verification state is verified. Bind host oc-run and ordinary command results as verification."
 
-// workflowRecordDiagnosisEvents builds the typed diagnosis event.
-// The action records all three required sections in one act: the
-// reproduction record, the alignment search, and the root-cause record. The
-// outcome enum and the outcome/related_ids legal input combinations are
-// declared on the record_diagnosis registry payload and enforced at action
-// validation by validateWorkflowPayloadCrossFieldRules before any event is
-// built, so this
-// constructor does not restate them. Each related id names a real work
-// item, refused here at the boundary rather than at the fold's foreign key.
-func workflowRecordDiagnosisEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	relatedIDs := workflowFieldStrings(fields, "related_ids")
-	for _, relatedID := range relatedIDs {
-		var exists int
-		err := tx.QueryRowContext(ctx, `SELECT 1 FROM work_items WHERE id=?`, relatedID).Scan(&exists)
-		if err == sql.ErrNoRows {
-			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_diagnosis related id "+workflowRefExcerpt(relatedID)+" does not name a work item", false, "supply a Concord work ID; look up a Linear issue with concord_work_browse.list using linear_issue_key")
-		} else if err != nil {
-			return nil, workflowProjectionError(err, "cannot read the diagnosis related work item")
-		}
-	}
+func workflowRecordDiagnosisEvents(request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
 	values := map[string]any{
 		"reproduction": workflowFieldStringDefault(fields, "reproduction", ""),
-		"searched":     workflowFieldStringDefault(fields, "searched", ""),
-		"outcome":      workflowFieldStringDefault(fields, "outcome", ""),
 		"root_cause":   workflowFieldStringDefault(fields, "root_cause", ""),
-	}
-	if len(relatedIDs) != 0 {
-		values["related_ids"] = relatedIDs
 	}
 	return []Event{workflowTypedEvent(eventID, WorkflowDiagnosisRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
 }

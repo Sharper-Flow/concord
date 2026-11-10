@@ -64,7 +64,7 @@ func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 			}
 			continue
 		}
-		if table == "schema" || table == "schema_migrations" || table == "store_revision" {
+		if table == "schema" || table == "schema_migrations" || table == "store_revision" || table == "workflow_backlog_alignment" {
 			continue
 		}
 		if table == "workflow_contracts" || table == "workflow_instances" {

@@ -1,7 +1,7 @@
 # Instruction effectiveness
 
 **Not Product law or an adopted change.** The companion
-[rule inventory](instruction-effectiveness-rules.md) maps 75 semantic obligation
+[rule inventory](instruction-effectiveness-rules.md) maps 76 semantic obligation
 groups to evidence and cases; the [skill inventory](instruction-effectiveness-skills.md)
 maps 49 exposed descriptions to trigger cases. The host snapshot and exact
 serialized prompt remain unverified; the appendices state their own limits.
@@ -26,14 +26,14 @@ groups, voice injection, provider hints, task delegation, and a skill catalog.
 Host observations are descriptive and are not a verified public source snapshot.
 
 The repository source snapshot at commit
-`4b8f88c28215fd86a72b98c53bf2cb4699c7d7ea` has the following UTF-8 byte
+`3286386259ff489da83f0b1e486c63b106bfb0b3` has the following UTF-8 byte
 sizes from tracked Git object metadata. These are source-file sizes, not loaded
 prompt bytes, characters or tokens. No per-rule byte allocation was measured.
 
 | Source | UTF-8 bytes |
 |---|---:|
 | [Concord role](../../roles/concord.md) | 9,117 |
-| [asking](../../instructions/asking.md) | 4,479 |
+| [asking](../../instructions/asking.md) | 4,831 |
 | [change](../../instructions/change.md) | 3,268 |
 | [completion](../../instructions/completion.md) | 3,006 |
 | [continuation](../../instructions/continuation.md) | 3,258 |
@@ -41,22 +41,22 @@ prompt bytes, characters or tokens. No per-rule byte allocation was measured.
 | [records](../../instructions/records.md) | 7,889 |
 | [repository mode](../../instructions/repository-mode.md) | 819 |
 | [voice](../../instructions/voice.md) | 1,252 |
-| Eight shared instructions subtotal | 25,815 |
+| Eight shared instructions subtotal | 26,167 |
 | [Repository AGENTS.md](../../../AGENTS.md) | 6,481 |
-| Role, shared instructions and AGENTS.md subtotal | 41,413 |
+| Role, shared instructions and AGENTS.md subtotal | 41,765 |
 
-The exposed catalog contains 49 description literals totaling 12,720 Unicode
+The exposed catalog contains 49 description literals totaling 12,741 Unicode
 code points in a separate catalog count. Do not add that figure to byte sizes.
-The host/global estimate of 13,835 characters is reported but lacks a pinned
-public source snapshot and remains unverified. Earlier reported total estimates
-used different surfaces and do not establish serialized size. Do not convert
-characters to tokens by a fixed ratio.
+Host and global instruction groups were not measured and have no pinned public
+source snapshot. None of these figures establishes serialized prompt size. Do
+not convert characters to tokens by a fixed ratio.
 
-The source snapshot is not identical to all runtime instructions. The runtime
-asking instructions include an additional Linear UI/UX approval screenshot
-paragraph absent from the branch [asking source](../../instructions/asking.md).
-Preserve that runtime obligation in the inventory; resolve the source/runtime
-drift before treating the snapshot as the complete loaded corpus.
+Installed runtime text and repository source can drift. The runtime asking
+instructions carried the Linear UI/UX approval screenshot paragraph
+([asking](../../instructions/asking.md), lines 60–64) before that paragraph reached
+the source at the commit above. The installed shared instruction files on the
+observing host matched that commit's source when reviewed; that observation is
+not a pinned public snapshot, and plugin-injected text can still differ.
 
 A future snapshot must capture the actual post-serialization prompt, exclude YAML
 frontmatter from the role body, enumerate the descriptions actually exposed,
@@ -73,10 +73,10 @@ not evidence of effectiveness.
   improve retrieval without losing constraints.
 - The host provider hint repeats tool routing and the host voice surface overlaps
   shipped voice. A host route says a small inline edit is a few lines, whereas
-  the [role](../../roles/concord.md#L62-L68) specifies at most five changed lines
+  the [role](../../roles/concord.md) (lines 62–68) specifies at most five changed lines
   in one file and at most three inline fixes per session. Clarify applicability;
   do not relax the narrower bound. These host observations need a pinned snapshot.
-- Shared [asking](../../instructions/asking.md#L7-L14) distinguishes ticket and
+- Shared [asking](../../instructions/asking.md) (lines 7–14) distinguishes ticket and
   direct routes. A host question-tool rule needs an applicability clarification,
   not a weaker approval boundary. Move rare host MCP-onboarding and preview recipes
   into triggered methods only if secret-handling safety remains inline.
@@ -104,9 +104,10 @@ versions where available. The vendor article is dated but remains live guidance.
   500 was 68.9% (Table 1); §4.6 reports primacy. Keyword inclusion is not a
   count of complex repository obligations or a safe instruction limit.
 - [RealGuardrails, v1](https://arxiv.org/html/2502.12197v1), 2025-02-15, preprint,
-  reports guardrail performance approaching zero under 1–20 added conditional
-  rules in Figure 2. The prompts were real but the tests adversarial and models
-  older; the figure does not establish a per-rule failure probability.
+  reports API-model pass rates approaching zero as its synthetic Monkey Island
+  stress test adds 1–20 guardrails to the system message (Figure 2). That stress
+  test has no conflicting or adversarial inputs, tools or long context, and the
+  models are older; the figure does not establish a per-rule failure probability.
 - [IHEval, v2](https://arxiv.org/html/2502.08745v2), NAACL 2025, 2025-03-26, reports 3,538
   examples, nine tasks and 13 models. GPT-4o fell from 91.9 to 70.0 under
   conflict (Table 1); an explicit priority preface changed 70.0 to 67.2

@@ -3,29 +3,27 @@
 This appendix asks which skill descriptions the primary prompt exposed, when an
 agent should select each one, and what a change to exposure might improve. The
 inventory covers the 48 local descriptions and the built-in description exposed
-in this session: 22 Concord, 26 host and one built-in. It does not inventory
-skills absent from that prompt. The [companion research](instruction-effectiveness.md)
-owns the wider analysis.
+in an observed primary session on 2026-11-10: 22 Concord, 26 host and one
+built-in. It does not inventory skills absent from that prompt. The
+[companion research](instruction-effectiveness.md) owns the wider analysis.
 
 ## Evidence and limits
 
-The primary source for every row is the available-skills metadata in this
+The primary source for every row is the available-skills metadata in that
 session. Concord's public skill sources live under `skills/<name>/SKILL.md`;
 the links below identify their owning sources, not proof that installed bytes
-match repository bytes. For example, the public [adoption](../../../skills/concord-adoption/SKILL.md#L1-L4)
-and [research-writing](../../../skills/concord-research-writing/SKILL.md#L1-L4)
-frontmatter carries a name and description. Host descriptions are identified
+match repository bytes. For example, the public [adoption](../../../skills/concord-adoption/SKILL.md)
+and [research-writing](../../../skills/concord-research-writing/SKILL.md)
+frontmatter (lines 1–4) carries a name and description. Host descriptions are identified
 only by name and purpose; the host source snapshots are not publicly
 reproducible. The built-in source is not available here. No host file paths,
 configuration or logs are reproduced.
 
-**Size:** the table below counts Unicode codepoints in the description strings
-exposed in this session's available-skills metadata. JavaScript
-`Array.from(description).length` counted literal copies of those strings,
-including exposed trailing newlines. The 49 descriptions total **12,720
-codepoints**. These are catalog-metadata counts, not serialized prompt
-measurements, byte counts or tokens. Earlier audit numbers are not verified
-serialized prompt measurements. The baseline prompt cost remains unknown:
+**Size:** the table below counts Unicode code points in the description strings
+exposed in that session's available-skills metadata, including a trailing
+newline where the exposed string carries one. The 49 descriptions total
+**12,741 code points**. These are catalog-metadata counts, not serialized prompt
+measurements, byte counts or tokens. The baseline prompt cost remains unknown:
 host catalogs and serialization can differ. A future evaluation must capture
 the exact sanitized serialized catalog, version, model, tokenizer and exposure
 context before estimating prompt cost or comparing variants.
@@ -37,8 +35,10 @@ validity proves that an agent selects or loads a skill, that the full method is
 followed, or that a particular exclusion is enforced. Per-skill behavioral
 enforcement is **unverified** throughout this inventory. Several exclusions
 below are proposed routing boundaries inferred from the trigger, not claims
-that current text explicitly enforces them. The built-in descriptor explicitly
-excludes application code and projects not configuring OpenCode.
+that current text explicitly enforces them. An inferred exclusion never
+overrides a mandatory load that a role or instruction states. The built-in
+descriptor explicitly excludes application code and projects not configuring
+OpenCode.
 
 **Reading the rows:** IDs are stable within this appendix. Each row names the
 trigger and a distinct exclusion, then one positive and one negative synthetic
@@ -80,14 +80,15 @@ to every row.
 | K19 [concord-ticket-frontend](../../../skills/concord-ticket-frontend/SKILL.md) | Ask or resume work driven by the ticket frontend; not a directly driven session absent a route switch. | Resume after a ticket answer / answer a direct chat lookup. | Keep: retain durable-stop and answer-authority cues. Measure route and resume compliance. |
 | K20 [concord-ticket-writing](../../../skills/concord-ticket-writing/SKILL.md) | Write a Linear issue, comment or captured work item; not a project status update. | Draft a defect issue / update a project description. | Keep: record-type cue may improve defect evidence. Measure issue-versus-project routing. |
 | K21 [concord-ui-design](../../../skills/concord-ui-design/SKILL.md) | Make or review a visual UI or UX change or preview; not a nonvisual backend-only change. | Prepare a new screen preview / optimize a database query. | Keep: preserve accessibility and visual approval cues. Measure approval and preview behavior. |
-| K22 [concord-work-shaping](../../../skills/concord-work-shaping/SKILL.md) | Triage and shape work before refinement or implementation; not execute an already scoped patch. | Define checkable work outcomes / implement a named correction. | Keep: lifecycle boundary may avoid repeating shaping. Measure selection at both stages. |
+| K22 [concord-work-shaping](../../../skills/concord-work-shaping/SKILL.md) | Triage and shape work before refinement, allocation or implementation, reusing recorded readiness when scope is unchanged. The [primary role](../../roles/concord.md) (lines 91–92) requires loading it before execution, including for an already scoped item; the inferred exclusion is an ordinary factual question that requests no work (role lines 102–103). | Start implementing an already shaped item and reuse its readiness / answer a factual question about a known file. | Keep: lifecycle cue may avoid both skipped shaping and repeated shaping. Measure that scoped execution loads the method and reuses readiness rather than reshaping. |
 
 ## Host skills
 
 The owner in every row is the host skill catalog, except where a row proposes
 project-scoped exposure. Descriptions and routing examples are sanitized; their
 host snapshots are not public. The size table and enforcement status apply to
-every row.
+every row. H11 uses a sanitized identifier in place of its host catalog name;
+its size counts the original exposed description, not the public summary here.
 
 | ID and exact name / owner | Trigger; exclusion | Positive / negative routing case | Proposal and hypothesis to evaluate |
 |---|---|---|---|
@@ -101,7 +102,7 @@ every row.
 | H08 oc-runbook-ci — host | Need exact CI-wait or test-throttle recipes; not a check-free prose lookup. | Determine test admission syntax / read a known document. | Keep: command-syntax cue may reduce unsafe test execution. Measure selection. |
 | H09 oc-runbook-git — host | Need worktree or freshness procedure; not ordinary code navigation. | Determine worktree setup / inspect a known function. | Keep: host-boundary cue may prevent wrong-worktree actions. Measure selection. |
 | H10 playwright-mcp — host | Browser-driven UI verification through Playwright MCP; not web research. | Verify a rendered form / research a public standard. | Keep: browser-versus-research boundary may avoid wrong tooling. Measure both. |
-| H11 pokeedge-dev-auth — host, project-specific | Verify authenticated routes or APIs in the owning development project; not another project's authentication. | Verify that project's signed-in route / test another product's login. | Move exposure to the owning project while preserving access there: may reduce irrelevant catalog competition. Measure both projects' routing and access before rollout. |
+| H11 project-specific development authentication (host catalog identifier withheld) — host, project-specific | Verify authenticated routes or APIs in the owning development project; not another project's authentication. | Verify that project's signed-in route / test another product's login. | Move exposure to the owning project while preserving access there: may reduce irrelevant catalog competition. Measure both projects' routing and access before rollout. |
 | H12 prose-style — host | Polish prose for human readers; not code behavior. | Edit an essay / change a parser. | Clarify overlap with instruction-writing, writing-for-agents and antislop-code: audience cues may avoid conflicting methods. Measure simultaneous selection. |
 | H13 rte-role — host | Start assigned RTE duty or reload its instructions; not an ordinary primary or subagent. | Begin assigned coordination duty / execute a bounded subtask. | Keep: role cue may prevent authority confusion. Measure role-sensitive selection. |
 | H14 shellcheck-configuration — host | Configure or use ShellCheck for shell analysis; not a general Python lint configuration. | Configure ShellCheck / configure a Python formatter. | Keep: tool-specific cue may improve correct configuration. Measure both. |
@@ -129,7 +130,7 @@ every row.
 Each ID joins one skill row above. Sizes use the metadata-count method described
 in Evidence and limits.
 
-| ID | Description codepoints |
+| ID | Description code points |
 |---|---:|
 | K01 | 199 |
 | K02 | 402 |
@@ -170,17 +171,17 @@ in Evidence and limits.
 | H15 | 477 |
 | H16 | 173 |
 | H17 | 159 |
-| H18 | 844 |
+| H18 | 845 |
 | H19 | 373 |
 | H20 | 707 |
 | H21 | 376 |
 | H22 | 367 |
 | H23 | 566 |
 | H24 | 252 |
-| H25 | 199 |
+| H25 | 219 |
 | H26 | 103 |
 | B01 | 386 |
-| **Total** | **12,720** |
+| **Total** | **12,741** |
 
 ## Evaluation design and remaining gaps
 

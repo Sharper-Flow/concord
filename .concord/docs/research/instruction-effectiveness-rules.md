@@ -1,27 +1,17 @@
 # Instruction obligation inventory
 
 This research appendix maps available instruction text, not Product law or an
-adopted rewrite. The parent reported Git object sizes at commit
-`4b8f88c28215fd86a72b98c53bf2cb4699c7d7ea`: the role source body is 9,117
-UTF-8 bytes, the eight shared files total 25,815 bytes, and repository guidance is
-6,481 bytes, for a 41,413-byte subtotal. Per-file sizes belong in the
-[main report](instruction-effectiveness.md). The earlier 9,670 role figure was
-a reported estimate, not the role source body size. These are source
-object sizes, not a serialized-prompt measurement. Host subgroups, provider
-hint, task prefix and individual obligations are unmeasured.
+adopted rewrite. Source rows and line ranges refer to commit
+`3286386259ff489da83f0b1e486c63b106bfb0b3`; the
+[main report](instruction-effectiveness.md) owns its per-file source sizes and
+their limits. Host subgroups, provider hint, task prefix and individual
+obligations are unmeasured.
 
-The parent's reported shared-file bytes are: asking 4,479; change 3,268;
-completion 3,006; continuation 3,258; evidence 1,844; records 7,889;
-repository mode 819; voice 1,252. These figures come from the parent's Git
-object metadata, not from measurements performed for this appendix.
-
-The inventory covers substantive obligations or coherent groups in the
-available role, eight repository shared instructions, repository guidance,
-supplied host groups and the runtime-only paragraph in A07. The received primary
-runtime asking instruction includes A07, but the repository asking file does not.
-That drift contradicts the earlier byte-identity claim; the installed content
-and exact serialized snapshot are not pinned. Host and runtime entries summarize
-supplied context, not a pinned public snapshot, and carry no private citation.
+The inventory has 76 rows: 59 for substantive obligations or coherent groups in
+the role, eight repository shared instructions and repository guidance, and 17
+for supplied host groups. Host entries summarize supplied context, not a pinned
+public snapshot, and carry no private citation. The installed content and exact
+serialized snapshot are not pinned.
 Static reading establishes what text asks, not compliance, current law status or
 a failure rate. No behavioral evaluation ran. Every disposition is a candidate,
 and its stated effect is a **HYPOTHESIS**, not a measured benefit. Changes need
@@ -76,6 +66,9 @@ for each group and each branch, freeze fixtures and budget sessions separately.
   [discovery scope](../../../internal/store/txscope_test.go#L185-L200) and
   [function scan](../../../internal/store/txscope_test.go#L283-L320) limit the
   claim. It is not a proof of every possible transaction call path.
+- `E8`: [visual-approval contract tests](../../../scripts/test-agent-contracts.py#L737-L761)
+  assert the asking clauses and two skill pointers by phrase. They do not show
+  that an agent embeds screenshots or links a preview.
 
 ## Primary role
 
@@ -117,9 +110,9 @@ Source: [asking](../../instructions/asking.md).
 | A02 | 16–28: Ticket question keeps decision, recommendation, options and consequences visible; every question stands alone, uses plain language and balanced context. | U; inspect visible and collapsed text. | Merge record formatting pointers; may improve clarity. REC, ASK |
 | A03 | 30–43: Ask only consequential unresolved questions after investigation; do not ask for known facts or agreed work; apply and record settled rules, retaining gates; consult vision before direction decisions and cite it when decisive. | U; compare genuine fork with lookup and settled cases. | Keep; may reduce unnecessary questions. ASK, TASK |
 | A04 | 45–54: Operator directly approves product direction, UI/UX, production application data, security, increased spending and legal obligations; ordinary coordination, existing paid service, routine preferences, minor UI corrections and restoring security alone do not independently require approval; other classes still apply; exact approval-boundary changes need approval; apply Concord deletion exemption. | U; test each class, exception and overlapping class. | Keep inline; may preserve consent without gratuitous asks. ASK, AUTH |
-| A05 | 56–66: Preview approval shows inspectable version and records answer; approval questions name class or operator-only reservation and concrete consequence; law status, seriousness, size, Domain count and wording alone do not require approval; seek applicable law-change approval before implementation, not at end. | U; separate reservation, timing and non-approval controls. | Keep; may prevent late or invented approval. ASK, AUTH |
-| A06 | 68–79: Give recommendation and material risks; explain permanent loss and missing recovery; never risk irreversible customer-data loss without informed approval; otherwise decide in scope, record reason, use advisor and external review, coordinate without treating RTE or Planner as authority; obey blockers and recovery. | U; exercise loss, no-class decision and refusal. | Keep; may preserve informed consent and safe autonomy. ASK, REF, AUTH |
-| A07 | Received primary runtime asking context, unpinned and absent from the repository file: for every Linear UI/UX approval comment, embed screenshots of the exact material and version; link the running preview when the operator can reach it. Screenshots only in issue Resources or a link alone do not suffice; use synthetic or redacted material without credentials or private details. | U; runtime/source drift and behavioral enforcement need independent verification. | Keep pending reconciliation; may preserve inspectable, safe approval evidence. ASK, REC |
+| A05 | 56–58, 66–72: Preview approval shows inspectable version and records answer; approval questions name class or operator-only reservation and concrete consequence; law status, seriousness, size, Domain count and wording alone do not require approval; seek applicable law-change approval before implementation, not at end. | U; separate reservation, timing and non-approval controls. | Keep; may prevent late or invented approval. ASK, AUTH |
+| A06 | 74–85: Give recommendation and material risks; explain permanent loss and missing recovery; never risk irreversible customer-data loss without informed approval; otherwise decide in scope, record reason, use advisor and external review, coordinate without treating RTE or Planner as authority; obey blockers and recovery. | U; exercise loss, no-class decision and refusal. | Keep; may preserve informed consent and safe autonomy. ASK, REF, AUTH |
+| A07 | 60–64: For every Linear UI/UX approval comment, embed screenshots of the exact material and version; link the running preview when the operator can reach it. Screenshots only in issue Resources or a link alone do not suffice; use synthetic or redacted material without credentials or private details. | T E8 selected phrases and pointers; behavior unproven. | Keep; may preserve inspectable, safe approval evidence. ASK, REC |
 
 Planned A07 extension, not included in the 24-case pilot: in a synthetic UI
 approval fixture with a reachable preview, the positive case embeds screenshots
@@ -245,8 +238,8 @@ of inspected host enforcement, not proof that none exists.
 
 The row inventory covers the available semantic surfaces, not a claim that the
 supplied host and runtime text forms a complete or reproducible prompt snapshot.
-The A07 discrepancy means repository and received runtime content cannot be
-assumed byte-identical; installed content remains unpinned.
+A07 shows that runtime and repository content can drift; installed content
+remains unpinned.
 No per-rule bytes, agent adherence, prompt effectiveness, savings, or replacement
 enforcement were measured. `U` is not evidence that enforcement is absent.
 Before changing an instruction, inspect its actual consumer and applicable law,

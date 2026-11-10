@@ -28,7 +28,8 @@ Host observations are descriptive and are not a verified public source snapshot.
 The repository source snapshot at commit
 `3286386259ff489da83f0b1e486c63b106bfb0b3` has the following UTF-8 byte
 sizes from tracked Git object metadata. These are source-file sizes, not loaded
-prompt bytes, characters or tokens. No per-rule byte allocation was measured.
+prompt bytes, characters or tokens. The rule inventory gives the source bytes
+of each repository row's cited line range; host rows have no size.
 
 | Source | UTF-8 bytes |
 |---|---:|
@@ -137,7 +138,8 @@ versions where available. The vendor article is dated but remains live guidance.
 - [Skill Retrieval Augmentation](https://aclanthology.org/2026.findings-emnlp.1955/),
   EMNLP 2026, Table 2, reports 5,400 tasks, 636 gold skills and a 26,262-skill
   corpus. Selection from BM25 top 50 beat full top-one injection and progressive
-  disclosure on all six models in that setting, not necessarily this one.
+  disclosure in the six-benchmark average for all six open-weight models, though
+  not on every benchmark, in that setting, not necessarily this one.
 - [Anthropic's context-engineering guidance](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents),
   2025-09-29, recommends high-signal context, just-in-time lookup and canonical
   examples rather than edge-case lists. This vendor guidance is not controlled

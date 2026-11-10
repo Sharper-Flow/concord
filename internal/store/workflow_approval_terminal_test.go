@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 func approvalKindEvidenceCount(t *testing.T, s *Store, workID string) int {
@@ -73,6 +75,21 @@ func assertApprovalRefusalUnchanged(t *testing.T, f acceptanceRecoveryFixture, v
 func TestWorkflowPlanCoordinatorConfirmationAndCompletion(t *testing.T) {
 	const workID = "plan-confirmation-terminal"
 	f := qCurrentAcceptance(t, workID)
+	assertResume := func(want string) {
+		t.Helper()
+		resume, err := ReadWorkflowResume(t.Context(), f.store, workID)
+		if err != nil || resume.State != want {
+			t.Fatalf("resume state=%q want=%q err=%v", resume.State, want, err)
+		}
+		data, err := json.Marshal(resume)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := payloadschema.Validate("resume_read_document", data); err != nil {
+			t.Fatalf("resume schema for %s: %v", want, err)
+		}
+	}
+	assertResume("running")
 	if step := workflowPlanFixtureFrontier(t, f.store, workID); step != "review" {
 		t.Fatalf("frontier=%q, want review", step)
 	}
@@ -110,6 +127,7 @@ func TestWorkflowPlanCoordinatorConfirmationAndCompletion(t *testing.T) {
 	if err := approvalPlanAction(t, f, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`)); err != nil {
 		t.Fatalf("confirmed plan completion: %v", err)
 	}
+	assertResume("completed")
 	var lifecycle, state string
 	if err := f.store.db.QueryRow(`SELECT w.lifecycle,i.instance_state FROM work_items w JOIN workflow_instances i ON i.work_id=w.id WHERE w.id=?`, workID).Scan(&lifecycle, &state); err != nil || lifecycle != "completed" || state != "completed" {
 		t.Fatalf("terminal lifecycle=%q instance=%q err=%v", lifecycle, state, err)

@@ -793,10 +793,6 @@ func validWorkflowPayloadListItem(itemRef, value string) bool {
 	case "law_id":
 		runes := []rune(value)
 		return len(runes) >= 2 && len(runes) <= 256 && !unicode.IsSpace(runes[0]) && !unicode.IsSpace(runes[len(runes)-1])
-	case "proposal_affected_text":
-		return validWorkflowProseItem(value, 256)
-	case "proposal_text":
-		return validWorkflowProseItem(value, 512)
 	case "clarification_answer_text":
 		return validWorkflowProseItem(value, 2048)
 	case "", "reference":

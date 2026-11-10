@@ -117,10 +117,10 @@ approved.
 
 ## Operator approval
 
-UI/UX approval belongs to the operator. The agent that holds the operator
-conversation presents the inspectable material and its exact version, then
-asks under the shared asking instructions, and records the answer in the work
-record. A delegated helper returns the material and its version to its caller
+UI/UX approval belongs to the operator. For UI/UX approval, follow `asking.md`
+in the shared instructions. The agent that holds the operator conversation
+presents the inspectable material and its exact version, then asks and records
+the answer in the work record. A delegated helper returns the material and its version to its caller
 and does not ask the operator itself. A minor correction that introduces no
 new design or interaction needs no fresh approval (CD-0243).
 

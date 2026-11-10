@@ -734,6 +734,29 @@ class Ts2BudgetTests(unittest.TestCase):
                          "manifest tool list disagrees with the TS2 budget")
 
 
+class LinearVisualApprovalContractTests(unittest.TestCase):
+    def test_asking_requires_embedded_versioned_screenshots_and_reachable_preview(self):
+        text = " ".join((ROOT / ".concord/instructions/asking.md").read_text().split())
+        for clause in (
+            "For every Linear UI/UX approval comment, embed screenshots",
+            "exact material and version being approved",
+            "link the running development preview whenever reachable",
+            "Screenshots only in issue Resources or a link alone do not satisfy this rule",
+            "synthetic or redacted development material",
+            "no credentials or private details",
+        ):
+            with self.subTest(clause=clause):
+                self.assertIn(clause, text)
+
+    def test_skills_direct_approval_and_linear_questions_to_asking(self):
+        for path, clause in (
+            ("skills/concord-ui-design/SKILL.md", "For UI/UX approval, follow `asking.md`"),
+            ("skills/concord-ticket-frontend/SKILL.md", "For Linear question comments, follow `asking.md`"),
+        ):
+            with self.subTest(path=path):
+                self.assertIn(clause, " ".join((ROOT / path).read_text().split()))
+
+
 class CurrentSkillReferenceTests(unittest.TestCase):
     CURRENT = "https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0245-concord-ships-release-versioned-portable-skills.md"
 

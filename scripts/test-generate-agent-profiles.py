@@ -252,6 +252,8 @@ class ProfileTests(unittest.TestCase):
     def test_designer_method_and_effective_permissions(self):
         profile = next(profile for profile in self.profiles["profiles"] if profile["id"] == "concord-design")
         implementer = next(profile for profile in self.profiles["profiles"] if profile["id"] == "concord-implement")
+        self.assertIn("screenshots with exact locations", profile["description"])
+        self.assertIn("versioned preview URL whenever reachable", profile["description"])
         for key in ("tools", "bash", "task", "denied_concord_tools"):
             self.assertEqual(profile[key], implementer[key], key)
         text = generator.primary_projection(profile, (ROOT / profile["role_source"]).read_text())
@@ -262,7 +264,7 @@ class ProfileTests(unittest.TestCase):
                        "If any of these, including a required approval, is missing, return needs-decision", "outside that assignment",
                        "fails for the reported behavior before the fix and passes after", "If it does not fail before the fix, stop and report the gap",
                        "Product's browser verification tooling when exposed",
-                       "do not assume a particular provider or install one", "a live preview URL or screenshots",
+                        "do not assume a particular provider or install one", "screenshots with their exact locations", "live preview URL whenever reachable",
                        "exact version shown", "uncommitted diff identity", "Missing or inaccessible preview material is a gap",
                        "UI/UX approval belongs to the operator", "caller presents the material", "Leave changes uncommitted",
                        "exact changed paths", "Command-text restrictions are hygiene, not a sandbox"):

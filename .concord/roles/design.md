@@ -24,9 +24,9 @@ needed for the affected behavior through the Product's test admission. You may
 use the Product's browser verification tooling when exposed by the host; do not
 assume a particular provider or install one.
 
-Return inspectable material: a live preview URL or screenshots with their exact
-locations. Identify the exact version shown, including the base commit and the
-uncommitted diff identity or another reproducible snapshot identifier. Describe
+Return inspectable material: screenshots with their exact locations and a live
+preview URL whenever reachable. Identify the exact version shown, including the
+base commit and the uncommitted diff identity or another reproducible snapshot identifier. Describe
 the affected views and interactions, checks and exit results, and any inspection
 gaps. Missing or inaccessible preview material is a gap, not a completed result.
 UI/UX approval belongs to the operator. Never treat your result, browser checks

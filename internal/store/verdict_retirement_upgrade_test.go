@@ -187,8 +187,14 @@ func TestOutcomeRetirementPreservesAllContractVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195}) {
-		t.Fatalf("applied = %v", report.Applied)
+	var wantApplied []int
+	for _, m := range migrations {
+		if m.Version > 184 {
+			wantApplied = append(wantApplied, m.Version)
+		}
+	}
+	if !reflect.DeepEqual(report.Applied, wantApplied) {
+		t.Fatalf("applied = %v, want %v", report.Applied, wantApplied)
 	}
 	if after := retainedContractRows(t, db); !reflect.DeepEqual(retained, after) {
 		t.Fatalf("retained contract facts changed: before=%#v after=%#v", retained, after)
@@ -413,8 +419,14 @@ func TestOutcomeRetirementEvidenceDeclarationsRequireSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upgrade of contracts without outcome rows: %v", err)
 	}
-	if !reflect.DeepEqual(report.Applied, []int{185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195}) {
-		t.Fatalf("applied = %v", report.Applied)
+	var wantApplied []int
+	for _, m := range migrations {
+		if m.Version > 184 {
+			wantApplied = append(wantApplied, m.Version)
+		}
+	}
+	if !reflect.DeepEqual(report.Applied, wantApplied) {
+		t.Fatalf("applied = %v, want %v", report.Applied, wantApplied)
 	}
 	var subjects string
 	if err := db.QueryRow(`SELECT group_concat(legislative_subjects) FROM workflow_contracts`).Scan(&subjects); err != nil || subjects != "[],[],[]" {

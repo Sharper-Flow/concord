@@ -33,14 +33,14 @@ INSERT INTO probe VALUES(1, 'known', NULL, 1, 'present');`); err != nil {
 		name  string
 		query string
 		code  int
-		want  [5]bool // unique, identity, foreign key, check, any constraint
+		want  [6]bool // unique, primary key, identity, foreign key, check, any constraint
 	}{
-		{"unique", `INSERT INTO probe VALUES(2, 'known', NULL, 1, 'present')`, sqlitelib.SQLITE_CONSTRAINT_UNIQUE, [5]bool{true, true, false, false, true}},
-		{"primary key", `INSERT INTO probe VALUES(1, 'other', NULL, 1, 'present')`, sqlitelib.SQLITE_CONSTRAINT_PRIMARYKEY, [5]bool{false, true, false, false, true}},
-		{"foreign key", `INSERT INTO probe VALUES(2, 'other', 99, 1, 'present')`, sqlitelib.SQLITE_CONSTRAINT_FOREIGNKEY, [5]bool{false, false, true, false, true}},
-		{"check", `INSERT INTO probe VALUES(2, 'other', NULL, -1, 'present')`, sqlitelib.SQLITE_CONSTRAINT_CHECK, [5]bool{false, false, false, true, true}},
-		{"not null", `INSERT INTO probe VALUES(2, 'other', NULL, 1, NULL)`, sqlitelib.SQLITE_CONSTRAINT_NOTNULL, [5]bool{false, false, false, false, true}},
-		{"non-constraint driver error", `INSERT INTO absent VALUES(1)`, sqlitelib.SQLITE_ERROR, [5]bool{}},
+		{"unique", `INSERT INTO probe VALUES(2, 'known', NULL, 1, 'present')`, sqlitelib.SQLITE_CONSTRAINT_UNIQUE, [6]bool{true, false, true, false, false, true}},
+		{"primary key", `INSERT INTO probe VALUES(1, 'other', NULL, 1, 'present')`, sqlitelib.SQLITE_CONSTRAINT_PRIMARYKEY, [6]bool{false, true, true, false, false, true}},
+		{"foreign key", `INSERT INTO probe VALUES(2, 'other', 99, 1, 'present')`, sqlitelib.SQLITE_CONSTRAINT_FOREIGNKEY, [6]bool{false, false, false, true, false, true}},
+		{"check", `INSERT INTO probe VALUES(2, 'other', NULL, -1, 'present')`, sqlitelib.SQLITE_CONSTRAINT_CHECK, [6]bool{false, false, false, false, true, true}},
+		{"not null", `INSERT INTO probe VALUES(2, 'other', NULL, 1, NULL)`, sqlitelib.SQLITE_CONSTRAINT_NOTNULL, [6]bool{false, false, false, false, false, true}},
+		{"non-constraint driver error", `INSERT INTO absent VALUES(1)`, sqlitelib.SQLITE_ERROR, [6]bool{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := db.Exec(tc.query)
@@ -61,15 +61,15 @@ INSERT INTO probe VALUES(1, 'known', NULL, 1, 'present');`); err != nil {
 		if got := sqlitedb.ResultCode(input); got != 0 {
 			t.Errorf("non-driver ResultCode = %d, want 0", got)
 		}
-		if got := classify(input); got != [5]bool{} {
+		if got := classify(input); got != [6]bool{} {
 			t.Errorf("non-driver classifiers = %v, want all false", got)
 		}
 	}
 }
 
-func classify(err error) [5]bool {
-	return [5]bool{
-		sqlitedb.IsUniqueViolation(err), sqlitedb.IsIdentityConflict(err),
+func classify(err error) [6]bool {
+	return [6]bool{
+		sqlitedb.IsUniqueViolation(err), sqlitedb.IsPrimaryKeyViolation(err), sqlitedb.IsIdentityConflict(err),
 		sqlitedb.IsForeignKeyViolation(err), sqlitedb.IsCheckViolation(err),
 		sqlitedb.IsConstraintViolation(err),
 	}

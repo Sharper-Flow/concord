@@ -9332,6 +9332,16 @@ CREATE INDEX workflow_contracts_superseded_by ON workflow_contracts(work_id,supe
 CREATE INDEX workflow_contract_law_additions_architecture ON workflow_contract_law_additions(work_id,contract_version,product_id);
 `,
 	},
+	{
+		Version: 196, Name: "reconcile_relation_sequence", Breaking: false,
+		SQL: `
+UPDATE store_sequences SET last=max(last,
+    (SELECT coalesce(max(id),0) FROM relations),
+    coalesce((SELECT seq FROM sqlite_sequence WHERE name='relations'),0),
+    (SELECT coalesce(max(relation_seq),0) FROM effect_receipts))
+WHERE name='relation';
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -35,8 +35,8 @@ evaluated.
 
 Exactly six real sessions ran: baseline and candidate for each of S01, S05 and
 S19. No other model evaluation or pilot ran. All six deterministic grades were
-S0. An independent blind semantic reviewer, `ses_e3b5f9b5cffeB5G5u17CYuDeKm`,
-passed all semantic checks. Candidate skill loads were unavailable and S01 hit
+S0. An independent blind semantic reviewer passed all semantic checks.
+Candidate skill loads were unavailable and S01 hit
 the step limit. These observations are calibration evidence, not proof of
 general instruction effectiveness or pilot results.
 

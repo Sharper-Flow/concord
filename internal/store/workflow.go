@@ -32,13 +32,12 @@ const (
 	WorkflowPremiseConfirmed   = "workflow.premise_confirmed"
 	WorkflowSuccessorLinked    = "workflow.successor_linked"
 	// WorkflowWorkContextRecorded is read only by frozen migration replay.
-	WorkflowWorkContextRecorded      = "workflow.work_context_recorded"
-	WorkflowProposalRecorded         = "workflow.proposal_recorded"
-	WorkflowDesignRecorded           = "workflow.design_recorded"
-	WorkflowBacklogAlignmentRecorded = "workflow.backlog_alignment_recorded"
-	WorkflowDiagnosisRecorded        = "workflow.diagnosis_recorded"
-	WorkflowDeliveryCorrected        = "workflow.delivery_corrected"
-	WorkflowCompleted                = "workflow.completed"
+	WorkflowWorkContextRecorded = "workflow.work_context_recorded"
+	WorkflowProposalRecorded    = "workflow.proposal_recorded"
+	WorkflowDesignRecorded      = "workflow.design_recorded"
+	WorkflowDiagnosisRecorded   = "workflow.diagnosis_recorded"
+	WorkflowDeliveryCorrected   = "workflow.delivery_corrected"
+	WorkflowCompleted           = "workflow.completed"
 )
 
 type WorkflowVersionFields struct {
@@ -91,29 +90,10 @@ func (p workflowOverlapResolvedPayload) workflowVersionFields() WorkflowVersionF
 	return p.WorkflowVersionFields
 }
 
-// workflowBacklogAlignmentRecordedPayload is the retired standalone
-// alignment event's payload, kept so stored backlog_alignment_recorded
-// events still replay. related_ids is present only when outcome
-// is related_found; an omitted optional list and a deliberate empty result
-// must stay distinguishable, so none_found records no list at all.
-type workflowBacklogAlignmentRecordedPayload struct {
-	WorkflowVersionFields
-	Searched   string   `json:"searched"`
-	Outcome    string   `json:"outcome"`
-	RelatedIDs []string `json:"related_ids,omitempty"`
-}
-
-// workflowDiagnosisRecordedPayload is the typed record_diagnosis event:
-// one required section per merged source action; the
-// alignment fields keep the retired alignment event's shape so
-// the projection fold writes identical rows for both events.
 type workflowDiagnosisRecordedPayload struct {
 	WorkflowVersionFields
-	Reproduction string   `json:"reproduction"`
-	Searched     string   `json:"searched"`
-	Outcome      string   `json:"outcome"`
-	RelatedIDs   []string `json:"related_ids,omitempty"`
-	RootCause    string   `json:"root_cause"`
+	Reproduction string `json:"reproduction"`
+	RootCause    string `json:"root_cause"`
 }
 
 type workflowActorRecordedPayload struct {
@@ -653,77 +633,6 @@ func persistWorkflowContractApprovalTx(ctx context.Context, tx *sql.Tx, event Ev
 	return nil
 }
 
-// foldWorkflowBacklogAlignmentRecorded writes the write-seam-only alignment
-// projection: one declaration row and, when the search found related work,
-// one row per named work id. Its foreign keys bind to work_items, not to
-// workflow_contracts, so it can hold a row before planning approves a
-// contract. The
-// fold enforces the related_found bound — one to sixty-four unique related
-// ids. The fold evaluates the record_diagnosis declaration's outcome and
-// related_ids combinations because replay applies events without the action boundary.
-func foldWorkflowBacklogAlignmentRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
-	var p workflowBacklogAlignmentRecordedPayload
-	if err := decodeWorkflowPayload(event, &p); err != nil {
-		return err
-	}
-	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	if !workflowString(p.Searched, 4096) || !slices.Contains([]string{"related_found", "none_found"}, p.Outcome) {
-		return newFailure(KindInvalidPayload, "fold_event", "backlog_alignment_recorded has invalid search or outcome fields", false, "supply the search scope and a closed outcome")
-	}
-	// Presence is a non-empty id list, the event's own recorded shape: the
-	// event records related_ids only when the search found work.
-	alignmentFields := map[string]json.RawMessage{"outcome": []byte(`"` + p.Outcome + `"`)}
-	if len(p.RelatedIDs) != 0 {
-		encoded, err := json.Marshal(p.RelatedIDs)
-		if err != nil {
-			return workflowProjectionError(err, "cannot encode the alignment related ids")
-		}
-		alignmentFields["related_ids"] = encoded
-	}
-	if rule, _, requires, violated := workflowPayloadCombinationViolation(workflowActionCrossField("record_diagnosis"), alignmentFields); violated {
-		if requires {
-			return newFailure(KindInvalidPayload, "fold_event", "backlog_alignment_recorded outcome "+rule.Value+" requires one to sixty-four unique related ids", false, "name the related work items the search found")
-		}
-		return newFailure(KindInvalidPayload, "fold_event", "backlog_alignment_recorded outcome "+rule.Value+" cannot carry related_ids", false, "drop related_ids or record outcome related_found")
-	}
-	if p.Outcome == "related_found" && !workflowList(p.RelatedIDs, 64, 1) {
-		return newFailure(KindInvalidPayload, "fold_event", "backlog_alignment_recorded outcome related_found requires one to sixty-four unique related ids", false, "name the related work items the search found")
-	}
-	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	return writeWorkflowBacklogAlignmentRowsTx(ctx, tx, event.SubjectID, p.Searched, p.Outcome, p.RelatedIDs, event.OccurredAt, event.Actor)
-}
-
-// writeWorkflowBacklogAlignmentRowsTx writes the write-seam-only alignment
-// projection rows for one recorded search: the declaration row and, when the
-// search found related work, one row per named work id. The merged diagnosis
-// fold reuses it, so both events write identical rows.
-func writeWorkflowBacklogAlignmentRowsTx(ctx context.Context, tx *sql.Tx, workID, searched, outcome string, relatedIDs []string, at time.Time, actor string) error {
-	recordedAt := at.UTC().Format(time.RFC3339Nano)
-	if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_backlog_alignment WHERE work_id=?`, workID); err != nil {
-		return workflowProjectionError(err, "cannot replace workflow backlog alignment")
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_backlog_alignment(work_id,related_work_id,searched,outcome,recorded_at,recorded_by) VALUES(?,NULL,?,?,?,?)`, workID, searched, outcome, recordedAt, actor); err != nil {
-		return workflowProjectionError(err, "cannot record workflow backlog alignment")
-	}
-	for _, relatedID := range relatedIDs {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_backlog_alignment(work_id,related_work_id,searched,outcome,recorded_at,recorded_by) VALUES(?,?,?,?,?,?)`, workID, relatedID, searched, outcome, recordedAt, actor); err != nil {
-			return workflowProjectionError(err, "cannot record a workflow backlog alignment match")
-		}
-	}
-	return nil
-}
-
-// foldWorkflowDiagnosisRecorded writes the merged diagnosis
-// record. The alignment section answers to the same
-// related_found bound the alignment fold enforces, and the projection
-// rows are the alignment fold's own; the reproduction and
-// root-cause sections ride the event the action recorded. No relation is
-// created. The fold evaluates the record_diagnosis declaration's outcome and
-// related_ids combinations because replay applies events without the action boundary.
 func foldWorkflowDiagnosisRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowDiagnosisRecordedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -735,40 +644,7 @@ func foldWorkflowDiagnosisRecorded(ctx context.Context, tx *sql.Tx, event Event)
 	if !workflowString(p.Reproduction, 4096) || !workflowString(p.RootCause, 4096) {
 		return newFailure(KindInvalidPayload, "fold_event", "diagnosis_recorded has invalid reproduction or root-cause sections", false, "record every required diagnosis section")
 	}
-	if !workflowString(p.Searched, 4096) || !slices.Contains([]string{"related_found", "none_found"}, p.Outcome) {
-		return newFailure(KindInvalidPayload, "fold_event", "diagnosis_recorded has invalid search or outcome fields", false, "supply the search scope and a closed outcome")
-	}
-	alignmentFields := map[string]json.RawMessage{"outcome": []byte(`"` + p.Outcome + `"`)}
-	if len(p.RelatedIDs) != 0 {
-		alignmentFields["related_ids"] = mustJSONRawMessageOrEmpty(p.RelatedIDs)
-	}
-	if rule, _, requires, violated := workflowPayloadCombinationViolation(workflowActionCrossField("record_diagnosis"), alignmentFields); violated {
-		if requires {
-			return newFailure(KindInvalidPayload, "fold_event", "diagnosis_recorded outcome "+rule.Value+" requires one to sixty-four unique related ids", false, "name the related work items the search found")
-		}
-		return newFailure(KindInvalidPayload, "fold_event", "diagnosis_recorded outcome "+rule.Value+" cannot carry related_ids", false, "drop related_ids or record outcome related_found")
-	}
-	if p.Outcome == "related_found" && !workflowList(p.RelatedIDs, 64, 1) {
-		return newFailure(KindInvalidPayload, "fold_event", "diagnosis_recorded outcome related_found requires one to sixty-four unique related ids", false, "name the related work items the search found")
-	}
-	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
-		return err
-	}
-	return writeWorkflowBacklogAlignmentRowsTx(ctx, tx, event.SubjectID, p.Searched, p.Outcome, p.RelatedIDs, event.OccurredAt, event.Actor)
-}
-
-// mustJSONRawMessageOrEmpty encodes the related-id list for the fold's
-// cross-field evaluation: absent for an empty list, so an empty list reads
-// as an absent field, never a present empty array.
-func mustJSONRawMessageOrEmpty(relatedIDs []string) json.RawMessage {
-	if len(relatedIDs) == 0 {
-		return nil
-	}
-	encoded, err := json.Marshal(relatedIDs)
-	if err != nil {
-		return nil
-	}
-	return encoded
+	return advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields)
 }
 
 func foldWorkflowActorRecorded(ctx context.Context, tx *sql.Tx, event Event) error {

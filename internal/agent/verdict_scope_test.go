@@ -92,8 +92,6 @@ func workflowEngineFixture(t *testing.T) (*store.Store, *Service, func(string, m
 	engine("pick_type", map[string]any{"type": "fix", "reason": "The work repairs a defect."})
 	engine("record_diagnosis", map[string]any{
 		"reproduction": "The bounded defect reproduction statement.",
-		"searched":     "The bounded backlog search statement.",
-		"outcome":      "none_found",
 		"root_cause":   "The bounded root cause statement.",
 	})
 	engine("complete_step", map[string]any{"step_id": "diagnose", "note": "Diagnosis recorded."})

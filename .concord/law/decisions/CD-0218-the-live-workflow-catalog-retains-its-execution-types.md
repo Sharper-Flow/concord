@@ -112,7 +112,7 @@ Before publication, carry every unaffected obligation from those records into
 the accepted successor text or an approved coherent successor set. Retain the
 bootstrap/platform floor and independent Review,
 vocabulary ownership, the identities active work
-needs, mandatory backlog search and CD-0198's evidence and approval floors.
+needs, and CD-0198's evidence and approval floors.
 Native Task remains host-owned; workflow result recording keeps scope and
 safety checks ([CD-0242 D6](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d6-native-task-belongs-to-the-host)).
 
@@ -131,9 +131,9 @@ than publish competing overrides.
 ```
 
 ```gherkin
-  Given a fix diagnosis lacks its search section
+  Given a fix diagnosis lacks its reproduction or root-cause section
   When the coordinator records the diagnosis
-  Then no diagnosis, alignment, or step advance commits
+  Then no diagnosis or step advance commits
 ```
 
 ```gherkin

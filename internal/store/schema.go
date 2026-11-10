@@ -9368,6 +9368,12 @@ CREATE TRIGGER workflow_instances_guard_update BEFORE UPDATE ON workflow_instanc
 CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instances BEGIN SELECT RAISE(ABORT,'workflow_instances is write-seam-only') WHERE NOT EXISTS(SELECT 1 FROM write_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version: 198, Name: "retire_workflow_backlog_alignment", Breaking: true,
+		SQL: `
+DROP TABLE workflow_backlog_alignment;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -128,21 +128,19 @@ test("the published workflow_action variants state each action's exact required 
 test("published string bounds admit and refuse with the core in both directions on multibyte boundaries", () => {
   const schema = publishedSchema("concord_work_transition")
   const variant = actionVariantInput(schema, "record_diagnosis")
-  const searched = variant.properties.fields.properties.searched
-  expect(searched).toBeObject()
-  expect(searched["x-maxBytes"]).toBe(4096)
-  expect(searched["x-minBytes"]).toBe(2)
-  expect(searched.minLength).toBe(1)
-  expect(searched.maxLength).toBe(4096)
+  const reproduction = variant.properties.fields.properties.reproduction
+  expect(reproduction).toBeObject()
+  expect(reproduction["x-maxBytes"]).toBe(4096)
+  expect(reproduction["x-minBytes"]).toBe(2)
+  expect(reproduction.minLength).toBe(1)
+  expect(reproduction.maxLength).toBe(4096)
   const diagnosisInput = (value: string) => ({
     work_id: "work-multibyte-parity",
     expected_version: 4,
     action_id: "record_diagnosis",
     idempotency_key: "idem-multibyte-parity",
     fields: {
-      reproduction: "é",
-      searched: value,
-      outcome: "none_found",
+      reproduction: value,
       root_cause: "é",
     },
   })

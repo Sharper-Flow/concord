@@ -16,11 +16,8 @@ func diagnosisS1Actor(workID, name string) WorkflowActor {
 	return WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/" + name, SessionRef: "session/" + workID + "-" + name, ActorClass: ActorAgent}
 }
 
-func diagnosisPayload(reproduction, searched, outcome string, relatedIDs []string, rootCause string) json.RawMessage {
-	payload := map[string]any{"reproduction": reproduction, "searched": searched, "outcome": outcome, "root_cause": rootCause}
-	if relatedIDs != nil {
-		payload["related_ids"] = relatedIDs
-	}
+func diagnosisPayload(reproduction, rootCause string) json.RawMessage {
+	payload := map[string]any{"reproduction": reproduction, "root_cause": rootCause}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		panic(err)
@@ -96,61 +93,17 @@ func instanceExecutionStart(t *testing.T, s *Store, workID string) (string, stri
 	return startedAt, actorRef
 }
 
-func diagnosisAlignmentRows(t *testing.T, s *Store, workID string) []struct {
-	Related  string
-	Searched string
-	Outcome  string
-} {
-	t.Helper()
-	rows, err := s.DatabaseForTesting().Query(`SELECT COALESCE(related_work_id,''),searched,outcome FROM workflow_backlog_alignment WHERE work_id=? ORDER BY related_work_id`, workID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	var found []struct {
-		Related  string
-		Searched string
-		Outcome  string
-	}
-	for rows.Next() {
-		var row struct {
-			Related  string
-			Searched string
-			Outcome  string
-		}
-		if err := rows.Scan(&row.Related, &row.Searched, &row.Outcome); err != nil {
-			t.Fatal(err)
-		}
-		found = append(found, row)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	return found
-}
-
 func TestRecordDiagnosisRecordsAllSectionsAtomically(t *testing.T) {
 	t.Parallel()
 	const workID = "diagnosis-recorded-atomic"
-	const relatedID = "diagnosis-related-work"
 	fixture := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanFix, "diagnose")
 	s := fixture.store
-	seedWork(t, s, relatedID)
 	before := readWorkVersion(t, s, workID)
-	if err := runVerdictActionAs(t, s, workID, "record_diagnosis", diagnosisPayload("the defect reproduces from a clean store", "the backlog search covered the tracker", "related_found", []string{relatedID}, "the defect is the fold's pool"), 0, fixture.owner); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_diagnosis", diagnosisPayload("the defect reproduces from a clean store", "the defect is the fold's pool"), 0, fixture.owner); err != nil {
 		t.Fatalf("record diagnosis: %v", err)
 	}
 	if got := currentStep(t, s, workID); got != "diagnose" {
 		t.Fatalf("record_diagnosis changed frontier to %q", got)
-	}
-	rows := diagnosisAlignmentRows(t, s, workID)
-	if len(rows) != 2 || rows[0].Related != "" || rows[1].Related != relatedID {
-		t.Fatalf("diagnosis alignment rows = %+v", rows)
-	}
-	for _, row := range rows {
-		if row.Searched != "the backlog search covered the tracker" || row.Outcome != "related_found" {
-			t.Fatalf("diagnosis alignment row = %+v", row)
-		}
 	}
 	var events, relations int
 	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowDiagnosisRecorded).Scan(&events); err != nil {
@@ -183,14 +136,10 @@ func TestRecordDiagnosisRefusalsLeaveZeroWrites(t *testing.T) {
 		name    string
 		payload json.RawMessage
 	}{
-		{"missing reproduction", json.RawMessage(`{"searched":"the search","outcome":"none_found","root_cause":"the cause"}`)},
-		{"missing searched", json.RawMessage(`{"reproduction":"the reproduction","outcome":"none_found","root_cause":"the cause"}`)},
-		{"missing outcome", json.RawMessage(`{"reproduction":"the reproduction","searched":"the search","root_cause":"the cause"}`)},
-		{"missing root cause", json.RawMessage(`{"reproduction":"the reproduction","searched":"the search","outcome":"none_found"}`)},
-		{"related_found without ids", json.RawMessage(`{"reproduction":"the reproduction","searched":"the search","outcome":"related_found","root_cause":"the cause"}`)},
-		{"none_found with ids", json.RawMessage(`{"reproduction":"the reproduction","searched":"the search","outcome":"none_found","related_ids":["work:diagnosis-refusal-zero-writes"],"root_cause":"the cause"}`)},
-		{"unknown related id", json.RawMessage(`{"reproduction":"the reproduction","searched":"the search","outcome":"related_found","related_ids":["work:not-a-real-work-item"],"root_cause":"the cause"}`)},
-		{"unknown field", json.RawMessage(`{"reproduction":"the reproduction","searched":"the search","outcome":"none_found","root_cause":"the cause","severity":"high"}`)},
+		{"missing reproduction", json.RawMessage(`{"root_cause":"the cause"}`)},
+		{"missing root cause", json.RawMessage(`{"reproduction":"the reproduction"}`)},
+		{"retired search fields", json.RawMessage(`{"reproduction":"the reproduction","searched":"the search","outcome":"none_found","root_cause":"the cause"}`)},
+		{"unknown field", json.RawMessage(`{"reproduction":"the reproduction","root_cause":"the cause","severity":"high"}`)},
 	}
 	for _, tc := range cases {
 		if err := runVerdictActionAs(t, s, workID, "record_diagnosis", tc.payload, 0, fixture.owner); err == nil {
@@ -201,10 +150,10 @@ func TestRecordDiagnosisRefusalsLeaveZeroWrites(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT count(*) FROM effect_receipts WHERE subject_id=? AND kind=?`, workID, WorkflowDiagnosisRecorded).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
-	if got := readWorkVersion(t, s, workID); got != version || events != 0 || len(diagnosisAlignmentRows(t, s, workID)) != 0 || currentStep(t, s, workID) != "diagnose" {
+	if got := readWorkVersion(t, s, workID); got != version || events != 0 || currentStep(t, s, workID) != "diagnose" {
 		t.Fatalf("refused diagnosis changed state: version=%d events=%d", got, events)
 	}
-	if err := runVerdictActionAs(t, s, workID, "record_diagnosis", diagnosisPayload("the reproduction", "the search", "none_found", nil, "the cause"), 0, fixture.owner); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_diagnosis", diagnosisPayload("the reproduction", "the cause"), 0, fixture.owner); err != nil {
 		t.Fatalf("valid diagnosis after refusals: %v", err)
 	}
 	if got := currentStep(t, s, workID); got != "diagnose" {
@@ -224,7 +173,7 @@ func TestNativeExecutionStartFenceAndAtomicRefusals(t *testing.T) {
 		ref, producer := "artifact:"+id, "producer-"+id
 		seedWorkflowAuthority(t, s, producer, workID, "principal:hold", "request:"+id, []string{ref})
 		payload := mustJSONValue(map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": ref, "producer_id": "principal:hold", "producer_run_ref": producer, "producer_watermark": "request:" + id})
-		if err := runWorkflowActionWithIdentity(t, s, workID, "bind_evidence", payload, 0, first, id); err != nil {
+		if err := runWorkflowActionWithIdentity(t, s, workID, "bind_evidence", payload, first, id); err != nil {
 			t.Fatalf("bind evidence %s: %v", id, err)
 		}
 	}
@@ -361,7 +310,7 @@ func TestDiagnosisRecordDoesNotStartExecution(t *testing.T) {
 	if start := workflowCurrentStartAtStep(t, s, workID, "diagnose"); start != nil || len(workflowStartReceiptIDs(t, s, workID)) != 0 {
 		t.Fatalf("diagnose has an execution start or receipt: %+v", start)
 	}
-	if err := runVerdictActionAs(t, s, workID, "record_diagnosis", diagnosisPayload("the reproduction", "the search", "none_found", nil, "the cause"), 0, actor); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_diagnosis", diagnosisPayload("the reproduction", "the cause"), 0, actor); err != nil {
 		t.Fatalf("record diagnosis without a start: %v", err)
 	}
 	if step := currentStep(t, s, workID); step != "diagnose" {
@@ -396,11 +345,9 @@ func runVerdictActionAtVersion(t *testing.T, s *Store, workID, action string, pa
 // runWorkflowActionWithIdentity runs one action under a distinct operation
 // identity, so a repeated action on one version mints its own durable
 // operation instead of colliding with the first call's identity.
-func runWorkflowActionWithIdentity(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64, owner WorkflowActor, suffix string) error {
+func runWorkflowActionWithIdentity(t *testing.T, s *Store, workID, action string, payload json.RawMessage, owner WorkflowActor, suffix string) error {
 	t.Helper()
-	if version == 0 {
-		version = readWorkVersion(t, s, workID)
-	}
+	version := readWorkVersion(t, s, workID)
 	operation := action + "-" + suffix + "-" + workID + "-" + fmt.Sprint(version)
 	ctx, err := prepareTerminalTestContext(context.Background(), s, workID, action)
 	if err != nil {
@@ -421,8 +368,7 @@ func runWorkflowActionWithIdentity(t *testing.T, s *Store, workID, action string
 	return tx.Commit()
 }
 
-// CD-0198 D2 keeps the search beside the analysis: a Fix item's diagnose
-// step completes only after its typed diagnosis record exists.
+// CD-0198 D2 requires a typed diagnosis before a Fix item's diagnose step completes.
 func TestDiagnoseStepCompletionRequiresRecordedDiagnosis(t *testing.T) {
 	const workID = "diagnose-document-gate"
 	f := seedWorkflowReturnRouteFixtureWithPlan(t, workID, WorkflowStepPlanFix, "diagnose", nil)
@@ -434,7 +380,7 @@ func TestDiagnoseStepCompletionRequiresRecordedDiagnosis(t *testing.T) {
 	if readWorkVersion(t, f.store, workID) != before {
 		t.Fatal("refused diagnose completion changed the work version")
 	}
-	if err := runVerdictActionAs(t, f.store, workID, "record_diagnosis", mustJSONValue(map[string]any{"reproduction": "Repro", "searched": "Search", "outcome": "none_found", "root_cause": "Cause"}), 0, f.owner); err != nil {
+	if err := runVerdictActionAs(t, f.store, workID, "record_diagnosis", mustJSONValue(map[string]any{"reproduction": "Repro", "root_cause": "Cause"}), 0, f.owner); err != nil {
 		t.Fatalf("record diagnosis: %v", err)
 	}
 	if err := runVerdictActionAs(t, f.store, workID, "complete_step", mustJSONValue(map[string]any{"step_id": "diagnose", "note": "diagnosis recorded"}), 0, f.owner); err != nil {

@@ -108,7 +108,7 @@ func TestWorktreeRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 				t.Errorf("retained work changed: got %v, want %v", got, retainedWork)
 			}
 			continue
-		case "schema", "schema_migrations", "store_revision", "workflow_contract_law_revisions":
+		case "schema", "schema_migrations", "store_revision", "workflow_contract_law_revisions", "workflow_backlog_alignment":
 			continue
 		case "outside_repair_dispositions", "outside_repair_reconciliations", "work_context_state", "work_context_findings", "project_governing_requirements", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions", "workflow_step_completions", "workflow_contract_predicates", "workflow_predicate_verdicts", "workflow_review_state", "workflow_context_checkpoints", "workflow_context_boundaries":
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' AND name=?`, table); len(rows) != 0 {

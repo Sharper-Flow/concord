@@ -6,110 +6,36 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
-	"time"
 )
 
-func TestOrdinaryAlignmentReplacement(t *testing.T) {
-	for _, tc := range []struct{ kind, action string }{{"bug", "record_diagnosis"}} {
-		t.Run(tc.action, func(t *testing.T) {
-			work := "replacement-" + tc.kind
-			fixture := seedWorkflowReturnRouteFixture(t, work, WorkflowStepPlanFix, "diagnose")
-			s := fixture.store
-			version := readWorkVersion(t, s, work)
-			for _, id := range []string{"related-a", "related-b", "related-c"} {
-				seedWork(t, s, id)
-			}
-			actor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + work, ActorClass: ActorAgent}
-			payload := func(search, outcome string, ids []string) json.RawMessage {
-				fields := map[string]any{"searched": search, "outcome": outcome}
-				if ids != nil {
-					fields["related_ids"] = ids
-				}
-				if tc.kind == "bug" {
-					fields["reproduction"] = "The reproduction"
-					fields["root_cause"] = "The cause"
-				}
-				data, err := json.Marshal(fields)
-				if err != nil {
-					t.Fatal(err)
-				}
-				return data
-			}
-			apply := func(key string, v int64, p json.RawMessage) error {
-				ctx, err := s.PrepareWorkflowActionProof(context.Background(), tc.action, work, p)
-				if err != nil {
-					return err
-				}
-				tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
-				if err != nil {
-					return err
-				}
-				_, err = applyWorkflowActionRawTx(ctx, tx, newWriteScope(tx), WorkflowActionExecutionRequest{WorkID: work, ExpectedVersion: v, ActionID: tc.action, Payload: p, Actor: actor, AcceptedInputsDigest: "sha256:replacement", IdempotencyIdentity: key, OperationID: key, PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: key, RequestID: "request:" + key, ContractDigest: testManifestDigest, Now: time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)})
-				if err != nil {
-					_ = tx.Rollback()
-					return err
-				}
-				return tx.Commit()
-			}
-			assertRows := func(search, outcome string, ids []string) {
-				t.Helper()
-				rows := diagnosisAlignmentRows(t, s, work)
-				var got []string
-				for _, row := range rows {
-					if row.Searched != search || row.Outcome != outcome {
-						t.Fatalf("unexpected row: %+v", row)
-					}
-					got = append(got, row.Related)
-				}
-				want := append([]string{""}, ids...)
-				if !reflect.DeepEqual(got, want) {
-					t.Fatalf("rows=%v want=%v", got, want)
-				}
-			}
-			if err := apply(work+"-first", version, payload("first search", "related_found", []string{"related-a", "related-b"})); err != nil {
-				t.Fatal(err)
-			}
-			step := currentStep(t, s, work)
-			version = readWorkVersion(t, s, work)
-			if err := apply(work+"-second", version, payload("second search", "related_found", []string{"related-b", "related-c"})); err != nil {
-				t.Fatalf("replacement: %v", err)
-			}
-			if got := currentStep(t, s, work); got != step {
-				t.Fatalf("progress moved: %s -> %s", step, got)
-			}
-			assertRows("second search", "related_found", []string{"related-b", "related-c"})
-			version = readWorkVersion(t, s, work)
-			for _, bad := range []struct {
-				key string
-				v   int64
-				p   json.RawMessage
-			}{{"invalid", version, payload("invalid search", "none_found", []string{"related-a"})}, {"stale", version - 1, payload("stale search", "none_found", nil)}, {"missing", version, payload("missing search", "related_found", []string{"missing-related"})}} {
-				if err := apply(work+"-"+bad.key, bad.v, bad.p); err == nil {
-					t.Fatalf("%s accepted", bad.key)
-				}
-				if got := readWorkVersion(t, s, work); got != version {
-					t.Fatalf("%s changed version %d -> %d", bad.key, version, got)
-				}
-				assertRows("second search", "related_found", []string{"related-b", "related-c"})
-			}
-			if _, err := s.db.Exec(`CREATE TRIGGER fail_alignment_replacement BEFORE INSERT ON workflow_backlog_alignment WHEN NEW.related_work_id='related-c' BEGIN SELECT RAISE(ABORT, 'injected replacement failure'); END`); err != nil {
-				t.Fatal(err)
-			}
-			if err := apply(work+"-rollback", version, payload("failed search", "related_found", []string{"related-a", "related-c"})); err == nil {
-				t.Fatal("injected insert failure was accepted")
-			}
-			if _, err := s.db.Exec(`DROP TRIGGER fail_alignment_replacement`); err != nil {
-				t.Fatal(err)
-			}
-			if got := readWorkVersion(t, s, work); got != version {
-				t.Fatalf("failed replacement changed version %d -> %d", version, got)
-			}
-			assertRows("second search", "related_found", []string{"related-b", "related-c"})
-			if err := apply(work+"-empty", version, payload("empty search", "none_found", nil)); err != nil {
-				t.Fatal(err)
-			}
-			assertRows("empty search", "none_found", nil)
-		})
+func TestOrdinaryDiagnosisReplacementRollback(t *testing.T) {
+	const work = "diagnosis-replacement-rollback"
+	f := seedWorkflowReturnRouteFixture(t, work, WorkflowStepPlanFix, "diagnose")
+	s := f.store
+	if err := runWorkflowActionWithIdentity(t, s, work, "record_diagnosis", diagnosisPayload("first reproduction", "first cause"), f.owner, "first"); err != nil {
+		t.Fatal(err)
+	}
+	version := readWorkVersion(t, s, work)
+	if err := runVerdictActionAtVersion(t, s, work, "record_diagnosis", diagnosisPayload("stale reproduction", "stale cause"), version-1, f.owner); err == nil {
+		t.Fatal("stale diagnosis was accepted")
+	}
+	if got := readWorkVersion(t, s, work); got != version {
+		t.Fatalf("stale diagnosis changed version: %d -> %d", version, got)
+	}
+	if _, err := s.db.Exec(`CREATE TRIGGER fail_diagnosis_receipt BEFORE INSERT ON effect_receipts WHEN NEW.kind='workflow.diagnosis_recorded' BEGIN SELECT RAISE(ABORT, 'injected diagnosis failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := runWorkflowActionWithIdentity(t, s, work, "record_diagnosis", diagnosisPayload("second reproduction", "second cause"), f.owner, "failure"); err == nil {
+		t.Fatal("injected receipt failure was accepted")
+	}
+	if got := readWorkVersion(t, s, work); got != version || currentStep(t, s, work) != "diagnose" {
+		t.Fatalf("failed diagnosis changed version or frontier: %d", got)
+	}
+	if _, err := s.db.Exec(`DROP TRIGGER fail_diagnosis_receipt`); err != nil {
+		t.Fatal(err)
+	}
+	if err := runWorkflowActionWithIdentity(t, s, work, "record_diagnosis", diagnosisPayload("second reproduction", "second cause"), f.owner, "second"); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -242,9 +168,9 @@ func TestOrdinaryRecordReplacementKeepsPlan(t *testing.T) {
 	if err != nil || before == nil {
 		t.Fatalf("read plan before diagnosis: %v", err)
 	}
-	for _, search := range []string{"first search", "replacement search"} {
-		if err := runVerdictActionAs(t, s, work, "record_diagnosis", diagnosisPayload("The reproduction", search, "none_found", nil, "The cause"), 0, f.owner); err != nil {
-			t.Fatalf("diagnosis %s: %v", search, err)
+	for _, reproduction := range []string{"first reproduction", "replacement reproduction"} {
+		if err := runVerdictActionAs(t, s, work, "record_diagnosis", diagnosisPayload(reproduction, "The cause"), 0, f.owner); err != nil {
+			t.Fatalf("diagnosis %s: %v", reproduction, err)
 		}
 	}
 	after, err := readWorkflowPlanTx(t.Context(), s.db, work)

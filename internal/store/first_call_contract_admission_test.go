@@ -136,11 +136,8 @@ func firstCallActionInput(t *testing.T, defs map[string]any, workID string, vers
 			t.Fatalf("published variant %s requires unknown property %s", variant, name)
 		}
 		if name == "fields" {
-			// A fields object the registry's cross-field declarations split
-			// into branches samples its first branch; crossFieldSampleObject
-			// follows oneOf and $ref-with-siblings exactly as the validators
-			// read them.
-			fields := crossFieldSampleObject(defs, property)
+			// Sample the first union branch while preserving $ref siblings.
+			fields := schemaSampleObject(defs, property)
 			for key, value := range overrides {
 				fields[key] = value
 			}
@@ -154,7 +151,7 @@ func firstCallActionInput(t *testing.T, defs map[string]any, workID string, vers
 		if !ok {
 			t.Fatalf("published variant %s declares no fields property", variant)
 		}
-		fields := crossFieldSampleObject(defs, property)
+		fields := schemaSampleObject(defs, property)
 		for key, value := range overrides {
 			fields[key] = value
 		}

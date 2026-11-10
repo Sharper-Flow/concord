@@ -219,9 +219,6 @@ type WorkflowContractTeaching struct {
 	// ArchitectureDomainRule states the Domain-membership and canonical
 	// relation rules the architecture-binding guards enforce.
 	ArchitectureDomainRule string `json:"architecture_domain_rule"`
-	// AlignmentCombinationRule states the cross-field rule the
-	// record_diagnosis registry declaration enforces at payload validation.
-	AlignmentCombinationRule string `json:"alignment_combination_rule"`
 	// ActionRules maps a workflow action ID to the guard-owned rule its
 	// published variant states before a call.
 	ActionRules map[string]string `json:"action_rules"`
@@ -235,7 +232,6 @@ func WorkflowContractTeachingRules() WorkflowContractTeaching {
 		LawAdditionMandateRule:   workflowLawAdditionMandateTeaching,
 		ObligationMembershipRule: workflowObligationMembershipTeaching,
 		ArchitectureDomainRule:   workflowArchitectureDomainTeaching,
-		AlignmentCombinationRule: workflowAlignmentCombinationTeaching,
 		ActionRules: map[string]string{
 			"complete_step": workflowStepReviewTeaching,
 			"bind_evidence": workflowBindEvidenceTeaching,

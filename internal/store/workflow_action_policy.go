@@ -1,7 +1,6 @@
 package store
 
 import (
-	"fmt"
 	"regexp"
 	"slices"
 	"unicode"
@@ -73,60 +72,8 @@ type WorkflowPayloadField struct {
 
 type WorkflowPayloadDefinition struct {
 	// Closed makes the declared field list a fail-closed payload contract.
-	// The payload carries fields only: cross-field rules are version-
-	// invariant engine law, so they live on the builtin action policy
-	// beside this declaration, never on digest-covered definition content.
 	Closed bool                   `json:"closed,omitempty"`
 	Fields []WorkflowPayloadField `json:"fields"`
-}
-
-// WorkflowActionCrossField is the engine action registry's typed declaration
-// of one action's version-invariant cross-field payload rules. It lives on
-// builtinActionPolicy, beside the payload fields it constrains — never on
-// the digest-covered WorkflowPayloadDefinition. Core payload validation and
-// the generated published variants read this one declaration, so the
-// enforced and advertised contracts cannot disagree.
-// validateCrossFieldDeclaration holds its shape.
-type WorkflowActionCrossField struct {
-	// Combinations declares legal input combinations: under one
-	// discriminator value, Requires names fields the payload must carry and
-	// Forbids names fields it must omit.
-	Combinations []WorkflowPayloadCombination `json:"combinations,omitempty"`
-	// KindMatches declares nested discriminator equalities: when a scalar
-	// enum field and an object field are both present, the object's
-	// discriminator must hold the scalar's value — outcome_kind and
-	// outcome_payload.kind are one value. Core payload validation
-	// enforces the equality from this declaration and the generated
-	// published variants turn each match into closed per-kind branches, so
-	// neither side can admit a pair the other refuses.
-	KindMatches []WorkflowPayloadKindMatch `json:"kind_matches,omitempty"`
-}
-
-// WorkflowPayloadKindMatch declares that a scalar enum field and an object
-// field's discriminator hold one value whenever both are present. Remedy
-// optionally states the refusal remedy for a payload that breaks the
-// equality.
-type WorkflowPayloadKindMatch struct {
-	Field         string `json:"field"`
-	Object        string `json:"object"`
-	Discriminator string `json:"discriminator"`
-	Remedy        string `json:"remedy,omitempty"`
-}
-
-// WorkflowPayloadCombination declares one cross-field legal input combination
-// a flat field list cannot express: under one discriminator value, Requires
-// names fields the payload must carry and Forbids names fields it must omit.
-// The declaration lives on the action's registry payload beside the fields it
-// constrains; core validation enforces it and the generated core and
-// published variants turn each one into a closed per-value field branch, so
-// one declaration owns the rule everywhere it applies. Remedy
-// optionally states the refusal remedy for a payload that breaks the rule.
-type WorkflowPayloadCombination struct {
-	Field    string   `json:"field"`
-	Value    string   `json:"value"`
-	Requires []string `json:"requires,omitempty"`
-	Forbids  []string `json:"forbids,omitempty"`
-	Remedy   string   `json:"remedy,omitempty"`
 }
 
 type WorkflowActionDefinition struct {
@@ -182,115 +129,6 @@ func validEvidence(value EvidenceKind) bool {
 	return slices.Contains(evidenceStrings(workflowEvidenceKinds), string(value))
 }
 
-// validateCrossFieldDeclaration holds the shape of an engine policy's
-// declared cross-field rules so a declaration that drifts from its own
-// fields fails validation rather than publishing a rule nothing enforces.
-// A combination must discriminate on the payload's one enum field that
-// carries combinations, name only enum-admitted values, cover each value of
-// that enum exactly once (so the generated branches are total and mutually
-// exclusive), and require or forbid only declared fields.
-func validateCrossFieldDeclaration(fields []WorkflowPayloadField, cross WorkflowActionCrossField) bool {
-	byName := make(map[string]*WorkflowPayloadField, len(fields))
-	for i := range fields {
-		byName[fields[i].Name] = &fields[i]
-	}
-	return validateCrossFieldCombinations(byName, cross.Combinations) &&
-		validateCrossFieldKindMatches(byName, cross.KindMatches)
-}
-
-func validateCrossFieldCombinations(byName map[string]*WorkflowPayloadField, combinations []WorkflowPayloadCombination) bool {
-	discriminator := ""
-	values := map[string]bool{}
-	for _, combination := range combinations {
-		if discriminator == "" {
-			discriminator = combination.Field
-		}
-		if combination.Field != discriminator || !validWorkflowID(combination.Field) {
-			return false
-		}
-		field, declared := byName[combination.Field]
-		if !declared || len(field.Enum) == 0 {
-			return false
-		}
-		if !slices.Contains(field.Enum, combination.Value) || values[combination.Value] {
-			return false
-		}
-		values[combination.Value] = true
-		if !validateCrossFieldCombinationFields(byName, combination) {
-			return false
-		}
-	}
-	if discriminator != "" {
-		for _, value := range byName[discriminator].Enum {
-			if !values[value] {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func validateCrossFieldCombinationFields(byName map[string]*WorkflowPayloadField, combination WorkflowPayloadCombination) bool {
-	if len(combination.Requires) == 0 && len(combination.Forbids) == 0 {
-		return false
-	}
-	for _, side := range [][]string{combination.Requires, combination.Forbids} {
-		for _, name := range side {
-			if _, ok := byName[name]; !ok || name == combination.Field {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func validateCrossFieldKindMatches(byName map[string]*WorkflowPayloadField, matches []WorkflowPayloadKindMatch) bool {
-	seenMatches := map[string]bool{}
-	for _, match := range matches {
-		field, fieldDeclared := byName[match.Field]
-		object, objectDeclared := byName[match.Object]
-		// Both sides must be declared fields; the scalar side must be a
-		// closed enum (the generated per-kind branches const each enum
-		// value); the object side must not be the scalar itself; the
-		// discriminator names the object member that carries the kind.
-		if !fieldDeclared || !objectDeclared || match.Field == match.Object || len(field.Enum) == 0 || match.Discriminator == "" || seenMatches[match.Field+"\x00"+match.Object] {
-			return false
-		}
-		if object.ValueType != PayloadObject {
-			return false
-		}
-		seenMatches[match.Field+"\x00"+match.Object] = true
-	}
-	return true
-}
-
-// validateEngineCrossFieldDeclarations checks every engine-declared
-// cross-field rule against the action's own payload fields. The builtin
-// table is static, so a store test runs it rather than every definition
-// validation.
-func validateEngineCrossFieldDeclarations() error {
-	for id, policy := range builtinActionPolicies {
-		if policy.CrossField == nil {
-			continue
-		}
-		fields := policy.Payload.Fields
-		if current, err := catalogAction(id); err == nil {
-			fields = current.Payload.Fields
-		}
-		if !validateCrossFieldDeclaration(fields, *policy.CrossField) {
-			return fmt.Errorf("engine cross-field declaration for %s does not match its payload fields", id)
-		}
-		if policy.PublicPayload != nil && len(policy.CrossField.Combinations) != 0 {
-			// The public payload shares the discriminator branches; its
-			// fields must carry the same discriminator enum.
-			if !validateCrossFieldDeclaration(policy.PublicPayload.Fields, WorkflowActionCrossField{Combinations: policy.CrossField.Combinations}) {
-				return fmt.Errorf("engine cross-field declaration for %s does not match its public payload fields", id)
-			}
-		}
-	}
-	return nil
-}
-
 func sameStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -333,11 +171,6 @@ type builtinActionPolicy struct {
 	EventShape    ActionEventShape
 	Payload       WorkflowPayloadDefinition
 	PublicPayload *WorkflowPayloadDefinition
-	// CrossField declares the action's version-invariant cross-field rules.
-	// It rides the engine policy, not the digest-covered payload, and every
-	// enforcer and the published variants resolve it through
-	// workflowActionCrossField.
-	CrossField *WorkflowActionCrossField
 }
 
 func actionPolicy(consequence ActionConsequence, mode ActionExecutionMode, shape ActionEventShape, fields ...WorkflowPayloadField) builtinActionPolicy {
@@ -345,83 +178,6 @@ func actionPolicy(consequence ActionConsequence, mode ActionExecutionMode, shape
 		fields = []WorkflowPayloadField{}
 	}
 	return builtinActionPolicy{Consequence: consequence, ExecutionMode: mode, EventShape: shape, Payload: WorkflowPayloadDefinition{Closed: true, Fields: fields}}
-}
-
-// actionPolicyWithCombinations attaches the action's cross-field legal input
-// combinations to its engine policy declaration: the one typed declaration
-// core validation enforces and the published variants generate their closed
-// per-value branches from.
-func actionPolicyWithCombinations(policy builtinActionPolicy, combinations ...WorkflowPayloadCombination) builtinActionPolicy {
-	policy.CrossField = &WorkflowActionCrossField{Combinations: combinations}
-	return policy
-}
-
-// workflowActionCrossField resolves one action's cross-field declaration
-// from the builtin engine policy table. An action without a policy entry
-// resolves an empty declaration. Core payload validation and the
-// exported generator projection
-// read this accessor, so no second copy of a rule can drift.
-func workflowActionCrossField(actionID string) WorkflowActionCrossField {
-	if policy, ok := builtinActionPolicies[actionID]; ok && policy.CrossField != nil {
-		return *policy.CrossField
-	}
-	return WorkflowActionCrossField{}
-}
-
-// WorkflowActionCrossFieldRules is the exported projection of
-// workflowActionCrossField for the contract generator: the same single
-// engine declaration the guards enforce.
-func WorkflowActionCrossFieldRules(actionID string) WorkflowActionCrossField {
-	return workflowActionCrossField(actionID)
-}
-
-// WorkflowActionCanonicalCrossFieldRules projects the enforcing declaration
-// onto one closed action payload. Partial rules refuse; vacuous forbids drop.
-func WorkflowActionCanonicalCrossFieldRules(actionID string, fields []WorkflowPayloadField) (WorkflowActionCrossField, error) {
-	declared := make(map[string]bool, len(fields))
-	for _, field := range fields {
-		declared[field.Name] = true
-	}
-	cross := WorkflowActionCrossFieldRules(actionID)
-	projected := WorkflowActionCrossField{}
-	for _, combination := range cross.Combinations {
-		if !declared[combination.Field] {
-			continue
-		}
-		projectedCombination, err := workflowCanonicalCombination(actionID, declared, combination)
-		if err != nil {
-			return WorkflowActionCrossField{}, err
-		}
-		projected.Combinations = append(projected.Combinations, projectedCombination)
-	}
-	for _, match := range cross.KindMatches {
-		fieldDeclared, objectDeclared := declared[match.Field], declared[match.Object]
-		switch {
-		case !fieldDeclared && !objectDeclared:
-			continue
-		case !fieldDeclared || !objectDeclared || match.Discriminator == "":
-			return WorkflowActionCrossField{}, fmt.Errorf("canonical cross-field projection for %s: kind match %s/%s partially overlaps the declared fields", actionID, match.Field, match.Object)
-		default:
-			projected.KindMatches = append(projected.KindMatches, match)
-		}
-	}
-	return projected, nil
-}
-
-func workflowCanonicalCombination(actionID string, declared map[string]bool, combination WorkflowPayloadCombination) (WorkflowPayloadCombination, error) {
-	projected := WorkflowPayloadCombination{Field: combination.Field, Value: combination.Value, Remedy: combination.Remedy}
-	for _, name := range combination.Requires {
-		if !declared[name] {
-			return WorkflowPayloadCombination{}, fmt.Errorf("canonical cross-field projection for %s: combination on %s requires undeclared field %s", actionID, combination.Field, name)
-		}
-		projected.Requires = append(projected.Requires, name)
-	}
-	for _, name := range combination.Forbids {
-		if declared[name] {
-			projected.Forbids = append(projected.Forbids, name)
-		}
-	}
-	return projected, nil
 }
 
 func actionStringField(name string, required bool, upper int64) WorkflowPayloadField {
@@ -493,13 +249,6 @@ func evidenceBindingActionFields() []WorkflowPayloadField {
 	}
 }
 
-// workflowAlignmentCombinationTeaching states the outcome/related_ids
-// cross-field rule the record_diagnosis combination declaration enforces
-// through
-// validateWorkflowPayloadCrossFieldRules; the teaching projection publishes
-// the same text from this declaration site.
-const workflowAlignmentCombinationTeaching = "record_diagnosis couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination. Each related ID must be a Concord work ID, not a Linear issue key. Look up a Linear issue with concord_work_browse.list using linear_issue_key."
-
 var builtinActionPolicies = map[string]builtinActionPolicy{
 	"record_discovery": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventGeneric),
 	"approve_contract": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
@@ -534,24 +283,9 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"checkpoint_repair":   actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
 	"start_refine":        actionPolicy(ActionExternalEffect, ActionFenced, ActionEventGeneric),
 	"checkpoint_refine":   actionPolicy(ActionExternalEffect, ActionCheckpoint, ActionEventCheckpoint),
-	// The typed diagnosis record. The payload carries one
-	// required section per merged source action: the reproduction record,
-	// the alignment search with its searched/outcome/related_ids
-	// fields and legal input combinations, and the root-cause record. The
-	// projection fold writes the same workflow_backlog_alignment rows the
-	// alignment fold writes and creates no relation.
-	"record_diagnosis": actionPolicyWithCombinations(actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
-		// The bounds match the searched floor the fold enforces through
-		// workflowString: a schema-valid section cannot be refused by the
-		// fold.
+	"record_diagnosis": actionPolicy(ActionInternalSQLite, ActionAdvance, ActionEventTyped,
 		WorkflowPayloadField{Name: "reproduction", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
-		WorkflowPayloadField{Name: "searched", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
-		actionEnumField("outcome", true, "related_found", "none_found"),
-		actionIDListField("related_ids", false, 1, 64),
 		WorkflowPayloadField{Name: "root_cause", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
-	),
-		WorkflowPayloadCombination{Field: "outcome", Value: "related_found", Requires: []string{"related_ids"}, Remedy: "name the related work items the search found"},
-		WorkflowPayloadCombination{Field: "outcome", Value: "none_found", Forbids: []string{"related_ids"}, Remedy: "drop related_ids or record outcome related_found"},
 	),
 	"frame_research":      actionPolicy(ActionInternalSQLite, ActionHold, ActionEventGeneric),
 	"record_finding":      actionPolicy(ActionCrossAuthority, ActionAdvance, ActionEventGeneric),

@@ -30,11 +30,11 @@ func TestSmallFixPreparationDepthNeedsNoArchitectureDocument(t *testing.T) {
 				}
 			}
 			if investigate {
-				act("record_diagnosis", map[string]any{"reproduction": "Initial reproduction.", "searched": "Initial backlog search.", "outcome": "none_found", "root_cause": "Initial hypothesis."})
+				act("record_diagnosis", map[string]any{"reproduction": "Initial reproduction.", "root_cause": "Initial hypothesis."})
 			}
 			act("record_diagnosis", map[string]any{
-				"reproduction": "The comment says eight; the function and check return seven.", "searched": "No related correction exists in the isolated backlog.",
-				"outcome": "none_found", "root_cause": "The factual comment is incorrect; the existing architecture and behavior need no change.",
+				"reproduction": "The comment says eight; the function and check return seven.",
+				"root_cause":   "The factual comment is incorrect; the existing architecture and behavior need no change.",
 			})
 			if workflowPlanFixtureFrontier(t, s, workID) != "diagnose" {
 				t.Fatal("recording diagnosis advanced the frontier")

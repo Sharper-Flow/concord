@@ -150,10 +150,9 @@ export function expandedPublishedRequestSchema(published: unknown): unknown {
 // variant's fields surface: every oneOf/anyOf branch when publication
 // factored the fields union, or the single flat object when the action
 // declares one closed shape. Structural inspection reads fields through this
-// helper so a branch-only field (a cross-field admission's variant field)
-// is checked where it lives, never through the factored parent
-// view that carries only the shared constraints. Inspection only: the
-// published compact document stays the admitted input.
+// helper so a branch-only field is checked where it lives, never through
+// the factored parent view that carries only the shared constraints.
+// Inspection only: the published compact document stays the admitted input.
 export function actionFieldsBranches(actionInput: unknown, fieldName: string = "fields"): any[] {
   const fields = (actionInput as any)?.properties?.[fieldName];
   if (fields === null || typeof fields !== "object" || Array.isArray(fields)) return [];
@@ -315,7 +314,7 @@ def load_workflow_action_contracts() -> tuple[list[dict], dict, dict, list[dict]
         if not isinstance(refs, list) or any(not isinstance(ref, str) or not ref for ref in refs) or len(set(refs)) != len(refs) or refs != sorted(refs):
             fail(f"workflow action contract projection {side} schema refs are not a sorted unique name list")
     teaching = projection["teaching"]
-    if set(teaching) != {"spec_mandate_rule", "law_addition_mandate_rule", "obligation_membership_rule", "architecture_domain_rule", "alignment_combination_rule", "action_rules"}:
+    if set(teaching) != {"spec_mandate_rule", "law_addition_mandate_rule", "obligation_membership_rule", "architecture_domain_rule", "action_rules"}:
         fail("workflow action contract projection carries no guard-owned teaching rules")
     for rule in (value for key, value in teaching.items() if key != "action_rules"):
         if not isinstance(rule, str) or not rule.strip():
@@ -329,7 +328,7 @@ def load_workflow_action_contracts() -> tuple[list[dict], dict, dict, list[dict]
     if unknown_rules:
         fail(f"action teaching rules name unknown actions: {', '.join(unknown_rules)}")
     for action in actions:
-        if set(action) != {"id", "variants", "cross_field"}:
+        if set(action) != {"id", "variants"}:
             fail("workflow action contract projection contains an open record")
         if not action["variants"]:
             fail(f"workflow action contract projection names no variant: {action.get('id')}")
@@ -341,31 +340,7 @@ def load_workflow_action_contracts() -> tuple[list[dict], dict, dict, list[dict]
                     fail("workflow action contract projection contains an open payload")
                 if variant[payload_key].get("closed") is not True:
                     fail(f"current workflow action {payload_key} is not closed: {action.get('id')}")
-                validate_workflow_cross_field(action, variant[payload_key])
     return actions, teaching, schema_refs, projection["contract_updates"]
-
-
-def validate_workflow_cross_field(action: dict, payload: dict) -> None:
-    declared = {field["name"] for field in payload["fields"]}
-    cross = action["cross_field"]
-    if cross is None or set(cross) - {"combinations", "kind_matches"}:
-        fail("workflow action contract projection contains an open cross-field declaration")
-    combinations = cross.get("combinations", [])
-    kind_matches = cross.get("kind_matches", [])
-    for match in kind_matches:
-        if set(match) - {"field", "object", "discriminator", "remedy"}:
-            fail(f"workflow action kind match is an open record: {action.get('id')}")
-        if match["field"] not in declared or match["object"] not in declared or not match.get("discriminator"):
-            fail(f"workflow action {action.get('id')} kind match names undeclared fields or no discriminator")
-    for combination in combinations:
-        if set(combination) - {"field", "value", "requires", "forbids", "remedy"}:
-            fail(f"workflow action combination is an open record: {action.get('id')}")
-        if combination["field"] not in declared:
-            fail(f"workflow action {action.get('id')} combination names undeclared discriminator {combination['field']}")
-        for side in ("requires", "forbids"):
-            for name in combination.get(side, []):
-                if name not in declared:
-                    fail(f"workflow action {action.get('id')} combination names undeclared field {name}")
 
 
 def schema_ref_closure(defs: dict, roots: list[str]) -> list[str]:
@@ -517,48 +492,9 @@ def workflow_payload_field_schema(field: dict, defs: dict, field_teaching: dict 
     return schema
 
 
-def workflow_payload_object_schema(payload: dict, defs: dict, field_teaching: dict | None = None, cross_field: dict | None = None) -> dict:
-    result = workflow_payload_flat_object_schema(payload, defs, field_teaching)
-    combinations = (cross_field or {}).get("combinations") or []
-    if combinations:
-        # Registry-declared legal input combinations become closed per-value
-        # branches: each branch keeps the discriminator const, requires what
-        # the combination requires, and omits the forbidden properties
-        # entirely so closed-object validation refuses them. The branches are
-        # total over the discriminator's enum and mutually exclusive through
-        # the consts, so the published shape and core admission accept exactly
-        # the same payloads — no if/then the host can drop.
-        return {"oneOf": [
-            workflow_payload_combination_branch(payload, defs, field_teaching, combination)
-            for combination in combinations
-        ]}
-    return result
-
-
-def workflow_payload_flat_object_schema(payload: dict, defs: dict, field_teaching: dict | None = None) -> dict:
+def workflow_payload_object_schema(payload: dict, defs: dict, field_teaching: dict | None = None) -> dict:
     properties = {field["name"]: workflow_payload_field_schema(field, defs, field_teaching) for field in payload["fields"]}
     required = [field["name"] for field in payload["fields"] if field.get("required")]
-    result = {"type": "object", "additionalProperties": False, "maxProperties": 32, "properties": properties}
-    if required:
-        result["required"] = required
-    return result
-
-
-def workflow_payload_combination_branch(payload: dict, defs: dict, field_teaching: dict | None, combination: dict) -> dict:
-    forbidden = set(combination.get("forbids", []))
-    properties = {}
-    required = []
-    for field in payload["fields"]:
-        name = field["name"]
-        if name in forbidden and name != combination["field"]:
-            continue
-        schema = workflow_payload_field_schema(field, defs, field_teaching)
-        if name == combination["field"]:
-            schema = {key: value for key, value in schema.items() if key != "enum"}
-            schema["const"] = combination["value"]
-        properties[name] = schema
-        if field.get("required") or name in combination.get("requires", []):
-            required.append(name)
     result = {"type": "object", "additionalProperties": False, "maxProperties": 32, "properties": properties}
     if required:
         result["required"] = required
@@ -749,7 +685,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], teaching
     field_teaching = {
         "spec_mandate": teaching["spec_mandate_rule"],
         "law_additions": teaching["law_addition_mandate_rule"],
-        "related_ids": teaching["alignment_combination_rule"],
         "architecture_binding": teaching["architecture_domain_rule"],
     }
     defs["workflow_forward_relation"] = {"type": "object", "additionalProperties": False, "required": ["kind"], "properties": {"kind": {"const": "forward_link"}, "class": {"type": "string", "enum": ["hard", "soft", "none"]}, "severity": {"type": "string", "enum": ["breaking", "non-breaking", "informational"]}}}
@@ -773,8 +708,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], teaching
         defs.pop(stale, None)
 
     # Each action publishes its current closed fieldsets from the registry.
-    # Cross-field rules apply inside each alternative; no field union invents
-    # a contract.
+    # No field union invents a contract.
     def action_variant(action: dict, payload_key: str, name: str) -> None:
         action_id = action["id"]
         properties = copy.deepcopy(outer_properties)
@@ -785,15 +719,11 @@ def project_workflow_action_schema(document: dict, actions: list[dict], teaching
             # this variant at all, so supplying it is a structural refusal.
             properties.pop("fields", None)
         else:
-            # One path for every action: the
-            # engine registry's declarations (fields plus the action's
-            # cross-field rules) produce the closed shape, so no action's
-            # branch is hand-authored.
+            # Engine field declarations produce each closed shape.
             payloads = [variant[payload_key] for variant in action["variants"]]
             branches = []
             for payload in payloads:
-                validate_workflow_cross_field(action, payload)
-                branch = workflow_payload_object_schema(payload, defs, field_teaching, action["cross_field"])
+                branch = workflow_payload_object_schema(payload, defs, field_teaching)
                 if branch not in branches:
                     branches.append(branch)
             field_object = closed_field_union(branches, defs, name)

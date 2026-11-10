@@ -235,7 +235,7 @@ the rows below do not repeat this pair.
 | `workflow.action_completed` | `work_id`, optional `action_id`, `step_id`, `attempt_epoch`, `result_evidence_refs` (0–32), `changed_refs` (0–32), `actor_ref`. It rejects undeclared current-step actions. |
 | `workflow.proposal_recorded` | `work_id`, `problem` (1–4096), `affected` (1–16 unique entries of 1–256), `stakes` (1–2048), `user_outcomes` (1–16 unique entries of 1–512), `constraints` (0–16 unique entries of 1–512, omitted when absent), `open_questions` (0–16 unique entries of 1–512, omitted when absent), `out_of_scope` (0–16 unique entries of 1–512, omitted when absent) |
 | `workflow.design_recorded` | `work_id`, `approach` (2–4096), `decisions` (1–16 typed decisions with `id`, `question` (1–512), `choice` (1–1024), `rationale` (1–1024), and `rejected` (0–8 strings)), `touched_refs` (1–64 references) |
-| `workflow.backlog_alignment_recorded` | `work_id`, `searched` (2–4096, the search performed and its scope), `outcome` (`related_found` or `none_found`), `related_ids` (1–64 unique work ids, present only when `outcome` is `related_found`; the mutation refuses `related_found` with no ids and `none_found` with ids, and every id must name a real work item) |
+| `workflow.diagnosis_recorded` | `work_id`, `reproduction` (2–4096), `root_cause` (2–4096) |
 | `workflow.action_failed` | `work_id`, `step_id`, `attempt_epoch`, `failure_kind` (closed TS7 error kind), `recoverable` (boolean), `actor_ref` |
 | `workflow.evidence_bound` | `work_id`, `evidence_kind`, `immutable_subject_ref`, and required `producer_watermark`; the authenticated binding supplies attribution. For `evidence_kind=native_run` the `immutable_subject_ref` is the record's `xobs:` observation and the attributed record must be verified (CD-0040 D9), so the binding fails closed until a verification record answers the observation. |
 | `workflow.native_run_recorded` | `work_id`, `run_id` (1–128), `native_subject_ref` (1–2048 opaque non-secret), `subject_digest` (core-derived), `phase` (`start`/`health`/`rollback`/`cleanup`, fixed by the action ID), `status` (closed per-phase vocabulary), `evidence_ref`, `evidence_digest`, `asserted_at` (RFC3339, within the two-minute report skew bound), `reporting_authority_ref` (the authenticated actor's client, never caller input), `actor_ref`, and the embedded CD-0040 capture component: `capture_method`, the closed `observed_universe` structure (one item, exactly scoped, complete by closed-structure digest — validated by the shared D4 rules when recorded and read), the derived content-hashed `freshness_policy_ref`/`divergence_policy_ref` from the reviewed per-kind register, and the `observation_id` the run's phases share. The mutation registers that observation in `external_observations` as its shared provenance home, so one verification record answers every phase row and the attributed read (`NativeRunReport`) carries the derived verification state. |
@@ -379,8 +379,7 @@ documents gate their owning step's completion (`requireWorkflowPlanDocumentTx`);
 the clarify document gates the Clarify step through the same gate; the delivery
 assertion gates completion and the retained `record_delivery` admission
 (`requireWorkflowCompletionFactsTx`, `workflowPlanTerminalAdmissionTx`); the
-diagnosis alignment gates the diagnose step and the retained upgrade chain
-reads it (initiative retirement); the prelude's intake outcome drives opening
+diagnosis gates the diagnose step; the prelude's intake outcome drives opening
 admission and the resume and work-pin derivation; legislative subjects and the
 contract version feed legislated authority resolution (`knowledge_authority`).
 A recorded fact with no gate and no reader is retired, not stored.
@@ -394,7 +393,6 @@ Each instance carries its own step plan ([section 2](#2-workflow-type-templates-
 | `workflow_instances` | `work_id TEXT`, `workflow_type TEXT NULL`, `step_plan TEXT NULL`, `instance_state TEXT`, `execution_actor_ref TEXT NULL`, `started_at TEXT NULL`, `completed_at TEXT NULL`, `last_checkpoint_at TEXT NULL` | PK `work_id`; FK work; FK actor nullable; checks type enum or null, plan JSON object or null, state enum |
 | `workflow_clarify_records` | `work_id TEXT`, `work_version INTEGER`, `payload TEXT`, `recorded_at TEXT NULL`, `actor TEXT NULL`, `event_ref TEXT NULL` | PK `work_id`; FK work and nullable actor, both `ON DELETE RESTRICT`; `work_version` is non-null and positive; `payload` is non-null, valid JSON and an object; insert, update and delete require the write guard |
 | `workflow_contracts` | `work_id TEXT`, `contract_version INTEGER`, `consequence_class TEXT`, `approved_at TEXT`, `approved_by TEXT`, `superseded_by INTEGER NULL`, `spec_mandate TEXT`, `law_modifies TEXT`, `law_boundary_version INTEGER`, `self_repair_json TEXT`, `supersession_seq INTEGER`, `last_healthy_seq INTEGER`, `changes_product_truth INTEGER NULL`, `legislative_subjects TEXT` | PK `(work_id,contract_version)`; FK work and approved actor; self-FK superseded contract |
-| `workflow_backlog_alignment` | `work_id TEXT`, `related_work_id TEXT NULL`, `searched TEXT`, `outcome TEXT`, `recorded_at TEXT`, `recorded_by TEXT` | PK `(work_id,related_work_id)`; FK work for both ids; checks closed outcome, a `none_found` work records no match rows, and no self-match; the declaration row carries a null `related_work_id`. Work removal clears rows naming the removed item in either column, because both foreign keys are `RESTRICT`. It preserves the original search outcome and surviving evidence under [§11.1](#111-retained-alignment-records). Its foreign keys bind to `work_items`, not to `workflow_contracts`, so it can hold a row before planning approves a contract |
 | `workflow_actors` | `actor_ref TEXT`, `principal_ref TEXT`, `client_ref TEXT`, `agent_ref TEXT`, `session_ref TEXT`, `actor_class TEXT`, `first_seen_at TEXT` | PK `actor_ref`; UNIQUE tuple `(principal_ref,client_ref,agent_ref,session_ref)`; checks nonempty tuple and `actor_class IN ('agent','operator')` |
 | `workflow_checkpoints` | `work_id TEXT`, `checkpoint_id TEXT`, `step_id TEXT`, `step_kind TEXT`, `attempt_epoch INTEGER`, `accepted_inputs_digest TEXT`, `result_evidence_refs TEXT`, `resume_cursor TEXT`, `idempotency_identity TEXT`, `actor_ref TEXT`, `request_id TEXT`, `recorded_at TEXT` | PK `(work_id,checkpoint_id)`; UNIQUE `(work_id,step_id,attempt_epoch)` and `(work_id,idempotency_identity)`; FK work/actor; closed step-kind check |
 | `workflow_impact_edges` | `work_id TEXT`, `edge_id TEXT`, `edge_kind TEXT`, `edge_class TEXT`, `target_work_id TEXT`, `target_kind TEXT`, `severity TEXT`, `recorded_at TEXT` | PK `(work_id,edge_id)`; FK source/target work; closed edge/class/severity checks; hard `depends_on` and `forward_link` cycle check in transaction |
@@ -444,7 +442,6 @@ Workflow state is current rows written by each mutation in one transaction, and 
 | step inserted | add the inserted step through the plan-write check; an existing step never changes |
 | step completed | append the step's attempt through the plan-write check; the frontier derives from completions, and no step pointer is stored |
 | contract recorded/updated | insert the immutable contract version; an ordinary update atomically makes the next version current under §4.1 |
-| backlog alignment recorded | insert the declaration row and, when the outcome is `related_found`, one row per named work id; the alignment action records the alignment rows only and creates no relation |
 | actor recorded | insert once; a different tuple for an existing `actor_ref` is refused |
 | action started/checkpointed/completed/failed | update instance state/checkpoint timestamps and insert/update checkpoint rows; a repeated idempotency key returns the stored result without a second effect |
 | evidence bound | write to the existing evidence authority; it is not copied into a workflow-only authority |
@@ -568,20 +565,6 @@ is not cycle-checked. Hard `depends_on` and `forward_link` use the existing
 in-transaction recursive cycle check.
 
 ## 11. `workflow_action` dispatch
-
-### 11.1 Retained alignment records
-
-Ordinary work removal drops the removed item's match rows from surviving
-alignments ([CD-0142 D4](../decisions/CD-0142-operator-directed-execution-removal.md#d4-absence-survives-reads-recovery-and-renewal)).
-It preserves each surviving declaration's search, original outcome, author and
-time, other matches, and applicable effect and idempotency evidence.
-An absent declaration means no recorded search, not a search whose matches were removed.
-
-Recording guards still refuse `related_found` without match IDs and
-`none_found` with match IDs. The initiative cutover still refuses
-sole-initiative matches under
-[CD-0213 D8](../decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d8-retired-planning-kinds-keep-no-history);
-the ordinary removal state does not relax that upgrade gate.
 
 `concord_work_transition.workflow_action` is the only advancement surface. The
 dispatcher performs this order:

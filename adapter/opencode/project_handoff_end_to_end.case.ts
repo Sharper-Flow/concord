@@ -248,10 +248,8 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
     outcome: "proceed",
   })
   await walk("pick_type", { type: "fix", reason: "The fixture reproduces a defect." })
-  // CD-0198 D2: the merged diagnosis record carries the reproduction,
-  // alignment search, and root cause sections the three retired records
-  // carried separately.
-  await walk("record_diagnosis", { reproduction: "The defect reproduces from a clean store.", searched: "Searched the backlog for duplicate defect work.", outcome: "none_found", root_cause: "The defect is the fold's own pool." })
+  // CD-0198 D2: the typed diagnosis carries reproduction and root cause.
+  await walk("record_diagnosis", { reproduction: "The defect reproduces from a clean store.", root_cause: "The defect is the fold's own pool." })
   await walk("complete_step", { step_id: "diagnose", note: "Diagnosis recorded." }, "complete-diagnosis")
   await walk("record_clarify", { resolved_questions: [], note: "No operator questions remain." })
   await walk("complete_step", { step_id: "clarify", note: "Clarification complete." }, "complete-clarify")

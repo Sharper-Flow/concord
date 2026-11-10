@@ -7,6 +7,7 @@ import (
 )
 
 func TestRuntimeDeleteForeignKeyPlans(t *testing.T) {
+	useStampedBuild(t)
 	db := openMigratedTo(t, filepath.Join(t.TempDir(), "plans.db"), 194)
 	retirementUpgradeExec(t, db, `PRAGMA foreign_keys=ON`)
 	var fk int
@@ -16,7 +17,7 @@ func TestRuntimeDeleteForeignKeyPlans(t *testing.T) {
 	retirementUpgradeExec(t, db, `INSERT INTO write_guard(active) VALUES(1)`)
 	retirementUpgradeExec(t, db, `INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at) VALUES('work','task','Witness','needed',1,'time','time')`)
 	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
-	if err := migrateAtOpen(t.Context(), db); err != nil {
+	if err := Migrate(t.Context(), db); err != nil {
 		t.Fatalf("upgrade from 194: %v", err)
 	}
 	var breaking, count int

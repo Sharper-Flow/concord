@@ -23,6 +23,11 @@ func IsUniqueViolation(err error) bool {
 	return ResultCode(err) == sqlitelib.SQLITE_CONSTRAINT_UNIQUE
 }
 
+// IsPrimaryKeyViolation reports whether err is a primary-key conflict.
+func IsPrimaryKeyViolation(err error) bool {
+	return ResultCode(err) == sqlitelib.SQLITE_CONSTRAINT_PRIMARYKEY
+}
+
 // IsIdentityConflict reports whether err is a row-identity collision, which
 // SQLite raises under a different code depending on whether the colliding
 // column is a UNIQUE index or the table's primary key. A fold that inserts a

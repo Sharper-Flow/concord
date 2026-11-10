@@ -250,9 +250,10 @@ The native `concord-design` helper makes one bounded visual UI or UX change in
 assigned files in the caller's worktree, or produces a planning wireframe or mock
 the caller assigns. It has the implementer's edit-capable
 permissions, Concord reads, explore/lookup-only delegation and no-bypass boundaries.
-It returns uncommitted changes, checks and inspectable preview material: a live
-URL or screenshots identifying the exact version shown. Missing scope or required
-approval returns needs-decision. The caller presents the material and obtains
+It returns uncommitted changes, checks and inspectable preview material:
+screenshots with their exact locations and a live preview URL whenever reachable,
+identifying the exact version shown. Missing scope or required approval returns
+needs-decision. The caller presents the material and obtains
 operator-owned UI/UX approval; a Task result never supplies it. Product browser
 tooling may be used when exposed by the host, but the profile adds no provider.
 

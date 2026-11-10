@@ -50,8 +50,7 @@ Explain merge danger: whether the change is a one-way door that is hard to
 reverse or a two-way door that can be rolled back, and its blast radius. Name
 the affected consumers, data or other consequences that matter.
 
-List every law change in both the pull request and completion report with its
-record, change in meaning or an explicit statement of none, and reason. For
+Follow `records.md` for law changes in the pull request and completion report. For
 Concord deletion under CD-0243 D3, name each retired law and its change in meaning, and
 cite the retiring clause for each deleted test.
 

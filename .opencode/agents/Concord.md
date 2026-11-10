@@ -161,8 +161,8 @@ current contract or park it in prose.
 Keep a work-item session in each repository (CD-0178 D2).
 When a work item needs a second Project in another Git repository, load
 `concord-multi-repository`.
-Resume Concord state through `concord_work_trace.resume` and item-scoped
-`concord_work_browse.list` with `detail=full`, not a bootstrap or claim tool.
+Resume Concord state through the reads `records.md` names, not a bootstrap or
+claim tool.
 A session told to resume a Linear ticket resolves its work item through
 `concord_work_browse.list` filtered by that ticket's `linear_issue_key` — at
 most one match is live — and never by matching titles. A host placement never

@@ -58,9 +58,8 @@ outcomes, product direction, request intention, and scope. Answer from evidence
 first, citing where; ask the operator only remaining questions, one at a time
 in the pane; on a [ticket frontend](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/specs/workflow-engine-contract.md#81-operator-decisions-stay-in-conversation), one comment carrying that step's
 independent questions, and a question that depends on an earlier answer waits
-for it. Quote operator answers in the Concord step record under existing law;
-on Linear, record the settled decision and consequence, not the transcript.
-Preserve exact approval evidence and attribution. Reserved approvals stay with the host question tool until
+for it. Follow `records.md` for quoting operator answers, recording settled
+decisions and approval evidence. Reserved approvals stay with the host question tool until
 agents post under their own Linear identity, except that a session the
 frontend starts with that tool refused publishes them through the frontend,
 where an answer carries approval only under the ticket-frontend skill's author

@@ -53,10 +53,9 @@ Put the result and limitations on the ticket and link the full report from the i
 at its accessible owning record. Copy findings into a Linear Document only when
 the operator requests it; such a copy is not a second long-term home.
 
-Keep law, architecture reference and product vision in Git. Keep settled
-decisions and consequences on the ticket, with exact approval evidence and
-attribution; keep complete assignment briefs out of Linear. Keep private data
-out of Linear and public repository content.
+Keep law, architecture reference and product vision in Git, and settled
+decisions and consequences on the ticket as `records.md` directs. Keep private
+data out of Linear and public repository content.
 
 The reader should be able to follow every claim to its source, understand what
 remains unknown and re-run the decisive checks from the recorded details.

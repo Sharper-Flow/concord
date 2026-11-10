@@ -1389,8 +1389,7 @@ test("portable continuation posture leaves host protocol names to the host surfa
   expect(continuationSource).toContain("Context size alone does not justify a stop, handoff, or restart.")
   expect(continuationSource).toContain("through commits, checkpoints, reports, and logs")
   const continuationText = continuationSource.replace(/\s+/g, " ")
-  expect(continuationText).toContain("the captured work task and resume read that `records.md` names")
-  expect(continuationText).toContain("no supported non-Linear carrier for a fresh-session brief")
+  expect(continuationText).toContain("`records.md` for durable-record resume reads and fresh-session brief placement")
   expect(continuationSource).not.toContain("assignment comment")
   expect(continuationSource).not.toContain("receipt")
   expect(continuationSource).toContain("A summary does not replace durable records or carry authority")
@@ -1413,9 +1412,8 @@ test("portable continuation posture leaves host protocol names to the host surfa
   expect(handoffWritingSource).toContain("scope and stop conditions in the assignment")
   const handoffWritingText = handoffWritingSource.replace(/\s+/g, " ")
   const recordsText = recordsSource.replace(/\s+/g, " ")
-  expect(handoffWritingText).toContain("The assigning agent puts the complete brief in the spawning message, never Linear.")
-  expect(handoffWritingText).toContain("A delegation prompt names the agent's role and gives the complete brief.")
-  expect(recordsText).toContain("A delegation prompt names the agent's role and carries its complete task-specific brief")
+  expect(handoffWritingText).toContain("`records.md` for the delegation brief and its placement")
+  expect(recordsText).toContain("The assigning agent names the delegated agent's role and gives the complete task-specific brief")
   expect(recordsText).toContain("complete task-specific brief in the spawning message, never Linear")
   expect(recordsSource).not.toContain("carries only the agent's role")
   expect(handoffWritingSource).not.toContain("carries only the agent's role")
@@ -1429,7 +1427,8 @@ test("portable continuation posture leaves host protocol names to the host surfa
   expect(recordsSource).not.toContain("operator answers word-for-word in Linear")
   expect(recordsSource).toContain("has no few-line cap")
   expect(recordsSource).toContain("applies to new records; do not rewrite existing comments")
-  expect(askingSource.replace(/\s+/g, " ")).toContain("recommendation, options and consequences visible outside collapsed detail")
+  expect(askingSource.replace(/\s+/g, " ")).toContain("new-record standard and question-comment format in `records.md`")
+  expect(recordsText).toContain("question, recommendation, options and consequences visible and concise outside collapsed detail")
   const sharedRules = [
     /Name each thing specifically/g,
     /one name throughout/g,

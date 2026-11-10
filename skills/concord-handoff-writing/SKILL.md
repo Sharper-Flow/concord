@@ -43,15 +43,10 @@ For a delivery stream, specify its write set, exclusions, checks and return
 point: who reports what to whom. Say what the next agent will
 be used for and tailor the handoff to that purpose.
 
-The assigning agent puts the complete brief in the spawning message, never Linear.
-For managed work, preserve the durable assignment in the captured work task and
-revise it as scope changes. The brief holds only what is
-task-specific: objective, write set, exclusions, checks, stop conditions and
-return point, linking the files that own standing rules instead of restating
-them. Host locators such as session identifiers and worktree paths belong in
+Follow `records.md` for the delegation brief and its placement. Host locators
+such as session identifiers and worktree paths belong in
 the spawning message, not the description.
 
-A delegation prompt names the agent's role and gives the complete brief.
 Name relevant methods when they help the next agent carry out
 the assigned work, without granting a new scope or authority.
 

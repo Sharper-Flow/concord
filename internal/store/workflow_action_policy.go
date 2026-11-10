@@ -232,12 +232,6 @@ func actionArrayField(name string, required bool, upper int64, schemaRef string)
 	return WorkflowPayloadField{Name: name, ValueType: PayloadArray, Required: required, MinItems: workflowInt(1), MaxItems: workflowInt(upper), SchemaRef: schemaRef}
 }
 
-// actionItemArrayField declares an array whose elements answer to one generated
-// schema. It states the per-element reading that schema_ref left to inference.
-func actionItemArrayField(name string, required bool, lower, upper int64, itemRef string) WorkflowPayloadField {
-	return WorkflowPayloadField{Name: name, ValueType: PayloadArray, Required: required, MinItems: workflowInt(lower), MaxItems: workflowInt(upper), ItemRef: itemRef}
-}
-
 func evidenceBindingActionFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		actionRefField("evidence_ref", false),

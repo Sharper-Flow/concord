@@ -9374,6 +9374,13 @@ CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instanc
 DROP TABLE workflow_backlog_alignment;
 `,
 	},
+	{
+		Version: 199, Name: "retire_workflow_design_proposal_records", Breaking: true,
+		SQL: `
+DROP TABLE workflow_design_records;
+DROP TABLE workflow_proposal_records;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -7,26 +7,15 @@ func nonNilStrings(values []string) []string {
 	return values
 }
 
-var designDecisionItemSchema = withPayloadFieldRevision("decisions", func(field WorkflowPayloadField) WorkflowPayloadField {
-	return actionItemArrayField("decisions", field.Required, *field.MinItems, *field.MaxItems, field.SchemaRef)
-})
-
 var (
-	confirmPremisePayload     = withClosedPayload(confirmPremiseActionFields)
-	proposalOutOfScopePayload = withClosedPayload(proposalOutOfScopeActionFields)
-	openFindingsCorrection    = withAppendedPayloadField(workflowOpenFindingsCorrectionField)
+	confirmPremisePayload  = withClosedPayload(confirmPremiseActionFields)
+	openFindingsCorrection = withAppendedPayloadField(workflowOpenFindingsCorrectionField)
 )
 
 func confirmPremiseActionFields() []WorkflowPayloadField {
 	return []WorkflowPayloadField{
 		actionContractVersionField(false),
 	}
-}
-
-func proposalOutOfScopeActionFields() []WorkflowPayloadField {
-	fields := make([]WorkflowPayloadField, 0, len(builtinActionPolicies["record_proposal"].Payload.Fields)+1)
-	fields = append(fields, builtinActionPolicies["record_proposal"].Payload.Fields...)
-	return append(fields, actionProseListField("out_of_scope", false, 0, 16, "proposal_text"))
 }
 
 func workflowOpenFindingsCorrectionField() WorkflowPayloadField {

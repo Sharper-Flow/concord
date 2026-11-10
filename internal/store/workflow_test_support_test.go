@@ -79,12 +79,6 @@ func readTestWorkflowFacts(ctx context.Context, s *Store, workID string) (testWo
 // testApprovalPayload fills the approval defaults a test leaves out.
 func testApprovalPayload(t testing.TB, s *Store, workID, actionID string, payload json.RawMessage) json.RawMessage {
 	t.Helper()
-	if actionID == "record_proposal" {
-		var fields map[string]any
-		if json.Unmarshal(payload, &fields) == nil && len(fields) == 0 {
-			return json.RawMessage(`{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`)
-		}
-	}
 	if actionID != "approve_contract" {
 		return payload
 	}

@@ -45,9 +45,21 @@ func TestRedundantIndexesUpgrade(t *testing.T) {
 		}
 	}
 
-	// Upgrade applies the index retirement and subsequent breaking migrations.
-	if err := Migrate(ctx, db); err != nil {
+	// Exercise the index retirement at its historical boundary.
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyMigration(ctx, tx, migrations[192]); err != nil {
+		_ = tx.Rollback()
 		t.Fatalf("upgrade: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,breaking,applied_at) VALUES(?,?,?,?,?)`, migrations[192].Version, migrations[192].Name, migrations[192].checksum(), migrations[192].Breaking, "time"); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
 	}
 	var version, breaking int
 	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version < 193 {

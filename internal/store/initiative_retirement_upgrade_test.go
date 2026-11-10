@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -17,6 +18,8 @@ func initiativeRetirementFixture(t *testing.T) (*sql.DB, string) {
 INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,intent_json,narrative,urgency)
 VALUES('initiative-old','initiative','Old initiative','needed',0,1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z','{}','','standard'),
 ('work-live','task','Live work','needed',0,1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z','{}','','standard');
+INSERT INTO workflow_design_records(work_id,work_version,approach,decisions,touched_refs,recorded_at) VALUES('initiative-old',1,'Approach','[1]','[1]','time');
+INSERT INTO workflow_proposal_records(work_id,work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at) VALUES('initiative-old',1,'Problem','[1]','Stakes','[1]','[]','[]','time');
 INSERT INTO work_projects VALUES('initiative-old','project-upgrade','primary'),('work-live','project-upgrade','primary');
 INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('initiative-old','work-live','blocks','2026-01-01T00:00:00Z');
 INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('work-upgrade-from','work-live','blocks','2026-01-01T00:00:00Z');
@@ -25,6 +28,75 @@ INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,wor
 INSERT INTO idempotency_records(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,result_event_ids,first_observed_at,last_observed_at) VALUES('operator','concord_work_transition','workflow_action','initiative-key','digest','initiative-op','[]','t','t');
 DELETE FROM write_guard`)
 	return db, path
+}
+
+func TestInitiativeRetirementSchema181Owners(t *testing.T) {
+	db, _ := initiativeRetirementFixture(t)
+	live := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name`)
+	tables := make(map[string]bool, len(live))
+	for _, row := range live {
+		tables[row[0].(string)] = true
+	}
+	for _, table := range initiativeRetirementProjectionTables {
+		if !tables[table] {
+			t.Errorf("schema 181 lacks cleanup table %s", table)
+		}
+	}
+	owners := retirementUpgradeRows(t, db, `SELECT s.name, f."from", f.on_delete FROM sqlite_schema s, pragma_foreign_key_list(s.name) f WHERE s.type='table' AND f."table"='work_items' AND upper(f.on_delete)<>'CASCADE' ORDER BY s.name, f."from"`)
+	separate := map[string]bool{
+		"workflow_backlog_alignment.work_id": false, "workflow_backlog_alignment.related_work_id": false,
+		"active_research_packs.owner_work_id": false, "active_research_consumers.consumer_work_id": false,
+		"workflow_context_checkpoints.work_id": false, "workflow_context_boundaries.work_id": false,
+	}
+	for _, row := range owners {
+		table, column := row[0].(string), row[1].(string)
+		key := table + "." + column
+		if _, ok := separate[key]; ok {
+			separate[key] = true
+			continue
+		}
+		if !slices.Contains(initiativeRetirementProjectionTables, table) {
+			t.Errorf("schema 181 owner %s.%s is not cleared", table, column)
+			continue
+		}
+		if columns, special := workRemovalProjectionOwnerColumns[table]; special {
+			if !slices.Contains(columns, column) {
+				t.Errorf("schema 181 owner %s.%s has no deletion predicate", table, column)
+			}
+		} else if column != "work_id" {
+			t.Errorf("schema 181 owner %s.%s has no deletion predicate", table, column)
+		}
+	}
+	for owner, present := range separate {
+		if !present {
+			t.Errorf("schema 181 lacks separately handled or refused owner %s", owner)
+		}
+	}
+}
+
+func TestInitiativeRetirementContextOwnerRefusesWithoutMutation(t *testing.T) {
+	for _, tc := range []struct{ name, table, insert string }{
+		{"checkpoint", "workflow_context_checkpoints", `INSERT INTO workflow_context_checkpoints(work_id,work_version,checkpoint_sequence,checkpoint_id,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions,workflow_ref,workflow_definition_digest,actor_ref,request_id,recorded_at) SELECT 'initiative-old',1,1,'checkpoint','step',1,'unit','hypothesis','diagnosis','strategy','[1]','[1]','[]','[]','workflow.legacy',?,actor_ref,'request','time' FROM workflow_actors LIMIT 1`},
+		{"boundary", "workflow_context_boundaries", `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_digest,actor_ref,request_id,recorded_at) SELECT 'initiative-old',1,1,1,'boundary','summary','checkpoint',1,1,'summary','workflow.legacy',?,actor_ref,'request','time' FROM workflow_actors LIMIT 1`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, path := initiativeRetirementFixture(t)
+			retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
+			retirementUpgradeExec(t, db, tc.insert, testDigest("historical-context"))
+			retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
+			before := retirementUpgradeSnapshot(t, db)
+			if len(before[tc.table]) != 1 {
+				t.Fatalf("missing context fixture in %s", tc.table)
+			}
+			_, err := Upgrade(t.Context(), path, nil)
+			if err == nil || !strings.Contains(err.Error(), "FOREIGN KEY constraint failed") {
+				t.Fatalf("upgrade error = %v, want historical foreign-key refusal", err)
+			}
+			if got := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(got, before) {
+				t.Fatal("context-owner refusal changed predecessor state")
+			}
+		})
+	}
 }
 
 func TestInitiativeRetirementUpgrade(t *testing.T) {

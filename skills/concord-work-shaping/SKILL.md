@@ -58,8 +58,9 @@ outcomes, product direction, request intention, and scope. Answer from evidence
 first, citing where; ask the operator only remaining questions, one at a time
 in the pane; on a [ticket frontend](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/specs/workflow-engine-contract.md#81-operator-decisions-stay-in-conversation), one comment carrying that step's
 independent questions, and a question that depends on an earlier answer waits
-for it. Quote operator answers on the work item's Linear issue and point the
-step note there; reserved approvals stay with the host question tool until
+for it. Quote operator answers in the Concord step record under existing law;
+on Linear, record the settled decision and consequence, not the transcript.
+Preserve exact approval evidence and attribution. Reserved approvals stay with the host question tool until
 agents post under their own Linear identity, except that a session the
 frontend starts with that tool refused publishes them through the frontend,
 where an answer carries approval only under the ticket-frontend skill's author
@@ -68,6 +69,13 @@ the explicit result that no operator questions remain. Running the step is
 mandatory where the plan carries it; asking is not. Clarify settles what to
 build and grants no blanket implementation or UI/UX
 approval. Reuse settled answers; ask later questions where they arise.
+
+### Example: decision record
+
+Before: copy the complete ordinary discussion into a Linear comment.
+
+After: the ticket states the chosen export format and its consequence; the
+Concord step record quotes the answer and links its evidence.
 
 ## Plan Change and Fix work
 

@@ -23,15 +23,21 @@ no summary.
 
 After:
 
-> #### Rehearsal passed
+> #### Implement complete
 >
-> The upgrade preserved every row in the store copy; the linked work record holds the checks.
+> The store upgrade is in the linked PR and preserved every row in the rehearsal copy.
+>
+> +++ Agent detail
+> The rehearsal compared the row counts before and after the upgrade; the linked
+> work record holds the checks.
+> +++
 
 ## State the problem and outcome
 
 Before any plan, state the problem with observed evidence, who or what it
 affects, and the end state a check or reviewer can decide. Name the error,
-path, measurement or operator's words where applicable. A goal, feature request
+path, measurement or operator's words where applicable. Include an exact error or
+small reproduction when useful; link full diagnostics. A goal, feature request
 or law to implement is not a problem: say what fails, is missing or costs too
 much today. Mark unapproved assumptions as unapproved.
 
@@ -46,10 +52,11 @@ When an issue splits work into several outcomes, plan them with the shipped
 
 ## Keep the record current
 
-The description owns the current problem, scope, end state and decisions. When
+The description owns the current problem, impact, scope, success criteria,
+consequential decisions and constraints, and links execution detail. When
 an agreed decision changes them, patch it in place so concurrent edits survive
 and link the approval evidence. A comment holds one event the description
-cannot hold: a quoted operator decision, synthesized finding, handoff, blocker,
+cannot hold: a settled decision and consequence, synthesized finding, blocker,
 completion report or, for an item driven through a ticket frontend, a step or
 event update.
 
@@ -57,14 +64,21 @@ Read the description and recent comments before commenting. Amend the
 description or your own earlier comment instead of restating it. Fold helper
 and delegated results into one synthesized finding rather than pasting reports.
 The result lets a later reader establish the current issue and its evidence
-without reconstructing a conversation.
+without reconstructing a conversation. Preserve exact approval evidence and
+attribution. Concord step records quote operator answers under existing law; do
+not copy ordinary answers verbatim to Linear. Do not post owner or assignment
+comments.
 
 ## Post step results on a ticket-frontend item
 
 A reader following an item driven through a ticket frontend sees the linked
 issue, not the agent's terminal. Each time a step of the item's plan completes,
-post one comment there: say which step finished and summarise its result, with
-links. The item's workflow type (change, fix, research or removal) sets the
+post one comment there: identify the step and give one simple visible result line
+with links; use headings or bullets as appropriate and collapse why and how.
+Keep decision questions, options, recommendations and material consequences visible;
+collapse supporting explanation. Keep blockers, limitations and merged, deployed
+and verified distinctions visible. Ordinary items use start, blocker and done only.
+The item's workflow type (change, fix, research or removal) sets the
 required steps its plan copies from `contracts/workflow-step-templates.v1.json`:
 
 | Type | Step | The comment states |

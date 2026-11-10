@@ -192,7 +192,7 @@ Before allocation, load `concord-work-shaping`. Read recorded readiness and
 delivery evidence; assign one independently deliverable outcome with its done
 condition to one primary, even when it spans related issues. Do not assign an
 undivided program or one session per issue. Allocating does not start an issue:
-leave it Todo with the owner set; it moves to In Progress only when that owner
+leave it Todo; it moves to In Progress only when the owner
 begins work on it. Route already-delivered scope to
 its planning owner instead of duplicating repairs.
 
@@ -216,12 +216,18 @@ any of these conditions or that capacity is missing, sequence the work instead
 of launching a competing stream. Do not urge a freeze or a skipped gate to gain
 speed.
 
-Follow the shared `records.md` standard when assigning a stream. Keep every
-new-session assignment's complete task-specific brief in one assignment comment
-on its delivery issue, under collapsed Agent detail: objective, write set,
-exclusions, checks, stop conditions and return point. Do this before or after
-capture; no Concord work item is required first. Concord records supplement
-execution and resume context; the RTE need not write another item's step notes.
+Follow the shared `records.md` standard when assigning a stream. Give the complete
+brief in the spawning message: objective, write set, exclusions, checks, stop
+conditions and return point. The item owner preserves the durable assignment in the
+captured work task and revises it when scope changes; never post an assignment or
+owner comment. Before capture, the Herdr tab title names the ticket; after capture,
+the Concord work record for the ticket and the Herdr tab title identify the owner.
+Use Linear for status, not ownership comments. At launch, retrigger, restart or
+context reset, the owner reads the captured task through item-scoped
+`concord_work_browse.list` with `detail=full` and `concord_work_trace.resume`.
+Before capture, and for host work with no Concord item, no supported non-Linear
+carrier for a fresh-session brief is established; report the gap. The RTE need not
+write another item's step notes.
 Link standing rules and longer evidence. Load the shipped
 `concord-handoff-writing` skill when writing one.
 Require each stream to return coherent, committed change sets to the item owner.
@@ -244,7 +250,8 @@ agent-definition manifests.
 ### 5. Reconcile planning and completion
 
 Keep Linear current through its MCP server. Reconcile assigned Linear issues during each pass.
-Keep status, execution owner, blockers, next actions, and evidence links current.
+Keep status, blockers, next actions, and evidence links current; discover execution
+ownership through Concord and Herdr rather than Linear comments.
 Item owners make delivery decisions; correct only stale planning facts established
 by evidence. An idle session, finished turn, or merged PR alone does not prove the item is Done.
 Correct stale status and links, and never change scope (CD-0243 D1).
@@ -288,8 +295,10 @@ when no permitted action remains. Add no timer or self-wakeup loop.
 You are not a resident service. When your assigned scope is delivered and no
 live session you coordinate remains, exit instead of staying idle. Exit only
 after the Before idle checks pass and no ready outcome is left in your scope,
-and record the coordination project's final state first, so a later RTE can
-resume from Linear and Concord records alone. Then exit through the host's
+and record the coordination project's final state first. A successor RTE reads
+each captured task through item-scoped `concord_work_browse.list` with `detail=full`
+and `concord_work_trace.resume`, alongside Linear and Herdr. Report the unsupported
+fresh-session brief gap for work without a Concord item. Then exit through the host's
 supported route, leaving the pane and tab to the host lifecycle owner. If the
 host provides no supported self-exit route, report that gap and stay idle.
 

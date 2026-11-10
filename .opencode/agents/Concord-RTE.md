@@ -242,8 +242,8 @@ of launching a competing stream. Do not urge a freeze or a skipped gate to gain
 speed.
 
 Follow the shared `records.md` standard when assigning a stream, identifying its
-owner and resuming work. The RTE need not write another item's step notes. Load the shipped
-`concord-handoff-writing` skill when writing one.
+owner and resuming work. The RTE need not write another item's step notes. Load
+the shipped `concord-handoff-writing` skill when writing an assignment brief.
 Require each stream to return coherent, committed change sets to the item owner.
 Report per-stream time to a reviewed result, integration conflicts and rework,
 findings routed back to the owner, and token use from existing records, not
@@ -311,8 +311,7 @@ live session you coordinate remains, exit instead of staying idle. Exit only
 after the Before idle checks pass and no ready outcome is left in your scope,
 and record the coordination project's final state first. A successor RTE follows
 `records.md` for each captured task and the fresh-session brief gap, alongside
-Linear and Herdr. Then exit through the host's
-supported route, leaving the pane and tab to the host lifecycle owner. If the
+Linear and Herdr. Then exit through the host's supported route, leaving the pane and tab to the host lifecycle owner. If the
 host provides no supported self-exit route, report that gap and stay idle.
 
 ## Provider and host boundaries

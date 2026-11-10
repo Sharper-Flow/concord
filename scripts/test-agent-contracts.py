@@ -1088,8 +1088,9 @@ class MethodSkillTests(unittest.TestCase):
             "known limitations", "merged, deployed and verified visible", "exact approval and quoted wording",
             "timers", "notification owners", "safe-resume detail",
             "question, recommendation, options and consequences", "visible and concise",
-            "Your decision needed", "names the agent's role", "complete task-specific brief",
-            "RTE succession, before acting", "Herdr tab title", "Concord work record for the ticket",
+            "Your decision needed", "names the delegated agent's role", "complete task-specific brief",
+            "RTE succession, before acting", "read the work's durable records and relevant ticket events",
+            "never omit them", "Herdr tab title", "Concord work record for the ticket",
         ):
             with self.subTest(meaning=phrase):
                 self.assertIn(phrase, records)
@@ -1121,6 +1122,12 @@ class MethodSkillTests(unittest.TestCase):
         self.assertNotIn("Preserve full operator answers word-for-word in Linear", records)
         frontend = " ".join(self.content("concord-ticket-frontend").split())
         self.assertIn("question-comment format in `records.md`", frontend)
+        asking = " ".join((ROOT / ".concord/instructions/asking.md").read_text().split())
+        self.assertIn("question-comment format in `records.md`", asking)
+        role = " ".join((ROOT / ".concord/roles/concord.md").read_text().split())
+        for phrase in ("reads `records.md` names", "`linear_issue_key`", "never by matching titles", "retained native verification"):
+            with self.subTest(role="Concord", meaning=phrase):
+                self.assertIn(phrase, role)
 
     def test_every_skill_keeps_its_license_notice(self):
         with tempfile.TemporaryDirectory() as temporary:

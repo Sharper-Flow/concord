@@ -73,8 +73,8 @@ A reader following an item driven through a ticket frontend sees the linked
 issue, not the agent's terminal. Each time a step of the item's plan completes,
 post one comment there: identify the step and give one simple visible result line
 with links; use headings or bullets as appropriate and collapse why and how.
-Follow `records.md` for visible questions, blockers, limitations, delivery states
-and ordinary progress comments.
+Keep blockers visible. Follow `records.md` for visible questions, limitations,
+delivery states and ordinary progress comments.
 The item's workflow type (change, fix, research or removal) sets the
 required steps its plan copies from `contracts/workflow-step-templates.v1.json`:
 

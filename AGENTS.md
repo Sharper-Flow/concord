@@ -62,8 +62,8 @@ enforces it.
 A file is law only if it sits under `.concord/law/` on the default branch.
 Decisions (CD-NNNN records), specifications, and constitutional documents there
 own Product law. Ordinary prose cannot acquire that authority, including this
-file, which is host instruction, not law. Anything else is **not law**, however much it reads like a spec
-([law-folder-authority](.concord/law/constitution/law-folder-authority.md)).
+file, which is host instruction, not law. Anything else is **not law**, however
+much it reads like a spec ([law-folder-authority](.concord/law/constitution/law-folder-authority.md)).
 
 ## Go style
 

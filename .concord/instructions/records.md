@@ -8,8 +8,9 @@ Record each fact with its owner and link to it elsewhere. Keep decisions, eviden
 unresolved risks, and remaining scope in the work record, not a command and status
 transcript. Do not mirror routine progress in chat, receipts, or planning comments;
 required workflow transitions and planning state changes belong in their owning
-systems. The step and event comments a ticket-frontend item requires are
-work-record updates, not routine progress.
+systems. Ordinary issue progress comments are rare: start, blocker and done only. The
+step and event comments a ticket-frontend item requires are work-record updates,
+not routine progress; never omit them.
 
 Public repository content excludes private Product or customer data, credentials,
 and inaccessible private-source citations. Keep planning backlogs in the owning
@@ -51,27 +52,28 @@ applies to new records; do not rewrite existing comments to conform.
 Keep one event per record: each required step or event comment states that event's
 result and consequence and links earlier diagnosis and evidence. RTE and project
 updates add cross-stream changes or waits, not a duplicate of the owner's completion
-report. Do not omit required ticket-frontend step or event comments.
+report.
 
 Keep unresolved questions, known limitations and the difference between merged,
 deployed and verified visible. Preserve exact approval and quoted wording, timers,
 notification owners and safe-resume detail where their consumer can use them.
-For Linear question comments, keep the question, recommendation, options and
-consequences visible and concise outside collapsed detail; collapse supporting
-explanation and name the event with a heading such as "Your decision needed".
-Include an exact error or small reproduction
-when useful and link full diagnostics.
+For Linear question comments, name the event with a heading such as "Your decision needed",
+keep the question, recommendation, options and consequences visible and concise
+outside collapsed detail, and collapse supporting explanation. Include an exact
+error or small reproduction when useful and link full diagnostics.
 
 ### Placement and consumers
 
-- The assigning agent names the agent's role and gives the complete task-specific brief
-  in the spawning message, never Linear: objective, write set, exclusions, checks, stop
-  conditions and return point, with links to standing rules and evidence. Standing
-  rules stay in the files that own them. For managed work, preserve the
-  durable assignment in the captured work task and revise it when scope changes.
-- For captured work, at launch, retrigger, restart, context reset or RTE
-  succession, before acting read the captured task with item-scoped `concord_work_browse.list`
-  using `detail=full`, and `concord_work_trace.resume`, plus relevant ticket events.
+- The assigning agent names the delegated agent's role and gives the complete
+  task-specific brief in the spawning message, never Linear: objective, write set,
+  exclusions, checks, stop conditions and return point, with links to standing
+  rules and evidence. Standing rules stay in the files that own them. For managed
+  work, the item owner preserves the durable assignment in the captured work task
+  and revises it when scope changes.
+- At launch, retrigger, restart, context reset or RTE succession, before acting,
+  read the work's durable records and relevant ticket events. For captured work,
+  read the captured task with item-scoped `concord_work_browse.list` using
+  `detail=full`, and `concord_work_trace.resume`.
 - Before capture, the Herdr tab title names the ticket; after capture, the Concord
   work record for the ticket and the Herdr tab title identify the owner. Do not post
   owner or assignment comments; use Linear status for planning state.
@@ -88,8 +90,6 @@ when useful and link full diagnostics.
   `concord-research-writing` for placement. Keep routine coordination in
   coordination project updates.
 - Keep readiness and completion comments concise and link their owning records.
-  Ordinary issue progress comments are rare: start, blocker and done; a
-  ticket-frontend item follows its required step and event comments.
 
 ## Write for the later reader
 

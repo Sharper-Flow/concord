@@ -1413,7 +1413,7 @@ test("portable continuation posture leaves host protocol names to the host surfa
   const handoffWritingText = handoffWritingSource.replace(/\s+/g, " ")
   const recordsText = recordsSource.replace(/\s+/g, " ")
   expect(handoffWritingText).toContain("`records.md` for the delegation brief and its placement")
-  expect(recordsText).toContain("The assigning agent names the agent's role and gives the complete task-specific brief")
+  expect(recordsText).toContain("The assigning agent names the delegated agent's role and gives the complete task-specific brief")
   expect(recordsText).toContain("complete task-specific brief in the spawning message, never Linear")
   expect(recordsSource).not.toContain("carries only the agent's role")
   expect(handoffWritingSource).not.toContain("carries only the agent's role")
@@ -1427,7 +1427,7 @@ test("portable continuation posture leaves host protocol names to the host surfa
   expect(recordsSource).not.toContain("operator answers word-for-word in Linear")
   expect(recordsSource).toContain("has no few-line cap")
   expect(recordsSource).toContain("applies to new records; do not rewrite existing comments")
-  expect(askingSource.replace(/\s+/g, " ")).toContain("new-record standard in `records.md`")
+  expect(askingSource.replace(/\s+/g, " ")).toContain("new-record standard and question-comment format in `records.md`")
   expect(recordsText).toContain("question, recommendation, options and consequences visible and concise outside collapsed detail")
   const sharedRules = [
     /Name each thing specifically/g,

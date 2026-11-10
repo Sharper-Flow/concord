@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"reflect"
 	"sort"
 
 	"github.com/sharper-flow/concord/internal/store"
@@ -20,8 +19,6 @@ type actionContract struct {
 	ID string `json:"id"`
 	// Variants carry the current catalog payload and public payload pair.
 	Variants []payloadVariant `json:"variants"`
-	// CrossField projects the same action policy core validation uses.
-	CrossField store.WorkflowActionCrossField `json:"cross_field"`
 }
 
 // schemaRefProjection names the live catalog's payload schema refs.
@@ -51,32 +48,6 @@ func canonicalPayload(payload store.WorkflowPayloadDefinition) store.WorkflowPay
 		payload.Fields = []store.WorkflowPayloadField{}
 	}
 	return payload
-}
-
-// canonicalCrossFieldForAction projects the engine cross-field declaration
-// onto the exact field set every authoring payload half of the action
-// declares. The projected rules must agree across all
-// halves, or the action's core and public contracts would publish
-// different rules from one declaration.
-func canonicalCrossFieldForAction(actionID string, variants []payloadVariant) (store.WorkflowActionCrossField, error) {
-	first := true
-	var projected store.WorkflowActionCrossField
-	for _, variant := range variants {
-		for _, payload := range []store.WorkflowPayloadDefinition{variant.Payload, variant.PublicPayload} {
-			cross, err := store.WorkflowActionCanonicalCrossFieldRules(actionID, payload.Fields)
-			if err != nil {
-				return store.WorkflowActionCrossField{}, err
-			}
-			if first {
-				projected, first = cross, false
-				continue
-			}
-			if !reflect.DeepEqual(projected, cross) {
-				return store.WorkflowActionCrossField{}, fmt.Errorf("action %s carries inconsistent canonical cross-field declarations across its authoring payloads", actionID)
-			}
-		}
-	}
-	return projected, nil
 }
 
 // payloadSchemaRefs collects the distinct schema_ref/item_ref names one
@@ -145,12 +116,7 @@ func main() {
 			public = *action.PublicPayload
 		}
 		variant := payloadVariant{canonicalPayload(action.Payload), canonicalPayload(public)}
-		cross, err := canonicalCrossFieldForAction(id, []payloadVariant{variant})
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		contracts[id] = actionContract{ID: id, Variants: []payloadVariant{variant}, CrossField: cross}
+		contracts[id] = actionContract{ID: id, Variants: []payloadVariant{variant}}
 		for _, payload := range []store.WorkflowPayloadDefinition{variant.Payload, variant.PublicPayload} {
 			for _, ref := range payloadSchemaRefs(payload) {
 				refs[ref] = true

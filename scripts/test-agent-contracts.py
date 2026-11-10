@@ -1624,7 +1624,7 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
 
     def test_projection_records_carry_the_variant_shape(self):
         for action in self.actions:
-            self.assertEqual(set(action), {"id", "variants", "cross_field"},
+            self.assertEqual(set(action), {"id", "variants"},
                              f"{action.get('id')} is not the closed variant record")
             self.assertTrue(action["variants"], f"{action.get('id')} names no variant")
             pairs = set()
@@ -1750,7 +1750,7 @@ class ProjectionAdmissionTests(unittest.TestCase):
             generator.load_workflow_action_contracts()
 
     def test_the_projection_refuses_an_action_without_a_contract(self):
-        fake = self.canned([{"id": "action", "variants": [], "cross_field": {}}])
+        fake = self.canned([{"id": "action", "variants": []}])
         with self.assertRaises(ValueError) as caught:
             self.load(fake)
         self.assertIn("names no variant", str(caught.exception))
@@ -1771,7 +1771,7 @@ class ProjectionAdmissionTests(unittest.TestCase):
     def test_the_projection_refuses_an_old_projection_version(self):
         fake = json.dumps({
             "schema_version": "1.0",
-            "actions": [{"id": "old-action", "variants": [], "legacy_payloads": [], "cross_field": {}}],
+            "actions": [{"id": "old-action", "variants": [], "legacy_payloads": []}],
             "workflows": [], "teaching": {}, "schema_refs": {"current": []},
         })
         with self.assertRaises(ValueError) as caught:
@@ -2773,158 +2773,6 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
                             else: node[final] = replacement
                         for name in names:
                             self._assert_verdict(mutant, name, False, f"{action['id']} {kind} {label}")
-
-    def test_cross_field_rule_mutants_refuse_everywhere(self):
-        # The registry payload declarations state the cross-field rules core
-        # admission enforces: legal input combinations (one branch per enum
-        # value) and alternative field groups (exactly one supplied). The
-        # published variant must refuse every rule's own invalid mutant
-        # exactly — a forbidden field under one discriminator value, a
-        # missing required field under another, a withheld alternative group,
-        # and two groups supplied together — and admit each rule's legal
-        # payload. A rule the canonical payload narrows to one group with no
-        # kind match collapses into the flat closed shape, whose own
-        # required set already refuses every mutant the rule refused.
-        for action, variant in self._variants():
-            cross = action.get("cross_field") or {}
-            combinations = cross.get("combinations", [])
-            alternatives = cross.get("alternatives", [])
-            kind_matches = cross.get("kind_matches", [])
-            if not combinations and not alternatives:
-                continue
-            fields_schema = variant["properties"]["fields"]
-            if len(combinations) + len(alternatives) == 1 and not kind_matches:
-                group = (combinations + alternatives)[0]
-                # Different workflow fieldsets can still form an outer union;
-                # the single rule group must collapse within each fieldset.
-                for condition in _condition_branches(variant):
-                    flat = _fields_object(condition)
-                    self.assertNotIn("oneOf", flat, f"{action['id']} publishes a nested union for a single rule group")
-                    self.assertIs(flat.get("additionalProperties"), False)
-                    for name in group["fields"]:
-                        self.assertIn(name, flat.get("required", []), f"{action['id']} single rule group {group['fields']} loses its required field")
-                    for name in group.get("forbids", []):
-                        self.assertNotIn(name, flat.get("properties", {}), f"{action['id']} single rule group publishes forbidden {name}")
-                continue
-            self.assertIn("oneOf", fields_schema, f"{action['id']} declares cross-field rules but its variant publishes none")
-
-            def branch_property(name):
-                # A combination field lives in the branch that declares it;
-                # a forbidden-under-this-value field lives in a sibling branch.
-                for branch in fields_schema["oneOf"]:
-                    property = branch.get("properties", {}).get(name)
-                    if property is not None:
-                        return property
-                return {"type": "string"}
-
-            def envelope_with(fields):
-                base = {key: self._sample(variant["properties"][key]) for key in variant.get("required", []) if key != "fields"}
-                base["fields"] = fields
-                return base
-
-            by_value = {combination["value"]: combination for combination in combinations}
-            # A kind-match declaration expands one alternative group into
-            # per-kind branches with outcome_kind consts:
-            # each is registry-declared through the match, not through a
-            # combination, so it carries no requires/forbids to expand.
-            kind_match_fields = {match["field"] for match in cross.get("kind_matches", [])}
-            for branch in fields_schema["oneOf"]:
-                discriminator = next((name for name, property in branch.get("properties", {}).items() if "const" in property), None)
-                if discriminator is None:
-                    continue
-                value = branch["properties"][discriminator]["const"]
-                if discriminator in kind_match_fields:
-                    continue
-                combination = by_value.get(value)
-                self.assertIsNotNone(combination, f"{action['id']} publishes a branch for {discriminator}={value} the registry does not declare")
-                base = envelope_with(self._sample(branch, fallback_properties=branch.get("properties")))
-                base["fields"][discriminator] = value
-                for _kind, _shape_name, names in self._shapes(action):
-                    for forbidden in combination.get("forbids", []):
-                        if forbidden == discriminator:
-                            continue
-                        mutant = copy.deepcopy(base)
-                        mutant["fields"][forbidden] = self._sample(branch_property(forbidden))
-                        for name in names:
-                            self._assert_verdict(mutant, name, False, f"{action['id']} {discriminator}={value} carries forbidden {forbidden}")
-                        # Stripping the forbidden field leaves a legal payload.
-                        legal = copy.deepcopy(mutant); legal["fields"].pop(forbidden)
-                        for name in names:
-                            self._assert_verdict(legal, name, True, f"{action['id']} {discriminator}={value} without {forbidden}")
-                    for required_under_value in combination.get("requires", []):
-                        if required_under_value == discriminator:
-                            continue
-                        mutant = copy.deepcopy(base)
-                        mutant["fields"].pop(required_under_value, None)
-                        for name in names:
-                            self._assert_verdict(mutant, name, False, f"{action['id']} {discriminator}={value} drops required {required_under_value}")
-                        legal = copy.deepcopy(mutant)
-                        legal["fields"][required_under_value] = self._sample(branch_property(required_under_value))
-                        for name in names:
-                            self._assert_verdict(legal, name, True, f"{action['id']} {discriminator}={value} with {required_under_value}")
-
-            # Alternative groups: each declared group names the fields its
-            # closed branch requires; a branch answers to the group whose
-            # names it carries. A kind-matched group expands into one closed
-            # branch per declared kind, so only the plain groups map 1:1 to
-            # const-free branches.
-            group_branches = [branch for branch in fields_schema["oneOf"] if not any("const" in property for property in branch.get("properties", {}).values())]
-
-            def branch_for(group):
-                for branch in fields_schema["oneOf"]:
-                    required = set(branch.get("required", []))
-                    if all(name in required for name in group["fields"]):
-                        return branch
-                self.fail(f"{action['id']} declares alternative group {group['fields']} with no published branch")
-
-            if alternatives:
-                plain_groups = [group for group in alternatives if not (kind_match_fields & set(group["fields"]))]
-                kind_groups = [group for group in alternatives if kind_match_fields & set(group["fields"])]
-                self.assertEqual(len(group_branches), len(plain_groups), f"{action['id']} alternative branches and declaration groups disagree")
-                for group in kind_groups:
-                    match = next(match for match in cross.get("kind_matches", []) if match["field"] in group["fields"])
-                    branches = [branch for branch in fields_schema["oneOf"] if match["field"] in branch.get("properties", {}) and "const" in branch["properties"][match["field"]]]
-                    self.assertGreater(len(branches), 0, f"{action['id']} kind-matched group {group['fields']} publishes no per-kind branch")
-                    for branch in branches:
-                        self.assertEqual(
-                            branch["properties"][match["field"]]["const"],
-                            branch["properties"][match["object"]]["properties"][match["discriminator"]]["const"],
-                            f"{action['id']} per-kind branch does not bind {match['field']} to {match['object']}.{match['discriminator']}",
-                        )
-                for group in alternatives:
-                    branch = branch_for(group)
-                    for _kind, _shape_name, names in self._shapes(action):
-                        legal = envelope_with(self._sample(branch, fallback_properties=branch.get("properties")))
-                        for name in names:
-                            self._assert_verdict(copy.deepcopy(legal), name, True, f"{action['id']} alternative group {group['fields']} supplied")
-                        withheld = {key: value for key, value in legal["fields"].items()}
-                        for name in group["fields"]:
-                            withheld.pop(name, None)
-                        for name in names:
-                            self._assert_verdict(envelope_with(withheld), name, False, f"{action['id']} alternative group {group['fields']} withheld")
-                    # A field the group forbids beside it is omitted from the
-                    # branch entirely and refused when carried — one negative
-                    # mutant for each newly owned cross-field rule.
-                    for forbidden in group.get("forbids", []):
-                        self.assertNotIn(forbidden, branch.get("properties", {}), f"{action['id']} branch for {group['fields']} publishes forbidden {forbidden}")
-                        mutant = envelope_with(self._sample(branch, fallback_properties=branch.get("properties")))
-                        mutant["fields"][forbidden] = self._sample(branch_property(forbidden))
-                        for _kind, _shape_name, names in self._shapes(action):
-                            for name in names:
-                                self._assert_verdict(copy.deepcopy(mutant), name, False, f"{action['id']} group {group['fields']} carries forbidden {forbidden}")
-                    if len(alternatives) > 1:
-                        for other_group in alternatives:
-                            if other_group is group:
-                                continue
-                            other = branch_for(other_group)
-                            for exclusive in other_group["fields"]:
-                                if exclusive in branch.get("properties", {}):
-                                    continue
-                                mutant = envelope_with(self._sample(branch, fallback_properties=branch.get("properties")))
-                                mutant["fields"][exclusive] = self._sample(other["properties"][exclusive])
-                                for _kind, _shape_name, names in self._shapes(action):
-                                    for name in names:
-                                        self._assert_verdict(copy.deepcopy(mutant), name, False, f"{action['id']} alternative groups carry {exclusive} together")
 
     def test_each_exact_fieldset_is_authorable_in_both_input_unions(self):
         for action, variant in self._variants():

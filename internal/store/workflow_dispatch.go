@@ -128,9 +128,6 @@ func validateWorkflowPlanActionPayload(actionID string, raw json.RawMessage) (ma
 			return nil, err
 		}
 	}
-	if err := validateWorkflowPayloadCrossFieldRules(actionID, fields); err != nil {
-		return nil, err
-	}
 	return fields, nil
 }
 

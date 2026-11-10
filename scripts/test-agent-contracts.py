@@ -1088,7 +1088,8 @@ class MethodSkillTests(unittest.TestCase):
             "known limitations", "merged, deployed and verified visible", "exact approval and quoted wording",
             "timers", "notification owners", "safe-resume detail",
             "question, recommendation, options and consequences", "visible and concise",
-            "complete task-specific brief", "Herdr tab title", "Concord work record for the ticket",
+            "Your decision needed", "names the agent's role", "complete task-specific brief",
+            "RTE succession, before acting", "Herdr tab title", "Concord work record for the ticket",
         ):
             with self.subTest(meaning=phrase):
                 self.assertIn(phrase, records)
@@ -1113,13 +1114,13 @@ class MethodSkillTests(unittest.TestCase):
                 with self.subTest(example=name, meaning=phrase):
                     self.assertIn(phrase, content)
         rte = " ".join((ROOT / ".concord/roles/rte.md").read_text().split())
-        for phrase in ("records.md", "spawning message", "objective, write set, exclusions, checks, stop conditions and return point", "captured work task", "concord_work_browse.list", "concord_work_trace.resume", "Herdr tab title", "Concord work record for the ticket", "another item's step notes"):
+        for phrase in ("records.md", "assigning a stream, identifying its owner and resuming work", "successor RTE follows", "another item's step notes"):
             with self.subTest(role="RTE", meaning=phrase):
                 self.assertIn(phrase, rte)
         self.assertNotIn("new-session assignment's complete task-specific brief in one assignment comment", rte)
         self.assertNotIn("Preserve full operator answers word-for-word in Linear", records)
         frontend = " ".join(self.content("concord-ticket-frontend").split())
-        self.assertIn("question, recommendation, options and consequences visible outside collapsed detail", frontend)
+        self.assertIn("question-comment format in `records.md`", frontend)
 
     def test_every_skill_keeps_its_license_notice(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -26,8 +26,6 @@ discovered for another Product.
   a comment holds one event the description cannot.
 - List every law change in the pull request and completion report with its
   record, its change in meaning or an explicit statement of none, and its reason.
-- A delegation prompt names the agent's role and carries its complete task-specific
-  brief; standing rules stay in the files that own them.
 
 ## New Linear records
 
@@ -59,18 +57,20 @@ Keep unresolved questions, known limitations and the difference between merged,
 deployed and verified visible. Preserve exact approval and quoted wording, timers,
 notification owners and safe-resume detail where their consumer can use them.
 For Linear question comments, keep the question, recommendation, options and
-consequences visible and concise, as the shared asking instructions require;
-collapse supporting explanation. Include an exact error or small reproduction
+consequences visible and concise outside collapsed detail; collapse supporting
+explanation and name the event with a heading such as "Your decision needed".
+Include an exact error or small reproduction
 when useful and link full diagnostics.
 
 ### Placement and consumers
 
-- The assigning agent gives the complete task-specific brief in the spawning message,
-  never Linear: objective, write set, exclusions, checks, stop conditions and return
-  point, with links to standing rules and evidence. For managed work, preserve the
+- The assigning agent names the agent's role and gives the complete task-specific brief
+  in the spawning message, never Linear: objective, write set, exclusions, checks, stop
+  conditions and return point, with links to standing rules and evidence. Standing
+  rules stay in the files that own them. For managed work, preserve the
   durable assignment in the captured work task and revise it when scope changes.
 - For captured work, at launch, retrigger, restart, context reset or RTE
-  succession, read the captured task with item-scoped `concord_work_browse.list`
+  succession, before acting read the captured task with item-scoped `concord_work_browse.list`
   using `detail=full`, and `concord_work_trace.resume`, plus relevant ticket events.
 - Before capture, the Herdr tab title names the ticket; after capture, the Concord
   work record for the ticket and the Herdr tab title identify the owner. Do not post

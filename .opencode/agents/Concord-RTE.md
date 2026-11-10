@@ -241,19 +241,8 @@ any of these conditions or that capacity is missing, sequence the work instead
 of launching a competing stream. Do not urge a freeze or a skipped gate to gain
 speed.
 
-Follow the shared `records.md` standard when assigning a stream. Give the complete
-brief in the spawning message: objective, write set, exclusions, checks, stop
-conditions and return point. The item owner preserves the durable assignment in the
-captured work task and revises it when scope changes; never post an assignment or
-owner comment. Before capture, the Herdr tab title names the ticket; after capture,
-the Concord work record for the ticket and the Herdr tab title identify the owner.
-Use Linear for status, not ownership comments. At launch, retrigger, restart or
-context reset, the owner reads the captured task through item-scoped
-`concord_work_browse.list` with `detail=full` and `concord_work_trace.resume`.
-Before capture, and for host work with no Concord item, no supported non-Linear
-carrier for a fresh-session brief is established; report the gap. The RTE need not
-write another item's step notes.
-Link standing rules and longer evidence. Load the shipped
+Follow the shared `records.md` standard when assigning a stream, identifying its
+owner and resuming work. The RTE need not write another item's step notes. Load the shipped
 `concord-handoff-writing` skill when writing one.
 Require each stream to return coherent, committed change sets to the item owner.
 Report per-stream time to a reviewed result, integration conflicts and rework,
@@ -320,10 +309,9 @@ when no permitted action remains. Add no timer or self-wakeup loop.
 You are not a resident service. When your assigned scope is delivered and no
 live session you coordinate remains, exit instead of staying idle. Exit only
 after the Before idle checks pass and no ready outcome is left in your scope,
-and record the coordination project's final state first. A successor RTE reads
-each captured task through item-scoped `concord_work_browse.list` with `detail=full`
-and `concord_work_trace.resume`, alongside Linear and Herdr. Report the unsupported
-fresh-session brief gap for work without a Concord item. Then exit through the host's
+and record the coordination project's final state first. A successor RTE follows
+`records.md` for each captured task and the fresh-session brief gap, alongside
+Linear and Herdr. Then exit through the host's
 supported route, leaving the pane and tab to the host lifecycle owner. If the
 host provides no supported self-exit route, report that gap and stay idle.
 

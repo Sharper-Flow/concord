@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
+	sqlitelib "modernc.org/sqlite/lib"
 )
 
 type workCreatedPayload struct {
@@ -728,7 +729,11 @@ func insertRelation(ctx context.Context, tx *sql.Tx, event Event, payload relati
 	if err == nil {
 		return nil
 	}
-	if sqlitedb.IsIdentityConflict(err) || sqlitedb.IsCheckViolation(err) {
+	if sqlitedb.ResultCode(err) == sqlitelib.SQLITE_CONSTRAINT_PRIMARYKEY {
+		return wrapFailure(KindInvariantViolation, "fold_event", "allocated relation identity already exists", false,
+			"restore the relation sequence frontier before retrying the operation", err)
+	}
+	if sqlitedb.IsUniqueViolation(err) || sqlitedb.IsCheckViolation(err) {
 		return wrapFailure(KindRelationConflict, "fold_event", "relation violates a uniqueness or self-edge constraint", false,
 			"remove the duplicate or self-edge from the operation", err)
 	}

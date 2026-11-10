@@ -740,7 +740,7 @@ class LinearVisualApprovalContractTests(unittest.TestCase):
         for clause in (
             "For every Linear UI/UX approval comment, embed screenshots",
             "exact material and version being approved",
-            "link the running development preview whenever reachable",
+            "link the running development preview whenever the operator can reach it",
             "Screenshots only in issue Resources or a link alone do not satisfy this rule",
             "synthetic or redacted development material",
             "no credentials or private details",
@@ -750,8 +750,12 @@ class LinearVisualApprovalContractTests(unittest.TestCase):
 
     def test_skills_direct_approval_and_linear_questions_to_asking(self):
         for path, clause in (
-            ("skills/concord-ui-design/SKILL.md", "For UI/UX approval, follow `asking.md`"),
-            ("skills/concord-ticket-frontend/SKILL.md", "For Linear question comments, follow `asking.md`"),
+            ("skills/concord-ui-design/SKILL.md",
+             "For UI/UX approval, follow `asking.md` in the shared instructions, "
+             "including its screenshot and preview rule for Linear approval comments"),
+            ("skills/concord-ticket-frontend/SKILL.md",
+             "For Linear question comments, follow `asking.md` in the shared instructions, "
+             "including its screenshot and preview rule for UI/UX approval comments"),
         ):
             with self.subTest(path=path):
                 self.assertIn(clause, " ".join((ROOT / path).read_text().split()))

@@ -21,7 +21,8 @@ comment, incomplete step, and resume read (`concord_work_trace.resume`) are
 the durable wait. The operator's
 answer plus a retrigger resumes the same work, assigned through the RTE.
 
-For Linear question comments, follow `asking.md` in the shared instructions.
+For Linear question comments, follow `asking.md` in the shared instructions,
+including its screenshot and preview rule for UI/UX approval comments.
 Follow the new Linear record standard in `records.md`. Use an event heading such
 as "Your decision needed", and keep the question, recommendation, options and
 consequences visible outside collapsed detail.

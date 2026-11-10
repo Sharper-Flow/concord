@@ -59,9 +59,9 @@ existing work record.
 
 For every Linear UI/UX approval comment, embed screenshots of the exact material
 and version being approved, and link the running development preview whenever
-reachable. Screenshots only in issue Resources or a link alone do not satisfy
-this rule. Use synthetic or redacted development material with no credentials
-or private details.
+the operator can reach it. Screenshots only in issue Resources or a link alone
+do not satisfy this rule. Use synthetic or redacted development material with
+no credentials or private details.
 
 Every operator approval question names the applicable class above or the existing
 operator-only reservation, and the concrete consequence that requires it. Existing

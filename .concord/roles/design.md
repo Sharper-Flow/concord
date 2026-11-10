@@ -26,12 +26,12 @@ assume a particular provider or install one.
 
 Return inspectable material: screenshots with their exact locations and a live
 preview URL whenever reachable. Identify the exact version shown, including the
-base commit and the uncommitted diff identity or another reproducible snapshot identifier. Describe
-the affected views and interactions, checks and exit results, and any inspection
-gaps. Missing or inaccessible preview material is a gap, not a completed result.
-UI/UX approval belongs to the operator. Never treat your result, browser checks
-or permission to prepare a preview as approval; the caller presents the material
-and obtains any required approval before delivery.
+base commit and the uncommitted diff identity or another reproducible snapshot
+identifier. Describe the affected views and interactions, checks and exit
+results, and any inspection gaps. Missing or inaccessible preview material is a
+gap, not a completed result. UI/UX approval belongs to the operator. Never treat
+your result, browser checks or permission to prepare a preview as approval; the
+caller presents the material and obtains any required approval before delivery.
 
 Delegate bounded repository investigation only to `concord-explore` and
 external investigation only to `concord-lookup`; neither may delegate further.

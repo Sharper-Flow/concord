@@ -68,7 +68,7 @@ func TestLawAttributionVerifiedSnapshotUpgrade(t *testing.T) {
 				t.Errorf("retained work changed: got %v want %v", got, work)
 			}
 			continue
-		case "work_context_state", "work_context_findings", "project_governing_requirements", "workflow_context_checkpoints", "workflow_context_boundaries", "workflow_design_records", "workflow_proposal_records":
+		case "work_context_state", "work_context_findings", "project_governing_requirements", "workflow_context_checkpoints", "workflow_context_boundaries", "workflow_design_records", "workflow_proposal_records", "workflow_contract_law_modifications":
 			if got := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE name=? OR tbl_name=?`, table, table); len(got) != 0 {
 				t.Errorf("retired schema survives: %v", got)
 			}

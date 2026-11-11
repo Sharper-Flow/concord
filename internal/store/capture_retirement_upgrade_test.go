@@ -130,6 +130,9 @@ DELETE FROM write_guard`); err != nil {
 				t.Errorf("retired schema %s survives: %v", table, schema)
 			}
 			continue
+		case "workflow_contract_law_modifications":
+			assertContractLawModificationsRetired(t, before, db)
+			continue
 		case "schema", "schema_migrations", "sqlite_sequence", "store_revision", "work_items", "workflow_instances", "relations", "workflow_overlap_resolutions", "work_context_state", "work_context_findings", "project_governing_requirements", "workflow_context_checkpoints", "workflow_context_boundaries", "workflow_backlog_alignment":
 			continue
 		}

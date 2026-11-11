@@ -556,11 +556,6 @@ func persistWorkflowContractApprovalTx(ctx context.Context, tx *sql.Tx, event Ev
 		if err := persistWorkflowArchitectureBindingTx(ctx, tx, event.SubjectID, p.ContractVersion, *p.ArchitectureBinding); err != nil {
 			return err
 		}
-		for _, lawID := range p.LawModifies {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES(?,?,?)`, event.SubjectID, p.ContractVersion, lawID); err != nil {
-				return workflowProjectionError(err, "cannot record workflow law modification")
-			}
-		}
 	}
 	return nil
 }

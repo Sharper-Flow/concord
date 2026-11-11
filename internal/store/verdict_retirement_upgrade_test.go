@@ -107,13 +107,36 @@ func retainedContractRows(t *testing.T, db *sql.DB) map[string][][]any {
 	t.Helper()
 	rows := map[string][][]any{}
 	rows["workflow_contracts"] = retirementUpgradeRows(t, db, `SELECT work_id,contract_version,consequence_class,approved_at,approved_by,superseded_by,spec_mandate,law_modifies,law_boundary_version,self_repair_json,supersession_seq,last_healthy_seq,changes_product_truth FROM workflow_contracts ORDER BY work_id,contract_version`)
-	for _, table := range []string{"workflow_premise_confirmations", "workflow_architecture_bindings", "workflow_contract_affected_domains", "workflow_contract_domain_modifications", "workflow_contract_domain_relation_modifications", "workflow_law_addition_reservations", "workflow_contract_law_additions", "workflow_contract_verification_obligations", "workflow_contract_law_modifications", "workflow_overlap_resolutions", "relations"} {
+	for _, table := range []string{"workflow_premise_confirmations", "workflow_architecture_bindings", "workflow_contract_affected_domains", "workflow_contract_domain_modifications", "workflow_contract_domain_relation_modifications", "workflow_law_addition_reservations", "workflow_contract_law_additions", "workflow_contract_verification_obligations", "workflow_overlap_resolutions", "relations"} {
 		rows[table] = retirementUpgradeRows(t, db, `SELECT * FROM `+table+` ORDER BY rowid`)
 		if len(rows[table]) == 0 {
 			t.Fatalf("fixture missing retained rows in %s", table)
 		}
 	}
 	return rows
+}
+
+// assertContractLawModificationsRetired proves migration 200 removed the
+// duplicate law-modification projection that the predecessor carried with
+// rows: its table, both indexes and its three guard triggers.
+func assertContractLawModificationsRetired(t *testing.T, predecessor map[string][][]any, db *sql.DB) {
+	t.Helper()
+	const table = "workflow_contract_law_modifications"
+	if len(predecessor[table]) == 0 {
+		t.Fatalf("predecessor carried no %s rows", table)
+	}
+	var objects [][]any
+	for _, row := range predecessor["schema"] {
+		if row[1] == table || row[2] == table {
+			objects = append(objects, row[:2])
+		}
+	}
+	if len(objects) != 6 {
+		t.Fatalf("predecessor %s schema objects = %v, want table, two indexes and three triggers", table, objects)
+	}
+	if got := retirementUpgradeRows(t, db, `SELECT type,name FROM sqlite_schema WHERE name=? OR tbl_name=?`, table, table); len(got) != 0 {
+		t.Errorf("retired %s schema survives: %v", table, got)
+	}
 }
 
 func assertRetirementContractGuards(t *testing.T, db *sql.DB) {
@@ -199,6 +222,7 @@ func TestOutcomeRetirementPreservesAllContractVersions(t *testing.T) {
 	if after := retainedContractRows(t, db); !reflect.DeepEqual(retained, after) {
 		t.Fatalf("retained contract facts changed: before=%#v after=%#v", retained, after)
 	}
+	assertContractLawModificationsRetired(t, before, db)
 	retirementUpgradeHealthy(t, db)
 	assertRetirementContractGuards(t, db)
 	var encoded string

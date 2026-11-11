@@ -159,7 +159,6 @@ func seedDomainEvidence(ctx context.Context, s *store.Store, opts DomainEvidence
 			domainStatement{"contract " + workID, contract, []any{workID, actorRef, `["` + lawID + `"]`}},
 			domainStatement{"architecture binding " + workID, binding, []any{workID, opts.ProductID, domainID, registryHash}},
 			domainStatement{"affected Domain " + workID, `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES(?,1,?)`, []any{workID, domainID}},
-			domainStatement{"law modification " + workID, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES(?,1,?)`, []any{workID, lawID}},
 		)
 	}
 	if err := execDomainFold(ctx, s, statements...); err != nil {

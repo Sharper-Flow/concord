@@ -13,7 +13,7 @@ import (
 func contractRows(t *testing.T, s *store.Store, work string) []string {
 	t.Helper()
 	var result []string
-	for _, table := range []string{"workflow_contracts", "workflow_architecture_bindings", "workflow_contract_affected_domains", "workflow_contract_domain_additions", "workflow_contract_domain_modifications", "workflow_contract_domain_relation_modifications", "workflow_contract_law_additions", "workflow_contract_verification_obligations", "workflow_contract_law_modifications"} {
+	for _, table := range []string{"workflow_contracts", "workflow_architecture_bindings", "workflow_contract_affected_domains", "workflow_contract_domain_additions", "workflow_contract_domain_modifications", "workflow_contract_domain_relation_modifications", "workflow_contract_law_additions", "workflow_contract_verification_obligations"} {
 		rows, err := s.DatabaseForTesting().Query(`SELECT * FROM `+table+` WHERE work_id=? ORDER BY rowid`, work)
 		if err != nil {
 			t.Fatal(err)

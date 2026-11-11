@@ -279,7 +279,6 @@ func (fx readPopulationFixture) seedFocusWorkflow(t *testing.T) {
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contracts(work_id,contract_version,consequence_class,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version) VALUES(?,1,'internal_sqlite','now',?,'[]',?,1)`, fx.workID, actorRef, `["`+readPopulationDecision+`"]`)
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES(?,1,'prod-alpha',?,?)`, fx.workID, readPopulationChildDomain, fx.registryHash)
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES(?,1,?)`, fx.workID, readPopulationChildDomain)
-	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES(?,1,?)`, fx.workID, readPopulationDecision)
 	execPopulationStatement(t, fx.store, `UPDATE workflow_contracts SET legislative_subjects='["work-population"]' WHERE work_id=? AND contract_version=1`, fx.workID)
 }
 
@@ -337,7 +336,6 @@ func (fx readPopulationFixture) seedPopulationPeerWork(t *testing.T) {
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contracts(work_id,contract_version,consequence_class,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version) VALUES(?,1,'internal_sqlite','now',?,'[]',?,1)`, readPopulationPeer, actorRef, `["`+readPopulationDecision+`"]`)
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_architecture_bindings(work_id,contract_version,product_id,home_domain_id,projection_hash) VALUES(?,1,'prod-alpha',?,?)`, readPopulationPeer, readPopulationChildDomain, fx.registryHash)
 	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contract_affected_domains(work_id,contract_version,domain_id) VALUES(?,1,?)`, readPopulationPeer, readPopulationChildDomain)
-	execPopulationStatement(t, fx.store, `INSERT INTO workflow_contract_law_modifications(work_id,contract_version,law_id) VALUES(?,1,?)`, readPopulationPeer, readPopulationDecision)
 
 	_, focusVersion := readWorkFromStore(t, fx.store, fx.workID)
 	_, peerVersion := readWorkFromStore(t, fx.store, readPopulationPeer)

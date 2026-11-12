@@ -9387,6 +9387,12 @@ DROP TABLE workflow_proposal_records;
 DROP TABLE workflow_contract_law_modifications;
 `,
 	},
+	{
+		Version: 201, Name: "retire_runtime_state_writers", Breaking: true,
+		SQL: `
+DROP TABLE runtime_state_writers;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

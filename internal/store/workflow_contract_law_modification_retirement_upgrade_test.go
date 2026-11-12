@@ -46,7 +46,7 @@ func TestWorkflowContractLawModificationRetirementUpgrade(t *testing.T) {
 	if !reflect.DeepEqual(laws, [][]any{{`["law:one","law:existing"]`}}) {
 		t.Fatalf("authoritative laws: %v", laws)
 	}
-	const survivingSchema = `SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' AND tbl_name != 'workflow_contract_law_modifications' ORDER BY type,name`
+	const survivingSchema = `SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' AND tbl_name NOT IN ('workflow_contract_law_modifications','runtime_state_writers') ORDER BY type,name`
 	schema := retirementUpgradeRows(t, db, survivingSchema)
 	snapshot := filepath.Join(t.TempDir(), "predecessor.db")
 	manifest, err := BackupDatabase(ctx, path, snapshot)
@@ -100,6 +100,7 @@ func TestWorkflowContractLawModificationRetirementUpgrade(t *testing.T) {
 		t.Fatal("duplicate table survived")
 	}
 	delete(before, "workflow_contract_law_modifications")
+	delete(before, "runtime_state_writers")
 	for _, state := range []map[string][][]any{before, current} {
 		delete(state, "schema")
 		delete(state, "schema_migrations")
@@ -127,7 +128,7 @@ func TestWorkflowContractLawModificationRetirementUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.RestoredDatabase.SchemaVersion != 200 {
+	if report.RestoredDatabase.SchemaVersion != 201 {
 		t.Fatalf("restored schema = %d", report.RestoredDatabase.SchemaVersion)
 	}
 	restoredDB, err := sql.Open(driverName, readOnlyDataSource(restored))

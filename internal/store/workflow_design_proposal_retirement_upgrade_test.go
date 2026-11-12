@@ -58,7 +58,7 @@ DELETE FROM write_guard`)
 			t.Fatalf("missing predecessor row in %s", table)
 		}
 	}
-	const survivingSchema = `SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' AND tbl_name NOT IN ('workflow_design_records','workflow_proposal_records','workflow_contract_law_modifications') ORDER BY type,name`
+	const survivingSchema = `SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' AND tbl_name NOT IN ('workflow_design_records','workflow_proposal_records','workflow_contract_law_modifications','runtime_state_writers') ORDER BY type,name`
 	schema := retirementUpgradeRows(t, db, survivingSchema)
 	rollback, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -112,6 +112,7 @@ DELETE FROM write_guard`)
 	delete(before, "workflow_design_records")
 	delete(before, "workflow_proposal_records")
 	delete(before, "workflow_contract_law_modifications")
+	delete(before, "runtime_state_writers")
 	for _, state := range []map[string][][]any{before, current} {
 		delete(state, "schema")
 		delete(state, "schema_migrations")
@@ -132,7 +133,7 @@ DELETE FROM write_guard`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.RestoredDatabase.SchemaVersion != 200 {
+	if report.RestoredDatabase.SchemaVersion != 201 {
 		t.Fatalf("restored schema = %d", report.RestoredDatabase.SchemaVersion)
 	}
 	restoredDB, err := sql.Open(driverName, readOnlyDataSource(restored))

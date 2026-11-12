@@ -118,14 +118,11 @@ func TestDefectRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 		t.Fatalf("applied migrations = %v, want %v", report.Applied, wantApplied)
 	}
 	for table, want := range retained {
-		if table == "runtime_state_writers" {
-			continue
-		}
 		if retirementUpgradeResearchTable(t, db, table) {
 			continue
 		}
 		switch table {
-		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "work_context_state", "work_context_findings", "project_governing_requirements", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions", "workflow_step_completions", "workflow_contract_predicates", "workflow_predicate_verdicts", "workflow_review_state", "workflow_context_checkpoints", "workflow_context_boundaries", "workflow_design_records", "workflow_proposal_records", "workflow_contract_law_modifications":
+		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "work_context_state", "work_context_findings", "project_governing_requirements", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions", "workflow_step_completions", "workflow_contract_predicates", "workflow_predicate_verdicts", "workflow_review_state", "workflow_context_checkpoints", "workflow_context_boundaries", "workflow_design_records", "workflow_proposal_records", "workflow_contract_law_modifications", "runtime_state_writers":
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' AND name=?`, table); len(rows) != 0 {
 				t.Errorf("retired table %s survives: %v", table, rows)
 			}
@@ -369,14 +366,11 @@ func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 		})
 	}
 	for table, expected := range before {
-		if table == "runtime_state_writers" {
-			continue
-		}
 		if retirementUpgradeResearchTable(t, db, table) {
 			continue
 		}
 		switch table {
-		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "work_context_state", "work_context_findings", "project_governing_requirements", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions", "workflow_step_completions", "workflow_contract_predicates", "workflow_predicate_verdicts", "workflow_review_state", "workflow_context_checkpoints", "workflow_context_boundaries", "workflow_design_records", "workflow_proposal_records", "workflow_contract_law_modifications":
+		case "outside_repair_dispositions", "outside_repair_reconciliations", "workflow_contract_law_revisions", "work_messages", "work_observations", "work_context_state", "work_context_findings", "project_governing_requirements", "workflow_law_baselines", "workflow_correction_state", "workflow_artifact_actions", "workflow_step_completions", "workflow_contract_predicates", "workflow_predicate_verdicts", "workflow_review_state", "workflow_context_checkpoints", "workflow_context_boundaries", "workflow_design_records", "workflow_proposal_records", "workflow_contract_law_modifications", "runtime_state_writers":
 			if rows := retirementUpgradeRows(t, db, `SELECT name FROM sqlite_schema WHERE type='table' AND name=?`, table); len(rows) != 0 {
 				t.Errorf("retired table %s survives: %v", table, rows)
 			}

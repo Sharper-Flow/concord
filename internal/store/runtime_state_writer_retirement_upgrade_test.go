@@ -43,6 +43,10 @@ func TestRuntimeStateWriterRetirementUpgrade(t *testing.T) {
 	if len(before["runtime_state_writers"]) != 2 {
 		t.Fatal("predecessor writer rows missing")
 	}
+	const writerSchema = `SELECT type,name FROM sqlite_schema WHERE tbl_name='runtime_state_writers' ORDER BY type,name`
+	if got := retirementUpgradeRows(t, db, writerSchema); !reflect.DeepEqual(got, [][]any{{"index", "sqlite_autoindex_runtime_state_writers_1"}, {"table", "runtime_state_writers"}}) {
+		t.Fatalf("predecessor writer schema = %v", got)
+	}
 	const survivingSchema = `SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' AND tbl_name != 'runtime_state_writers' ORDER BY type,name`
 	schema := retirementUpgradeRows(t, db, survivingSchema)
 	snapshot := filepath.Join(t.TempDir(), "predecessor.db")
@@ -93,8 +97,8 @@ func TestRuntimeStateWriterRetirementUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	current := designProposalSnapshot(t, db)
-	if _, ok := current["runtime_state_writers"]; ok {
-		t.Fatal("writer table survived")
+	if got := retirementUpgradeRows(t, db, writerSchema); len(got) != 0 {
+		t.Fatalf("writer table or automatic index survived: %v", got)
 	}
 	delete(before, "runtime_state_writers")
 	for _, state := range []map[string][][]any{before, current} {

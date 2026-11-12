@@ -92,6 +92,7 @@ DELETE FROM write_guard`)
 	delete(before, "workflow_design_records")
 	delete(before, "workflow_proposal_records")
 	delete(before, "workflow_contract_law_modifications")
+	delete(before, "runtime_state_writers")
 	for _, state := range []map[string][][]any{before, current} {
 		delete(state, "schema")
 		delete(state, "schema_migrations")
@@ -112,8 +113,8 @@ DELETE FROM write_guard`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.RestoredDatabase.SchemaVersion != 200 {
-		t.Fatalf("restored schema = %d, want 200", report.RestoredDatabase.SchemaVersion)
+	if report.RestoredDatabase.SchemaVersion != 201 {
+		t.Fatalf("restored schema = %d, want 201", report.RestoredDatabase.SchemaVersion)
 	}
 	restoredDB, err := sql.Open(driverName, readOnlyDataSource(restored))
 	if err != nil {

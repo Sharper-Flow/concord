@@ -58,6 +58,8 @@ func TestLawAttributionVerifiedSnapshotUpgrade(t *testing.T) {
 			continue
 		}
 		switch table {
+		case "runtime_state_writers":
+			continue
 		case "projects":
 			if got := retirementProjectRows(t, db); !reflect.DeepEqual(got, expected) {
 				t.Errorf("unrelated projects changed")

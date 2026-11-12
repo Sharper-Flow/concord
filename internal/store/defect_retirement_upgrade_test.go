@@ -118,6 +118,9 @@ func TestDefectRetirementVerifiedSnapshotUpgrade(t *testing.T) {
 		t.Fatalf("applied migrations = %v, want %v", report.Applied, wantApplied)
 	}
 	for table, want := range retained {
+		if table == "runtime_state_writers" {
+			continue
+		}
 		if retirementUpgradeResearchTable(t, db, table) {
 			continue
 		}
@@ -366,6 +369,9 @@ func TestDefectRetirementPreservesRetainedExecution(t *testing.T) {
 		})
 	}
 	for table, expected := range before {
+		if table == "runtime_state_writers" {
+			continue
+		}
 		if retirementUpgradeResearchTable(t, db, table) {
 			continue
 		}

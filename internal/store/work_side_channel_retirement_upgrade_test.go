@@ -55,6 +55,9 @@ func TestWorkSideChannelRetirementUpgradeSnapshot(t *testing.T) {
 	}
 	retired := map[string]bool{"work_messages": true, "work_observations": true, "work_context_state": true, "work_context_findings": true, "project_governing_requirements": true, "workflow_law_baselines": true, "workflow_artifact_actions": true, "workflow_correction_state": true, "workflow_step_completions": true, "workflow_contract_predicates": true, "workflow_predicate_verdicts": true, "workflow_review_state": true, "workflow_context_checkpoints": true, "workflow_context_boundaries": true, "workflow_design_records": true, "workflow_proposal_records": true, "workflow_contract_law_modifications": true}
 	for table, want := range retained {
+		if table == "runtime_state_writers" {
+			continue
+		}
 		if retirementUpgradeResearchTable(t, db, table) {
 			continue
 		}

@@ -22,8 +22,8 @@
 # Concord Workflow Engine Contract
 
 > **Status:** Implementation contract for accepted CD-0013, v1.
-> **Authority:** [`CD-0013`](../decisions/CD-0013-workflow-engine-mechanism.md),
-> amended only by a later accepted CD-NNNN.
+> **Authority:** [`CD-0013`](../decisions/CD-0013-workflow-engine-mechanism.md);
+> amendment and replacement follow [CD-0036 D2](../decisions/CD-0036-breaking-law-cutovers.md#d2-amendment-and-replacement).
 > **State and definitions ([CD-0242](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md)
 > D2, D4, D6, and D14):** the engine keeps current workflow state and finite
 > snapshots with no event log, fold, replay, or rebuild. Attempts carry their
@@ -196,14 +196,16 @@ during planning.
 |---|---|---|---|
 | absent | `intake` | capture records the actor tuple and opens the instance with no type and no plan | internal-inline |
 | `intake` | `running` | type picked and the plan written | one expected-version-checked transaction |
-| `running` | `running` | action checkpoint or successful action | one expected-version-checked transaction |
-| `running` | `blocked` | unresolved dependency discovered | internal-inline |
-| `running` | `completed` | ordered completion gate succeeds | one internal transaction |
-| `running`, `blocked` | `cancelled` | explicit authorized cancellation | one expected-version-checked transaction |
+| `running`, `blocked` | `running` | action start or checkpoint, or recoverable reserved `workflow.action_failed` | one expected-version-checked transaction |
+| `running` | `blocked` | nonrecoverable reserved `workflow.action_failed` | one expected-version-checked transaction |
+| `running`, `blocked` | `completed` | ordered completion gate succeeds | one internal transaction |
+| `intake`, `running`, `blocked` | `cancelled` | explicit authorized cancellation | one expected-version-checked transaction |
 | `completed`, `cancelled` | `running`, or `intake` when no plan exists | explicit work reopen | the reopen's expected-version-checked transaction |
 
-An action failure records its typed failure result; it does not invent a state.
-Recoverable failures leave the instance in `running` or `blocked`.
+The reserved `workflow.action_failed` record writes `running` for a recoverable
+failure and `blocked` for a nonrecoverable failure. The action catalog emits no
+`workflow.action_failed`, so no dispatched action enters `blocked`; dispatched
+actions exit it only as the table states.
 A completed or cancelled instance changes only through an explicit work reopen.
 Each action is one expected-version-checked, idempotent domain
 transaction with its operation result and effect receipts. There is no separate
@@ -726,6 +728,12 @@ The contract does not invent audience storage or a new workflow type.
 `.concord/scenarios/workflow-engine.v1.json`, using production dispatch for
 workflow actions and reading prepared state for capture.
 
+- Section 3's blocked exits are proved through public dispatch by
+  `TestWorkflowStartExecutionMovesBlockedInstanceToRunning`,
+  `TestWorkflowCheckpointExecutionMovesBlockedInstanceToRunning`, and
+  `TestWorkflowCompleteMovesBlockedInstanceToCompleted`.
+  `TestTerminalLifecycleClosesTheWorkflowInstance` proves intake-to-cancelled.
+  All four are in `internal/store/workflow_instance_terminal_test.go`.
 - Criterion 1 is proved against the production `ValidateStepPlanWrite` validator
   by `TestWorkflowStepPlanCompletionOrderingAndImmutability`
   (`internal/store/workflow_step_plan_test.go`), which asserts each of the four

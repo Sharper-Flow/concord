@@ -3,11 +3,103 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+// blockWorkflowInstance reaches the blocked state the way production does:
+// the owner starts the implement step and its attempt fails nonrecoverably.
+func blockWorkflowInstance(t *testing.T, s *Store, workID string, owner WorkflowActor) {
+	t.Helper()
+	dispatchWorkflowAction(t, s, workID, "start_execution", json.RawMessage(`{}`), owner)
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := readWorkVersion(t, s, workID)
+	failed := actionFailedFixture("blocked-"+workID, workID, ownerRef, ownerRef, "implement", 1, version, false)
+	if err := applyWorkflowTestOperation(t.Context(), s, Operation{Events: []Event{failed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		t.Fatalf("nonrecoverable action failure: %v", err)
+	}
+	assertWorkflowInstanceState(t, s, workID, "blocked")
+}
+
+func assertWorkflowInstanceState(t *testing.T, s *Store, workID, want string) {
+	t.Helper()
+	var state string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != want {
+		t.Fatalf("instance_state = %q, want %q", state, want)
+	}
+}
+
+func dispatchWorkflowAction(t *testing.T, s *Store, workID, action string, payload json.RawMessage, actor WorkflowActor) {
+	t.Helper()
+	ctx, err := prepareTerminalTestContext(t.Context(), s, workID, action)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version := readWorkVersion(t, s, workID)
+	id := fmt.Sprintf("%s-%s-%d", workID, action, version)
+	request := WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: actor,
+		AcceptedInputsDigest: testManifestDigest, IdempotencyIdentity: id, OperationID: id,
+		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: id,
+		RequestID: "request:" + id, ContractDigest: testManifestDigest, Now: time.Unix(13, 0).UTC(),
+	}
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		_, err := ApplyWorkflowActionTx(ctx, tx, request)
+		return err
+	}); err != nil {
+		t.Fatalf("%s: %v", action, err)
+	}
+}
+
+func TestWorkflowStartExecutionMovesBlockedInstanceToRunning(t *testing.T) {
+	t.Parallel()
+	const workID = "blocked-start-execution"
+	f := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "implement")
+	blockWorkflowInstance(t, f.store, workID, f.owner)
+	dispatchWorkflowAction(t, f.store, workID, "start_execution", json.RawMessage(`{}`), f.owner)
+	assertWorkflowInstanceState(t, f.store, workID, "running")
+}
+
+func TestWorkflowCheckpointExecutionMovesBlockedInstanceToRunning(t *testing.T) {
+	t.Parallel()
+	const workID = "blocked-checkpoint-execution"
+	f := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "implement")
+	blockWorkflowInstance(t, f.store, workID, f.owner)
+	dispatchWorkflowAction(t, f.store, workID, "checkpoint_execution", json.RawMessage(`{}`), f.owner)
+	assertWorkflowInstanceState(t, f.store, workID, "running")
+}
+
+// Delivery and premise actions admitted while the instance is blocked leave
+// it blocked; the complete action then closes it.
+func TestWorkflowCompleteMovesBlockedInstanceToCompleted(t *testing.T) {
+	t.Parallel()
+	const workID = "blocked-complete"
+	f := seedWorkflowReturnRouteFixture(t, workID, WorkflowStepPlanChange, "implement")
+	s := f.store
+	blockWorkflowInstance(t, s, workID, f.owner)
+	moveWorkflowPlanFixtureFrontier(t, s, workID, "review")
+	if err := runVerdictActionAs(t, s, workID, "record_delivery", json.RawMessage(`{"delivery_artifact":"artifact:blocked-complete","delivery_state":"asserted"}`), 0, f.owner); err != nil {
+		t.Fatalf("record delivery: %v", err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "confirm_premise", json.RawMessage(`{}`), 0, f.owner); err != nil {
+		t.Fatalf("confirm premise: %v", err)
+	}
+	completeWorkflowPlanFixture(t, s, workID)
+	assertWorkflowInstanceState(t, s, workID, "blocked")
+	dispatchWorkflowAction(t, s, workID, "complete", json.RawMessage(`{"impact_verdict":"non-breaking"}`), f.owner)
+	assertWorkflowInstanceState(t, s, workID, "completed")
+}
 
 // A work item that reaches a terminal lifecycle closes its workflow instance
 // in the same fold. Cancelled and superseded mirror the lifecycle. A completed

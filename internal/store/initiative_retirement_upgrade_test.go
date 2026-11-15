@@ -74,11 +74,13 @@ func TestInitiativeRetirementSchema181Owners(t *testing.T) {
 	}
 }
 
+var initiativeContextFixtures = []struct{ name, table, insert string }{
+	{"checkpoint", "workflow_context_checkpoints", `INSERT INTO workflow_context_checkpoints(work_id,work_version,checkpoint_sequence,checkpoint_id,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions,workflow_ref,workflow_definition_digest,actor_ref,request_id,recorded_at) SELECT 'initiative-old',1,1,'checkpoint','step',1,'unit','hypothesis','diagnosis','strategy','[1]','[1]','[]','[]','workflow.legacy',?,actor_ref,'request','time' FROM workflow_actors LIMIT 1`},
+	{"boundary", "workflow_context_boundaries", `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_digest,actor_ref,request_id,recorded_at) SELECT 'initiative-old',1,1,1,'boundary','summary','checkpoint',1,1,'summary','workflow.legacy',?,actor_ref,'request','time' FROM workflow_actors LIMIT 1`},
+}
+
 func TestInitiativeRetirementContextOwnerRefusesWithoutMutation(t *testing.T) {
-	for _, tc := range []struct{ name, table, insert string }{
-		{"checkpoint", "workflow_context_checkpoints", `INSERT INTO workflow_context_checkpoints(work_id,work_version,checkpoint_sequence,checkpoint_id,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions,workflow_ref,workflow_definition_digest,actor_ref,request_id,recorded_at) SELECT 'initiative-old',1,1,'checkpoint','step',1,'unit','hypothesis','diagnosis','strategy','[1]','[1]','[]','[]','workflow.legacy',?,actor_ref,'request','time' FROM workflow_actors LIMIT 1`},
-		{"boundary", "workflow_context_boundaries", `INSERT INTO workflow_context_boundaries(work_id,work_version,boundary_sequence,boundary_count,boundary_id,boundary_kind,checkpoint_id,checkpoint_sequence,attempt_epoch,summary,workflow_ref,workflow_definition_digest,actor_ref,request_id,recorded_at) SELECT 'initiative-old',1,1,1,'boundary','summary','checkpoint',1,1,'summary','workflow.legacy',?,actor_ref,'request','time' FROM workflow_actors LIMIT 1`},
-	} {
+	for _, tc := range initiativeContextFixtures {
 		t.Run(tc.name, func(t *testing.T) {
 			db, path := initiativeRetirementFixture(t)
 			retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
@@ -89,8 +91,9 @@ func TestInitiativeRetirementContextOwnerRefusesWithoutMutation(t *testing.T) {
 				t.Fatalf("missing context fixture in %s", tc.table)
 			}
 			_, err := Upgrade(t.Context(), path, nil)
-			if err == nil || !strings.Contains(err.Error(), "FOREIGN KEY constraint failed") {
-				t.Fatalf("upgrade error = %v, want historical foreign-key refusal", err)
+			assertFailureKind(t, err, KindUpgradeBlocked)
+			if !strings.Contains(err.Error(), tc.table) || !strings.Contains(err.Error(), "initiative-old") || !strings.Contains(err.Error(), "work_id") {
+				t.Fatalf("upgrade error = %v, want context table, initiative and owning dependency", err)
 			}
 			if got := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(got, before) {
 				t.Fatal("context-owner refusal changed predecessor state")
@@ -99,8 +102,74 @@ func TestInitiativeRetirementContextOwnerRefusesWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestInitiativeRetirementContextDeletesOnlyInitiativeRows(t *testing.T) {
+	db, path := initiativeRetirementFixture(t)
+	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
+	for _, fixture := range initiativeContextFixtures {
+		retirementUpgradeExec(t, db, fixture.insert, testDigest("historical-context"))
+		retirementUpgradeExec(t, db, strings.ReplaceAll(fixture.insert, "'initiative-old'", "'work-live'"), testDigest("historical-context"))
+	}
+	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
+	before := retirementUpgradeSnapshot(t, db)
+	snapshot := filepath.Join(t.TempDir(), "before.db")
+	if _, err := BackupDatabase(t.Context(), path, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	ctx, _, err := prepareResearchRetirement(t.Context(), snapshot, snapshot+".research")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := retireInitiativeWork(ctx, tx); err != nil {
+		t.Fatalf("retire initiative: %v", err)
+	}
+	for _, fixture := range initiativeContextFixtures {
+		rows, err := tx.QueryContext(ctx, `SELECT work_id FROM `+fixture.table+` ORDER BY work_id`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var owners []string
+		for rows.Next() {
+			var owner string
+			if err := rows.Scan(&owner); err != nil {
+				t.Fatal(err)
+			}
+			owners = append(owners, owner)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(owners, []string{"work-live"}) {
+			t.Fatalf("context owners in %s = %v", fixture.table, owners)
+		}
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if got := retirementUpgradeSnapshot(t, db); !reflect.DeepEqual(got, before) {
+		t.Fatal("rolled-back retirement changed predecessor state")
+	}
+}
+
 func TestInitiativeRetirementUpgrade(t *testing.T) {
 	db, path := initiativeRetirementFixture(t)
+	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
+	for _, fixture := range initiativeContextFixtures {
+		retirementUpgradeExec(t, db, fixture.insert, testDigest("historical-context"))
+	}
+	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
+	contextBefore := make(map[string][][]any)
+	for _, fixture := range initiativeContextFixtures {
+		contextBefore[fixture.table] = retirementUpgradeRows(t, db, `SELECT * FROM `+fixture.table+` WHERE work_id='initiative-old'`)
+		if len(contextBefore[fixture.table]) != 1 {
+			t.Fatalf("missing context fixture in %s", fixture.table)
+		}
+	}
 	beforeLive := historicalCaptureWorkRows(t, db, `WHERE kind<>'initiative'`)
 	beforeReceipts := retirementUpgradeRows(t, db, `SELECT * FROM effect_receipts ORDER BY effect_seq`)
 	beforeOperations := retirementUpgradeRows(t, db, `SELECT * FROM durable_operations ORDER BY op_id`)
@@ -130,6 +199,15 @@ func TestInitiativeRetirementUpgrade(t *testing.T) {
 	}
 	if _, err := Upgrade(t.Context(), path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
 		t.Fatalf("upgrade: %v", err)
+	}
+	for _, fixture := range initiativeContextFixtures {
+		if got := retirementUpgradeRows(t, archived, `SELECT * FROM `+fixture.table+` WHERE work_id='initiative-old'`); !reflect.DeepEqual(got, contextBefore[fixture.table]) {
+			t.Fatalf("snapshot context %s changed: %v", fixture.table, got)
+		}
+		var exists bool
+		if err := db.QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?)`, fixture.table).Scan(&exists); err != nil || exists {
+			t.Fatalf("retired context table %s exists=%v: %v", fixture.table, exists, err)
+		}
 	}
 	if got := retirementUpgradeRows(t, db, `SELECT id,kind FROM work_items WHERE id IN ('initiative-old','work-live') ORDER BY id`); len(got) != 1 || got[0][0] != "work-live" {
 		t.Fatalf("work after upgrade = %v; want only actionable work", got)

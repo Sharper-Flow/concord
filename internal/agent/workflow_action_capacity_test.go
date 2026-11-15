@@ -12,8 +12,8 @@ import (
 // derivedRequestWireMaxBytes pins the derived full-invoke wire maximum of
 // the current widest admitted action shape. The test owns the pin, not
 // production: any change in the widest shape fails this exact figure first,
-// and the pin moves only by a deliberate re-derivation beside the ceilings'
-// own next-power-of-two assertions.
+// and the pin moves only by a deliberate re-derivation beside the store
+// budget's own next-power-of-two assertion.
 const derivedRequestWireMaxBytes = 2089791
 
 // Derive the store workflow budget independently of the transport ceiling.
@@ -54,7 +54,7 @@ func TestWorkflowActionWidestShapeDerivesStoreBudget(t *testing.T) {
 	request := invokeRequestWireBytes(t, widest)
 	derived := schemawire.NextPowerOfTwo(request)
 	if request != derivedRequestWireMaxBytes {
-		t.Fatalf("the derived full-invoke request = %d bytes, want the pinned %d; the widest shape changed and the pin must be re-derived beside the ceilings it rounds to", request, derivedRequestWireMaxBytes)
+		t.Fatalf("the derived full-invoke request = %d bytes, want the pinned %d; the widest shape changed and the pin must be re-derived beside the store budget it rounds to", request, derivedRequestWireMaxBytes)
 	}
 	if store.MaxWorkflowActionPayloadBytes != derived {
 		t.Fatalf("store.MaxWorkflowActionPayloadBytes = %d, want the widest request composition's own rounding %d", store.MaxWorkflowActionPayloadBytes, derived)

@@ -59,6 +59,22 @@ ORDER BY alignment.related_work_id,alignment.work_id LIMIT 1`},
 	if _, err := q.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		return fmt.Errorf("initiative retirement: open write guard: %w", err)
 	}
+	for _, table := range []string{"workflow_context_boundaries", "workflow_context_checkpoints"} {
+		var initiative string
+		err := q.QueryRowContext(ctx, `SELECT work_id FROM `+table+` WHERE work_id IN (SELECT id FROM work_items WHERE kind='initiative') ORDER BY work_id LIMIT 1`).Scan(&initiative)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("initiative retirement: inspect %s: %w", table, err)
+		}
+		if _, ok := ctx.Value(researchRetirementProofKey{}).(researchRetirementProof); !ok {
+			return newFailure(KindUpgradeBlocked, "migrate", fmt.Sprintf("initiative retirement: %s contains work_id dependency for initiative %s; a verified snapshot is required", table, initiative), false, "run concord upgrade to preserve context rows in a verified snapshot")
+		}
+		if _, err := q.ExecContext(ctx, `DELETE FROM `+table+` WHERE work_id IN (SELECT id FROM work_items WHERE kind='initiative')`); err != nil {
+			return fmt.Errorf("initiative retirement: clear %s: %w", table, err)
+		}
+	}
 	if err := retireInitiativeResearch(ctx, q); err != nil {
 		return err
 	}

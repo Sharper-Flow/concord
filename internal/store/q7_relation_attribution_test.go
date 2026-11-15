@@ -1,27 +1,56 @@
 package store
 
-import "testing"
+import (
+	"slices"
+	"strings"
+	"testing"
+)
+
+// History must admit every kind the relation.added fold accepts: the fold's
+// kinds less its link refusals.
+func TestQ7RelationAddedKindsMatchFold(t *testing.T) {
+	var kinds []string
+	for kind := range relationKinds {
+		if _, refused := relationLinkRefusals[kind]; !refused {
+			kinds = append(kinds, "'"+kind+"'")
+		}
+	}
+	slices.Sort(kinds)
+	if want := "f.kind='relation.added' AND f.subject_id=r.work_id_from AND r.resolution_id IS NULL AND r.kind IN (" + strings.Join(kinds, ",") + "))"; !strings.Contains(currentQ7EntriesSQL, want) {
+		t.Fatalf("history relation.added predicate does not admit exactly the fold's kinds; want %s", want)
+	}
+}
 
 func TestQ7RelationReceiptDiscriminants(t *testing.T) {
 	for _, tc := range []struct {
-		name, kind, subjectType, subject, relationKind, resolution string
-		duplicate, overlap, zeroVersion, want                      bool
+		name, kind, subjectType, subject, relationKind, resolution, resolutionKind string
+		duplicate, overlap, inverted, zeroVersion, want                            bool
 	}{
 		{name: "valid", kind: "relation.added", subjectType: "work_item", subject: "disc-a", relationKind: "depends_on", want: true},
 		{name: "successor", kind: "workflow.successor_linked", subjectType: "work_item", subject: "disc-a", relationKind: "forward_link", want: true},
 		{name: "capture", kind: "work.created", subjectType: "work_item", subject: "disc-a", relationKind: "raised_from", want: true},
 		{name: "overlap", kind: "workflow.overlap_resolved", subjectType: "work_item", subject: "disc-a", relationKind: "depends_on", resolution: "disc-event", overlap: true, want: true},
+		{name: "overlap pair order", kind: "workflow.overlap_resolved", subjectType: "work_item", subject: "disc-a", relationKind: "compatible_with", resolution: "disc-event", resolutionKind: "compatible_with", overlap: true, inverted: true, want: true},
 		{name: "overlap wrong kind", kind: "workflow.overlap_resolved", subjectType: "work_item", subject: "disc-a", relationKind: "blocks", resolution: "disc-event", overlap: true},
 		{name: "wrong subject type", kind: "relation.added", subjectType: "project", subject: "disc-a", relationKind: "depends_on"},
 		{name: "wrong endpoint", kind: "relation.added", subjectType: "work_item", subject: "disc-b", relationKind: "depends_on"},
+		{name: "capture target endpoint", kind: "work.created", subjectType: "work_item", subject: "disc-b", relationKind: "raised_from"},
 		{name: "wrong event", kind: "work.updated", subjectType: "work_item", subject: "disc-a", relationKind: "depends_on"},
 		{name: "unpositioned version", kind: "relation.added", subjectType: "work_item", subject: "disc-a", relationKind: "depends_on", zeroVersion: true},
 		{name: "wrong relation kind", kind: "workflow.successor_linked", subjectType: "work_item", subject: "disc-a", relationKind: "depends_on"},
+		{name: "added internal kind", kind: "relation.added", subjectType: "work_item", subject: "disc-a", relationKind: "forward_link"},
 		{name: "wrong resolution", kind: "workflow.overlap_resolved", subjectType: "work_item", subject: "disc-a", relationKind: "depends_on", resolution: "other-resolution"},
 		{name: "unexpected resolution", kind: "relation.added", subjectType: "work_item", subject: "disc-a", relationKind: "depends_on", resolution: "other-resolution"},
 		{name: "ambiguous", kind: "relation.added", subjectType: "work_item", subject: "disc-a", relationKind: "depends_on", duplicate: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			from, to := "disc-a", "disc-b"
+			if tc.inverted {
+				from, to = to, from
+			}
+			if tc.resolutionKind == "" {
+				tc.resolutionKind = "depends_on"
+			}
 			s := openTemp(t)
 			seedWork(t, s, "disc-a")
 			seedWork(t, s, "disc-b")
@@ -35,7 +64,7 @@ VALUES('disc-event',(SELECT MAX(effect_seq)+1 FROM effect_receipts),?,?,?,'opera
 				t.Fatal(err)
 			}
 			_, err = s.db.Exec(`INSERT INTO relations(id,work_id_from,work_id_to,kind,created_at,resolution_id,reason,record_version)
-VALUES(98765,'disc-a','disc-b',?,'2026-08-07T12:00:00Z',NULLIF(?,''),'reason',CASE WHEN ?='work.created' THEN 1 ELSE 2 END)`, tc.relationKind, tc.resolution, tc.kind)
+VALUES(98765,?,?,?,'2026-08-07T12:00:00Z',NULLIF(?,''),'reason',CASE WHEN ?='work.created' THEN 1 ELSE 2 END)`, from, to, tc.relationKind, tc.resolution, tc.kind)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -52,7 +81,7 @@ INSERT INTO workflow_contracts(work_id,contract_version,consequence_class,approv
 					t.Fatal(err)
 				}
 				_, err = s.db.Exec(`INSERT INTO workflow_overlap_resolutions(resolution_id,event_seq,product_id,from_work_id,to_work_id,from_contract_version,to_contract_version,resolution_kind,reason,created_at)
-VALUES('disc-event',(SELECT effect_seq FROM effect_receipts WHERE event_id='disc-event'),'product','disc-a','disc-b',1,1,'depends_on','reason','2026-08-07T12:00:00Z')`)
+VALUES('disc-event',(SELECT effect_seq FROM effect_receipts WHERE event_id='disc-event'),'product',?,?,1,1,?,'reason','2026-08-07T12:00:00Z')`, from, to, tc.resolutionKind)
 				if err != nil {
 					t.Fatal(err)
 				}

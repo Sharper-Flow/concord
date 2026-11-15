@@ -191,6 +191,8 @@ func q7EntryHasCurrentFields(entry HistoryEntry) bool {
 // relation-graph read (Q8) serves them, so history selects only
 // relations with an unambiguous, consistent receipt rather than failing the
 // whole read. Receipt payloads no longer exist, so this cannot prove a match.
+// An overlap resolution's subject may be either endpoint: historical
+// compatible_with resolutions stored the overlap pair's own order.
 const currentQ7EntriesSQL = `WITH selected_work AS (SELECT * FROM work_items WHERE id=?), entries AS (
  SELECT 'lifecycle:'||id AS entry_id,'lifecycle' AS entry_kind,transition_seq AS effect_seq,transition_version AS version,id AS version_work_id,
  transition_actor AS actor,transition_reason AS reason,transition_evidence_refs AS evidence_refs,
@@ -204,9 +206,9 @@ const currentQ7EntriesSQL = `WITH selected_work AS (SELECT * FROM work_items WHE
  AND NOT EXISTS (SELECT 1 FROM effect_receipts other WHERE other.relation_seq=r.id AND other.event_id<>f.event_id)
  AND (
    (f.kind='relation.added' AND f.subject_id=r.work_id_from AND r.resolution_id IS NULL AND r.kind IN ('blocks','depends_on','implements','parent','raised_from'))
-   OR (f.kind='work.created' AND f.subject_id IN (r.work_id_from,r.work_id_to) AND r.resolution_id IS NULL AND r.kind='raised_from' AND r.record_version=1)
+   OR (f.kind='work.created' AND f.subject_id=r.work_id_from AND r.resolution_id IS NULL AND r.kind='raised_from' AND r.record_version=1)
    OR (f.kind='workflow.successor_linked' AND f.subject_id=r.work_id_from AND r.resolution_id IS NULL AND r.kind='forward_link')
-   OR (f.kind='workflow.overlap_resolved' AND f.subject_id=r.work_id_from AND r.resolution_id=f.event_id AND EXISTS (
+   OR (f.kind='workflow.overlap_resolved' AND f.subject_id IN (r.work_id_from,r.work_id_to) AND r.resolution_id=f.event_id AND EXISTS (
      SELECT 1 FROM workflow_overlap_resolutions x WHERE x.resolution_id=r.resolution_id AND x.event_seq=f.effect_seq
      AND x.from_work_id=r.work_id_from AND x.to_work_id=r.work_id_to AND x.resolution_kind=r.kind AND x.reason=r.reason
      AND x.created_at=r.created_at AND x.invalidated_seq IS NULL))

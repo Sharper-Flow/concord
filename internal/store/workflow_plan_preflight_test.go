@@ -40,3 +40,14 @@ func TestWorkflowPlanPreflightIntakeSnapshot(t *testing.T) {
 		t.Fatalf("preflight changed state: version=%d prelude=%v", version, prelude)
 	}
 }
+
+func TestWorkflowPlanPreflightRefusesRetiredAlignmentBeforePayloadAndState(t *testing.T) {
+	request := WorkflowActionPreflightRequest{
+		WorkID: "missing-work", ActionID: "record_alignment", Payload: json.RawMessage(`{`),
+	}
+	_, err := workflowActionPreflightTx(t.Context(), nil, request)
+	failure := planAdmissionFailure(t, err, KindDefinitionActionUnknown)
+	if failure.Detail != "action record_alignment is not in the action catalog" {
+		t.Fatalf("unexpected catalog refusal: %v", failure)
+	}
+}

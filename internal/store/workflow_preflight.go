@@ -252,9 +252,6 @@ func workflowPlanActionAdmissionTx(ctx context.Context, tx *sql.Tx, workID strin
 	if err != nil {
 		return action, nil, "", err
 	}
-	if actionID == "record_alignment" {
-		return action, nil, "", newFailure(KindIllegalLifecycleTransition, "workflow_action", "retired workflow action", false, "use an action declared by the current plan")
-	}
 	fields, err := validateWorkflowPlanActionPayload(actionID, payload)
 	if err != nil {
 		return action, nil, "", err

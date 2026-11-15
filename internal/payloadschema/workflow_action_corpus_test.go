@@ -15,9 +15,9 @@ import (
 // work_transition_action_input union: a payload any of them admits, the
 // others admit; a payload any refuses for shape reasons, the others refuse.
 // Mutants are derived from the variant's own nodes — missing requireds,
-// unknown and cross-variant fields, bad enums, wrong types, violated bounds,
-// and the alternative branches a fields oneOf declares — so an authored rule
-// that generation drops fails here rather than at a caller.
+// unknown and cross-variant fields, bad enums, wrong types, and violated
+// bounds — so an authored rule that generation drops fails here rather than
+// at a caller.
 
 // corpusCase is one shape mutant every schema under comparison must refuse.
 type corpusCase struct {
@@ -48,56 +48,6 @@ func corpusSample(document map[string]any, node map[string]any) any {
 	}
 	if enum, ok := node["enum"].([]any); ok && len(enum) > 0 {
 		return enum[0]
-	}
-	if branches, ok := node["oneOf"].([]any); ok && len(branches) > 0 {
-		base := map[string]any{}
-		if branch, ok := branches[0].(map[string]any); ok {
-			merged := corpusSampleWithFallback(document, branch, node)
-			if object, ok := merged.(map[string]any); ok {
-				for key, value := range object {
-					base[key] = value
-				}
-			}
-		}
-		for _, name := range corpusRequired(node) {
-			if _, exists := base[name]; !exists {
-				if property, ok := corpusProperty(node, name); ok {
-					base[name] = corpusSample(document, property)
-				}
-			}
-		}
-		return base
-	}
-	if branches, ok := node["anyOf"].([]any); ok && len(branches) > 0 {
-		if branch, ok := branches[0].(map[string]any); ok {
-			return corpusSample(document, branch)
-		}
-	}
-	if members, ok := node["allOf"].([]any); ok {
-		merged := map[string]any{}
-		rest := map[string]any{}
-		for key, value := range node {
-			if key != "allOf" {
-				rest[key] = value
-			}
-		}
-		if len(rest) > 0 {
-			if object, ok := corpusSample(document, rest).(map[string]any); ok {
-				for key, value := range object {
-					merged[key] = value
-				}
-			}
-		}
-		for _, raw := range members {
-			if member, ok := raw.(map[string]any); ok {
-				if object, ok := corpusSample(document, member).(map[string]any); ok {
-					for key, value := range object {
-						merged[key] = value
-					}
-				}
-			}
-		}
-		return merged
 	}
 	switch corpusNodeType(node) {
 	case "object":
@@ -131,41 +81,6 @@ func corpusSample(document map[string]any, node map[string]any) any {
 		return corpusStringSample(node)
 	}
 	return nil
-}
-
-// corpusSampleWithFallback samples a branch whose requirements name
-// properties the enclosing node declares, as a requirements-only oneOf
-// branch does (the supersede successor forms).
-func corpusSampleWithFallback(document map[string]any, branch map[string]any, parent map[string]any) any {
-	sampled := corpusSample(document, branch)
-	object, ok := sampled.(map[string]any)
-	if !ok {
-		object = map[string]any{}
-	}
-	// A discriminating branch pins its selector with a const property; the
-	// sample must carry it or the parent's default selects another branch.
-	if properties, ok := branch["properties"].(map[string]any); ok {
-		for name, raw := range properties {
-			if property, ok := raw.(map[string]any); ok {
-				if value, pinned := property["const"]; pinned {
-					object[name] = value
-				}
-			}
-		}
-	}
-	for _, name := range corpusRequired(branch) {
-		if _, exists := object[name]; exists {
-			continue
-		}
-		if property, ok := corpusProperty(branch, name); ok {
-			object[name] = corpusSample(document, property)
-			continue
-		}
-		if property, ok := corpusProperty(parent, name); ok {
-			object[name] = corpusSample(document, property)
-		}
-	}
-	return object
 }
 
 // corpusNodeType returns the node's first non-null declared type, so a
@@ -335,59 +250,6 @@ func corpusMutants(document map[string]any, variantName string, sample map[strin
 		for _, field := range crossVariantFields {
 			add("cross-variant field "+field, corpusSetValue(corpusCopy(sample), []string{"fields", field}, "corpus-cross-variant"))
 		}
-		if branches, ok := fieldsSchema["oneOf"].([]any); ok && len(branches) > 1 {
-			// Alternative-group branches carry no const discriminator: their
-			// own invalid mutant pairs two groups' exclusive fields, the
-			// exactly-one rule the registry's alternative declaration states
-			// and core admission enforces. The base is the carrying branch's
-			// own sample — the variant-level sample already satisfies this
-			// branch's group, so adding its own field back would prove
-			// nothing.
-			for index, raw := range branches {
-				branch, ok := raw.(map[string]any)
-				if !ok || corpusBranchConstField(branch) != "" {
-					continue
-				}
-				branchSample, sampleOK := corpusSample(document, branch).(map[string]any)
-				if !sampleOK {
-					continue
-				}
-				for other, rawOther := range branches {
-					if other == index {
-						continue
-					}
-					otherBranch, ok := rawOther.(map[string]any)
-					if !ok || corpusBranchConstField(otherBranch) != "" {
-						continue
-					}
-					// A branch that only extends another closed shape is not
-					// an exclusive alternative group. Adding its required field
-					// can legitimately switch the sample to that branch.
-					exclusiveBase := false
-					for _, required := range corpusRequired(branch) {
-						if _, declared := corpusProperty(otherBranch, required); !declared {
-							exclusiveBase = true
-						}
-					}
-					if !exclusiveBase {
-						continue
-					}
-					for _, exclusive := range corpusRequired(otherBranch) {
-						if _, declared := corpusProperty(branch, exclusive); declared {
-							continue
-						}
-						mutant, _ := corpusCopy(sample).(map[string]any)
-						mutant["fields"] = corpusCopy(branchSample)
-						if property, ok := corpusProperty(otherBranch, exclusive); ok {
-							mutant, _ = corpusSetValue(mutant, []string{"fields", exclusive}, corpusSample(document, property)).(map[string]any)
-						} else {
-							mutant, _ = corpusSetValue(mutant, []string{"fields", exclusive}, "corpus-exclusive-field").(map[string]any)
-						}
-						add(fmt.Sprintf("alternative group %d carries group %d field %s", index, other, exclusive), mutant)
-					}
-				}
-			}
-		}
 	}
 	// Node-derived mutants: walk the variant schema beside the sample and
 	// violate every enum, type, and bound the nodes declare.
@@ -490,20 +352,6 @@ func corpusRootOf(path []string, value any) any {
 	return value
 }
 
-func corpusBranchConstField(branch map[string]any) string {
-	properties, _ := branch["properties"].(map[string]any)
-	for _, name := range corpusSortedKeys(properties) {
-		property, ok := properties[name].(map[string]any)
-		if !ok {
-			continue
-		}
-		if _, hasConst := property["const"]; hasConst {
-			return name
-		}
-	}
-	return ""
-}
-
 func corpusSortedKeys(object map[string]any) []string {
 	keys := make([]string, 0, len(object))
 	for key := range object {
@@ -535,20 +383,6 @@ func corpusVariantFieldNames(defs map[string]any, variantName string) []string {
 	}
 	if fieldProperties, ok := fields["properties"].(map[string]any); ok {
 		collect(fieldProperties)
-	}
-	// A fields object split into branches declares its fields per branch;
-	// the variant's field set is the union.
-	for _, keyword := range []string{"oneOf", "anyOf"} {
-		branches, _ := fields[keyword].([]any)
-		for _, raw := range branches {
-			branch, ok := raw.(map[string]any)
-			if !ok {
-				continue
-			}
-			if fieldProperties, ok := branch["properties"].(map[string]any); ok {
-				collect(fieldProperties)
-			}
-		}
 	}
 	return names
 }

@@ -132,6 +132,7 @@ func TestInitiativeRetirementContextDeletesOnlyInitiativeRows(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		defer rows.Close()
 		var owners []string
 		for rows.Next() {
 			var owner string
@@ -143,7 +144,6 @@ func TestInitiativeRetirementContextDeletesOnlyInitiativeRows(t *testing.T) {
 		if err := rows.Err(); err != nil {
 			t.Fatal(err)
 		}
-		rows.Close()
 		if !slices.Equal(owners, []string{"work-live"}) {
 			t.Fatalf("context owners in %s = %v", fixture.table, owners)
 		}

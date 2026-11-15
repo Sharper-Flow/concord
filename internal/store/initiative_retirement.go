@@ -69,7 +69,7 @@ ORDER BY alignment.related_work_id,alignment.work_id LIMIT 1`},
 			return fmt.Errorf("initiative retirement: inspect %s: %w", table, err)
 		}
 		if _, ok := ctx.Value(researchRetirementProofKey{}).(researchRetirementProof); !ok {
-			return newFailure(KindUpgradeBlocked, "migrate", fmt.Sprintf("initiative retirement: %s contains work_id dependency for initiative %s; a verified snapshot is required", table, initiative), false, "run concord upgrade to preserve context rows in a verified snapshot")
+			return newFailure(KindUpgradeBlocked, "migrate", fmt.Sprintf("initiative retirement: %s contains a work_id dependency for initiative %s; a verified snapshot is required; no migration was applied", table, initiative), false, "run concord upgrade to preserve context rows in a verified snapshot")
 		}
 		if _, err := q.ExecContext(ctx, `DELETE FROM `+table+` WHERE work_id IN (SELECT id FROM work_items WHERE kind='initiative')`); err != nil {
 			return fmt.Errorf("initiative retirement: clear %s: %w", table, err)

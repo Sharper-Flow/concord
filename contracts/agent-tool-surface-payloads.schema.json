@@ -611,6 +611,7 @@
           "maxItems": 64,
           "items": {
             "type": "string",
+            "pattern": "[^\\x09-\\x0d \u0085   -     　]",
             "minLength": 1,
             "maxLength": 4096,
             "x-maxBytes": 4096,
@@ -624,6 +625,7 @@
           "maxItems": 64,
           "items": {
             "type": "string",
+            "pattern": "[^\\x09-\\x0d \u0085   -     　]",
             "minLength": 1,
             "maxLength": 4096,
             "x-maxBytes": 4096,
@@ -637,6 +639,7 @@
           "maxItems": 64,
           "items": {
             "type": "string",
+            "pattern": "[^\\x09-\\x0d \u0085   -     　]",
             "minLength": 1,
             "maxLength": 4096,
             "x-maxBytes": 4096,
@@ -650,6 +653,7 @@
           "maxItems": 64,
           "items": {
             "type": "string",
+            "pattern": "[^\\x09-\\x0d \u0085   -     　]",
             "minLength": 1,
             "maxLength": 4096,
             "x-maxBytes": 4096,
@@ -663,6 +667,7 @@
           "maxItems": 64,
           "items": {
             "type": "string",
+            "pattern": "[^\\x09-\\x0d \u0085   -     　]",
             "minLength": 1,
             "maxLength": 4096,
             "x-maxBytes": 4096,

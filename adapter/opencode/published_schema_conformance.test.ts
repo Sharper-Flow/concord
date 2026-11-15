@@ -57,6 +57,28 @@ function operationInput(schema: any, operation: string): any {
   return branch.properties.input
 }
 
+test("published removal handoff matches Unicode nonblank semantics", async () => {
+  const fixture = fixtures.fixtures.find((entry) => entry.input_schema === "work_transition_remove_input")
+  if (!fixture) throw new Error("missing removal fixture")
+  const schemas = [publishedSchema("concord_work_transition"), await finalRoot("concord_work_transition")]
+  const whitespace = "\u0009\u000a\u000b\u000c\u000d \u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
+  for (const section of ["findings", "remaining_scope", "blockers", "artifacts", "renewal_conditions"]) {
+    for (const value of [...whitespace, whitespace]) {
+      const input: any = structuredClone(fixture.input_valid)
+      input.handoff[section] = [value]
+      for (const [index, schema] of schemas.entries()) expect(validateAgainstSchema(schema, index ? { request: { operation: "remove", input } } : { operation: "remove", input }, [])).toBe(false)
+    }
+    for (const value of ["\u200b", "\ufeff", "\u180e", "\u001c", " \u3000first\nsecond\t"]) {
+      const input: any = structuredClone(fixture.input_valid)
+      input.handoff[section] = [value]
+      for (const [index, schema] of schemas.entries()) {
+        const failures: string[] = []
+        expect(validateAgainstSchema(schema, index ? { request: { operation: "remove", input } } : { operation: "remove", input }, failures), `${section} ${JSON.stringify(value)}: ${failures.join("; ")}`).toBe(true)
+      }
+    }
+  }
+})
+
 test("the published schema refuses the forbidden field of every operation", () => {
   const bySchema = new Map(contractOperations.map((operation: any) => [operation.input_schema.replace("#/schemas/", ""), operation]))
   for (const fixture of fixtures.fixtures) {

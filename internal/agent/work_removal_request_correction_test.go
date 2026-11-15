@@ -15,7 +15,7 @@ func TestInvokeWorkRemovalRequestCorrection(t *testing.T) {
 	for _, tc := range []struct {
 		name, field, diagnostic string
 	}{
-		{"handoff", "handoff.remaining_scope", "contains an empty or oversized entry"},
+		{"handoff", "remaining_scope", "pattern"},
 		{"identity", "operation_id", "identities must be bounded"},
 		{"safety", "artifacts_verified", "safety evidence is incomplete"},
 		{"digest", "linear.handoff_digest", "Linear confirmation does not match the handoff"},

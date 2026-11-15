@@ -160,12 +160,12 @@ only the saved values, on rows that still exist unchanged.
 
 > **Production application data approval:** Once the affected records and
 > recovery route are verified, should Concord stop showing the author, reason
-> and version of older links whose origin cannot be proved, by clearing an
-> unproven stored reason and setting its version to unpositioned, while keeping every link, its
-> write receipt and any proven details, including recoverable reasons whose
-> versions remain unknown, or leave the records unchanged? I recommend clearing
-> the unproven details. Link history will stop listing those links; the links
-> themselves stay. Clearing loses the stored details, including any that happen
+> and version of older links whose origin cannot be proved, or leave the records
+> unchanged? Concord would clear each unproven stored reason and mark its
+> version unknown. Every link, the system's record of each change, and any
+> proven detail would stay, including a recoverable reason whose version is
+> unknown. I recommend clearing the unproven details. Link history will stop
+> listing those links; the links themselves stay. Clearing loses the stored details, including any that happen
 > to be correct. A fresh verified backup would let us put the stored values back,
 > but cannot recover true facts it does not hold, and restoring the whole backup
 > would also undo later work. Leaving the records unchanged avoids that loss but

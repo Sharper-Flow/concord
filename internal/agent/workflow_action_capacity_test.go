@@ -12,23 +12,12 @@ import (
 // derivedRequestWireMaxBytes pins the derived full-invoke wire maximum of
 // the current widest admitted action shape. The test owns the pin, not
 // production: any change in the widest shape fails this exact figure first,
-// and the pin moves only by a deliberate re-derivation beside the ceilings'
-// own next-power-of-two assertions.
+// and the pin moves only by a deliberate re-derivation beside the store
+// budget's own next-power-of-two assertion.
 const derivedRequestWireMaxBytes = 2089791
 
-// The shared action ceilings derive from the widest admitted shape, not a
-// shortlist: this test enumerates every admitted workflow-action variant the
-// generated contract declares, derives each one's whole serialized maximum
-// through the same walker and writer bounds the packet derivations use, and
-// takes the widest action variant. Composing the full host call envelope
-// around that variant is the one request derivation, and its next power of
-// two is the one value both ceilings — the store's whole-action fields
-// budget and the agent request transport limit, one aliased production
-// constant — must equal. The store's split test proves the fields JSON
-// figure separately. A future shape change fails the exact wire pin first
-// and requires a new derivation; an unknown unbounded member fails its walk
-// with its exact path.
-func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
+// Derive the store workflow budget independently of the transport ceiling.
+func TestWorkflowActionWidestShapeDerivesStoreBudget(t *testing.T) {
 	defs, _ := payloadschema.Document()["$defs"].(map[string]any)
 	if defs == nil {
 		t.Fatal("the generated payload contract carries no $defs")
@@ -62,22 +51,13 @@ func TestWorkflowActionWidestShapeDerivesSharedCeilings(t *testing.T) {
 	if widestName == "" {
 		t.Fatal("no admitted variant derived a figure")
 	}
-	// One derivation: the widest whole action variant rides the invoke
-	// envelope, and its next power of two is the one figure both production
-	// aliases must equal.
 	request := invokeRequestWireBytes(t, widest)
 	derived := schemawire.NextPowerOfTwo(request)
 	if request != derivedRequestWireMaxBytes {
-		t.Fatalf("the derived full-invoke request = %d bytes, want the pinned %d; the widest shape changed and the pin must be re-derived beside the ceilings it rounds to", request, derivedRequestWireMaxBytes)
+		t.Fatalf("the derived full-invoke request = %d bytes, want the pinned %d; the widest shape changed and the pin must be re-derived beside the store budget it rounds to", request, derivedRequestWireMaxBytes)
 	}
 	if store.MaxWorkflowActionPayloadBytes != derived {
 		t.Fatalf("store.MaxWorkflowActionPayloadBytes = %d, want the widest request composition's own rounding %d", store.MaxWorkflowActionPayloadBytes, derived)
 	}
-	if MaxRequestBytes != derived {
-		t.Fatalf("MaxRequestBytes = %d, want the widest request composition's own rounding %d", MaxRequestBytes, derived)
-	}
-	if MaxRequestBytes != store.MaxWorkflowActionPayloadBytes {
-		t.Fatalf("MaxRequestBytes = %d and store.MaxWorkflowActionPayloadBytes = %d; the two ceilings alias one production value and one derivation", MaxRequestBytes, store.MaxWorkflowActionPayloadBytes)
-	}
-	t.Logf("the widest admitted action %s serializes to %d bytes as a whole variant and %d bytes as a full invoke request; both shared ceilings derive to %d", widestName, widest, request, derived)
+	t.Logf("the widest admitted action %s serializes to %d bytes as a whole variant and %d bytes as a full invoke request; store budget derives to %d", widestName, widest, request, derived)
 }

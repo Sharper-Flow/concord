@@ -9,11 +9,10 @@ import (
 	"strings"
 )
 
-// MaxWorkflowActionPayloadBytes is the whole-action payload decode budget:
-// the shared action payload ceiling the agent request transport limit
-// aliases. The widest-shape derivation in internal/agent pins it to one
-// next power of two, so a shape growth fails the derivation instead of the
-// transport.
+// MaxWorkflowActionPayloadBytes is the whole-action payload decode budget,
+// independent of the agent request transport limit. The widest-shape
+// derivation in internal/agent pins it to one next power of two, so a shape
+// growth fails the derivation instead of the store decode.
 const MaxWorkflowActionPayloadBytes = 2 * 1024 * 1024
 
 // maxWorkflowActionPayloadBytes is the package-local alias of the shared

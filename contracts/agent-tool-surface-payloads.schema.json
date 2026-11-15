@@ -613,7 +613,8 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 4096,
-            "description": "Bounds: 1..4096 code points inclusive"
+            "x-maxBytes": 4096,
+            "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
           },
           "description": "Bounds: 1..64 items inclusive"
         },
@@ -625,7 +626,8 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 4096,
-            "description": "Bounds: 1..4096 code points inclusive"
+            "x-maxBytes": 4096,
+            "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
           },
           "description": "Bounds: 1..64 items inclusive"
         },
@@ -637,7 +639,8 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 4096,
-            "description": "Bounds: 1..4096 code points inclusive"
+            "x-maxBytes": 4096,
+            "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
           },
           "description": "Bounds: 1..64 items inclusive"
         },
@@ -649,7 +652,8 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 4096,
-            "description": "Bounds: 1..4096 code points inclusive"
+            "x-maxBytes": 4096,
+            "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
           },
           "description": "Bounds: 1..64 items inclusive"
         },
@@ -661,7 +665,8 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 4096,
-            "description": "Bounds: 1..4096 code points inclusive"
+            "x-maxBytes": 4096,
+            "description": "Bounds: 1..4096 code points inclusive; <=4096 UTF-8 bytes inclusive"
           },
           "description": "Bounds: 1..64 items inclusive"
         }

@@ -107,25 +107,6 @@ func TestProjectHandoffAdmissionAndConsumeReadCurrentRows(t *testing.T) {
 	}
 }
 
-func TestProjectHandoffRecordedSeqMigrationBackfillsRecordingOrder(t *testing.T) {
-	t.Parallel()
-	f := setupProjectHandoffFixture(t)
-	older, newer := recordOrderedHandoffPair(t, f)
-	const query = `SELECT handoff_id||':'||recorded_seq FROM project_handoffs ORDER BY handoff_id`
-	want := workerFactsQueryRows(t, f.store, []string{query})
-	var olderSeq, newerSeq int64
-	if err := f.store.db.QueryRow(`SELECT (SELECT recorded_seq FROM project_handoffs WHERE handoff_id=?),(SELECT recorded_seq FROM project_handoffs WHERE handoff_id=?)`, older, newer).Scan(&olderSeq, &newerSeq); err != nil {
-		t.Fatal(err)
-	}
-	if olderSeq <= 0 || newerSeq <= olderSeq {
-		t.Fatalf("recorded_seq older=%d newer=%d, want the recording event order", olderSeq, newerSeq)
-	}
-	assertSessionWindowCorpus144(t)
-	if got := workerFactsQueryRows(t, f.store, []string{query}); !reflect.DeepEqual(got, want) {
-		t.Fatalf("backfill recorded_seq=%v, want the folded %v", got, want)
-	}
-}
-
 func TestProjectHandoffRetirementSelectionsReadCurrentRows(t *testing.T) {
 	for _, stale := range []bool{false, true} {
 		name := "active-contract"

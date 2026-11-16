@@ -144,7 +144,7 @@ func TestMigrationLockContendedNeverRetriesDriftOrUnsupportedSchema(t *testing.T
 		{name: "possible effect is never contention", err: uncertain, want: false},
 		{name: "schema drift is never retried", err: newFailure(KindSchemaDrift, "migrate", "migration no longer matches its recorded checksum", false, "restore"), want: false},
 		{name: "unsupported schema is never retried", err: newFailure(KindSchemaUnsupported, "migrate", "database records an unknown migration", true, "upgrade"), want: false},
-		{name: "membership requirement is never retried", err: newFailure(KindMembershipMigrationRequired, "migrate", "explicit memberships required", false, "map memberships"), want: false},
+		{name: "schema drift with lock cause is never retried", err: wrapFailure(KindSchemaDrift, "migrate", "manifest drift", false, "restore", errors.New("database is locked")), want: false},
 		{name: "unavailable without a lock cause is not contention", err: wrapFailure(KindUnavailable, "migrate", "cannot commit", true, "retry", errors.New("disk I/O error")), want: false},
 		{name: "nil is not contention", err: nil, want: false},
 	} {

@@ -32,8 +32,6 @@
 //   - store.go, transaction.go: domain-facing open and transaction lifecycles.
 //   - events.go, operation.go, fold.go: domain-facing effect identity, registered
 //     current-row writers, and transaction-owned write scopes.
-//   - work_context_migration.go: frozen replay of historical work-context
-//     readings and findings for migration.
 //   - workflow_dispatch.go, workflow_preflight.go: action admission inside the
 //     owning transaction.
 //   - workflow_domain_overlap.go: the resolve_overlap work-relation writer.

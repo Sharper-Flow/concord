@@ -226,6 +226,10 @@ definition with conflicting defaults, not a captured model request.
 
 ## Prepare, migrate, activate
 
+This release supports existing stores at schema version 199 or later. For an
+older store, first upgrade the store with bridge release v67.0.0 before using
+this release.
+
 Every install consults the candidate release's own core before activating it.
 The core inspects the store by reading only and reports whether activation may
 proceed. A compatible release activates immediately, and an install keeps every
@@ -303,21 +307,6 @@ stays unchanged. A read-only upgrade plan reports `snapshot_required` without
 creating a snapshot or directory. A fresh store with no database file needs no
 snapshot. An existing empty file is not exempt. A later migration or finish-open
 failure names the retained verified snapshot on stderr.
-
-Research retirement exports the snapshot's research rows to `<backup>.research`
-before applying migrations. The upgrade report names this directory as
-`research_export`. Each pack has one deterministic JSON file containing its raw
-rows. The migration rechecks the source rows, export files and snapshot checksum
-under its write lock; a mismatch or export failure aborts before any table drops.
-These files are not a database restore format. Managed snapshot retention does
-not delete them; the snapshot itself keeps the ordinary retention policy.
-
-Restoring a snapshot from before research retirement also exports its research
-to `<destination>.research` before migrating the staging database. The restore
-report names that directory as `research_export`. A failed attempt may leave
-export files; retain the source snapshot and choose a fresh restore destination
-instead of overwriting them. New research notes are ordinary files, not database
-rows.
 
 The migration command opens the maintenance boundary: new session admission is
 excluded before its final lease check, and the exclusion is held through the

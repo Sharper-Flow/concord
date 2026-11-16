@@ -7,13 +7,13 @@ import re
 import sys
 from pathlib import Path
 
-from migration_source import migration_sql
+from migration_source import baseline_sql
 from vocabulary_utils import generator_freshness, load_json_finding
 
 
 ROOT = Path(__file__).resolve().parents[1]
 VOCABULARY = Path("contracts/native-run-statuses.v1.json")
-SCHEMA_SOURCE = Path("internal/store/schema.go")
+SCHEMA_SOURCE = Path("internal/store/schema_baseline.go")
 
 def trigger_block(sql: str, name: str) -> str | None:
     match = re.search(rf"CREATE TRIGGER {re.escape(name)}\b(?P<body>.*?)\bEND;", sql, re.S)
@@ -35,13 +35,12 @@ def check(root: Path) -> list[str]:
     except OSError as exc:
         findings.append(f"migration-source: unable to read {SCHEMA_SOURCE}: {exc}")
         return findings
-    migration = migration_sql(source, 49, "work_kind_and_native_run_vocabularies")
-    if migration is None:
-        findings.append("migration-coverage: missing migration 49 work_kind_and_native_run_vocabularies")
+    sql = baseline_sql(source)
+    if not sql:
+        findings.append("migration-coverage: missing literal schema baseline")
         return findings
-    sql = migration.sql
     rows: set[tuple[str, str, int]] = set()
-    for match in re.finditer(r"INSERT INTO workflow_native_run_statuses\s*\([^)]*\)\s*VALUES\s*\('([^']+)',\s*'([^']+)',\s*(0|1)\);", sql):
+    for match in re.finditer(r"INSERT INTO workflow_native_run_statuses\s*(?:\([^)]*\)\s*)?VALUES\s*\('([^']+)',\s*'([^']+)',\s*(0|1)\);", sql):
         rows.add((match.group(1), match.group(2), int(match.group(3))))
     expected_rows = {(phase["phase"], status["status"], int(status["failure"])) for phase in phases for status in phase["statuses"]}
     if rows != expected_rows:

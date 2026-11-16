@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -142,7 +143,7 @@ func commitBoundaryFailure(t *testing.T, err error, landed, unprovedRollback, du
 }
 
 func TestCommitBoundaryTruth(t *testing.T) {
-	for _, boundary := range []string{"operation", "workflow_replay", "workflow_normal", "manifest_repair", "migration"} {
+	for _, boundary := range []string{"operation", "workflow_replay", "workflow_normal", "migration"} {
 		for _, mode := range []string{"landed", "canceled", "unproved_rollback"} {
 			landed, unprovedRollback := mode == "landed", mode == "unproved_rollback"
 			t.Run(boundary+"/"+mode, func(t *testing.T) {
@@ -227,50 +228,20 @@ func TestCommitBoundaryTruth(t *testing.T) {
 						}
 						return n
 					}
-				case "manifest_repair":
-					op, detail = "upgrade", "cannot commit the manifest repair"
-					path := copyTestDatabase(t)
-					seed, e := Open(ctx, path)
-					if e != nil {
-						t.Fatal(e)
-					}
-					if _, e = seed.db.Exec("ALTER TABLE schema_migrations DROP COLUMN breaking"); e != nil {
-						t.Fatal(e)
-					}
-					_ = seed.Close()
-					db, connector = commitBoundaryDB(t, path, landed)
-					if !landed {
-						connector.cancel, connector.rollbackFault = cancel, unprovedRollback
-						connector.cancelSQL = "ALTER TABLE schema_migrations ADD COLUMN breaking"
-					}
-					err = repairManifestBreakingColumn(ctx, db)
-					witness = func() int {
-						var n int
-						if e := db.QueryRow("SELECT count(*) FROM pragma_table_info('schema_migrations') WHERE name='breaking'").Scan(&n); e != nil {
-							t.Fatal(e)
-						}
-						return n
-					}
 				case "migration":
 					op, detail = "migrate", "cannot commit schema migration"
-					path := copyTestDatabase(t)
-					seed, e := Open(ctx, path)
-					if e != nil {
-						t.Fatal(e)
-					}
-					if _, e = seed.db.Exec("DROP TABLE durability_commits; DELETE FROM schema_migrations WHERE version=116"); e != nil {
-						t.Fatal(e)
-					}
+					path := filepath.Join(t.TempDir(), "migration.db")
+					seed := openMigratedTo(t, path, 200)
 					_ = seed.Close()
 					db, connector = commitBoundaryDB(t, path, landed)
 					if !landed {
 						connector.cancel, connector.rollbackFault = cancel, unprovedRollback
 						connector.cancelSQL = "INSERT INTO schema_migrations (version, name, checksum, applied_at, breaking)"
 					}
-					err = migrateOnce(ctx, db, migrateForOpen, nil, func() time.Time { return time.Unix(1, 0) })
+					err = migrateOnce(ctx, db, migrateForUpgrade, nil, func() time.Time { return time.Unix(1, 0) })
 					witness = func() int {
 						var n int
-						if e := db.QueryRow("SELECT count(*) FROM schema_migrations WHERE version=116").Scan(&n); e != nil {
+						if e := db.QueryRow("SELECT count(*) FROM schema_migrations WHERE version=201").Scan(&n); e != nil {
 							t.Fatal(e)
 						}
 						return n

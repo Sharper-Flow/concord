@@ -2,16 +2,16 @@ package store
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 )
 
-func TestOverlapInvalidationUpgradeAndOwnership(t *testing.T) {
-	useStampedBuild(t)
+func TestOverlapInvalidationOwnership(t *testing.T) {
 	ctx := context.Background()
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "upgrade.db"), 193)
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "current.db"), CurrentSchemaVersion())
 	exec := func(q string, args ...any) { retirementUpgradeExec(t, db, q, args...) }
 	exec(`PRAGMA foreign_keys=ON`)
 	exec(`INSERT INTO write_guard(active) VALUES(1)`)
@@ -37,24 +37,6 @@ func TestOverlapInvalidationUpgradeAndOwnership(t *testing.T) {
 	}
 	exec(`INSERT INTO relations(work_id_from,work_id_to,kind,created_at,reason,record_version) VALUES('a','d','blocks','t','ordinary',1)`)
 	exec(`DELETE FROM write_guard`)
-	beforeRes := retirementUpgradeRows(t, db, `SELECT * FROM workflow_overlap_resolutions ORDER BY resolution_id`)
-	beforeRel := retirementUpgradeRows(t, db, `SELECT * FROM relations ORDER BY id`)
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
-	}
-	if got := retirementUpgradeRows(t, db, `SELECT * FROM workflow_overlap_resolutions ORDER BY resolution_id`); !reflect.DeepEqual(got, beforeRes) {
-		t.Fatalf("resolution rows changed: %v", got)
-	}
-	if got := retirementUpgradeRows(t, db, `SELECT * FROM relations ORDER BY id`); !reflect.DeepEqual(got, beforeRel) {
-		t.Fatalf("relation rows changed: %v", got)
-	}
-	var version, breaking, fk int
-	if err := db.QueryRow(`SELECT version,breaking FROM schema_migrations WHERE version=194`).Scan(&version, &breaking); err != nil || version != 194 || breaking != 0 {
-		t.Fatalf("migration: version=%d breaking=%d err=%v", version, breaking, err)
-	}
-	if err := db.QueryRow(`PRAGMA foreign_keys`).Scan(&fk); err != nil || fk != 1 {
-		t.Fatalf("foreign_keys=%d err=%v", fk, err)
-	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -140,5 +122,26 @@ func TestOverlapInvalidationIndexedPlans(t *testing.T) {
 				t.Errorf("missing indexed endpoint or relation search: %v", rows)
 			}
 		})
+	}
+}
+
+func TestRelationIdentityCollisionIsInvariantViolation(t *testing.T) {
+	s := openTemp(t)
+	for _, id := range []string{"a", "b", "c"} {
+		seedWork(t, s, id)
+	}
+	va := readWorkVersion(t, s, "a")
+	if err := applyWorkEvent(t, s, relationAddedEvent("one", "blocks", "a", "b", va, va+1), workVersion("a", va)); err != nil {
+		t.Fatal(err)
+	}
+	retirementUpgradeExec(t, s.db, `UPDATE store_sequences SET last=0 WHERE name='relation'`)
+	vb := readWorkVersion(t, s, "b")
+	err := applyWorkEvent(t, s, relationAddedEvent("two", "blocks", "b", "c", vb, vb+1), workVersion("b", vb))
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvariantViolation || !strings.Contains(err.Error(), "relations.id") {
+		t.Fatalf("identity collision must report invariant violation: %v", err)
+	}
+	if strings.Contains(failure.RecoveryAction, "duplicate") || strings.Contains(failure.RecoveryAction, "self-edge") {
+		t.Fatalf("misleading recovery: %+v", failure)
 	}
 }

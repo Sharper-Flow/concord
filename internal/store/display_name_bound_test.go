@@ -2,29 +2,14 @@ package store
 
 import (
 	"context"
-	"database/sql"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// openV49 builds a database at the migration state immediately before the
-// display-name bound, so a test can seed rows the bound would refuse.
-func openV49(t *testing.T, name string) *sql.DB {
-	return openMigratedTo(t, filepath.Join(t.TempDir(), name), 49)
-}
-
-func TestMigrateV49ToV50BoundsProductAndProjectDisplayNames(t *testing.T) {
+func TestFreshStoreBoundsProductAndProjectDisplayNames(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	db := openV49(t, "concord-v49.db")
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
-	}
-	var version int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != CurrentSchemaVersion() {
-		t.Fatalf("version=%d err=%v", version, err)
-	}
+	db := openTemp(t).DatabaseForTesting()
 	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
@@ -60,31 +45,6 @@ func TestMigrateV49ToV50BoundsProductAndProjectDisplayNames(t *testing.T) {
 	}
 	if _, err := db.ExecContext(ctx, `UPDATE products SET display_name='' WHERE id='p'`); err == nil {
 		t.Fatal("empty Product display name bypassed the bound")
-	}
-}
-
-func TestMigrateV50RefusesAStoredOverlongDisplayName(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	db := openV49(t, "concord-v49-dirty.db")
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('p',?,'prototype','operator_only',1,'now','now')`, strings.Repeat("a", 257)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-		t.Fatal(err)
-	}
-	if err := Migrate(ctx, db); err == nil {
-		t.Fatal("migration admitted a stored Product name the read surface cannot return")
-	}
-	var version int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	if seeded := migrations[48].Version; version != seeded {
-		t.Fatalf("schema version=%d after refused migration, want %d", version, seeded)
 	}
 }
 

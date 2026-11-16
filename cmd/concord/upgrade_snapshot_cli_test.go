@@ -32,12 +32,12 @@ func TestUpgradeSnapshotPrecedesBreakingMigration(t *testing.T) {
 	path, root, before := snapshotUpgradeFixture(t)
 	var pendingPlanCutover bool
 	for _, migration := range before.PendingBreaking {
-		if migration.Version == 183 {
+		if migration.Version == 200 {
 			pendingPlanCutover = true
 		}
 	}
 	if !pendingPlanCutover {
-		t.Fatal("workflow step plan migration 183 must be pending before the snapshot")
+		t.Fatal("migration 200 must be pending before the snapshot")
 	}
 	backup := snapshotDatabase
 	t.Cleanup(func() { snapshotDatabase = backup })
@@ -71,8 +71,8 @@ func TestUpgradeSnapshotPrecedesBreakingMigration(t *testing.T) {
 	if err != nil || len(after.PendingBreaking) != 0 {
 		t.Fatalf("upgrade did not apply the breaking tail: %+v %v", after, err)
 	}
-	if after.SchemaVersion < 183 {
-		t.Fatalf("upgrade did not reach workflow step plan migration 183: %+v", after)
+	if after.SchemaVersion < 200 {
+		t.Fatalf("upgrade did not reach migration 200: %+v", after)
 	}
 	if fence, err := hostlease.ReadFence(root); err != nil || fence == nil {
 		t.Fatalf("breaking commit must retain admission exclusion: %+v %v", fence, err)
@@ -90,7 +90,7 @@ func TestUpgradeSnapshotFailureCommitsNothingAndClosesOwnedFence(t *testing.T) {
 				}
 			} else {
 				// Readiness accepts the schema, but backup verification rejects its foreign keys.
-				failures = seedSnapshotForeignKeyCorruption(t, path, "fold_guard")
+				failures = seedSnapshotForeignKeyCorruption(t, path, "write_guard")
 			}
 			code, _, errOut := runUpgradeStdin(t, `{}`)
 			if code != 1 {

@@ -26,11 +26,10 @@ func fileDigest(t *testing.T, path string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// craftPartialStore writes a store whose manifest stops before the first
-// shipped breaking migration, with checksums this binary computes.
+// craftPartialStore writes a supported manifest with breaking steps pending.
 func craftPartialStore(t *testing.T, path string) {
 	t.Helper()
-	craftStoreApplyingThrough(t, path, firstBreakingVersion(t)-1)
+	craftStoreApplyingThrough(t, path, 199)
 }
 
 // craftStoreApplyingThrough records a manifest that applied every shipped
@@ -159,7 +158,7 @@ func TestPlanUpgradeReadinessPendingBreakingBlocksActivation(t *testing.T) {
 	if !plan.ActivationBlocked {
 		t.Fatalf("a pending breaking step must block activation: %+v", plan)
 	}
-	stop := firstBreakingVersion(t)
+	stop := 200
 	found := false
 	for _, m := range plan.PendingBreaking {
 		if m.Version == stop {
@@ -169,42 +168,11 @@ func TestPlanUpgradeReadinessPendingBreakingBlocksActivation(t *testing.T) {
 	if !found || len(plan.Blockers) == 0 {
 		t.Fatalf("the plan must name the blocking step %d and why: %+v", stop, plan)
 	}
-	if plan.CompatibilityFloor != 0 {
-		t.Fatalf("a store that applied no breaking step has no floor, got %d", plan.CompatibilityFloor)
+	if plan.CompatibilityFloor != 199 {
+		t.Fatalf("a store through 199 has floor 199, got %d", plan.CompatibilityFloor)
 	}
 	if plan.MigrationCommand != "concord upgrade" {
 		t.Fatalf("the migration command must be exact: %q", plan.MigrationCommand)
-	}
-}
-
-// A store written by a release that predates the manifest's breaking column
-// still plans, read-only: the plan reads every recorded row as breaking, the
-// value the migration command's additive repair writes, and leaves the
-// column absent for that command to add.
-func TestPlanUpgradeReadinessReadsAManifestThatPredatesTheBreakingColumn(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "store.db")
-	craftPartialStore(t, path)
-	db, err := sql.Open(driverName, dataSourceName(path))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(context.Background(), `ALTER TABLE schema_migrations DROP COLUMN breaking`); err != nil {
-		t.Fatalf("drop the breaking column: %v", err)
-	}
-	_ = db.Close()
-	before := fileDigest(t, path)
-	plan, err := PlanUpgradeReadiness(context.Background(), path)
-	if err != nil {
-		t.Fatalf("a legacy manifest must plan, not fail: %v", err)
-	}
-	if after := fileDigest(t, path); after != before {
-		t.Fatal("planning repaired or otherwise changed the database file")
-	}
-	if !plan.ActivationBlocked || len(plan.PendingBreaking) == 0 {
-		t.Fatalf("the shipped breaking step stays pending on a legacy manifest: %+v", plan)
-	}
-	if want := firstBreakingVersion(t) - 1; plan.CompatibilityFloor != want {
-		t.Fatalf("legacy rows read as breaking: floor = %d, want %d", plan.CompatibilityFloor, want)
 	}
 }
 

@@ -21,7 +21,7 @@
 - **Approval:** 2026-10-17. Coordinator approval under the operator's delegation
   for [Concord (CON) issue 1063](https://linear.app/sharper-flow/issue/CON-1063).
 - **Related:** CD-0006 D1-D2, CD-0222, PM4, and issue #571
-- **Preserves:** CD-0222's Domain `replaces` relation; immutable schema migrations and the other data-integrity
+- **Preserves:** CD-0222's Domain `replaces` relation; immutable retained schema migrations and the other data-integrity
   controls that keep current state authoritative
   ([CD-0242](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2)
 
@@ -71,7 +71,28 @@ migration activity does not prove them or create an adoption gate.
 CD-0222's Domain-specific `replaces` relation remains current.
 
 No generic Product, Project, resource, or workflow replacement relation is added
-by this decision. The store keeps current state in one transaction per mutation; immutable schema migrations, native authority, and the other data-integrity controls remain current ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+by this decision. The store keeps current state in one transaction per mutation; immutable retained schema migrations, native authority, and the other data-integrity controls remain current ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
+
+### D4. Store upgrades have a supported history floor
+
+Concord supports upgrades of existing stores at schema version 199 or later.
+Before mutating an older store, Concord refuses it and directs the operator to
+the [v67.0.0 bridge release](https://github.com/Sharper-Flow/concord/releases/tag/v67.0.0),
+which upgrades it to schema version 199.
+
+A fresh store starts from a literal schema version 198 baseline and applies the
+retained migrations. The baseline reproduces the schema and seed rows that
+released migrations 1–198 produced, so fresh and upgraded stores reach the same
+schema. Released migrations 199 and later remain immutable. A supported store
+keeps its existing manifest rows below 199; Concord does not validate their
+checksums against retired definitions.
+
+Migration definitions and callbacks for versions 1–198 are removed, with tests
+solely of those retired upgrade histories. A test that uses a retired migration
+to prove current behavior, such as current-state preservation, integrity checks,
+a snapshot before a breaking migration, or rollback of a failed step, moves to a
+retained migration or a synthetic fixture instead. Supported-window upgrade
+safety tests remain required.
 
 ## Consequences
 
@@ -96,3 +117,9 @@ activities do not establish accepted release or maturity evidence.
   global migration or generic replacement policy.
 - The knowledge record identifies this decision;
   generated manifests are rebuilt by their owning scripts.
+- Store tests prove D4: Concord refuses a store below schema version 199 before
+  any mutation and names the bridge release, a fresh store applies the retained
+  migrations to the baseline, and a schema version 199 store upgrades through
+  the retained migrations.
+- Each change to the baseline compares the baseline plus migration 199 with a
+  fresh store that the v67.0.0 bridge release creates.

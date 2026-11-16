@@ -1,14 +1,13 @@
 package store
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestRuntimeDeleteForeignKeyPlans(t *testing.T) {
-	useStampedBuild(t)
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "plans.db"), 194)
+	s := openTemp(t)
+	db := s.DatabaseForTesting()
 	retirementUpgradeExec(t, db, `PRAGMA foreign_keys=ON`)
 	var fk int
 	if err := db.QueryRow(`PRAGMA foreign_keys`).Scan(&fk); err != nil || fk != 1 {
@@ -17,16 +16,6 @@ func TestRuntimeDeleteForeignKeyPlans(t *testing.T) {
 	retirementUpgradeExec(t, db, `INSERT INTO write_guard(active) VALUES(1)`)
 	retirementUpgradeExec(t, db, `INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at) VALUES('work','task','Witness','needed',1,'time','time')`)
 	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
-	if err := Migrate(t.Context(), db); err != nil {
-		t.Fatalf("upgrade from 194: %v", err)
-	}
-	var breaking, count int
-	if err := db.QueryRow(`SELECT breaking FROM schema_migrations WHERE version=195`).Scan(&breaking); err != nil || breaking != 0 {
-		t.Fatalf("migration 195 breaking=%d err=%v", breaking, err)
-	}
-	if err := db.QueryRow(`SELECT count(*) FROM work_items WHERE id='work' AND title='Witness'`).Scan(&count); err != nil || count != 1 {
-		t.Fatalf("preserved work count=%d err=%v", count, err)
-	}
 	for _, tc := range []struct {
 		name, query, table, index, constraints string
 		args                                   []any

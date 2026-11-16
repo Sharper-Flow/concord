@@ -22,13 +22,17 @@ import (
 	"github.com/sharper-flow/concord/internal/version"
 )
 
-// Coexistence uses two immutable released sources below the candidate's
-// breaking floor, not the current source with migrations removed.
-const releasedPairTag = "v11.61.0"
-const releasedPairSchema = 114
-const compatiblePairCommit = "v11.63.30"
-const compatiblePairVersion = "v11.63.30"
+// The legacy pair is two immutable released sources below the supported store
+// floor; they coexist across additive migrations, and the candidate never
+// migrates their store. The bridge release is the oldest supported released
+// source: it raises an older store to the floor and serves as the supported
+// baseline.
+const legacyPairTag = "v11.61.0"
+const legacyPairSchema = 114
+const compatiblePairTag = "v11.63.30"
 const compatiblePairSchema = 116
+const bridgeReleaseTag = "v67.0.0"
+const bridgeReleaseSchema = 199
 
 // Read the shipped manifest, not a second list of migration numbers.
 func releasedPendingBreaking(t *testing.T, schemaVersion int) []int {
@@ -226,16 +230,48 @@ func coreAnswersRoute(binary string, args ...string) bool {
 	return exec.Command(binary, args...).Run() == nil
 }
 
-// TestDistinctReleasedCoresCoexistOnOneStore uses
-// each released source's real adapter and core on one temporary store.
-// Schema 114 and 116 coexist across additive migrations; the distinct
-// candidate must refuse its breaking migration while either session lives.
-// After both sessions stop, the candidate migrates forward under the fence,
-// and both older cores refuse the incompatible floor. This is supported-pair
-// evidence, not blanket rolling compatibility or projection/binary-skew repair.
+// buildBridgeRelease builds the released bridge core into a release tree under
+// dataRoot. Its descriptor binds the tag to the supported floor it defines.
+func buildBridgeRelease(t *testing.T, dataRoot string, fenceable bool) (source, root, binary string) {
+	t.Helper()
+	source = extractReleasedSource(t, bridgeReleaseTag)
+	root = installReleaseTree(t, dataRoot, bridgeReleaseTag, buildCoreFrom(t, source, bridgeReleaseTag), fenceable)
+	binary = filepath.Join(root, "bin", "concord")
+	descriptor := coreDescriptor(t, binary)
+	if descriptor["version"] != bridgeReleaseTag || descriptor["schema_version"] != float64(bridgeReleaseSchema) ||
+		descriptor["fence_protocol"] != float64(hostlease.CurrentFenceProtocol) || descriptor["core_binary"] != binary {
+		t.Fatalf("the bridge core must report its release, the supported floor and its fence protocol: %+v", descriptor)
+	}
+	return source, root, binary
+}
+
+// assertFloorRefusal requires a released core that predates the store's floor
+// to refuse it before any effect, naming the floor and its own schema.
+func assertFloorRefusal(t *testing.T, binary, path string, floor, defines int) {
+	t.Helper()
+	before := releaseMigrationSnapshot(t, path)
+	code, out, errText := runRelease(t, binary, path, "upgrade", `{}`)
+	if code != 1 || out != "" || !strings.Contains(errText, "schema_unsupported") ||
+		!strings.Contains(errText, fmt.Sprintf("defines schema version %d", floor)) ||
+		!strings.Contains(errText, fmt.Sprintf("this binary defines %d", defines)) {
+		t.Fatalf("the released core %s must refuse floor %d before effect: %d %s %s", binary, floor, code, out, errText)
+	}
+	if after := releaseMigrationSnapshot(t, path); after != before {
+		t.Fatalf("the floor refusal of %s changed the store", binary)
+	}
+}
+
+// TestDistinctReleasedCoresCoexistOnOneStore uses each released source's real
+// adapter and core on one temporary store. Schema 114 and 116 coexist across
+// additive migrations below the supported floor. The candidate refuses that
+// store before any effect, with sessions live or stopped, and names the bridge
+// release. After the bridge release raises the store to the floor, the
+// candidate migrates forward under the fence, and every older core refuses the
+// new floor. This is supported-pair evidence, not blanket rolling
+// compatibility or projection/binary-skew repair.
 func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 	if testing.Short() {
-		t.Skip("builds three release cores from three distinct sources")
+		t.Skip("builds four release cores from four distinct sources")
 	}
 	root := t.TempDir()
 	dataRoot := filepath.Join(root, "data", "concord")
@@ -243,12 +279,12 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dataRoot, "concord.db")
-	releasedSource := extractReleasedSource(t, releasedPairTag)
-	compatibleSource := extractReleasedSource(t, compatiblePairCommit)
-	older := buildCoreFrom(t, releasedSource, releasedPairTag)
-	newer := buildCoreFrom(t, compatibleSource, compatiblePairVersion)
-	oldRoot := installReleaseTree(t, dataRoot, releasedPairTag, older, false)
-	newRoot := installReleaseTree(t, dataRoot, compatiblePairVersion, newer, true)
+	releasedSource := extractReleasedSource(t, legacyPairTag)
+	compatibleSource := extractReleasedSource(t, compatiblePairTag)
+	older := buildCoreFrom(t, releasedSource, legacyPairTag)
+	newer := buildCoreFrom(t, compatibleSource, compatiblePairTag)
+	oldRoot := installReleaseTree(t, dataRoot, legacyPairTag, older, false)
+	newRoot := installReleaseTree(t, dataRoot, compatiblePairTag, newer, true)
 	oldBinary := filepath.Join(oldRoot, "bin", "concord")
 	newBinary := filepath.Join(newRoot, "bin", "concord")
 	// Each release's own adapter runtime, stamped to its own tree exactly
@@ -262,14 +298,14 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 	// installer's probe), while the compatible core reports a complete
 	// descriptor pinned to its own tree.
 	code, out, _ := runRelease(t, oldBinary, path, "--version", "")
-	if code != 0 || strings.TrimSpace(out) != releasedPairTag {
+	if code != 0 || strings.TrimSpace(out) != legacyPairTag {
 		t.Fatalf("the released core must answer its tag: %d %q", code, out)
 	}
 	if coreAnswersRoute(oldBinary, "--version", "--json") {
 		t.Fatal("the released core predates the descriptor route; it must not answer --version --json")
 	}
 	newerDescriptor := coreDescriptor(t, newBinary)
-	if newerDescriptor["version"] != compatiblePairVersion || newerDescriptor["schema_version"] != float64(compatiblePairSchema) || newerDescriptor["fence_protocol"] != float64(hostlease.CurrentFenceProtocol) {
+	if newerDescriptor["version"] != compatiblePairTag || newerDescriptor["schema_version"] != float64(compatiblePairSchema) || newerDescriptor["fence_protocol"] != float64(hostlease.CurrentFenceProtocol) {
 		t.Fatalf("the compatible core must report its actual release, schema and fence protocol: %+v", newerDescriptor)
 	}
 	newSchema, ok := newerDescriptor["schema_version"].(float64)
@@ -298,8 +334,8 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &oldUpgrade); err != nil {
 		t.Fatalf("the released core's upgrade report is not JSON: %v: %s", err, out)
 	}
-	if oldUpgrade.SchemaVersion != releasedPairSchema {
-		t.Fatalf("the released core's schema head = %d, want the released %d", oldUpgrade.SchemaVersion, releasedPairSchema)
+	if oldUpgrade.SchemaVersion != legacyPairSchema {
+		t.Fatalf("the released core's schema head = %d, want the released %d", oldUpgrade.SchemaVersion, legacyPairSchema)
 	}
 	if oldUpgrade.SchemaVersion >= newSchemaVersion {
 		t.Fatalf("the pair is not distinct: the released head %d is not behind the additive release's %d", oldUpgrade.SchemaVersion, newSchemaVersion)
@@ -321,11 +357,11 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &newUpgrade); err != nil {
 		t.Fatalf("the newer core's upgrade report is not JSON: %v: %s", err, out)
 	}
-	if newUpgrade.SchemaVersion != newSchemaVersion || len(newUpgrade.Applied) != newSchemaVersion-releasedPairSchema {
+	if newUpgrade.SchemaVersion != newSchemaVersion || len(newUpgrade.Applied) != newSchemaVersion-legacyPairSchema {
 		t.Fatalf("the newer core must apply its additive steps: %+v", newUpgrade)
 	}
 	for i, applied := range newUpgrade.Applied {
-		if applied != releasedPairSchema+i+1 {
+		if applied != legacyPairSchema+i+1 {
 			t.Fatalf("the newer core must apply each additive step in order: %+v", newUpgrade)
 		}
 	}
@@ -407,55 +443,99 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 		t.Fatalf("the released tree must be the boundary's unfenceable legacy entry: %v", unfenceable)
 	}
 
-	candidateVersion := "v0.0.0-con869-candidate"
+	candidateVersion := "v0.0.0-floor-candidate"
 	candidate := buildCoreFrom(t, repoSourceDir(t), candidateVersion)
 	candidateRoot := installReleaseTree(t, dataRoot, candidateVersion, candidate, true)
 	candidateBinary := filepath.Join(candidateRoot, "bin", "concord")
 	descriptor := coreDescriptor(t, candidateBinary)
-	breaking := releasedPendingBreaking(t, compatiblePairSchema)
-	floor := breaking[len(breaking)-1]
 	if descriptor["schema_version"] != float64(store.CurrentSchemaVersion()) || descriptor["core_binary"] != candidateBinary || descriptor["version"] != candidateVersion || descriptor["manifest_digest"] == newerDescriptor["manifest_digest"] {
 		t.Fatalf("the candidate must identify its own distinct core and contract: %+v", descriptor)
 	}
-	assertPendingFloor := func(t *testing.T) {
+	// Below the supported floor the candidate refuses before the maintenance
+	// boundary, a snapshot or any migration, and names the bridge release.
+	assertBelowFloorRefusal := func(t *testing.T) {
 		t.Helper()
+		before := releaseMigrationSnapshot(t, path)
+		snapshots, err := filepath.Glob(filepath.Join(dataRoot, "backups", "*"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, input := range []string{`{"plan":true}`, `{}`, `{"confirm_sessions_stopped":true}`} {
+			code, out, errText := runRelease(t, candidateBinary, path, "upgrade", input)
+			if code != 1 || out != "" || !strings.Contains(errText, "schema_unsupported") ||
+				!strings.Contains(errText, fmt.Sprintf("minimum supported schema version %d", bridgeReleaseSchema)) ||
+				!strings.Contains(errText, "bridge release "+bridgeReleaseTag) {
+				t.Fatalf("the candidate must refuse the schema %d store and name the bridge release (%s): %d %s %s", compatiblePairSchema, input, code, out, errText)
+			}
+		}
+		if after := releaseMigrationSnapshot(t, path); after != before {
+			t.Fatalf("the below-floor refusal changed the store:\nbefore:\n%safter:\n%s", before, after)
+		}
+		if after, err := filepath.Glob(filepath.Join(dataRoot, "backups", "*")); err != nil || len(after) != len(snapshots) {
+			t.Fatalf("the below-floor refusal must take no snapshot: %v %v", after, err)
+		}
+		if fence, err := hostlease.ReadFence(dataRoot); err != nil || fence != nil {
+			t.Fatalf("the below-floor refusal must open no boundary: %+v %v", fence, err)
+		}
+	}
+	t.Run("below_floor_candidate_refuses_live_sessions_before_effect", func(t *testing.T) {
+		assertBelowFloorRefusal(t)
+		// Both released sessions keep operating the store the refusal left alone.
+		oldSession.reclaimAndHold(t)
+		newSession.reclaimAndHold(t)
+	})
+	oldSession.stop()
+	newSession.stop()
+	t.Run("below_floor_candidate_refuses_stopped_store_before_effect", func(t *testing.T) {
+		assertBelowFloorRefusal(t)
+	})
+
+	// The bridge release raises the stopped store to the supported floor on
+	// the operator's confirmation for the unmarked legacy tree.
+	_, bridgeRoot, bridgeBinary := buildBridgeRelease(t, dataRoot, true)
+	code, out, errText = runRelease(t, bridgeBinary, path, "upgrade", `{"confirm_sessions_stopped":true}`)
+	if code != 0 || !strings.Contains(errText, "operator's confirmation") || !strings.Contains(errText, oldRoot) {
+		t.Fatalf("the bridge release must raise the stopped store to the floor: %d %s %s", code, out, errText)
+	}
+	var bridged struct {
+		SchemaVersion int `json:"schema_version"`
+	}
+	if err := json.Unmarshal([]byte(out), &bridged); err != nil || bridged.SchemaVersion != bridgeReleaseSchema {
+		t.Fatalf("the bridged store schema = %+v %v, want %d: %s", bridged, err, bridgeReleaseSchema, out)
+	}
+	bridgeFence, err := hostlease.ReadFence(dataRoot)
+	if err != nil || bridgeFence == nil || bridgeFence.ReleaseRoot != bridgeRoot || bridgeFence.CoreBinary != bridgeBinary {
+		t.Fatalf("the bridge release's committed breaking boundary must remain open: %+v %v", bridgeFence, err)
+	}
+	// The bridge release's activation closes its own boundary; the test stands
+	// in for that installer step.
+	if err := hostlease.RemoveFenceOwned(dataRoot, bridgeFence.FenceID); err != nil {
+		t.Fatal(err)
+	}
+	assertFloorRefusal(t, oldBinary, path, bridgeReleaseSchema, legacyPairSchema)
+	assertFloorRefusal(t, newBinary, path, bridgeReleaseSchema, compatiblePairSchema)
+
+	breaking := releasedPendingBreaking(t, bridgeReleaseSchema)
+	floor := breaking[len(breaking)-1]
+	t.Run("bridged_store_upgrades_after_sessions_stop", func(t *testing.T) {
 		readiness, err := store.PlanUpgradeReadiness(context.Background(), path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertReleasePendingBreaking(t, readiness, releasedPendingBreaking(t, compatiblePairSchema))
-		if readiness.SchemaVersion != compatiblePairSchema || readiness.CompatibilityFloor != 111 || !readiness.ActivationBlocked {
-			t.Fatalf("refusal must leave the compatible store and breaking floor pending: %+v", readiness)
+		assertReleasePendingBreaking(t, readiness, breaking)
+		if readiness.SchemaVersion != bridgeReleaseSchema || readiness.CompatibilityFloor != bridgeReleaseSchema || !readiness.ActivationBlocked {
+			t.Fatalf("the bridged store must await the retained breaking tail: %+v", readiness)
+		}
+		code, out, errText := runRelease(t, candidateBinary, path, "upgrade", `{}`)
+		if code != 1 || out != "" || !strings.Contains(errText, "without a fence-protocol marker") || !strings.Contains(errText, oldRoot) || !strings.Contains(errText, "confirm_sessions_stopped") {
+			t.Fatalf("the stopped unmarked tree still requires confirmation: %d %s %s", code, out, errText)
 		}
 		if fence, err := hostlease.ReadFence(dataRoot); err != nil || fence != nil {
 			t.Fatalf("a pre-commit refusal must close its own fence: %+v %v", fence, err)
 		}
-	}
-	t.Run("breaking_candidate_refuses_live_legacy_session", func(t *testing.T) {
-		code, _, errText := runRelease(t, candidateBinary, path, "upgrade", `{}`)
-		if code != 1 || !strings.Contains(errText, "unfenceable legacy participant") || !strings.Contains(errText, oldRoot) || !strings.Contains(errText, "fence protocol 0") {
-			t.Fatalf("the breaking candidate must name the live legacy session: %d %s", code, errText)
-		}
-		assertPendingFloor(t)
-	})
-	oldSession.stop()
-	t.Run("breaking_candidate_refuses_live_compatible_session", func(t *testing.T) {
-		code, _, errText := runRelease(t, candidateBinary, path, "upgrade", `{"confirm_sessions_stopped":true}`)
-		if code != 1 || !strings.Contains(errText, "upgrade_blocked") || !strings.Contains(errText, newRoot) || !strings.Contains(errText, "migration 119") {
-			t.Fatalf("confirmation cannot bypass a live older schema holder: %d %s", code, errText)
-		}
-		assertPendingFloor(t)
-	})
-	newSession.stop()
-	t.Run("incompatible_floor_admission_after_sessions_stop", func(t *testing.T) {
-		code, _, errText := runRelease(t, candidateBinary, path, "upgrade", `{}`)
-		if code != 1 || !strings.Contains(errText, oldRoot) || !strings.Contains(errText, "confirm_sessions_stopped") {
-			t.Fatalf("the stopped unmarked tree still requires confirmation: %d %s", code, errText)
-		}
-		assertPendingFloor(t)
-		code, out, errText := runRelease(t, candidateBinary, path, "upgrade", `{"confirm_sessions_stopped":true}`)
+		code, out, errText = runRelease(t, candidateBinary, path, "upgrade", `{"confirm_sessions_stopped":true}`)
 		if code != 0 {
-			t.Fatalf("the candidate must migrate forward after sessions stop: %d %s %s", code, out, errText)
+			t.Fatalf("the candidate must migrate the bridged store forward after sessions stop: %d %s %s", code, out, errText)
 		}
 		var upgrade struct {
 			SchemaVersion int   `json:"schema_version"`
@@ -467,8 +547,8 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 		if upgrade.SchemaVersion != store.CurrentSchemaVersion() {
 			t.Fatalf("the candidate must commit the complete pending tail: %+v", upgrade)
 		}
-		assertAppliedMigrationTail(t, upgrade.Applied, compatiblePairSchema)
-		readiness, err := store.PlanUpgradeReadiness(context.Background(), path)
+		assertAppliedMigrationTail(t, upgrade.Applied, bridgeReleaseSchema)
+		readiness, err = store.PlanUpgradeReadiness(context.Background(), path)
 		if err != nil || readiness.CompatibilityFloor != floor || len(readiness.PendingBreaking) != 0 || readiness.ActivationBlocked {
 			t.Fatalf("the committed store must require floor %d: %+v %v", floor, readiness, err)
 		}
@@ -476,12 +556,9 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 		if err != nil || fence == nil || fence.ReleaseRoot != candidateRoot || fence.CoreBinary != candidateBinary {
 			t.Fatalf("the candidate's committed breaking boundary must remain open: %+v %v", fence, err)
 		}
-		for _, binary := range []string{oldBinary, newBinary} {
-			code, _, errText := runRelease(t, binary, path, "upgrade", `{}`)
-			if code != 1 || !strings.Contains(errText, "schema_unsupported") || !strings.Contains(errText, fmt.Sprintf("schema version %d", floor)) {
-				t.Fatalf("the real older core %s must refuse the incompatible floor: %d %s", binary, code, errText)
-			}
-		}
+		assertFloorRefusal(t, oldBinary, path, floor, legacyPairSchema)
+		assertFloorRefusal(t, newBinary, path, floor, compatiblePairSchema)
+		assertFloorRefusal(t, bridgeBinary, path, floor, bridgeReleaseSchema)
 		code, _, errText = runRelease(t, candidateBinary, path, "host-lease", `{"pid":`+pidJSON(os.Getpid())+`}`)
 		if code != 1 || !strings.Contains(errText, "maintenance") {
 			t.Fatalf("admission must remain excluded until activation: %d %s", code, errText)
@@ -590,24 +667,26 @@ ORDER BY 1`)
 	return snapshot.String()
 }
 
-// TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions exercises
-// the current breaking migration, not a relabeled binary:
-// a live released adapter/core pair blocks all migration effects, including
-// the additive tail. Only after the operator ends the legacy session and
-// confirms its unfenceable tree is idle may the current core raise the floor.
+// TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions exercises the
+// retained breaking tail on a store the bridge release created at the
+// supported floor, not a relabeled binary. A live session that a released
+// legacy core leased blocks every migration effect, even with confirmation:
+// that core cannot open the supported store, and the fence cannot exclude it.
+// Only after the operator ends the session and confirms its unfenceable tree
+// is idle may the current core raise the floor.
 func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T) {
 	dataRoot := filepath.Join(t.TempDir(), "data", "concord")
 	if err := os.MkdirAll(dataRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dataRoot, "concord.db")
-	releasedSource := extractReleasedSource(t, releasedPairTag)
-	older := buildCoreFrom(t, releasedSource, releasedPairTag)
-	const currentRelease = "v0.0.0-con836-breaking"
+	_, _, bridgeBinary := buildBridgeRelease(t, dataRoot, true)
+	legacy := buildCoreFrom(t, extractReleasedSource(t, legacyPairTag), legacyPairTag)
+	const currentRelease = "v0.0.0-floor-breaking"
 	current := buildCoreFrom(t, repoSourceDir(t), currentRelease)
-	oldRoot := installReleaseTree(t, dataRoot, releasedPairTag, older, false)
+	legacyRoot := installReleaseTree(t, dataRoot, legacyPairTag, legacy, false)
 	currentRoot := installReleaseTree(t, dataRoot, currentRelease, current, true)
-	oldBinary := filepath.Join(oldRoot, "bin", "concord")
+	legacyBinary := filepath.Join(legacyRoot, "bin", "concord")
 	currentBinary := filepath.Join(currentRoot, "bin", "concord")
 	currentDescriptor := coreDescriptor(t, currentBinary)
 	if currentDescriptor["version"] != currentRelease || currentDescriptor["core_binary"] != currentBinary ||
@@ -615,20 +694,54 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 		currentDescriptor["fence_protocol"] != float64(hostlease.CurrentFenceProtocol) {
 		t.Fatalf("the current core must identify its own build and capabilities: %+v", currentDescriptor)
 	}
-	code, out, errText := runRelease(t, oldBinary, path, "upgrade", `{}`)
+	code, out, errText := runRelease(t, bridgeBinary, path, "upgrade", `{}`)
 	if code != 0 {
-		t.Fatalf("the released core must initialize its store: %d %s %s", code, out, errText)
+		t.Fatalf("the bridge release must initialize the store: %d %s %s", code, out, errText)
 	}
-	oldAdapter := stampAdapterRuntime(t, filepath.Join(releasedSource, "adapter", "opencode"), oldRoot)
-	oldSession := startAdapterSessionOperation(t, oldAdapter, path, "/srv/old-breaking-session")
+	var initialized struct {
+		SchemaVersion int `json:"schema_version"`
+	}
+	if err := json.Unmarshal([]byte(out), &initialized); err != nil || initialized.SchemaVersion != bridgeReleaseSchema {
+		t.Fatalf("the bridge release's store schema = %+v %v, want %d: %s", initialized, err, bridgeReleaseSchema, out)
+	}
+	assertFloorRefusal(t, legacyBinary, path, bridgeReleaseSchema, legacyPairSchema)
+
+	// A session pinned to the legacy release outlives the store it can no
+	// longer open: the released legacy core leases a live process, and the
+	// lease carries no fence protocol.
+	holder := exec.Command("sleep", "600")
+	if err := holder.Start(); err != nil {
+		t.Fatalf("cannot start the legacy session process: %v", err)
+	}
+	holderDone := make(chan struct{})
+	go func() {
+		_ = holder.Wait()
+		close(holderDone)
+	}()
+	stopHolder := func() {
+		_ = holder.Process.Kill()
+		<-holderDone
+	}
+	t.Cleanup(stopHolder)
+	const legacyDirectory = "/srv/stranded-legacy-session"
+	code, out, errText = runRelease(t, legacyBinary, path, "host-lease", mustJSON(t, map[string]any{"pid": holder.Process.Pid, "directory": legacyDirectory}))
+	if code != 0 {
+		t.Fatalf("the released legacy core must lease its session: %d %s %s", code, out, errText)
+	}
+	leases, err := hostlease.List(dataRoot)
+	if err != nil || len(leases) != 1 || leases[0].PID != holder.Process.Pid || leases[0].ReleaseRoot != legacyRoot ||
+		leases[0].SchemaVersion != legacyPairSchema || leases[0].FenceProtocol != 0 {
+		t.Fatalf("the legacy session must hold one unfenceable legacy lease: %+v %v", leases, err)
+	}
+
 	before, err := store.PlanUpgradeReadiness(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	breaking := releasedPendingBreaking(t, releasedPairSchema)
+	breaking := releasedPendingBreaking(t, bridgeReleaseSchema)
 	assertReleasePendingBreaking(t, before, breaking)
-	if before.SchemaVersion != releasedPairSchema || before.CompatibilityFloor >= releasedPairSchema {
-		t.Fatalf("the released store must await the shipped breaking manifest: %+v", before)
+	if before.SchemaVersion != bridgeReleaseSchema || before.CompatibilityFloor != bridgeReleaseSchema {
+		t.Fatalf("the bridged store must await the retained breaking manifest: %+v", before)
 	}
 	snapshot := releaseMigrationSnapshot(t, path)
 	assertUnadvanced := func(t *testing.T) {
@@ -644,29 +757,26 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 	for _, input := range []string{`{}`, `{"confirm_sessions_stopped":true}`} {
 		code, out, errText = runRelease(t, currentBinary, path, "upgrade", input)
 		if code != 1 || out != "" || !strings.Contains(errText, "unfenceable legacy participant") ||
-			!strings.Contains(errText, "fence protocol 0") || !strings.Contains(errText, oldRoot) ||
-			!strings.Contains(errText, fmt.Sprintf("pid %d", oldSession.command.Process.Pid)) ||
-			!strings.Contains(errText, "/srv/old-breaking-session") {
-			t.Fatalf("the breaking upgrade must name the live released session before effect: %d %s %s", code, out, errText)
+			!strings.Contains(errText, "fence protocol 0") || !strings.Contains(errText, legacyRoot) ||
+			!strings.Contains(errText, fmt.Sprintf("pid %d", holder.Process.Pid)) ||
+			!strings.Contains(errText, legacyDirectory) {
+			t.Fatalf("the breaking upgrade must name the live legacy session before effect: %d %s %s", code, out, errText)
 		}
 		assertUnadvanced(t)
 	}
-	// The refusal leaves the real old session able to claim and read its store.
-	oldSession.reclaimAndHold(t)
-	assertUnadvanced(t)
-	oldSession.stop()
+	stopHolder()
 	if leases, err := hostlease.List(dataRoot); err != nil || len(leases) != 0 {
-		t.Fatalf("the operator must end the old session before migration: %+v %v", leases, err)
+		t.Fatalf("the operator must end the legacy session before migration: %+v %v", leases, err)
 	}
 	code, out, errText = runRelease(t, currentBinary, path, "upgrade", `{}`)
 	if code != 1 || out != "" || !strings.Contains(errText, "without a fence-protocol marker") ||
-		!strings.Contains(errText, oldRoot) || !strings.Contains(errText, "confirm_sessions_stopped") {
+		!strings.Contains(errText, legacyRoot) || !strings.Contains(errText, "confirm_sessions_stopped") {
 		t.Fatalf("the idle legacy tree still requires the operator's confirmation: %d %s %s", code, out, errText)
 	}
 	assertUnadvanced(t)
 
 	code, out, errText = runRelease(t, currentBinary, path, "upgrade", `{"confirm_sessions_stopped":true}`)
-	if code != 0 || !strings.Contains(errText, "operator's confirmation") || !strings.Contains(errText, oldRoot) {
+	if code != 0 || !strings.Contains(errText, "operator's confirmation") || !strings.Contains(errText, legacyRoot) {
 		t.Fatalf("the offline operator route must apply the breaking migration: %d %s %s", code, out, errText)
 	}
 	var report struct {
@@ -679,7 +789,7 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 	if report.SchemaVersion != store.CurrentSchemaVersion() {
 		t.Fatalf("the confirmed upgrade must apply the complete pending tail: %+v", report)
 	}
-	assertAppliedMigrationTail(t, report.Applied, releasedPairSchema)
+	assertAppliedMigrationTail(t, report.Applied, bridgeReleaseSchema)
 	floor := breaking[len(breaking)-1]
 	after, err := store.PlanUpgradeReadiness(context.Background(), path)
 	if err != nil || after.SchemaVersion != report.SchemaVersion || after.CompatibilityFloor != floor || len(after.PendingBreaking) != 0 {
@@ -698,35 +808,34 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 	if err := json.Unmarshal([]byte(out), &report); err != nil || report.SchemaVersion != after.SchemaVersion || len(report.Applied) != 0 {
 		t.Fatalf("the current core must read the upgraded store without new migrations: %+v %v: %s", report, err, out)
 	}
-	upgradedSnapshot := releaseMigrationSnapshot(t, path)
-	code, out, errText = runRelease(t, oldBinary, path, "upgrade", `{}`)
-	if code != 1 || out != "" || !strings.Contains(errText, "schema_unsupported") ||
-		!strings.Contains(errText, fmt.Sprintf("defines schema version %d", floor)) ||
-		!strings.Contains(errText, fmt.Sprintf("this binary defines %d", releasedPairSchema)) {
-		t.Fatalf("the old core must refuse the breaking floor, not the maintenance fence: %d %s %s", code, out, errText)
-	}
-	if final := releaseMigrationSnapshot(t, path); final != upgradedSnapshot {
-		t.Fatal("the old core's floor refusal changed the upgraded store")
-	}
+	assertFloorRefusal(t, bridgeBinary, path, floor, bridgeReleaseSchema)
+	assertFloorRefusal(t, legacyBinary, path, floor, legacyPairSchema)
 }
-
-// The baseline is a released source; the candidate is the checkout under test.
-const cutoverBaselineTag = "v13.4.0"
-const cutoverBaselineSchema = 122
 
 type cutoverEvidenceQuery struct {
 	name  string
 	query string
 }
 
-// cutoverEvidenceQueries fingerprints the living evidence a cutover must
-// carry across the breaking floor. Every query names only columns that
-// exist identically at the baseline and candidate schemas.
+// cutoverEvidenceQueries fingerprints the living evidence a cutover must carry
+// across the breaking floor. Every query names only columns that exist
+// identically at the baseline and candidate schemas.
 var cutoverEvidenceQueries = []cutoverEvidenceQuery{
+	{"products", `SELECT id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at FROM products ORDER BY id`},
+	{"projects", `SELECT id,display_name,version,repository_mode FROM projects ORDER BY id`},
+	{"product_projects", `SELECT product_id,project_id,role FROM product_projects ORDER BY product_id,project_id`},
+	{"project_locators", `SELECT locator_id,project_id,kind,locator_value,normalized_value FROM project_locators ORDER BY locator_id`},
+	{"product_knowledge_homes", `SELECT product_id,project_id,locator_id FROM product_knowledge_homes ORDER BY product_id`},
 	{"durable_knowledge", `SELECT id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version FROM archived_work ORDER BY home_project_id,home_locator_id,id`},
 	{"durable_knowledge_products", `SELECT home_project_id,home_locator_id,work_id,product_id FROM archived_work_products ORDER BY home_project_id,home_locator_id,work_id,product_id`},
 	{"durable_knowledge_projects", `SELECT home_project_id,home_locator_id,work_id,project_id FROM archived_work_projects ORDER BY home_project_id,home_locator_id,work_id,project_id`},
-	{"product_knowledge_homes", `SELECT product_id,project_id,locator_id FROM product_knowledge_homes ORDER BY product_id`},
+	{"effect_receipts", `SELECT effect_seq,event_id,kind,subject_type,subject_id,actor,payload_version,payload_digest FROM effect_receipts ORDER BY effect_seq`},
+}
+
+// retiredCutoverQueries fingerprints baseline state the retained breaking
+// tail retires; only the pre-migration snapshot keeps it.
+var retiredCutoverQueries = []cutoverEvidenceQuery{
+	{"runtime_state_writers", `SELECT surface,definition_ref,knowledge_projection_version,digest,binary_version FROM runtime_state_writers ORDER BY surface,definition_ref,knowledge_projection_version,digest`},
 }
 
 // mustOpenCutoverStore opens the store file directly, without either core's
@@ -741,9 +850,9 @@ func mustOpenCutoverStore(t *testing.T, path string) *sql.DB {
 	return db
 }
 
-// captureCutoverEvidence reads every living-evidence population as opaque
-// row strings, fixed by each query's ORDER BY, so equal stores produce
-// equal fingerprints.
+// captureCutoverEvidence reads every evidence population as opaque row
+// strings, fixed by each query's ORDER BY, so equal stores produce equal
+// fingerprints.
 func captureCutoverEvidence(t *testing.T, db *sql.DB, queries []cutoverEvidenceQuery) map[string][]string {
 	t.Helper()
 	captured := map[string][]string{}
@@ -781,95 +890,24 @@ func captureCutoverEvidence(t *testing.T, db *sql.DB, queries []cutoverEvidenceQ
 	return captured
 }
 
-// The recovery snapshot retains baseline worker state and payloads along
-// with the living evidence and exact receipt identities from the released log.
-func captureBaselineCutoverEvidence(t *testing.T, db *sql.DB) map[string][]string {
+// seedCutoverLivingEvidence writes the baseline's Product, Project, locator and
+// knowledge home through the baseline core's own verbs. The durable lesson
+// index and the runtime writer row have no CLI writer, so they enter the store
+// directly, the lesson under the store's write guard.
+func seedCutoverLivingEvidence(t *testing.T, baselineBinary, path, knowledgeRoot string) {
 	t.Helper()
-	queries := append([]cutoverEvidenceQuery{
-		{"active_research_packs", `SELECT pack_id,owner_work_id,current_revision,freshness,expected_version FROM active_research_packs ORDER BY pack_id`},
-		{"active_research_revisions", `SELECT pack_id,revision,question,method,freshness FROM active_research_revisions ORDER BY pack_id,revision`},
-		{"active_research_consumers", `SELECT pack_id,revision,consumer_work_id,use_role,required,accepted_at FROM active_research_consumers ORDER BY pack_id,consumer_work_id`},
-		{"worker_attempts", `SELECT work_id,attempt_id,lane_id,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at FROM worker_attempts ORDER BY attempt_id`},
-		{"worktree_entries", `SELECT set_id,project_id,claim_op_id,branch,base_sha,state FROM worktree_entries ORDER BY set_id,project_id`},
-		{"worktree_occupancy", `SELECT worktree_id,session_ref,host_pid,has_process_identity FROM worktree_occupancy ORDER BY session_ref`},
-	}, cutoverEvidenceQueries...)
-	captured := captureCutoverEvidence(t, db, queries)
-	rows, err := db.Query(`SELECT seq,event_id,kind,subject_type,subject_id,actor,payload_version,payload FROM domain_events ORDER BY seq`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var seq int64
-		var version int
-		var id, kind, subjectType, subjectID, actor string
-		var payload []byte
-		if err := rows.Scan(&seq, &id, &kind, &subjectType, &subjectID, &actor, &version, &payload); err != nil {
-			t.Fatal(err)
-		}
-		captured["effect_receipts"] = append(captured["effect_receipts"], mustJSON(t, []any{seq, id, kind, subjectType, subjectID, actor, version, cliPayloadDigest(t, payload)}))
-		if kind == "worker.dispatched" || kind == "worker.completed" || kind == "worker.failed" {
-			captured["worker_payloads"] = append(captured["worker_payloads"], mustJSON(t, []any{id, string(payload)}))
-		}
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	return captured
-}
-
-func captureCurrentCutoverEvidence(t *testing.T, db *sql.DB) map[string][]string {
-	t.Helper()
-	captured := captureCutoverEvidence(t, db, cutoverEvidenceQueries)
-	for _, query := range []struct{ name, sql string }{
-		{"effect_receipts", `SELECT json_array(effect_seq,event_id,kind,subject_type,subject_id,actor,payload_version,payload_digest) FROM effect_receipts ORDER BY effect_seq`},
+	for _, step := range []struct {
+		verb  string
+		input map[string]any
+	}{
+		{"product-create", map[string]any{"product_id": "cutover-product", "display_name": "Cutover product", "stage_maturity": "prototype", "stage_audience_commitment": "operator_only", "project_id": "project", "project_display_name": "Cutover project", "role": "primary"}},
+		{"project-locator-add", map[string]any{"project_id": "project", "locator_id": "cutover-knowledge", "kind": "canonical_path", "value": knowledgeRoot, "expected_version": 1}},
+		{"project-repository-mode-update", map[string]any{"project_id": "project", "repository_mode": "on", "expected_version": 2}},
+		{"product-knowledge-home-designate", map[string]any{"product_id": "cutover-product", "project_id": "project", "locator_id": "cutover-knowledge", "expected_version": 2}},
 	} {
-		rows, err := db.Query(query.sql)
-		if err != nil {
-			t.Fatal(err)
+		if code, out, errText := runRelease(t, baselineBinary, path, step.verb, mustJSON(t, step.input)); code != 0 {
+			t.Fatalf("baseline %s: %d %s %s", step.verb, code, out, errText)
 		}
-		for rows.Next() {
-			var row string
-			if err := rows.Scan(&row); err != nil {
-				t.Fatal(err)
-			}
-			captured[query.name] = append(captured[query.name], row)
-		}
-		if err := rows.Err(); err != nil {
-			t.Fatal(err)
-		}
-		if err := rows.Close(); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return captured
-}
-
-// seedCutoverLivingEvidence writes the baseline schema's minimal living
-// evidence exactly the shapes the baseline binary itself writes: research
-// packs and consumers are direct transactional writes at this schema, and
-// the guarded projections are seeded under the same fold guard the
-// migrations use. The claim landing and the completed report also enter the
-// event log with their original actors, so the floor migration moves real
-// log rows, not only projections.
-func seedCutoverLivingEvidence(t *testing.T, path string, sessionPID int) {
-	t.Helper()
-	sessionStart, err := hostlease.ProcessStart(sessionPID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	leases, err := hostlease.List(filepath.Dir(path))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var baselineBinary string
-	for _, lease := range leases {
-		if lease.PID == sessionPID {
-			baselineBinary = lease.CoreBinary
-		}
-	}
-	if baselineBinary == "" {
-		t.Fatal("the synthetic baseline session must identify its core")
 	}
 	db := mustOpenCutoverStore(t, path)
 	tx, err := db.Begin()
@@ -877,55 +915,21 @@ func seedCutoverLivingEvidence(t *testing.T, path string, sessionPID int) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	exec := func(query string) {
-		t.Helper()
-		if _, err := tx.Exec(query); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := tx.Exec(`
+INSERT INTO write_guard(active) VALUES(1);
+INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version)
+VALUES('lesson-cutover','lesson','Preserve required research pins','2026-10-12T00:00:00Z','published','["cutover"]','completed',0,'A new research revision must not move an existing required consumer pin.','project','cutover-knowledge','.concord/docs/lessons/cutover.md','1f2e3d4c5b6a79887766554433221100ffeeddccb','sha256:` + strings.Repeat("a", 64) + `','explicit','1.0');
+INSERT INTO archived_work_products(home_project_id,home_locator_id,work_id,product_id)
+VALUES('project','cutover-knowledge','lesson-cutover','cutover-product');
+INSERT INTO archived_work_projects(home_project_id,home_locator_id,work_id,project_id)
+VALUES('project','cutover-knowledge','lesson-cutover','project');
+DELETE FROM write_guard;
+INSERT INTO runtime_state_writers(surface,definition_ref,knowledge_projection_version,digest,binary_version)
+VALUES('workflow','change',0,'sha256:` + strings.Repeat("b", 64) + `','v0.0.0-cutover-baseline');`); err != nil {
+		t.Fatalf("seed baseline durable Product knowledge and runtime writer state: %v", err)
 	}
-	exec(`INSERT OR IGNORE INTO fold_guard(active) VALUES (1)`)
-	exec(`INSERT INTO active_research_packs(pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at)
-		VALUES('pack-cutover-living','cutover-owner',1,'current',1,'2026-10-12T00:00:00Z','2026-10-12T00:00:00Z')`)
-	exec(`INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at)
-		VALUES('pack-cutover-living',1,'does the cutover preserve living evidence?','[]','[]','[]','synthetic cutover witness','2026-10-12T00:00:00Z')`)
-	exec(`INSERT INTO active_research_consumers(pack_id,revision,consumer_work_id,use_role,required,accepted_at)
-		VALUES('pack-cutover-living',1,'cutover-consumer','decision_basis',1,'2026-10-12T00:00:00Z')`)
-	exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES
-		('cutover-product-created','product.created','product','cutover-product','operator','2026-10-12T00:00:00Z',1,
-			'{"display_name":"Cutover product","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}'),
-		('cutover-project-created','project.created','project','project','operator','2026-10-12T00:00:00Z',1,
-			'{"display_name":"Cutover project"}'),
-		('cutover-product-membership','product_project.added','product','cutover-product','operator','2026-10-12T00:00:00Z',1,
-			'{"product_id":"cutover-product","project_id":"project","role":"primary","reason":"operator bootstrap","expected_version":1,"resulting_version":2}'),
-		('cutover-owner-created','work.created','work_item','cutover-owner','principal:cutover-operator','2026-10-12T00:00:00Z',2,
-			'{"work_kind":"research","title":"cutover research owner","priority":0}'),
-		('cutover-owner-membership','work.memberships_replaced','work_item','cutover-owner','principal:cutover-operator','2026-10-12T00:00:00Z',1,
-			'{"memberships":[{"project_id":"project","role":"primary"}],"expected_version":1,"resulting_version":2}'),
-		('cutover-owner-started','work.transitioned','work_item','cutover-owner','principal:cutover-operator','2026-10-12T00:00:00Z',1,
-			'{"from":"needed","to":"in_progress","reason":"research in progress","expected_version":2,"resulting_version":3}'),
-		('cutover-work-created','work.created','work_item','cutover-consumer','principal:cutover-operator','2026-10-12T00:00:00Z',2,
-			'{"work_kind":"research","title":"cutover living consumer","priority":0}'),
-		('cutover-consumer-membership','work.memberships_replaced','work_item','cutover-consumer','principal:cutover-operator','2026-10-12T00:00:00Z',1,
-			'{"memberships":[{"project_id":"project","role":"primary"}],"expected_version":1,"resulting_version":2}'),
-		('cutover-consumer-started','work.transitioned','work_item','cutover-consumer','principal:cutover-operator','2026-10-12T00:00:00Z',1,
-			'{"from":"needed","to":"in_progress","reason":"research in progress","expected_version":2,"resulting_version":3}'),
-		('op-cutover-claim:worktree-created','work.worktree_created','work_item','cutover-consumer','ses-cutover-living','2026-10-12T00:01:00Z',1,
-			'{"expected_version":3,"resulting_version":4,"set_id":"wts:cutover-consumer","project_id":"project","claim_op_id":"op-cutover-claim","branch":"simplify/cutover-living","base_sha":"1f2e3d4c5b6a79887766554433221100ffeeddccb","path":"/srv/cutover-living-worktree","repository_id":"cutover-repo","occupant_session_ref":"ses-cutover-living","host_pid":` + fmt.Sprint(sessionPID) + `,"host_pid_start":` + fmt.Sprint(sessionStart) + `,"git_facts":{"branch":"simplify/cutover-living","head_sha":"1f2e3d4c5b6a79887766554433221100ffeeddccb"}}'),
-		('cutover-consumer:session-claim-landed:ses-cutover-living:1','work.session_claim_landed','work_item','cutover-consumer','ses-cutover-living','2026-10-12T00:01:00Z',1,
-			'{"work_id":"cutover-consumer","project_id":"project","claim_op_id":"op-cutover-claim","session_ref":"ses-cutover-living","source_directories":[],"landed_directory":"/srv/cutover-living-worktree","host_pid":` + fmt.Sprint(sessionPID) + `,"host_pid_start":` + fmt.Sprint(sessionStart) + `}'),
-		('cutover-attempt-dispatched','worker.dispatched','work_item','cutover-consumer','worker:cutover-living','2026-10-12T00:02:00Z',3,
-			'{"attempt_id":"attempt-cutover-living-1","lane_id":"implement","lane_version":1,"lane_digest":"sha256:ec541caf3d4df2d5fe70602cf65e747f19e5ac525b001fdd86ea7cf921b737fc","capability_class":"implementation","readback_model":"synthetic/cutover-worker","packet_schema_version":"1.0","report_schema_version":"1.0","packet_digest":"sha256:` + strings.Repeat("0", 64) + `","host_provenance":{"digest":"sha256:` + strings.Repeat("0", 64) + `","sources":[{"kind":"unenumerated"}]}}'),
-		('cutover-attempt-completed','worker.completed','work_item','cutover-consumer','worker:cutover-living','2026-10-12T00:10:00Z',1,
-			'{"attempt_id":"attempt-cutover-living-1","readback_model":"synthetic/cutover-worker","report_schema_version":"1.0"}')`)
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	// Materialize fold-owned rows with the released core; research stays direct authority.
-	if code, out, errText := runRelease(t, baselineBinary, path, "recover-fold-guard", `{}`); code != 0 {
-		t.Fatalf("materialize the released fixture history: %d %s %s", code, out, errText)
 	}
 }
 
@@ -961,12 +965,13 @@ func toAnySlice(values []string) []any {
 	return out
 }
 
-// TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence exercises
-// the maintenance fence and verified snapshot with a released baseline and
-// the checked-out candidate core.
-// An active baseline session blocks migration even with operator confirmation.
-// After it stops, the confirmed upgrade preserves living evidence, archives
-// retired planning projections, and excludes the baseline core at the new floor.
+// TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence exercises the
+// maintenance fence and verified snapshot with the released bridge baseline
+// and the checked-out candidate core. An active baseline session blocks
+// migration even with operator confirmation. After it stops, the confirmed
+// upgrade preserves living evidence, retires the tail's retired state, keeps
+// that state in the verified snapshot, and excludes the baseline core at the
+// new floor.
 func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the released baseline and checked-out candidate cores")
@@ -977,28 +982,17 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 		t.Fatal(err)
 	}
 	path := filepath.Join(dataRoot, "concord.db")
-	baselineVersion := "v0.0.0-con867-cutover-baseline"
-	candidateVersion := "v0.0.0-con867-cutover-candidate"
-	baselineSource := extractReleasedSource(t, cutoverBaselineTag)
-	t.Logf("binary sources: baseline=%s candidate=checked-out source", cutoverBaselineTag)
-	candidateSource := repoSourceDir(t)
-	baseline := buildCoreFrom(t, baselineSource, baselineVersion)
-	candidate := buildCoreFrom(t, candidateSource, candidateVersion)
-	// The candidate tree carries the fence-protocol marker its installer
-	// stamps. The baseline tree is staged without one: that unstamped
-	// installation is what puts the stopped-tree confirmation in the
+	candidateVersion := "v0.0.0-cutover-candidate"
+	// The baseline tree is staged without a fence-protocol marker: that
+	// unstamped installation puts the stopped-tree confirmation in the
 	// operator's hands, while the session itself remains a fenceable
 	// participant its lease proves below.
-	baselineRoot := installReleaseTree(t, dataRoot, baselineVersion, baseline, false)
+	baselineSource, baselineRoot, baselineBinary := buildBridgeRelease(t, dataRoot, false)
+	t.Logf("binary sources: baseline=%s candidate=checked-out source", bridgeReleaseTag)
+	candidate := buildCoreFrom(t, repoSourceDir(t), candidateVersion)
 	candidateRoot := installReleaseTree(t, dataRoot, candidateVersion, candidate, true)
-	baselineBinary := filepath.Join(baselineRoot, "bin", "concord")
 	candidateBinary := filepath.Join(candidateRoot, "bin", "concord")
-
 	baselineDescriptor := coreDescriptor(t, baselineBinary)
-	if baselineDescriptor["version"] != baselineVersion || baselineDescriptor["schema_version"] != float64(cutoverBaselineSchema) ||
-		baselineDescriptor["fence_protocol"] != float64(hostlease.CurrentFenceProtocol) || baselineDescriptor["core_binary"] != baselineBinary {
-		t.Fatalf("the baseline core must identify its own build and fence capability: %+v", baselineDescriptor)
-	}
 	candidateSchema := store.CurrentSchemaVersion()
 	candidateDescriptor := coreDescriptor(t, candidateBinary)
 	if candidateDescriptor["version"] != candidateVersion || candidateDescriptor["schema_version"] != float64(candidateSchema) ||
@@ -1007,7 +1001,6 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 		t.Fatalf("the candidate core must identify its own distinct build and contract: %+v", candidateDescriptor)
 	}
 
-	// The baseline core initializes its own store at schema 122.
 	code, out, errText := runRelease(t, baselineBinary, path, "upgrade", `{}`)
 	if code != 0 {
 		t.Fatalf("the baseline core must initialize its store: %d %s %s", code, out, errText)
@@ -1018,13 +1011,13 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 	if err := json.Unmarshal([]byte(out), &initialized); err != nil {
 		t.Fatalf("the baseline upgrade report is not JSON: %v: %s", err, out)
 	}
-	if initialized.SchemaVersion != cutoverBaselineSchema {
-		t.Fatalf("the baseline store's schema = %d, want %d", initialized.SchemaVersion, cutoverBaselineSchema)
+	if initialized.SchemaVersion != bridgeReleaseSchema {
+		t.Fatalf("the baseline store's schema = %d, want %d", initialized.SchemaVersion, bridgeReleaseSchema)
 	}
 
 	// The shipped manifest, not a hardcoded list, owns the pending breaking
 	// tail and the floor it will raise.
-	breaking := releasedPendingBreaking(t, cutoverBaselineSchema)
+	breaking := releasedPendingBreaking(t, bridgeReleaseSchema)
 	code, out, errText = runRelease(t, candidateBinary, path, "upgrade", `{"plan":true}`)
 	if code != 0 {
 		t.Fatalf("the candidate's plan must read the baseline store: %d %s %s", code, out, errText)
@@ -1037,69 +1030,28 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 		t.Fatalf("the candidate's plan is not JSON: %v: %s", err, out)
 	}
 	assertReleasePendingBreaking(t, plan.UpgradeReadiness, breaking)
-	if plan.SchemaVersion != cutoverBaselineSchema || !plan.ActivationBlocked || !plan.SnapshotRequired {
+	if plan.SchemaVersion != bridgeReleaseSchema || !plan.ActivationBlocked || !plan.SnapshotRequired {
 		t.Fatalf("the baseline store must await the shipped breaking tail behind a verified snapshot: %+v", plan.UpgradeReadiness)
 	}
 
-	// A real baseline adapter session claims its lease through its own
-	// pinned core, then the store carries the living evidence it works on.
+	// A real baseline adapter session claims its lease through its own pinned
+	// core, then the store carries the living evidence it works on.
 	baselineAdapter := stampAdapterRuntime(t, filepath.Join(baselineSource, "adapter", "opencode"), baselineRoot)
 	session := startAdapterSessionOperation(t, baselineAdapter, path, "/srv/cutover-baseline-session")
 	sessionPID := session.command.Process.Pid
-	seedCutoverLivingEvidence(t, path, sessionPID)
-	code, out, errText = runRelease(t, baselineBinary, path, "project-locator-add", mustJSON(t, map[string]any{
-		"project_id": "project", "locator_id": "cutover-knowledge", "kind": "canonical_path", "value": t.TempDir(), "expected_version": 1,
-	}))
-	if code != 0 {
-		t.Fatalf("register baseline knowledge locator: %d %s %s", code, out, errText)
-	}
-	code, out, errText = runRelease(t, baselineBinary, path, "product-knowledge-home-designate", `{"product_id":"cutover-product","project_id":"project","locator_id":"cutover-knowledge","expected_version":2}`)
-	if code != 0 {
-		t.Fatalf("designate baseline Product knowledge home: %d %s %s", code, out, errText)
-	}
-	// Seed the released index's durable lesson and explicit Product scope
-	// before cutover, not by reconstructing knowledge in the migrated store.
-	knowledgeTx, err := mustOpenCutoverStore(t, path).Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer knowledgeTx.Rollback()
-	if _, err := knowledgeTx.Exec(`
-INSERT INTO fold_guard(active) VALUES(1);
-INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version)
-VALUES('lesson-cutover','lesson','Preserve required research pins','2026-10-12T00:00:00Z','published','["cutover"]','completed',0,'A new research revision must not move an existing required consumer pin.','project','cutover-knowledge','.concord/docs/lessons/cutover.md','1f2e3d4c5b6a79887766554433221100ffeeddccb','sha256:` + strings.Repeat("a", 64) + `','explicit','1.0');
-INSERT INTO archived_work_products(home_project_id,home_locator_id,work_id,product_id)
-VALUES('project','cutover-knowledge','lesson-cutover','cutover-product');
-INSERT INTO archived_work_projects(home_project_id,home_locator_id,work_id,project_id)
-VALUES('project','cutover-knowledge','lesson-cutover','project');
-DELETE FROM fold_guard;`); err != nil {
-		t.Fatalf("seed baseline durable Product knowledge: %v", err)
-	}
-	if err := knowledgeTx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	want := captureBaselineCutoverEvidence(t, mustOpenCutoverStore(t, path))
-	if len(want["durable_knowledge"]) != 1 || len(want["durable_knowledge_products"]) != 1 || len(want["durable_knowledge_projects"]) != 1 || len(want["product_knowledge_homes"]) != 1 {
-		t.Fatalf("baseline must carry one durable lesson with Product and Project scope: %+v", want)
-	}
-	if len(want["effect_receipts"]) != 15 {
-		t.Fatalf("seeded identities = %d rows, want Product, Project, Product membership, two work creations, two work memberships, two lifecycle transitions, worktree creation, landing, dispatch, completion, Project locator, and Product knowledge home", len(want["effect_receipts"]))
-	}
-	if len(want["active_research_consumers"]) != 1 ||
-		!strings.HasPrefix(want["active_research_consumers"][0], "pack-cutover-living\x1f1\x1fcutover-consumer\x1fdecision_basis\x1f1\x1f") {
-		t.Fatalf("seeded research consumers = %v, want the one required live consumer", want["active_research_consumers"])
-	}
-	if !strings.HasSuffix(want["worktree_occupancy"][0], fmt.Sprintf("\x1fses-cutover-living\x1f%d\x1f1", sessionPID)) {
-		t.Fatalf("seeded occupancy = %q, want the live session's landing", want["worktree_occupancy"])
-	}
-	if len(want["worker_attempts"]) != 1 || !strings.Contains(want["worker_attempts"][0], "\x1fcompleted\x1f") {
-		t.Fatalf("seeded worker attempts = %v, want the one completed retained report", want["worker_attempts"])
-	}
-	postCutoverWant := make(map[string][]string, len(want))
-	for name, population := range want {
-		if name != "worker_attempts" && name != "worker_payloads" && name != "worktree_entries" && name != "worktree_occupancy" && !strings.HasPrefix(name, "active_research_") {
-			postCutoverWant[name] = population
+	seedCutoverLivingEvidence(t, baselineBinary, path, t.TempDir())
+	want := captureCutoverEvidence(t, mustOpenCutoverStore(t, path), append(append([]cutoverEvidenceQuery{}, cutoverEvidenceQueries...), retiredCutoverQueries...))
+	for _, name := range []string{"products", "projects", "product_projects", "project_locators", "product_knowledge_homes", "durable_knowledge", "durable_knowledge_products", "durable_knowledge_projects", "runtime_state_writers"} {
+		if len(want[name]) != 1 {
+			t.Fatalf("baseline %s = %v, want one seeded row", name, want[name])
 		}
+	}
+	if len(want["effect_receipts"]) == 0 {
+		t.Fatal("the baseline core's own writes must leave effect receipts")
+	}
+	postCutoverWant := make(map[string][]string, len(cutoverEvidenceQueries))
+	for _, evidence := range cutoverEvidenceQueries {
+		postCutoverWant[evidence.name] = want[evidence.name]
 	}
 	assertPreserved := func(t *testing.T, got, expectedEvidence map[string][]string) {
 		t.Helper()
@@ -1108,6 +1060,10 @@ DELETE FROM fold_guard;`); err != nil {
 				t.Fatalf("%s evidence =\n%s\nwant\n%s", name, strings.Join(got[name], "\n"), strings.Join(expected, "\n"))
 			}
 		}
+	}
+	var baselineRevision int64
+	if err := mustOpenCutoverStore(t, path).QueryRow(`SELECT revision FROM store_revision WHERE id=1`).Scan(&baselineRevision); err != nil {
+		t.Fatal(err)
 	}
 	snapshot := releaseMigrationSnapshot(t, path)
 	assertUnadvanced := func(t *testing.T) {
@@ -1121,7 +1077,7 @@ DELETE FROM fold_guard;`); err != nil {
 		if fence, err := hostlease.ReadFence(dataRoot); err != nil || fence != nil {
 			t.Fatalf("a refused upgrade must close the boundary it opened: %+v %v", fence, err)
 		}
-		assertPreserved(t, captureBaselineCutoverEvidence(t, mustOpenCutoverStore(t, path)), want)
+		assertPreserved(t, captureCutoverEvidence(t, mustOpenCutoverStore(t, path), append(append([]cutoverEvidenceQuery{}, cutoverEvidenceQueries...), retiredCutoverQueries...)), want)
 	}
 
 	// The unstamped baseline tree refuses first, and the refusal names the
@@ -1144,7 +1100,7 @@ DELETE FROM fold_guard;`); err != nil {
 	if code != 1 || out != "" || !strings.Contains(errText, "upgrade_blocked") ||
 		!strings.Contains(errText, fmt.Sprintf("pid %d", sessionPID)) ||
 		!strings.Contains(errText, baselineRoot) ||
-		!strings.Contains(errText, fmt.Sprintf("schema version %d", cutoverBaselineSchema)) ||
+		!strings.Contains(errText, fmt.Sprintf("schema version %d", bridgeReleaseSchema)) ||
 		!strings.Contains(errText, fmt.Sprintf("before migration %d", breaking[0])) ||
 		!strings.Contains(errText, "/srv/cutover-baseline-session") {
 		t.Fatalf("confirmation cannot bypass the observable live baseline session: %d %s %s", code, out, errText)
@@ -1152,7 +1108,7 @@ DELETE FROM fold_guard;`); err != nil {
 	assertUnadvanced(t)
 
 	// The live session's own release reports its lease: one fenceable
-	// protocol-1 participant pinned to its own tree at schema 122.
+	// participant pinned to its own tree at the supported floor.
 	code, out, errText = runRelease(t, baselineBinary, path, "host-leases", `{}`)
 	if code != 0 {
 		t.Fatalf("the baseline release must list its own lease: %d %s %s", code, out, errText)
@@ -1167,7 +1123,7 @@ DELETE FROM fold_guard;`); err != nil {
 		t.Fatalf("the live baseline session must hold exactly one lease: %+v", listing.Leases)
 	}
 	lease := listing.Leases[0]
-	if lease.ReleaseRoot != baselineRoot || lease.CoreBinary != baselineBinary || lease.SchemaVersion != cutoverBaselineSchema ||
+	if lease.ReleaseRoot != baselineRoot || lease.CoreBinary != baselineBinary || lease.SchemaVersion != bridgeReleaseSchema ||
 		lease.FenceProtocol != hostlease.CurrentFenceProtocol || lease.Directory != "/srv/cutover-baseline-session" {
 		t.Fatalf("the baseline session's lease must name its own fenceable tree: %+v", lease)
 	}
@@ -1203,7 +1159,7 @@ DELETE FROM fold_guard;`); err != nil {
 	if report.SchemaVersion != candidateSchema {
 		t.Fatalf("the confirmed upgrade must apply the complete pending tail: %+v", report)
 	}
-	assertAppliedMigrationTail(t, report.Applied, cutoverBaselineSchema)
+	assertAppliedMigrationTail(t, report.Applied, bridgeReleaseSchema)
 	for _, pending := range breaking {
 		found := false
 		for _, applied := range report.Applied {
@@ -1218,21 +1174,22 @@ DELETE FROM fold_guard;`); err != nil {
 	if report.Backup == "" || !strings.HasPrefix(report.Backup, dataRoot) {
 		t.Fatalf("the breaking upgrade must name its pre-migration snapshot beside the store: %q", report.Backup)
 	}
-	// The pre-migration snapshot verifies at the baseline schema and watermark.
+	// The pre-migration snapshot verifies at the baseline schema and revision
+	// and keeps the state the tail retires.
 	if _, err := os.Stat(report.Backup); err != nil {
 		t.Fatalf("the required pre-migration snapshot must exist: %v", err)
 	}
-	verified, err := store.VerifyBackup(context.Background(), report.Backup, cutoverBaselineSchema)
+	verified, err := store.VerifyBackup(context.Background(), report.Backup, bridgeReleaseSchema)
 	if err != nil {
 		t.Fatalf("the pre-migration snapshot must verify at the baseline schema: %v", err)
 	}
-	if verified.SchemaVersion != cutoverBaselineSchema || verified.EventWatermark != 0 {
-		t.Fatalf("the verified snapshot = %+v, want the baseline schema and zero pre-revision inventory", verified)
+	if verified.SchemaVersion != bridgeReleaseSchema || verified.EventWatermark != baselineRevision {
+		t.Fatalf("the verified snapshot = %+v, want the baseline schema and store revision %d", verified, baselineRevision)
 	}
-	assertPreserved(t, captureBaselineCutoverEvidence(t, mustOpenCutoverStore(t, report.Backup)), want)
+	assertPreserved(t, captureCutoverEvidence(t, mustOpenCutoverStore(t, report.Backup), append(append([]cutoverEvidenceQuery{}, cutoverEvidenceQueries...), retiredCutoverQueries...)), want)
 
 	// The migrated store requires the manifest-derived floor, keeps the
-	// activation boundary open, and retires the planning mirror and worker state.
+	// activation boundary open, and no longer holds the retired state.
 	floor := breaking[len(breaking)-1]
 	readiness, err := store.PlanUpgradeReadiness(context.Background(), path)
 	if err != nil || readiness.SchemaVersion != candidateSchema || readiness.CompatibilityFloor != floor ||
@@ -1243,18 +1200,11 @@ DELETE FROM fold_guard;`); err != nil {
 	if err != nil || fence == nil || !fence.AuthorizesNativeMigration(candidateRoot, candidateBinary, candidateSchema) {
 		t.Fatalf("the committed breaking boundary must remain open for activation: %+v %v", fence, err)
 	}
-	if !cutoverTablesAbsent(t, path, "initiative_entries", "linear_outbox") {
-		t.Fatal("the retired planning projections must be absent after the migration")
+	if !cutoverTablesAbsent(t, path, "workflow_contract_law_modifications", "runtime_state_writers") {
+		t.Fatal("the state the retained breaking tail retires must be absent after the migration")
 	}
-	if !cutoverTablesAbsent(t, path, "workflow_worker_actors", "worker_oracle_finding_facts", "worker_attempt_dispositions", "worker_authorizations", "worker_attempts", "worker_job_revisions") {
-		t.Fatal("the retired worker tables must be absent after the migration")
-	}
-	if !cutoverTablesAbsent(t, path, "bootstrap_operations", "worktree_claim_native_fences", "worktree_claims", "worktree_entries", "worktree_occupancy", "worktree_ref_outcomes", "session_vacate_requests", "session_claim_landings", "session_relocation_counts") {
-		t.Fatal("the retired ownership tables must be absent after the migration")
-	}
-	assertPreserved(t, captureCurrentCutoverEvidence(t, mustOpenCutoverStore(t, path)), postCutoverWant)
+	assertPreserved(t, captureCutoverEvidence(t, mustOpenCutoverStore(t, path), cutoverEvidenceQueries), postCutoverWant)
 
-	upgradedSnapshot := releaseMigrationSnapshot(t, path)
 	// The candidate operates the migrated store with no further migration.
 	code, out, errText = runRelease(t, candidateBinary, path, "upgrade", `{}`)
 	if code != 0 {
@@ -1267,55 +1217,27 @@ DELETE FROM fold_guard;`); err != nil {
 	if err := json.Unmarshal([]byte(out), &noop); err != nil || noop.SchemaVersion != candidateSchema || len(noop.Applied) != 0 {
 		t.Fatalf("the candidate's no-op must apply nothing: %+v %v %s", noop, err, out)
 	}
-	// The baseline core refuses the advanced floor, and the refusal has no
-	// effect on the migrated store or its living evidence.
-	code, out, errText = runRelease(t, baselineBinary, path, "upgrade", `{}`)
-	if code != 1 || out != "" || !strings.Contains(errText, "schema_unsupported") ||
-		!strings.Contains(errText, fmt.Sprintf("defines schema version %d", floor)) ||
-		!strings.Contains(errText, fmt.Sprintf("this binary defines %d", cutoverBaselineSchema)) {
-		t.Fatalf("the baseline core must refuse the advanced floor without effect: %d %s %s", code, out, errText)
-	}
-	if after := releaseMigrationSnapshot(t, path); after != upgradedSnapshot {
-		t.Fatal("the baseline core's floor refusal changed the migrated store")
-	}
-	assertPreserved(t, captureCurrentCutoverEvidence(t, mustOpenCutoverStore(t, path)), postCutoverWant)
+	// The baseline core refuses the advanced floor without effect on the
+	// migrated store or its living evidence.
+	assertFloorRefusal(t, baselineBinary, path, floor, bridgeReleaseSchema)
+	assertPreserved(t, captureCutoverEvidence(t, mustOpenCutoverStore(t, path), cutoverEvidenceQueries), postCutoverWant)
 
-	// The current store still opens with both work items active and retained
-	// evidence intact after the baseline core's refusal.
+	// The current store opens, closes and reopens with its living evidence
+	// intact after the baseline core's refusal.
 	ctx := context.Background()
-	current, err := store.Open(ctx, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer current.Close()
-	assertActiveWithoutLog := func() {
-		t.Helper()
-		var logs, active int
-		if err := current.DatabaseForTesting().QueryRow(`SELECT count(*) FROM sqlite_schema WHERE name='domain_events'`).Scan(&logs); err != nil {
+	for range 2 {
+		current, err := store.Open(ctx, path)
+		if err != nil {
 			t.Fatal(err)
 		}
-		if err := current.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items WHERE id IN ('cutover-owner','cutover-consumer') AND lifecycle='in_progress'`).Scan(&active); err != nil {
+		afterContinuation := captureCutoverEvidence(t, current.DatabaseForTesting(), cutoverEvidenceQueries)
+		if err := current.Close(); err != nil {
 			t.Fatal(err)
 		}
-		if logs != 0 || active != 2 {
-			t.Fatalf("continued work requires both surviving active items and no domain_events: logs=%d active=%d", logs, active)
-		}
-	}
-	assertActiveWithoutLog()
-	if err := current.Close(); err != nil {
-		t.Fatal(err)
-	}
-	current, err = store.Open(ctx, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer current.Close()
-	assertActiveWithoutLog()
-	afterContinuation := captureCurrentCutoverEvidence(t, current.DatabaseForTesting())
-	for name, expected := range postCutoverWant {
-		got := afterContinuation[name]
-		if !reflect.DeepEqual(got, expected) {
-			t.Fatalf("continued work changed retained %s: got %v, want %v", name, got, expected)
+		for name, expected := range postCutoverWant {
+			if got := afterContinuation[name]; !reflect.DeepEqual(got, expected) {
+				t.Fatalf("continued work changed retained %s: got %v, want %v", name, got, expected)
+			}
 		}
 	}
 }
@@ -1366,8 +1288,10 @@ func stampAdapterRuntime(t *testing.T, sourceAdapterDir, releaseRoot string) str
 // every adapter operation uses — holding the session and its lease open
 // until released. The store-backed leg answers the evidence bar:
 // lease metadata alone never opens the shared store, while this read does.
-const adapterSessionDriver = `import { claimHostLease, hostLeaseFault } from "./host-lease"
-import { concordBinaryPath, defaultRunner } from "./dispatch"
+// startAdapterSessionOperation prepends the import of the release's own core
+// transport.
+const adapterSessionDriver = `import { createInterface } from "node:readline"
+import { claimHostLease, hostLeaseFault } from "./host-lease"
 
 async function claim(label: string) {
   await claimHostLease(process.pid, { directory: process.env.PAIR_SESSION_DIRECTORY ?? "" })
@@ -1401,24 +1325,31 @@ async function storeBackedRead(label: string) {
 await claim("PAIR-ADAPTER-LEASE")
 await storeBackedRead("PAIR-ADAPTER-READ")
 // Hold the session open: the lease must stay live beside the other pair's.
-const input = await new Promise<string>((resolve) => {
-  let buffered = ""
-  process.stdin.on("data", (chunk) => {
-    buffered += chunk
-    const lines = buffered.split("\n")
-    buffered = lines.pop() ?? ""
-    if (lines.length > 0) resolve(lines[0])
-  })
-  process.stdin.on("end", () => resolve(""))
-})
-if (input === "reclaim") {
-  await claim("PAIR-ADAPTER-RECLAIM")
-}
-if (input === "reclaim" || input === "read") {
-  await storeBackedRead("PAIR-ADAPTER-READ-AGAIN")
+for await (const input of createInterface({ input: process.stdin })) {
+  if (input === "") break
+  if (input === "reclaim") {
+    await claim("PAIR-ADAPTER-RECLAIM")
+  }
+  if (input === "reclaim" || input === "read") {
+    await storeBackedRead("PAIR-ADAPTER-READ-AGAIN")
+  }
 }
 await new Promise<void>(() => {})
 `
+
+// adapterTransportModule names the module that exports the core transport in
+// the release's own adapter: older releases ship dispatch.ts, later releases
+// core-runtime.ts.
+func adapterTransportModule(t *testing.T, adapterDir string) string {
+	t.Helper()
+	for _, module := range []string{"core-runtime", "dispatch"} {
+		if _, err := os.Stat(filepath.Join(adapterDir, module+".ts")); err == nil {
+			return "./" + module
+		}
+	}
+	t.Fatalf("the adapter at %s ships no core transport module", adapterDir)
+	return ""
+}
 
 // adapterSession is one live pinned session: a bun process running the
 // stamped adapter's lease claim against its release's core. It stays live
@@ -1442,7 +1373,9 @@ func startAdapterSessionOperation(t *testing.T, adapterDir, dbPath, directory st
 		t.Skipf("bun is unavailable for the adapter session operation: %v", err)
 	}
 	driver := filepath.Join(adapterDir, "pair-session-driver.ts")
-	if err := os.WriteFile(driver, []byte(adapterSessionDriver), 0o644); err != nil {
+	transport := adapterTransportModule(t, adapterDir)
+	program := fmt.Sprintf("import { concordBinaryPath, defaultRunner } from %q\n", transport) + adapterSessionDriver
+	if err := os.WriteFile(driver, []byte(program), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	command := exec.Command(bun, "run", driver)

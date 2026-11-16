@@ -13,7 +13,7 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "exemption": "The corpus scenarios are query-shaped and prove no schema-boundary claim. Criterion 1 states CD-0242 D2. The guarantee is proved by TestEventLogRetirementFreshStore and TestEventLogRetirementUpgradePreservesCurrentRows (internal/store)."
+      "exemption": "The corpus scenarios are query-shaped and prove no schema-boundary claim. Criterion 1 states CD-0242 D2. The guarantee is proved by TestEventLogRetirementFreshStore (internal/store) and TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence (cmd/concord)."
     },
     {
       "criterion": 2,
@@ -251,9 +251,9 @@ every criterion carries a typed exemption naming its proof.
 
 - Criterion 1 states CD-0242 D2 as law. It is proved by
   `TestEventLogRetirementFreshStore` and
-  `TestEventLogRetirementUpgradePreservesCurrentRows`
+  `TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence`
   (`internal/store/event_log_retirement_test.go`,
-  `internal/store/event_log_retirement_upgrade_test.go`).
+  `cmd/concord/release_pairs_cli_test.go`).
 - Criterion 2 is proved by `TestOpenEnforcesForeignKeysBehaviorally`
   (`internal/store/store_test.go`).
 - Criterion 3 is proved by `TestOpenAppliesSchemaManifest` and

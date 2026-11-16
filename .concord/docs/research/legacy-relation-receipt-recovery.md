@@ -112,12 +112,15 @@ authorizes deleting an edge.
 
 ## Synthetic evidence
 
-[relation_recovery_research_test.go](../../../internal/store/relation_recovery_research_test.go)
-contains disposable fixtures, not production observations. The historical
-fixture starts at schema 144, advances through 150, and migrates to current.
-The test scaffolding copies the disposable fixture and supplies its checksum and
-state digest, which the migration rechecks before capture retirement; it skips
-the upgrade command's backup verifier. This is not evidence of a production
+The shift-and-withholding fixture lived in a store replay test that started at
+schema 144, advanced through 150, and migrated to current. The schema-199
+supported-history floor (CD-0082 D4, PR #2447) retired the replay engine, so
+that fixture no longer exists; this section records what it showed. Its last
+source is the [historical test](https://github.com/Sharper-Flow/concord/blob/c902ef804b947506302b783f8c91b6b61469f27b/internal/store/relation_recovery_research_test.go).
+The fixtures were disposable, not production observations. The test scaffolding
+copied the disposable fixture and supplied its checksum and state digest,
+which the migration rechecked before capture retirement; it skipped the
+upgrade command's backup verifier. This is not evidence of a production
 backup.
 A synthetic ID gap shifts a retained edge against two same-source/kind
 events; the intended first event and the numeric second event have distinct
@@ -130,16 +133,14 @@ Q7 omitted the entry, Q8 and all receipt columns remained intact,
 and restoring the saved values restored the previous attribution, not its
 truth. Receipts are immutable by trigger, so the receipt check confirms only
 that the edit reaches no receipt. At the base commit, Q7 is the only non-migration
-reader of the relation `reason` and `record_version` columns. A second fixture
+reader of the relation `reason` and `record_version` columns. A [second fixture](../../../internal/store/relation_recovery_research_test.go)
 hand-inserts two same-edge candidates whose payloads agree with the retained
 edge's endpoints and kind and whose digests bind by construction; Q7 still
 selects one only by numeric position. These are experiments, not a production plan.
 
-Both synthetic tests passed independent verification. The verifier reused the
-unchanged second test's earlier passing result. The commands are:
+Both synthetic tests passed independent verification at the #2446 head `e40c6c26820e5cb51a17d5766d4a9d5a97b824af`; that verifier reused the unchanged second test's earlier passing result. The retired shift-and-withholding test can no longer run. The current fixture runs with:
 
 ```sh
-bin/oc-test targeted -- go test ./internal/store -run '^TestRelationRecoveryResearchShiftAndWithholding$' -count=1 -v
 bin/oc-test targeted -- go test ./internal/store -run '^TestRelationRecoveryResearchDuplicateCandidates$' -count=1 -v
 ```
 

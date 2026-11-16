@@ -18,7 +18,7 @@
     },
     {
       "criterion": 3,
-      "exemption": "TestInitiativeRetirementUpgrade (internal/store/initiative_retirement_upgrade_test.go) checks the Project-filtered work list."
+      "exemption": "TestBrowseLivenessParity (internal/store/query_liveness_test.go) checks the Project-filtered work list."
     },
     {
       "criterion": 4,
@@ -360,8 +360,8 @@ operator choices, and the falsifiers above remain controlling.
   (`internal/store/membership_test.go`), which reads two memberships for one work ID.
 - Criterion 2 is proved by the bound `Q1-project-to-product` scenario, which
   resolves a Project to its Product through the authoritative join.
-- Criterion 3 is exercised by `TestInitiativeRetirementUpgrade`
-  (`internal/store/initiative_retirement_upgrade_test.go`), which reads the
+- Criterion 3 is exercised by `TestBrowseLivenessParity`
+  (`internal/store/query_liveness_test.go`), which reads the
   Project-filtered work list.
 - Criterion 4 has no corpus scenario; it is proved by the store test
   `TestMembershipReplacementReplacesTheWholeSet`

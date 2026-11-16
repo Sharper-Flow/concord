@@ -21,7 +21,7 @@
   #512 into the same change on 2026-08-25.
 - **Related:** CD-0002, CD-0218 D1, CD-0039, CD-0040 D11, CD-0055
 - **Preserves:** The live workflow-type set; the `successor_kind` work-item
-  meaning on a recorded successor link; migration immutability;
+  meaning on a recorded successor link; retained-migration immutability;
   SQLite as the sole local state authority
 
 ## Context
@@ -72,7 +72,7 @@ owns each native-run phase/status pair and its failure classification.
 
 Deterministic generators derive the Go runtime projections and content digests.
 The native-run closure validator compares its declaration with generated Go,
-the literal migration rows, the registry triggers, and the runtime guard call.
+the literal baseline registry rows, the registry triggers, and the runtime guard call.
 A changed native-run contract without a matching migration decision fails
 validation.
 Work-kind enforcement uses the generated projections and SQLite registry;
@@ -80,15 +80,15 @@ it requires no cross-surface closure audit.
 
 ### D3. SQLite enforces both declarations through registries and triggers
 
-Migration 49 creates `work_kinds` and `workflow_native_run_statuses` and seeds
-literal rows. The native-run closure validator compares its rows with its
-contract. The migration makes both registries immutable with insert, update, and delete
-refusal triggers. Consumer insert and update triggers refuse an unstored
-work-item kind or an undeclared native-run phase/status pair.
+The fresh-store baseline creates `work_kinds` and `workflow_native_run_statuses`
+and seeds literal rows. The native-run closure validator compares the baseline's
+native-run rows with the native-run contract. Insert, update, and delete refusal
+triggers make both registries immutable. Consumer insert and update triggers
+refuse an unstored work-item kind or an undeclared native-run phase/status pair.
 
-The migration keeps literal SQL. Generated Go does not construct migration text.
-This preserves immutable migration checksums and makes an old database upgrade
-independent of the current generator.
+The baseline and retained migrations keep literal SQL. Generated Go does not
+construct their text. Retained migrations remain immutable, and supported
+database upgrades do not depend on the current generator.
 
 The approved registry-backed foreign-key direction for work kinds is implemented
 with a registry trigger rather than a table rebuild. Thirty-seven tables reference
@@ -148,15 +148,16 @@ without replacing the central referenced table.
 vocabulary copy, hide policy columns, and require another table rebuild for each
 new stored kind.
 
-**Generate migration SQL from the current contract.** Rejected because old
-migrations must remain byte-stable. Literal seed rows preserve immutable
-checksums; the native-run closure validator also binds its rows to its contract.
+**Generate baseline or migration SQL from the current contract.** Rejected
+because the baseline and retained migrations must remain byte-stable, and
+retained migrations keep immutable checksums. The native-run closure validator
+binds the literal baseline rows to the contract instead.
 
 ## Verification
 
 - Store tests prove every registry row and policy bit, accepted rows, rejected
-  unknown values, wrong-phase status refusal, and valid and invalid upgrades from
-  schema version 48.
+  unknown values, and wrong-phase status refusal. CD-0082 D4 owns upgrade-window
+  proof.
 - Store composition tests prove the recorded successor meaning, the successor's
   picked workflow type, and refusal of a successor without a picked type
   (CD-0242 D2, D14).
@@ -165,7 +166,7 @@ checksums; the native-run closure validator also binds its rows to its contract.
   a successor with no picked type.
 - Vocabulary tests cover every declared native-run pair and both work-kind policy
   boundaries.
-- The native-run Python suite mutates migration rows, trigger predicates,
+- The native-run Python suite mutates baseline registry rows, trigger predicates,
   registry immutability triggers, runtime guard calls, and generated output to
   prove its closure validator fails.
 - The workflow scenario corpus passes with operator kinds at creation and

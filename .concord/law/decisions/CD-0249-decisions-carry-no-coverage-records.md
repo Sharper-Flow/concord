@@ -151,16 +151,12 @@ excuse new dead material.
 
 ## Verification
 
-- `cmd/concord.TestUpgradeRetiringLawCoverageSnapshotsTheCoverageTableBeforeTheDrop`
-  proves the upgrade route verifies a snapshot containing the original table
-  and rows before dropping it (D1).
-- `cmd/concord.TestUpgradeSnapshotFailurePreventsTheCoverageDrop` proves a
-  snapshot failure leaves the schema and rows unchanged (D1).
-- `internal/store.TestMigrateV162ToV165FailedStepRollsBack` (with
-  `internal/store.TestMigrateV171ToV172FailedDropRollsBack` as its sibling)
-  proves a failed drop migration rolls back leaving the pre-upgrade catalog,
-  schema, and rows unchanged — the same one-transaction route the coverage
-  drop takes (D1).
+- `cmd/concord.TestUpgradeSnapshotPrecedesBreakingMigration` proves the upgrade
+  route verifies a snapshot before a breaking migration (D1).
+- `cmd/concord.TestUpgradeSnapshotFailureCommitsNothingAndClosesOwnedFence`
+  proves a snapshot failure commits no migration (D1).
+- `internal/store.TestSchemaFloorUpgradeRollbackAndRecovery` proves a failed
+  migration rolls back and the upgrade can recover (D1).
 - `python3 scripts/test-reachability.py` proves the reachability refusals in
   both directions — an undeclared unreachable subject and a declaration that
   has become reachable — and that state obligations and the live-issue rule

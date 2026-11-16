@@ -20,14 +20,12 @@ func TestCLIFixtureHelpersRefuseInvalidDirectories(t *testing.T) {
 		switch helper {
 		case "cli-output":
 			gitOutput(t, dir, "remote", "remove", "origin")
-		case "law-index":
-			runLawIndexGit(t, dir, "remote", "remove", "origin")
 		default:
 			t.Fatalf("unknown helper %q", helper)
 		}
 		return
 	}
-	for _, helper := range []string{"cli-output", "law-index"} {
+	for _, helper := range []string{"cli-output"} {
 		for _, dir := range []string{"", ".", "..", "sub"} {
 			t.Run(fmt.Sprintf("%s/%q", helper, dir), func(t *testing.T) {
 				outer := t.TempDir()

@@ -3,15 +3,16 @@ package store
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// openMigratedTo builds a database with the first n migrations applied and no
-// further, so a test can observe migration n+1 as a change.
+// openMigratedTo builds a supported schema version from the baseline and retained migrations.
 func openMigratedTo(t *testing.T, path string, n int) *sql.DB {
 	t.Helper()
+	if n < 199 || n > CurrentSchemaVersion() {
+		t.Fatalf("unsupported fixture schema version %d", n)
+	}
 	ctx := context.Background()
 	db, err := sql.Open(driverName, dataSourceName(path))
 	if err != nil {
@@ -19,112 +20,69 @@ func openMigratedTo(t *testing.T, path string, n int) *sql.DB {
 	}
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
+	if _, err := db.ExecContext(ctx, schemaBaseline198); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
 		t.Fatal(err)
 	}
-	for _, migration := range migrations[:n] {
+	found := false
+	for _, migration := range migrations {
+		if migration.Version > n {
+			break
+		}
 		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
-		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-27T00:00:00Z"); err != nil {
+		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at,breaking) VALUES(?,?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-27T00:00:00Z", migration.Breaking); err != nil {
 			t.Fatal(err)
 		}
+		found = migration.Version == n
+	}
+	if !found {
+		t.Fatalf("fixture migration %d is not retained", n)
 	}
 	return db
 }
 
-func TestMigrateV51ToV52BindsKnowledgeHomePairsToProjectLocators(t *testing.T) {
+func TestFreshStoreBindsKnowledgeHomePairsToProjectLocators(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	// Migration 52 owns this binding; the fixture stays at the schema 52
-	// prefix. Later retirements (schema 174) drop most bound tables, so the
-	// pre-retirement schema is the only place the trigger set still exists.
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "concord-v51.db"), 51)
-	advanceHistoricalPrefix(t, db, migrations[51].Version)
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+	s := openTemp(t)
+	anchorHomePair(t, s, "p", "l")
+	db := s.DatabaseForTesting()
+	if _, err := db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1)`); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
+	defer func() {
+		if _, err := db.ExecContext(ctx, `DELETE FROM write_guard`); err != nil {
+			t.Errorf("remove write guard: %v", err)
 		}
-	})
-	if _, err := db.ExecContext(ctx, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('p','P',1,'t','t')`); err != nil {
-		t.Fatal(err)
+	}()
+	insert := func(projectID, locatorID string) error {
+		_, err := db.ExecContext(ctx, `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES('w','lesson','T','2026-08-27T00:00:00Z','published','[]','completed',0,'S',?,?,'.concord/docs/lessons/t.md',?,?)`,
+			projectID, locatorID, strings.Repeat("a", 40), "sha256:"+strings.Repeat("b", 64))
+		return err
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('l','p','canonical_path','/test/l','/test/l','t','t')`); err != nil {
-		t.Fatal(err)
+	if err := insert("nope", "l"); err == nil || !strings.Contains(err.Error(), "home pair does not reference a Project locator") {
+		t.Fatalf("unanchored archived_work insert error = %v", err)
 	}
-
-	unanchored := map[string]string{
-		"law_subjects":            `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('nope','l','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:` + strings.Repeat("a", 64) + `','commit')`,
-		"law_relations":           `INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('nope','l','a','refines','b','commit')`,
-		"archived_work":           `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES('w','lesson','T','2026-08-27T00:00:00Z','published','[]','completed',0,'S','nope','l','.concord/docs/lessons/t.md','` + strings.Repeat("a", 40) + `','sha256:` + strings.Repeat("b", 64) + `')`,
-		"knowledge_kind_coverage": `INSERT INTO knowledge_kind_coverage(home_project_id,home_locator_id,head_ref,kind,coverage,reason,scanned_commit_oid) VALUES('nope','l','HEAD','lesson','indexed','test','` + strings.Repeat("a", 40) + `')`,
-		"domains":                 `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('nope','l','prod','d','D','purpose','current','sha256:` + strings.Repeat("c", 64) + `','commit')`,
-	}
-	for table, stmt := range unanchored {
-		if _, err := db.ExecContext(ctx, stmt); err == nil {
-			t.Fatalf("unanchored %s insert succeeded", table)
-		}
-	}
-
 	// A locator owned by a different Project is as unanchored as a missing one.
-	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','missing','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:`+strings.Repeat("a", 64)+`','commit')`); err == nil {
-		t.Fatal("mismatched home pair insert succeeded")
+	if err := insert("p", "missing"); err == nil || !strings.Contains(err.Error(), "home pair does not reference a Project locator") {
+		t.Fatalf("mismatched archived_work home pair error = %v", err)
 	}
-
-	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('p','l','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:`+strings.Repeat("a", 64)+`','commit')`); err != nil {
-		t.Fatalf("anchored law_subjects insert refused: %v", err)
+	if err := insert("p", "l"); err != nil {
+		t.Fatalf("anchored archived_work insert refused: %v", err)
 	}
-
 	// The parent side: a locator Git-derived knowledge references cannot be
-	// deleted, even inside a fold.
-	if _, err := db.ExecContext(ctx, `DELETE FROM project_locators WHERE locator_id='l'`); err == nil {
-		t.Fatal("deleting a knowledge-referenced locator succeeded")
-	}
-
-	var version int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil || version != migrations[51].Version {
-		t.Fatalf("version=%d err=%v", version, err)
-	}
-}
-
-func TestMigrateV52RefusesAStoredUnanchoredHomePair(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "concord-v51-dirty.db"), 51)
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('p','P',1,'t','t')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('l','p','canonical_path','/test/l','/test/l','t','t')`); err != nil {
-		t.Fatal(err)
-	}
-	// Seed through the pre-binding schema state: v51 has no pair triggers, so
-	// an unanchored row is storable here and migration 52 must refuse it.
-	if _, err := db.ExecContext(ctx, `INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('ghost','missing','a','decision','accepted','.concord/docs/decisions/CD-0001-a.md','A','sha256:`+strings.Repeat("a", 64)+`','commit')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-		t.Fatal(err)
-	}
-	if err := Migrate(ctx, db); err == nil {
-		t.Fatal("migration admitted a stored unanchored home pair")
-	}
-	var version int
-	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	if seeded := migrations[50].Version; version != seeded {
-		t.Fatalf("schema version=%d after refused migration, want %d", version, seeded)
+	// deleted, even inside the write seam.
+	if _, err := db.ExecContext(ctx, `DELETE FROM project_locators WHERE locator_id='l'`); err == nil || !strings.Contains(err.Error(), "referenced by Git-derived knowledge") {
+		t.Fatalf("deleting a knowledge-referenced locator error = %v", err)
 	}
 }
 
 // TestKnowledgeHomePairTableListMatchesTriggers pins the Go-side table list to
-// the trigger set migration 52 declares, so the two cannot drift apart.
+// the pair-bound trigger set the schema declares, so the two cannot drift apart.
 func TestKnowledgeHomePairTableListMatchesTriggers(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -157,8 +115,7 @@ func TestRemovingAKnowledgeReferencedLocatorIsRefusedWithATypedFailure(t *testin
 		t.Fatal(err)
 	}
 	// archived_work is the retained Git-derived knowledge the locator delete
-	// guard protects (schema 174 retired the law-index projections from the
-	// guard's table list).
+	// guard protects.
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash) VALUES('law-archive','lesson','Anchored lesson','2026-08-27T00:00:00Z','published','[]','completed',0,'S','law-project','law-locator','.concord/docs/lessons/t.md','`+strings.Repeat("a", 40)+`','sha256:`+strings.Repeat("b", 64)+`')`); err != nil {
 		t.Fatal(err)
 	}

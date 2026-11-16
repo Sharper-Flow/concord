@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 )
 
 const deliveryCorrectionWrongPath = "file:internal/store/impl.go"
@@ -20,12 +19,15 @@ func completedDeliveryFixture(t *testing.T, workID string) (*Store, string, int6
 
 func completedDeliveryFixtureWithAssertions(t *testing.T, workID string, assertions int) *Store {
 	t.Helper()
-	var s *Store
-	if assertions > 1 {
-		s = historicalRepeatedDeliveryFixture(t, workID, assertions)
-	} else {
+	{
 		f := qCurrentAcceptanceWithDelivery(t, workID, deliveryCorrectionWrongPath)
-		s = f.store
+		s := f.store
+		for i := 1; i < assertions; i++ {
+			payload := mustJSONValue(map[string]any{"delivery_artifact": deliveryCorrectionWrongPath + "/" + jsonInt(int64(i)), "delivery_state": "asserted"})
+			if err := runVerdictActionAs(t, s, workID, "record_delivery", payload, 0, f.owner); err != nil {
+				t.Fatalf("record delivery: %v", err)
+			}
+		}
 		ctx, err := s.EstablishKnowledgeSourceSetProof(t.Context(), workID)
 		if err != nil {
 			t.Fatal(err)
@@ -33,68 +35,15 @@ func completedDeliveryFixtureWithAssertions(t *testing.T, workID string, asserti
 		if err := f.run(ctx, "confirm_premise", "confirm", readWorkVersion(t, s, workID), nil, nil); err != nil {
 			t.Fatal(err)
 		}
+		completeWorkflowPlanFixture(t, s, workID)
 		if err := f.run(ctx, "complete", "complete", readWorkVersion(t, s, workID), json.RawMessage(`{"impact_verdict":"non-breaking"}`), nil); err != nil {
 			t.Fatal(err)
 		}
-	}
-	if _, err := s.db.Exec(`INSERT INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,created_at) VALUES('client/concord-1','active','principal/operator','[]','[]','[]','2026-09-10T00:00:00Z')`); err != nil {
-		t.Fatal(err)
-	}
-	return s
-}
-
-func historicalRepeatedDeliveryFixture(t *testing.T, work string, assertions int) *Store {
-	t.Helper()
-	c := evidenceCorpusForWork(t, work)
-	var terminal Event
-	for _, e := range c.events {
-		if e.Kind == WorkflowCompleted {
-			terminal = e
-		}
-	}
-	var events []Event
-	count := 0
-	var version int64
-	for _, e := range c.events {
-		if e.Kind == WorkflowDeliveryCorrected || e.Kind == WorkflowCompleted && e.EventID != terminal.EventID {
-			continue
-		}
-		var p map[string]any
-		if err := json.Unmarshal(e.Payload, &p); err != nil {
+		if _, err := s.db.Exec(`INSERT INTO agent_clients(client_ref,status,principal_ref,capabilities_json,product_scope_json,project_scope_json,created_at) VALUES('client/concord-1','active','principal/operator','[]','[]','[]','2026-09-10T00:00:00Z')`); err != nil {
 			t.Fatal(err)
 		}
-		if e.Kind == WorkflowActionCompleted && p["delivery_state"] == "asserted" {
-			if count >= assertions {
-				continue
-			}
-			p["delivery_artifact"] = deliveryCorrectionWrongPath
-			if count > 0 {
-				p["delivery_artifact"] = deliveryCorrectionWrongPath + "/" + jsonInt(int64(count))
-			}
-			count++
-		}
-		if _, bumps := p["expected_version"]; bumps && e.Kind != "compaction_link.published" {
-			if version == 0 {
-				version = int64(p["expected_version"].(float64))
-			}
-			p["expected_version"], p["resulting_version"] = version, version+1
-			version++
-		}
-		e.Payload = mustJSONValue(p)
-		events = append(events, e)
+		return s
 	}
-	if count != assertions {
-		t.Fatalf("historical corpus has %d assertions, want %d", count, assertions)
-	}
-	c.events = events
-	s := c.prefix(t, 141)
-	if _, err := s.db.Exec(`INSERT INTO fold_guard VALUES(1); UPDATE work_items SET lifecycle='completed',version=? WHERE id=?; UPDATE workflow_instances SET instance_state='completed',completed_at=? WHERE work_id=?; DELETE FROM fold_guard`, version, work, terminal.OccurredAt.Format(time.RFC3339Nano), work); err != nil {
-		t.Fatal(err)
-	}
-	if err := Migrate(outcomeSnapshotContext(t, t.Context(), s.db), s.db); err != nil {
-		t.Fatal(err)
-	}
-	return s
 }
 
 func workflowCompletedFixtureEvent(id, workID, actor, verdictRef string, expected int64) Event {

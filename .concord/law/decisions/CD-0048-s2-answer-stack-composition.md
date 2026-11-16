@@ -46,11 +46,8 @@ CD-0224, and no live query derives it.
 `internal/store/domain_reads.go` resolves the governing Domain and its
 architecture overlap. `cmd/concord/session.go` carries the core-derived
 session context: the bounded packet derivation and validation that
-`session-prepare` applies. No stored last-activity stamp
-survives:
-migration 109 drops the `work_items.last_activity_at` column the 2026-09-28
-amendment carried, so no release's writes can drift a stored stamp
-(CD-0111).
+`session-prepare` applies. No stored `work_items.last_activity_at` stamp
+survives (CD-0111).
 
 ## Decision
 
@@ -70,9 +67,8 @@ versioned-write meaning.
 
 ## Consequences
 
-- No schema or stored-stamp obligation of this record survives. Migration 109
-  drops `work_items.last_activity_at`, and no recency column or new stamp
-  obligation replaces it.
+- No schema or stored-stamp obligation of this record survives. No recency
+  column or new stamp obligation replaces it.
 - The store materialization continues to serve the JSON agent tools and the
   managed session context. No renderer ships (CD-0014).
 - The vacated clauses carry no proof claim; this record's Verification section
@@ -84,8 +80,8 @@ versioned-write meaning.
   `python3 scripts/check-public-content.py` pass; folder membership registers
   this record exactly once.
 - `TestWorkItemsCarryNoFoldMaintainedLastActivity`
-  (`internal/store/schema_test.go`) pins migration 109: the
-  `work_items.last_activity_at` column stays dropped.
+  (`internal/store/schema_test.go`) checks that a fresh store has no
+  `work_items.last_activity_at` column.
 - `TestNonVersionedWorkEventsLeaveUpdatedAtOnTheVersionedWrite`
   (`internal/store/operation_test.go`) proves `updated_at` keeps its
   versioned-write meaning.

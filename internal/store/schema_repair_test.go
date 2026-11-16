@@ -9,38 +9,6 @@ import (
 	"testing"
 )
 
-// A historical migration edited in place produces two databases that report the
-// same schema version and hold different schemas. The variant table records the
-// checksum of the earlier text so the older database still opens, and nothing
-// gives it the objects the edit added: the first query against one of them fails
-// with "no such table" long after migration reported success.
-//
-// Migration 60 repairs the two known divergences. These assertions cover the
-// repair and the rule that prevents the next one.
-
-// schemaObjects names every table, index, and trigger a database holds.
-func schemaObjects(t *testing.T, db *sql.DB) map[string]bool {
-	t.Helper()
-	rows, err := db.QueryContext(context.Background(),
-		`SELECT name FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'`)
-	if err != nil {
-		t.Fatalf("read schema objects: %v", err)
-	}
-	defer rows.Close()
-	names := map[string]bool{}
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			t.Fatalf("scan schema object: %v", err)
-		}
-		names[name] = true
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate schema objects: %v", err)
-	}
-	return names
-}
-
 // openMigrated returns a database at the current schema version.
 func openMigrated(t *testing.T) *sql.DB {
 	t.Helper()
@@ -55,107 +23,6 @@ func openMigrated(t *testing.T) *sql.DB {
 		t.Fatalf("migrate: %v", err)
 	}
 	return db
-}
-
-func TestMigrationRepairsADatabaseBuiltFromTheEarlierHistory(t *testing.T) {
-	t.Parallel()
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "repair-v59.db"), 59)
-	ctx := context.Background()
-
-	// Reproduce a store whose migration 8 and 9 applied their earlier text: the
-	// objects those edits added are absent, and the pre-rename table remains.
-	for _, statement := range []string{
-		`DROP TABLE project_governing_requirements`,
-		`DROP TABLE initiative_entries`,
-		`CREATE TABLE epic_entries (
-			epic_work_id   TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
-			child_work_id  TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
-			position       INTEGER NOT NULL CHECK(position >= 0),
-			required       INTEGER NOT NULL CHECK(required IN (0,1)),
-			PRIMARY KEY(epic_work_id, child_work_id),
-			UNIQUE(epic_work_id, position),
-			CHECK(epic_work_id <> child_work_id)
-		)`,
-		`CREATE INDEX epic_entries_by_child ON epic_entries(child_work_id, epic_work_id)`,
-	} {
-		if _, err := db.ExecContext(ctx, statement); err != nil {
-			t.Fatalf("stage earlier history (%s): %v", statement, err)
-		}
-	}
-
-	if err := applyMigration(ctx, db, migrations[59]); err != nil {
-		t.Fatalf("repair migrate: %v", err)
-	}
-
-	objects := schemaObjects(t, db)
-	for _, required := range []string{
-		"project_governing_requirements",
-		"project_governing_requirements_by_project",
-		"project_governing_requirements_guard_insert",
-		"project_governing_requirements_guard_update",
-		"project_governing_requirements_guard_delete",
-		"initiative_entries",
-		"initiative_entries_by_child",
-	} {
-		if !objects[required] {
-			t.Fatalf("repair left %s absent", required)
-		}
-	}
-	if objects["epic_entries"] || objects["epic_entries_by_child"] {
-		t.Fatal("repair left the pre-rename table in place")
-	}
-}
-
-func TestRepairMigrationIsIdempotentOnAFreshDatabase(t *testing.T) {
-	t.Parallel()
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "repair-v60.db"), 60)
-	if err := applyMigration(context.Background(), db, migrations[59]); err != nil {
-		t.Fatalf("repeat repair migration: %v", err)
-	}
-	fresh := schemaObjects(t, db)
-	if !fresh["initiative_entries"] || !fresh["project_governing_requirements"] {
-		t.Fatal("a fresh database is missing objects the repair migration creates")
-	}
-	if fresh["epic_entries"] {
-		t.Fatal("the repair migration left its staging table on a fresh database")
-	}
-}
-
-// TestShippedVariantTableIsFrozen keeps the escape hatch closed. Every entry
-// here records a migration that was edited after it shipped; each one is a
-// database in the field whose schema silently differs from the code. Adding
-// another entry is how this defect class recurs, so the table is pinned: an
-// in-place edit must land as a new repair migration instead.
-//
-// The v8.4.0–v8.5.2 entries for migrations 49 and 75 are the one shape a
-// repair migration cannot serve: the manifest check compares recorded
-// checksums before any migration may run, so stores pinned below the drift
-// can never reach a repair step. The whitespace edit shipped in five
-// releases before it was caught; the variants record exactly what those
-// releases wrote while the canonical text keeps the bytes every earlier
-// release recorded. TestMigrationChecksumPinsMatchDefinitions now fails on
-// any edit to a migration's SQL, so a future entry again requires both this
-// pin and the checksum pin to move together, in the open.
-func TestShippedVariantTableIsFrozen(t *testing.T) {
-	t.Parallel()
-	frozen := map[int]int{
-		3: 1, 7: 1, 8: 1, 9: 2, 15: 1, 16: 1, 18: 1, 20: 1, 22: 1,
-		25: 1, 26: 1, 35: 1, 36: 1, 37: 1, 39: 1, 40: 2, 49: 1, 75: 1,
-		104: 1,
-	}
-	if len(migrationShippedVariantChecksums) != len(frozen) {
-		t.Fatalf("shipped variant table has %d migrations, frozen at %d; an in-place edit must ship a repair migration",
-			len(migrationShippedVariantChecksums), len(frozen))
-	}
-	for version, count := range frozen {
-		got, ok := migrationShippedVariantChecksums[version]
-		if !ok {
-			t.Fatalf("migration %d left the shipped variant table; applied databases still carry its earlier text", version)
-		}
-		if len(got) != count {
-			t.Fatalf("migration %d records %d shipped variants, frozen at %d", version, len(got), count)
-		}
-	}
 }
 
 // The compatibility floor is the highest breaking migration applied, and every
@@ -267,28 +134,23 @@ func TestManifestRefusalNamesTheSameMigrationEveryTime(t *testing.T) {
 	})
 }
 
-// A manifest written before the compatibility column existed carries no bits.
-// Absent must read as breaking, so such a database keeps exactly the refusal
-// it had before this mechanism landed.
-func TestManifestWithoutCompatibilityColumnReadsAsBreaking(t *testing.T) {
+func TestSupportedManifestWithoutCompatibilityColumnFailsClosed(t *testing.T) {
 	t.Parallel()
 	db := openMigrated(t)
 	ctx := context.Background()
 	if _, err := db.ExecContext(ctx, `ALTER TABLE schema_migrations DROP COLUMN breaking`); err != nil {
 		t.Fatalf("stage a pre-column manifest: %v", err)
 	}
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatalf("migrate must re-add the column and succeed: %v", err)
+	err := Migrate(ctx, db)
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindReadinessUnknown {
+		t.Fatalf("migrate error = %v, want readiness_unknown", err)
 	}
-	var breaking int
-	if err := db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM schema_migrations WHERE breaking = 1`).Scan(&breaking); err != nil {
-		t.Fatalf("read the restored column: %v", err)
+	var columns int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('schema_migrations') WHERE name='breaking'`).Scan(&columns); err != nil {
+		t.Fatal(err)
 	}
-	// Every applied row must read breaking: the count is the number of
-	// migrations this binary defines, which stays correct when versions
-	// arrive out of order across branches.
-	if breaking != len(migrations) {
-		t.Fatalf("restored rows breaking=%d, want all %d rows breaking", breaking, len(migrations))
+	if columns != 0 {
+		t.Fatal("refused migration restored the missing breaking column")
 	}
 }

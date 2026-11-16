@@ -17,7 +17,7 @@ import (
 // migration validates the boundary's owner before any migration runs while
 // exclusion is held: an unattributed record (no operation, no release
 // identity) must stay byte-for-byte unchanged and must authorize no
-// migration, in particular no incompatible step of the 111 floor's tail.
+// migration, in particular no incompatible step of the 199 floor's tail.
 func TestUpgradeRefusesAnUnattributedForeignBoundary(t *testing.T) {
 	previous := version.Value
 	version.Value = "v-test"
@@ -29,7 +29,7 @@ func TestUpgradeRefusesAnUnattributedForeignBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, out, errOut := runUpgradeStdin(t, `{}`)
-	if code == 0 && strings.Contains(out, "111") {
+	if code == 0 && strings.Contains(out, "200") {
 		t.Fatalf("an incompatible migration committed under an unattributed foreign boundary: code=%d out=%s err=%s", code, out, errOut)
 	}
 	if code != 1 {

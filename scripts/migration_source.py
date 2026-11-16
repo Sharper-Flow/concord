@@ -22,11 +22,6 @@ class MigrationEntry(NamedTuple):
     at: int
 
 
-class MigrationSQL(NamedTuple):
-    sql: str
-    span: tuple[int, int]  # SQL content's character offsets, excluding backticks
-
-
 GO_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 GO_NUMBER = re.compile(r"\d[\w.]*")
 # Integer literal forms of the Go spec: decimal, 0-leading octal, and the
@@ -167,6 +162,25 @@ def sql_literal(entry: str) -> str:
     return ""
 
 
+def baseline_sql(source: str) -> str:
+    """Read the package-level baseline as one Go raw-string literal."""
+    tokens = go_tokens(source)
+    depth = 0
+    for i, tok in enumerate(tokens):
+        if depth == 0 and [t.text for t in tokens[i:i + 3]] == ["const", "schemaBaseline198", "="]:
+            if i + 3 < len(tokens) and tokens[i + 3].kind == "raw":
+                end = i + 4
+                if end == len(tokens) or tokens[end].kind == "newline" or tokens[end].text == ";":
+                    return tokens[i + 3].text[1:-1].replace("\r", "")
+            return ""
+        if tok.kind == "punct":
+            if tok.text in "([{":
+                depth += 1
+            elif tok.text in ")]}":
+                depth = max(0, depth - 1)
+    return ""
+
+
 def migrations_binding(tokens: list[Tok]) -> int:
     """Return the index of the package-level migrations literal's opening
     brace token.
@@ -289,29 +303,3 @@ def migrations(source: str) -> list[tuple[int, str, str]]:
         (entry.version, entry.text, sql_literal(entry.text) if entry.version != UNSUPPORTED_ELEMENT else "")
         for entry in _migration_entries(source)
     ]
-
-
-def migration_sql(source: str, version: int, name: str) -> MigrationSQL | None:
-    """Find a named migration's SQL value and its exact span in source."""
-    try:
-        entries = _migration_entries(source)
-    except ValueError:
-        return None
-    for entry in entries:
-        if entry.version != version:
-            continue
-        name_run = field_run(entry.text, "Name")
-        if not (
-            name_run
-            and len(name_run) == 1
-            and name_run[0].kind in ("string", "raw")
-            and name_run[0].text[1:-1].replace("\r", "") == name
-        ):
-            continue
-        run = field_run(entry.text, "SQL")
-        if not run or len(run) != 1 or run[0].kind != "raw":
-            return None
-        start = entry.at + run[0].at + 1
-        end = entry.at + run[0].at + len(run[0].text) - 1
-        return MigrationSQL(sql_literal(entry.text), (start, end))
-    return None

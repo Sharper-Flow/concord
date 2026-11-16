@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
-	"path/filepath"
-	"reflect"
 	"testing"
 )
 
@@ -66,78 +64,32 @@ func TestEffectReceiptConflictLogBlind(t *testing.T) {
 	assertFailureKind(t, classifyEventIDConflict(t.Context(), tx, e, fmt.Errorf("unique collision")), KindIdempotencyConflict)
 }
 
-func TestEffectReceiptAppendAndBackfillParity(t *testing.T) {
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "receipts-144.db"), 144)
-	if _, err := db.Exec(`INSERT INTO fold_guard VALUES(1);
-INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('work','task','Receipts','needed',0,1,'now','now');
-DELETE FROM fold_guard`); err != nil {
-		t.Fatal(err)
-	}
-	corpus := []histEventRow{
-		{1, "receipt-product", "product.created", "product", "product", "creator", "1970-01-01T00:00:01Z", 1, `{ "display_name": "Product", "extension": {"z":2,"a":1}, "number":9007199254740993 }`},
-		{2, "receipt-work", "work.observed", "work_item", "work", "observer", "1970-01-01T00:00:06Z", 3, `{"statement":"A recorded observation"}`},
-	}
-	for _, row := range corpus {
-		if _, err := db.Exec(`INSERT INTO domain_events(seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?,?)`, row.Seq, row.EventID, row.Kind, row.SubjectType, row.SubjectID, row.Actor, row.OccurredAt, row.Version, row.Payload); err != nil {
-			t.Fatal(err)
-		}
-	}
-	advanceHistoricalPrefix(t, db, 145)
-	assertParity := func() {
-		t.Helper()
-		assertHistoricalReceipts(t, db, corpus)
-	}
-	assertParity()
-	if got := histEventRows(t, &Store{db: db}); !reflect.DeepEqual(got, corpus) {
-		t.Fatalf("145 changed source envelopes: %+v", got)
-	}
-	for range 2 {
-		if err := Migrate(outcomeSnapshotContext(t, t.Context(), db), db); err != nil {
-			t.Fatal(err)
-		}
-		assertParity()
-		hideEffectLog(t, &Store{db: db})
-	}
-	// Compare the retained headers/digests with the live receipt writer on a
-	// fresh current schema. The corpus is explicit data, not a log reconstruction.
-	fresh := openTemp(t)
-	tx, err := fresh.db.BeginTx(t.Context(), nil)
+func TestEffectReceiptAppend(t *testing.T) {
+	s := openTemp(t)
+	tx, err := s.db.BeginTx(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	for _, row := range corpus {
-		e := Event{EventID: row.EventID, Kind: row.Kind, SubjectType: SubjectType(row.SubjectType), SubjectID: row.SubjectID, Actor: row.Actor, PayloadVersion: row.Version, Payload: []byte(row.Payload)}
-		seq, err := appendPreparedEvent(t.Context(), tx, e)
-		if err != nil || seq != row.Seq {
-			t.Fatalf("live receipt %s = %d, %v", row.EventID, seq, err)
-		}
+	e := testEvent()
+	e.Payload = []byte(`{}`)
+	seq, err := appendPreparedEvent(t.Context(), tx, e)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	assertHistoricalReceipts(t, fresh.db, corpus)
-	hideEffectLog(t, fresh)
-}
-
-func TestEffectReceiptBackfillRefusesMissingDigest(t *testing.T) {
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "missing-digest-145.db"), 145)
-	tx, err := db.BeginTx(t.Context(), nil)
-	if err != nil {
+	var storedSeq int64
+	var kind, subjectType, subjectID, actor, digest string
+	var version int
+	if err := s.db.QueryRow(`SELECT effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest FROM effect_receipts WHERE event_id=?`, e.EventID).Scan(&storedSeq, &kind, &subjectType, &subjectID, &actor, &version, &digest); err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version) VALUES('orphan',1,'product.created','product','product','operator',1)`); err != nil {
-		t.Fatal(err)
+	if storedSeq != seq || kind != e.Kind || subjectType != string(e.SubjectType) || subjectID != e.SubjectID || actor != e.Actor || version != e.PayloadVersion || digest != "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a" {
+		t.Fatalf("receipt = %d/%s/%s/%s/%s/%d/%s", storedSeq, kind, subjectType, subjectID, actor, version, digest)
 	}
-	assertFailureKind(t, backfillEffectReceiptDigests(t.Context(), tx), KindInvariantViolation)
-	if err := tx.Rollback(); err != nil {
-		t.Fatal(err)
-	}
-	var count int
-	if err := db.QueryRow(`SELECT count(*) FROM effect_receipts`).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("failed digest backfill escaped rollback: %d, %v", count, err)
-	}
+	hideEffectLog(t, s)
 }
 
 func TestEffectReceiptRollsBackWithAppend(t *testing.T) {

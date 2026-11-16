@@ -212,10 +212,10 @@ func pidJSON(value int) string {
 }
 
 // pendingBreakingStore stops the production migration chain before the
-// breaking floor at 111. Poisoned fixtures add a deliberate collision at 112.
+// breaking floor at 200. Poisoned fixtures reject the first pending step.
 func pendingBreakingStore(t *testing.T, path string, unpoison bool) {
 	t.Helper()
-	seedCLIMigrationPrefix(t, path, 110)
+	seedCLIMigrationPrefix(t, path, 199)
 	if unpoison {
 		return
 	}
@@ -224,7 +224,7 @@ func pendingBreakingStore(t *testing.T, path string, unpoison bool) {
 		t.Fatalf("open raw: %v", err)
 	}
 	defer func() { _ = db.Close() }()
-	if _, err := db.Exec(`CREATE TABLE product_knowledge_sources(fixture_collision INTEGER)`); err != nil {
+	if _, err := db.Exec(`CREATE TRIGGER fixture_reject_migration BEFORE INSERT ON schema_migrations WHEN NEW.version=200 BEGIN SELECT RAISE(ABORT, 'fixture migration failure'); END`); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -261,8 +261,8 @@ func removeMigrationManifestTail(db *sql.DB, from int) error {
 		if version > store.CurrentSchemaVersion() {
 			return fmt.Errorf("unknown fixture migration %d", version)
 		}
-		if version != i+1 {
-			return fmt.Errorf("incomplete fixture manifest: missing migration %d", i+1)
+		if version != i+199 {
+			return fmt.Errorf("incomplete fixture manifest: missing migration %d", i+199)
 		}
 	}
 	if len(versions) == 0 {
@@ -271,7 +271,7 @@ func removeMigrationManifestTail(db *sql.DB, from int) error {
 	if from == 0 {
 		from = versions[len(versions)-1]
 	}
-	if from < 1 || from > versions[len(versions)-1] {
+	if from < 200 || from > versions[len(versions)-1] {
 		return fmt.Errorf("invalid fixture manifest floor %d", from)
 	}
 	if _, err := tx.Exec(`DELETE FROM schema_migrations WHERE version >= ?`, from); err != nil {
@@ -304,7 +304,7 @@ func TestUpgradeFailureClosesItsOwnFenceAndCommitsNothing(t *testing.T) {
 	}
 	blocked := false
 	for _, pending := range plan.PendingBreaking {
-		if pending.Version == 111 {
+		if pending.Version == 200 {
 			blocked = true
 		}
 	}
@@ -353,7 +353,7 @@ func TestUpgradeKeepsTheFenceAfterABreakingCommit(t *testing.T) {
 	}
 	appliedBreaking := false
 	for _, applied := range report.Applied {
-		if applied == 111 {
+		if applied == 200 {
 			appliedBreaking = true
 		}
 	}
@@ -486,7 +486,7 @@ func TestUpgradeRefusesAnUnfenceableLegacyParticipant(t *testing.T) {
 		PidStart:      start,
 		ReleaseRoot:   "/releases/v0.1.0",
 		CoreBinary:    self,
-		SchemaVersion: 110,
+		SchemaVersion: 199,
 		RecordedAt:    "2026-01-01T00:00:00Z",
 	}); err != nil {
 		t.Fatalf("cannot record the legacy lease: %v", err)
@@ -641,7 +641,7 @@ func TestUpgradeCutoverPreCommitFailureClosesFenceWithoutClaimingCommit(t *testi
 			version.Value = stamp
 			t.Cleanup(func() { version.Value = previous })
 			path, root := cliStoreRoot(t)
-			seedCLIMigrationPrefix(t, path, cutoverBaselineSchema)
+			seedCLIMigrationPrefix(t, path, 199)
 			if stamp != version.Development {
 				// The stamped case's static fixture state is the source's own
 				// file mode: an owner-read-only database leaves qualification
@@ -655,7 +655,7 @@ func TestUpgradeCutoverPreCommitFailureClosesFenceWithoutClaimingCommit(t *testi
 			}
 			snapshotBefore := releaseMigrationSnapshot(t, path)
 			before, err := store.PlanUpgradeReadiness(context.Background(), path)
-			if err != nil || before.SchemaVersion != 122 || len(before.PendingBreaking) == 0 {
+			if err != nil || before.SchemaVersion != 199 || len(before.PendingBreaking) == 0 {
 				t.Fatalf("pending breaking fixture = %+v, %v", before, err)
 			}
 			code, out, errOut := runUpgradeStdin(t, `{}`)

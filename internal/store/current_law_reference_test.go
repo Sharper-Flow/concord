@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -201,65 +200,5 @@ func TestCurrentLawDefaultRefPackedAndLinkedWorktree(t *testing.T) {
 		if got, err := resolveKnowledgeHeadCheap(home, ref); err != nil || got != commit {
 			t.Fatalf("default commit=%q, error=%v", got, err)
 		}
-	}
-}
-
-func TestCurrentLawMigrationAccountsDefaultNotFeatureLaw(t *testing.T) {
-	for _, mode := range []string{"default_only", "feature_only", "retarget_after_proof", "default_moves_after_proof"} {
-		t.Run(mode, func(t *testing.T) {
-			repo := initKnowledgeRepo(t)
-			files := map[string]string{}
-			content := fixtureLawFolderLaw(lawIndexCurrentLawID)
-			if mode != "feature_only" {
-				files[lawIndexCurrentPath] = content
-			}
-			defaultHead := writeLawIndexHome(t, repo, files)
-			runKnowledgeGit(t, repo, "update-ref", "--no-deref", "refs/remotes/origin/main", defaultHead)
-			runKnowledgeGit(t, repo, "checkout", "-b", "feature")
-			if mode == "feature_only" {
-				writeKnowledgeFile(t, repo, lawIndexCurrentPath, content)
-			} else {
-				runKnowledgeGit(t, repo, "rm", lawIndexCurrentPath)
-			}
-			featureHead := commitKnowledgeRepo(t, repo, "unmerged feature law inventory")
-			db, _ := lawIndexRetirementFixture(t, repo, defaultHead, []lawIndexSubjectSeed{{lawID: lawIndexCurrentLawID, recordPath: lawIndexCurrentPath, content: content}})
-			before := retirementUpgradeSnapshot(t, db)
-			proof, err := establishLawIndexRetirementProof(t.Context(), db)
-			if mode == "feature_only" {
-				assertFailureKind(t, err, KindUpgradeBlocked)
-			} else {
-				if err != nil {
-					t.Fatal(err)
-				}
-				key := lawIndexHomeKey("project-upgrade", lawIndexRetirementLocator)
-				if proof.heads[key] != defaultHead || proof.defaultRefs[key] != "refs/remotes/origin/main" {
-					t.Fatalf("accounting did not bind the default ref and commit: %+v", proof)
-				}
-				switch mode {
-				case "retarget_after_proof":
-					runKnowledgeGit(t, repo, "update-ref", "refs/remotes/origin/other", defaultHead)
-					runKnowledgeGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/other")
-				case "default_moves_after_proof":
-					runKnowledgeGit(t, repo, "update-ref", "refs/remotes/origin/main", featureHead)
-				}
-				tx, err := db.BeginTx(t.Context(), nil)
-				if err != nil {
-					t.Fatal(err)
-				}
-				err = verifyLawIndexRetirementProof(t.Context(), tx, proof)
-				_ = tx.Rollback()
-				if mode == "default_only" {
-					if err != nil {
-						t.Fatalf("feature checkout invalidated default accounting: %v", err)
-					}
-				} else {
-					assertFailureKind(t, err, KindUpgradeBlocked)
-				}
-			}
-			after := retirementUpgradeSnapshot(t, db)
-			if !reflect.DeepEqual(before, after) {
-				t.Fatal("accounting or refusal mutated the legacy database")
-			}
-		})
 	}
 }

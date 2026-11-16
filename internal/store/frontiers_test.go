@@ -3,10 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -98,42 +95,6 @@ INSERT INTO work_version_actions VALUES('work',3,'second','session',20),('work',
 	want := []InterveningAction{{ActionID: "first", SessionRef: "session"}, {ActionID: "second", SessionRef: "session"}}
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("actions = %v, %v; want %v", got, err, want)
-	}
-}
-
-// CD-0242 D2 retires raw-log writes from the current schema, not migration
-// 146's historical trigger or the live sequence allocation guarantee.
-func TestFrontierHistoricalRawLogInsertAdvancesEffectSequence(t *testing.T) {
-	s := &Store{db: openMigratedTo(t, filepath.Join(t.TempDir(), "raw-log-146.db"), 146)}
-	tx, err := s.db.BeginTx(t.Context(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO domain_events(seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES
- (40,'raw-high','product.renamed','product','product','operator','now',1,'{}'),
- (10,'raw-lower','product.renamed','product','product','operator','now',1,'{}')`); err != nil {
-		t.Fatal(err)
-	}
-	var last int64
-	if err := tx.QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&last); err != nil || last != 40 {
-		t.Fatalf("raw inserts left effect sequence at %d, %v; want 40", last, err)
-	}
-	if seq, err := allocateStoreSequence(t.Context(), tx, "effect"); err != nil || seq != 41 {
-		t.Fatalf("allocation after historical raw inserts = %d, %v; want 41", seq, err)
-	}
-	if err := tx.Rollback(); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.db.QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&last); err != nil || last != 0 {
-		t.Fatalf("rollback retained sequence %d, %v; want 0", last, err)
-	}
-	if _, err := s.db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload)
- VALUES('raw-auto','product.renamed','product','product','operator','now',1,'{}')`); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.db.QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&last); err != nil || last != 1 {
-		t.Fatalf("automatic raw insert left sequence at %d, %v; want 1", last, err)
 	}
 }
 
@@ -233,19 +194,9 @@ INSERT INTO workflow_actors VALUES(?,'principal','client','agent','session','age
 	}
 }
 
-func TestFrontierBackfillParity(t *testing.T) {
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "frontiers-144.db"), 144)
-	if _, err := db.Exec(`INSERT INTO fold_guard VALUES(1);
-INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES
- ('a','task','Frontier A','needed',0,300,'now','now'),('b','task','Frontier B','needed',0,10,'now','now');
-INSERT INTO workflow_actors VALUES(?,'principal','client','agent','session','agent','now');
-DELETE FROM fold_guard`, frontierActor); err != nil {
-		t.Fatal(err)
-	}
-	// Every relation-selection arm, each action join/filter boundary, and
-	// each size basis shape has its own source row and explicit expectation.
+func TestFrontierLiveAllocation(t *testing.T) {
 	type source struct{ id, kind, subject, work, actor, payload string }
-	inputs := []source{
+	corpus := []source{
 		{"relation", "relation.added", "work_item", "a", "operator", `{}`},
 		{"supersede", "work.superseded", "work_item", "a", "operator", `{}`},
 		{"reopen", "work.reopened_from_superseded", "work_item", "b", "operator", `{}`},
@@ -275,117 +226,6 @@ DELETE FROM fold_guard`, frontierActor); err != nil {
 		{"null-action", "workflow.action_started", "work_item", "a", frontierActor, `{"action_id":null,"resulting_version":53}`},
 		{"unassessed-size", "work.sized", "work_item", "a", "operator", `{"review_basis":["proof:unassessed"]}`},
 	}
-	var corpus []histEventRow
-	for i, input := range inputs {
-		row := histEventRow{Seq: int64(i + 1), EventID: input.id, Kind: input.kind, SubjectType: input.subject, SubjectID: input.work, Actor: input.actor, OccurredAt: "1970-01-01T00:00:01Z", Version: 1, Payload: input.payload}
-		corpus = append(corpus, row)
-		if _, err := db.Exec(`INSERT INTO domain_events(seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?,?)`, row.Seq, row.EventID, row.Kind, row.SubjectType, row.SubjectID, row.Actor, row.OccurredAt, row.Version, row.Payload); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := db.Exec(`INSERT INTO fold_guard VALUES(1);
-INSERT INTO work_size_assessments(event_id,work_id,sequence,model_version,size_class,inputs_json,footprint_json,recorded_at) VALUES
- ('size-default','a',1,2,'small','{}','{}','now'),('size-empty','a',2,2,'small','{}','{}','now'),
- ('basis-size','a',3,2,'larger','{}','{}','now'),('other-size','b',1,2,'small','{}','{}','now');
-UPDATE sqlite_sequence SET seq=1000 WHERE name='domain_events';
-DELETE FROM fold_guard`); err != nil {
-		t.Fatal(err)
-	}
-	advanceHistoricalPrefix(t, db, 145)
-	if os.Getenv("TEST_CONCORD_MIGRATION_SELECTION_RED") == "146" {
-		m := migrations[145]
-		m.SQL = strings.Replace(m.SQL, "'relation.added','work.reopened_from_superseded'", "'relation.omitted','work.reopened_from_superseded'", 1)
-		if err := applyMigration(t.Context(), db, m); err != nil {
-			t.Fatal(err)
-		}
-	} else {
-		advanceHistoricalPrefix(t, db, 146)
-	}
-	retired := false
-	assertParity := func() {
-		t.Helper()
-		var retained []histEventRow
-		for _, row := range corpus {
-			if !retired || row.Kind != "work.sized" {
-				retained = append(retained, row)
-			}
-		}
-		assertHistoricalReceipts(t, db, retained)
-		var effect, relation, floorA, floorB, actions int64
-		if err := db.QueryRow(`SELECT (SELECT last FROM store_sequences WHERE name='effect'),(SELECT last FROM store_sequences WHERE name='relation'),(SELECT version_actions_floor FROM work_items WHERE id='a'),(SELECT version_actions_floor FROM work_items WHERE id='b'),(SELECT count(*) FROM work_version_actions)`).Scan(&effect, &relation, &floorA, &floorB, &actions); err != nil || effect != 1000 || relation != 6 || floorA != 44 || floorB != 0 || actions != 3 {
-			t.Fatalf("146 selection: effect/relation/floors/actions=%d/%d/%d/%d/%d, %v; want 1000/6/44/0/3", effect, relation, floorA, floorB, actions, err)
-		}
-		for i, row := range corpus {
-			if retired && row.Kind == "work.sized" {
-				continue
-			}
-			var got sql.NullInt64
-			if err := db.QueryRow(`SELECT relation_seq FROM effect_receipts WHERE event_id=?`, row.EventID).Scan(&got); err != nil || got.Valid != (i < 6) || (got.Valid && got.Int64 != int64(i+1)) {
-				t.Fatalf("146 relation %s = %v, %v", row.EventID, got, err)
-			}
-		}
-		for _, want := range []struct {
-			id, action, work string
-			version, seq     int64
-		}{{"new-action", "new", "a", 45, 13}, {"started-action", "started", "a", 46, 14}, {"other-work", "other", "b", 2, 22}} {
-			var session string
-			var seq int64
-			if err := db.QueryRow(`SELECT session_ref,effect_seq FROM work_version_actions WHERE work_id=? AND resulting_version=? AND action_id=?`, want.work, want.version, want.action).Scan(&session, &seq); err != nil || session != "session" || seq != want.seq {
-				t.Fatalf("146 action %s = %s/%d, %v", want.id, session, seq, err)
-			}
-		}
-		if !retired {
-			for _, want := range []struct {
-				id, basis string
-				seq       int64
-			}{{"size-default", "[]", 23}, {"size-empty", "[]", 24}, {"basis-size", `["proof:one","proof:two"]`, 25}, {"other-size", `["proof:other"]`, 26}} {
-				var seq int64
-				var basis string
-				if err := db.QueryRow(`SELECT effect_seq,review_basis FROM work_size_assessments WHERE event_id=?`, want.id).Scan(&seq, &basis); err != nil || seq != want.seq || basis != want.basis {
-					t.Fatalf("146 size %s = %d/%s, %v", want.id, seq, basis, err)
-				}
-			}
-		}
-		got, err := interveningWorkflowActions(t.Context(), db, SubjectWorkItem, "a", 44, 300)
-		if err != nil || !reflect.DeepEqual(got, []InterveningAction{{ActionID: "new", SessionRef: "session"}, {ActionID: "started", SessionRef: "session"}}) {
-			t.Fatalf("action reader = %v, %v", got, err)
-		}
-		_, err = interveningWorkflowActions(t.Context(), db, SubjectWorkItem, "a", 43, 300)
-		assertFailureKind(t, err, KindLimitExceeded)
-	}
-	assertParity()
-	if got := histEventRows(t, &Store{db: db}); !reflect.DeepEqual(got, corpus) {
-		t.Fatalf("146 changed source envelopes: %+v", got)
-	}
-	for range 2 {
-		if err := Migrate(outcomeSnapshotContext(t, t.Context(), db), db); err != nil {
-			t.Fatal(err)
-		}
-		retired = true
-		assertParity()
-		hideEffectLog(t, &Store{db: db})
-	}
-	tx, err := db.BeginTx(t.Context(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if position, err := relationIdentity(t.Context(), tx, Event{EventID: "reopen"}); err != nil || position != 3 {
-		t.Fatalf("backfilled relation reader = %d, %v", position, err)
-	}
-	for _, id := range []string{"basis-size", "missing"} {
-		_, err := relationIdentity(t.Context(), tx, Event{EventID: id})
-		assertFailureKind(t, err, KindInvariantViolation)
-	}
-	if seq, err := AppendEvent(t.Context(), tx, testEvent()); err != nil || seq != 1001 {
-		t.Fatalf("append after historical high water = %d, %v", seq, err)
-	}
-	if err := tx.Rollback(); err != nil {
-		t.Fatal(err)
-	}
-	assertParity()
-	// The same explicit corpus also exercises live relation allocation. It
-	// cannot derive expected positions from the implementation under test.
 	fresh := openTemp(t)
 	for _, id := range []string{"a", "b"} {
 		seedWork(t, fresh, id)
@@ -400,7 +240,7 @@ DELETE FROM write_guard`, frontierActor); err != nil {
 	if err := fresh.db.QueryRow(`SELECT last FROM store_sequences WHERE name='effect'`).Scan(&livePrefix); err != nil {
 		t.Fatal(err)
 	}
-	tx, err = fresh.db.BeginTx(t.Context(), nil)
+	tx, err := fresh.db.BeginTx(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,22 +248,19 @@ DELETE FROM write_guard`, frontierActor); err != nil {
 	if err := enterWrite(t.Context(), tx); err != nil {
 		t.Fatal(err)
 	}
-	// The historical backfill has a frozen kind set; live allocation uses
-	// the current relation identity kinds.
 	liveIdentity := map[int]int64{0: 1, 3: 2, 4: 3, 5: 4}
 	for i, row := range corpus {
-		e := Event{EventID: row.EventID, Kind: row.Kind, SubjectType: SubjectType(row.SubjectType), SubjectID: row.SubjectID, Actor: row.Actor, PayloadVersion: row.Version, Payload: []byte(row.Payload)}
-		if seq, err := appendPreparedEvent(t.Context(), tx, e); err != nil || seq != livePrefix+row.Seq {
-			t.Fatalf("live effect %s = %d, %v", row.EventID, seq, err)
+		e := Event{EventID: row.id, Kind: row.kind, SubjectType: SubjectType(row.subject), SubjectID: row.work, Actor: row.actor, PayloadVersion: 1, Payload: []byte(row.payload)}
+		if seq, err := appendPreparedEvent(t.Context(), tx, e); err != nil || seq != livePrefix+int64(i+1) {
+			t.Fatalf("live effect %s = %d, %v", row.id, seq, err)
 		}
 		var got sql.NullInt64
 		want, identity := liveIdentity[i]
-		if err := tx.QueryRow(`SELECT relation_seq FROM effect_receipts WHERE event_id=?`, row.EventID).Scan(&got); err != nil || got.Valid != identity || (got.Valid && got.Int64 != want) {
-			t.Fatalf("live relation %s = %v, %v", row.EventID, got, err)
+		if err := tx.QueryRow(`SELECT relation_seq FROM effect_receipts WHERE event_id=?`, row.id).Scan(&got); err != nil || got.Valid != identity || (got.Valid && got.Int64 != want) {
+			t.Fatalf("live relation %s = %v, %v", row.id, got, err)
 		}
 	}
-	// Exercise the live action writer, including pruned and unrecorded actors,
-	// then compare the exact surviving rows with the historical migration.
+	// Exercise the live action writer, including pruned and unrecorded actors.
 	for _, action := range []struct {
 		id, work, actor, name string
 		version, seq          int64
@@ -446,13 +283,6 @@ DELETE FROM write_guard`, frontierActor); err != nil {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	// Parent fixture effects precede these corpus effects on the fresh store.
-	// Compare the action records rather than unrelated parent receipts.
-	liveCorpus := append([]histEventRow(nil), corpus...)
-	for i := range liveCorpus {
-		liveCorpus[i].Seq += livePrefix
-	}
-	assertHistoricalReceipts(t, fresh.db, liveCorpus)
 	var liveActions int
 	if err := fresh.db.QueryRow(`SELECT count(*) FROM work_version_actions`).Scan(&liveActions); err != nil || liveActions != 3 {
 		t.Fatalf("live action count = %d, %v; want 3", liveActions, err)
@@ -468,14 +298,14 @@ DELETE FROM write_guard`, frontierActor); err != nil {
 		}
 	}
 	for _, work := range []string{"a", "b"} {
-		for _, database := range []*sql.DB{db, fresh.db} {
+		for _, database := range []*sql.DB{fresh.db} {
 			got, err := interveningWorkflowActions(t.Context(), database, SubjectWorkItem, work, map[string]int64{"a": 44, "b": 0}[work], 300)
 			want := []InterveningAction{{ActionID: "other", SessionRef: "session"}}
 			if work == "a" {
 				want = []InterveningAction{{ActionID: "new", SessionRef: "session"}, {ActionID: "started", SessionRef: "session"}}
 			}
 			if err != nil || !reflect.DeepEqual(got, want) {
-				t.Fatalf("live/backfill actions for %s = %v, %v; want %v", work, got, err, want)
+				t.Fatalf("live actions for %s = %v, %v; want %v", work, got, err, want)
 			}
 		}
 	}

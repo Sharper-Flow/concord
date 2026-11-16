@@ -158,8 +158,7 @@ type UpgradeReport struct {
 	// Applied lists the migration versions this call applied, in order.
 	Applied []int `json:"applied"`
 	// SchemaVersion is the highest applied migration after the call.
-	SchemaVersion  int    `json:"schema_version"`
-	ResearchExport string `json:"research_export,omitempty"`
+	SchemaVersion int `json:"schema_version"`
 }
 
 // Upgrade applies every pending migration, breaking steps included. It refuses
@@ -167,7 +166,7 @@ type UpgradeReport struct {
 // breaking step, naming each session and the release it holds, and writes
 // nothing in that case. An unstamped build refuses pending migrations in an
 // existing store and applies them only to a fresh store.
-func Upgrade(ctx context.Context, path string, held []HeldSchema, options ...UpgradeOptions) (UpgradeReport, error) {
+func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport, error) {
 	s, err := openUnmigrated(ctx, path)
 	if err != nil {
 		return UpgradeReport{}, err
@@ -189,14 +188,6 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema, options ...Upg
 		}
 	}
 	var after map[int]appliedMigration
-	ctx, researchExport, err := prepareResearchRetirementUpgrade(ctx, before, options)
-	if err != nil {
-		return UpgradeReport{}, fmt.Errorf("research export failed; no migration was applied: %w", err)
-	}
-	ctx, err = prepareOutcomeRetirementUpgrade(ctx, before, options)
-	if err != nil {
-		return UpgradeReport{}, err
-	}
 	if version.Value == version.Development && !unstampedFresh {
 		after = before
 	} else {
@@ -216,7 +207,7 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema, options ...Upg
 	if err := s.finishOpen(ctx); err != nil {
 		return UpgradeReport{}, err
 	}
-	report := UpgradeReport{Applied: []int{}, ResearchExport: researchExport}
+	report := UpgradeReport{Applied: []int{}}
 	for _, m := range migrations {
 		if _, was := before[m.Version]; was {
 			continue
@@ -231,25 +222,6 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema, options ...Upg
 		}
 	}
 	return report, nil
-}
-
-// prepareResearchRetirementUpgrade runs the verified research export before
-// any pending migration applies, when the caller supplied a snapshot path and
-// the retirement migration is pending. The returned context carries the proof
-// migration 184 re-checks inside its transaction.
-func prepareResearchRetirementUpgrade(ctx context.Context, before map[int]appliedMigration, options []UpgradeOptions) (context.Context, string, error) {
-	for _, option := range options {
-		if option.SnapshotPath == "" {
-			continue
-		}
-		for _, pending := range pendingBreaking(before) {
-			if pending.Name != researchRetirementMigration {
-				continue
-			}
-			return prepareResearchRetirement(ctx, option.SnapshotPath, option.SnapshotPath+".research")
-		}
-	}
-	return ctx, "", nil
 }
 
 // CheckUpgradeSessions is the upgrade gate: a breaking step never applies
@@ -281,14 +253,13 @@ func CheckUpgradeSessions(pending []PendingMigration, held []HeldSchema) error {
 }
 
 // manifestVersions reads the applied manifest; a database with no manifest
-// table reads as empty. A manifest that predates the breaking column cannot
-// be read at all, so the additive repair runs first — the same one every
-// migration pass applies — never a migration step.
+// table reads as empty. A manifest lacking the compatibility column is read
+// only to identify an unsupported historical store.
 func manifestVersions(ctx context.Context, db *sql.DB) (map[int]appliedMigration, error) {
 	var present string
 	err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='schema_migrations'`).Scan(&present)
 	if err == sql.ErrNoRows {
-		return map[int]appliedMigration{}, nil
+		return map[int]appliedMigration{}, requireEmptySchema(ctx, db)
 	}
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "upgrade", "cannot inspect the schema manifest", true,
@@ -296,42 +267,15 @@ func manifestVersions(ctx context.Context, db *sql.DB) (map[int]appliedMigration
 	}
 	applied, err := appliedMigrations(ctx, db)
 	if err == nil {
-		return applied, nil
+		if len(applied) == 0 {
+			return nil, unknownManifest()
+		}
+		return applied, checkManifest(applied)
 	}
 	if !strings.Contains(err.Error(), "no such column: breaking") {
 		return nil, err
 	}
-	if err := repairManifestBreakingColumn(ctx, db); err != nil {
-		return nil, err
-	}
-	return appliedMigrations(ctx, db)
-}
-
-// repairManifestBreakingColumn re-adds the compatibility column an older
-// binary's manifest lacks. It is additive and idempotent: no migration step
-// applies, and the column's default marks every recorded row breaking, which
-// is the conservative read the manifest check expects.
-func repairManifestBreakingColumn(ctx context.Context, db *sql.DB) error {
-	write, err := beginWriteTx(ctx, db, nil, schemaWriteAdmission)
-	if err != nil {
-		return wrapFailure(KindUnavailable, "upgrade", "cannot begin the manifest repair", true,
-			"retry once the database is writable", err)
-	}
-	tx := write.Tx
-	if _, err := tx.ExecContext(ctx, schemaManifestDDL); err != nil {
-		var cause error = wrapFailure(KindUnavailable, "upgrade", "cannot create the schema manifest", true,
-			"check database permissions", err)
-		write.finish(&cause)
-		return cause
-	}
-	if err := ensureManifestBreakingColumn(ctx, tx); err != nil {
-		write.finish(&err)
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return ordinaryCommitFailure(ctx, write, "upgrade", "cannot commit the manifest repair", err)
-	}
-	return nil
+	return legacyManifestMigrations(ctx, db)
 }
 
 // openUnmigrated prepares the file, the directory, and the connection without
@@ -343,6 +287,9 @@ func openUnmigrated(ctx context.Context, path string) (*Store, error) {
 			"pass a database path or use DefaultPath")
 	}
 	if err := AdmitStorePath(path); err != nil {
+		return nil, err
+	}
+	if err := preflightExistingStore(ctx, path); err != nil {
 		return nil, err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil { //nolint:gosec // path is the explicit operator-selected authority path and private permissions constrain its parent.
@@ -366,6 +313,25 @@ func openUnmigrated(ctx context.Context, path string) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+func preflightExistingStore(ctx context.Context, path string) error {
+	if _, err := os.Stat(path); err != nil { //nolint:gosec // path is the explicit operator-selected authority path AdmitStorePath already admitted.
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return wrapFailure(KindUnavailable, "open", "cannot inspect the database path", true, "check the database path and permissions", err)
+	}
+	db, err := openReadonlyStore(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	applied, fresh, err := readAppliedFromDB(ctx, db, path)
+	if err != nil || fresh {
+		return err
+	}
+	return checkManifest(applied)
 }
 
 // finishOpen runs the post-migration steps every opener shares: the stranded

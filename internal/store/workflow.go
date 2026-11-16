@@ -31,11 +31,9 @@ const (
 	WorkflowEvidenceBound      = "workflow.evidence_bound"
 	WorkflowPremiseConfirmed   = "workflow.premise_confirmed"
 	WorkflowSuccessorLinked    = "workflow.successor_linked"
-	// WorkflowWorkContextRecorded is read only by frozen migration replay.
-	WorkflowWorkContextRecorded = "workflow.work_context_recorded"
-	WorkflowDiagnosisRecorded   = "workflow.diagnosis_recorded"
-	WorkflowDeliveryCorrected   = "workflow.delivery_corrected"
-	WorkflowCompleted           = "workflow.completed"
+	WorkflowDiagnosisRecorded  = "workflow.diagnosis_recorded"
+	WorkflowDeliveryCorrected  = "workflow.delivery_corrected"
+	WorkflowCompleted          = "workflow.completed"
 )
 
 type WorkflowVersionFields struct {

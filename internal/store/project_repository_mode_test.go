@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 )
 
@@ -83,42 +82,6 @@ func TestProjectRepositoryModeSQLDefault(t *testing.T) {
 	if _, err := tx.Exec(`UPDATE projects SET repository_mode='invalid' WHERE id='raw'`); err == nil {
 		t.Fatal("invalid mode passed SQL constraint")
 	}
-}
-
-func TestProjectRepositoryModeBackupUpgrade(t *testing.T) {
-	useStampedBuild(t)
-	ctx := context.Background()
-	root := t.TempDir()
-	source := filepath.Join(root, "source.db")
-	db := openMigratedTo(t, source, migrationPrefixBefore(t, "project_repository_mode"))
-	if _, err := db.Exec(`INSERT INTO write_guard(active) VALUES (1); INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('product','Product','prototype','operator_only',1,'t','t'); INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('old','Old',1,'t','t'); INSERT INTO product_projects(product_id,project_id,role) VALUES('product','old','primary'); DELETE FROM write_guard`); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	snapshot := filepath.Join(root, "snapshot.db")
-	manifest, err := BackupDatabase(ctx, source, snapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if manifest.SchemaVersion != 190 {
-		t.Fatalf("snapshot schema=%d", manifest.SchemaVersion)
-	}
-	destination := filepath.Join(root, "restored.db")
-	report, err := RestoreBackup(ctx, snapshot, destination)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if report.RestoredDatabase.SchemaVersion != CurrentSchemaVersion() {
-		t.Fatalf("restored schema=%d", report.RestoredDatabase.SchemaVersion)
-	}
-	restored, err := Open(ctx, destination)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer restored.Close()
-	assertRepositoryMode(t, restored, "old", "off", 1)
 }
 
 func assertRepositoryMode(t *testing.T, s *Store, id, want string, wantVersion int64) string {

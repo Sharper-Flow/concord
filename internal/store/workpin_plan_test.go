@@ -7,8 +7,7 @@ import (
 
 func TestWorkPinPlanProjection(t *testing.T) {
 	useStampedBuild(t)
-	db, _ := terminalStepsMigrationFixture(t)
-	advanceHistoricalPrefix(t, db, 183)
+	db := terminalStepsMigrationFixture(t)
 	ctx := t.Context()
 	const id = "work-upgrade-to"
 	set := func(prelude any, plan *WorkflowStepPlan) {

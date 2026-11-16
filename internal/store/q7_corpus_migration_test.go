@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"testing"
 )
 
@@ -51,50 +50,11 @@ func q7ExplicitCorpus(t *testing.T) historicalFactCorpus {
 		c.events = append(c.events, e)
 	}
 	c.parents = func(t *testing.T, s *Store, guard string) {
-		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts"}, map[string]map[string]string{
+		copyCurrentCorpusParents(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts"}, map[string]map[string]string{
 			"work_items":         {"priority": "0", "urgency": "'standard'", "lifecycle": "'needed'", "transition_from": "NULL", "transition_reason": "''", "transition_actor": "''", "transition_evidence_refs": "'[]'", "transition_seq": "0", "transition_version": "1"},
 			"workflow_instances": {"outside_repair_state": "NULL", "definition_ref": "'workflow.research'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "current_step": "'findings'", "result_disposition": "''", "latest_non_dispatch_start_seq": "0", "unhealthy_verdict_seq": "0"}, "workflow_contracts": {"premise": "'retired historical fixture'", "route_conventions": "'[]'", "rigor_class": "'prototype_internal'", "decision_domains": "NULL", "required_evidence": "'[]'", "definition_ref": "'workflow.research'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "law_change": "NULL"},
 		}, guard)
 		corpusWorkParents(t, s, guard, "q7-corpus-related", "q7-corpus-next", "q7-start-only")
-		if guard != "fold_guard" {
-			return
-		}
-		if _, err := s.db.Exec(`INSERT INTO fold_guard VALUES(1)`); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := s.db.Exec(`UPDATE work_items SET lifecycle=CASE id WHEN 'q7-start-only' THEN 'in_progress' ELSE 'superseded' END WHERE id IN ('q7-corpus','q7-corpus-related','q7-start-only')`); err != nil {
-			t.Fatal(err)
-		}
-		// Relation identity is the source effect's position, including gaps
-		// reserved by lifecycle/overlap effects that insert no standing edge.
-		var ordinal int
-		for i, e := range c.events {
-			var source map[string]any
-			if err := json.Unmarshal(e.Payload, &source); err != nil {
-				t.Fatal(err)
-			}
-			if e.Kind == "work.created" && source["raised_from_work_id"] != nil || e.Kind == WorkflowOverlapResolved || e.Kind == "relation.added" || e.Kind == "workflow.successor_linked" {
-				ordinal++
-			}
-			if e.Kind == WorkflowActionCompleted {
-				if _, err := s.db.Exec(`INSERT INTO workflow_phase_exits(work_id,action_id,exit_seq) VALUES(?,'checkpoint_context',?)`, work, i+1); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if e.Kind != "relation.added" && e.Kind != "workflow.successor_linked" {
-				continue
-			}
-			to, kind := "q7-corpus-related", "depends_on"
-			if e.Kind == "workflow.successor_linked" {
-				to, kind = "q7-corpus-next", "forward_link"
-			}
-			if _, err := s.db.Exec(`INSERT INTO relations(id,work_id_from,work_id_to,kind,created_at) VALUES(?,?,?,?,?)`, ordinal, work, to, kind, e.OccurredAt); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if _, err := s.db.Exec(`DELETE FROM fold_guard`); err != nil {
-			t.Fatal(err)
-		}
 	}
 	c.write = func(ctx context.Context, tx *sql.Tx, e Event) error {
 		var p struct {
@@ -157,26 +117,4 @@ func assertQ7Corpus150(t *testing.T) {
 	if err != nil || plan == nil || plan.Type != WorkflowStepPlanResearch || len(plan.Steps) != 4 || len(plan.Steps[0].Attempts) != 1 || len(plan.Steps[1].Attempts) != 1 || len(plan.Steps[2].Attempts) != 0 {
 		t.Fatalf("current plan attempts: plan=%+v err=%v", plan, err)
 	}
-	old := c.prefix(t, 149)
-	queries := []string{
-		`SELECT json_array(id,transition_from,transition_reason,transition_actor,transition_evidence_refs,transition_seq,transition_version) FROM work_items ORDER BY id`,
-		`SELECT json_array(id,reason,record_version) FROM relations ORDER BY id`,
-	}
-	want := workerFactsQueryRows(t, live, queries)
-	if err := Migrate(outcomeSnapshotContext(t, t.Context(), old.db), old.db); err != nil {
-		t.Fatal(err)
-	}
-	plan, err = readWorkflowPlanTx(t.Context(), old.db, "q7-corpus")
-	if err != nil || plan != nil {
-		t.Fatalf("migrated historical plan: plan=%+v err=%v", plan, err)
-	}
-	if got := workerFactsQueryRows(t, old, queries); !reflect.DeepEqual(got, want) {
-		for i := range queries {
-			if !reflect.DeepEqual(got[i], want[i]) {
-				t.Errorf("150 %s: got %v want %v", queries[i], got[i], want[i])
-			}
-		}
-		t.FailNow()
-	}
-	assertCorpusSelectionRed(t, c, 150, "WHERE first_start=1", "WHERE first_start=2", queries, want)
 }

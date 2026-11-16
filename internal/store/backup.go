@@ -112,14 +112,7 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 			_ = conn.Close()
 		}
 	}()
-	applied, fresh, err := readAppliedFromDB(ctx, conn, s.path)
-	if err != nil {
-		return manifest, err
-	}
-	if fresh {
-		return manifest, unknownManifest()
-	}
-	if err := checkManifest(applied); err != nil {
+	if err := refuseUnsupportedBackupSource(ctx, conn, s.path); err != nil {
 		return manifest, err
 	}
 	if err := validateBackupDestination(s.Path(), destination); err != nil {
@@ -212,6 +205,17 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 		return BackupManifest{}, err
 	}
 	return manifest, nil
+}
+
+func refuseUnsupportedBackupSource(ctx context.Context, conn beginTxSource, path string) error {
+	applied, fresh, err := readAppliedFromDB(ctx, conn, path)
+	if err != nil {
+		return err
+	}
+	if fresh {
+		return unknownManifest()
+	}
+	return checkManifest(applied)
 }
 
 // VerifyBackup validates the snapshot and its manifest. The optional maximum

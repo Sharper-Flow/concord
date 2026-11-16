@@ -112,12 +112,14 @@ authorizes deleting an edge.
 
 ## Synthetic evidence
 
-[relation_recovery_research_test.go](../../../internal/store/relation_recovery_research_test.go)
-contains disposable fixtures, not production observations. The historical
-fixture starts at schema 144, advances through 150, and migrates to current.
-The test scaffolding copies the disposable fixture and supplies its checksum and
-state digest, which the migration rechecks before capture retirement; it skips
-the upgrade command's backup verifier. This is not evidence of a production
+The synthetic-evidence fixture lived in a store replay test that started at
+schema 144, advanced through 150, and migrated to current. The schema-199
+supported-history floor (CD-0082 D4, PR #2447) retired the replay engine, so
+the fixture no longer exists; this section records what it showed. The
+fixtures were disposable, not production observations. The test scaffolding
+copied the disposable fixture and supplied its checksum and state digest,
+which the migration rechecked before capture retirement; it skipped the
+upgrade command's backup verifier. This is not evidence of a production
 backup.
 A synthetic ID gap shifts a retained edge against two same-source/kind
 events; the intended first event and the numeric second event have distinct

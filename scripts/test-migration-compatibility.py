@@ -7,7 +7,7 @@ wrong "additive" verdict is silent corruption, so the classifier's boundary
 cases are pinned here rather than left to the live schema, which happens to
 exercise only some of them.
 
-The FoldMaintained rules above RULE_FLOOR are pinned here too. A declaration
+The FoldMaintained rules are pinned here too. A declaration
 is the author's signed claim beside the SQL, and the checker's whole authority
 over it is these cases: the closed vocabulary, the required declaration on a
 pre-existing column add, the breaking consequence of "advance", and the
@@ -107,12 +107,11 @@ expect_evaluate(
     breaking=[],
 )
 
-# Migrations at or below the floor predate the field and keep the older
-# contract: migration 108 itself stays untouched.
+# Every migration is held to the same fold-maintenance rule.
 expect_evaluate(
-    "floor version keeps the older contract",
+    "fold rule has no historical exemption",
     check.migrations(fold_source(entry(108, ADD_COLUMN_SQL))),
-    failures=0,
+    failures=1,
     breaking=[],
 )
 
@@ -1703,14 +1702,14 @@ expect_evaluate(
 )
 
 
-# Destructive JSON writes are enforced only after the published schema 174.
+# Destructive JSON writes always require a breaking declaration.
 JSON_REMOVAL_SQL = "UPDATE existing SET payload=json_remove(payload, '$.retired');"
 for version in (103, 174):
     expect_evaluate(
-        f"historical JSON removal keeps its additive declaration at {version}",
+        f"JSON removal has no historical exemption at {version}",
         check.migrations(fold_source(entry(version, JSON_REMOVAL_SQL))),
-        failures=0,
-        breaking=[],
+        failures=1,
+        breaking=[version],
     )
 for version in (175, 176, 200):
     for declared in (False, True):
@@ -1775,61 +1774,11 @@ for name, sql in (
         breaking=[175],
     )
 
-# Clarification record migration (189) sets the live compatibility floor: it
-# moves stored clarification out of the prelude and needs current writers.
-# Context continuity retirement (188) also constrains older binaries: it
-# drops the context checkpoint and boundary tables older binaries read and write.
-# Outcome contract retirement (185) drops the outcome predicate, verdict and
-# Review state tables and rebuilds
-# workflow_contracts without required_evidence, which older binaries still
-# read and write. Research retirement (184) drops the active research tables.
-# Law attribution retirement (180) drops
-# the owning-start law baseline and the law_change contract column. Work
-# side-channel retirement (179) drops work_messages and work_observations,
-# which older binaries still fold and read, so it also constrains older
-# binaries, beside atomic operation rebuild (178), terminal retirement (177),
-# law pin (176), and JSON member retirement (175).
-# Law index retirement (174) also constrains older binaries: older
-# binaries still read and rebuild the dropped law index, publication
-# observation and Domain registry projection tables.
-# Worktree ownership retirement (173) also constrains older binaries, which
-# still name the dropped ownership and relocation tables.
-# Domain Shape retirement (172) also constrains older knowledge rebuilds
-# that name its five dropped derived tables.
-# Verification retirement (171), size retirement (170) and the checkpoint
-# step-kind CHECK rebuild (169) also constrain older binaries.
-# The conflict application evidence table (162), which the recorder maintains
-# per effect, requires current writers. The ordinary-consent CHECK
-# rebuilds (160) and the six-class decision-domain column replacement (159)
-# also constrain older binaries. The operator approval system removal (168)
-# drops the approval tables, drops the overlap approval_ref column, and
-# rebuilds the outside-repair tables, so it also constrains older binaries.
-# Member-scoped claims and sole group admission ownership (155) also require
-# current writers; current writers no longer use the dropped job columns.
-# Native claim generations (154) also require current writers.
-# Terminal execution cleanup (153) also requires current writers.
-# Workflow content identity (152) also requires current writers.
-# Q7 current-state metadata (150) also requires current writers.
-# Admission facts (149), effect sequences and version-action retention (146),
-# per-effect receipt and observation tables (145), and
-# session relocation facts (141) also require current writers.
-# The worker current-facts columns (139), which the store advances as later
-# writes apply, also constrain older binaries. The work-size retirement
-# (136) and the overlap routine-resolution CHECK rebuild (134) also
-# constrain older binaries. Remote locator identity v2
-# (128), the worker-attempt CHECK rebuild (126), and native lease plan-pair
-# triggers (125) also constrain older binaries. The
-# planning retirement (124) also constrains older binaries. The
-# research retirement delete guard (123) constrains older binaries' writes
-# to active_research_packs. Initiative maintenance triggers (120) and the
-# outside-repair terminal instance rebuild (121) also classify as breaking.
-# The earlier compound-CHECK rebuilds stay breaking too.
+# The retained manifest applies to a baseline, not an empty database.
 with open(check.SCHEMA, encoding="utf-8", newline="") as handle:
     live_source = handle.read()
-retirement_version, retirement_sql = next(
-    (version, sql) for version, declaration, sql in check.migrations(live_source)
-    if check.field_run(declaration, "Name")[0].text == '"retire_defect_intake"'
-)
+retirement_version = 200
+retirement_sql = "DELETE FROM workflow_instances WHERE id='retired'; UPDATE work_items SET intent_json=json_remove(intent_json,'$.defect');"
 data_only_sql = ";\n".join(
     statement for statement in check.statements(retirement_sql)
     if not check.destructive_json_write(statement)
@@ -1846,22 +1795,44 @@ expect_evaluate(
     failures=1,
     breaking=[retirement_version],
 )
-live_failures, live_breaking = check.evaluate(check.migrations(live_source))
+with open(check.SCHEMA.with_name("schema_baseline.go"), encoding="utf-8", newline="") as handle:
+    live_baseline = check.baseline_sql(handle.read())
+if not live_baseline:
+    FAILURES.append("live baseline literal not found")
+live_failures, live_breaking = check.evaluate(check.migrations(live_source), live_baseline)
 if live_failures:
     FAILURES.append(f"live manifest drew refusals: {live_failures}")
-required_breaking = {110, 111, 119, 120, 121, 123, 124, 125, 126, 128, 134, 136, 137, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 188, 189, 190, 191, 192, 197, 198, 199, 200, 201}
-historical_declared = {
-    version for version, declaration, _ in check.migrations(live_source)
-    if version <= 174 and check.declares_breaking(declaration)
-}
-if {version for version in live_breaking if version <= 174} != historical_declared:
-    FAILURES.append("JSON-removal enforcement changed historical compatibility declarations")
+required_breaking = {199, 200, 201}
 if max(live_breaking, default=0) != max(required_breaking):
     FAILURES.append(
         f"live compatibility floor moved: {max(live_breaking, default=0)}")
 if not required_breaking.issubset(live_breaking):
     FAILURES.append(
         f"required migrations left breaking: {live_breaking}")
+
+with tempfile.TemporaryDirectory() as tmp:
+    schema, baseline = Path(tmp) / "schema.go", Path(tmp) / "baseline.go"
+    schema.write_text(fold_source(entry(199, "CREATE TABLE known_index (id INTEGER);")))
+    baseline.write_text("const schemaBaseline198 = `CREATE TABLE parent(id INTEGER); CREATE INDEX known_index ON parent(id);`\n")
+    old_schema = check.SCHEMA
+    check.SCHEMA, check.BASELINE = schema, baseline
+    try:
+        if check.main() == 0:
+            FAILURES.append("baseline dependent object collision was not refused")
+    finally:
+        check.SCHEMA = old_schema
+
+broken_baseline, _ = check.evaluate([], "CREATE TABLE broken(; ")
+if not any("baseline cannot be replayed" in failure for failure in broken_baseline):
+    FAILURES.append("invalid baseline did not fail closed")
+for source, expected in (
+    ("const schemaBaseline198 = `SELECT\r\n1;`\n", "SELECT\n1;"),
+    ("// const schemaBaseline198 = `decoy`\nconst schemaBaseline198 = `SELECT 1;`\n", "SELECT 1;"),
+    ("const schemaBaseline198 = `SELECT 1;` + `SELECT 2;`\n", ""),
+    ("const schemaBaseline198 = \"SELECT 1;\"\n", ""),
+):
+    if check.baseline_sql(source) != expected:
+        FAILURES.append(f"baseline literal parsing failed for {source!r}")
 
 
 def main() -> int:

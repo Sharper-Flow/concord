@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -550,51 +551,25 @@ func TestBackupRestorePreservesLivingEvidence(t *testing.T) {
 	}
 }
 
-// TestBackupRestoreDoesNotInterpretHistoryPayloads checks that snapshot and
-// restore copy retained rows without interpreting historical mutation payloads.
+// TestBackupRestoreDoesNotInterpretHistoryPayloads checks that recovery retains
+// the digest of a historical payload without interpreting it or changing
+// materialized Product rows.
 func TestBackupRestoreDoesNotInterpretHistoryPayloads(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	// This payload is deliberately not a valid mutation. Current-state recovery
-	// must not run it or use it to replace the materialized Product rows.
+	// The payload is not a valid mutation. Only its digest is retained.
 	invalid := Event{EventID: "gate-invalid", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "gate-product", Actor: "tester", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(map[string]any{"id": "gate-product", "display_name": "whatever", "bogus_field": true})}
-	path := filepath.Join(t.TempDir(), "historical-backup.db")
-	db := openMigratedTo(t, path, 144)
-	valid := []Event{productCreatedEvent("gate-product", "gate-product-created"), locatorProjectEvent("gate-project"), locatorMembershipEvent("gate-product", "gate-project")}
-	insertHistoricalEvents(t, db, append(valid, invalid))
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	for i, event := range valid {
-		event.Seq = int64(i + 1)
-		if err := applyEffect(ctx, tx, event); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	s, err := Open(ctx, path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := openTemp(t)
 	defer s.Close()
+	valid := []Event{productCreatedEvent("gate-product", "gate-product-created"), locatorProjectEvent("gate-project"), locatorMembershipEvent("gate-product", "gate-project")}
+	if err := ApplyOperation(ctx, s, Operation{Events: valid}); err != nil {
+		t.Fatal(err)
+	}
 	wantDigest, err := effectPayloadDigest(invalid.Payload)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO write_guard(active) VALUES(1); INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version,payload_digest) VALUES(?,4,?,?,?,?,?,?); UPDATE store_sequences SET last=4 WHERE name='effect'; DELETE FROM write_guard`, invalid.EventID, invalid.Kind, invalid.SubjectType, invalid.SubjectID, invalid.Actor, invalid.PayloadVersion, wantDigest); err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
@@ -712,7 +687,14 @@ func TestBackupVerifiesAnOlderSchemaOnlyUnderAStampedBuild(t *testing.T) {
 	}
 	// The staging copy refuses inside its migration transaction; the carrier
 	// is read from that transaction's manifest.
-	assertUnstampedRefusal(t, err, applied)
+	var refusal *Failure
+	if !errors.As(err, &refusal) {
+		t.Fatalf("development refusal = %v, want typed failure", err)
+	}
+	wantDetail := fmt.Sprintf("unstamped development build refuses schema migration for an existing store at schema version %d (%q); this build would apply %d pending migration(s) from %d %q, %d breaking; the store does not record which release applied its migrations", 199, migrations[0].Name, 2, 200, migrations[1].Name, 2)
+	if refusal.Detail != wantDetail {
+		t.Fatalf("development refusal detail = %q, want %q", refusal.Detail, wantDetail)
+	}
 	for _, candidate := range []string{devSnapshot, manifestPath(devSnapshot)} {
 		if _, err := os.Stat(candidate); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("refused development backup left %s: %v", candidate, err)
@@ -803,11 +785,7 @@ func TestInterruptedBackupVerificationDiscardsSnapshotAndStaging(t *testing.T) {
 	assertTableCount(t, s, "effect_receipts", 3)
 }
 
-// A snapshot whose schema_migrations holds no applied version is not a
-// Concord snapshot: no binary that stamps migrations can produce one, and a
-// manifest over it would carry schema version 0, which the restore verb's
-// identity rules refuse. The file-verification seam refuses it on every path,
-// and a backup of it fails typed with no partial output.
+// A malformed manifest has unknown provenance and cannot be backed up.
 func TestBackupRejectsSnapshotWithoutSchemaHistory(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "pre-schema.db")
@@ -825,14 +803,14 @@ func TestBackupRejectsSnapshotWithoutSchemaHistory(t *testing.T) {
 
 	_, err = verifyBackupFile(ctx, path, CurrentSchemaVersion(), nil)
 	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || failure.Detail != "backup snapshot predates Concord schema versioning" {
-		t.Fatalf("verifyBackupFile() error = %v, want the typed pre-schema refusal", err)
+	if !errors.As(err, &failure) || failure.Kind != KindReadinessUnknown {
+		t.Fatalf("verifyBackupFile() error = %v, want the typed provenance refusal", err)
 	}
 
 	destination := filepath.Join(t.TempDir(), "snapshot.db")
 	_, err = BackupDatabase(ctx, path, destination)
-	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || failure.Detail != "backup snapshot predates Concord schema versioning" {
-		t.Fatalf("BackupDatabase() error = %v, want the typed pre-schema refusal", err)
+	if !errors.As(err, &failure) || failure.Kind != KindReadinessUnknown {
+		t.Fatalf("BackupDatabase() error = %v, want the typed provenance refusal", err)
 	}
 	for _, candidate := range []string{destination, manifestPath(destination)} {
 		if _, statErr := os.Stat(candidate); !errors.Is(statErr, os.ErrNotExist) {

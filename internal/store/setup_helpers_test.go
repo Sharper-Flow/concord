@@ -76,8 +76,6 @@ func seedCurrentDomain(t *testing.T, s *Store, productID, domainID string) Knowl
 	return home
 }
 
-func repeatA64() string { return "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
-
 // memberMigrationExec runs one seeded migration-style statement under the
 // test's context, for parent-owned backup and upgrade tests and any other
 // test that seeds retired projection state directly.

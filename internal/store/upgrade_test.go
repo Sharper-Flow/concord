@@ -9,27 +9,25 @@ import (
 	"testing"
 )
 
-// breakingWindow selects the last breaking migration that an additive run
-// precedes, and the number of migrations a database must carry so that run
-// and the breaking step are both pending. Open must apply the run and stop
-// before the step; the window is derived from the manifest so the test holds
-// as migrations accrue.
+func TestSupportedMigrationFixture(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "fixture.db")
+	if err := openMigratedTo(t, path, 199).Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := manifestMax(t, path); got != 199 {
+		t.Fatalf("fixture schema = %d, want 199", got)
+	}
+}
+
+// breakingWindow selects the first pending breaking migration above the supported floor.
 func breakingWindow(t *testing.T) (breaking migration, applied int) {
 	t.Helper()
-	for i := len(migrations) - 1; i > 0; i-- {
-		if !migrations[i].Breaking || migrations[i-1].Breaking {
-			continue
+	for _, m := range migrations {
+		if m.Version > 199 && m.Breaking {
+			return m, 199
 		}
-		start := i - 1
-		for start > 0 && !migrations[start-1].Breaking {
-			start--
-		}
-		if start == 0 {
-			continue
-		}
-		return migrations[i], start
 	}
-	t.Fatal("no breaking migration has an additive run before it; the window cannot be built")
+	t.Fatal("no breaking migration follows the supported floor")
 	return migration{}, 0
 }
 
@@ -72,14 +70,14 @@ func TestOpenStopsBeforeAPendingBreakingMigration(t *testing.T) {
 	if !failure.RetrySafe {
 		t.Fatal("a refusal that writes nothing must be retry safe")
 	}
-	if got, want := manifestMax(t, path), breaking.Version-1; got != want {
-		t.Fatalf("schema version after open = %d, want %d: open applies the additive run and stops before the breaking step", got, want)
+	if got, want := manifestMax(t, path), applied; got != want {
+		t.Fatalf("schema version after open = %d, want %d: open must not apply the breaking step", got, want)
 	}
 
-	// A second open finds the additive run applied and refuses the same way.
+	// A second open refuses the same way without changing the manifest.
 	_, err = Open(context.Background(), path)
 	assertFailureKind(t, err, KindUpgradeRequired)
-	if got, want := manifestMax(t, path), breaking.Version-1; got != want {
+	if got, want := manifestMax(t, path), applied; got != want {
 		t.Fatalf("schema version after second open = %d, want %d", got, want)
 	}
 }
@@ -159,36 +157,5 @@ func TestUpgradeRefusesWhileALiveLeaseHoldsAnOlderSchema(t *testing.T) {
 	}
 	if len(again.Applied) != 0 {
 		t.Fatalf("a current database applied %v, want nothing", again.Applied)
-	}
-}
-
-func TestUpgradeRepairsAManifestPredatingTheBreakingColumn(t *testing.T) {
-	useStampedBuild(t)
-	_, applied := breakingWindow(t)
-	path := filepath.Join(t.TempDir(), "pre-column.db")
-	db := openMigratedTo(t, path, applied)
-	if _, err := db.ExecContext(context.Background(), `ALTER TABLE schema_migrations DROP COLUMN breaking`); err != nil {
-		t.Fatalf("stage a pre-column manifest: %v", err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	// The gate still holds: the repaired manifest admits a refused upgrade
-	// under an older live session before anything applies.
-	older := HeldSchema{PID: 4747, ReleaseRoot: "/releases/v0.13.0", SchemaVersion: applied - 1}
-	if _, err := Upgrade(context.Background(), path, []HeldSchema{older}); err == nil {
-		t.Fatal("upgrade applied a pending breaking step under a session that predates it")
-	}
-
-	report, err := Upgrade(context.Background(), path, nil)
-	if err != nil {
-		t.Fatalf("Upgrade() after the column repair error = %v", err)
-	}
-	if report.SchemaVersion != CurrentSchemaVersion() {
-		t.Fatalf("report.SchemaVersion = %d, want %d", report.SchemaVersion, CurrentSchemaVersion())
-	}
-	if got := manifestMax(t, path); got != CurrentSchemaVersion() {
-		t.Fatalf("schema version after upgrade = %d, want %d", got, CurrentSchemaVersion())
 	}
 }

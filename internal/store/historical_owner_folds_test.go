@@ -8,14 +8,6 @@ import (
 	"time"
 )
 
-// Migration fixtures retain source bytes without running a historical fold.
-func insertHistoricalEvent(t *testing.T, s *Store, event Event) {
-	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, event.EventID, event.Kind, string(event.SubjectType), event.SubjectID, event.Actor, event.OccurredAt.Format(time.RFC3339Nano), event.PayloadVersion, event.Payload); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func storedEventPayload(t *testing.T, s *Store, eventID string) []byte {
 	t.Helper()
 	var payload []byte

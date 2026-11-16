@@ -9,36 +9,6 @@ import (
 	"time"
 )
 
-type histEventRow struct {
-	Seq                                                      int64
-	EventID, Kind, SubjectType, SubjectID, Actor, OccurredAt string
-	Version                                                  int
-	Payload                                                  string
-}
-
-func histEventRows(t *testing.T, s *Store) []histEventRow {
-	t.Helper()
-	rows, err := s.DatabaseForTesting().Query(`SELECT seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events ORDER BY seq`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	var out []histEventRow
-	for rows.Next() {
-		var row histEventRow
-		var payload []byte
-		if err := rows.Scan(&row.Seq, &row.EventID, &row.Kind, &row.SubjectType, &row.SubjectID, &row.Actor, &row.OccurredAt, &row.Version, &payload); err != nil {
-			t.Fatal(err)
-		}
-		row.Payload = string(payload)
-		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	return out
-}
-
 type currentEffectRow struct {
 	Seq                                          int64
 	RelationSeq                                  sql.NullInt64

@@ -123,11 +123,3 @@ func seedWorkContextFixtureWithPlan(t *testing.T, workID string, planType Workfl
 	}
 	return workContextFixture{store: s, workID: workID, owner: owner, operator: operator}
 }
-
-func contextFindingFixture() WorkContextFinding {
-	return WorkContextFinding{
-		Kind: "observation", Statement: "the bounded read is the only admission route",
-		SubjectRef: "internal/store/work_context.go", EvidenceRefs: []string{"internal/store/work_context_test.go"},
-		DomainID: workContextTestChild,
-	}
-}

@@ -93,10 +93,6 @@ items completable (CD-0094 D2). A `cancelled` target is unchanged. Recorded rows
 
 - `TestFirstWorkflowActionStartsLifecycle` proves D1: the first action moves
   the lifecycle, enqueues the Linear update, and the item stops reading ready.
-- `TestExecutionStartBackfillMatchesFoldDerivation` pins the recorded
-  execution-start fact; the fold, backfill, and rebuild halves retire at the
-  cutover, and the implementing change binds the current-state anchor
-  (CD-0242 D2).
 - `TestExecutionStartRecordsTheInstanceFact` proves D2: the external-effect
   step records execution start and the item stays in progress.
 - `TestWorkflowCompleteClosesLifecycle` proves D3, and
@@ -104,5 +100,5 @@ items completable (CD-0094 D2). A `cancelled` target is unchanged. Recorded rows
   keeps its completed record.
 - `TestTerminalLifecycleRefusesCompletedWhileWorkflowLive` proves the D4
   refusal and its remedy.
-- `python3 scripts/check-migration-compatibility.py` classifies migration 107
-  as non-breaking.
+- `python3 scripts/check-migration-compatibility.py` checks retained migrations
+  against the baseline-seeded schema.

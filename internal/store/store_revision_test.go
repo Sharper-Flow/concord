@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -221,45 +220,25 @@ func TestStoreRevisionReadMetadataWithoutLog(t *testing.T) {
 func TestStoreRevisionMigration(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	db, err := sql.Open(driverName, dataSourceName(filepath.Join(t.TempDir(), "before-revision.db")))
-	if err != nil {
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "before-upgrade.db"), 199)
+	if _, err := db.ExecContext(ctx, `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version) VALUES('old-event',41,'product.created','product','old-product','operator',1); UPDATE store_revision SET revision=41 WHERE id=1`); err != nil {
 		t.Fatal(err)
 	}
-	db.SetMaxOpenConns(1)
-	defer db.Close()
-	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range migrations {
-		if m.Version >= 138 {
-			break
-		}
-		if err := applyMigration(ctx, db, m); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at,breaking) VALUES(?,?,?,'now',?)`, m.Version, m.Name, m.checksum(), m.Breaking); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO domain_events(seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(41,'old-event','product.created','product','old-product','operator','2026-10-01T00:00:00Z',1,'{}')`); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := backupEventInventory(ctx, db); err != nil || got != 0 {
-		t.Fatalf("pre-revision backup inventory=%d, err=%v, want zero", got, err)
+	if got, err := backupEventInventory(ctx, db); err != nil || got != 41 {
+		t.Fatalf("backup inventory=%d, err=%v, want 41", got, err)
 	}
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	// The backfill starts at the old watermark; each later migration's
-	// admitted write advances the revision once.
+	// Each later migration's admitted write advances the revision once.
 	want := int64(41)
 	for _, m := range migrations {
-		if m.Version >= 138 {
+		if m.Version > 199 {
 			want++
 		}
 	}
 	if got := revisionValue(t, db); got != want {
-		t.Fatalf("migration revision=%d, want old watermark 41 plus one per applied migration (%d)", got, want)
+		t.Fatalf("migration revision=%d, want 41 plus one per applied migration (%d)", got, want)
 	}
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)

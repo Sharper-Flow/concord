@@ -169,7 +169,7 @@ DELETE FROM write_guard`); err != nil {
 
 func TestWorkRemovalDeletesCurrentAndMigratedClarification(t *testing.T) {
 	useStampedBuild(t)
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "removal.db"), 188)
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "removal.db"), 199)
 	ctx := t.Context()
 	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
 	retirementUpgradeExec(t, db, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project','Project',1,'now','now')`)
@@ -178,6 +178,9 @@ func TestWorkRemovalDeletesCurrentAndMigratedClarification(t *testing.T) {
 	retirementUpgradeExec(t, db, `INSERT INTO work_items(id,kind,title,lifecycle,version,created_at,updated_at) VALUES('migrated','task','Migrated','cancelled',1,'now','now')`)
 	retirementUpgradeExec(t, db, `INSERT INTO work_projects(work_id,project_id,role) VALUES('migrated','project','primary')`)
 	retirementUpgradeExec(t, db, `INSERT INTO workflow_instances(work_id,instance_state,prelude_state) VALUES('migrated','cancelled','{"intake":{"outcome":"clarify","open_questions_found":true},"clarify":{"resolved_questions":["é"],"note":"Resolved."}}')`)
+	actor := "actor:" + strings.Repeat("a", 64)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'principal','client','agent','session','agent','now')`, actor)
+	retirementUpgradeExec(t, db, `INSERT INTO workflow_clarify_records(work_id,work_version,payload,recorded_at,actor,event_ref) VALUES('migrated',1,'{"resolved_questions":["é"],"note":"Resolved."}','now',?,'event:migrated')`, actor)
 	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatal(err)
@@ -186,8 +189,6 @@ func TestWorkRemovalDeletesCurrentAndMigratedClarification(t *testing.T) {
 	seedWork(t, s, "current")
 	retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
 	retirementUpgradeExec(t, db, `UPDATE work_items SET lifecycle='cancelled' WHERE id='current'`)
-	actor := "actor:" + strings.Repeat("a", 64)
-	retirementUpgradeExec(t, db, `INSERT INTO workflow_actors(actor_ref,principal_ref,client_ref,agent_ref,session_ref,actor_class,first_seen_at) VALUES(?,'principal','client','agent','session','agent','now')`, actor)
 	retirementUpgradeExec(t, db, `INSERT INTO workflow_clarify_records(work_id,work_version,payload,recorded_at,actor,event_ref) VALUES('current',1,'{"resolved_questions":[],"note":"Resolved."}','now',?,'event:current')`, actor)
 	retirementUpgradeExec(t, db, `DELETE FROM write_guard`)
 	for _, work := range []string{"current", "migrated"} {
@@ -298,7 +299,7 @@ func TestWorkRemovalDeletesPlanAndRemovalScopeRecords(t *testing.T) {
 		// Rows written by an earlier binary survive the upgrade; removal must
 		// clear them in the same transaction as the work item.
 		useStampedBuild(t)
-		db := openMigratedTo(t, filepath.Join(t.TempDir(), "removal.db"), 188)
+		db := openMigratedTo(t, filepath.Join(t.TempDir(), "removal.db"), 199)
 		ctx := t.Context()
 		retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
 		retirementUpgradeExec(t, db, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project','Project',1,'now','now')`)
@@ -337,7 +338,7 @@ func TestWorkRemovalDeletesPlanAndRemovalScopeRecords(t *testing.T) {
 
 // TestWorkRemovalDeletesProjectHandoffs covers the removal of a work item
 // that holds rows in project_handoffs: one recorded through the real typed
-// record fold, and one written by an earlier binary at schema 188 and
+// record fold, and one written by an earlier binary at schema 199 and
 // upgraded. Both must leave zero project_handoffs rows for the work.
 func TestWorkRemovalDeletesProjectHandoffs(t *testing.T) {
 	t.Run("current", func(t *testing.T) {
@@ -374,7 +375,7 @@ func TestWorkRemovalDeletesProjectHandoffs(t *testing.T) {
 		// A handoff row written by an earlier binary survives the upgrade;
 		// removal must clear it in the same transaction as the work item.
 		useStampedBuild(t)
-		db := openMigratedTo(t, filepath.Join(t.TempDir(), "removal.db"), 188)
+		db := openMigratedTo(t, filepath.Join(t.TempDir(), "removal.db"), 199)
 		ctx := t.Context()
 		retirementUpgradeExec(t, db, `INSERT INTO write_guard VALUES(1)`)
 		retirementUpgradeExec(t, db, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project','Project',1,'now','now')`)

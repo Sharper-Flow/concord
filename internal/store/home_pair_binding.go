@@ -16,7 +16,7 @@ var knowledgeHomePairTables = []string{
 	"archived_work",
 }
 
-// knowledgeLocatorDeleteGuardName is the migration 52 trigger that refuses
+// knowledgeLocatorDeleteGuardName is the baseline trigger that refuses
 // removing a Project locator Git-derived knowledge still references.
 const knowledgeLocatorDeleteGuardName = "project_locators_referenced_by_knowledge_no_delete"
 

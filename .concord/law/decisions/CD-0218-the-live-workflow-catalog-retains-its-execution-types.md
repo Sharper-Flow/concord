@@ -213,9 +213,10 @@ set at the D5 boundary.
 - Criterion4 distinguishes retained-state readback from collected-state absence under CD-0242 D2 and D14.
   Retained actors, subjects and evidence are read as recorded, without replay or relabeling.
   Collected execution state returns typed absence and its canonical outcome locator.
-  `internal/store.TestPublishedExecutionAbsenceReaders` and `internal/store.TestDefectRetirementCollectedAbsenceReaders` bind the collected-state witnesses.
-- For the current plan cutover, see
-  [`workflow_step_plan_migration_test.go`](../../../internal/store/workflow_step_plan_migration_test.go).
+  `internal/store.TestPublishedExecutionAbsenceReaders` binds the collected-state witnesses.
+- For current plan actions and pins, see
+  [`workflow_plan_actions_test.go`](../../../internal/store/workflow_plan_actions_test.go)
+  and [`workpin_plan_test.go`](../../../internal/store/workpin_plan_test.go).
   This pointer does not assert proof of the historical-pin readiness scenario.
 - Criterion 6 keeps its completion anchor:
   `go test ./internal/store/ -run TestWorkflowCompletionRequiresCurrentExplicitImpactVerdict`.

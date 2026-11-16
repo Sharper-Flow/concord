@@ -7,30 +7,19 @@ import (
 	"testing"
 )
 
+func assertRetirementForeignKeys(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if got := retirementUpgradeRows(t, db, `PRAGMA foreign_key_check`); len(got) != 0 {
+		t.Fatalf("foreign key violations: %v", got)
+	}
+}
+
 func TestRuntimeStateWriterRetirementUpgrade(t *testing.T) {
 	useStampedBuild(t)
-	db := captureRetirementFixture(t)
-	ctx := verifiedOutcomeRetirementContext(t)
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range migrations[185:200] {
-		if err := applyMigration(ctx, tx, m); err != nil {
-			t.Fatal(err)
-		}
-		if err := advanceStoreRevision(ctx, tx); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,breaking,applied_at) VALUES(?,?,?,?,?)`, m.Version, m.Name, m.checksum(), m.Breaking, "2026-10-01T00:00:00Z"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "store.db"), 200)
+	ctx := t.Context()
 	retirementUpgradeExec(t, db, `INSERT INTO runtime_state_writers(surface,definition_ref,knowledge_projection_version,digest,binary_version) VALUES ('knowledge','synthetic-one',1,'digest-one','binary-one'),('knowledge','synthetic-two',2,'digest-two','binary-two')`)
-	retirementUpgradeHealthy(t, db)
+	assertRetirementForeignKeys(t, db)
 	if err := ensureInstallationKey(ctx, db); err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +70,7 @@ func TestRuntimeStateWriterRetirementUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	failing := migrations[200]
+	failing := migrations[2]
 	failing.SQL += "\nSELECT * FROM nonexistent_retirement_failure;"
 	if err := applyMigration(ctx, rollback, failing); err == nil {
 		_ = rollback.Rollback()
@@ -93,7 +82,7 @@ func TestRuntimeStateWriterRetirementUpgrade(t *testing.T) {
 	if got := designProposalSnapshot(t, db); !reflect.DeepEqual(got, before) {
 		t.Fatal("failed migration changed predecessor")
 	}
-	if _, err := Upgrade(ctx, path, nil, UpgradeOptions{SnapshotPath: snapshot}); err != nil {
+	if _, err := Upgrade(ctx, path, nil); err != nil {
 		t.Fatal(err)
 	}
 	current := designProposalSnapshot(t, db)
@@ -112,7 +101,7 @@ func TestRuntimeStateWriterRetirementUpgrade(t *testing.T) {
 	if got := retirementUpgradeRows(t, db, survivingSchema); !reflect.DeepEqual(got, schema) {
 		t.Fatal("upgrade changed surviving schema, constraints or triggers")
 	}
-	retirementUpgradeHealthy(t, db)
+	assertRetirementForeignKeys(t, db)
 	if got := retirementUpgradeRows(t, db, `PRAGMA integrity_check`); !reflect.DeepEqual(got, [][]any{{"ok"}}) {
 		t.Fatalf("integrity_check = %v", got)
 	}

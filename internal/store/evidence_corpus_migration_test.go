@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -119,7 +119,7 @@ func evidenceCorpusForWork(t *testing.T, work string) historicalFactCorpus {
 	completed()
 	correct(last)
 	c.parents = func(t *testing.T, s *Store, guard string) {
-		copyFixtureDataToPrefix(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "durable_operations"}, map[string]map[string]string{
+		copyCurrentCorpusParents(t, base.store, s.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts", "durable_operations"}, map[string]map[string]string{
 			"work_items":         {"priority": "0", "urgency": "'standard'"},
 			"workflow_instances": {"outside_repair_state": "NULL", "definition_ref": "'workflow.break_fix'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "current_step": "'verify'", "completion_payload": "NULL", "completion_occurred_at": "NULL", "unhealthy_verdict_seq": "0", "result_disposition": "''", "latest_non_dispatch_start_seq": "0"},
 			"workflow_contracts": {"premise": "'retired historical fixture'", "route_conventions": "'[]'", "rigor_class": "'prototype_internal'", "decision_domains": "NULL", "required_evidence": "'[]'", "definition_ref": "'workflow.break_fix'", "definition_digest": "'" + testManifestDigest + "'", "definition_version": "26", "supersession_seq": "0", "last_healthy_seq": "0", "law_change": "NULL"},
@@ -129,12 +129,6 @@ func evidenceCorpusForWork(t *testing.T, work string) historicalFactCorpus {
 INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project/corpus','Corpus',1,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');
 INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('locator/corpus','project/corpus','git_remote','https://example.invalid/corpus.git','https://example.invalid/corpus','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');
 DELETE FROM ` + guard); err != nil {
-			t.Fatal(err)
-		}
-		if guard != "fold_guard" {
-			return
-		}
-		if _, err := s.db.Exec(`INSERT INTO fold_guard VALUES(1); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:return-route',0,'check','{"kind":"check","check_ref":"check:corpus","immutable_subject_ref":"commit:corpus","expected_result":"pass"}'); INSERT INTO workflow_step_epochs(work_id,step_id,attempt_epoch) VALUES(?,'verify',3); INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES('obs:aaaaaaaaaaaaaaaa',?,'The corpus records an explicit observation','[]','[]','2026-01-01T00:00:00Z'); DELETE FROM fold_guard`, work, work, work); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -162,8 +156,7 @@ DELETE FROM ` + guard); err != nil {
 func assertEvidenceCorpus142(t *testing.T) {
 	t.Helper()
 	c := evidenceExplicitCorpus(t)
-	// The retained binding is produced through the current authority check;
-	// historical action and verdict selections are checked on the old schema.
+	// The retained binding is produced through the current authority check.
 	supported := c
 	supported.events = nil
 	var version int64
@@ -196,135 +189,58 @@ func assertEvidenceCorpus142(t *testing.T) {
 	if err != nil || plan == nil || plan.Type != WorkflowStepPlanFix || len(plan.Steps) != 5 || len(plan.Steps[0].Attempts) != 1 || len(plan.Steps[1].Attempts) != 1 || len(plan.Steps[2].Attempts) != 1 || len(plan.Steps[3].Attempts) != 0 {
 		t.Fatalf("current plan attempts: plan=%+v err=%v", plan, err)
 	}
-	old := c.prefix(t, 141)
-	queries := []string{
-		`SELECT json_array(work_id,contract_version,supersession_seq) FROM workflow_contracts ORDER BY work_id,contract_version`,
-		`SELECT json_array(work_id,binding_seq,binding_id,actor,json_remove(payload,'$.expected_version','$.resulting_version')) FROM workflow_evidence_bindings ORDER BY work_id,binding_seq`,
-	}
-	want := workerFactsQueryRows(t, live, queries)
-	advanceHistoricalPrefix(t, old.db, 152)
-	assertEvidenceLegacySelections(t, old, c.events)
-	if err := Migrate(outcomeSnapshotContext(t, t.Context(), old.db), old.db); err != nil {
-		t.Fatal(err)
-	}
-	plan, err = readWorkflowPlanTx(t.Context(), old.db, "evidence-corpus")
-	if err != nil || plan != nil {
-		t.Fatalf("migrated historical plan: plan=%+v err=%v", plan, err)
-	}
-	if got := workerFactsQueryRows(t, old, queries); !reflect.DeepEqual(got, want) {
-		for i := range queries {
-			if !reflect.DeepEqual(got[i], want[i]) {
-				t.Errorf("142 %s: got %v want %v", queries[i], got[i], want[i])
-			}
-		}
-		t.FailNow()
-	}
-	for i, e := range c.events {
-		if e.Kind == WorkflowEvidenceBound && e.SubjectID == "evidence-corpus" {
-			assertHistoricalReceipts(t, old.db, []histEventRow{{Seq: int64(i + 1), EventID: e.EventID, Kind: e.Kind, SubjectType: string(e.SubjectType), SubjectID: e.SubjectID, Actor: e.Actor, Version: e.PayloadVersion, Payload: string(e.Payload)}})
-		}
+	var count int
+	if err := live.db.QueryRow(`SELECT count(*) FROM workflow_evidence_bindings WHERE work_id='evidence-corpus'`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("current evidence bindings: count=%d err=%v", count, err)
 	}
 }
 
-func assertEvidenceLegacySelections(t *testing.T, s *Store, events []Event) {
+func copyCurrentCorpusParents(t *testing.T, source *Store, target *sql.DB, tables []string, overrides map[string]map[string]string, guard string) {
 	t.Helper()
-	row := func(query string, want []any, args ...any) {
-		t.Helper()
-		var got string
-		if err := s.db.QueryRow(query, args...).Scan(&got); err != nil {
+	if _, err := target.Exec(`ATTACH DATABASE ? AS corpus_source`, source.path); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if _, err := target.Exec(`DETACH DATABASE corpus_source`); err != nil {
 			t.Fatal(err)
 		}
-		var actual, expected any
-		if err := json.Unmarshal([]byte(got), &actual); err != nil {
+	}()
+	if _, err := target.Exec(`INSERT INTO ` + guard + ` VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range tables {
+		rows, err := target.Query(`PRAGMA table_info(` + table + `)`)
+		if err != nil {
 			t.Fatal(err)
 		}
-		if err := json.Unmarshal(mustJSONValue(want), &expected); err != nil {
+		var columns, values []string
+		for rows.Next() {
+			var cid, notNull, primaryKey int
+			var name, typ string
+			var defaultValue any
+			if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &primaryKey); err != nil {
+				rows.Close()
+				t.Fatal(err)
+			}
+			quoted := `"` + name + `"`
+			columns = append(columns, quoted)
+			value := quoted
+			if override, ok := overrides[table][name]; ok {
+				value = override
+			}
+			values = append(values, value)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
 			t.Fatal(err)
 		}
-		if !reflect.DeepEqual(actual, expected) {
-			t.Fatalf("legacy142 %s: got %s want %s", query, got, mustJSONValue(want))
+		query := `INSERT INTO "` + table + `" (` + strings.Join(columns, ",") + `) SELECT ` + strings.Join(values, ",") + ` FROM corpus_source."` + table + `"`
+		if _, err := target.Exec(query); err != nil {
+			t.Fatalf("copy current corpus table %s: %v", table, err)
 		}
 	}
-	var lastVerdict, lastCompletion, lastAssertion, lastCorrection Event
-	var verdictSeq, unhealthySeq, correctionSeq, priorCorrection, completionSeq, assertionSeq int64
-	var correctionBoundary int64
-	var correctionRecords []correctionRecordFact
-	type production struct {
-		step, action   string
-		seq, atVerdict int64
+	if _, err := target.Exec(`DELETE FROM ` + guard); err != nil {
+		t.Fatal(err)
 	}
-	artifacts := map[string]production{}
-	var correctionEvent Event
-	for i, e := range events {
-		if e.SubjectID != "evidence-corpus" {
-			continue
-		}
-		seq := int64(i + 1)
-		var p map[string]any
-		if err := json.Unmarshal(e.Payload, &p); err != nil {
-			t.Fatal(err)
-		}
-		switch e.Kind {
-		case WorkflowActionCompleted:
-			action, _ := p["action_id"].(string)
-			step, _ := p["step_id"].(string)
-			if action == "accept_worker_result" && p["review_advance_held"] == true {
-				continue
-			}
-			if action == "request_correction" {
-				correctionSeq = seq
-				correctionEvent = e
-				var fields workflowCorrectionCompletionFields
-				if err := json.Unmarshal(e.Payload, &fields); err != nil {
-					t.Fatal(err)
-				}
-				correctionBoundary = 0
-				correctionRecords = []correctionRecordFact{{Seq: seq, SourceID: e.EventID, Fields: fields}}
-			}
-			if action == "record_finding" || action == "record_decision" || action == "record_delivery" {
-				correctionBoundary, correctionRecords = seq, nil
-				key := step + ":" + action
-				previous := artifacts[key]
-				previous.step, previous.action, previous.seq = step, action, seq
-				artifacts[key] = previous
-			}
-			if p["delivery_state"] == "asserted" && p["delivery_artifact"] != "" {
-				lastAssertion, assertionSeq = e, seq
-				lastCorrection = Event{}
-			}
-		case "workflow.verdict_recorded":
-			lastVerdict, verdictSeq, priorCorrection = e, seq, correctionSeq
-			if p["verdict_kind"] != "ok" || p["incomparable_with_approved"] == true {
-				unhealthySeq = seq
-			}
-			for key, v := range artifacts {
-				v.atVerdict = v.seq
-				artifacts[key] = v
-			}
-		case WorkflowCompleted:
-			lastCompletion, completionSeq = e, seq
-		case WorkflowDeliveryCorrected:
-			if p["target_event_id"] == lastAssertion.EventID {
-				lastCorrection = e
-			}
-		}
-	}
-	if verdictSeq == 0 || completionSeq == 0 || assertionSeq == 0 || lastCorrection.EventID == "" || unhealthySeq == 0 || priorCorrection == 0 {
-		t.Fatal("legacy corpus omitted a verdict, completion, correction, or delivery selection population")
-	}
-	row(`SELECT json_array(verdict_seq,actor,payload,prior_correction_seq) FROM workflow_predicate_verdicts WHERE work_id='evidence-corpus' AND contract_version=1 AND predicate_id='predicate:return-route'`, []any{verdictSeq, lastVerdict.Actor, string(lastVerdict.Payload), priorCorrection})
-	row(`SELECT json_array(completion_payload,completion_occurred_at,unhealthy_verdict_seq) FROM workflow_instances WHERE work_id='evidence-corpus'`, []any{string(lastCompletion.Payload), lastCompletion.OccurredAt.Format(time.RFC3339Nano), unhealthySeq})
-	row(`SELECT json_array(assertion_seq,assertion_id,actor,occurred_at,payload_version,payload,correction_id,correction_occurred_at,correction_payload) FROM workflow_delivery_state WHERE work_id='evidence-corpus'`, []any{assertionSeq, lastAssertion.EventID, lastAssertion.Actor, lastAssertion.OccurredAt.Format(time.RFC3339Nano), lastAssertion.PayloadVersion, string(lastAssertion.Payload), lastCorrection.EventID, lastCorrection.OccurredAt.Format(time.RFC3339Nano), string(lastCorrection.Payload)})
-	for _, p := range artifacts {
-		selectedVerdict := verdictSeq
-		if p.atVerdict == 0 {
-			selectedVerdict = 0
-		}
-		row(`SELECT json_array(production_seq,verdict_seq,verdict_production_seq) FROM workflow_artifact_actions WHERE work_id='evidence-corpus' AND step_id=? AND action_id=?`, []any{p.seq, selectedVerdict, p.atVerdict}, p.step, p.action)
-	}
-	row(`SELECT json_array(last_healthy_seq) FROM workflow_contracts WHERE work_id='evidence-corpus' AND contract_version=1`, []any{verdictSeq})
-	row(`SELECT json_array(count(*)) FROM compaction_publications WHERE work_id='evidence-corpus'`, []any{1})
-	wantCorrection := correctionStateFact{Boundary: correctionBoundary, Records: correctionRecords}
-	row(`SELECT json_array(state) FROM workflow_correction_state WHERE work_id='evidence-corpus'`, []any{string(mustJSONValue(wantCorrection))})
-	assertHistoricalReceipts(t, s.db, []histEventRow{{Seq: correctionSeq, EventID: correctionEvent.EventID, Kind: correctionEvent.Kind, SubjectType: string(correctionEvent.SubjectType), SubjectID: correctionEvent.SubjectID, Actor: correctionEvent.Actor, Version: correctionEvent.PayloadVersion, Payload: string(correctionEvent.Payload)}})
 }

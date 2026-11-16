@@ -158,8 +158,8 @@ not a claim of executed integration evidence.
 Criterion 2's integrated locator-preservation evidence is unmet. Upgrade
 preservation of the full `archived_work` row — home IDs, note path, commit OID,
 `content_hash` and `lesson_tags` together — is proved by
-`TestTerminalStepsRetirementVerifiedSnapshotUpgrade`
-(`internal/store/workflow_terminal_steps_migration_test.go`).
+`TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence`
+(`cmd/concord/release_pairs_cli_test.go`).
 `TestPublishedExecutionAbsenceAuthorizationAndWire`
 (`internal/agent/terminal_absence_test.go`) checks only the home IDs and note
 path on the historical read. No test covers locator preservation across

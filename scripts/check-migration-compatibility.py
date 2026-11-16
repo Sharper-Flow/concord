@@ -11,9 +11,8 @@ This validator classifies each migration's statements and compares the result
 with its declared Breaking field. A migration that removes or renames a schema
 object, or constrains an existing one, must declare Breaking: true. One that
 only creates objects or adds a nullable or defaulted column must not.
-Above JSON_REMOVAL_RULE_FLOOR, a data write that calls json_remove with removal
-paths also requires a breaking declaration. Published compatibility declarations
-remain immutable, so this responsibility applies only after that boundary.
+A data write that calls json_remove with removal paths also requires a
+breaking declaration.
 
 The classification is deliberately conservative: an unrecognized statement
 counts as breaking. Being wrong toward breaking costs a refusal that a newer
@@ -34,7 +33,7 @@ not show. A fold generation from before the migration never runs that writer,
 so under a rolling upgrade (CD-0111 D3) a column the fold advances drifts
 behind the log with no convergence, the way migration 108's last_activity_at
 did. The migration struct therefore carries a FoldMaintained declaration, and
-for every migration above RULE_FLOOR this validator holds that declaration to
+for every retained migration this validator holds that declaration to
 its closed vocabulary and to its consequences. The declaration is the
 author's signed claim beside the SQL: this checker cannot derive it, only
 refuse one that contradicts the SQL's shape or its own terms. "advance" also
@@ -78,18 +77,10 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from migration_source import UNSUPPORTED_ELEMENT, field_run, migrations
+from migration_source import UNSUPPORTED_ELEMENT, baseline_sql, field_run, migrations
 
 SCHEMA = Path(__file__).resolve().parent.parent / "internal" / "store" / "schema.go"
-
-# The fold-maintenance rules bind only migrations above this floor. Migration
-# 108 was the last fold-maintained column admitted without a declaration; its
-# repair, migration 109, is the first version the rules could have bound.
-RULE_FLOOR = 108
-
-# Published declarations are immutable. Earlier JSON metadata cleanups keep
-# their recorded compatibility; data-removal enforcement starts after 174.
-JSON_REMOVAL_RULE_FLOOR = 174
+BASELINE = SCHEMA.with_name("schema_baseline.go")
 
 FOLD_VOCABULARY = ("advance", "origin")
 # What fold_maintained returns for a field whose value is not on the field's
@@ -836,13 +827,12 @@ def sql_field_sound(entry: str) -> bool:
     return run is None or (len(run) == 1 and run[0].kind == "raw")
 
 
-def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]:
+def evaluate(entries: list[tuple[int, str, str]], baseline: str = "") -> tuple[list[str], list[int]]:
     """Compare every entry's declarations with what its SQL does.
 
     Returns the refusal messages and the versions whose SQL, or whose advance
-    declaration, breaks an older binary. Migrations at or below RULE_FLOOR
-    predate the FoldMaintained field and are held to the statement rules
-    alone. A World replays each migration's schema effect as it runs, so
+    declaration, breaks an older binary. A World replays each migration's
+    schema effect as it runs, so
     the dependent-object rule reads names SQLite itself carries; a
     conditional migration, an unreadable entry, or one statement the
     replay cannot interpret poisons that world, and a poisoned world
@@ -851,6 +841,11 @@ def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]
     failures: list[str] = []
     breaking_versions: list[int] = []
     world = World()
+    if baseline:
+        for statement in statements(baseline):
+            world.apply(statement)
+        if world.poisoned:
+            failures.append("schema baseline cannot be replayed")
     for version, entry, sql in entries:
         if version == UNSUPPORTED_ELEMENT:
             world.poisoned = True
@@ -884,40 +879,39 @@ def evaluate(entries: list[tuple[int, str, str]]) -> tuple[list[str], list[int]]
             # cannot vouch for the schema its successors are ruled against.
             world.poisoned = True
         reasons = classify(sql, world)
-        if version > JSON_REMOVAL_RULE_FLOOR and any(
+        if any(
             destructive_json_write(statement) for statement in statements(sql)
         ):
             reasons.append("removes JSON members in a data-write expression")
-        if version > RULE_FLOOR:
-            adds_column = adds_preexisting_column(sql)
-            creates_table = any(CREATE_TABLE.match(statement) for statement in statements(sql))
-            if adds_column and not fold:
-                failures.append(
-                    f"migration {version} adds a column to a pre-existing table "
-                    'without a FoldMaintained declaration; declare "advance" '
-                    'with Breaking: true, declare "origin", or qualify the '
-                    "reference with its schema so the migration owns it"
-                )
-            if fold and not adds_column and not (fold == "advance" and creates_table):
-                missing_shape = (
-                    "adds no column to a pre-existing table and creates no table"
-                    if fold == "advance"
-                    else "adds no column to a pre-existing table"
-                )
-                failures.append(
-                    f'migration {version} declares FoldMaintained "{fold}", but '
-                    f"{missing_shape}; remove the declaration"
-                )
-            if fold and fold not in FOLD_VOCABULARY:
-                failures.append(
-                    f'migration {version} declares FoldMaintained "{fold}"; the '
-                    'vocabulary is "advance" or "origin"'
-                )
-            if fold == "advance":
-                reasons.append(
-                    "advances fold-maintained state, which a rolling upgrade "
-                    "leaves unconverged (CD-0111 D3)"
-                )
+        adds_column = adds_preexisting_column(sql)
+        creates_table = any(CREATE_TABLE.match(statement) for statement in statements(sql))
+        if adds_column and not fold:
+            failures.append(
+                f"migration {version} adds a column to a pre-existing table "
+                'without a FoldMaintained declaration; declare "advance" '
+                'with Breaking: true, declare "origin", or qualify the '
+                "reference with its schema so the migration owns it"
+            )
+        if fold and not adds_column and not (fold == "advance" and creates_table):
+            missing_shape = (
+                "adds no column to a pre-existing table and creates no table"
+                if fold == "advance"
+                else "adds no column to a pre-existing table"
+            )
+            failures.append(
+                f'migration {version} declares FoldMaintained "{fold}", but '
+                f"{missing_shape}; remove the declaration"
+            )
+        if fold and fold not in FOLD_VOCABULARY:
+            failures.append(
+                f'migration {version} declares FoldMaintained "{fold}"; the '
+                'vocabulary is "advance" or "origin"'
+            )
+        if fold == "advance":
+            reasons.append(
+                "advances fold-maintained state, which a rolling upgrade "
+                "leaves unconverged (CD-0111 D3)"
+            )
         if reasons and not declared:
             failures.append(
                 f"migration {version} must declare Breaking: true; it "
@@ -949,7 +943,16 @@ def main() -> int:
         print("check-migration-compatibility: no migrations found", file=sys.stderr)
         return 1
 
-    eval_failures, breaking_versions = evaluate(entries)
+    try:
+        with open(BASELINE, encoding="utf-8", newline="") as handle:
+            baseline = baseline_sql(handle.read())
+    except OSError as exc:
+        print(f"check-migration-compatibility: cannot read baseline: {exc}", file=sys.stderr)
+        return 1
+    if not baseline:
+        print("check-migration-compatibility: missing literal baseline", file=sys.stderr)
+        return 1
+    eval_failures, breaking_versions = evaluate(entries, baseline)
     failures = list(eval_failures)
     for failure in failures:
         print(f"check-migration-compatibility: {failure}", file=sys.stderr)

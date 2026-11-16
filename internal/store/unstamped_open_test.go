@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -19,29 +20,15 @@ func useStampedBuild(t *testing.T) {
 	t.Cleanup(func() { version.Value = previous })
 }
 
-// unstampedWindow is a store migrated through the first applied migrations,
-// so every later shipped migration is pending for an unstamped build.
+// unstampedWindow identifies an applied schema version and pending tail.
 type unstampedWindow struct {
 	name    string
 	applied int
 }
 
-// unstampedWindows derives both pending shapes from the manifest: a breaking
-// step pending behind an additive run, and the additive-only tail after the
-// newest breaking migration. applied is zero when no such tail exists.
 func unstampedWindows(t *testing.T) []unstampedWindow {
 	t.Helper()
-	_, mixed := breakingWindow(t)
-	tail := unstampedWindow{name: "additive-only tail"}
-	for i := len(migrations) - 1; i >= 0; i-- {
-		if migrations[i].Breaking {
-			if i+1 < len(migrations) {
-				tail.applied = i + 1
-			}
-			break
-		}
-	}
-	return []unstampedWindow{{name: "breaking pending", applied: mixed}, tail}
+	return []unstampedWindow{{name: "schema 199", applied: 199}, {name: "schema 200", applied: 200}}
 }
 
 // assertUnstampedFacts checks that the refusal reports the manifest it read
@@ -52,15 +39,25 @@ func assertUnstampedFacts(t *testing.T, err error, lead string, applied int) {
 	if !errors.As(err, &failure) {
 		t.Fatalf("error = %v, want an unstamped migration refusal", err)
 	}
+	index := -1
+	for i, m := range migrations {
+		if m.Version == applied {
+			index = i
+			break
+		}
+	}
+	if index < 0 || index+1 >= len(migrations) {
+		t.Fatalf("schema %d has no pending migration", applied)
+	}
 	breaking := 0
-	for _, m := range migrations[applied:] {
+	for _, m := range migrations[index+1:] {
 		if m.Breaking {
 			breaking++
 		}
 	}
-	head, next := migrations[applied-1], migrations[applied]
+	head, next := migrations[index], migrations[index+1]
 	want := fmt.Sprintf("%s at schema version %d (%q); this build would apply %d pending migration(s) from %d %q, %d breaking; the store does not record which release applied its migrations",
-		lead, head.Version, head.Name, len(migrations)-applied, next.Version, next.Name, breaking)
+		lead, head.Version, head.Name, len(migrations)-index-1, next.Version, next.Name, breaking)
 	if failure.Detail != want {
 		t.Fatalf("refusal detail = %q, want %q", failure.Detail, want)
 	}
@@ -79,9 +76,6 @@ func TestUnstampedOpenDoesNotMigrateAnExistingStore(t *testing.T) {
 	}
 	for _, window := range unstampedWindows(t) {
 		t.Run(window.name, func(t *testing.T) {
-			if window.applied == 0 {
-				t.Skip("the newest migration is breaking; no additive-only tail exists")
-			}
 			path := filepath.Join(t.TempDir(), "release-owned.db")
 			if err := openMigratedTo(t, path, window.applied).Close(); err != nil {
 				t.Fatal(err)
@@ -118,6 +112,10 @@ func TestUnstampedOpenStillCreatesAFreshStore(t *testing.T) {
 	if got := manifestMax(t, path); got != CurrentSchemaVersion() {
 		t.Fatalf("fresh database schema version = %d, want %d", got, CurrentSchemaVersion())
 	}
+	var count int
+	if err := openRawDatabase(t, path).QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&count); err != nil || count != 3 {
+		t.Fatalf("fresh manifest count = %d, %v; want 3", count, err)
+	}
 }
 
 func TestUnstampedUpgradeDoesNotMigrateAnExistingStore(t *testing.T) {
@@ -126,9 +124,6 @@ func TestUnstampedUpgradeDoesNotMigrateAnExistingStore(t *testing.T) {
 	}
 	for _, window := range unstampedWindows(t) {
 		t.Run(window.name, func(t *testing.T) {
-			if window.applied == 0 {
-				t.Skip("the newest migration is breaking; no additive-only tail exists")
-			}
 			path := filepath.Join(t.TempDir(), "release-owned.db")
 			if err := openMigratedTo(t, path, window.applied).Close(); err != nil {
 				t.Fatal(err)
@@ -154,10 +149,13 @@ func TestUnstampedUpgradeDoesNotMigrateAnExistingStore(t *testing.T) {
 
 // preColumnStore writes a store migrated through applied whose manifest
 // predates the breaking column.
-func preColumnStore(t *testing.T, path string, applied int) {
+func preColumnStore(t *testing.T, path string) {
 	t.Helper()
-	db := openMigratedTo(t, path, applied)
-	if _, err := db.ExecContext(context.Background(), `ALTER TABLE schema_migrations DROP COLUMN breaking`); err != nil {
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(context.Background(), `CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, name TEXT NOT NULL, checksum TEXT NOT NULL, applied_at TEXT NOT NULL); INSERT INTO schema_migrations VALUES(198,'old','old','time')`); err != nil {
 		t.Fatalf("stage a pre-column manifest: %v", err)
 	}
 	if err := db.Close(); err != nil {
@@ -165,43 +163,40 @@ func preColumnStore(t *testing.T, path string, applied int) {
 	}
 }
 
-func assertPreColumnRefusal(t *testing.T, err error, path string, applied int) {
+func assertPreColumnRefusal(t *testing.T, err error, path string) {
 	t.Helper()
-	assertUnstampedFacts(t, err, "unstamped development build refuses to repair an existing store's schema manifest", applied)
-	present, err := columnPresent(context.Background(), openRawDatabase(t, path), "schema_migrations", "breaking")
-	if err != nil || present {
-		t.Fatalf("breaking column present = %v, %v after the refusal; an unstamped build must repair nothing", present, err)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindSchemaUnsupported || !strings.Contains(failure.Detail+failure.RecoveryAction, "199") || !strings.Contains(failure.Detail+failure.RecoveryAction, "v67.0.0") {
+		t.Fatalf("refusal = %v, want unsupported schema with floor and bridge", err)
+	}
+	var count int
+	err = openRawDatabase(t, path).QueryRowContext(context.Background(), `SELECT count(*) FROM pragma_table_info('schema_migrations') WHERE name='breaking'`).Scan(&count)
+	if err != nil || count != 0 {
+		t.Fatalf("breaking column count = %d, %v after the refusal; an unstamped build must repair nothing", count, err)
 	}
 }
 
-// A manifest that predates the breaking column is refused unrepaired, and the
-// refusal still reports the applied head and the pending tail it read.
+// A below-floor manifest is refused without repair.
 func TestUnstampedOpenReportsAManifestItRefusesToRepair(t *testing.T) {
 	if version.Value != version.Development {
 		t.Skip("binary is release-stamped; the unstamped refusal does not apply")
 	}
-	_, applied := breakingWindow(t)
 	path := filepath.Join(t.TempDir(), "pre-column.db")
-	preColumnStore(t, path, applied)
+	preColumnStore(t, path)
 
 	_, err := Open(context.Background(), path)
-	assertPreColumnRefusal(t, err, path, applied)
+	assertPreColumnRefusal(t, err, path)
 }
 
-// The backup staging copy reaches the same refusal inside its migration
-// transaction, on a one-connection pool. The refusal must read the manifest
-// through that transaction: a read through the pool would wait for the
-// connection the transaction holds, so the deadline turns that regression
-// into a failed assertion instead of a hung test.
-func TestUnstampedStagingReadsAPreColumnManifestThroughItsTransaction(t *testing.T) {
+// Backup refuses a below-floor source before staging it.
+func TestUnstampedBackupRefusesAPreColumnManifest(t *testing.T) {
 	useDevelopmentBuild(t)
-	_, applied := breakingWindow(t)
 	root := t.TempDir()
 	source := filepath.Join(root, "pre-column.db")
-	preColumnStore(t, source, applied)
+	preColumnStore(t, source)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	_, err := BackupDatabase(ctx, source, filepath.Join(root, "snapshot.db"))
-	assertPreColumnRefusal(t, err, source, applied)
+	assertPreColumnRefusal(t, err, source)
 }

@@ -457,60 +457,6 @@ func seedWorkflowAuthority(t *testing.T, s *Store, opID, workID, principal, requ
 	}
 }
 
-func TestMigrateV14ToV15PreservesExistingData(t *testing.T) {
-	t.Parallel()
-	path := filepath.Join(t.TempDir(), "v14.db")
-	ctx := context.Background()
-	db, err := sql.Open(driverName, dataSourceName(path))
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetMaxOpenConns(1)
-	defer db.Close()
-	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
-		t.Fatal(err)
-	}
-	for _, migration := range migrations[:14] {
-		if err := applyMigration(ctx, db, migration); err != nil {
-			t.Fatalf("migration %d: %v", migration.Version, err)
-		}
-		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-08-08T00:00:00Z"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1);
-INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('v14-product','V14','prototype','operator_only',1,'created','updated');
-INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('v14-project','V14 project',1,'created','updated');
-INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('v14-work','task','V14 work','needed',1,2,'created','updated'),('v14-work-2','task','V14 work 2','needed',1,1,'created','updated');
-INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('v14-work','v14-work-2','blocks','created');
-INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES('v14-event','work.created','work_item','v14-work','operator','2026-08-08T00:00:00Z',2,'{"work_kind":"task","title":"V14 work"}');
-DELETE FROM fold_guard`); err != nil {
-		t.Fatal(err)
-	}
-	ctx = outcomeSnapshotContext(t, ctx, db)
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
-	}
-	var name string
-	if err := db.QueryRowContext(ctx, `SELECT display_name FROM products WHERE id='v14-product'`).Scan(&name); err != nil || name != "V14" {
-		t.Fatalf("preserved v14 product = %q, error=%v", name, err)
-	}
-	var workTitle, relationKind, payloadDigest string
-	if err := db.QueryRowContext(ctx, `SELECT title FROM work_items WHERE id='v14-work'`).Scan(&workTitle); err != nil || workTitle != "V14 work" {
-		t.Fatalf("preserved v14 work = %q, error=%v", workTitle, err)
-	}
-	if err := db.QueryRowContext(ctx, `SELECT kind FROM relations WHERE work_id_from='v14-work' AND work_id_to='v14-work-2'`).Scan(&relationKind); err != nil || relationKind != "blocks" {
-		t.Fatalf("preserved v14 relation = %q, error=%v", relationKind, err)
-	}
-	wantDigest := historicalFixturePayloadDigest(t, `{"work_kind":"task","title":"V14 work"}`)
-	if err := db.QueryRowContext(ctx, `SELECT payload_digest FROM effect_receipts WHERE event_id='v14-event' AND effect_seq=1 AND kind='work.created' AND subject_type='work_item' AND subject_id='v14-work' AND actor='operator' AND payload_version=2`).Scan(&payloadDigest); err != nil || payloadDigest != wantDigest {
-		t.Fatalf("preserved v14 receipt digest = %q, error=%v, want %q", payloadDigest, err, wantDigest)
-	}
-	if got, err := readSchemaManifestVersion(ctx, db); err != nil || got != CurrentSchemaVersion() {
-		t.Fatalf("schema version = %d, error=%v, want %d", got, err, CurrentSchemaVersion())
-	}
-}
-
 func TestWorkflowProjectionSchemaHasClosedChecksForeignKeysAndFoldGuards(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)

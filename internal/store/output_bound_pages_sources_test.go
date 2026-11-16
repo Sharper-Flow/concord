@@ -33,7 +33,7 @@ import (
 // to rows written before the current fold's stricter byte guards.
 func decisionRecordSQLBound(column, measure string, unit boundUnit) outputBoundSource {
 	return outputBoundSource{kind: "derived", derive: func(rt *ledgerRuntime, _ *boundCensus) (evaluatedBound, error) {
-		source, err := rt.loadGo("internal/store/schema.go")
+		source, err := rt.loadGo("internal/store/schema_baseline.go")
 		if err != nil {
 			return evaluatedBound{}, err
 		}

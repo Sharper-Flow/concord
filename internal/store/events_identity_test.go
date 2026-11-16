@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -162,54 +161,6 @@ func assertEventRowCount(t *testing.T, ctx context.Context, s *Store, eventID st
 	}
 	if got != count {
 		t.Errorf("event count for %s = %d, want %d", eventID, got, count)
-	}
-}
-
-// TestAppendEventRejectsDifferentPayloadVersion covers the payload_version
-// dimension explicitly. A current append cannot reuse a migrated event's ID
-// with a different payload version, or change that stored record's bytes.
-func TestAppendEventRejectsDifferentPayloadVersion(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	first := projectIdentityEvent("divergent-version-evt", 1)
-	path := filepath.Join(t.TempDir(), "historical-identity.db")
-	db := openMigratedTo(t, path, 144)
-	insertHistoricalEvents(t, db, []Event{first})
-	if err := Migrate(ctx, db); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	s, err := Open(ctx, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { s.Close() })
-	original, err := readRawEventRow(t, ctx, s, first.EventID)
-	if err != nil {
-		t.Fatalf("read original event: %v", err)
-	}
-
-	second := projectIdentityEvent("divergent-version-evt", CurrentEventPayloadVersion("project.created"))
-	_, err = appendInTx(t, s, second)
-	var f *Failure
-	if !errors.As(err, &f) {
-		t.Fatalf("second AppendEvent() error = %v, want *Failure", err)
-	}
-	if f.Kind != KindIdempotencyConflict {
-		t.Errorf("Kind = %q, want %q", f.Kind, KindIdempotencyConflict)
-	}
-	if !strings.Contains(f.Detail, "payload_version") {
-		t.Errorf("Detail = %q, want it to name payload_version", f.Detail)
-	}
-
-	after, err := readRawEventRow(t, ctx, s, first.EventID)
-	if err != nil {
-		t.Fatalf("read post-rejection event: %v", err)
-	}
-	if original != after {
-		t.Errorf("recorded event mutated after rejected divergent append:\nbefore=%s\nafter=%s", original, after)
 	}
 }
 
@@ -522,29 +473,6 @@ func readRawEventRow(t *testing.T, ctx context.Context, s *Store, eventID string
 		return "", err
 	}
 	return row, nil
-}
-
-// projectIdentityEvent builds a project.created event at the requested
-// payload version. The v1 form omits the stage override fields because the
-// v1 upcaster refuses payloads that already carry them; the v2 form carries
-// them as explicit nulls. Both forms share the same canonical content.
-func projectIdentityEvent(eventID string, version int) Event {
-	var payload string
-	if version == 1 {
-		payload = `{"display_name":"Project Identity"}`
-	} else {
-		payload = `{"display_name":"Project Identity","stage_maturity_override":null,"stage_audience_commitment_override":null}`
-	}
-	return Event{
-		EventID:        eventID,
-		Kind:           "project.created",
-		SubjectType:    SubjectProject,
-		SubjectID:      "project-identity",
-		Actor:          "operator",
-		OccurredAt:     time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC),
-		PayloadVersion: version,
-		Payload:        []byte(payload),
-	}
 }
 
 // largeIntegerEvent builds a project.created v=2 event whose

@@ -58,15 +58,14 @@ func TestSnapshotStoreAdapters(t *testing.T) {
 
 func TestSnapshotStoreCancellationCleansDestination(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "source.db")
-	db, err := sqlitedb.Open(sqlitedb.DSN(path))
+	s, err := Open(t.Context(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-	if _, err := db.ExecContext(t.Context(), `CREATE TABLE sample(value); INSERT INTO sample VALUES('state')`); err != nil {
+	defer s.Close()
+	if _, err := s.db.ExecContext(t.Context(), `CREATE TABLE sample(value); INSERT INTO sample VALUES('state')`); err != nil {
 		t.Fatal(err)
 	}
-	s := &Store{db: db, path: path}
 	destination := filepath.Join(t.TempDir(), "snapshot.db")
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -85,8 +84,31 @@ func TestSnapshotStoreCancellationCleansDestination(t *testing.T) {
 	readCtx, stop := context.WithTimeout(t.Context(), time.Second)
 	defer stop()
 	var count int
-	if err := db.QueryRowContext(readCtx, `SELECT count(*) FROM sample`).Scan(&count); err != nil || count != 1 {
+	if err := s.db.QueryRowContext(readCtx, `SELECT count(*) FROM sample`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("source pool after cancellation = %d, %v", count, err)
+	}
+}
+
+func TestSnapshotStoreRefusalReleasesConnection(t *testing.T) {
+	s, err := Open(t.Context(), filepath.Join(t.TempDir(), "source.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	destination := filepath.Join(t.TempDir(), "snapshot.db")
+	if err := os.WriteFile(destination, []byte("retained"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = BackupWithOptions(t.Context(), s, destination, BackupOptions{SnapshotID: "synthetic-snapshot"})
+	f, ok := err.(*Failure)
+	if !ok || f.Kind != KindInvalidOperation || f.Detail != "backup destination already exists" {
+		t.Fatalf("existing destination = %#v", err)
+	}
+	readCtx, stop := context.WithTimeout(t.Context(), time.Second)
+	defer stop()
+	var one int
+	if err := s.db.QueryRowContext(readCtx, `SELECT 1`).Scan(&one); err != nil || one != 1 {
+		t.Fatalf("source pool after refusal = %d, %v", one, err)
 	}
 }
 
@@ -100,13 +122,10 @@ func TestSnapshotStoreAcquisitionFailurePreservesDestination(t *testing.T) {
 		t.Fatal(err)
 	}
 	destination := filepath.Join(t.TempDir(), "snapshot.db")
-	s := &Store{db: db, path: path, Clock: func() time.Time {
-		// A destination appearing after validation is not ours until acquisition.
-		if err := os.WriteFile(destination, []byte("retained"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return time.Unix(0, 0)
-	}}
+	if err := os.WriteFile(destination, []byte("retained"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := &Store{db: db, path: path}
 	_, err = BackupWithOptions(t.Context(), s, destination, BackupOptions{SnapshotID: "synthetic-snapshot"})
 	f, ok := err.(*Failure)
 	if !ok || f.Kind != KindUnavailable || f.Detail != "cannot acquire a SQLite connection" || !f.RetrySafe {

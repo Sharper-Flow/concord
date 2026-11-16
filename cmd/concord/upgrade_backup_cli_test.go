@@ -41,10 +41,10 @@ func TestUpgradeSnapshotsTheStoreBeforeABreakingStep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the snapshot must verify: %v", err)
 	}
-	if manifest.SchemaVersion >= 111 {
+	if manifest.SchemaVersion >= 200 {
 		t.Fatalf("the snapshot must hold the unmigrated store, got schema %d", manifest.SchemaVersion)
 	}
-	assertSnapshotLacksMigration(t, report.Backup, 111)
+	assertSnapshotLacksMigration(t, report.Backup, 200)
 }
 
 // The snapshot precedes the first migration, so a migration that fails still
@@ -68,7 +68,7 @@ func TestUpgradeKeepsTheSnapshotWhenTheBreakingStepFails(t *testing.T) {
 		if err != nil {
 			return manifest, err
 		}
-		_, err = db.ExecContext(ctx, `ALTER TABLE worktree_verify_leases ADD COLUMN native_plan_json TEXT NOT NULL DEFAULT ''`)
+		_, err = db.ExecContext(ctx, `CREATE TRIGGER fixture_reject_migration BEFORE INSERT ON schema_migrations WHEN NEW.version=200 BEGIN SELECT RAISE(ABORT, 'fixture migration failure'); END`)
 		if closeErr := db.Close(); err == nil {
 			err = closeErr
 		}
@@ -79,7 +79,7 @@ func TestUpgradeKeepsTheSnapshotWhenTheBreakingStepFails(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("a colliding migration must fail the upgrade: %d %s", code, errOut)
 	}
-	if !strings.Contains(errOut, "duplicate column name: native_plan_json") {
+	if !strings.Contains(errOut, "fixture migration failure") {
 		t.Fatalf("the verified snapshot must precede the source-only migration collision: %s", errOut)
 	}
 	entries, err := os.ReadDir(filepath.Join(root, "backups"))
@@ -103,7 +103,7 @@ func TestUpgradeKeepsTheSnapshotWhenTheBreakingStepFails(t *testing.T) {
 	if _, err := store.VerifyBackup(context.Background(), snapshot); err != nil {
 		t.Fatalf("the snapshot must verify: %v", err)
 	}
-	assertSnapshotLacksMigration(t, snapshot, 111)
+	assertSnapshotLacksMigration(t, snapshot, 200)
 }
 
 func assertSnapshotLacksMigration(t *testing.T, snapshot string, migration int) {

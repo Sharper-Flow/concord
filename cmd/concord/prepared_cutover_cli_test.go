@@ -89,7 +89,7 @@ func TestPreparedUpgradeRefusesEvenACurrentSchemaLeaseBeforeSnapshot(t *testing.
 		t.Fatalf("a refused cutover must leave no new fence: %+v %v", fence, err)
 	}
 	plan, err := store.PlanUpgradeReadiness(t.Context(), path)
-	if err != nil || plan.SchemaVersion != 110 {
+	if err != nil || plan.SchemaVersion != 199 {
 		t.Fatalf("a refused cutover must apply nothing: %+v %v", plan, err)
 	}
 }
@@ -160,7 +160,7 @@ try:
             raise AssertionError("the concurrent maintenance probe did not execute")
     assert superseded
     with sqlite3.connect(case.data_root / "concord.db") as db:
-        assert db.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 110
+        assert db.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 199
     assert not case.fence_path.exists() and not (case.data_root / "backups").exists()
     case.assert_active_release("v1.0.0", "v1.0.0")
     assert case.prepared_path.read_bytes() == record_bytes
@@ -217,10 +217,10 @@ finally:
 		}
 		snapshot := filepath.Join(paths.dataRoot, "backups", entry.Name())
 		manifest, err := store.VerifyBackup(context.Background(), snapshot)
-		if err != nil || manifest.SchemaVersion != 110 {
+		if err != nil || manifest.SchemaVersion != 199 {
 			t.Fatalf("pre-cutover snapshot: %+v %v", manifest, err)
 		}
-		assertSnapshotLacksMigration(t, snapshot, 111)
+		assertSnapshotLacksMigration(t, snapshot, 200)
 		snapshots++
 	}
 	if snapshots != 1 {

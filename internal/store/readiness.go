@@ -137,7 +137,9 @@ func openReadonlyStore(path string) (*sql.DB, error) {
 // readAppliedFromDB answers the manifest questions inside one read
 // transaction, so a single snapshot answers every query: is the schema
 // manifest present, is the store fresh, and which migrations are applied.
-func readAppliedFromDB(ctx context.Context, db *sql.DB, path string) (map[int]appliedMigration, bool, error) {
+// db is a pool or a connection the caller already holds; the read
+// transaction runs on it, so a holder needs no second connection.
+func readAppliedFromDB(ctx context.Context, db beginTxSource, path string) (map[int]appliedMigration, bool, error) {
 	tx, err := beginReadTx(ctx, db)
 	if err != nil {
 		return nil, false, wrapFailure(KindReadinessUnknown, "readiness",
@@ -168,11 +170,14 @@ func readAppliedFromDB(ctx context.Context, db *sql.DB, path string) (map[int]ap
 	}
 	applied, err := appliedMigrations(ctx, tx)
 	if err != nil && strings.Contains(err.Error(), "no such column: breaking") {
-		// The migration command repairs this column additively, marking every
-		// recorded row breaking; the plan reads that result without writing it.
+		// Read old rows only to identify an unsupported historical store.
 		applied, err = legacyManifestMigrations(ctx, tx)
 	}
 	if err != nil {
+		var failure *Failure
+		if errors.As(err, &failure) && failure.Kind == KindSchemaUnsupported {
+			return nil, false, err
+		}
 		return nil, false, wrapFailure(KindReadinessUnknown, "readiness",
 			"cannot read the applied migrations", false, "confirm the database is readable", err)
 	}
@@ -182,13 +187,6 @@ func readAppliedFromDB(ctx context.Context, db *sql.DB, path string) (map[int]ap
 			"do not activate; run the operator-owned offline bootstrap")
 	}
 	return applied, false, nil
-}
-
-// UpgradeOptions names the preservation input at the upgrade boundary.
-// The CLI owns maintenance exclusion and the verified pre-mutation snapshot.
-type UpgradeOptions struct {
-	// SnapshotPath is the CLI-owned verified pre-upgrade snapshot.
-	SnapshotPath string
 }
 
 // UpgradeReadiness is the read-only activation answer for one store path.

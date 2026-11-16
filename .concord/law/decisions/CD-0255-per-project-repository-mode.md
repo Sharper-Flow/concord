@@ -76,9 +76,9 @@ off-mode Project itself.
 - Store tests pin the default, both transitions, the version check, and that
   unrelated Project events leave the mode unchanged; the mode advances only
   through `project.repository_mode_set` effects, and the command that appends
-  them exists only on the operator CLI surface. Restored-copy upgrade evidence
-  covers migration 191, and `scripts/check-migration-compatibility.py` binds its
-  advance declaration to `Breaking: true`.
+  them exists only on the operator CLI surface.
+  `cmd/concord.TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence`
+  checks repository mode survives a breaking upgrade.
 - An installer test proves a linked off-mode clone shows no Concord file —
   neither the installer's project config nor `.concord/` — in `git status`, and
   that an on-mode link adds no exclude entry.

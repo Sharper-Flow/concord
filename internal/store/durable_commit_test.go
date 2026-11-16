@@ -509,40 +509,9 @@ func TestDurableCommitFailureReportsPersistedEffect(t *testing.T) {
 	}
 }
 
-func TestMigrateV115ToV116AddsDurabilityMarker(t *testing.T) {
-	useStampedBuild(t)
+func TestDurabilityMarkerConstraints(t *testing.T) {
 	ctx := context.Background()
-	path := copyTestDatabase(t)
-	s, err := Open(ctx, path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var floorBefore int
-	if err := s.db.QueryRow(`SELECT max(version) FROM schema_migrations WHERE breaking=1`).Scan(&floorBefore); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.ExecContext(ctx, `DROP TABLE durability_commits; DELETE FROM schema_migrations WHERE version=116;`); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
-	}
-	s, err = Open(ctx, path)
-	if err != nil {
-		t.Fatalf("additive open: %v", err)
-	}
-	defer s.Close()
-	var bit, floor int
-	if err := s.db.QueryRow(`SELECT bit FROM durability_commits WHERE id=1`).Scan(&bit); err != nil || bit != 0 {
-		t.Fatalf("migrated marker=%d err=%v", bit, err)
-	}
-	if err := s.db.QueryRow(`SELECT max(version) FROM schema_migrations WHERE breaking=1`).Scan(&floor); err != nil || floor != floorBefore {
-		t.Fatalf("compatibility floor=%d err=%v, want unchanged %d", floor, err, floorBefore)
-	}
-	var breaking int
-	if err := s.db.QueryRow(`SELECT breaking FROM schema_migrations WHERE version=116`).Scan(&breaking); err != nil || breaking != 0 {
-		t.Fatalf("durability migration breaking=%d err=%v, want additive", breaking, err)
-	}
+	s := openTemp(t)
 	for _, invalid := range []string{
 		`INSERT INTO durability_commits(id,bit) VALUES(2,0)`,
 		`UPDATE durability_commits SET bit=2 WHERE id=1`,

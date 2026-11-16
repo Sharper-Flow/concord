@@ -111,7 +111,6 @@ replaces the retired contract data.
   checks.
 - `internal/store.TestFirstCallApproveContractAdmitsAddedDomainWithLaw` proves
   D6's added-Domain read representation before publication.
-- `internal/store.TestLawAttributionStateRetired` proves obsolete attribution
-  state is absent. `internal/store.TestLawAttributionVerifiedSnapshotUpgrade`
-  proves the destructive upgrade preserves a verified predecessor snapshot and
-  surviving current state.
+- `cmd/concord.TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence`
+  proves a breaking upgrade preserves a verified predecessor snapshot and
+  living evidence.

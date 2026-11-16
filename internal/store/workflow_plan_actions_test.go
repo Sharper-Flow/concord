@@ -210,8 +210,7 @@ func TestWorkflowPlanActionFolds(t *testing.T) {
 
 func TestWorkflowPlanReviewRecordedBinding(t *testing.T) {
 	useStampedBuild(t)
-	db, _ := terminalStepsMigrationFixture(t)
-	advanceHistoricalPrefix(t, db, 183)
+	db := terminalStepsMigrationFixture(t)
 	const work = "work-upgrade-to"
 	for _, tc := range []struct {
 		name, step, result, mutation string
@@ -287,10 +286,9 @@ func TestWorkflowPlanReviewRecordedBinding(t *testing.T) {
 	}
 }
 
-func TestWorkflowPreludeFoldsMigration183(t *testing.T) {
+func TestWorkflowPreludeFolds(t *testing.T) {
 	useStampedBuild(t)
-	db, _ := terminalStepsMigrationFixture(t)
-	advanceHistoricalPrefix(t, db, 183)
+	db := terminalStepsMigrationFixture(t)
 	ctx := t.Context()
 	var version int64
 	if err := db.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id='work-upgrade-to'`).Scan(&version); err != nil {

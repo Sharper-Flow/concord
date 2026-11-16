@@ -84,12 +84,11 @@ establish workflow readiness or remove current verification and review duties.
 
 - Ownership and worktree inspection tools and CLI entry routes are absent from
   their authored manifests.
-- `internal/store.TestWorktreeRetirementFreshAbsence` and
-  `internal/store.TestWorktreeRetirementVerifiedSnapshotUpgrade` assert that
-  current stores contain no ownership tables. Work removal and completion
-  retain their non-ownership refusals without those tables.
-- The verified-snapshot upgrade removes worktree metadata without dropping
-  active work, knowledge, research, Project handoffs, or artifacts.
+- Work removal and completion retain their non-ownership refusals without
+  ownership tables.
+- `cmd/concord.TestUpgradeSnapshotPrecedesBreakingMigration` verifies a snapshot
+  before a breaking upgrade; `internal/store.TestUpgradePreservesRetainedWork`
+  checks preservation of retained work.
 - Session preparation, those explicit reads, and Review keep their non-worktree checks.
 - Knowledge, law coverage, documentation links, and generated projections agree
   with this boundary.

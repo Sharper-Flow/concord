@@ -10,35 +10,6 @@ func stepFixtureActor() WorkflowActor {
 	return WorkflowActor{PrincipalRef: "principal-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1", ActorClass: ActorAgent}
 }
 
-func cutoverTableSnapshot(t *testing.T, s *Store, table string) string {
-	t.Helper()
-	rows, err := s.db.Query("SELECT * FROM " + table + " ORDER BY 1,2") //nolint:gosec // test-owned closed table names.
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	columns, err := rows.Columns()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var snapshot [][]any
-	for rows.Next() {
-		values := make([]any, len(columns))
-		pointers := make([]any, len(columns))
-		for i := range values {
-			pointers[i] = &values[i]
-		}
-		if err := rows.Scan(pointers...); err != nil {
-			t.Fatal(err)
-		}
-		snapshot = append(snapshot, values)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	return string(mustJSONValue(snapshot))
-}
-
 func seedStepWork(t *testing.T, s *Store, workID string) {
 	t.Helper()
 	ctx := context.Background()

@@ -133,13 +133,8 @@ impact or overlap dependencies.
 - `python3 scripts/check-pr-linear-link.py` enforces D5 on each pull request.
 - `internal/agent.TestDispatchIssueLinkRecordStoresReportedIdentity` exercises
   D3's record-only issue identity through the public dispatch boundary.
-- `internal/store.TestInitiativeRetirementUpgrade` exercises D8's removal of
-  retired Initiative records and their owned projections while preserving
-  actionable work, idempotency records and a verified predecessor snapshot.
-- The Initiative retirement rollback tests exercise atomic refusal when
-  foreign-owned dependencies remain or a deletion fails.
-- `internal/store.TestInitiativeRetirementTerminalAlignment` exercises the
-  admitted terminal-match cutover, native snapshot/restore, and preservation
-  of surviving work, workflow, effects and idempotency evidence.
-- `internal/store.TestInitiativeRetirementAlignmentRefusal` exercises atomic
-  refusal for live owners, non-terminal instances and sole-initiative matches.
+- `internal/store.TestUpgradePreservesRetainedWork` exercises preservation of
+  surviving work across an upgrade.
+- `cmd/concord.TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence`
+  exercises verified snapshot and living-evidence preservation across a
+  breaking upgrade.

@@ -2,11 +2,9 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -217,94 +215,4 @@ func TestTerminalLifecycleLeavesACompletedInstanceAlone(t *testing.T) {
 	if completedAt == nil || *completedAt == "" {
 		t.Fatal("the completion left no instance stamp")
 	}
-}
-
-// Migration 75 closes instances that terminal work items left live and uses
-// each item's terminal time as the completion stamp.
-func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	orphans := map[string]string{"orphan-cancelled": "cancelled", "orphan-completed": "completed", "orphan-superseded": "superseded"}
-	const terminalAt = "2026-09-06T01:00:00Z"
-
-	path := filepath.Join(t.TempDir(), "concord-orphans.db")
-	db, err := sql.Open(driverName, dataSourceName(path))
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetMaxOpenConns(1)
-	defer db.Close()
-	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
-		t.Fatal(err)
-	}
-	// The backfill under test is version 75; later migrations are irrelevant
-	// to it, so the seeded database stops just before 75.
-	for _, migration := range migrations {
-		if migration.Version >= 75 {
-			break
-		}
-		if err := applyMigration(ctx, db, migration); err != nil {
-			t.Fatalf("migration %d: %v", migration.Version, err)
-		}
-		if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(?,?,?,?)`, migration.Version, migration.Name, migration.checksum(), "2026-09-06T00:00:00Z"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO agent_installation_keys(key_name,key_bytes,created_at) VALUES('cursor',zeroblob(32),'2026-09-06T00:00:00Z')`); err != nil {
-		t.Fatal(err)
-	}
-
-	// Reproduce the migration input directly: terminal work with a live instance.
-	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-		t.Fatal(err)
-	}
-	for workID, lifecycle := range orphans {
-		if _, err := db.ExecContext(ctx, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES(?,?,?,?,?,?,?,?,?)`,
-			workID, "task", "Orphan "+workID, lifecycle, 1, 2, terminalAt, terminalAt, terminalAt); err != nil {
-			t.Fatalf("seed %s: %v", workID, err)
-		}
-		if _, err := db.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_model) VALUES(?,?,?,?,?,'running','single_actor')`,
-			workID, "workflow.implementation", 1, testManifestDigest, "proposal"); err != nil {
-			t.Fatalf("seed instance %s: %v", workID, err)
-		}
-	}
-	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-		t.Fatal(err)
-	}
-
-	var live int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_instances WHERE instance_state='running'`).Scan(&live); err != nil {
-		t.Fatal(err)
-	}
-	if live != len(orphans) {
-		t.Fatalf("seeded %d live instances, want %d", live, len(orphans))
-	}
-
-	assertOrphansClosed := func(phase string, historical bool) {
-		t.Helper()
-		for workID, lifecycle := range orphans {
-			var state, completedAt, terminalTime string
-			if err := db.QueryRowContext(ctx, `SELECT i.instance_state, coalesce(i.completed_at,''), coalesce(w.terminal_time,'') FROM workflow_instances i JOIN work_items w ON w.id=i.work_id WHERE i.work_id=?`, workID).Scan(&state, &completedAt, &terminalTime); err != nil {
-				t.Fatal(err)
-			}
-			want := "cancelled"
-			if historical && lifecycle == "superseded" {
-				want = "superseded"
-			} else if !historical && lifecycle == "completed" {
-				want = "completed"
-			}
-			if state != want {
-				t.Errorf("%s: %s instance_state = %q, want %q for lifecycle %q", phase, workID, state, want, lifecycle)
-			}
-			if completedAt == "" || completedAt != terminalTime {
-				t.Errorf("%s: %s completed_at = %q, want the item's terminal time %q", phase, workID, completedAt, terminalTime)
-			}
-		}
-	}
-	advanceHistoricalPrefix(t, db, 75)
-	assertOrphansClosed("after migration 75", true)
-	if err := Migrate(outcomeSnapshotContext(t, ctx, db), db); err != nil {
-		t.Fatalf("migration over orphaned instances: %v", err)
-	}
-	assertOrphansClosed("after current migration", false)
 }

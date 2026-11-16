@@ -98,6 +98,30 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 	if s == nil || s.db == nil {
 		return manifest, newFailure(KindUnavailable, "backup", "store is not open", false, "open a store before backing it up")
 	}
+	// One held connection serves the schema probe and the snapshot, so no
+	// other caller can take the pool's only connection between them.
+	// BackupSnapshot consumes the connection; until then this function owns
+	// its release.
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return manifest, wrapFailure(KindUnavailable, "backup", "cannot acquire a SQLite connection", true, "retry once the database is readable", err)
+	}
+	connHeld := true
+	defer func() {
+		if connHeld {
+			_ = conn.Close()
+		}
+	}()
+	applied, fresh, err := readAppliedFromDB(ctx, conn, s.path)
+	if err != nil {
+		return manifest, err
+	}
+	if fresh {
+		return manifest, unknownManifest()
+	}
+	if err := checkManifest(applied); err != nil {
+		return manifest, err
+	}
 	if err := validateBackupDestination(s.Path(), destination); err != nil {
 		return manifest, err
 	}
@@ -145,10 +169,6 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 		return manifest, wrapFailure(KindUnavailable, "backup", "cannot close backup copy staging file", true, "check destination permissions", err)
 	}
 
-	conn, err := s.db.Conn(ctx)
-	if err != nil {
-		return manifest, wrapFailure(KindUnavailable, "backup", "cannot acquire a SQLite connection", true, "retry once the database is readable", err)
-	}
 	defer func() {
 		if err != nil {
 			for _, path := range []string{destination, destination + "-wal", destination + "-shm", destination + "-journal", manifestPath(destination)} {
@@ -156,6 +176,7 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 			}
 		}
 	}()
+	connHeld = false
 	if err := mechanismFailure(sqlitedb.BackupSnapshot(ctx, conn, SQLiteFileURI(copyPath))); err != nil {
 		return manifest, err
 	}
@@ -259,7 +280,6 @@ type RestoredDatabaseInventory struct {
 type RestoreReport struct {
 	SourceSnapshot   BackupManifest            `json:"source_snapshot"`
 	RestoredDatabase RestoredDatabaseInventory `json:"restored_database"`
-	ResearchExport   string                    `json:"research_export,omitempty"`
 }
 
 // RestoreBackup verifies a snapshot, restores it into a clean staging file
@@ -293,20 +313,6 @@ func RestoreBackup(ctx context.Context, source, destination string) (RestoreRepo
 	if err := contextErr(ctx); err != nil {
 		return RestoreReport{}, wrapFailure(KindUnavailable, "restore_backup", "restore was cancelled before it started", true, "retry the restore", err)
 	}
-	var researchExport string
-	if manifest.SchemaVersion < 186 {
-		ctx, err = prepareOutcomeRetirementSnapshot(ctx, source)
-		if err != nil {
-			return RestoreReport{}, err
-		}
-	}
-	if manifest.SchemaVersion < 184 {
-		ctx, researchExport, err = prepareResearchRetirement(ctx, source, destination+".research")
-		if err != nil {
-			return RestoreReport{}, fmt.Errorf("research preservation at %s failed; keep the snapshot and choose a new restore destination: %w", destination+".research", err)
-		}
-	}
-
 	stageFile, err := os.CreateTemp(filepath.Dir(destination), ".concord-restore-*")
 	if err != nil {
 		return RestoreReport{}, wrapFailure(KindUnavailable, "restore_backup", "cannot create restore staging file", true, "check destination permissions", err)
@@ -342,7 +348,7 @@ func RestoreBackup(ctx context.Context, source, destination string) (RestoreRepo
 		_ = os.Remove(destination)
 		return RestoreReport{}, wrapFailure(KindUnavailable, "restore_backup", "cannot remove promoted restore staging name", true, "retry the restore", err)
 	}
-	return RestoreReport{SourceSnapshot: manifest, RestoredDatabase: inventory, ResearchExport: researchExport}, nil
+	return RestoreReport{SourceSnapshot: manifest, RestoredDatabase: inventory}, nil
 }
 
 // verifyBackupRestore proves a snapshot promotes only when this binary can
@@ -371,20 +377,6 @@ func verifyBackupRestore(ctx context.Context, snapshot string, manifest BackupMa
 	// fires before verification so a cancelled backup discards a complete
 	// clone and leaves the retained snapshot untouched.
 	notifyRestoreStageReady(ctx, stage)
-	// This clone is disposable and cannot promote. Its source snapshot remains
-	// intact; the real restore and live upgrade must also preserve an export.
-	packs, err := readResearchExport(ctx, stage)
-	if err != nil {
-		return err
-	}
-	proof, err := researchProof(packs)
-	if err != nil {
-		return err
-	}
-	ctx = context.WithValue(ctx, researchRetirementProofKey{}, proof)
-	if manifest.SchemaVersion < 186 {
-		ctx = withOutcomeRetirementProof(ctx, snapshot, manifest)
-	}
 	_, err = verifyRestoredStage(ctx, stage, manifest)
 	return err
 }
@@ -475,16 +467,8 @@ func stagedInventory(ctx context.Context, stageDB *sql.DB) (int, int64, error) {
 	return schema, watermark, err
 }
 
-// The store revision is inventory only, never a verification input. A snapshot
-// from before the revision migration reports zero inventory.
+// The store revision is inventory only, never a verification input.
 func backupEventInventory(ctx context.Context, db *sql.DB) (int64, error) {
-	var exists bool
-	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM main.sqlite_schema WHERE type='table' AND name='store_revision')`).Scan(&exists); err != nil {
-		return 0, backupStateReadFailure(err)
-	}
-	if !exists {
-		return 0, nil
-	}
 	return storeRevision(ctx, db)
 }
 
@@ -508,12 +492,19 @@ func verifyBackupFile(ctx context.Context, destination string, supportedMax int,
 		return BackupManifest{}, wrapFailure(KindUnavailable, "verify_backup", "cannot open backup snapshot", false, "supply a readable SQLite snapshot", err)
 	}
 	defer func() { _ = db.Close() }()
+	applied, fresh, err := readAppliedFromDB(ctx, db, destination)
+	if err != nil {
+		return BackupManifest{}, err
+	}
+	if fresh {
+		return BackupManifest{}, unknownManifest()
+	}
+	if err := checkManifest(applied); err != nil {
+		return BackupManifest{}, err
+	}
 	var schema int
 	if err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version),0) FROM schema_migrations`).Scan(&schema); err != nil {
 		return BackupManifest{}, wrapFailure(KindUnavailable, "verify_backup", "cannot read backup schema version", false, "supply a Concord SQLite snapshot", err)
-	}
-	if schema < 1 {
-		return BackupManifest{}, newFailure(KindInvalidPayload, "verify_backup", "backup snapshot predates Concord schema versioning", false, "supply a snapshot written by a Concord binary")
 	}
 	if schema > supportedMax {
 		return BackupManifest{}, newFailure(KindSchemaUnsupported, "verify_backup", fmt.Sprintf("backup schema %d exceeds supported maximum %d", schema, supportedMax), true, "upgrade the binary before restoring this snapshot")

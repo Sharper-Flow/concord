@@ -3,8 +3,6 @@ package store
 import (
 	"encoding/json"
 	"fmt"
-	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -52,44 +50,4 @@ func TestWorkflowStepCompletionFrontier(t *testing.T) {
 		}
 	}
 	assertEventLogAbsent(t, s)
-}
-
-func TestWorkflowCompletionBackfillPreservesUnknownKeys(t *testing.T) {
-	base := openTemp(t)
-	const work = "completion-unknown-keys"
-	seedTestWorkflow(t, base, work)
-	c := historicalFactCorpus{parents: func(t *testing.T, target *Store, guard string) {
-		copyFixtureDataToPrefix(t, base, target.db, []string{"products", "projects", "product_projects", "work_items", "work_projects", "workflow_actors", "workflow_instances", "workflow_contracts"}, map[string]map[string]string{"work_items": {"priority": "0", "urgency": "'standard'"}, "workflow_instances": {"outside_repair_state": "NULL", "definition_version": "26", "definition_ref": "'workflow.implementation'", "definition_digest": "'sha256:" + strings.Repeat("0", 64) + "'", "current_step": "'plan'", "result_disposition": "''", "latest_non_dispatch_start_seq": "0", "unhealthy_verdict_seq": "0"}, "workflow_contracts": {"premise": "'retired historical fixture'", "route_conventions": "'[]'", "rigor_class": "'prototype_internal'", "decision_domains": "NULL", "required_evidence": "'[]'", "definition_version": "26", "definition_ref": "'workflow.implementation'", "definition_digest": "'sha256:" + strings.Repeat("0", 64) + "'", "law_change": "NULL"}}, guard)
-	}}
-	for _, f := range []struct{ id, payload string }{
-		{"missing-epoch-completion", `{"step_id":"unknown","action_id":"checkpoint_context"}`},
-		{"missing-step-completion", `{"attempt_epoch":7,"action_id":"checkpoint_context"}`},
-		{"orphan-completion", `{"step_id":"orphan","attempt_epoch":3,"action_id":"checkpoint_context"}`},
-	} {
-		c.events = append(c.events, corpusEvent(f.id, WorkflowActionCompleted, work, json.RawMessage(f.payload)))
-	}
-	s := c.prefix(t, 141)
-	advanceHistoricalPrefix(t, s.db, 142)
-	var got int
-	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_step_completions WHERE step_id IN ('orphan','unknown')`).Scan(&got); err != nil || got != 2 {
-		t.Fatalf("completion frontier rows=%d err=%v, want 2", got, err)
-	}
-	before := retirementUpgradeSnapshot(t, s.db)
-	err := Migrate(outcomeSnapshotContext(t, t.Context(), s.db), s.db)
-	assertFailureKind(t, err, KindInvariantViolation)
-	for _, ref := range []string{work, "missing-step-completion", "sequence"} {
-		if !strings.Contains(err.Error(), ref) {
-			t.Fatalf("missing completion-class refusal %v does not identify %q", err, ref)
-		}
-	}
-	if after := retirementUpgradeSnapshot(t, s.db); !reflect.DeepEqual(after, before) {
-		t.Fatal("failed migration changed predecessor")
-	}
-	var version, rows int
-	if err := s.db.QueryRow(`SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM workflow_step_completions WHERE step_id IN ('orphan','unknown')`).Scan(&rows); err != nil || version != 142 || rows != got {
-		t.Fatalf("failed migration changed predecessor: version=%d rows=%d err=%v", version, rows, err)
-	}
 }

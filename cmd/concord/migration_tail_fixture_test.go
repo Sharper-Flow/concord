@@ -38,7 +38,7 @@ SELECT ?, 'fixture_unmapped', checksum, applied_at, breaking FROM schema_migrati
 	if err := db.QueryRow(snapshot).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	err = removeMigrationManifestTail(db, 111)
+	err = removeMigrationManifestTail(db, 200)
 	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("unknown fixture migration %d", missing)) {
 		t.Fatalf("unknown migration must refuse before changing the manifest, got %v", err)
 	}
@@ -56,11 +56,7 @@ func TestMigrationTailFixtureReappliesEveryDeclaredStep(t *testing.T) {
 	t.Cleanup(func() { version.Value = previous })
 	path := filepath.Join(t.TempDir(), "store.db")
 	pendingBreakingStore(t, path, true)
-	snapshot := filepath.Join(t.TempDir(), "snapshot.db")
-	if _, err := store.BackupDatabase(context.Background(), path, snapshot); err != nil {
-		t.Fatalf("snapshot migration predecessor: %v", err)
-	}
-	if _, err := store.Upgrade(context.Background(), path, nil, store.UpgradeOptions{SnapshotPath: snapshot}); err != nil {
+	if _, err := store.Upgrade(context.Background(), path, nil); err != nil {
 		t.Fatalf("reapply the complete migration tail: %v", err)
 	}
 	plan, err := store.PlanUpgradeReadiness(context.Background(), path)
@@ -71,44 +67,20 @@ func TestMigrationTailFixtureReappliesEveryDeclaredStep(t *testing.T) {
 
 func TestMigrationTailFixtureRejectsMissingMiddleBeforeChangingStore(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store.db")
-	seedCLIMigrationPrefix(t, path, 142)
+	seedCLIMigrationPrefix(t, path, 201)
 	db, err := sql.Open("sqlite", store.SQLiteFileURI(path))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.Exec(`DELETE FROM schema_migrations WHERE version=111`); err != nil {
+	if _, err := db.Exec(`DELETE FROM schema_migrations WHERE version=200`); err != nil {
 		t.Fatal(err)
 	}
 	before := releaseMigrationSnapshot(t, path)
-	if err := removeMigrationManifestTail(db, 0); err == nil || !strings.Contains(err.Error(), "missing migration 111") {
+	if err := removeMigrationManifestTail(db, 0); err == nil || !strings.Contains(err.Error(), "missing migration 200") {
 		t.Fatalf("incomplete manifest must refuse before changing the store: %v", err)
 	}
 	if after := releaseMigrationSnapshot(t, path); after != before {
 		t.Fatal("incomplete manifest changed schema or rows")
-	}
-}
-
-func TestCLIMigrationPrefixRetainsRealHistoricalSchemaAndFloor(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "store.db")
-	seedCLIMigrationPrefix(t, path, 150)
-	db, err := sql.Open("sqlite", store.SQLiteFileURI(path))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	var count, floor int
-	if err := db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE type='table' AND name IN ('domain_events','fold_guard')`).Scan(&count); err != nil || count != 2 {
-		t.Fatalf("real pre-151 tables=%d, want both historical tables: %v", count, err)
-	}
-	if err := db.QueryRow(`SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='write_guard'`).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("prefix unexpectedly contains the 151 guard: count=%d err=%v", count, err)
-	}
-	if err := db.QueryRow(`SELECT max(version) FROM schema_migrations WHERE breaking=1`).Scan(&floor); err != nil {
-		t.Fatal(err)
-	}
-	plan, err := store.PlanUpgradeReadiness(context.Background(), path)
-	if err != nil || plan.SchemaVersion != 150 || plan.CompatibilityFloor != floor || len(plan.PendingBreaking) == 0 || plan.PendingBreaking[0].Version != 151 {
-		t.Fatalf("prefix lost its compatibility floor or complete breaking tail: %+v, %v", plan, err)
 	}
 }

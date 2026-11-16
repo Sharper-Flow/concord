@@ -9,6 +9,8 @@ The harness is deliberately black-box. It does not import any ``internal/``
 Go package, does not read the SQLite file directly except where a step asserts
 on the produced artifacts, and uses only the Python standard library plus the
 ``concord`` binary and ``gh`` release download for the upgrade step.
+The pinned old-release upgrade probe reads its manifest to check that a
+below-floor refusal leaves the old schema version unchanged.
 
 Live provider boundary: no step calls a live provider. Where the test
 sequence would cross a host boundary (the OpenCode agent running a prompt
@@ -40,6 +42,7 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -715,19 +718,17 @@ def _download_release_binary(work: Path, subdir: str, tag: str | None) -> Path |
 
 
 def _upgrade_probe(binary: Path, env: dict, work: Path, subdir: str, tag: str | None, seed: bytes, public_key: bytes) -> None:
-    """Open and further write, with the binary under test, a home written by
-    one published release binary (latest when tag is None).
+    """Check the binary under test against a home written by a published release.
 
     Direction matters: an upgrade runs the NEW binary against OLD data. The
-    probe bootstraps a fresh home with the release binary, then the binary
-    under test backs that home up — the online-backup API reads every page,
-    so a schema it cannot open fails here, not at --version, which never
-    opens the store — and then creates a Product in the same home, proving a
-    write after upgrade. If the old binary rejects the bootstrap payloads
+    probe bootstraps a fresh home with the release binary. The latest-release
+    leg upgrades, backs up, and writes to the home. The pinned below-floor leg
+    expects refusal and checks that the manifest head remains unchanged.
+    If the old binary rejects the bootstrap payloads
     (strict-field CLI drift), the step skips with that typed failure in the
     reason: CLI-contract drift is governed by the agent-surface contracts,
     not by this store-compatibility gate. A failure of the NEW binary against
-    old-binary data is a hard failure.
+    old-binary data outside the expected refusal is a hard failure.
     """
     candidate = _download_release_binary(work, subdir, tag)
     if candidate is None:
@@ -771,6 +772,29 @@ def _upgrade_probe(binary: Path, env: dict, work: Path, subdir: str, tag: str | 
         print(f"SKIP-UPGRADE[{tag or 'latest'}]: release binary rejected the bootstrap payload (CLI drift): {reason}", flush=True)
         return
 
+    if tag == UPGRADE_PROBE_OLD_TAG:
+        db_path = Path(old_env['XDG_DATA_HOME']) / 'concord' / 'concord.db'
+
+        def manifest_head() -> int:
+            with contextlib.closing(sqlite3.connect(db_path.as_uri() + '?mode=ro', uri=True)) as db:
+                return db.execute('SELECT MAX(version) FROM schema_migrations').fetchone()[0]
+
+        before = manifest_head()
+        if before is None or not 0 < before < 199:
+            raise HarnessError(f"old release manifest head is not below floor: {before}")
+        completed = subprocess.run(
+            [str(binary), 'upgrade'], input=b'{}', capture_output=True,
+            env=old_env, timeout=60, check=False,
+        )
+        stderr = completed.stderr.decode('utf-8', errors='replace')
+        required = ('schema_unsupported', 'minimum supported schema version 199', 'bridge release v67.0.0')
+        if completed.returncode == 0 or any(part not in stderr for part in required):
+            raise HarnessError(f"old release upgrade: exit={completed.returncode}; stderr={stderr.strip()[:400]}")
+        after = manifest_head()
+        if after != before:
+            raise HarnessError(f"old release manifest head changed: {before} -> {after}")
+        return
+
     # The NEW binary applies pending migrations through the explicit upgrade
     # verb (CD-0111 D3): open alone refuses a pending breaking migration with
     # upgrade_required rather than applying it. Only then does it read the
@@ -791,10 +815,8 @@ def _upgrade_probe(binary: Path, env: dict, work: Path, subdir: str, tag: str | 
     }, old_env)
 
 
-# v0.13.0 is the pinned old-release probe: its databases record migration
-# checksums from texts later edited (digest correction, reformatting), so it
-# exercises the shipped-variant acceptance at the manifest check. Probing the
-# latest release alone cannot see that class.
+# v0.13.0 supplies real released data below the supported floor. CD-0082 D4
+# retired shipped-variant checksum acceptance for those old migrations.
 UPGRADE_PROBE_OLD_TAG = 'v0.13.0'
 
 

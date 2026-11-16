@@ -5,13 +5,15 @@ opt-in neighbor mode.
 Narrow and cheap: pure classification, aggregation, reconciliation, and
 argument parsing, one small round trip that runs the real worker child
 process against a stub binary emitting canned CLI JSON, and mocked
-step_h_backup_restore report-consumer checks. No Go build, no concord
-binary, no network, and no SQLite file.
+step_h_backup_restore report-consumer checks. The upgrade probe uses a
+synthetic SQLite manifest. No Go build, concord binary, or network is needed.
 """
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import sqlite3
 import subprocess
 import tempfile
 import time
@@ -250,6 +252,55 @@ class WorkerCleanupTests(unittest.TestCase):
             "problems": ["child exited 1"],
         }
         self.assertIsNotNone(_bb._neighbor_mode_verdict(aggregate, 1, 1))
+
+
+class UpgradeFloorTests(unittest.TestCase):
+    MESSAGE = "schema_unsupported: minimum supported schema version 199; bridge release v67.0.0"
+
+    def probe(self, root, *, status=1, message=None, mutate=False):
+        old = root / "old"
+        new = root / "new"
+
+        def bootstrap(binary, args, payload, env, timeout=60):
+            if binary == new:
+                raise _bb.HarnessError(f"exit=1; stderr={self.MESSAGE}")
+            self.assertEqual(binary, old)
+            if args == ["product", "create"]:
+                db = Path(env["XDG_DATA_HOME"]) / "concord" / "concord.db"
+                db.parent.mkdir(parents=True)
+                with contextlib.closing(sqlite3.connect(db)) as connection, connection:
+                    connection.execute("CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY)")
+                    connection.execute("INSERT INTO schema_migrations VALUES (42)")
+            return {}
+
+        def run(command, **kwargs):
+            if command == [str(old), "--version"]:
+                return subprocess.CompletedProcess(command, 0, "v0.13.0", "")
+            self.assertEqual(command, [str(new), "upgrade"])
+            if mutate:
+                db = Path(kwargs["env"]["XDG_DATA_HOME"]) / "concord" / "concord.db"
+                with contextlib.closing(sqlite3.connect(db)) as connection, connection:
+                    connection.execute("INSERT INTO schema_migrations VALUES (201)")
+            return subprocess.CompletedProcess(command, status, b"", (message if message is not None else self.MESSAGE).encode())
+
+        with patch.object(_bb, "_download_release_binary", return_value=old), \
+             patch.object(_bb, "_run", side_effect=bootstrap), \
+             patch.object(_bb.subprocess, "run", side_effect=run):
+            _bb._upgrade_probe(new, {}, root, "upgrade-old", _bb.UPGRADE_PROBE_OLD_TAG, b"", b"")
+
+    def test_old_home_refusal_preserves_manifest(self):
+        with tempfile.TemporaryDirectory() as raw:
+            self.probe(Path(raw))
+
+    def test_incomplete_refusals_and_migration_are_rejected(self):
+        cases = [dict(status=0), dict(mutate=True)]
+        cases += [dict(message=self.MESSAGE.replace(part, "")) for part in (
+            "schema_unsupported", "minimum supported schema version 199", "bridge release v67.0.0",
+        )]
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as raw:
+                with self.assertRaises(_bb.HarnessError):
+                    self.probe(Path(raw), **case)
 
 
 class RestoreReportTests(unittest.TestCase):

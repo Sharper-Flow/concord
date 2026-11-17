@@ -102,16 +102,10 @@ func init() {
 	registerOutputBound("/$defs/next_valid_intent/properties/required_fields/maxItems",
 		requiredIntentFieldsBound())
 
-	// obligation_id: values are copied verbatim from the approved contract's
-	// admitted architecture_binding.verification_obligations into work summaries'
-	// law context in item-scoped full-detail lists
-	// (internal/store/workflow_law_revision.go law-context projection; no
-	// aggregation lengthens them), or admitted on the knowledge side at 256
-	// code points. The store re-check validWorkflowObligationID
-	// (1..256 bytes) is a no-argument guard and non-widening relative to
-	// the admission bound cited here.
+	// Contract obligation IDs project verbatim into law context. The store
+	// guard bounds even retained IDs to 256 bytes, hence 256 code points.
 	registerOutputBound("/$defs/obligation_id/maxLength",
-		inputBound("/$defs/obligation_id/maxLength"))
+		goInlineBound("internal/store/workflow_architecture_binding.go", "validWorkflowObligationID", "len(value)", boundBytes))
 
 	// Stored driving-session identities have their own character-bound node.
 	// Workflow references retain the admission rule shared with ValidReference.

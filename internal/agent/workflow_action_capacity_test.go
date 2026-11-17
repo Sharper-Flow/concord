@@ -14,7 +14,7 @@ import (
 // production: any change in the widest shape fails this exact figure first,
 // and the pin moves only by a deliberate re-derivation beside the store
 // budget's own next-power-of-two assertion.
-const derivedRequestWireMaxBytes = 2089791
+const derivedRequestWireMaxBytes = 1992255
 
 // Derive the store workflow budget independently of the transport ceiling.
 func TestWorkflowActionWidestShapeDerivesStoreBudget(t *testing.T) {

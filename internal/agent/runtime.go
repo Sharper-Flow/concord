@@ -929,9 +929,7 @@ func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string
 		return "", nil
 	}
 	expected := SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default"}
-	if r.Tool == "concord_work_trace" && (r.Operation == "mutation_result" || r.Operation == "resume") {
-		// Document continuations bind their query identity independently of
-		// unrelated store revisions; the handler checks the document bytes.
+	if r.documentContinuation() {
 		expected.Source = binding
 	} else {
 		watermark, err := r.Store.Revision(ctx)
@@ -952,7 +950,7 @@ func (r runtime) wrapCursor(ctx context.Context, response agentcontract.Envelope
 		return response, nil
 	}
 	source := watermarkString(response)
-	if r.Tool == "concord_work_trace" && r.Operation == "resume" {
+	if r.documentContinuation() {
 		source = binding
 	}
 	token, err := r.Store.EncodeCursor(ctx, SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default", Source: source, Last: "", Inner: *response.NextCursor})
@@ -961,6 +959,14 @@ func (r runtime) wrapCursor(ctx context.Context, response agentcontract.Envelope
 	}
 	response.NextCursor = &token
 	return response, nil
+}
+
+// documentContinuation reports the operations whose cursors page one captured
+// document. Their continuations bind query identity instead of the store
+// revision, so unrelated writes do not invalidate them; the handler refuses
+// when the document bytes change.
+func (r runtime) documentContinuation() bool {
+	return r.Tool == "concord_work_trace" && (r.Operation == "mutation_result" || r.Operation == "resume")
 }
 
 func watermarkString(response agentcontract.Envelope) string {

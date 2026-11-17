@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -149,6 +150,44 @@ func TestResumeOversizedDocumentDispatch(t *testing.T) {
 	other := dispatchRead(t, fx.store, otherService, InvokeRequest{Tool: "concord_work_trace", Operation: "resume", Input: retryJSON(map[string]any{"work_id": fx.workID, "page": map[string]any{"limit": 100, "cursor": firstCursor}})}, agentJobsEnvelope(otherGrant, readPopulationProject, readPopulationProduct))
 	if other.Outcome == agentcontract.OutcomeOK || other.Error == nil || other.Error.Kind != "invalid_cursor" {
 		t.Fatalf("different principal accepted cursor: %+v", other.Error)
+	}
+	outerRaw, err := base64.RawURLEncoding.DecodeString(strings.Split(firstCursor, ".")[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var outer SignedCursor
+	if err := json.Unmarshal(outerRaw, &outer); err != nil {
+		t.Fatal(err)
+	}
+	var issued resumeCursor
+	if err := json.Unmarshal([]byte(outer.Inner), &issued); err != nil {
+		t.Fatal(err)
+	}
+	resign := func(offset int) agentcontract.Envelope {
+		inner, err := json.Marshal(resumeCursor{digest, offset})
+		if err != nil {
+			t.Fatal(err)
+		}
+		forged := outer
+		forged.Inner = string(inner)
+		signed, err := fx.store.EncodeCursor(context.Background(), forged)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return read(fx.workID, &signed, "resume")
+	}
+	if got := resign(issued.Offset); got.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("re-signed issued offset refused: %+v", got.Error)
+	}
+	midRune := strings.Index(string(doc), "界") + 1
+	if midRune == 0 {
+		t.Fatal("document carries no multibyte rune")
+	}
+	for _, offset := range []int{0, midRune, len(doc)} {
+		got := resign(offset)
+		if got.Outcome == agentcontract.OutcomeOK || got.Error == nil || got.Error.Kind != "invalid_cursor" {
+			t.Fatalf("invalid offset %d accepted cursor: %+v", offset, got.Error)
+		}
 	}
 	plan.Steps[0].Attempts[0].Note = "changed note"
 	changed, err := json.Marshal(plan)

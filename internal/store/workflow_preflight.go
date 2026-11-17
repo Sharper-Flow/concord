@@ -448,32 +448,40 @@ func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 			return step, err
 		}
 	default:
-		if !workflowPlanAllowsAction(plan, step, actionID) {
-			owner, err := workflowPlanCompleteActionTx(ctx, tx, workID, plan, actionID, false)
-			if err != nil {
-				return step, err
-			}
-			if owner != "" {
-				return owner, nil
-			}
-			owner = ""
-			if workflowRecordAction(actionID) && plan != nil {
-				owner = workflowPlanDeclaringStep(plan, actionID)
-			}
-			if owner == "" {
-				return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "action is not declared on a frontier step", false, "reread the workflow plan")
-			}
-			records, recordsErr := workflowCurrentRecords(ctx, tx, workID)
-			if recordsErr != nil {
-				return step, recordsErr
-			}
-			if !records[actionID] {
-				return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "action has no current record to replace", false, "record it on its frontier step first")
-			}
-			step = owner
-		}
+		return workflowPlanActionOwnerTx(ctx, tx, workID, actionID, step, plan)
 	}
 	return step, nil
+}
+
+func workflowPlanActionOwnerTx(ctx context.Context, tx *sql.Tx, workID, actionID, step string, plan *WorkflowStepPlan) (string, error) {
+	if plan != nil {
+		for _, candidate := range WorkflowStepPlanFrontier(*plan) {
+			if workflowStepDeclaresAction(plan, candidate.ID, actionID) {
+				return candidate.ID, nil
+			}
+		}
+	}
+	owner, err := workflowPlanCompleteActionTx(ctx, tx, workID, plan, actionID, false)
+	if err != nil {
+		return step, err
+	}
+	if owner != "" {
+		return owner, nil
+	}
+	if workflowRecordAction(actionID) && plan != nil {
+		owner = workflowPlanDeclaringStep(plan, actionID)
+	}
+	if owner == "" {
+		return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "action is not declared on a frontier step", false, "reread the workflow plan")
+	}
+	records, err := workflowCurrentRecords(ctx, tx, workID)
+	if err != nil {
+		return step, err
+	}
+	if !records[actionID] {
+		return step, newFailure(KindIllegalLifecycleTransition, "workflow_action", "action has no current record to replace", false, "record it on its frontier step first")
+	}
+	return owner, nil
 }
 
 // workflowPlanStepAttemptAdmissionTx adds the tx-scoped contract-step rule to

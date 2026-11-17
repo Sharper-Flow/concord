@@ -214,10 +214,7 @@ func workPinReadExistingPlanTx(ctx context.Context, tx *sql.Tx, workID string, p
 		ids = append(ids, completed...)
 	}
 	for _, step := range frontier {
-		actions := WorkflowStepPlanTemplateActions(plan.Type, step.ID)
-		if actions == nil {
-			actions = []string{"complete_step", "record_review", "record_delivery", "link_successor", "bind_evidence"}
-		}
+		actions := workflowPlanStepActions(plan, step)
 		for _, action := range actions {
 			if action != "complete" {
 				ids = append(ids, action)

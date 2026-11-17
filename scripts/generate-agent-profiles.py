@@ -23,10 +23,11 @@ boundaries. A Task result is not a workflow transition or an evidence
 binding; the caller owns workflow state, evidence binding and delivery.
 
 Prefer file tools for repository reads, especially .concord paths, before running
-a command. When a host permission rule denies a command, stop the whole task and
-return the refusal and the denied command to the caller. Never retry, rewrite,
-repackage, or split the refused command, or switch tools to pursue the refused
-purpose."""
+a command. When a command is refused, including a host permission denial or an
+admission failure, stop the whole task and return the exact command and refusal
+to the caller. Never retry, rewrite, repackage, or split the refused command, or
+switch tools to pursue the refused purpose. An admitted command that fails
+normally is not a refusal."""
 spec = importlib.util.spec_from_file_location("agent_contract_generator", ROOT / "scripts/generate-agent-contracts.py")
 if spec is None or spec.loader is None:
     raise RuntimeError("unable to load shared contract helpers")

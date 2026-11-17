@@ -28,6 +28,11 @@ type attributionInput struct {
 
 var clearAttribution = (*store.Store).ClearRelationAttribution
 var undoAttribution = (*store.Store).UndoRelationAttribution
+var attributionRecorded = (*store.Store).RelationAttributionRecorded
+
+// errAttributionOutcomeUnknown marks a refusal that could not read whether the
+// request already committed, so an adopted fence's earlier uncertainty stands.
+var errAttributionOutcomeUnknown = errors.New("cannot read whether the request already committed")
 
 func (r attributionInput) validate() error {
 	if r.Action == "inspect" {
@@ -179,7 +184,8 @@ func (p attributionPaths) String() string {
 	return fmt.Sprintf("snapshot: %s; hold: %s; safety snapshot: %s; safety hold: %s", p.snapshot, p.hold, p.safety, p.safetyHold)
 }
 
-// runFencedAttribution keeps the fence only when a treatment may have written.
+// runFencedAttribution keeps the fence only when a treatment may have written
+// or an adopted fence's request cannot be shown committed or uncommitted.
 // The maintenance handle always closes before session admission reopens.
 func runFencedAttribution(ctx context.Context, input attributionInput, path, root string, boundary upgradeFence, out, errOut io.Writer) int {
 	const command = "relation-attribution"
@@ -192,6 +198,7 @@ func runFencedAttribution(ctx context.Context, input attributionInput, path, roo
 	report, paths, treating, err := attributionAction(ctx, s, input, path, root)
 	var failure *store.Failure
 	retain := treating && err != nil && (!errors.As(err, &failure) || failure.EffectPossible)
+	retain = retain || (!boundary.owned && errors.Is(err, errAttributionOutcomeUnknown))
 	if retain {
 		_ = s.Close()
 	} else if releaseErr := releaseAttributionFence(s, root, boundary.id); releaseErr != nil {
@@ -263,10 +270,12 @@ func attributionPreflight(ctx context.Context, s *store.Store, input attribution
 	if input.Action == "verify" {
 		return nil
 	}
-	recorded, err := s.RelationAttributionRecorded(ctx, input.Action, input.IdempotencyKey)
+	recorded, err := attributionRecorded(s, ctx, input.Action, input.IdempotencyKey)
 	switch {
-	case err != nil || recorded:
-		return err
+	case err != nil:
+		return fmt.Errorf("%w: %w", errAttributionOutcomeUnknown, err)
+	case recorded:
+		return nil
 	case input.Action == "clear":
 		return checkAttributionHold(ctx, input.BackupPath, root)
 	default:

@@ -306,6 +306,56 @@ func TestAttributionCLIRetainedFenceRecovery(t *testing.T) {
 	}
 }
 
+func TestAttributionCLIAdoptedFenceStaysWhileOutcomeUnknown(t *testing.T) {
+	_, root := attributionCLIStore(t)
+	code, data, diag := attributionCall(t, attributionInput{Action: "inspect", Cutoff: "2090-01-01T00:00:00Z"})
+	if code != 0 {
+		t.Fatal(diag)
+	}
+	var inspected struct {
+		Snapshot string                    `json:"snapshot"`
+		Manifest store.AttributionManifest `json:"manifest"`
+	}
+	if err := json.Unmarshal(data, &inspected); err != nil {
+		t.Fatal(err)
+	}
+	input := attributionInput{Action: "clear", BackupPath: inspected.Snapshot, Manifest: inspected.Manifest, IdempotencyKey: "unknown"}
+	originalClear, originalRecorded := clearAttribution, attributionRecorded
+	t.Cleanup(func() { clearAttribution, attributionRecorded = originalClear, originalRecorded })
+	clearAttribution = func(*store.Store, context.Context, store.AttributionRequest) (store.AttributionResult, error) {
+		return store.AttributionResult{}, fmt.Errorf("uncertain outcome")
+	}
+	if code, _, diag := attributionCall(t, input); code == 0 || !strings.Contains(diag, "fence retained: true") {
+		t.Fatalf("initial: %d %s", code, diag)
+	}
+	fenceBytes, err := os.ReadFile(hostlease.FencePath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained := func(t *testing.T) {
+		t.Helper()
+		if code, _, diag := attributionCall(t, input); code == 0 || !strings.Contains(diag, "fence retained: true") {
+			t.Fatalf("adopted rerun: %d %s", code, diag)
+		}
+		if after, err := os.ReadFile(hostlease.FencePath(root)); err != nil || !bytes.Equal(after, fenceBytes) {
+			t.Fatalf("fence changed: %s %v", after, err)
+		}
+	}
+	t.Run("further uncertain failure", retained)
+	clearAttribution = originalClear
+	attributionRecorded = func(*store.Store, context.Context, string, string) (bool, error) {
+		return false, fmt.Errorf("lookup failed")
+	}
+	t.Run("unreadable outcome", retained)
+	attributionRecorded = originalRecorded
+	if code, _, diag := attributionCall(t, input); code != 0 {
+		t.Fatalf("identical rerun: %d %s", code, diag)
+	}
+	if fence, err := hostlease.ReadFence(root); err != nil || fence != nil {
+		t.Fatalf("fence: %+v %v", fence, err)
+	}
+}
+
 func TestAttributionCLIRetainedFenceRefusals(t *testing.T) {
 	_, root := attributionCLIStore(t)
 	code, data, diag := attributionCall(t, attributionInput{Action: "inspect", Cutoff: "2090-01-01T00:00:00Z"})
@@ -354,10 +404,10 @@ func TestAttributionCLIRetainedFenceRefusals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertRefusal := func(t *testing.T, request attributionInput, expected []byte) {
+	assertRefusal := func(t *testing.T, request attributionInput, expected []byte, cause string) {
 		t.Helper()
-		if code, _, diag := attributionCall(t, request); code == 0 {
-			t.Fatalf("accepted request: %s", diag)
+		if code, _, diag := attributionCall(t, request); code == 0 || !strings.Contains(diag, cause) {
+			t.Fatalf("want refusal naming %q: %d %s", cause, code, diag)
 		}
 		after, err := os.ReadFile(fencePath)
 		if err != nil {
@@ -375,8 +425,9 @@ func TestAttributionCLIRetainedFenceRefusals(t *testing.T) {
 	changedAction.Action = "verify"
 	changedKey := input
 	changedKey.IdempotencyKey = "other"
+	const foreign = "refusing to adopt it"
 	for name, request := range map[string]attributionInput{"manifest": changedManifest, "backup": changedBackup, "action": changedAction, "key": changedKey} {
-		t.Run(name, func(t *testing.T) { assertRefusal(t, request, fenceBytes) })
+		t.Run(name, func(t *testing.T) { assertRefusal(t, request, fenceBytes, foreign) })
 	}
 	for name, value := range map[string]any{"operation": "foreign", "release_root": "/other", "core_binary": "/other/core", "schema_version": -1, "request_digest": "sha256:foreign"} {
 		t.Run(name, func(t *testing.T) {
@@ -392,7 +443,7 @@ func TestAttributionCLIRetainedFenceRefusals(t *testing.T) {
 			if err := os.WriteFile(fencePath, changed, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			assertRefusal(t, input, changed)
+			assertRefusal(t, input, changed, foreign)
 		})
 	}
 	t.Run("missing digest", func(t *testing.T) {
@@ -408,7 +459,7 @@ func TestAttributionCLIRetainedFenceRefusals(t *testing.T) {
 		if err := os.WriteFile(fencePath, changed, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		assertRefusal(t, input, changed)
+		assertRefusal(t, input, changed, foreign)
 	})
 	t.Run("live participant", func(t *testing.T) {
 		if err := os.WriteFile(fencePath, fenceBytes, 0o600); err != nil {
@@ -417,7 +468,7 @@ func TestAttributionCLIRetainedFenceRefusals(t *testing.T) {
 		if err := os.WriteFile(leasePath, leaseBytes, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		assertRefusal(t, input, fenceBytes)
+		assertRefusal(t, input, fenceBytes, "requires no live sessions")
 	})
 }
 

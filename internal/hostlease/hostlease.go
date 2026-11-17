@@ -75,7 +75,9 @@ type Fence struct {
 	ReleaseRoot string `json:"release_root"`
 	CoreBinary  string `json:"core_binary"`
 	// SchemaVersion is the schema that binary defines.
-	SchemaVersion int    `json:"schema_version"`
+	SchemaVersion int `json:"schema_version"`
+	// RequestDigest binds a fence to its opener's validated request; only that
+	// identical request may adopt a retained fence.
 	RequestDigest string `json:"request_digest,omitempty"`
 	// Notice tells a refused session where the boundary's commands live.
 	Notice string `json:"notice"`

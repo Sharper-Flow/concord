@@ -92,6 +92,37 @@ def _validate_rates(value, provider, model):
     return rates, source
 
 
+def _blind_packet(case_id, output, attempt_root):
+    root = str(Path(attempt_root).resolve())
+    token = Path(root).name
+
+    def normalize(value):
+        if isinstance(value, str):
+            value = value.replace(root, "/fixture")
+            if token in value:
+                raise ValueError("blind packet retains the execution root")
+            return value
+        if isinstance(value, list):
+            return [normalize(item) for item in value]
+        if isinstance(value, dict):
+            result = {}
+            for key, item in value.items():
+                normalized_key = normalize(key)
+                if normalized_key in result:
+                    raise ValueError("blind packet contains colliding keys")
+                result[normalized_key] = normalize(item)
+            return result
+        return value
+
+    packet = normalize({"case": case_id, "events": output["events"], "artifacts": output["artifacts"],
+                        "final_text": output["final_text"], "semantic_checks": cases.CASES[case_id]["semantic_checks"]})
+    raw_grade = evaluation.evaluate(case_id, output["events"], output["artifacts"], output["final_text"])
+    packet_grade = evaluation.evaluate(case_id, packet["events"], packet["artifacts"], packet["final_text"])
+    if raw_grade != packet_grade:
+        raise ValueError("blind packet changes the grade")
+    return packet
+
+
 def calibrate(snapshot_path, artifacts, model, case_ids, rates_path, timeout_seconds=180, *, repository=REPOSITORY):
     """Run requested calibration cases once each, charging every claimed attempt.
 
@@ -143,8 +174,7 @@ def calibrate(snapshot_path, artifacts, model, case_ids, rates_path, timeout_sec
             result["hashes_after"] = _hashes()
             if result["snapshot_id_after"] != result["snapshot_id_before"] or result["hashes_after"] != before_hashes:
                 raise ValueError("snapshot or harness changed during attempt")
-            packet = {"case": case_id, "events": output["events"], "artifacts": output["artifacts"],
-                      "final_text": output["final_text"], "semantic_checks": cases.CASES[case_id]["semantic_checks"]}
+            packet = _blind_packet(case_id, output, root / (attempt_id + "-host"))
             _write_new(root / (attempt_id + "-blind.json"), packet)
             result["status"] = "completed"
         except Exception as exc:

@@ -9,7 +9,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import budget, cases, evaluation, host, plan, run, snapshots
+from . import budget, evaluation, host, plan, run, snapshots
 
 
 def _hashes():
@@ -150,9 +150,8 @@ def execute(baseline_path, candidate_path, artifacts, model, limits_path, rates_
                     raise ValueError("snapshot or harness changed")
                 result["grade"] = evaluation.evaluate(row["case_id"], output["events"], output["artifacts"], output["final_text"])
                 result["identity"] = output["identity"]
-                run._write_new(artifacts / (attempt_id + "-blind.json"), {"case": row["case_id"], "events": output["events"],
-                               "artifacts": output["artifacts"], "final_text": output["final_text"],
-                               "semantic_checks": cases.CASES[row["case_id"]]["semantic_checks"]})
+                run._write_new(artifacts / (attempt_id + "-blind.json"),
+                               run._blind_packet(row["case_id"], output, artifacts / (attempt_id + "-host")))
                 result["status"] = "completed"
             except Exception as exc:
                 guard.failed = True

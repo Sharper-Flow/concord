@@ -15,6 +15,63 @@ payload_schema = json.loads((ROOT / "contracts/agent-tool-surface-payloads.schem
 
 
 class RetainedWorkflowPayloadTests(unittest.TestCase):
+    def test_architecture_obligation_teaches_closed_evidence_kinds(self):
+        binding = payload_schema["$defs"]["architecture_binding"]
+        obligation = binding["properties"]["verification_obligations"]["items"]["properties"]["obligation_id"]
+        self.assertEqual(obligation_ref := obligation.get("$ref"), "#/$defs/evidence_kind")
+        self.assertEqual(payload_schema["$defs"][obligation_ref.split("/")[-1]]["enum"],
+                         ["verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"])
+        self.assertIn("verification", obligation.get("examples", []))
+
+    def test_architecture_binding_teaches_cross_field_admission(self):
+        defs = payload_schema["$defs"]
+        fields = defs["architecture_binding"]["properties"]
+        for name, phrases in {
+            "home_domain_id": ["affected_domain_ids"],
+            "affected_domain_ids": ["current", "domain_additions"],
+            "domain_additions": ["absent", "disjoint", "home at least one"],
+            "domain_modifies": ["affected"],
+            "domain_relation_modifies": ["unique", "distinct", "affected endpoints", "lexically", "current registry"],
+            "law_additions": ["spec_mandate", "affected home", "law_modifies", "existing law", "own-home", "one identity", "reserve it once", "valid law ID", "this work and home Domain"],
+            "verification_obligations": ["unique", "current law", "exactly the same spelling", "not a law addition"],
+        }.items():
+            for phrase in phrases:
+                with self.subTest(field=name, phrase=phrase):
+                    self.assertIn(phrase, fields[name]["description"])
+        for name in ("workflow_contract_update", "work_transition_action_variant_approve_contract"):
+            schema = defs[name]
+            if name.startswith("work_transition"):
+                schema = schema["properties"]["fields"]
+            law_modifies = schema["properties"]["law_modifies"]
+            self.assertTrue(law_modifies["uniqueItems"])
+            self.assertIn("exactly the same spelling", law_modifies["description"])
+            self.assertIn("committed current law", law_modifies["description"])
+            self.assertIn("when architecture_binding is present", law_modifies["description"])
+            self.assertIn("research", law_modifies["description"].lower())
+            self.assertIn("derived law", law_modifies["description"])
+            # Domain and law ID schemas count code points; the store counts bytes.
+            self.assertIn("Domain and law IDs are at most 256 UTF-8 bytes.", schema["properties"]["architecture_binding"]["description"])
+            self.assertIn("no leading or trailing whitespace", schema["properties"]["architecture_binding"]["description"])
+
+    def test_architecture_relation_example_has_distinct_endpoints(self):
+        item = payload_schema["$defs"]["architecture_binding"]["properties"]["domain_relation_modifies"]["items"]
+        example = item["examples"][0]
+        self.assertNotEqual(example["source_domain_id"], example["target_domain_id"])
+
+    def test_architecture_id_teaching_has_one_parent_owner(self):
+        defs = payload_schema["$defs"]
+        fields = defs["architecture_binding"]["properties"]
+        parent = defs["workflow_contract_update"]["properties"]["architecture_binding"]["description"]
+        self.assertIn("resolved law IDs require at least 2 UTF-8 bytes", parent)
+        ids = [fields["home_domain_id"]]
+        ids += [fields[name]["items"] for name in ("affected_domain_ids", "domain_additions", "domain_modifies")]
+        relation = fields["domain_relation_modifies"]["items"]["properties"]
+        addition = fields["law_additions"]["items"]["properties"]
+        obligation = fields["verification_obligations"]["items"]["properties"]
+        ids += [relation["source_domain_id"], relation["target_domain_id"], addition["home_domain_id"], addition["law_id"], obligation["law_id"]]
+        for node in ids:
+            self.assertNotIn("UTF-8 bytes", node.get("description", ""))
+
     def test_evidence_binding_accepts_optional_producer_watermark(self):
         schema = payload_schema["$defs"]["work_transition_action_variant_bind_evidence"]
         call = {"work_id": "work-1", "expected_version": 1, "action_id": "bind_evidence",
@@ -1706,9 +1763,10 @@ class ProjectionAdmissionTests(unittest.TestCase):
     @staticmethod
     def canned(actions):
         teaching = {rule: "rule" for rule in (
-            "spec_mandate_rule", "law_addition_mandate_rule", "obligation_membership_rule",
-            "architecture_domain_rule")}
+            "spec_mandate_rule", "architecture_domain_rule", "law_modifies_rule")}
         teaching["action_rules"] = {}
+        teaching["architecture_fields"] = {}
+        teaching["evidence_kinds"] = ["verification"]
         return json.dumps({
             "schema_version": "2.0", "actions": actions,
             "teaching": teaching, "schema_refs": {"current": []},
@@ -1758,6 +1816,15 @@ class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
         cls.actions = actions
         cls.teaching = teaching
         cls.contract_updates = contract_updates
+
+    def test_obligation_enum_is_projected_from_store_evidence_kinds(self):
+        teaching = copy.deepcopy(self.teaching)
+        teaching["evidence_kinds"] = list(reversed(teaching["evidence_kinds"]))
+        projected, _ = generator.project_workflow_action_schema(payload_schema, self.actions, teaching, self.contract_updates)
+        defs = projected["$defs"]
+        self.assertEqual(defs["evidence_kind"]["enum"], teaching["evidence_kinds"])
+        obligation = defs["architecture_binding"]["properties"]["verification_obligations"]["items"]["properties"]["obligation_id"]
+        self.assertEqual(obligation["$ref"], "#/$defs/evidence_kind")
 
     def test_retired_decision_fields_are_absent_and_refused(self):
         for action in self.actions:

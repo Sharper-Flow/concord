@@ -33,7 +33,7 @@ func firstCallPublishedDefs(t *testing.T) map[string]any {
 
 func TestFirstCallObligationEvidenceKindParity(t *testing.T) {
 	defs := firstCallPublishedDefs(t)
-	schema := defs["workflow_obligation_evidence_kind"].(map[string]any)
+	schema := defs["evidence_kind"].(map[string]any)
 	var got []string
 	for _, kind := range schema["enum"].([]any) {
 		got = append(got, kind.(string))

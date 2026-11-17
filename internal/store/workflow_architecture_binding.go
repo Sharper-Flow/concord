@@ -158,19 +158,15 @@ func uniqueDomainBindingIDs(values []string) bool {
 	return true
 }
 
-// workflowLawAdditionMandateTeaching states the rule
-// architectureBindingCurrentMandate and validateLawModificationSubset
-// enforce; the teaching projection beside this guard publishes the same
-// text, so the published guidance cannot drift from admission.
-const workflowLawAdditionMandateTeaching = "Each law addition must be authorized by spec_mandate and disjoint from law_modifies and existing law."
-
-// workflowArchitectureDomainTeaching states the Domain-membership rule the
-// binding guards enforce: additions are explicit and absent from the registry,
-// each has a homed law addition, other affected Domains are current, and
-// Domain relation modifications use current canonical relations.
+// workflowArchitectureBindingRecovery names the read that supplies current
+// Domain IDs when a Product-changing contract omits its binding.
 const workflowArchitectureBindingRecovery = "list the Product's Domains with concord_domain.list, then supply the complete architecture_binding with home_domain_id and affected_domain_ids; only research contracts omit it"
 
-const workflowArchitectureDomainTeaching = "architecture_binding is required for change, fix, and removal; omit it for research. Architecture bindings must declare new Domains in domain_additions, include them in affected_domain_ids, and home at least one added law in each; additions must be absent from the registry and disjoint from domain_modifies. Every other affected Domain must be current, every added or modified law must have an affected home, and modified relations must be current canonical tuples."
+// workflowArchitectureDomainTeaching states when the binding is required and
+// the byte bound validDomainBindingID and validLawBindingID enforce, which the
+// code-point ID schemas cannot express. Per-field rules live in
+// workflowArchitectureFieldTeaching.
+const workflowArchitectureDomainTeaching = "architecture_binding is required for change, fix, and removal; omit it for research. Domain and law IDs are at most 256 UTF-8 bytes. They have no leading or trailing whitespace; resolved law IDs require at least 2 UTF-8 bytes."
 
 // architectureBindingCurrentMandate returns the mandated references the
 // contract still owes as committed current law: every mandate entry whose
@@ -198,38 +194,38 @@ func architectureBindingCurrentMandate(specMandate []string, homeProjectID strin
 	return result, nil
 }
 
-const workflowObligationMembershipTeaching = "Evidence obligations must name a kind in the closed evidence kind set and a current mandated law."
-
+// workflowArchitectureFieldTeaching states, per binding field, the
+// relational rules validateArchitectureBindingTx and its helpers enforce
+// beyond the field's schema.
 var workflowArchitectureFieldTeaching = map[string]string{
 	"home_domain_id":           "The home Domain must be in affected_domain_ids.",
 	"affected_domain_ids":      "Every affected Domain must be current unless declared in domain_additions.",
 	"domain_additions":         "Each addition must be affected, absent from the registry, disjoint from domain_modifies, and home at least one law addition.",
 	"domain_modifies":          "Every modified Domain must be affected.",
 	"domain_relation_modifies": "Each source/kind/target tuple must be unique and name a current registry relation with distinct affected endpoints; order shares_contract_with endpoints lexically.",
-	"law_additions":            workflowLawAdditionMandateTeaching + " Each addition must have an affected home. Reserve each resolved identity once: a bare ID and its own-home qualified spelling are the same identity. The resolved identity must contain 2..256 UTF-8 bytes without leading or trailing whitespace. An existing reservation must belong to the same work and home Domain.",
-	"verification_obligations": workflowObligationMembershipTeaching + " Each law/kind tuple must be unique. The law must appear with exactly the same spelling in the remaining spec_mandate after law additions are removed; added laws cannot be obligations.",
+	"law_additions":            "Each addition must be in spec_mandate, have an affected home, and be disjoint from law_modifies and existing law. A bare ID and its own-home qualified spelling are one identity: reserve it once, as a valid law ID. An existing reservation must belong to this work and home Domain.",
+	"verification_obligations": "Each law/kind tuple must be unique. The law must be current law listed in spec_mandate with exactly the same spelling, not a law addition.",
 }
+
+// workflowLawModifiesTeaching states what validateLawModificationSubset,
+// checkMandatedLawsTx and validateArchitectureBindingLawModifiesTx enforce.
+const workflowLawModifiesTeaching = "Each entry must appear in spec_mandate with exactly the same spelling and name committed current law; when architecture_binding is present, each law's home Domain must be affected. Research may modify only derived law."
 
 // WorkflowContractTeaching carries the typed descriptions of the relational
 // and live-context constraints the store enforces. The projection in
 // scripts/workflow-action-contracts publishes these guard-owned descriptions;
 // no second policy enforces them.
 type WorkflowContractTeaching struct {
+	// ArchitectureFields maps an architecture_binding field to its rule.
 	ArchitectureFields map[string]string `json:"architecture_fields"`
-	EvidenceKinds      []string          `json:"evidence_kinds"`
-	LawModifiesRule    string            `json:"law_modifies_rule"`
-	DomainIDRule       string            `json:"domain_id_rule"`
-	LawIDRule          string            `json:"law_id_rule"`
+	// EvidenceKinds is the closed kind set verification obligations name.
+	EvidenceKinds   []string `json:"evidence_kinds"`
+	LawModifiesRule string   `json:"law_modifies_rule"`
 	// SpecMandateRule states the law-reference form the mandate guards
 	// parse and where non-law scope belongs instead.
 	SpecMandateRule string `json:"spec_mandate_rule"`
-	// LawAdditionMandateRule states the mandate subset and disjointness the
-	// law boundary and architecture-binding guards enforce.
-	LawAdditionMandateRule string `json:"law_addition_mandate_rule"`
-	// ObligationMembershipRule states the admitted evidence kind membership.
-	ObligationMembershipRule string `json:"obligation_membership_rule"`
-	// ArchitectureDomainRule states the Domain-membership and canonical
-	// relation rules the architecture-binding guards enforce.
+	// ArchitectureDomainRule states when the binding is required and the
+	// byte bound of its Domain and law IDs.
 	ArchitectureDomainRule string `json:"architecture_domain_rule"`
 	// ActionRules maps a workflow action ID to the guard-owned rule its
 	// published variant states before a call.
@@ -240,15 +236,11 @@ type WorkflowContractTeaching struct {
 // consuming each guard-site constant directly.
 func WorkflowContractTeachingRules(actions []WorkflowActionDefinition) WorkflowContractTeaching {
 	rules := WorkflowContractTeaching{
-		ArchitectureFields:       workflowArchitectureFieldTeaching,
-		EvidenceKinds:            evidenceStrings(workflowEvidenceKinds),
-		LawModifiesRule:          "Entries must be unique and appear in spec_mandate with exactly the same spelling. Each must name committed current law; when architecture_binding is present, its home Domain must be in affected_domain_ids.",
-		DomainIDRule:             "Domain IDs contain 1..256 UTF-8 bytes, without leading or trailing whitespace.",
-		LawIDRule:                "Law IDs contain 2..256 UTF-8 bytes, without leading or trailing whitespace.",
-		SpecMandateRule:          workflowSpecMandateTeaching,
-		LawAdditionMandateRule:   workflowLawAdditionMandateTeaching,
-		ObligationMembershipRule: workflowObligationMembershipTeaching,
-		ArchitectureDomainRule:   workflowArchitectureDomainTeaching,
+		ArchitectureFields:     workflowArchitectureFieldTeaching,
+		EvidenceKinds:          evidenceStrings(workflowEvidenceKinds),
+		LawModifiesRule:        workflowLawModifiesTeaching,
+		SpecMandateRule:        workflowSpecMandateTeaching,
+		ArchitectureDomainRule: workflowArchitectureDomainTeaching,
 		ActionRules: map[string]string{
 			"complete_step": workflowStepReviewTeaching,
 			"bind_evidence": workflowBindEvidenceTeaching,

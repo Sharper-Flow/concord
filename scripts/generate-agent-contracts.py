@@ -314,7 +314,7 @@ def load_workflow_action_contracts() -> tuple[list[dict], dict, dict, list[dict]
         if not isinstance(refs, list) or any(not isinstance(ref, str) or not ref for ref in refs) or len(set(refs)) != len(refs) or refs != sorted(refs):
             fail(f"workflow action contract projection {side} schema refs are not a sorted unique name list")
     teaching = projection["teaching"]
-    if set(teaching) != {"spec_mandate_rule", "law_addition_mandate_rule", "obligation_membership_rule", "architecture_domain_rule", "action_rules", "architecture_fields", "evidence_kinds", "law_modifies_rule", "domain_id_rule", "law_id_rule"}:
+    if set(teaching) != {"spec_mandate_rule", "architecture_domain_rule", "action_rules", "architecture_fields", "evidence_kinds", "law_modifies_rule"}:
         fail("workflow action contract projection carries no guard-owned teaching rules")
     for rule in (value for key, value in teaching.items() if key not in {"action_rules", "architecture_fields", "evidence_kinds"}):
         if not isinstance(rule, str) or not rule.strip():
@@ -692,22 +692,23 @@ def project_workflow_action_schema(document: dict, actions: list[dict], teaching
         "architecture_binding": teaching["architecture_domain_rule"],
     }
     binding = defs["architecture_binding"]["properties"]
+    if not set(teaching["architecture_fields"]) <= set(binding):
+        fail("architecture field teaching names a field architecture_binding does not have")
     for field, rule in teaching["architecture_fields"].items():
         binding[field]["description"] = rule
-    binding["home_domain_id"]["description"] += " " + teaching["domain_id_rule"]
-    relation_fields = binding["domain_relation_modifies"]["items"]["properties"]
-    addition_fields = binding["law_additions"]["items"]["properties"]
+    # The binding field owns shared ID guidance; nested IDs retain only shape.
+    relation = binding["domain_relation_modifies"]["items"]["properties"]
+    addition = binding["law_additions"]["items"]["properties"]
     obligation_fields = binding["verification_obligations"]["items"]["properties"]
-    domain_ids = [binding[name]["items"] for name in ("affected_domain_ids", "domain_additions", "domain_modifies")]
-    domain_ids += [relation_fields["source_domain_id"], relation_fields["target_domain_id"], addition_fields["home_domain_id"]]
-    for node in domain_ids:
-        node["description"] = teaching["domain_id_rule"]
-    for node in (addition_fields["law_id"], obligation_fields["law_id"]):
-        node["description"] = teaching["law_id_rule"]
-    defs["workflow_obligation_evidence_kind"] = {"type": "string", "enum": teaching["evidence_kinds"]}
+    ids = [binding[name]["items"] for name in ("affected_domain_ids", "domain_additions", "domain_modifies")]
+    ids += [relation["source_domain_id"], relation["target_domain_id"], addition["home_domain_id"], addition["law_id"], obligation_fields["law_id"]]
+    for node in ids:
+        node.pop("description", None)
+    # Obligations and evidence entries share the store's closed kind set.
+    defs["evidence_kind"]["enum"] = copy.deepcopy(teaching["evidence_kinds"])
     obligation = binding["verification_obligations"]["items"]["properties"]["obligation_id"]
     obligation.clear()
-    obligation["$ref"] = "#/$defs/workflow_obligation_evidence_kind"
+    obligation["$ref"] = "#/$defs/evidence_kind"
     defs["workflow_forward_relation"] = {"type": "object", "additionalProperties": False, "required": ["kind"], "properties": {"kind": {"const": "forward_link"}, "class": {"type": "string", "enum": ["hard", "soft", "none"]}, "severity": {"type": "string", "enum": ["breaking", "non-breaking", "informational"]}}}
     defs["workflow_completion_payload"] = {"type": "object", "additionalProperties": False, "properties": {"evidence_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "current_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "staleness": {"type": "object", "additionalProperties": False, "required": ["drifted"], "properties": {"drifted": {"type": "boolean"}, "severity": {"type": "string", "enum": ["block", "warning"]}}}}}
     defs["clarification_answer_text"] = {"type": "string", "minLength": 1, "maxLength": 2048, "pattern": r"\S"}

@@ -151,10 +151,10 @@ class ProfileTests(unittest.TestCase):
                 self.assertEqual(text.count(generator.STEP_HELPER_BOUNDARY), 1)
                 for clause in ("Command-text restrictions are hygiene, not a sandbox",
                                "do not use the CLI, a direct store connection, a wrapper, or a connected service to bypass your boundaries",
-                               "When a host permission rule denies a command, stop that route",
+                               "Prefer file tools for repository reads, especially .concord paths, before running a command",
+                               "When a host permission rule denies a command, stop the whole task",
                                "return the refusal and the denied command to the caller",
-                               "Never rewrite, repackage, split, or retry the refused command to evade the rule",
-                               "Where the refused command read files, read them with file tools instead",
+                               "Never retry, rewrite, repackage, or split the refused command, or switch tools to pursue the refused purpose",
                                "A Task result is not a workflow transition or an evidence binding",
                                "the caller owns workflow state, evidence binding and delivery"):
                     with self.subTest(clause=clause):

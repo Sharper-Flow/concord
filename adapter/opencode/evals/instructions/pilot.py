@@ -63,11 +63,13 @@ class Guard:
 
 
 def execute(baseline_path, candidate_path, artifacts, model, limits_path, rates_path,
-            timeout_seconds=180, *, repository=run.REPOSITORY):
+            timeout_seconds=180, *, max_new_attempts=96, repository=run.REPOSITORY):
     if not isinstance(model, str) or model.count("/") != 1 or any(not p or p.strip() != p for p in model.split("/")):
         raise ValueError("model must be providerID/modelID")
     if type(timeout_seconds) is not int or timeout_seconds <= 0:
         raise ValueError("timeout must be a positive integer")
+    if type(max_new_attempts) is not int or max_new_attempts <= 0:
+        raise ValueError("max_new_attempts must be a positive integer")
     baseline_path, candidate_path, artifacts, limits_path, rates_path = [
         snapshots.outside_repository(p, repository) for p in (baseline_path, candidate_path, artifacts, limits_path, rates_path)]
     baseline, candidate = snapshots.load(baseline_path, repository), snapshots.load(candidate_path, repository)
@@ -119,6 +121,8 @@ def execute(baseline_path, candidate_path, artifacts, model, limits_path, rates_
         if any(entry.get("status") != "completed" for entry in prior):
             return results
         for row in schedule["rows"]:
+            if len(results) >= max_new_attempts:
+                break
             if (any(p.is_symlink() for p in (meta_path, schedule_path, key_path))
                     or json.loads(meta_path.read_text()) != metadata
                     or json.loads(schedule_path.read_text()) != schedule

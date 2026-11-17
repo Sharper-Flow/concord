@@ -240,6 +240,7 @@ def main(argv=None):
     pilot_parser.add_argument("--limits-json", required=True)
     pilot_parser.add_argument("--rates-json", required=True)
     pilot_parser.add_argument("--timeout-seconds", type=int, default=180)
+    pilot_parser.add_argument("--max-new-attempts", type=int, default=96)
     args = parser.parse_args(argv)
     try:
         if args.command == "estimate":
@@ -248,7 +249,8 @@ def main(argv=None):
         if args.command == "pilot":
             from . import pilot
             results = pilot.execute(args.baseline, args.candidate, args.artifacts, args.model,
-                                    args.limits_json, args.rates_json, args.timeout_seconds)
+                                    args.limits_json, args.rates_json, args.timeout_seconds,
+                                    max_new_attempts=args.max_new_attempts)
             journal = json.loads((snapshots.outside_repository(args.artifacts, REPOSITORY) / "pilot-journal.json").read_text())
             complete = len(journal["attempts"]) == 96 and all(a.get("status") == "completed" for a in journal["attempts"])
             print(json.dumps({"attempts": [{"id": r["attempt_id"], "status": r["status"]} for r in results],

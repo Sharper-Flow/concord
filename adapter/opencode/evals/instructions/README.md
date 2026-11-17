@@ -106,8 +106,15 @@ as calibration. For example, these are synthetic values, not model guidance:
 From `adapter/opencode/evals`:
 
 ```sh
-python3 -m instructions.run pilot --baseline /outside/baseline.json --candidate /outside/candidate.json --artifacts /outside/pilot --model provider/model --limits-json /outside/limits.json --rates-json /outside/rates.json
+python3 -m instructions.run pilot --baseline /outside/baseline.json --candidate /outside/candidate.json --artifacts /outside/pilot --model provider/model --limits-json /outside/limits.json --rates-json /outside/rates.json --max-new-attempts 2
 ```
+
+`--max-new-attempts` limits new claims per invocation and defaults to 96. Use a
+positive integer; 2 yields after two new attempts. Resume with the same directory
+to continue after completed claims. The batch limit can change between invocations
+and does not change the schedule or metadata or reset the journal or ceiling.
+The JSON `complete` field describes the whole pilot. The command exits 1 while
+that field is false, including after a successful partial batch.
 
 The runner freezes model identity, supplied rates and limits, snapshot identities,
 and harness hashes. It reserves the full declared context at the highest input or

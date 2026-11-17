@@ -430,11 +430,16 @@ leases.
 
 Keep the treatment snapshot and its hold until undo is no longer needed. Every
 hold defers managed snapshot cleanup; release one by removing the exact hold
-file. A refusal before treatment closes the fence and writes no row. A clear
+file. A refusal before treatment closes a newly opened fence and writes no row. A clear
 or undo failure that may have written reports `fence retained: true`: keep
-sessions stopped, close the boundary through the offline bootstrap, then repeat
-the same request. A committed operation replays its recorded result; an
-uncommitted one re-checks the manifest. A crash can leave a hidden
+sessions stopped and repeat the identical request with the same release and
+binary. The command adopts only its matching request fence. A committed
+operation replays its recorded result; an uncommitted one re-checks the manifest.
+After success, it closes the fence and session admission reopens. A different
+request, operation, release, binary or schema, or a fence without a request
+digest, refuses and leaves the fence unchanged. A live session also refuses
+without closing an adopted fence. A further uncertain failure retains the fence.
+A crash can leave a hidden
 `.concord-attribution-*` copy of a snapshot, with SQLite sidecars, beside it.
 The copy holds store data; delete it while no attribution command runs.
 

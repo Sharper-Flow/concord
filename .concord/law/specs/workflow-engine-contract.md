@@ -236,7 +236,7 @@ the rows below do not repeat this pair.
 | `workflow.action_checkpointed` | `work_id`, `step_id`, `step_kind` (`internal_sqlite`, `cross_authority`, or `external_effect`), `attempt_epoch`, `checkpoint_payload` (typed action checkpoint, max 16 KiB), `resume_cursor` (0–2048), `actor_ref`, `request_id` |
 | `workflow.action_completed` | `work_id`, optional `action_id`, `step_id`, `attempt_epoch`, `result_evidence_refs` (0–32), `changed_refs` (0–32), `actor_ref`. It rejects undeclared current-step actions. |
 | `workflow.diagnosis_recorded` | `work_id`, `reproduction` (2–4096), `root_cause` (2–4096) |
-| `workflow.action_failed` | `work_id`, `step_id`, `attempt_epoch`, `failure_kind` (closed TS7 error kind), `recoverable` (boolean), `actor_ref` |
+| `workflow.action_failed` | `work_id`, `step_id`, `attempt_epoch`, `failure_kind` (closed agent-result-envelope error kind), `recoverable` (boolean), `actor_ref` |
 | `workflow.evidence_bound` | `work_id`, `evidence_kind`, `immutable_subject_ref`, and required `producer_watermark`; the authenticated binding supplies attribution. For `evidence_kind=native_run` the `immutable_subject_ref` is the record's `xobs:` observation and the attributed record must be verified (CD-0040 D9), so the binding fails closed until a verification record answers the observation. |
 | `workflow.native_run_recorded` | `work_id`, `run_id` (1–128), `native_subject_ref` (1–2048 opaque non-secret), `subject_digest` (core-derived), `phase` (`start`/`health`/`rollback`/`cleanup`, fixed by the action ID), `status` (closed per-phase vocabulary), `evidence_ref`, `evidence_digest`, `asserted_at` (RFC3339, within the two-minute report skew bound), `reporting_authority_ref` (the authenticated actor's client, never caller input), `actor_ref`, and the embedded CD-0040 capture component: `capture_method`, the closed `observed_universe` structure (one item, exactly scoped, complete by closed-structure digest — validated by the shared D4 rules when recorded and read), the derived content-hashed `freshness_policy_ref`/`divergence_policy_ref` from the reviewed per-kind register, and the `observation_id` the run's phases share. The mutation registers that observation in `external_observations` as its shared provenance home, so one verification record answers every phase row and the attributed read (`NativeRunReport`) carries the derived verification state. |
 | `workflow.premise_confirmed` | `work_id`, `contract_version`, `confirming_actor_ref` |
@@ -589,11 +589,11 @@ dispatcher performs this order:
    returns `idempotency_conflict`.
 6. Execute the admitted graph mutation in one SQLite transaction, recording its
    operation result and effect receipts. External execution remains native-owned.
-7. Construct the existing TS7 envelope with `outcome`, `authority`, typed evidence,
-   warnings, and recovery metadata. Refusals are `error`; no fallback advancement
+7. Construct the [agent result envelope](agent-result-envelope.md) with `outcome`,
+   warnings, and recovery metadata; retain bound evidence in the store. Refusals are `error`; no fallback advancement
    path exists.
 
-| Internal condition | TS7 error kind | Required recovery action |
+| Internal condition | agent-result-envelope error kind | Required recovery action |
 |---|---|---|
 | Unknown action or step in the action catalog, or an invalid action definition | `invariant_violation` | `reread_entities` |
 | Undeclared or missing action payload field | `invalid_input` | `correct_request` |

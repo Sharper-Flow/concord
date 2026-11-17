@@ -40,9 +40,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-12
-- **Scope:** Agent-surface Domain granularity, TS1–TS9 law homing, and the registry migration
+- **Scope:** Agent-surface Domain granularity, agent-surface law homing, and the registry migration
 - **Approval:** The operator approved this bounded decision objective in Concord work-2e8afff1f907a403561806e5; this record states the resulting decision.
-- **Related:** CD-0005, CD-0222 D2–D4 and D9, CD-0060 D1 and D4–D6, CD-0082, and TS1–TS9
+- **Related:** CD-0005, CD-0222 D2–D4 and D9, CD-0060 D1 and D4–D6, CD-0082, TS1–TS6, agent-result-envelope, and TS8–TS9
 - **Preserves:** One-home law, non-empty Domains, Git registry authority, the static generated agent surface, and demand-driven migration
 
 ## Context
@@ -50,7 +50,7 @@
 The agent surface spans tool contracts, call context, transport, results,
 evolution and evidence.
 
-The TS1–TS9 records describe distinct contract boundaries. Native Task execution
+The agent-surface records describe distinct contract boundaries. Native Task execution
 is host-owned under CD-0242 D6.
 
 The current Domain is valid, but it is too broad for precise law and work placement. A split must improve authority and navigation without turning each document into a Domain.
@@ -82,7 +82,7 @@ The registry adds these current children under `agent-surface`:
 | Domain | Boundary | Primary law records |
 |---|---|---|
 | `agent-contract` | Agent jobs, granularity, read intents, mutation intents, and operation contracts | TS1, TS2, TS3, TS4, CD-0038, CD-0069, CD-0113 |
-| `agent-call-boundary` | Scope, authorization, idempotency, result, error, evidence, and pagination semantics | TS5, TS7, CD-0071, CD-0080, CD-0132 |
+| `agent-call-boundary` | Scope, authorization, idempotency, result, error, evidence, and pagination semantics | TS5, agent-result-envelope, CD-0071, CD-0080, CD-0132 |
 | `agent-adapter` | OpenCode registration, host context, CLI transport and shipped host methods | TS6, CD-0043, CD-0058, CD-0063, CD-0084, CD-0088, CD-0246 |
 | `agent-evolution` | Manifest identity, pre-go-live surface change, and deterministic change evidence | TS8, TS9, CD-0024, CD-0042 |
 
@@ -94,7 +94,7 @@ The table assigns all forty pre-existing law records homed to `agent-surface`. A
 
 The five children are architectural and browse boundaries. They do not create one tool set per child, one adapter per child, or one manifest per child.
 
-The current generated manifest remains one static agent surface. The eight domain tools and later coordinator-only additions remain governed by TS1–TS9 and CD-0042.
+The current generated manifest remains one static agent surface. The eight domain tools and later coordinator-only additions remain governed by TS1–TS6, agent-result-envelope, TS8–TS9 and CD-0042.
 
 Cross-child work names the parent and affected children in its architecture binding. A leaf-specific change names only the child whose law or assumptions it can affect.
 

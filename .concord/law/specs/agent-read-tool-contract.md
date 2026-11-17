@@ -27,11 +27,11 @@
 
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-06.
-> **Decision:** TS3; binding input to CD-0005 §3 and TS5–TS9.
-> **Binding inputs:** accepted PM1 queries and query corpus, TS1 jobs/scenarios,
+> **Decision:** TS3; binding input to CD-0005 §3, TS5–TS6, agent-result-envelope, and TS8–TS9.
+> **Binding inputs:** [Product-memory queries](product-memory-query-contract.md) and query corpus, TS1 jobs/scenarios,
 > and TS2 budget/granularity rules.
 > **Does not decide:** mutation tools (TS4), ambient context or authorization
-> envelope (TS5), transport (TS6), shared success/error envelope (TS7), schema
+> envelope (TS5), transport (TS6), [shared success/error envelope](agent-result-envelope.md), schema
 > evolution (TS8).
 > **Amended direction:** CD-0222 retires component as an authority identity, and
 > CD-0042 requires #197 to replace component filters/context directly with Domain
@@ -44,7 +44,7 @@
 ## Context
 
 TS1's jobs need a bounded read surface. The binding inputs are the accepted
-PM1 queries and query corpus, TS1 jobs and scenarios, and TS2 budget
+product-memory-query queries and query corpus, TS1 jobs and scenarios, and TS2 budget
 and granularity rules. This record fixes the three always-visible read tools
 and their closed discriminated operation unions. CD-0222 retires component
 identity and CD-0042 replaces component filters with Domain on the
@@ -69,11 +69,11 @@ Concord exposes **three always-visible read tools**:
 
 Each tool accepts a **closed discriminated operation union**. Operations cannot be
 invented by string, forwarded to a CLI command, expressed as SQL/JSONPath, or
-expanded through arbitrary filter maps. TS7 wraps each operation-specific payload
-in the shared authority/freshness/result/error envelope.
+expanded through arbitrary filter maps. The [agent result envelope](agent-result-envelope.md)
+wraps each operation-specific payload in the shared result/error envelope.
 
-This maps PM1's Product orientation, actionable-work, and provenance queries
-into three caller-recognizable domains. The PM1 query IDs remain
+This maps product-memory-query's Product orientation, actionable-work, and provenance queries
+into three caller-recognizable domains. The callable query IDs remain
 contract identifiers and test cases, not tool identities.
 
 ## 2. Tool contracts
@@ -83,10 +83,10 @@ contract identifiers and test cases, not tool identities.
 **Use when:** an agent must establish where it is, which Product/Projects are in
 scope, or what is happening across that Product now.
 
-| Operation | PM1 | Required/optional inputs | Typed payload |
+| Operation | product-memory-query | Required/optional inputs | Typed payload |
 |---|---|---|---|
 | `resolve` | Q1 | optional `product_id` or `project_id`; optional cursor/limit when listing Products | `product_context`: Product identity/stage, ordered Project summaries, resolved scope or ambiguity candidates |
-| `snapshot` | Q2 | resolved/ambient Product; optional `project_ids`; optional `preview_limit` | `product_snapshot`: lifecycle counts, derived counts, unique bounded preview items, authority/freshness watermark |
+| `snapshot` | Q2 | resolved/ambient Product; optional `project_ids`; optional `preview_limit` | `product_snapshot`: lifecycle counts, derived counts, unique bounded preview items |
 
 `resolve` may use ambient context under TS5, but never guesses when a Project maps
 to multiple Products. `snapshot` is an aggregate orientation view—not an unbounded
@@ -97,7 +97,7 @@ work listing and not a launcher-row contract.
 **Use when:** an agent needs current work, ready work, blockers, or membership/scope
 rather than historical explanation.
 
-| Operation | PM1 | Required/optional inputs | Typed payload |
+| Operation | product-memory-query | Required/optional inputs | Typed payload |
 |---|---|---|---|
 | `list` | Q3 | Product scope; closed lifecycle/Project/kind/terminal-window/Linear-issue-key filters; optional stable work IDs; `detail`; cursor/limit | `work_page`: ordered unique summaries or bounded full records; each linked item's summary carries its recorded Linear issue key |
 
@@ -119,7 +119,7 @@ never matches the filter.
 **Use when:** an agent asks why one work item is in its current state or how it is
 related to other work—not when it wants a current work list.
 
-| Operation | PM1 | Required/optional inputs | Typed payload |
+| Operation | product-memory-query | Required/optional inputs | Typed payload |
 |---|---|---|---|
 | `history` | Q7 | `work_id`; direction; optional record kinds; cursor/limit | `work_event_page`: recorded mutations within the store's finite retained categories, with versions, actor, reason, and evidence references ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)) |
 | `relations` | Q8 | `work_id`; closed relation kinds; direction; depth 1–3 | `work_relation_graph`: bounded canonical nodes/edges and inverses |
@@ -137,7 +137,7 @@ discriminated payloads; callers never infer a recorded mutation from an edge or 
   ambiguity or intentional cross-Product reads under TS5.
 - `detail` is a closed `summary | full` enum. `full` means the complete bounded
   domain record—not raw process exhaust, screenshot bytes, or whole git documents.
-- List defaults/caps follow PM1: default 20, maximum 100, opaque cursor,
+- List defaults/caps follow product-memory-query: default 20, maximum 100, opaque cursor,
   stable ID as final ordering tie-breaker.
 - Every paginated read accepts one pagination input rule. `page` is optional, and
   a first call may omit it. `page.cursor` is optional, and absent and `null` both
@@ -150,8 +150,8 @@ discriminated payloads; callers never infer a recorded mutation from an edge or 
   edges, returning a typed bounded/continuation outcome rather than truncating.
 - Cursors bind to operation, resolved scope, filters, ordering, and source version;
   another operation cannot consume them.
-- Empty, unknown, ambiguous, degraded, stale, unreachable, and invariant violation
-  remain distinct TS7 result/error variants.
+- Empty results, named omissions, and typed unknown, ambiguous, stale, unreachable,
+  and invariant-violation refusals remain distinct in the agent result envelope.
 - Degraded enumeration is opted in, never assumed (CD-0008 D3).
 - Ordinary reads never mutate, repair, reconcile, or trigger background work.
 
@@ -159,24 +159,24 @@ discriminated payloads; callers never infer a recorded mutation from an edge or 
 
 | Candidate | Result |
 |---|---|
-| **Ten Q-tools** | Rejected: mechanically turns PM1 contract cases into tools and recreates list/show/search selection overlap. |
+| **Ten Q-tools** | Rejected: mechanically turns product-memory-query contract cases into tools and recreates list/show/search selection overlap. |
 | **One `concord_query` tool** | Rejected: Product orientation, actionable work, and provenance graphs have materially different intent/result/authority shapes. |
 | **Three tools with all work reads together** | Rejected: current-set browsing and singular-work provenance have different success oracles, payloads, and likely caller language; one six-operation work dispatcher crosses TS2's split rule. |
-| **Three domain tools selected above** | Passes PM1/TS1 while preserving clear descriptions and leaving six tools under TS2's cap for TS4 mutation/operation boundaries. |
+| **Three domain tools selected above** | Passes product-memory-query/TS1 while preserving clear descriptions and leaving six tools under TS2's cap for TS4 mutation/operation boundaries. |
 
 The remaining budget is a consequence, not a quota: TS4 may use fewer than six
 tools, but cannot collapse required mutation boundaries merely to fit.
 
 ## 5. Scenario mapping
 
-| Tool | PM1 scenarios | TS1 scenarios |
+| Tool | product-memory-query scenarios | TS1 scenarios |
 |---|---|---|
 | `concord_product_view` | Q1–Q2 | AJ1 ambient/ambiguous orientation |
 | `concord_work_browse` | Q3 | AJ1 cross-Project/ready |
 | `concord_work_trace` | Q7–Q8 | AJ2 blocker explanation; AJ4 evidence/history; AJ5 relation outcomes |
 
 TS3 passes only if one strict schema per tool expresses every operation above,
-every mapped PM1/TS1 scenario reaches the correct payload without arbitrary
+every mapped product-memory-query/TS1 scenario reaches the correct payload without arbitrary
 dispatch, and adversarial prompts reliably distinguish neighboring tools. Concrete
 selection-rate comparison follows TS2's declared evaluation method.
 
@@ -187,20 +187,20 @@ selection-rate comparison follows TS2's declared evaluation method.
 - Generic `get_entity`, SQL, JSONPath, GraphQL, repository-path, or CLI passthrough.
 - A repair flag on a read.
 - Unbounded `include_all`, artifact-body, or recursive graph options.
-- Tool-local authority/freshness conventions that diverge from TS7.
+- Tool-local completeness or refusal conventions that diverge from the agent result envelope.
 - A separate discovery/catalog/status tool in v1.
 
 ## 7. Falsifiers and amendment rule
 
 Reopen TS3 when:
 
-- accepted PM1 or TS1 scenarios cannot be expressed by the closed operations;
+- accepted product-memory-query or TS1 scenarios cannot be expressed by the closed operations;
 - supported agents repeatedly confuse two read tools despite improved descriptions;
 - one tool's operation union requires mostly irrelevant fields or prose-only
   conditional validation;
 - two tools are always chained and a merged candidate improves outcomes without
   violating TS2's authority/result/recovery split rules;
-- one tool repeatedly returns payloads too large to remain bounded under PM1; or
+- one tool repeatedly returns payloads too large to remain bounded under product-memory-query; or
 - a new accepted Product-memory job has a distinct read authority or success oracle.
 
 Any new read operation requires a named accepted scenario and strict schema variant.

@@ -697,14 +697,8 @@ func coreErrorAction(base agentcontract.Envelope, kind, message string, action a
 	// from its bounded identity only when preserving metadata is undeliverable.
 	// The typed error is the only authoritative response to a rejected result.
 	errorBase := agentcontract.NewBase(base.Tool, base.Operation)
-	errorBase.ResolvedScope = base.ResolvedScope
 	errorBase.Outcome = agentcontract.OutcomeError
 	errorBase.Error = &agentcontract.TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: action, EffectState: agentcontract.EffectNone, Message: message}
-	if _, err := errorBase.Encode(); err != nil {
-		// Scope is useful when it remains deliverable, but never at the expense
-		// of the limit error itself crossing the agent boundary.
-		errorBase.ResolvedScope = nil
-	}
 	return errorBase
 }
 

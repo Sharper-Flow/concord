@@ -1184,24 +1184,6 @@ test("mutation cancellation kills the default runner's context child", async () 
   }
 })
 
-test("every declared read operation passes the generated envelope contract", () => {
-  // The generated validator runs on every core response. A query_id pattern
-  // narrower than the manifest makes the adapter answer malformed_core_response
-  // for a well-formed result, so each declared id is checked against it here.
-  // An error outcome carries no result, so the only operation-specific field
-  // under test is the query id itself.
-  const error = { kind: "timeout", retry_safe: true, recovery_action: { kind: "retry_same_request" }, effect_state: "none" }
-  const declared = contractOperations.filter((candidate: any) => candidate.query_id) as any[]
-  expect(declared.length).toBeGreaterThan(0)
-  for (const operation of declared) {
-    const envelope: any = coreEnvelope(operation.tool, operation.id.split(".").slice(1).join("."), "error", { error })
-    expect(
-      validateGeneratedEnvelope(envelope),
-      `${operation.id} carries query id ${operation.query_id}, which the envelope contract rejects`,
-    ).toBe(true)
-  }
-})
-
 test("overlap resolution passes the generated adapter boundary", async () => {
   const success = coreEnvelope("concord_work_relate", "resolve_overlap", "ok", {
     result: { changed_refs: [], next_valid_intents: [] },

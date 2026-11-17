@@ -28,7 +28,7 @@ SQLite confirmation and alternative-engine trigger.
 
 ## Context
 
-CD-0002, CD-0003, CD-0005, CD-0006, CD-0007, and PM1–PM10 settle Concord's Product,
+CD-0002, CD-0003, CD-0005, CD-0006, CD-0007, product-memory-query, and PM2–PM10 settle Concord's Product,
 authority, data model, agent surface, workflow constitution, and repository boundary.
 A current-doc audit and
 competitor-mechanism pass found no repository-creation blocker and no reason to
@@ -126,7 +126,6 @@ When each returned item is independently provable, an opted-in degraded query ma
 return readable items plus:
 
 ```text
-authority: degraded
 unreadable_set[]: {record_ref, reason, detected_at}
 omissions[]
 ```

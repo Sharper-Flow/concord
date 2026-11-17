@@ -133,7 +133,7 @@ func TestEveryCoreErrorRecoveryActionIsContractual(t *testing.T) {
 					return true
 				}
 				if name.Name == "coreError" {
-					base := agentcontract.NewBase("source-recovery", "concord_work_transition", "workflow_action")
+					base := agentcontract.NewBase("concord_work_transition", "workflow_action")
 					value = coreError(base, kind, "malformed request", "", false).Error.RecoveryAction.Kind
 				} else {
 					value = newRuntimeFailure(kind, "malformed request", "", false).recovery

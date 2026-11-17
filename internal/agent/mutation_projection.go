@@ -120,44 +120,44 @@ type mutationFragmentPage struct {
 	DocumentComplete bool   `json:"document_complete"`
 }
 
-func (r runtime) retainedMutationDocument(record store.MutationIdempotencyRecord, in mutationResultReadInput) ([]byte, *agentcontract.Scope, error) {
+func (r runtime) retainedMutationDocument(record store.MutationIdempotencyRecord, in mutationResultReadInput) ([]byte, error) {
 	snapshot, err := retainedMutationResponse(record.AuthorizedScopeSnapshot)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	resolved := snapshot.ResolvedScope
 	if resolved == nil || agentcontract.ValidateScope(resolved) != nil || resolved.ProductID == "" || len(resolved.ProjectIDs) == 0 {
-		return nil, nil, newRuntimeFailure("operation_conflict", "retained mutation result has no complete scope snapshot", "reconcile_operation", false)
+		return nil, newRuntimeFailure("operation_conflict", "retained mutation result has no complete scope snapshot", "reconcile_operation", false)
 	}
 	if resolved.ProductID != r.Envelope.SelectedProductID || !slices.Contains(resolved.ProjectIDs, r.Envelope.AmbientProjectID) || !scopeWithinAuthority(map[string]any{"product_id": resolved.ProductID, "project_ids": resolved.ProjectIDs}, r.Reader) {
-		return nil, nil, newRuntimeFailure("unauthorized", "retained mutation result belongs to another Product or Project scope", "contact_operator", false)
+		return nil, newRuntimeFailure("unauthorized", "retained mutation result belongs to another Product or Project scope", "contact_operator", false)
 	}
 	var changed []agentcontract.ChangedRef
 	if err := json.Unmarshal([]byte(record.ChangedRefs), &changed); err != nil || changed == nil {
-		return nil, nil, newRuntimeFailure("operation_conflict", "retained mutation changed references are incomplete", "reconcile_operation", false)
+		return nil, newRuntimeFailure("operation_conflict", "retained mutation changed references are incomplete", "reconcile_operation", false)
 	}
 	doc := []byte(record.ResultPayload)
 	source := runtime{Tool: in.SourceTool, Operation: in.SourceOperation}
 	pins, err := source.validateMutationDocument(doc, changed, snapshot.PinlessWorkIDs, snapshot.Omissions)
 	if err != nil {
-		return nil, nil, newRuntimeFailure("operation_conflict", "retained mutation result is not a complete valid original document", "reconcile_operation", false)
+		return nil, newRuntimeFailure("operation_conflict", "retained mutation result is not a complete valid original document", "reconcile_operation", false)
 	}
 	for _, pin := range pins {
 		if !slices.Contains(r.Reader.ProjectScope, pin.ProjectID) || !slices.Contains(resolved.WorkIDs, pin.WorkID) {
-			return nil, nil, newRuntimeFailure("unauthorized", "retained mutation pin is outside the authorized response scope", "contact_operator", false)
+			return nil, newRuntimeFailure("unauthorized", "retained mutation pin is outside the authorized response scope", "contact_operator", false)
 		}
 	}
 	if len(pins) > 0 {
 		derived, _ := json.Marshal(nextIntentsFromPin(pins[0]))
 		retained, _ := json.Marshal(snapshot.NextValidIntents)
 		if !bytes.Equal(derived, retained) {
-			return nil, nil, newRuntimeFailure("operation_conflict", "retained mutation response intents do not match the original pin", "reconcile_operation", false)
+			return nil, newRuntimeFailure("operation_conflict", "retained mutation response intents do not match the original pin", "reconcile_operation", false)
 		}
 	}
 	if !utf8.Valid(doc) {
-		return nil, nil, newRuntimeFailure("operation_conflict", "retained mutation result is not valid UTF-8", "reconcile_operation", false)
+		return nil, newRuntimeFailure("operation_conflict", "retained mutation result is not valid UTF-8", "reconcile_operation", false)
 	}
-	return doc, resolved, nil
+	return doc, nil
 }
 
 func (r runtime) readMutationResult(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
@@ -188,7 +188,7 @@ func (r runtime) readMutationResult(ctx context.Context, base agentcontract.Enve
 	if err != nil || scope == nil || !scopeWithinAuthority(scope, r.Reader) {
 		return coreError(base, "unauthorized", "original mutation scope is no longer authorized by the current grant", "contact_operator", false), nil
 	}
-	doc, resolved, err := r.retainedMutationDocument(record, in)
+	doc, err := r.retainedMutationDocument(record, in)
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -213,7 +213,6 @@ func (r runtime) readMutationResult(ctx context.Context, base agentcontract.Enve
 			return coreError(base, "invalid_cursor", "mutation result cursor offset is invalid", "restart_query", false), nil
 		}
 	}
-	base.ResolvedScope = resolved
 	base.CursorSource = binding
 	render := func(n int) (agentcontract.Envelope, int, error) {
 		end := offset + n

@@ -20,7 +20,7 @@
   path on 2026-08-19; the public record is
   [issue #195 comment](https://github.com/Sharper-Flow/concord/issues/195#issuecomment-5347857526)
 - **Related:** CD-0005, CD-0007, CD-0010, CD-0024, CD-0252, CD-0222, TS1,
-  TS5–TS9
+  TS5–TS6, agent-result-envelope, TS8–TS9
 - **Preserves:** One generated canonical manifest and digest; strict schemas; signed
   client bootstrap; fail-closed unknown input; durable Product state authority; release
   automation (the store keeps current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)))
@@ -136,5 +136,5 @@ removes agent-surface compatibility machinery, not structural decoding informati
   envelopes bind the digest without surface-range or envelope-version negotiation.
 - No runtime SemVer parser, old agent-surface replay upcaster, or old/new compatibility
   matrix remains.
-- `AJ5-resolve-domain-overlap`, all PM1/TS1 deterministic scenarios, generated-contract
+- `AJ5-resolve-domain-overlap`, all product-memory-query/TS1 deterministic scenarios, generated-contract
   checks, full tests, and conformance pass.

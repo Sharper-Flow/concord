@@ -239,7 +239,7 @@ func TestRegressionDefect4_VersionConflictEnvelopeValidates(t *testing.T) {
 	// Force-build an envelope whose kind/recovery are coupled to the
 	// rule. The pre-fix runtime would have produced exactly this
 	// shape, so this test acts as a forward guard on the coupling.
-	env := agentcontract.NewBase("d4", "concord_work_transition", "lifecycle")
+	env := agentcontract.NewBase("concord_work_transition", "lifecycle")
 	errEnv := env
 	errEnv.Outcome = agentcontract.OutcomeError
 	errEnv.Error = &agentcontract.TypedError{
@@ -255,7 +255,7 @@ func TestRegressionDefect4_VersionConflictEnvelopeValidates(t *testing.T) {
 	// Negative: a version_conflict with empty CurrentVersions must be
 	// rejected. This is the coupling the D4 repair enforces — the
 	// validator refuses the pre-fix shape.
-	badEnv := agentcontract.NewBase("d4-bad", "concord_work_transition", "lifecycle")
+	badEnv := agentcontract.NewBase("concord_work_transition", "lifecycle")
 	badEnv.Outcome = agentcontract.OutcomeError
 	badEnv.Error = &agentcontract.TypedError{
 		Kind:           "version_conflict",

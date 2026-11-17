@@ -94,7 +94,7 @@ func testLargeMembershipApprovalRoundTrip(t *testing.T, projectCount int) {
 		t.Fatalf("approved Project identities = %v, want %v", gotIDs, projects)
 	}
 	replay, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || workVersion(t, s, "work-1") != 3 {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || workVersion(t, s, "work-1") != 3 {
 		t.Fatalf("large membership replay=%+v err=%v", replay.Error, err)
 	}
 }

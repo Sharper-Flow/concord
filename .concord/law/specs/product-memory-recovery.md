@@ -44,10 +44,10 @@
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** PM10; Product-memory recovery amendment.
-> **Binding inputs:** PM1–PM9, CD-0002 I1–I6, PM2 global SQLite authority,
+> **Binding inputs:** product-memory-query and PM2–PM9, CD-0002 I1–I6, PM2 global SQLite authority,
 > PM6 historical notes, compaction-retention-policy, PM8 no-CAS boundary, PM9 no-receipt boundary.
 > **Does not decide:** remote replication provider, encryption/key custody, retention
-> schedule, TS1–TS9, or a new blob store.
+> schedule, the agent-surface contracts, or a new blob store.
 
 [CD-0243 D7](../decisions/CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
 qualifies every operator-consent clause in this record, including tables and
@@ -57,7 +57,7 @@ requirements remain required.
 ## Context
 
 One global SQLite authority and canonical git notes need one backup and
-restore law. The binding inputs are PM1 through PM9, CD-0002 invariants,
+restore law. The binding inputs are product-memory-query and PM2 through PM9, CD-0002 invariants,
 PM6 git notes, compaction-retention-policy retention, and the PM8 and PM9 exclusion boundaries.
 This record fixes recovery: exactly two backup authorities, the Online
 Backup API with triple verification, the forward-only restore protocol, and

@@ -32,7 +32,7 @@ func TestWorkListDispatchRetainedDecisions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			response, err := r.read(context.Background(), agentcontract.NewBase("decisions", r.Tool, r.Operation), input, "PM1.Q3")
+			response, err := r.read(context.Background(), agentcontract.NewBase(r.Tool, r.Operation), input, "PM1.Q3")
 			if err != nil || response.Error != nil {
 				t.Fatalf("dispatch: %+v %v", response.Error, err)
 			}
@@ -97,7 +97,7 @@ func TestWorkListDispatchItemFullNativeRun(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		response, err := r.read(context.Background(), agentcontract.NewBase("list-facts", r.Tool, r.Operation), input, "PM1.Q3")
+		response, err := r.read(context.Background(), agentcontract.NewBase(r.Tool, r.Operation), input, "PM1.Q3")
 		if err != nil || response.Error != nil {
 			t.Fatalf("dispatch: %+v %v", response.Error, err)
 		}
@@ -148,7 +148,7 @@ func TestWorkListFactProjectionSchema(t *testing.T) {
 	q.Items[0].PendingProjectHandoff = &store.ProjectHandoff{HandoffID: "handoff-1", WorkID: "work-1", ContractVersion: 1, SourceProjectID: "project-1", TargetProjectID: "project-2", SourceSessionRef: "session-1", BoundedJob: "job", NextAction: "act", State: "recorded", RecordedAt: "2026-08-20T12:00:00Z"}
 	q.Items[0].LawContext = &store.WorkflowLawContext{Laws: []store.WorkflowLawContextLaw{{Roles: []string{"mandated"}, LawID: "law-1"}}, Domains: []store.WorkflowLawContextDomain{}}
 	q.Items[0].NativeRuns = []store.NativeRunReport{{RunID: "run-1", Phase: "start", Status: "started", EventID: "event-1", ReportingAuthorityRef: "client-1", ActorRef: "actor-1", NativeSubjectRef: "run:1", SubjectDigest: "digest", EvidenceRef: "evidence:1", EvidenceDigest: "digest", AssertedAt: "2026-08-20T12:00:00Z", RecordedAt: "2026-08-20T12:00:00Z", VerificationState: "unverified", Unverified: true}}
-	base := agentcontract.NewBase("fact-projection", r.Tool, r.Operation)
+	base := agentcontract.NewBase(r.Tool, r.Operation)
 	response, err := r.q3(base, q)
 	if err != nil {
 		t.Fatal(err)

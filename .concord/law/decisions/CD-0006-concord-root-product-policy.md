@@ -20,7 +20,7 @@ knowledge authority, audience policy, release evidence, and migration policy.
 
 ## Context
 
-PM1–PM10 and TS1–TS9 settled Concord's Product-memory
+product-memory-query, PM2–PM10, TS1–TS6, agent-result-envelope, and TS8–TS9 settle Concord's Product-memory
 and agent-surface mechanics. Root Product documents still carried older
 leans: indefinite coexistence with a prior system, Product-by-Product usability before full
 readiness, workflow ownership left open, exposure inferred as reachability, a future
@@ -128,7 +128,7 @@ who holds the operator role.
 
 ### D9. Initial release evidence is synthetic/scenario-based
 
-PM1/TS1 deterministic conformance remains the pre-go-live release evidence gate.
+product-memory-query/TS1 deterministic conformance remains the pre-go-live release evidence gate.
 Supported-model evaluation and production telemetry may inform research but do not
 block a pre-go-live release. The first-go-live decision must define supported
 populations and re-accept any future measurement gate.

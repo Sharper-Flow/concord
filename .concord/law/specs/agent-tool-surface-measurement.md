@@ -38,7 +38,7 @@
 ## Context
 
 Surface changes need one evidence authority before any supported-model
-population exists. The binding inputs are the accepted PM1 and TS1 scenario
+population exists. The binding inputs are the accepted product-memory-query and TS1 scenario
 corpora and the strict generated schemas. This record defines the deterministic evidence
 contract for the pre-go-live path: what authorizes a change, what the
 evidence planes record, and what the first go-live decision must later
@@ -60,7 +60,7 @@ production-like telemetry cannot authorize a change.
 
 The authoritative evidence contract is:
 
-- PM1 query scenarios and TS1 end-to-end scenarios with named initial state,
+- product-memory-query scenarios and TS1 end-to-end scenarios with named initial state,
   final-state, communication, and prohibited-effect oracles;
 - strict generated manifest, payload, envelope, and scenario schemas;
 - core authority and authorization proofs;
@@ -77,7 +77,7 @@ version-pinned overlap resolution.
 
 ## 2. Deterministic evidence planes
 
-The PM1/TS1 plane owns job correctness. It records the explicit scenario, fixture,
+The product-memory-query/TS1 plane owns job correctness. It records the explicit scenario, fixture,
 request, resulting state, communication, authority, effects, and recovery. It does
 not infer success from prompts or model prose.
 
@@ -129,7 +129,7 @@ authority, and operator acceptance for Product consequences.
 
 ## Acceptance criteria
 
-- Given a scenario in the PM1 or TS1 corpus
+- Given a scenario in the product-memory-query or TS1 corpus
   When it is evaluated
   Then it asserts authoritative state or effects rather than response
   wording, and its prohibited-effect assertions are actively probed.

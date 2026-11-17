@@ -21,8 +21,8 @@
   `adapter/opencode/session-directory.ts`, and completion reporting
 - **Approval:** Operator approved a decision record for this boundary rather
   than a bare defect fix. The implementation is accepted in PR #579.
-- **Related:** CD-0005, TS6, TS7, issues #485 and #560
-- **Preserves:** The TS7 result envelope and its generated contract; the
+- **Related:** CD-0005, TS6, agent-result-envelope, issues #485 and #560
+- **Preserves:** The agent result envelope and its generated contract; the
   envelope-thin adapter boundary in the transport contract
 
 ## Context

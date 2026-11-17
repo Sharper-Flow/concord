@@ -80,7 +80,7 @@ func TestReopenRestoresPlanAndAdmitsInsertStep(t *testing.T) {
 				t.Fatal(err)
 			}
 			replay, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: replayInput}, env)
-			if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || agentCompositionWorkVersion(t, s, id) != reopenVersion+1 {
+			if err != nil || replay.Outcome != agentcontract.OutcomeOK || agentCompositionWorkVersion(t, s, id) != reopenVersion+1 {
 				t.Fatalf("reopen replay=%+v err=%v", replay, err)
 			}
 			pin, err := store.ReadWorkPin(ctx, s, id)
@@ -148,7 +148,7 @@ func TestReopenDeclinedIntakeCanProceed(t *testing.T) {
 		t.Fatalf("reopen: lifecycle=%s state=%s prelude=%v plan=%v", lifecycle, state, prelude, plan)
 	}
 	replay, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || agentCompositionWorkVersion(t, s, id) != version+1 {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || agentCompositionWorkVersion(t, s, id) != version+1 {
 		t.Fatalf("reopen replay: response=%+v err=%v", replay, err)
 	}
 	pin, err := store.ReadWorkPin(ctx, s, id)

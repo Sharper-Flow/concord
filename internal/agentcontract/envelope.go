@@ -126,7 +126,6 @@ type Envelope struct {
 	Tool             string            `json:"tool"`
 	Operation        string            `json:"operation"`
 	Outcome          Outcome           `json:"outcome"`
-	ResolvedScope    *Scope            `json:"-"`
 	CursorSource     string            `json:"-"`
 	NextCursor       *string           `json:"next_cursor"`
 	Omissions        []Notice          `json:"omissions"`
@@ -233,9 +232,6 @@ func (e Envelope) validateInvariants() error {
 		return err
 	}
 	if err := e.validateChangedReferences(); err != nil {
-		return err
-	}
-	if err := ValidateScope(e.ResolvedScope); err != nil {
 		return err
 	}
 	if e.Origin == OriginAdapter && e.Outcome != OutcomeError {

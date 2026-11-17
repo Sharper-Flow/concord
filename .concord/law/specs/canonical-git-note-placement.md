@@ -123,10 +123,8 @@ belongs to the consumer, never to the read.
 
 The historical read computes no authority tier of its own: an OK read is
 authoritative over the retained record, and a store that cannot answer refuses
-as `unreachable` rather than guessing. The envelope levels `authoritative`,
-`degraded` and `unreachable` are [TS7](agent-result-envelope.md) vocabulary; no
-historical read sets `degraded`, because it returns the retained record whole
-or refuses.
+as `unreachable` rather than guessing. The read returns the retained record whole
+or refuses under the [agent result envelope](agent-result-envelope.md).
 
 An offline or lost remote does not prove absence. Historical Product visibility
 uses frozen associations, not later home-Project memberships. A renamed, moved or

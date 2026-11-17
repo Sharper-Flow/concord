@@ -46,7 +46,7 @@ func TestLegacyWorkflowReplayUsesRetainedIndexResult(t *testing.T) {
 	}
 	transaction := workflowTransactionReplay(t, r, grant, raw)
 	for name, replay := range map[string]agentcontract.Envelope{"public": public, "transaction": transaction} {
-		if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) || !reflect.DeepEqual(replay.NextValidIntents, first.NextValidIntents) {
+		if replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(first.Result) || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) || !reflect.DeepEqual(replay.NextValidIntents, first.NextValidIntents) {
 			t.Errorf("%s did not replay original index result: response=%+v error=%+v", name, replay, replay.Error)
 		}
 	}
@@ -147,7 +147,7 @@ func TestLegacyWorkflowReplayUsesDurableOwner(t *testing.T) {
 	}
 	transaction := workflowTransactionReplay(t, r, grant, raw)
 	for name, replay := range map[string]agentcontract.Envelope{"public": public, "transaction": transaction} {
-		if replay.Outcome != agentcontract.OutcomeError || !replay.Replayed || replay.Error == nil || replay.Error.Kind != "malformed_response" || replay.Error.RecoveryAction.Kind != "contact_operator" || replay.Error.EffectState != agentcontract.EffectPossible || replay.Error.RetrySafe || !strings.Contains(replay.Error.Message, "original WorkPin was not retained") || !strings.Contains(replay.Error.Message, `"work-1"`) || !strings.Contains(replay.Error.Message, "concord_work_trace.resume") || !strings.Contains(replay.Error.Message, "concord_work_browse.list") || !strings.Contains(replay.Error.Message, "if the work was removed, no current work state is available") {
+		if replay.Outcome != agentcontract.OutcomeError || replay.Error == nil || replay.Error.Kind != "malformed_response" || replay.Error.RecoveryAction.Kind != "contact_operator" || replay.Error.EffectState != agentcontract.EffectPossible || replay.Error.RetrySafe || !strings.Contains(replay.Error.Message, "original WorkPin was not retained") || !strings.Contains(replay.Error.Message, `"work-1"`) || !strings.Contains(replay.Error.Message, "concord_work_trace.resume") || !strings.Contains(replay.Error.Message, "concord_work_browse.list") || !strings.Contains(replay.Error.Message, "if the work was removed, no current work state is available") {
 			t.Errorf("%s legacy replay did not name the missing original WorkPin and current-state recovery: error=%+v", name, replay.Error)
 		}
 	}
@@ -234,7 +234,7 @@ func TestLegacyWorkflowReplayOwnerValidation(t *testing.T) {
 			for _, replay := range []agentcontract.Envelope{public, transaction} {
 				switch {
 				case tc.success:
-					if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != payload || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) || len(replay.EvidenceRefs) != 0 {
+					if replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != payload || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) {
 						t.Errorf("complete owner replay=%+v error=%+v", replay, replay.Error)
 					}
 				case replay.Outcome != agentcontract.OutcomeError || replay.Error == nil || replay.Error.EffectState != agentcontract.EffectPossible || replay.Error.RetrySafe:
@@ -275,13 +275,13 @@ func TestRetainedWorkflowInvokeAcrossManifestChange(t *testing.T) {
 	}
 	commits := r.Store.DurableCommits()
 	response, err := Invoke(ctx, r.Store, r.Authority, mustMarshalInvoke(t, InvokeRequest{Tool: r.Tool, Operation: r.Operation, Input: raw}, r.Envelope))
-	if err != nil || response.Outcome != agentcontract.OutcomeOK || !response.Replayed {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("retained workflow response refused: err=%v response=%+v error=%+v", err, response, response.Error)
 	}
 	requireReplayCommit(t, r.Store, "retained-replay", commits, 0, true)
 	transaction := workflowTransactionReplay(t, r, grant, raw)
 	for _, replay := range []agentcontract.Envelope{response, transaction} {
-		if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) || !reflect.DeepEqual(replay.NextValidIntents, first.NextValidIntents) || !reflect.DeepEqual(replay.ResolvedScope, first.ResolvedScope) || !reflect.DeepEqual(replay.Omissions, first.Omissions) || !reflect.DeepEqual(replay.EvidenceRefs, first.EvidenceRefs) {
+		if replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(first.Result) || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) || !reflect.DeepEqual(replay.NextValidIntents, first.NextValidIntents) || !reflect.DeepEqual(replay.Omissions, first.Omissions) {
 			t.Fatalf("replay replaced original workflow facts: first=%+v replay=%+v", first, replay)
 		}
 		if replay.ManifestDigest != agentcontract.ManifestDigest {
@@ -305,7 +305,7 @@ func TestRetainedWorkflowInvokeAcrossManifestChange(t *testing.T) {
 	mismatchedEnv := r.Envelope
 	mismatchedEnv.ManifestDigest = producerDigest
 	mismatched, err := Invoke(ctx, r.Store, r.Authority, mustMarshalInvoke(t, InvokeRequest{Tool: r.Tool, Operation: r.Operation, Input: raw}, mismatchedEnv))
-	if err != nil || mismatched.Error == nil || mismatched.Error.EffectState != agentcontract.EffectNone || mismatched.Replayed {
+	if err != nil || mismatched.Error == nil || mismatched.Error.EffectState != agentcontract.EffectNone {
 		t.Fatalf("mismatched invocation reached workflow replay: err=%v error=%+v", err, mismatched.Error)
 	}
 	if r.Store.DurableCommits() != commits || workflowReplayEffectCounts(t, r.Store) != before {
@@ -326,11 +326,10 @@ func TestRetainedMutationInvokeAcrossManifestChange(t *testing.T) {
 		return retryJSON(map[string]any{"work_id": "work-1", "target": "in_progress", "reason": "retain response fixture", "expected_version": version, "idempotency_key": key})
 	}
 	raw := lifecycleInput("retained-reconcile", 1)
-	base := agentcontract.NewBase("original", tool, operation)
+	base := agentcontract.NewBase(tool, operation)
 	payload := retryJSON(map[string]any{"changed_refs": []any{}, "next_valid_intents": []any{}})
 	first := agentcontract.NewOKMutation(base, payload, nil, nil)
-	first.ResolvedScope = &agentcontract.Scope{ProductID: "product-1", ProjectIDs: []string{"project-1"}}
-	scope := mutationResponseScope(map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}}, first, nil)
+	scope := mutationResponseScope(map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}}, &agentcontract.Scope{ProductID: "product-1", ProjectIDs: []string{"project-1"}}, first, nil)
 	snapshot := scope["mutation_response"].(mutationResponseSnapshot)
 	snapshot.ManifestDigest = "sha256:" + strings.Repeat("0", 64)
 	scope["mutation_response"] = snapshot
@@ -344,10 +343,10 @@ func TestRetainedMutationInvokeAcrossManifestChange(t *testing.T) {
 	before := mutationProjectionState(t, s)
 	for attempt := 0; attempt < 2; attempt++ {
 		response, err := Invoke(ctx, s, service, mustMarshalInvoke(t, InvokeRequest{Tool: tool, Operation: operation, Input: raw}, env))
-		if err != nil || response.Outcome != agentcontract.OutcomeOK || !response.Replayed {
+		if err != nil || response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("retained current-operation response refused: err=%v response=%+v error=%+v", err, response, response.Error)
 		}
-		if string(response.Result) != string(first.Result) || !reflect.DeepEqual(response.ChangedRefs, first.ChangedRefs) || !reflect.DeepEqual(response.NextValidIntents, first.NextValidIntents) || !reflect.DeepEqual(response.ResolvedScope, first.ResolvedScope) || !reflect.DeepEqual(response.Omissions, first.Omissions) {
+		if string(response.Result) != string(first.Result) || !reflect.DeepEqual(response.ChangedRefs, first.ChangedRefs) || !reflect.DeepEqual(response.NextValidIntents, first.NextValidIntents) || !reflect.DeepEqual(response.Omissions, first.Omissions) {
 			t.Fatalf("replay replaced original response: first=%+v replay=%+v", first, response)
 		}
 		if response.ManifestDigest != agentcontract.ManifestDigest {
@@ -368,7 +367,7 @@ func TestRetainedMutationInvokeAcrossManifestChange(t *testing.T) {
 	}
 	legacyBefore := mutationProjectionState(t, s)
 	legacy, err := Invoke(ctx, s, service, mustMarshalInvoke(t, InvokeRequest{Tool: tool, Operation: operation, Input: lifecycleInput(legacyKey.IdempotencyKey, 1)}, env))
-	if err != nil || legacy.Outcome != agentcontract.OutcomeOK || !legacy.Replayed || string(legacy.Result) != string(first.Result) || !reflect.DeepEqual(legacy.ChangedRefs, first.ChangedRefs) {
+	if err != nil || legacy.Outcome != agentcontract.OutcomeOK || string(legacy.Result) != string(first.Result) || !reflect.DeepEqual(legacy.ChangedRefs, first.ChangedRefs) {
 		t.Fatalf("legacy missing metadata replay: err=%v response=%+v", err, legacy)
 	}
 	if !reflect.DeepEqual(legacyBefore, mutationProjectionState(t, s)) {
@@ -396,7 +395,7 @@ func TestRetainedMutationInvokeAcrossManifestChange(t *testing.T) {
 			invalid := lifecycleInput(invalidKey.IdempotencyKey, 1)
 			before := mutationProjectionState(t, s)
 			response, err := Invoke(ctx, s, service, mustMarshalInvoke(t, InvokeRequest{Tool: tool, Operation: operation, Input: invalid}, env))
-			if err != nil || response.Error == nil || response.Error.Kind != "malformed_response" || response.Error.EffectState != agentcontract.EffectPossible || response.Error.RecoveryAction.Kind != "contact_operator" || response.Error.RetrySafe || !response.Replayed {
+			if err != nil || response.Error == nil || response.Error.Kind != "malformed_response" || response.Error.EffectState != agentcontract.EffectPossible || response.Error.RecoveryAction.Kind != "contact_operator" || response.Error.RetrySafe {
 				t.Fatalf("unrecoverable response lost effect truth or named an unreachable retry: err=%v response=%+v error=%+v", err, response, response.Error)
 			}
 			if !reflect.DeepEqual(before, mutationProjectionState(t, s)) {
@@ -411,7 +410,7 @@ func TestRetainedMutationInvokeAcrossManifestChange(t *testing.T) {
 	}
 	env.ManifestDigest = snapshot.ManifestDigest
 	mismatched, err := Invoke(ctx, s, service, mustMarshalInvoke(t, InvokeRequest{Tool: tool, Operation: operation, Input: raw}, env))
-	if err != nil || mismatched.Error == nil || mismatched.Error.EffectState != agentcontract.EffectNone || mismatched.Replayed {
+	if err != nil || mismatched.Error == nil || mismatched.Error.EffectState != agentcontract.EffectNone {
 		t.Fatalf("mismatched invocation reached replay: err=%v error=%+v", err, mismatched.Error)
 	}
 }
@@ -432,19 +431,19 @@ func TestRetainedReplayKeepsCommittedEmptyChangedRefs(t *testing.T) {
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}}
 	effects := 0
-	execute := func(request string) agentcontract.Envelope {
-		response, err := r.executeMutation(ctx, agentcontract.NewBase(request, r.Tool, r.Operation), raw, digest, scope, nil, nil, func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
+	execute := func() agentcontract.Envelope {
+		response, err := r.executeMutation(ctx, agentcontract.NewBase(r.Tool, r.Operation), raw, digest, scope, nil, nil, func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
 			effects++
 			return json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), nil, nil, nil
 		})
 		if err != nil {
-			t.Fatalf("%s: %v", request, err)
+			t.Fatalf("execute mutation: %v", err)
 		}
 		return response
 	}
-	first := execute("first")
-	if first.Outcome != agentcontract.OutcomeOK || first.Replayed || effects != 1 {
-		t.Fatalf("first outcome=%s replayed=%t effects=%d error=%+v", first.Outcome, first.Replayed, effects, first.Error)
+	first := execute()
+	if first.Outcome != agentcontract.OutcomeOK || effects != 1 {
+		t.Fatalf("first outcome=%s effects=%d error=%+v", first.Outcome, effects, first.Error)
 	}
 	key := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: "retained-reconcile"}
 	prior, found, err := s.LookupMutationIdempotency(ctx, key)
@@ -456,20 +455,20 @@ func TestRetainedReplayKeepsCommittedEmptyChangedRefs(t *testing.T) {
 	}
 	same := func(label string, replay agentcontract.Envelope) {
 		t.Helper()
-		if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
-			t.Fatalf("%s outcome=%s replayed=%t error=%+v", label, replay.Outcome, replay.Replayed, replay.Error)
+		if replay.Outcome != agentcontract.OutcomeOK {
+			t.Fatalf("%s outcome=%s error=%+v", label, replay.Outcome, replay.Error)
 		}
-		if string(replay.Result) != string(first.Result) || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) || !reflect.DeepEqual(replay.NextValidIntents, first.NextValidIntents) || !reflect.DeepEqual(replay.ResolvedScope, first.ResolvedScope) {
+		if string(replay.Result) != string(first.Result) || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) || !reflect.DeepEqual(replay.NextValidIntents, first.NextValidIntents) {
 			t.Fatalf("%s changed the committed response\nfirst=%+v\nreplay=%+v", label, first, replay)
 		}
 	}
 	for attempt := 0; attempt < 2; attempt++ {
-		early, handled, err := r.replayMutationBeforeScope(ctx, agentcontract.NewBase("early", r.Tool, r.Operation), raw, grant, op)
+		early, handled, err := r.replayMutationBeforeScope(ctx, agentcontract.NewBase(r.Tool, r.Operation), raw, grant, op)
 		if err != nil || !handled {
 			t.Fatalf("early replay handled=%t err=%v", handled, err)
 		}
 		same("early replay", early)
-		same("transactional replay", execute("transactional"))
+		same("transactional replay", execute())
 	}
 	if effects != 1 {
 		t.Fatalf("retained replay repeated the effect: effects=%d", effects)
@@ -481,11 +480,11 @@ func TestRetainedReplayKeepsCommittedEmptyChangedRefs(t *testing.T) {
 // possible-effect reconciliation, never a successful empty placeholder.
 func TestRetainedReplayRefusesUncapturedChangedRefs(t *testing.T) {
 	r := runtime{Tool: "concord_work_transition", Operation: "lifecycle"}
-	base := agentcontract.NewBase("uncaptured", r.Tool, r.Operation)
+	base := agentcontract.NewBase(r.Tool, r.Operation)
 	complete := agentcontract.NewOKMutation(base, mutationPayload(nil, nil), nil, nil)
-	scopeJSON, _ := json.Marshal(mutationResponseScope(nil, complete, nil))
+	scopeJSON, _ := json.Marshal(mutationResponseScope(nil, nil, complete, nil))
 	captured := r.recordedMutationResult(base, store.MutationIdempotencyRecord{ResultPayload: string(mutationPayload(nil, nil)), ChangedRefs: `[]`, AuthorizedScopeSnapshot: string(scopeJSON)})
-	if captured.Outcome != agentcontract.OutcomeOK || !captured.Replayed || captured.ChangedRefs == nil || len(*captured.ChangedRefs) != 0 {
+	if captured.Outcome != agentcontract.OutcomeOK || captured.ChangedRefs == nil || len(*captured.ChangedRefs) != 0 {
 		t.Fatalf("captured empty list did not replay: %+v", captured)
 	}
 	for _, changed := range []string{`null`, ``, `{}`} {

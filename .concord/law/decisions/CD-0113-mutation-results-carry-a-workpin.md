@@ -61,7 +61,7 @@ the pin is the typed form.
 Complete WorkPins remain inline when the final serialized envelope fits the
 51,200-byte limit. When it does not fit, the producer may use the closed
 projection reference and immutable transaction document required by
-[TS7 §8.2](../specs/agent-result-envelope.md#82-lossless-oversized-result-transport).
+[Agent result envelope §8.2](../specs/agent-result-envelope.md#82-lossless-oversized-result-transport).
 The reference is transport, not a third pinless case; changed references and
 truthful effect metadata remain in the mutation envelope.
 
@@ -91,7 +91,7 @@ at the pin's state.
 
 Tests prove both inline and reconstructed results meet the same completeness,
 version, derivation and schema obligations under
-[TS7 §8.2](../specs/agent-result-envelope.md#82-lossless-oversized-result-transport).
+[Agent result envelope §8.2](../specs/agent-result-envelope.md#82-lossless-oversized-result-transport).
 
 ## Acceptance Criteria
 
@@ -128,7 +128,7 @@ Scenario: intents stay honest
   listed work item that has one and one `work_pin_unavailable` notice that
   counts those that have none, the mutation refuses when that pin cannot be
   read, and every intent names an admitted action.
-- The generated payload schemas, the TS7 contracts, and the adapter are
+- The generated payload schemas, the agent result envelope contract, and the adapter are
   regenerated; the manifest digest changes once, in the same change.
 - Committed law-folder snapshot validation passes.
 

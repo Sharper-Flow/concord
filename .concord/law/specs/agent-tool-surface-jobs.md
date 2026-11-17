@@ -32,19 +32,19 @@
 > **Status:** **Accepted — binding until superseded.**
 > **Amended:** 2026-10-18.
 > **Accepted by operator:** 2026-08-06.
-> **Decision:** TS1; binding input to CD-0005 §1 and TS2–TS9.
-> **Binding inputs:** accepted PM1 query contract and scenario corpus, PM2–PM10,
+> **Decision:** TS1; binding input to CD-0005 §1, TS2–TS6, agent-result-envelope, and TS8–TS9.
+> **Binding inputs:** product-memory-query and scenario corpus, PM2–PM10,
 > Concord priorities, workflows, and design constraints.
 > **Scenario corpus:** [`agent-jobs.v1.json`](../../scenarios/agent-jobs.v1.json).
 > **Does not decide:** tool count or names (TS2), read or mutation schemas
 > (TS3/TS4), context and authorization (TS5), transport (TS6), result envelopes
-> (TS7), current manifest identity/change evidence (TS8), or change evidence for the
+> (agent-result-envelope), current manifest identity/change evidence (TS8), or change evidence for the
 > surface (TS9).
 
 ## Context
 
 Concord's agent surface must serve the Product-memory jobs the operator and
-its agents repeatedly perform. The binding inputs are the accepted PM1 query
+its agents repeatedly perform. The binding inputs are the product-memory-query
 contract and corpus, PM2 through PM10, Concord priorities, workflows, and design
 constraints. This record defines the smallest
 evidenced set of end-to-end agent jobs AJ1 through AJ8 and the tool-neutral
@@ -71,7 +71,7 @@ surface candidates. A job starts with an agent-visible intent and ends with an
 observable Product-memory or external-authority outcome. It is not a table, CLI
 command, workflow phase, or proposed Concord tool.
 
-PM1's canonical reads remain the read contract. TS1 composes those reads with
+product-memory-query's canonical reads remain the read contract. TS1 composes those reads with
 the mutation, completion, and operational outcomes already required
 by Concord. No Q-number implies a separate tool.
 
@@ -79,7 +79,7 @@ by Concord. No Q-number implies a separate tool.
 
 | ID | End-to-end agent job | Successful outcome |
 |---|---|---|
-| **AJ1** | **Orient to a Product and choose work.** Resolve ambient Product/Project context; inspect needed, in-progress, blocked, and terminal work; understand cross-Project scope; select a ready item. | Scope is explicit and unambiguous; one canonical work item appears once even when it spans Projects; blocked work is excluded from ready work; authority and freshness are visible. |
+| **AJ1** | **Orient to a Product and choose work.** Resolve ambient Product/Project context; inspect needed, in-progress, blocked, and terminal work; understand cross-Project scope; select a ready item. | Scope is explicit and unambiguous; one canonical work item appears once even when it spans Projects; blocked work is excluded from ready work; incomplete coverage is named through omissions and unavailable authority refuses. |
 | **AJ2** | **Explain why work is blocked.** Trace canonical blockers and state what must change. | Blockage is derived from relations and blocker terminality, never a competing stored state; resolved blockers disappear; graph depth and output stay bounded. |
 | **AJ3** | **Capture needed work without silently cutting scope.** Record a bounded idea, defect, investigation, implementation, or operational need with value, kind, and Project membership. | One canonical work item is created in the resolved scope. Ambiguity or conflict with governing law is surfaced for human direction rather than guessed or omitted. |
 | **AJ4** | **Transition work with evidence.** Move work through its accepted lifecycle, including completion, while satisfying evidence and version requirements. | One atomic domain transition occurs, evidence and actor are attributable, invalid or stale transitions fail structurally, and a retry cannot duplicate the effect. |
@@ -88,12 +88,12 @@ by Concord. No Q-number implies a separate tool.
 
 These jobs are intentionally broader than storage queries and narrower than
 "do anything." They are the evidenced intent families repeatedly present in
-Concord's Product model, live workflows, first-usable floor, and PM1 contract.
+Concord's Product model, live workflows, first-usable floor, and product-memory-query contract.
 They do not prescribe one tool per row.
 
 ## 3. Shared success oracles
 
-Every scenario applies the relevant subset of these outcome oracles. TS5–TS7
+Every scenario applies the relevant subset of these outcome oracles. TS5–TS6 and agent-result-envelope
 later choose their concrete request/result schemas.
 
 1. **Correct scope:** ambient scope is used when singular; ambiguity and intentional
@@ -141,7 +141,7 @@ The JSON corpus is tool-, transport-, and model-neutral. Each scenario records:
 Mutation scenarios judge **resulting state**, not response wording or one exact call
 sequence. A reference trajectory may illustrate one valid route but is binding only
 when the operation is irreversible and exactly one safe ordering exists. Read
-scenarios reuse PM1's accepted fixtures and oracles rather than copying or weakening
+scenarios reuse product-memory-query's accepted fixtures and oracles rather than copying or weakening
 them.
 
 ### Passing rule
@@ -155,7 +155,7 @@ surface expansion or pruning. No universal numeric tool ceiling is assumed.
 
 ### Concord evidence
 
-- PM1's canonical reads establish Product orientation, work views, blocked/ready selection,
+- product-memory-query's canonical reads establish Product orientation, work views, blocked/ready selection,
   cross-Project identity, history, and relations (`product-memory-query-contract.md` §§4–5).
 - Concord's first-usable floor requires one Product view, required work capture,
   visible ready/blocked/next work, evidence-backed completion, and durable Product
@@ -197,7 +197,7 @@ surface expansion or pruning. No universal numeric tool ceiling is assumed.
 - Launcher navigation and optional web/admin projections are human surfaces, not
   separate agent jobs.
 - Free-form SQL, arbitrary JSON paths, unbounded full-text search, and "show all"
-  remain structurally rejected by PM1.
+  remain structurally rejected by product-memory-query.
 - Staleness checks, budgets, authority labels, idempotency, pagination, and recovery
   are scenario properties or downstream envelope mechanics—not standalone jobs.
 - Tool discovery and catalog management are TS8 concerns, not Product outcomes.
@@ -240,7 +240,7 @@ regressing.
 **2026-08-16, issue #156 — `AJ1-ambient-ready-work` gains an authority assertion.**
 Building the corpus runner surfaced that this scenario asserted only `result` and
 `communication` facets. It declared the `canonical_authority` invariant and carries
-AJ1's "authority and freshness are visible" attribute from section 2, but checked
+AJ1's completeness and authority requirements from section 2, but checked
 neither, while all four other read-only scenarios already asserted a durable
 `effects` or `authority` fact. That is the sixth falsifier above: the scenario
 rewarded response wording while permitting wrong authority. The amendment adds
@@ -269,18 +269,18 @@ whole membership set and consumes one version however many projects it names, wh
 `work_project.added` consumes one version per record. Production
 `concord_work_define.capture` emits `work.created` plus one
 `work.memberships_replaced`, so a capture yields version 2 for any project count. The
-PM1 fixture seeds membership as one `work_project.added` per project, so there the
+The Product-memory query fixture seeds membership as one `work_project.added` per project, so there the
 cost is one version each.
 
 The two paths coincide for single-project work and diverge for cross-Project work,
 which is why the fixture's `work-cross` is version 4 where a production capture plus
 one transition would reach 3. That divergence is recorded as issue #169 rather than
 repaired here: moving the fixture's seeding path would shift expected versions under
-every PM1-bound scenario in two corpora, which is a deliberate fixture change and not
+every Product-memory query scenario in two corpora, which is a deliberate fixture change and not
 a side effect of binding mutation scenarios. It does not weaken these scenarios,
 because the fixture-independent increment assertion below is what carries the law.
 
-The accounting explains every PM1 work version exactly. `work-cross` is version 4
+The accounting explains every Product-memory query work version exactly. `work-cross` is version 4
 because it is the cross-Project item: two `work_project.added` records plus one
 transition. Only `AJ4-stale-version` was accidentally correct, because
 `work-ready-low` has one membership and no transitions, making its true current
@@ -329,7 +329,7 @@ This amendment adds one scenario, bringing the corpus to 23. It does not add a n
 job or a tenth tool. Operator approval for the current manifest change is recorded in
 [issue #195](https://github.com/Sharper-Flow/concord/issues/195#issuecomment-5346330133).
 
-**2026-08-28, issue #169 — PM1 seeds membership through the contract path.**
+**2026-08-28, issue #169 — Product-memory query seeds membership through the contract path.**
 
 The 2026-08-17 entry left one question open: whether the complete-set-replacement
 rule governs fixture seeding, or whether per-record `work_project.added` stays
@@ -339,7 +339,7 @@ states it. A fixture is not exempt, because the divergence it creates is not
 cosmetic: it puts a work item at a version no agent call can reach, so a scenario
 reading that version exercises arithmetic the product never performs.
 
-PM1 now emits one `work.memberships_replaced` per work item, carrying the whole
+The Product-memory query fixture emits one `work.memberships_replaced` per work item, carrying the whole
 declared membership set with its roles. Seeding costs one version for any Project
 count, which is what `concord_work_define.capture` costs. `work-cross` is
 version 3, not 4: one `work.created`, one `work.memberships_replaced`, and one

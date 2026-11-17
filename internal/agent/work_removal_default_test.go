@@ -68,8 +68,9 @@ func TestDefaultCheckoutShelvingRemoval(t *testing.T) {
 	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations WHERE operation_id='shelving-removal' AND state='committed'`) != 1 {
 		t.Fatal("missing committed receipt")
 	}
+	original := string(out.Result)
 	out = removalDispatch(t, s, service, env, in)
-	if out.Outcome != agentcontract.OutcomeOK || !out.Replayed {
+	if out.Outcome != agentcontract.OutcomeOK || string(out.Result) != original {
 		t.Fatalf("committed replay: %+v", out.Error)
 	}
 	path := s.Path()
@@ -85,7 +86,7 @@ func TestDefaultCheckoutShelvingRemoval(t *testing.T) {
 	restarted.Now = fixedTime
 	resolveProjectAuthority(restarted, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 	out = removalDispatch(t, reopened, restarted, env, in)
-	if out.Outcome != agentcontract.OutcomeOK || !out.Replayed {
+	if out.Outcome != agentcontract.OutcomeOK || string(out.Result) != original {
 		t.Fatalf("reopened removal replay: %+v", out.Error)
 	}
 	snapshot, err := Dispatch(t.Context(), reopened, restarted, InvokeRequest{Tool: "concord_product_view", Operation: "snapshot", Input: json.RawMessage(`{"product_id":"product-1"}`)}, env)
@@ -147,7 +148,7 @@ func TestDefaultCheckoutShelvingTransactionRaces(t *testing.T) {
 			op, _ := agentcontract.ValidateContractOperation("concord_work_transition", "remove")
 			r := runtime{Store: s, Authority: service, Envelope: env, Tool: op.Tool, Operation: op.Operation, Reader: grant}
 			plan := newMutationPlan(env)
-			base := agentcontract.NewBase("shelving-race", op.Tool, op.Operation)
+			base := agentcontract.NewBase(op.Tool, op.Operation)
 			digest := mutationDigest(op.Tool, op.Operation, env, raw)
 			if out, err, handled := r.planWorkRemoval(t.Context(), base, raw, digest, grant, op, plan); err != nil || handled {
 				t.Fatalf("plan: %+v %v", out, err)
@@ -211,7 +212,7 @@ func TestDefaultCheckoutShelvingRollbackAndReplay(t *testing.T) {
 	env.SessionRef = "new-authorized-session"
 	env.HostAssertionDigest = "sha256:new-host"
 	out = removalDispatch(t, s, restarted, env, in)
-	if out.Outcome != agentcontract.OutcomeOK || !out.Replayed {
+	if out.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("same-operation reconciliation: %+v", out.Error)
 	}
 	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_removal_operations`) != 1 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM work_items WHERE id='work-1'`) != 0 {
@@ -367,7 +368,7 @@ func TestDefaultCheckoutShelvingManagedRestore(t *testing.T) {
 	resolveProjectAuthority(restarted, store.ProjectResolution{ProjectID: "project-1", MainWorktree: true})
 	env.SessionRef = "restored-session"
 	out = removalDispatch(t, restored, restarted, env, in)
-	if out.Outcome != agentcontract.OutcomeOK || !out.Replayed {
+	if out.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("restored retained replay: %+v", out.Error)
 	}
 	snapshot, err := Dispatch(ctx, restored, restarted, InvokeRequest{Tool: "concord_product_view", Operation: "snapshot", Input: json.RawMessage(`{"product_id":"product-1"}`)}, env)

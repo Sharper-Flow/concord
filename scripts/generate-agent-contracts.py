@@ -1361,8 +1361,6 @@ def main() -> int:
                 return 0
         else:
             for path, content in expected.items():
-                if path.is_file() and path.read_text() == content:
-                    continue
                 path.parent.mkdir(exist_ok=True)
                 path.write_text(content)
         publication_content = expected[publication_tests] + ts_publication_pin_projection()

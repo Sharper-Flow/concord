@@ -30,7 +30,7 @@ command/tool sprawl, target-path plumbing, repair internals, false success,
 or unbounded context. Storage tables and Go CLI commands are internal boundaries; they
 do not automatically become agent tools.
 
-The decision sequence TS1–TS9 was completed and operator-approved individually. Its
+The agent-surface contracts define distinct boundaries. Their
 linked artifacts remain the detailed binding contracts; this record provides the
 accepted architecture index and invariants.
 
@@ -65,7 +65,7 @@ concord_work_trace     history | resume | mutation_result | relations | project_
 concord_domain         list | detail
 ```
 
-Reads are strict, bounded, cursor-based, authority/freshness-aware, and never repair
+Reads are strict, bounded, cursor-based, explicit about omissions or unavailable authority, and never repair
 or mutate.
 
 Binding: [`../specs/agent-read-tool-contract.md`](../specs/agent-read-tool-contract.md).
@@ -109,8 +109,9 @@ Binding: [`../specs/agent-adapter-transport-contract.md`](../specs/agent-adapter
 ### D7. Result/error/evidence envelope
 
 Every tool returns strict `ok|pending|partial|error`. Core and adapter origins are
-disjoint. Authority, freshness, source versions, pagination, omissions, warnings,
-evidence, effect certainty, and recovery are structural. No success boolean or raw
+disjoint. Pagination, omissions, warnings, effect certainty, and recovery are
+structural. Source versions bind cursors internally; required evidence stays bound
+to the store or appears in typed operation payloads. No success boolean or raw
 process exhaust. Serialized output caps at 51,200 bytes.
 
 Binding: [`../specs/agent-result-envelope.md`](../specs/agent-result-envelope.md) and
@@ -129,7 +130,7 @@ Binding: [`../specs/agent-tool-surface-evolution.md`](../specs/agent-tool-surfac
 
 ### D9. Deterministic pre-go-live evidence gate
 
-Deterministic PM1/TS1 oracles, strict schemas, authority and transaction proofs,
+Deterministic product-memory-query/TS1 oracles, strict schemas, authority and transaction proofs,
 negative probes, generated drift checks, and conformance gate the current path.
 Supported-model trials and production telemetry may inform research but do not gate a
 pre-go-live release. Surface changes require named deterministic evidence and
@@ -148,7 +149,7 @@ Binding: [`../specs/agent-tool-surface-measurement.md`](../specs/agent-tool-surf
 5. Scope/identity use stable IDs; no repeated filesystem target plumbing.
 6. Mutation retries reuse one durable idempotency identity.
 7. No false cross-authority atomicity or false top-level success.
-8. Reads/output remain bounded and authority/freshness explicit.
+8. Reads/output remain bounded; incomplete or unavailable reads do not masquerade as complete.
 9. Surface changes are generated, digest-bound, deterministically evidenced, and
 operator-accepted when authority or consequence changes.
 
@@ -165,7 +166,7 @@ operator-accepted when authority or consequence changes.
 ### Cost
 
 - Canonical manifest/code generation and deterministic conformance evidence are mandatory.
-- PM1/TS1 deterministic evidence is substantial before release.
+- product-memory-query/TS1 deterministic evidence is substantial before release.
 - New Product domains do not gain tools automatically; they must pass the current
   TS9 evidence contract.
 
@@ -181,8 +182,8 @@ operator-accepted when authority or consequence changes.
 
 ## Implementation acceptance
 
-Implementation must satisfy each linked contract, PM1/TS1 deterministic scenarios,
-TS6 transport/grant failure tests, TS7 schema/negative probes, TS8 exact
+Implementation must satisfy each linked contract, product-memory-query/TS1 deterministic scenarios,
+TS6 transport/grant failure tests, agent-result-envelope schema/negative probes, TS8 exact
 manifest-digest binding, and TS9 deterministic authority/transaction/conformance
 evidence. A passing schema without state/authority evidence is insufficient.
 

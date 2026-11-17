@@ -12,13 +12,12 @@ import (
 func TestTraceHistoryPageAcceptsReasonlessEvents(t *testing.T) {
 	t.Parallel()
 	q := store.Q7Result{
-		ResultMeta: store.ResultMeta{QueryID: "q7", ContractVersion: "1.0", ResolvedScope: store.ResolvedScope{ProductID: "product-1"}, Authority: "authoritative"},
 		Entries: []store.HistoryEntry{
 			{EntryID: "lifecycle:created", EntryKind: "lifecycle", Position: store.HistoryPosition{EffectSeq: 1, Basis: "effect"}, Version: 1, VersionWorkID: "created", Lifecycle: "needed", EvidenceRefs: []string{}},
 			{EntryID: "lifecycle:declined", EntryKind: "lifecycle", Position: store.HistoryPosition{EffectSeq: 2, Basis: "effect"}, Version: 2, VersionWorkID: "declined", Lifecycle: "cancelled", Actor: "actor:operator", Reason: "declined by operator", EvidenceRefs: []string{"evidence-1"}},
 		},
 	}
-	envelope, err := (runtime{}).q7(agentcontract.NewBase("reasonless", "concord_work_trace", "history"), q)
+	envelope, err := (runtime{}).q7(agentcontract.NewBase("concord_work_trace", "history"), q)
 	if err != nil || envelope.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("history page refused: %v %+v", err, envelope.Error)
 	}
@@ -51,10 +50,9 @@ func TestTraceHistoryPageAcceptsStoredProducerReferences(t *testing.T) {
 	for _, producer := range []string{"principal/owner", "ses_1a2b-msg_3c4d", "request with spaces", "é"} {
 		t.Run(producer, func(t *testing.T) {
 			q := store.Q7Result{
-				ResultMeta: store.ResultMeta{QueryID: "q7", ContractVersion: "1.0", ResolvedScope: store.ResolvedScope{ProductID: "product-1"}, Authority: "authoritative"},
-				Entries:    []store.HistoryEntry{{EntryID: "evidence_binding:bind-1", EntryKind: "evidence_binding", Position: store.HistoryPosition{EffectSeq: 3, Basis: "effect"}, Version: 3, VersionWorkID: "work-1", Actor: "actor:owner", EvidenceRefs: []string{"commit:abc"}, BindingID: "bind-1", EvidenceKind: "commit", ImmutableSubjectRef: "commit:abc", ProducerID: producer, ProducerRunRef: producer, ProducerWatermark: producer, ObservedAt: "2026-10-24T00:00:00Z"}},
+				Entries: []store.HistoryEntry{{EntryID: "evidence_binding:bind-1", EntryKind: "evidence_binding", Position: store.HistoryPosition{EffectSeq: 3, Basis: "effect"}, Version: 3, VersionWorkID: "work-1", Actor: "actor:owner", EvidenceRefs: []string{"commit:abc"}, BindingID: "bind-1", EvidenceKind: "commit", ImmutableSubjectRef: "commit:abc", ProducerID: producer, ProducerRunRef: producer, ProducerWatermark: producer, ObservedAt: "2026-10-24T00:00:00Z"}},
 			}
-			envelope, err := (runtime{}).q7(agentcontract.NewBase("producer", "concord_work_trace", "history"), q)
+			envelope, err := (runtime{}).q7(agentcontract.NewBase("concord_work_trace", "history"), q)
 			if err != nil || envelope.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("history refused %q: %v %+v", producer, err, envelope.Error)
 			}

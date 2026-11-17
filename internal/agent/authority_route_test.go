@@ -9,7 +9,7 @@ import (
 
 func TestRetiredRouteDoesNotAlterAuthorityDenial(t *testing.T) {
 	t.Parallel()
-	base := agentcontract.NewBase("route", "concord_work_transition", "workflow_action")
+	base := agentcontract.NewBase("concord_work_transition", "workflow_action")
 	build := func(proposed string) *store.Failure {
 		return &store.Failure{Kind: store.KindUnauthorized, Op: "workflow_action", Detail: "the caller cannot perform this action", RecoveryAction: proposed}
 	}

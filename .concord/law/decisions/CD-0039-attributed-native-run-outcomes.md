@@ -17,7 +17,7 @@
 - **Approval:** Operator selected attributed outcome records on 2026-08-17
 - **Related:** CD-0006, CD-0013, CD-0036 D4, TS1 AJ8, TS4
   ([`agent-mutation-tool-contract.md`](../specs/agent-mutation-tool-contract.md)), TS5
-  ([`agent-call-context-contract.md`](../specs/agent-call-context-contract.md)), TS7
+  ([`agent-call-context-contract.md`](../specs/agent-call-context-contract.md)), agent-result-envelope
   ([`agent-result-envelope.md`](../specs/agent-result-envelope.md)), TS8
   ([`agent-tool-surface-evolution.md`](../specs/agent-tool-surface-evolution.md)),
   [`workflow-engine-contract.md`](../specs/workflow-engine-contract.md)
@@ -128,7 +128,7 @@ No provider executor or compaction-style composite operation is added.
 When a native report shows that the approved logical operation did not complete
 successfully, the action records the attributed report and completes its durable
 classification as `partial` or `failed` in the same transaction. The agent
-surface returns TS7 `partial` with:
+surface returns agent-result-envelope `partial` with:
 
 - the same workflow-action operation ID;
 - the workflow actions that actually completed;

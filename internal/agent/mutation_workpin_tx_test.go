@@ -95,7 +95,7 @@ func TestEveryMutationResultGuardsWorkPins(t *testing.T) {
 				t.Fatalf("unenriched fixture must pass the payload schema: %v", err)
 			}
 			r := runtime{Tool: op.Tool, Operation: op.Operation}
-			base := agentcontract.NewBase("pin-guard", op.Tool, op.Operation)
+			base := agentcontract.NewBase(op.Tool, op.Operation)
 			missing := r.mutationResult(base, raw, changed, nil)
 			if missing.Outcome != agentcontract.OutcomeError || missing.Error == nil || !strings.Contains(missing.Error.Message, "work pin") {
 				t.Fatalf("operation accepted a work ref with no pin or explicit omission: outcome=%s error=%+v", missing.Outcome, missing.Error)
@@ -171,7 +171,7 @@ func TestMutationPinOmissionKeepsOtherWorkPins(t *testing.T) {
 func TestMutationPinOmissionDoesNotTruncateExistingNotices(t *testing.T) {
 	r := runtime{Tool: "concord_work_define", Operation: "capture"}
 	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: "unmanaged-work", Version: "1"}}
-	base := agentcontract.NewBase("full-notice-budget", r.Tool, r.Operation)
+	base := agentcontract.NewBase(r.Tool, r.Operation)
 	base.Omissions = make([]agentcontract.Notice, agentcontract.MaxNotices)
 	for i := range base.Omissions {
 		base.Omissions[i] = agentcontract.Notice{Kind: "existing_notice", SourceID: fmt.Sprintf("source-%d", i)}
@@ -195,7 +195,7 @@ func TestMutationPinOmissionRequiresExactShape(t *testing.T) {
 		"duplicate":     {{Kind: "work_pin_unavailable", Count: 1}, {Kind: "work_pin_unavailable", Count: 1}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			base := agentcontract.NewBase("notice-shape", r.Tool, r.Operation)
+			base := agentcontract.NewBase(r.Tool, r.Operation)
 			base.Omissions = notices
 			response := r.mutationResult(base, mutationPayload(changed, nil), changed, nil, "unmanaged-work")
 			if response.Outcome != agentcontract.OutcomeError {
@@ -214,7 +214,7 @@ func TestWorkflowReplayKeepsCommittedPinAfterLaterVersion(t *testing.T) {
 		t.Fatal("later writer did not advance the item")
 	}
 	replay := workflowTransactionReplay(t, r, grant, raw)
-	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) {
+	if replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(first.Result) {
 		t.Fatalf("transaction replay lost the committed result: replay=%+v original=%s", replay, first.Result)
 	}
 	requireMutationPinVersion(t, replay, "work-1", before.Version)

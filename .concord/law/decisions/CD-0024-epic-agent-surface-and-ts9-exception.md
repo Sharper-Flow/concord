@@ -3,9 +3,7 @@
   "id": "CD-0024",
   "title": "Epic agent surface and narrow TS9 exception",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "agent-evolution",
   "applies_to_domain_ids": []
@@ -43,7 +41,7 @@ Making the model reachable adds the ninth static agent tool and seven operations
 TS8 classifies that as a major change. The normal TS9 gate requires paired
 supported-model trials, but this repository has no agent-tool TS9 runner or bounded
 evidence-artifact pipeline, and no harness evaluates `concord.ts` selection
-against PM1/TS1 jobs. Unit tests cannot be represented as
+against Product-memory query/TS1 jobs. Unit tests cannot be represented as
 model trials.
 
 ## Decision

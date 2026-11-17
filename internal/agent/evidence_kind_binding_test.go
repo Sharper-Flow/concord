@@ -404,8 +404,8 @@ func TestBindEvidenceSuccessfulReplayKeepsOriginalResult(t *testing.T) {
 		t.Fatalf("bind: %+v", first.Error)
 	}
 	replay, replayVersion := ekbDispatch(t, s, service, env, workID, version, "bind_evidence", fields, nil, "ekb-replay")
-	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) {
-		t.Fatalf("replay: outcome=%s replayed=%t error=%+v", replay.Outcome, replay.Replayed, replay.Error)
+	if replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(first.Result) {
+		t.Fatalf("replay: outcome=%s error=%+v", replay.Outcome, replay.Error)
 	}
 	if replayVersion != after || len(ekbEvidenceBoundEvents(t, s, workID)) != 1 {
 		t.Fatal("replay added an evidence binding or changed the work version")

@@ -249,7 +249,7 @@ The implementation acceptance suite must exercise:
 37. Workflow actions refuse when the workflow state cannot be read.
 38. Each action validates its payload against the action catalog,
     the actor tuple, and the current plan frontier.
-39. TS7 envelopes emit `error` with the closed recovery_action set on refused
+39. Agent result envelopes emit `error` with the closed recovery_action set on refused
     actions; no fallback path exists.
 
 ### Staleness

@@ -161,7 +161,7 @@ func TestWorkflowReplayCommitsDurablyUnderPinnedReader(t *testing.T) {
 				before := s.DurableCommits()
 				metadataBefore := replayMetadataCount(t, s, "durability-replay")
 				replay, err := Dispatch(ctx, s, service, request, env)
-				if err != nil || replay.Outcome != agentcontract.OutcomeOK || replay.Error != nil || !replay.Replayed {
+				if err != nil || replay.Outcome != agentcontract.OutcomeOK || replay.Error != nil {
 					t.Fatalf("workflow replay pinned=%t: response=%+v error=%+v err=%v", pinned, replay, replay.Error, err)
 				}
 				if string(replay.Result) != originalPayload {
@@ -226,7 +226,7 @@ func TestWorkflowReplayDurableWriteFailureDoesNotAcknowledge(t *testing.T) {
 		t.Fatal(err)
 	}
 	response, err = Dispatch(ctx, s, service, request, env)
-	if err != nil || response.Outcome != agentcontract.OutcomeOK || !response.Replayed || string(response.Result) != originalPayload {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK || string(response.Result) != originalPayload {
 		t.Fatalf("replay after writer release: response=%+v error=%+v err=%v", response, response.Error, err)
 	}
 	requireReplayCommit(t, s, "durability-replay", before, metadataBefore, true)
@@ -273,10 +273,10 @@ func TestOrdinaryMutationReplayDoesNotRequireDurability(t *testing.T) {
 		t.Fatal(err)
 	}
 	replay, err := Invoke(ctx, s, service, mustMarshalInvoke(t, request, env))
-	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("ordinary replay while another connection holds the writer: outcome=%s error=%+v err=%v", replay.Outcome, replay.Error, err)
 	}
-	if string(replay.Result) != string(first.Result) || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) || !reflect.DeepEqual(replay.NextValidIntents, first.NextValidIntents) || !reflect.DeepEqual(replay.Omissions, first.Omissions) || !reflect.DeepEqual(replay.ResolvedScope, first.ResolvedScope) {
+	if string(replay.Result) != string(first.Result) || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) || !reflect.DeepEqual(replay.NextValidIntents, first.NextValidIntents) || !reflect.DeepEqual(replay.Omissions, first.Omissions) {
 		t.Fatalf("ordinary replay changed the retained response: first=%+v replay=%+v", first, replay)
 	}
 	if err := writeTx.Rollback(); err != nil {

@@ -12,7 +12,7 @@
 > placement, 2026-07-26.
 > **Tool-surface hold:** This rubric still governs **authority before placement**,
 > but the surface categories below do not authorize Concord tool names,
-> counts, or placements. TS1–TS9 in [`clarifications.md`](./clarifications.md)
+> counts, or placements. The agent-surface contracts in [`clarifications.md`](./clarifications.md)
 > decide the minimal surface first; this rubric places only accepted capabilities.
 
 ## TL;DR

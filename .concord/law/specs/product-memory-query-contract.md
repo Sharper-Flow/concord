@@ -1,6 +1,6 @@
 ---
 {
-  "id": "PM1",
+  "id": "product-memory-query",
   "title": "Product memory query contract",
   "authority": {
     "tier": "derived"
@@ -27,11 +27,8 @@
   ]
 }
 ---
-# Concord Product-Memory Query Contract (PM1)
+# Concord Product-Memory Query Contract
 
-> **Status:** **Accepted — binding until superseded.**
-> **Accepted by operator:** 2026-08-05.
-> **Decision:** PM1; direct accepted authority for the Product-memory query contract, evaluated by TS1/TS3.
 > **Scenario corpus:** [`product-memory-query.v1.json`](../../scenarios/product-memory-query.v1.json).
 > **Purpose:** Define the smallest storage- and tool-neutral read contract that
 > makes Concord useful as Product memory and that judges PM2/PM3 and TS1/TS3.
@@ -45,7 +42,7 @@ model, ranked priorities, the workflow visibility rules, and the durable
 knowledge design. This record decides which questions Concord must answer —
 the canonical jobs Q1, Q2, Q3, Q7, and Q8 — and what a correct, bounded, fresh
 answer means. Storage, schema, lifecycle, membership, and tool surfaces are
-decided by PM2 through PM5 and TS1 through TS7 and hold no authority here.
+decided by PM2 through PM5, TS1 through TS6 and the agent result envelope and hold no authority here.
 ## Contract
 
 The binding contract is sections 1, 3, and 4: the decision boundary, the
@@ -56,14 +53,14 @@ record candidate evaluation, deferred and rejected reads, and falsifiers, and
 carry no obligation.
 ## 1. Decision boundary
 
-PM1 decides **which questions Concord must answer** and what a correct, bounded,
+This contract decides **which questions Concord must answer** and what a correct, bounded,
 fresh answer means. It does **not** decide:
 
 - global vs per-Product vs per-Project database (PM2),
 - explicit domain tables vs generic spine (PM3),
 - lifecycle/relation persistence (PM4),
 - multi-Project membership storage (PM5),
-- agent tool count, names, schemas, plugin, MCP, or CLI mapping (TS1–TS7).
+- agent tool count, names, schemas, plugin, MCP, or CLI mapping (TS1–TS6 and the agent result envelope).
 
 No storage table, CLI command, or candidate tool earns implementation authority
 from this contract. All candidates must pass the same corpus.
@@ -78,13 +75,13 @@ list/show/search reads into Product-memory jobs.
 Evidence is durable-document evidence, not a claim about any live system state:
 the observed reads were role-firewalled. Inventories and
 accepted Concord directions record real operator failures/jobs; operator acceptance
-of PM1 is the final check that no repeated Product-memory job is missing.
+of the Product-memory query contract is the final check that no repeated Product-memory job is missing.
 
 | ID | Canonical Product-memory job | Primary grounding |
 |---|---|---|
-| Q1 | Resolve Product context and its Projects | `product-data-model.md` §4; PM1 |
+| Q1 | Resolve Product context and its Projects | `product-data-model.md` §4; product-memory-query |
 | Q2 | Orient to a Product's work snapshot | priorities §3–§4; workflows §2.4 |
-| Q3 | List Product work by lifecycle/filter | PM1; PM4 |
+| Q3 | List Product work by lifecycle/filter | product-memory-query; PM4 |
 | Q7 | Explain why work changed state | workflows §2.2 |
 | Q8 | Inspect work relations | PM4; product-data-model §10 |
 
@@ -108,18 +105,13 @@ rules.
 
 ### 3.2 Stable result envelope
 
-Every result carries:
+Every result carries bounded items or a single typed result, `next_cursor`,
+`omissions`, and warnings. Ordering is deterministic as specified in §3.4.
+Cursor authentication retains the source revision and query binding internally.
 
-- `query_id` and `contract_version`,
-- resolved scope and source/version watermark,
-- `authority`: `authoritative`, `degraded`, or `unreachable`,
-- freshness (`observed_at`, age, stale flag/reason),
-- bounded items or a single typed result,
-- stable ordering keys, `next_cursor`, and any `omissions`/warnings.
-
-Empty is not unknown. `items=[]` with `authority=authoritative` is a valid answer;
+Empty is not unknown. `items=[]` is a valid answer when the read is complete;
 unknown scope, ambiguity, unreadable state, and unavailable authority are typed
-errors or explicitly degraded results.
+errors or explicitly incomplete results.
 
 ### 3.3 Authority and degradation
 
@@ -132,7 +124,7 @@ errors or explicitly degraded results.
 
 - **Implementation acceptance target:** at 10× the measured coordination dataset, every
   bounded metadata query must meet **P99 ≤100 ms** locally.
-- Architecture decisions use PM1's jobs/oracles plus authoritative documentation
+- Architecture decisions use this contract's jobs/oracles plus authoritative documentation
   and source-backed structural guarantees. The selected implementation must later
   provide `EXPLAIN QUERY PLAN` (or equivalent), P50/P99 measurements, and prove no
   application fan-out, unbounded scan, or unbounded JSON traversal before release.
@@ -202,7 +194,7 @@ The JSON corpus is executable through a candidate adapter implementing
 - **Retention semantics:** snapshots answer over the retained current-state
   population with PM5 membership semantics; no historical-projection union or
   cross-tier coverage check runs, and the answer envelope follows
-  [TS7](agent-result-envelope.md): an OK answer is authoritative over the store
+  [agent-result-envelope](agent-result-envelope.md): an OK answer is authoritative over the store
   read, and a store that cannot answer refuses as `unreachable`.
 
 ### Q3. List Product work
@@ -254,7 +246,7 @@ unbounded scans, or cannot distinguish empty/degraded/unreachable. Decision
 evidence is authoritative documentation, source/architecture comparison, and
 accepted Product invariants—not local PoCs or microbenchmarks.
 
-After PM1–PM5 are accepted, the selected implementation runs the JSON corpus at
+After product-memory-query and PM2–PM5 are accepted, the selected implementation runs the JSON corpus at
 representative scale and records query plans, P50/P99, rows scanned, fan-out calls,
 and output bytes. That evidence validates implementation quality; it does not
 retroactively choose the architecture.
@@ -276,10 +268,10 @@ calls/job, schema tokens, retries, and output bounds.
 
 ## 7. Dependencies unlocked and falsifiers
 
-PM1 unlocks PM2/PM3 research comparison, PM4/PM5 query oracles, and TS1/TS3
+product-memory-query unlocks PM2/PM3 research comparison, PM4/PM5 query oracles, and TS1/TS3
 scenario design. Later decisions may extend the canonical reads only with a real unmet job.
 
-PM1 is falsified or must be amended when:
+This contract is falsified or must be amended when:
 
 - a repeated real operator job cannot be represented without custom fan-out,
 - two queries are always chained and a merged job measurably improves outcomes,

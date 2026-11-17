@@ -164,7 +164,7 @@ func TestResolveOverlapBlocksRemovesWorkFromReady(t *testing.T) {
 	}
 	beforeEvents := agentCurrentEffects(t, s)
 	replay := dispatchMutation(t, s, service, request, env)
-	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || agentCurrentEffects(t, s) != beforeEvents {
+	if replay.Outcome != agentcontract.OutcomeOK || agentCurrentEffects(t, s) != beforeEvents {
 		t.Fatalf("blocks resolution replay=%+v", replay)
 	}
 }

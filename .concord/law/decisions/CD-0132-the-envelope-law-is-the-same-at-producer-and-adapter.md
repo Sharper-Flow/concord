@@ -3,9 +3,7 @@
   "id": "CD-0132",
   "title": "The envelope law is the same at producer and adapter",
   "authority": {
-    "tier": "legislated",
-    "legislated_by": "work-8d7bd788b2890355460bb5b7",
-    "contract_version": 1
+    "tier": "derived"
   },
   "home_domain_id": "agent-call-boundary",
   "applies_to_domain_ids": [
@@ -18,7 +16,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-11
-- **Scope:** The TS7 envelope contract and its two validators: the Go
+- **Scope:** The [agent result envelope](../specs/agent-result-envelope.md) and its two validators: the Go
   producer-side validator and the adapter TypeScript validator, and the
   error outcome's carriage of committed refs
 - **Approval:** The operator approved the contract in Concord
@@ -30,7 +28,7 @@
 
 ## Context
 
-The TS7 schema expresses its closed-world rule on `ok`, `partial`, and
+The agent result envelope schema expresses its closed-world rule on `ok`, `partial`, and
 `errorOutcome` through `unevaluatedProperties: false`. The Go validator
 implemented only `additionalProperties: false`, so it accepted envelopes
 the adapter refused. `auditReclaimPostCommitFailure` attached

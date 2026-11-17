@@ -54,7 +54,7 @@
     },
     {
       "kind": "refines",
-      "target_id": "PM1"
+      "target_id": "product-memory-query"
     },
     {
       "kind": "refines",
@@ -66,7 +66,7 @@
     },
     {
       "kind": "refines",
-      "target_id": "TS7"
+      "target_id": "agent-result-envelope"
     },
     {
       "kind": "refines",

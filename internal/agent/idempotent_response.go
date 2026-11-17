@@ -32,20 +32,19 @@ func hasMutationResponse(scopeJSON string) (bool, error) {
 // mutationResponseSnapshot retains the response facts that are not part of the
 // operation's closed payload. It shares the effect's idempotency commit boundary.
 type mutationResponseSnapshot struct {
-	ManifestDigest   string                      `json:"manifest_digest"`
-	ResolvedScope    *agentcontract.Scope        `json:"resolved_scope"`
-	Omissions        []agentcontract.Notice      `json:"omissions"`
-	NextValidIntents []agentcontract.NextIntent  `json:"next_valid_intents"`
-	EvidenceRefs     []agentcontract.EvidenceRef `json:"evidence_refs"`
-	PinlessWorkIDs   []string                    `json:"pinless_work_ids"`
+	ManifestDigest   string                     `json:"manifest_digest"`
+	ResolvedScope    *agentcontract.Scope       `json:"resolved_scope"`
+	Omissions        []agentcontract.Notice     `json:"omissions"`
+	NextValidIntents []agentcontract.NextIntent `json:"next_valid_intents"`
+	PinlessWorkIDs   []string                   `json:"pinless_work_ids"`
 }
 
-func mutationResponseScope(scope map[string]any, response agentcontract.Envelope, pinless []string, evidence []agentcontract.EvidenceRef) map[string]any {
+func mutationResponseScope(scope map[string]any, resolved *agentcontract.Scope, response agentcontract.Envelope, pinless []string) map[string]any {
 	snapshot := boundedMutationScope(scope)
 	snapshot["mutation_response"] = mutationResponseSnapshot{
-		ManifestDigest: agentcontract.ManifestDigest, ResolvedScope: response.ResolvedScope, Omissions: response.Omissions,
-		NextValidIntents: *response.NextValidIntents, EvidenceRefs: append([]agentcontract.EvidenceRef{}, evidence...),
-		PinlessWorkIDs: pinless,
+		ManifestDigest: agentcontract.ManifestDigest, ResolvedScope: resolved, Omissions: response.Omissions,
+		NextValidIntents: *response.NextValidIntents,
+		PinlessWorkIDs:   pinless,
 	}
 	return snapshot
 }
@@ -67,7 +66,7 @@ func retainedMutationResponse(scopeJSON string) (mutationResponseSnapshot, error
 	if err := json.Unmarshal([]byte(scopeJSON), &fields); err != nil {
 		return mutationResponseSnapshot{}, incomplete
 	}
-	for _, key := range []string{"resolved_scope", "omissions", "next_valid_intents", "evidence_refs", "pinless_work_ids"} {
+	for _, key := range []string{"resolved_scope", "omissions", "next_valid_intents", "pinless_work_ids"} {
 		if _, present := fields.Response[key]; !present {
 			return mutationResponseSnapshot{}, incomplete
 		}
@@ -122,7 +121,6 @@ func (r runtime) recordedMutationResult(base agentcontract.Envelope, prior store
 	if err := json.Unmarshal([]byte(prior.ChangedRefs), &changed); err != nil || changed == nil {
 		return incompleteMutationResponse(base, "committed mutation changed references are incomplete; contact the operator to repair the retained response before retrying the same request")
 	}
-	base.ResolvedScope = snapshot.ResolvedScope
 	base.Omissions = snapshot.Omissions
 	response := r.mutationResult(base, json.RawMessage(prior.ResultPayload), changed, snapshot.NextValidIntents, snapshot.PinlessWorkIDs...)
 	if response.Outcome == agentcontract.OutcomeError {

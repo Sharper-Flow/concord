@@ -326,15 +326,6 @@ func invariantEvidenceAuthority(t *testing.T, obs jobObservation) {
 // shape end-to-end.
 func invariantHonestRecovery(t *testing.T, obs jobObservation) {
 	t.Helper()
-	// A degraded answer is a recovery path even when the outcome is ok: the
-	// caller is handed an incomplete result and must be told what is missing.
-	// Checking this before the error branch keeps the invariant from passing
-	// vacuously on every successful-but-degraded read.
-	if status, _ := obs.Authority["status"].(string); status == string(agentcontract.AuthorityDegraded) {
-		if omissions, _ := obs.Authority["omissions"].([]any); len(omissions) == 0 {
-			t.Error("honest_recovery: degraded authority names no omission")
-		}
-	}
 	commErr, ok := obs.Communication["error"].(map[string]any)
 	if !ok {
 		return // success path — no error to recover from
@@ -1000,24 +991,12 @@ func envelopeToObservation(resp agentcontract.Envelope) jobObservation {
 	}
 	obs.Authority["tool"] = resp.Tool
 	obs.Authority["operation"] = resp.Operation
-	// Authority status, omissions, and the source watermark are typed envelope
-	// fields, so the corpus reads them from the response rather than letting a
-	// binding assert its own prose about how authoritative the answer was.
-	if resp.Authority != "" {
-		obs.Authority["status"] = string(resp.Authority)
-	}
 	if len(resp.Omissions) > 0 {
 		omissions := make([]any, len(resp.Omissions))
 		for i, omission := range resp.Omissions {
 			omissions[i] = omission.Kind
 		}
 		obs.Authority["omissions"] = omissions
-	}
-	for _, watermark := range resp.SourceVersionWatermark {
-		if watermark.Version != "" {
-			obs.Authority["index_watermark"] = watermark.Version
-			break
-		}
 	}
 	return obs
 }

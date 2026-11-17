@@ -1243,6 +1243,31 @@ class EnvelopeOperationVocabularyTests(unittest.TestCase):
     def test_shipped_contracts_agree(self):
         self.assertEqual(self.findings(), [])
 
+    def test_base_pair_omissions_and_extras_are_rejected(self):
+        for operation in ("missing", "extra"):
+            with self.subTest(operation=operation):
+                value = copy.deepcopy(envelope_schema)
+                branches = value["$defs"]["base"]["allOf"][0]["anyOf"]
+                values = branches[0]["properties"]["operation"]["enum"]
+                if operation == "missing":
+                    values.remove("resolve")
+                else:
+                    values.append("list")
+                findings = lane_checker.envelope_operation_coverage_findings(value, manifest)
+                self.assertTrue(any("base" in f and "concord_product_view" in f for f in findings), findings)
+
+    def test_read_tool_omissions_and_extras_are_rejected(self):
+        for operation in ("missing", "extra"):
+            with self.subTest(operation=operation):
+                value = copy.deepcopy(envelope_schema)
+                tools = value["$defs"]["ok"]["allOf"][2]["if"]["properties"]["tool"]["enum"]
+                if operation == "missing":
+                    tools.remove("concord_domain")
+                else:
+                    tools.append("concord_work_define")
+                findings = lane_checker.envelope_operation_coverage_findings(value, manifest)
+                self.assertTrue(any("read" in f and ("concord_domain" in f or "concord_work_define" in f) for f in findings), findings)
+
     def test_operation_removed_from_the_base_enum_is_rejected(self):
         value = copy.deepcopy(envelope_schema); value["$defs"]["base"]["properties"]["operation"]["enum"].remove("resume")
         found = self.findings(value)

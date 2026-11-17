@@ -32,7 +32,7 @@ func TestCaptureOpensIntakeForEveryWorkKind(t *testing.T) {
 				t.Fatalf("captured kind=%q, want %q", capturedKind, kind)
 			}
 			replay := dispatchCapture(t, s, service, grant, scopeVersion, "capture-intake", input)
-			if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || replay.ChangedRefs == nil || len(*replay.ChangedRefs) != 2 || (*replay.ChangedRefs)[0].ID != changed.ID {
+			if replay.Outcome != agentcontract.OutcomeOK || replay.ChangedRefs == nil || len(*replay.ChangedRefs) != 2 || (*replay.ChangedRefs)[0].ID != changed.ID {
 				t.Fatalf("capture replay = %+v", replay)
 			}
 		})

@@ -51,11 +51,8 @@ func TestMutationResultReceiptFailureRollsBackEffect(t *testing.T) {
 
 func TestMutationProjectionRequiresRetainedIdentity(t *testing.T) {
 	source, _, _, first := committedWorkflowReplay(t)
-	base := agentcontract.NewBase("projection-identity", source.Tool, source.Operation)
-	for range 23 {
-		base.EvidenceRefs = append(base.EvidenceRefs, agentcontract.EvidenceRef{Kind: "artifact", Authority: "test", LocatorKind: "file", Locator: strings.Repeat("x", 2048)})
-	}
-	base.EvidenceRefs = append(base.EvidenceRefs, agentcontract.EvidenceRef{Kind: "artifact", Authority: "test", LocatorKind: "file", Locator: strings.Repeat("x", 950)})
+	base := agentcontract.NewBase(source.Tool, source.Operation)
+	base.Warnings = append(base.Warnings, agentcontract.Notice{Kind: "fixture", Details: map[string]any{"padding": strings.Repeat("x", 23*2048+950)}})
 	if first.ChangedRefs == nil || first.NextValidIntents == nil {
 		t.Fatal("fixture missing retained refs or intents")
 	}
@@ -88,10 +85,10 @@ func TestMutationProjectionRejectsUntrustedRetainedDocuments(t *testing.T) {
 		t.Fatalf("retained result missing: %t %v", found, err)
 	}
 	r := runtime{Store: source.Store, Tool: "concord_work_trace", Operation: "mutation_result", Envelope: source.Envelope, Reader: grant}
-	base := agentcontract.NewBase("invalid-document", r.Tool, r.Operation)
+	base := agentcontract.NewBase(r.Tool, r.Operation)
 	compatible := prior
 	compatible.AuthorizedScopeSnapshot = strings.ReplaceAll(prior.AuthorizedScopeSnapshot, agentcontract.ManifestDigest, "sha256:"+strings.Repeat("0", 64))
-	doc, _, err := r.retainedMutationDocument(compatible, mutationResultReadInput{SourceTool: key.Tool, SourceOperation: key.OperationKind})
+	doc, err := r.retainedMutationDocument(compatible, mutationResultReadInput{SourceTool: key.Tool, SourceOperation: key.OperationKind})
 	if err != nil || string(doc) != prior.ResultPayload {
 		t.Fatalf("compatible retained result refused: %v", err)
 	}
@@ -162,7 +159,7 @@ func TestMutationResultRetainedBytesScopeAndReplay(t *testing.T) {
 		t.Fatalf("missing receipt: %t %v", found, err)
 	}
 	r := runtime{Store: source.Store, Tool: "concord_work_trace", Operation: "mutation_result", Envelope: source.Envelope, Reader: grant}
-	base := agentcontract.NewBase("retained-result", r.Tool, r.Operation)
+	base := agentcontract.NewBase(r.Tool, r.Operation)
 	input := map[string]any{"source_tool": key.Tool, "source_operation": key.OperationKind, "idempotency_key": key.IdempotencyKey, "digest": mutationDocumentDigest([]byte(prior.ResultPayload))}
 	read := func(reader runtime, in map[string]any) agentcontract.Envelope {
 		out, err := reader.readMutationResult(t.Context(), base, retryJSON(in))
@@ -209,10 +206,7 @@ func TestMutationResultRetainedBytesScopeAndReplay(t *testing.T) {
 		t.Fatal("read changed state")
 	}
 	largeBase := base
-	for range 23 {
-		largeBase.EvidenceRefs = append(largeBase.EvidenceRefs, agentcontract.EvidenceRef{Kind: "artifact", Authority: "test", LocatorKind: "file", Locator: strings.Repeat("x", 2048)})
-	}
-	largeBase.EvidenceRefs = append(largeBase.EvidenceRefs, agentcontract.EvidenceRef{Kind: "artifact", Authority: "test", LocatorKind: "file", Locator: strings.Repeat("x", 500)})
+	largeBase.Warnings = append(largeBase.Warnings, agentcontract.Notice{Kind: "fixture", Details: map[string]any{"padding": strings.Repeat("x", 23*2048+3000)}})
 	pagedInput := map[string]any{}
 	for k, v := range input {
 		pagedInput[k] = v
@@ -263,7 +257,7 @@ func TestMutationResultRetainedBytesScopeAndReplay(t *testing.T) {
 		t.Fatalf("retained reconstruction differs: %d pages, %d bytes", pages, len(document))
 	}
 	replay, err := Dispatch(t.Context(), source.Store, source.Authority, InvokeRequest{Tool: source.Tool, Operation: source.Operation, Input: raw}, source.Envelope)
-	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(first.Result) || !reflect.DeepEqual(replay.ChangedRefs, first.ChangedRefs) {
 		t.Fatalf("replay changed retained result: %+v %v", replay.Error, err)
 	}
 	if !reflect.DeepEqual(before, premiseConsentSnapshot(t, source.Store)) {

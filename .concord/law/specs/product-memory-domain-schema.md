@@ -31,7 +31,7 @@
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-05.
 > **Decision:** PM3; direct accepted authority for Concord's explicit typed Product-memory schema boundary.
-> **Binding inputs:** accepted PM1 query contract, accepted PM2 global SQLite authority, CD-0002 invariants I1–I6.
+> **Binding inputs:** accepted product-memory-query contract, accepted PM2 global SQLite authority, CD-0002 invariants I1–I6.
 > **Research basis:** Exa-discovered/public source models (Plane, Bugzilla, Beads, Fossil, Linear public model), official SQLite/Context7 docs, and accepted Concord Product invariants. No benchmark or PoC is part of this decision.
 > **Architecture and planning:** `domains` are canonical
 > Product-internal architecture; business grouping lives in Linear; typed
@@ -41,7 +41,7 @@
 ## Context
 
 PM2's global SQLite authority needs a schema boundary. The binding inputs are
-the accepted PM1 query contract, PM2 global authority, and CD-0002 invariants
+product-memory-query, PM2 global authority, and CD-0002 invariants
 I1 through I6. This record decides the explicit typed core: current state and
 finite verified snapshots under
 [CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history),
@@ -64,7 +64,7 @@ Concord uses an **explicit typed Product-memory core**:
    replay exists ([CD-0242 D2](../decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)),
 2. a small set of explicit typed, relational **current-state tables**,
 3. JSON only for rare, per-kind versioned extension metadata—not identity, joins,
-   lifecycle, relations, membership, or PM1 filters.
+   lifecycle, relations, membership, or product-memory-query filters.
 
 This keeps CD-0003's typed-edge integrity rule and SQLite engine choices while
 rejecting CD-0003's generic `entities(type, current_state JSON)` projection for
@@ -75,7 +75,7 @@ the stable Product-memory core.
 PM3 decides the **objects and typed-column/extension boundary**, not final DDL or
 PM4/PM5 semantics (now settled separately).
 
-| Object | PM3 commitment | PM1 purpose | Still open |
+| Object | PM3 commitment | product-memory-query purpose | Still open |
 |---|---|---|---|
 | `products` | first-class typed projection | Q1/Q2 Product root | none; the Product-row glance retired with its read (CD-0224) |
 | `projects` | first-class typed projection; repositories are one Project kind/locator | Q1/Q3 scope | repo/deploy packaging, Project kind details |
@@ -91,7 +91,7 @@ PM4/PM5 semantics (now settled separately).
 
 ### Minimum typed fields
 
-A field is typed/indexed when it is a stable identity, foreign key, invariant, PM1
+A field is typed/indexed when it is a stable identity, foreign key, invariant, product-memory-query
 filter/order key, or frequent join. At minimum this includes IDs, Product/Domain
 ownership, work kind, lifecycle projection, terminal time, versions, and
 relation/membership endpoints. PM4/PM5 supply semantics; exact columns follow
@@ -125,9 +125,9 @@ fold, or event table exists
 
 | Need | Pattern |
 |---|---|
-| Stable identity, invariant, PM1 filter/order/join | typed column + index/FK |
+| Stable identity, invariant, product-memory-query filter/order/join | typed column + index/FK |
 | Rare per-instance/per-kind metadata | JSON payload validated against a closed, versioned per-kind schema |
-| JSON field becomes a repeated PM1 filter | promote to typed/generated indexed projection field |
+| JSON field becomes a repeated product-memory-query filter | promote to typed/generated indexed projection field |
 | New work kind | discriminator/registry + typed handler; no new core table |
 | Category/tag | labels + join table |
 | Endpoint-specific relation family | dedicated typed table/columns with FK endpoints and closed kind rules |
@@ -141,7 +141,7 @@ and polymorphic domain relations that cannot enforce integrity.
 ### Generic entity spine — superseded for stable Product memory
 
 The generic `entities(type, current_state JSON)` design keeps the storage layer uniform but
-pushes PM1's stable Product/Project/work fields into JSON or a growing set of facets.
+pushes product-memory-query's stable Product/Project/work fields into JSON or a growing set of facets.
 Once every hot field is promoted for the canonical reads, the system has recreated explicit
 tables indirectly—with weaker discoverability and integrity.
 
@@ -172,7 +172,7 @@ value.
 | SQLite generated columns/STRICT/FK/JSON docs (Context7 `/sqlite/sqlite`) | JSON can coexist with a typed relational core; generated columns can be indexed and FKs can enforce declared relationships | Primary implementation capability evidence; FKs require per-connection enablement |
 
 The reviewed public examples support a typed core plus explicit links. They are
-comparison evidence, not proof that a generic entity/EAV spine cannot work; PM1,
+comparison evidence, not proof that a generic entity/EAV spine cannot work; product-memory-query,
 the falsifiers below, and CD invariants remain controlling.
 
 ## 7. Scope deliberately deferred
@@ -192,10 +192,10 @@ Reopen PM3 if research or implementation evidence shows:
 
 1. the stable core changes schema on most new work kinds despite the discriminator/
    metadata rule (generic spine may be simpler),
-2. PM1 filters can remain bounded/indexed using a generic entity projection with
+2. product-memory-query filters can remain bounded/indexed using a generic entity projection with
    very few generated fields and no facet proliferation,
 3. the typed current-state writes cannot remain total across work kinds,
-4. a repeated accepted PM1 job requires a per-kind table,
+4. a repeated accepted product-memory-query job requires a per-kind table,
 5. Components or owned members prove to be labels/opaque refs rather than
     stateful/shareable identities.
 

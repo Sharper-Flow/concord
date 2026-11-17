@@ -22,7 +22,7 @@
     },
     {
       "criterion": 4,
-      "exemption": "No corpus scenario covers membership replacement atomicity; the guarantee is proved by the store lifecycle suite whose memberships_replaced fold asserts one event replacing the whole set, and by PM1's deduplicated populations."
+      "exemption": "No corpus scenario covers membership replacement atomicity; the guarantee is proved by the store lifecycle suite whose memberships_replaced fold asserts one event replacing the whole set, and by product-memory-query's deduplicated populations."
     }
   ]
 }
@@ -32,7 +32,7 @@
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-05.
 > **Decision:** PM5; direct accepted authority for Concord's Product-memory membership and canonical work identity.
-> **Binding inputs:** accepted PM1 query contract, PM2 global authority, PM3 typed
+> **Binding inputs:** product-memory-query, PM2 global authority, PM3 typed
 > projection model, and PM4 lifecycle/relation semantics.
 > **Operator choices:** cross-Product work is allowed when explicit; primary Project
 > is optional for both Products and work items.
@@ -45,7 +45,7 @@
 ## Context
 
 Concord coordinates work for one installation across Products and Projects. The
-binding inputs are the accepted PM1 query contract, PM2 global authority, PM3
+binding inputs are product-memory-query, PM2 global authority, PM3
 typed projection model, and PM4 lifecycle and relation semantics. This record
 decides how membership itself is stored and read: which Projects make up each
 Product, which Projects one work item touches, and how Product scope derives
@@ -235,11 +235,11 @@ reassign memberships first; no cascade silently removes work scope.
   present, then secondary, then stable Project ID.
 - Both Project→work and work→Project reads return the same edge set.
 - Cross-Product membership is represented by the same record, not sibling copies.
-- The provisional PM1 fixture roles already match PM5 and need no normalization.
+- The provisional Product-memory query fixture roles already match PM5 and need no normalization.
 
-### PM1 corpus compatibility
+### Product-memory query corpus compatibility
 
-PM1's fixture includes a provisional `product` field on each work item. PM5 does not
+The Product-memory query fixture includes a provisional `product` field on each work item. PM5 does not
 persist that field. The scenario adapter treats it as an expected-scope assertion:
 
 1. derive `Products(W)` through Product→Project→work memberships;
@@ -293,7 +293,7 @@ membership join by design.
 
 ### GitHub-Projects-style per-view fields
 
-Rejected. Per-Product/view status copies are exactly the divergence PM1 forbids.
+Rejected. Per-Product/view status copies are exactly the divergence product-memory-query forbids.
 
 ## 9. Scope deliberately deferred
 
@@ -311,13 +311,13 @@ PM5 does not decide:
 
 Reopen PM5 if:
 
-1. Product-scoped membership joins cannot meet PM1's bounded P99 target at 10× scale;
+1. Product-scoped membership joins cannot meet product-memory-query's bounded P99 target at 10× scale;
 2. legitimate work needs per-Project lifecycle that PM4 child work cannot express;
 3. most work requires stored Product ownership despite allowed cross-Product scope;
 4. optional primary repeatedly prevents canonical note resolution after PM6;
 5. Project membership moves make derived visibility operationally unsafe despite
    atomic writes and impact reporting;
-6. a repeated accepted PM1 job needs `required`, merge order, or another membership
+6. a repeated accepted product-memory-query job needs `required`, merge order, or another membership
    attribute that cannot be represented by work/relations/workflows;
 7. cross-Product work requires independent per-Product status, which would reopen
    PM2/PM5 rather than add copied state.
@@ -333,7 +333,7 @@ Reopen PM5 if:
 - Jira issue linking: `https://confluence.atlassian.com/spaces/ADMINJIRASERVER/pages/938847862/Configuring+issue+linking`
 - Bugzilla dependencies: https://bz.apache.org/bugzilla/docs/en/html/using/understanding.html
 
-External models are comparison evidence. PM1's accepted jobs/oracles, PM2–PM4,
+External models are comparison evidence. The accepted product-memory-query jobs/oracles, PM2–PM4,
 operator choices, and the falsifiers above remain controlling.
 
 ## Acceptance criteria

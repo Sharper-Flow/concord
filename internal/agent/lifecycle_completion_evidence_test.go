@@ -32,14 +32,6 @@ func TestLifecycleCompletionRetainsEvidenceOnReplay(t *testing.T) {
 	if !strings.Contains(evidence, "verification-pass") {
 		t.Fatalf("stored transition evidence = %q", evidence)
 	}
-	var scopeJSON string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT authorized_scope_snapshot FROM idempotency_records WHERE idempotency_key=?`, idempotencyKey).Scan(&scopeJSON); err != nil {
-		t.Fatal(err)
-	}
-	snapshot, err := retainedMutationResponse(scopeJSON)
-	if err != nil || len(snapshot.EvidenceRefs) != 1 || snapshot.EvidenceRefs[0].Authority != "agent-verifier" || snapshot.EvidenceRefs[0].LocatorKind != "test" || snapshot.EvidenceRefs[0].Locator != "verification-pass" {
-		t.Fatalf("stored evidence = %+v: %v", snapshot.EvidenceRefs, err)
-	}
 
 	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
 	if replay.Outcome != agentcontract.OutcomeOK || !reflect.DeepEqual(replay.ChangedRefs, approved.ChangedRefs) {

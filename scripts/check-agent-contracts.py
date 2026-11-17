@@ -908,6 +908,28 @@ def envelope_operation_coverage_findings(envelope: object, manifest: object) -> 
         )
     if mismatched:
         findings.append(f"{label}: $defs/toolOperation disagrees with the manifest: {sorted(mismatched)}")
+    expected_pairs = {(op.get("tool"), str(op.get("id", "")).split(".", 1)[-1]) for op in operations}
+    try:
+        branches = envelope["$defs"]["base"]["allOf"][0]["anyOf"]
+        base_pairs = set()
+        for branch in branches:
+            props = branch["properties"]
+            if "tool" not in props:
+                continue  # invalid request wrapper, with an empty operation
+            tool = props["tool"]["const"]
+            spec = props["operation"]
+            for name in [spec["const"]] if "const" in spec else spec["enum"]:
+                base_pairs.add((tool, name))
+        missing = sorted(expected_pairs - base_pairs)
+        extra = sorted(base_pairs - expected_pairs)
+        if missing or extra:
+            findings.append(f"{label}: $defs/base operation pairs differ from manifest: missing={missing}, extra={extra}")
+        read_tools = set(envelope["$defs"]["ok"]["allOf"][2]["if"]["properties"]["tool"]["enum"])
+        expected_read_tools = {op["tool"] for op in operations if op.get("kind") == "read"}
+        if read_tools != expected_read_tools:
+            findings.append(f"{label}: read tools differ from manifest: missing={sorted(expected_read_tools - read_tools)}, extra={sorted(read_tools - expected_read_tools)}")
+    except (KeyError, TypeError, IndexError):
+        findings.append(f"{label}: missing base pair or read tool constraints")
     return findings
 
 def main(argv: list[str] | None = None) -> int:

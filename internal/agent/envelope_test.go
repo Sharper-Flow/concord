@@ -93,7 +93,7 @@ func TestMutationResultProducerAcceptsCanonicalPayload(t *testing.T) {
 		{"concord_work_relate", "set_memberships"}, {"concord_work_relate", "resolve_overlap"},
 	} {
 		t.Run(operation.tool+"."+operation.operation, func(t *testing.T) {
-			base := agentcontract.NewBase("mutation-result", operation.tool, operation.operation)
+			base := agentcontract.NewBase(operation.tool, operation.operation)
 			response := (runtime{Tool: base.Tool, Operation: base.Operation}).mutationResult(base, payload, changed, intents)
 			if response.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("canonical mutation result rejected: %+v", response.Error)
@@ -104,7 +104,7 @@ func TestMutationResultProducerAcceptsCanonicalPayload(t *testing.T) {
 
 func TestMutationResultProducerRejectsMalformedAndOverBudgetResults(t *testing.T) {
 	t.Parallel()
-	base := agentcontract.NewBase("mutation-result-reject", "concord_work_define", "capture")
+	base := agentcontract.NewBase("concord_work_define", "capture")
 	r := runtime{Tool: base.Tool, Operation: base.Operation}
 	invalid := r.mutationResult(base, json.RawMessage(`{"changed_refs":[],"next_valid_intents":[],"unknown":true}`), nil, nil)
 	if invalid.Outcome != agentcontract.OutcomeError || invalid.Error == nil || invalid.Error.Kind != "malformed_response" {
@@ -112,10 +112,7 @@ func TestMutationResultProducerRejectsMalformedAndOverBudgetResults(t *testing.T
 	}
 	// CD-0038: no caller budget bounds results; the canonical envelope cap
 	// is the only bound.
-	base.EvidenceRefs = make([]agentcontract.EvidenceRef, 32)
-	for i := range base.EvidenceRefs {
-		base.EvidenceRefs[i] = agentcontract.EvidenceRef{Kind: "artifact", Authority: "test", LocatorKind: "file", Locator: strings.Repeat("x", 2048)}
-	}
+	base.Warnings = append(base.Warnings, agentcontract.Notice{Kind: "fixture", Details: map[string]any{"padding": strings.Repeat("x", 65536)}})
 	hardLimited := r.mutationResult(base, mutationPayload(nil, nil), nil, nil)
 	if hardLimited.Outcome != agentcontract.OutcomeError || hardLimited.Error == nil || hardLimited.Error.Kind != "limit_exceeded" || hardLimited.Error.RecoveryAction.Kind != "contact_operator" {
 		t.Fatalf("hard-limited result=%+v", hardLimited)
@@ -127,18 +124,12 @@ func TestMutationResultProducerRejectsMalformedAndOverBudgetResults(t *testing.T
 	if len(encoded) > agentcontract.MaxResultEnvelopeBytes {
 		t.Fatalf("limit error size=%d, want <= %d", len(encoded), agentcontract.MaxResultEnvelopeBytes)
 	}
-	if len(hardLimited.EvidenceRefs) != 0 {
-		t.Fatalf("limit error retained rejected success evidence: %d refs", len(hardLimited.EvidenceRefs))
-	}
 }
 
 func TestMutationResultMalformedEnvelopeReturnsBoundedError(t *testing.T) {
 	t.Parallel()
-	base := agentcontract.NewBase("bounded-error", "concord_work_define", "capture")
-	base.EvidenceRefs = make([]agentcontract.EvidenceRef, 32)
-	for i := range base.EvidenceRefs {
-		base.EvidenceRefs[i] = agentcontract.EvidenceRef{Kind: "artifact", Authority: "test", LocatorKind: "file", Locator: strings.Repeat("x", 2048)}
-	}
+	base := agentcontract.NewBase("concord_work_define", "capture")
+	base.Warnings = append(base.Warnings, agentcontract.Notice{Kind: "fixture", Details: map[string]any{"padding": strings.Repeat("x", 65536)}})
 	r := runtime{Tool: base.Tool, Operation: base.Operation}
 	response := r.mutationResult(base, mutationPayload(nil, nil), nil, []agentcontract.NextIntent{{Tool: "concord_work_trace", Operation: "history", QueryID: "C19.Resume", ReasonCode: "invalid-query"}})
 	if response.Outcome != agentcontract.OutcomeError || response.Error == nil || response.Error.Kind != "malformed_response" {
@@ -155,7 +146,7 @@ func TestMutationResultMalformedEnvelopeReturnsBoundedError(t *testing.T) {
 
 func TestCoreErrorBoundsLongMessage(t *testing.T) {
 	t.Parallel()
-	response := coreError(agentcontract.NewBase("long-error", "concord_work_define", "capture"), "invalid_input", strings.Repeat("x", 2000), "reread_entities", false)
+	response := coreError(agentcontract.NewBase("concord_work_define", "capture"), "invalid_input", strings.Repeat("x", 2000), "reread_entities", false)
 	if response.Error == nil || len(response.Error.Message) > 1000 {
 		t.Fatalf("error message length=%d, want <= 1000", len(response.Error.Message))
 	}

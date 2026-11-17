@@ -203,7 +203,7 @@ func TestDispatchWorkRemovalCommitsWithRecordedLinearIssue(t *testing.T) {
 		t.Fatal("a later undeclared missing work item must not inherit the old removal's exception")
 	}
 	replay, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(response.Result) {
 		t.Fatalf("own removal receipt must support replay: response=%+v error=%v", replay.Error, err)
 	}
 }

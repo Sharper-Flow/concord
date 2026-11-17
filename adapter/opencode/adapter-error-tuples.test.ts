@@ -179,19 +179,19 @@ describe("CON-913 closed adapter error tuples", () => {
 
   test("CON-913 validateAdapterEnvelope returns valid envelopes and fails closed only for adapter origin", () => {
     const valid = adapter.adapterError("concord_work_browse", "list", requestID, "unknown_effect", "bounded diagnostic")
-    expect(adapter.validateAdapterEnvelope(valid)).toBe(valid)
+    expect(adapter.validateAdapterEnvelope(valid, requestID)).toBe(valid)
     const core = {
       schema_version: "1.0", manifest_digest: manifestDigest, origin: "core", tool: "concord_work_browse", operation: "list",
       outcome: "error", next_cursor: null, omissions: [], warnings: [],
       error: { kind: "operation_conflict", retry_safe: false, recovery_action: { kind: "reconcile_operation" }, effect_state: "possible", adapter_reason: "unknown_effect", message: "a core envelope never carries an adapter reason" },
     }
     expect(validateGeneratedEnvelope(core)).toBe(false)
-    expect(adapter.validateAdapterEnvelope(core)).toBe(core)
+    expect(adapter.validateAdapterEnvelope(core, requestID)).toBe(core)
     const mutation = adapter.adapterError("concord_work_transition", "lifecycle", requestID, "unknown_effect", "bounded diagnostic")
     const poisoned = { ...mutation, error: { ...mutation.error, details: { note: { nested: "shape" } } } }
     let caught: unknown = null
     try {
-      adapter.validateAdapterEnvelope(poisoned)
+      adapter.validateAdapterEnvelope(poisoned, requestID)
     } catch (error) {
       caught = error
     }
@@ -199,12 +199,13 @@ describe("CON-913 closed adapter error tuples", () => {
     const defectMessage = (caught as Error).message
     expect(defectMessage).toContain("concord_work_transition")
     expect(defectMessage).toContain("lifecycle")
+    expect(defectMessage).toContain(requestID)
     expect(defectMessage).toContain("details")
     expect(defectMessage).toContain("reconcile")
     expect(defectMessage).toContain("unknown")
     const read = adapter.adapterError("concord_work_browse", "list", requestID, "spawn_failure", "bounded diagnostic")
     const poisonedRead = { ...read, error: { ...read.error, effect_state: "possible" } }
-    expect(() => adapter.validateAdapterEnvelope(poisonedRead)).toThrow(adapter.AdapterContractDefect)
+    expect(() => adapter.validateAdapterEnvelope(poisonedRead, requestID)).toThrow(adapter.AdapterContractDefect)
   })
 
 })

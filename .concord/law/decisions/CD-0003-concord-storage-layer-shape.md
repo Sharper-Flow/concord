@@ -120,12 +120,12 @@ The Go core uses **[`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)
   projections. PM4 fixes lifecycle/relation semantics; PM5 fixes membership/scope. This
   record remains binding only where PM3 did not supersede it.
 - **Explicit core + bounded extension richness.** Stable identity, joins,
-  invariants, and PM1 filters are typed; versioned JSON is reserved for rare
+  invariants, and product-memory-query filters are typed; versioned JSON is reserved for rare
   extensions.
 - **Zero daemon, zero CGO.** The simplest possible deployment: one static Go
   binary + PM2's one global local SQLite authority.
 - **Any-client internal boundary.** The CLI can serve accepted adapters/clients,
-  but it does not define the agent-facing tool surface (TS1–TS7 do).
+  but it does not define the agent-facing tool surface (TS1–TS6 and agent-result-envelope do).
 
 ### What it costs
 - **Projection-schema evolution.** Stable fields require typed migrations; bounded

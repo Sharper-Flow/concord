@@ -41,7 +41,7 @@
 ## Context
 
 The agent surface needs one identity and one change law. The binding inputs
-are the accepted TS1 through TS7 contracts and CD-0042's rule making the
+are the accepted TS1 through TS6 and agent-result-envelope contracts and CD-0042's rule making the
 generated current manifest the only pre-go-live surface identity. Concord is
 pre-go-live: the current surface has one generated manifest whose exact
 digest is its identity.
@@ -93,7 +93,7 @@ for hypothetical pre-go-live clients.
 
 Each surface change must provide:
 
-1. a named deterministic PM1/TS1 scenario or executable reproduction showing the
+1. a named deterministic product-memory-query/TS1 scenario or executable reproduction showing the
    problem and the passing outcome;
 2. the canonical manifest and generated artifacts updated together;
 3. strict schema, generated-drift, negative-input, authority, transaction, and
@@ -141,7 +141,7 @@ policies.
 
 ## 5. Evidence and amendment
 
-TS8 depends on TS1–TS7's deterministic jobs, strict schemas, authority boundaries,
+TS8 depends on the agent-surface contracts' deterministic jobs, strict schemas, authority boundaries,
 transaction proofs, and envelope rules. TS9 defines the pre-go-live evidence
 contract; it does not add a model-trial release gate. Operator acceptance remains
 the authority for Product-consequence changes.

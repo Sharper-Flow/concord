@@ -190,7 +190,8 @@ func TestWorkflowReplayStoresCommittedResponse(t *testing.T) {
 		t.Fatalf("completed response record found=%t err=%v", found, err)
 	}
 	snapshot, err := retainedMutationResponse(prior.AuthorizedScopeSnapshot)
-	if err != nil || !reflect.DeepEqual(snapshot.ResolvedScope, response.ResolvedScope) || response.NextValidIntents == nil || !reflect.DeepEqual(snapshot.NextValidIntents, *response.NextValidIntents) || len(snapshot.EvidenceRefs) != 0 || !reflect.DeepEqual(snapshot.Omissions, response.Omissions) {
+	wantScope := &agentcontract.Scope{ProductID: "product-1", ProjectIDs: []string{"project-1"}, WorkIDs: []string{"work-1"}, ScopeVersion: scopeVersion}
+	if err != nil || !reflect.DeepEqual(snapshot.ResolvedScope, wantScope) || response.NextValidIntents == nil || !reflect.DeepEqual(snapshot.NextValidIntents, *response.NextValidIntents) || !reflect.DeepEqual(snapshot.Omissions, response.Omissions) {
 		t.Fatalf("committed response metadata differs: snapshot=%+v response=%+v err=%v", snapshot, response, err)
 	}
 }
@@ -713,13 +714,12 @@ func seedCurrentWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvel
 				return err
 			}
 			base := agentcontract.NewBase(r.Tool, r.Operation)
-			base.ResolvedScope = scopeFromMap(originalScope)
 			base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
 			response := r.mutationResult(base, payload, changed, intents, pinless...)
 			if response.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("completed response fixture: %+v", response.Error)
 			}
-			metadata, err := json.Marshal(mutationResponseScope(originalScope, response, pinless))
+			metadata, err := json.Marshal(mutationResponseScope(originalScope, scopeFromMap(originalScope), response, pinless))
 			if err != nil {
 				return err
 			}

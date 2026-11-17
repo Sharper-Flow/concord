@@ -35,9 +35,7 @@ import (
 // AJ3-capture-work: capture needed work for passkey login and observe
 // the resulting durable row. After capture, replay the SAME idempotency
 // key and prove that no second work item is created and the result is
-// equivalent (retry_safe). The replayed response must carry
-// Replayed=true so the runner can read the replay evidence
-// independently of the assertion path.
+// equivalent (retry_safe).
 func bindAJ3CaptureWork(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
 	s, service, grant := agentJobsMutationPM1Fixture(t)
@@ -81,10 +79,7 @@ func bindAJ3CaptureWork(t *testing.T, sc jobScenario) jobObservation {
 		t.Fatalf("rows.Err: %v", err)
 	}
 
-	// Replay the same idempotency key — retry_safe must hold. The
-	// Replayed flag alone is the idempotency layer's own claim; the
-	// durable proof is that no second work item was written, so count
-	// rows either side of the replay rather than trusting the flag.
+	// Count rows either side of the replay to prove no second item was written.
 	preReplayWorkCount := 0
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items`).Scan(&preReplayWorkCount); err != nil {
 		t.Fatalf("pre-replay work_items count: %v", err)
@@ -93,8 +88,8 @@ func bindAJ3CaptureWork(t *testing.T, sc jobScenario) jobObservation {
 	if replay.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("replay failed outcome=%s err=%+v", replay.Outcome, replay.Error)
 	}
-	if !replay.Replayed {
-		t.Fatalf("replay did not set Replayed=true")
+	if string(replay.Result) != string(first.Result) {
+		t.Fatal("replay changed the capture result")
 	}
 	postReplayWorkCount := 0
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items`).Scan(&postReplayWorkCount); err != nil {
@@ -125,7 +120,6 @@ func bindAJ3CaptureWork(t *testing.T, sc jobScenario) jobObservation {
 		"retry_safe_replayed": true,
 		"atomic_core_effect":  "complete",
 	}
-	obs.Authority["replayed"] = replay.Replayed
 	return obs
 }
 
@@ -166,12 +160,10 @@ func bindAJ4StartValidWork(t *testing.T, sc jobScenario) jobObservation {
 		t.Fatalf("transition_events.count=%d, want 1", count)
 	}
 
-	// Replay the same idempotency key — retry_safe requires the runner
-	// to see a replay outcome with Replayed=true AND the durable
-	// state unchanged (still 1 transition, still version 3).
+	// Replay must preserve the result and durable state.
 	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
-	if !replay.Replayed || replay.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("replay outcome=%s replayed=%v err=%+v", replay.Outcome, replay.Replayed, replay.Error)
+	if replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(resp.Result) {
+		t.Fatalf("replay outcome=%s err=%+v", replay.Outcome, replay.Error)
 	}
 	if _, v := readWorkFromStore(t, s, "work-ready-high"); v != 3 {
 		t.Fatalf("replay bumped version")
@@ -261,8 +253,8 @@ func bindAJ4CompleteValidWork(t *testing.T, sc jobScenario) jobObservation {
 	}
 
 	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "lifecycle", Input: input}, env)
-	if !replay.Replayed || replay.Outcome != agentcontract.OutcomeOK {
-		t.Fatalf("replay did not set Replayed=true")
+	if replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(approved.Result) {
+		t.Fatalf("replay outcome=%s err=%+v", replay.Outcome, replay.Error)
 	}
 	if _, v := readWorkFromStore(t, s, "work-cross"); v != version {
 		t.Fatalf("replay bumped version to %d (was %d)", v, version)
@@ -608,10 +600,6 @@ func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 	if resp.Error.EffectState != agentcontract.EffectNone {
 		t.Fatalf("refusal claims effect state %q", resp.Error.EffectState)
 	}
-	if resp.Replayed {
-		t.Fatal("a refused request must not be marked as a replay")
-	}
-
 	// The clamp probe, first half: the refusal changed nothing durably.
 	_, versionAfterRefusal := readWorkFromStore(t, s, workID)
 	if versionAfterRefusal != version {
@@ -626,8 +614,9 @@ func bindAJ8BudgetRefused(t *testing.T, sc jobScenario) jobObservation {
 	if retry.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("lowered-budget retry on the same key was refused outcome=%s err=%+v", retry.Outcome, retry.Error)
 	}
-	if retry.Replayed {
-		t.Fatal("retry was served as a replay: the refusal recorded an idempotency effect")
+	_, versionAfterRetry := readWorkFromStore(t, s, workID)
+	if versionAfterRetry <= version {
+		t.Fatal("retry did not apply the workflow action")
 	}
 
 	obs := envelopeToObservation(resp)

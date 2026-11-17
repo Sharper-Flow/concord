@@ -18,10 +18,6 @@ func TestLifecycleEvidenceInputBounds(t *testing.T) {
 	}{
 		{"valid", "kind", "verification", true},
 		{"unknown kind", "kind", "unknown", false},
-		{"authority at limit", "authority", strings.Repeat("a", 256), true},
-		{"authority over limit", "authority", strings.Repeat("a", 257), false},
-		{"locator kind at limit", "locator_kind", strings.Repeat("a", 256), true},
-		{"locator kind over limit", "locator_kind", strings.Repeat("a", 257), false},
 		{"locator at limit", "locator", strings.Repeat("a", 2048), true},
 		{"locator over limit", "locator", strings.Repeat("a", 2049), false},
 		{"version at limit", "version", strings.Repeat("a", 256), true},

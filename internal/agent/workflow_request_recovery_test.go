@@ -98,7 +98,7 @@ func TestInvokeContractRequestCorrection(t *testing.T) {
 			if !strings.Contains(refused.Error.Message, field) {
 				t.Errorf("refusal does not name the field to correct %q: %+v", field, refused.Error)
 			}
-			if refused.RequestID != env.RequestID || refused.Tool != "concord_work_transition" || refused.Operation != "workflow_action" {
+			if refused.Tool != "concord_work_transition" || refused.Operation != "workflow_action" {
 				t.Errorf("refusal lost request identity: %+v", refused)
 			}
 			if _, err := refused.Encode(); err != nil {
@@ -247,7 +247,7 @@ func TestWorkflowRequestRecoveryClassification(t *testing.T) {
 			for _, proposed := range []string{"", "fix fields.premise", "correct_request"} {
 				failure := test.failure
 				failure.RecoveryAction = proposed
-				out := failureEnvelope(agentcontract.NewBase("request-classification", "concord_work_transition", "workflow_action"), &failure)
+				out := failureEnvelope(agentcontract.NewBase("concord_work_transition", "workflow_action"), &failure)
 				if out.Error.Kind != test.kind || out.Error.RecoveryAction.Kind != test.recovery {
 					t.Errorf("proposal %q: got %+v, want %s/%s", proposed, out.Error, test.kind, test.recovery)
 				}
@@ -260,7 +260,7 @@ func TestWorkflowRequestRecoveryClassification(t *testing.T) {
 }
 
 func TestLiteralInputRecoveryKeepsStateAndAuthority(t *testing.T) {
-	base := agentcontract.NewBase("literal-recovery", "concord_work_transition", "workflow_action")
+	base := agentcontract.NewBase("concord_work_transition", "workflow_action")
 	for _, proposed := range []string{"reread_entities", "contact_operator"} {
 		out := coreError(base, "invalid_input", "state or authority is unavailable", proposed, false)
 		if out.Error.RecoveryAction.Kind != proposed {

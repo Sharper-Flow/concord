@@ -220,7 +220,7 @@ func TestRoutineCoordinationCachedReplayPreservesOriginalResultWithoutNewEffects
 			}
 			baseline := agentCurrentEffects(t, s)
 			replay := dispatchMutation(t, s, service, request, env)
-			if replay.Outcome != agentcontract.OutcomeOK || replay.Error != nil || !replay.Replayed || !sameResultPayload(t, first.Result, replay.Result) || !sameChangedRefs(t, first.ChangedRefs, replay.ChangedRefs) {
+			if replay.Outcome != agentcontract.OutcomeOK || replay.Error != nil || !sameResultPayload(t, first.Result, replay.Result) || !sameChangedRefs(t, first.ChangedRefs, replay.ChangedRefs) {
 				t.Fatalf("replay lost the original response: %+v", replay)
 			}
 			if agentCurrentEffects(t, s) != baseline || workVersion(t, s, "work-1") != binding.fromVersion+1 || workVersion(t, s, "work-2") != binding.toVersion+1 {
@@ -338,7 +338,7 @@ func TestRoutineCoordinationCrossProductScopeAndReplay(t *testing.T) {
 				}
 				before := agentCurrentEffects(t, s)
 				replay := dispatchMutation(t, s, service, request, env)
-				if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || !sameResultPayload(t, first.Result, replay.Result) || !sameChangedRefs(t, first.ChangedRefs, replay.ChangedRefs) {
+				if replay.Outcome != agentcontract.OutcomeOK || !sameResultPayload(t, first.Result, replay.Result) || !sameChangedRefs(t, first.ChangedRefs, replay.ChangedRefs) {
 					t.Fatalf("cross-Product replay lost original result: %+v", replay)
 				}
 				if agentCurrentEffects(t, s) != before || workVersion(t, s, "work-1") != binding.fromVersion+1 || workVersion(t, s, "work-2") != binding.toVersion+1 {

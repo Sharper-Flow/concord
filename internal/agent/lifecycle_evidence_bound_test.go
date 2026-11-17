@@ -10,11 +10,8 @@ import (
 	"github.com/sharper-flow/concord/internal/agentcontract"
 )
 
-// TestLifecycleCompletionEvidenceFieldBoundsNeverFaultTheResult proves that an
-// evidence field the request schema admits cannot make the completion result
-// fail its own envelope validation. The request either succeeds or refuses as
-// invalid_input naming the field path; malformed_response is a core fault and
-// is never the answer to a caller-supplied value.
+// TestLifecycleCompletionEvidenceFieldBoundsNeverFaultTheResult checks input
+// bounds at dispatch, including field-specific refusals and unchanged state.
 func TestLifecycleCompletionEvidenceFieldBoundsNeverFaultTheResult(t *testing.T) {
 	cases := []struct {
 		name        string

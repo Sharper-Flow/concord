@@ -57,7 +57,7 @@ func TestDispatchIdempotentReplaySurvivesAmbientScopeDrift(t *testing.T) {
 	env.ScopeVersion = "drifted-scope-version"
 	env.RequestID = "replay-after-drift"
 	replay, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(first.Result) {
 		t.Fatalf("replay=%+v err=%v", replay, err)
 	}
 	var eventsAfter int

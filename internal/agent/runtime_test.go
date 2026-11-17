@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/gittest"
@@ -216,7 +215,7 @@ func TestDispatchCaptureCreatesWorkAndMembershipsAtomically(t *testing.T) {
 	}
 	env.RequestID = "capture-request-2"
 	replay, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(response.Result) {
 		t.Fatalf("capture replay=%+v err=%v", replay, err)
 	}
 	revise := InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: json.RawMessage(`{"work_id":"work-` + (*replay.ChangedRefs)[0].ID[len("work-"):] + `","expected_version":3,"title":"Need revised","kind":"task","reason":"clarified","evidence":[{"kind":"commit","authority":"git","locator_kind":"commit","locator":"commit:7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"}],"idempotency_key":"revise-idem-1"}`)}
@@ -280,8 +279,8 @@ func TestResultPayloadNeverSerializesUnsignedStoreCursor(t *testing.T) {
 	t.Parallel()
 	rawCursor := "store-offset-cursor"
 	r := runtime{}
-	response, err := r.q3(agentcontract.NewBase("request", "concord_work_browse", "list"), store.Q3Result{
-		ResultMeta: store.ResultMeta{QueryID: "PM1.Q3", ContractVersion: "PM1/1.0", Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, NextCursor: &rawCursor},
+	response, err := r.q3(agentcontract.NewBase("concord_work_browse", "list"), store.Q3Result{
+		ResultMeta: store.ResultMeta{NextCursor: &rawCursor},
 	})
 	if err != nil {
 		t.Fatal(err)

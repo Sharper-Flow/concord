@@ -31,12 +31,12 @@
 
 > **Status:** **Accepted — binding until superseded.**
 > **Amended:** 2026-10-18.
-> **Decision:** TS4; binding input to CD-0005 §4 and TS5–TS9.
+> **Decision:** TS4; binding input to CD-0005 §4, TS5–TS6, agent-result-envelope, and TS8–TS9.
 > **Binding inputs:** accepted PM3–PM6, compaction-retention-policy domain operations, TS1 jobs/scenarios,
 > TS2 budget/granularity, TS3 read surface, and the capability-placement native-authority
 > rule.
 > **Does not decide:** request context/authorization/idempotency envelope (TS5),
-> transport (TS6), shared result/error schema (TS7), surface evolution (TS8),
+> transport (TS6), shared result/error schema (agent-result-envelope), surface evolution (TS8),
 > measurement evidence (TS9), or workflow-type and gate vocabulary.
 
 ## Context
@@ -182,7 +182,9 @@ typed outcomes; reducing calls alone is insufficient.
 - A durable operation reference is not a generic job queue ID. It names one typed
   operation, authority step, work item, and recovery contract.
 
-TS7 owns the common result/error fields. TS4 requires that routine inline success
+The [agent result envelope](agent-result-envelope.md) owns the common result/error fields.
+
+TS4 requires that routine inline success
 include changed references/new versions/next valid intents and that nonterminal
 durable results include current step and a safe next action—never a bare "started."
 

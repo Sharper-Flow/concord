@@ -50,8 +50,8 @@ evidence, transcripts and check output with a better home. This standard
 applies to new records; do not rewrite existing comments to conform.
 
 Keep one event per record: each required step or event comment states that event's
-result and consequence and links earlier diagnosis and evidence. RTE and project
-updates add cross-stream changes or waits, not a duplicate of the owner's completion
+result and consequence and links earlier diagnosis and evidence. Project status
+updates report whole-project progress, not a duplicate of the owner's completion
 report.
 
 Keep unresolved questions, known limitations and the difference between merged,
@@ -83,12 +83,13 @@ error or small reproduction when useful and link full diagnostics.
   carrier for a fresh-session brief is established. Report the gap; do not invent
   a route.
 - Summarize blockers and waits in Linear, linking the blocking records and naming
-  what unblocks the work. Put drain acknowledgements in a coordination project
-  update or Concord record, not per-session issue comments.
+  what unblocks the work. Put durable drain acknowledgements in a Concord record,
+  not per-session issue comments; keep the current drain summary in the coordination
+  project description.
 - Keep research in its canonical knowledge home and link its full report from
   Linear; copy to a Linear Document only on operator request. Use
-  `concord-research-writing` for placement. Keep routine coordination in
-  coordination project updates.
+  `concord-research-writing` for placement. Send live coordination facts through
+  notices; keep durable item facts in the owning issue or Concord record.
 - Keep readiness and completion comments concise and link their owning records.
 
 ## Write for the later reader

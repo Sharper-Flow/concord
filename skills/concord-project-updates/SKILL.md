@@ -16,29 +16,32 @@ Follow [planning authority](https://github.com/Sharper-Flow/concord/tree/main/.c
 Follow the shared `records.md` instructions for the Linear writing standard and
 placement.
 
-### Example: cross-stream release wait
+### Example: whole-project progress
 
 Before: repeated owner completion reports and a table of session telemetry.
 
 After:
 
-> #### Release wait
+> #### Project progress
 >
-> The export repair merged, but release waits for the schema check.
+> The project has completed its migration; release remains blocked on the final audit.
 >
-> - Risk: the schema check may expose an incompatibility.
-> - Next decision: the release owner decides whether to proceed after the check.
+> - Risk: the audit may delay the project release.
+> - Next decision: the release owner decides whether to proceed after the audit.
 >
 > +++ Agent detail
-> - Check owner: schema audit; timing and lifecycle details are in the linked delivery record.
+> - Audit owner and evidence are in the linked delivery record.
 > +++
 
 ## Put each fact with its owner
 
-The coordination project's description holds the assigned scope, kept current.
-Its status updates carry material cross-stream dependencies, sequencing
-decisions and changes to coordination directives. Link owning delivery records
-instead of copying their requirements, evidence or status lists.
+The coordination project's description holds the current assigned scope,
+cross-stream dependencies, sequencing, directives and drain summary. Project
+status updates cover only whole-project progress, major completions,
+operator-facing blockers and achievements. Do not use status updates for routine
+assignments, acknowledgements, drain records, approval quotes, per-item status
+or coordination directives. Link owning delivery records instead of copying
+their requirements, evidence or status lists.
 
 The delivery issue owns its acceptance, evidence, blocker,
 next action and planning state. Add a coordination fact there only when it
@@ -52,11 +55,10 @@ placement and the writing method.
 
 ## Write the update
 
-Read the existing record first. Update it only when a planning fact, decision,
-risk or evidence has changed; link or amend the owned fact rather than repeat
-it. Lead with the change since the last update, then name any decision needed
-and the affected streams. Set health and status from evidence, never invention.
-Routine progress mirroring and acknowledgement comments add no useful change.
+Read the existing record first. Update it only when an eligible project-level
+fact has changed; link or amend the owned fact rather than repeat it. Lead with
+the change since the last update, then name any decision needed. Set health and
+status from evidence, never invention.
 
 A good update lets each owner see what changed and follow links to the facts
 that govern its work without maintaining a second backlog.

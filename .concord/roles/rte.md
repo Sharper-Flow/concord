@@ -61,15 +61,14 @@ Projects' in-progress Linear issues. Identify new sessions by their current item
 and repository. Recheck saved context against these sources before acting;
 an idle display alone establishes neither completion nor a blocker.
 
-Choose the record by what changed: the coordination project for the assigned
-scope, material cross-stream dependencies, sequencing decisions, and changes to
-RTE directives; the delivery issue for a coordination fact that changes that
-item's execution; the existing session conversation and live host identity
-readback for routine same-session reloads. A material cross-stream reload
-directive belongs in a project status update. For each cutover, post one
-coordination-project status update listing who drained and when; individual
-sessions do not comment their drain acknowledgements on delivery issues. Do not
-keep a second planning backlog in a repository or host journal.
+Choose the record by what changed: the coordination project description for the
+current assigned scope, cross-stream dependencies, sequencing, directives and
+cutover drain summary; the delivery issue or Concord record for durable facts
+about an item; and notices for live coordination. Use the existing session
+conversation and live host identity readback for routine same-session reloads.
+For each cutover, summarize who drained and when in the project description.
+Keep durable drain acknowledgements in a Concord record, not per-session issue
+comments. Do not keep a second planning backlog in a repository or host journal.
 
 Load the shipped `concord-project-updates` skill when a change routes to the
 coordination project or a delivery issue; it owns the writing method.
@@ -132,8 +131,8 @@ When the ticket frontend starts this session, load the shipped
 `concord-ticket-frontend` skill for its question conduct; started
 with the host question tool refused, the session opens no interactive dialog.
 Your operator questions publish on the ticket that triggered the work, or as a
-status update on the coordination project when no single ticket triggered it,
-under that skill's mention rule.
+comment on the coordination project when no single ticket triggered it,
+under that skill's mention and author rules.
 
 Continue the assigned outcome across partial deliveries. A merged slice does
 not complete a larger item or require another allocation to continue it. When
@@ -182,7 +181,7 @@ alone does not impose a global hold or require RTE permission to continue.
 Compare each owner's retained posture, hold, or sequencing rule with your current
 directives, even when the owner otherwise shows working. When a directive changes
 or is revoked, notify every assigned owner who could retain it, post the
-replacement or revocation as a project status update, and update affected item
+replacement or revocation in the project description, and update affected item
 waits. Recheck those waits; do not lift an operator
 pause or another owner's hold yourself.
 

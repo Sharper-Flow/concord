@@ -1081,10 +1081,10 @@ class MethodSkillTests(unittest.TestCase):
             "rare: start, blocker and done", "spawning message", "never Linear",
             "captured work task", "concord_work_browse.list", "detail=full",
             "concord_work_trace.resume", "blockers and waits", "drain acknowledgements",
-            "knowledge home", "coordination project updates", "no Concord item", "Before capture",
+            "knowledge home", "project description", "no Concord item", "Before capture",
             "all visible text outside every collapse", "including text after a collapse",
             "one event per record", "earlier diagnosis and evidence", "not a transcript",
-            "cross-stream changes or waits", "owner's completion report", "unresolved questions",
+            "whole-project progress", "owner's completion report", "unresolved questions",
             "known limitations", "merged, deployed and verified visible", "exact approval and quoted wording",
             "timers", "notification owners", "safe-resume detail",
             "question, recommendation, options and consequences", "visible and concise",
@@ -1106,7 +1106,7 @@ class MethodSkillTests(unittest.TestCase):
                     self.assertNotIn(phrase, content)
         examples = {
             "concord-handoff-writing": ("Timer: pending", "Notification:", "Stop state:", "Spawning message:"),
-            "concord-project-updates": ("merged, but release waits", "Next decision:", "+++ Agent detail"),
+            "concord-project-updates": ("project has completed its migration", "Next decision:", "+++ Agent detail"),
             "concord-pr-writing": ("merged and deployed",),
             "concord-work-shaping": ("Before:", "After:", "Concord step record quotes the answer"),
             "concord-ticket-writing": ("one simple visible result line", "collapse why and how", "Implement complete", "+++ Agent detail"),

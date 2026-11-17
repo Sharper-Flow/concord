@@ -8,8 +8,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/sharper-flow/concord/internal/version"
 )
 
 func TestOpenAppliesSchemaManifest(t *testing.T) {
@@ -64,9 +62,7 @@ func TestMigrateIsIdempotent(t *testing.T) {
 }
 
 func TestUpgradeConcurrentFirstOpen(t *testing.T) {
-	previous := version.Value
-	version.Value = "v1.0.0"
-	t.Cleanup(func() { version.Value = previous })
+	useStampedBuild(t)
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "concord.db")
 	hits := 0
@@ -116,6 +112,7 @@ func TestOpenAndMigrateRefuseForeignSchema(t *testing.T) {
 			return err
 		},
 		"migrate": func() error { return Migrate(ctx, db) },
+		"upgrade": func() error { _, err := Upgrade(ctx, path, nil); return err },
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := open()

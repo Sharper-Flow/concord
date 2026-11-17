@@ -187,6 +187,14 @@ func TestMainCheckoutRefusesImplementationOperations(t *testing.T) {
 			if response.Error.Kind != "unauthorized" {
 				t.Fatalf("operation=%s error.kind=%q, want unauthorized", tc.operation, response.Error.Kind)
 			}
+			if response.Error.EffectState != "none" || response.Error.RecoveryAction.Kind != "refresh_context" {
+				t.Errorf("operation=%s refusal=%+v, want no effect and refresh_context", tc.operation, response.Error)
+			}
+			for _, phrase := range []string{"host tools", "create", "place", "work item's linked worktree", "resume the same work"} {
+				if !strings.Contains(response.Error.Message, phrase) {
+					t.Errorf("operation=%s message=%q, missing %q", tc.operation, response.Error.Message, phrase)
+				}
+			}
 			if !strings.Contains(response.Error.Message, "CD-0092 D2") {
 				t.Fatalf("operation=%s error.message=%q, want CD-0092 D2 refusal", tc.operation, response.Error.Message)
 			}

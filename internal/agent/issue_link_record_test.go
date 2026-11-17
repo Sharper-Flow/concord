@@ -113,6 +113,17 @@ func TestDispatchIssueLinkRecordRefusesSecondAndForeignIdentity(t *testing.T) {
 		if err != nil || response.Error == nil || !strings.Contains(response.Error.Message, tc.want) {
 			t.Fatalf("%s: response error=%+v err=%v", tc.name, response.Error, err)
 		}
+		if tc.name == "second identity" {
+			if response.Error.Kind != "invalid_input" || response.Error.EffectState != "none" || response.Error.RecoveryAction.Kind != "reread_entities" {
+				t.Errorf("second identity refusal=%+v", response.Error)
+			}
+			detail, _ := response.Error.Details["recovery_detail"].(string)
+			for _, phrase := range []string{"cancel", "reason", "capture", "correct issue identity", "afresh"} {
+				if !strings.Contains(detail, phrase) {
+					t.Errorf("recovery detail=%q, missing %q", detail, phrase)
+				}
+			}
+		}
 		if tc.name == "foreign issue" && (response.Error.Kind != "invalid_relation" || response.Error.EffectState != "none" || !strings.Contains(response.Error.Message, "link-held-work")) {
 			t.Fatalf("foreign issue must name the readable holder: %+v", response.Error)
 		}

@@ -83,13 +83,14 @@ error or small reproduction when useful and link full diagnostics.
   carrier for a fresh-session brief is established. Report the gap; do not invent
   a route.
 - Summarize blockers and waits in Linear, linking the blocking records and naming
-  what unblocks the work. Put durable drain acknowledgements in a Concord record,
-  not per-session issue comments; keep the current drain summary in the coordination
-  project description.
+  what unblocks the work. Record cross-stream drain acknowledgements as one
+  per-cutover summary in the coordination project description, or in an existing
+  Concord record when one is available, never in per-session issue comments.
 - Keep research in its canonical knowledge home and link its full report from
   Linear; copy to a Linear Document only on operator request. Use
-  `concord-research-writing` for placement. Send live coordination facts through
-  notices; keep durable item facts in the owning issue or Concord record.
+  `concord-research-writing` for placement.
+- Send live coordination facts through notices; keep durable item facts in the
+  owning issue or Concord record.
 - Keep readiness and completion comments concise and link their owning records.
 
 ## Write for the later reader

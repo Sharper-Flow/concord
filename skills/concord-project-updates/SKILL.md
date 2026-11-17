@@ -37,8 +37,8 @@ After:
 
 The coordination project's description holds the current assigned scope,
 cross-stream dependencies, sequencing, directives and drain summary. Project
-status updates cover only whole-project progress, major completions,
-operator-facing blockers and achievements. Do not use status updates for routine
+status updates cover only progress, major completions, operator-facing blockers
+and achievements of the project as a whole. Do not use status updates for routine
 assignments, acknowledgements, drain records, approval quotes, per-item status
 or coordination directives. Link owning delivery records instead of copying
 their requirements, evidence or status lists.
@@ -55,8 +55,9 @@ placement and the writing method.
 
 ## Write the update
 
-Read the existing record first. Update it only when an eligible project-level
-fact has changed; link or amend the owned fact rather than repeat it. Lead with
+Read the existing record first. Change the description when a fact it holds
+changes, and post a status update only for an eligible project-level change;
+link or amend the owned fact rather than repeat it. Lead with
 the change since the last update, then name any decision needed. Set health and
 status from evidence, never invention.
 

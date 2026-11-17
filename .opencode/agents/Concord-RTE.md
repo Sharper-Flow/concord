@@ -88,12 +88,15 @@ an idle display alone establishes neither completion nor a blocker.
 
 Choose the record by what changed: the coordination project description for the
 current assigned scope, cross-stream dependencies, sequencing, directives and
-cutover drain summary; the delivery issue or Concord record for durable facts
-about an item; and notices for live coordination. Use the existing session
+cutover drain summary; a project status update only for progress, major
+completions, operator-facing blockers and achievements of the project as a
+whole; the delivery issue or Concord record for durable facts about an item;
+and notices for live coordination. Use the existing session
 conversation and live host identity readback for routine same-session reloads.
-For each cutover, summarize who drained and when in the project description.
-Keep durable drain acknowledgements in a Concord record, not per-session issue
-comments. Do not keep a second planning backlog in a repository or host journal.
+For each cutover, record one drain summary in the project description listing
+who drained and when, with evidence links, or in an existing Concord record when
+one is available; never create a Concord item for it, and never use per-session
+issue comments. Do not keep a second planning backlog in a repository or host journal.
 
 Load the shipped `concord-project-updates` skill when a change routes to the
 coordination project or a delivery issue; it owns the writing method.

@@ -116,6 +116,50 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	return s, nil
 }
 
+// OpenMaintenance admits an existing current-schema store without initialization
+// or migration. The caller must exclude sessions for the handle's lifetime.
+func OpenMaintenance(ctx context.Context, path string) (*Store, error) {
+	plan, err := PlanUpgradeReadiness(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if !plan.StorePresent || plan.FreshStore || len(plan.Pending) != 0 {
+		return nil, newFailure(KindUnavailable, "maintenance_open", "store is not initialized at the current schema", false, "upgrade the store before maintenance")
+	}
+	ro, err := openReadonlyStore(path)
+	if err != nil {
+		return nil, err
+	}
+	var journal string
+	err = ro.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&journal)
+	if err == nil && !strings.EqualFold(journal, "wal") {
+		err = fmt.Errorf("store is not in WAL mode")
+	}
+	if err == nil {
+		_, err = InstallationKey(ctx, ro)
+	}
+	if err == nil {
+		err = mechanismFailure(sqlitedb.RefuseStrandedWriteGuard(ctx, ro))
+	}
+	if err == nil {
+		err = validateMembershipInvariants(ctx, ro)
+	}
+	_ = ro.Close()
+	if err != nil {
+		return nil, err
+	}
+	db, err := sqlitedb.Open(dataSourceName(path) + "&mode=rw")
+	if err != nil {
+		return nil, err
+	}
+	s := &Store{db: db, path: path, Clock: func() time.Time { return time.Now().UTC() }}
+	if err := s.verifyPragmas(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
 // migrateOpen applies additive steps for a stamped release; an unstamped
 // build migrates only a fresh store.
 func (s *Store) migrateOpen(ctx context.Context) error {

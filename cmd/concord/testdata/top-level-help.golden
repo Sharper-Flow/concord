@@ -5,6 +5,7 @@ Usage:
   concord host-leases                  # print live release leases; prunes stale ones
   concord upgrade < JSON stdin      # apply pending migrations; {"plan":true} reports readiness
   concord compact < JSON stdin      # compact the stopped store after verified snapshot and restore
+  concord relation-attribution < JSON stdin      # inspect or treat relation attribution
 
 Required-field refusals exit 64 before dispatch.
 Commands read one strict JSON object from stdin:
@@ -113,3 +114,7 @@ Commands read one strict JSON object from stdin:
   concord compact < JSON stdin
     required: 
     accepted values: stopped-session maintenance; retains a verified snapshot and operator-release hold
+  concord relation-attribution < JSON stdin
+    required: action
+    optional: inspect: cutoff, optional backup_path; clear, verify and undo: backup_path, manifest, idempotency_key (verify takes the clear's key); undo: clear_key
+    accepted values: action: inspect | clear | verify | undo; stopped-session operator maintenance

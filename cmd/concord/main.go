@@ -69,6 +69,9 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) > 0 && args[0] == "compact" {
 		return runCompactCommand(args[1:], in, out, errOut)
 	}
+	if args[0] == "relation-attribution" {
+		return runRelationAttribution(args[1:], in, out, errOut)
+	}
 	command, commandArgs, ok := routeCommand(args)
 	if ok {
 		return runJSONCommand(command, commandArgs, in, out, errOut)
@@ -147,6 +150,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "host-leases", RequiredFields: requiredFields(), Optional: "read_only: observe live leases without pruning stale files", Enums: "prints the live host leases and prunes stale ones by default (CD-0111 D2)"},
 	{Canonical: "upgrade", RequiredFields: requiredFields(), Optional: "plan: read-only readiness report; confirm_sessions_stopped: no session runs on an unfenceable release tree; require_no_sessions: refuse every live session behind the maintenance fence for a prepared cutover; maintenance_fd: inherited data-root directory descriptor, validated and flocked by the native lock owner", Enums: "applies pending migrations; a breaking step runs only inside the maintenance boundary, which excludes session admission until activation and refuses under a live older session (CD-0111 D3)"},
 	{Canonical: "compact", RequiredFields: requiredFields(), Optional: "none", Enums: "stopped-session maintenance; retains a verified snapshot and operator-release hold"},
+	{Canonical: "relation-attribution", RequiredFields: requiredFields(field("action")), Optional: "inspect: cutoff, optional backup_path; clear, verify and undo: backup_path, manifest, idempotency_key (verify takes the clear's key); undo: clear_key", Enums: "action: inspect | clear | verify | undo; stopped-session operator maintenance"},
 }
 
 // matchCommandSpec resolves canonical and two-word forms and returns remaining arguments.
@@ -183,6 +187,7 @@ var verbUsages = []struct {
 	{"host-leases", []string{"host-leases                  # print live release leases; prunes stale ones"}},
 	{"upgrade", []string{"upgrade < JSON stdin      # apply pending migrations; {\"plan\":true} reports readiness"}},
 	{"compact", []string{"compact < JSON stdin      # compact the stopped store after verified snapshot and restore"}},
+	{"relation-attribution", []string{"relation-attribution < JSON stdin      # inspect or treat relation attribution"}},
 }
 
 // isHelpFlag reports whether an argument asks for help; -h is an alias for

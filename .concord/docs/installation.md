@@ -395,6 +395,49 @@ the fence and changes no row. A failure after write-back starts retains the
 maintenance fence. Keep sessions stopped and recover using the held
 snapshot through the operator-owned offline recovery route.
 
+### Clear unprovable relation attribution
+
+`concord relation-attribution` clears the stored reason and record version of
+history-displayed relations created before a cutoff, so history stops
+displaying attribution the store cannot prove. It never changes the relation graph or effect receipts. Run it with a released
+binary on a store at that binary's schema; it refuses an uninitialized store
+or one with pending migrations. Stop sessions and standalone commands exactly
+as for compaction; the command takes the same lock and fence and refuses live
+leases.
+
+1. Inspect: pipe `{"action":"inspect","cutoff":"<RFC 3339 time>"}`. The
+   command takes a verified snapshot with a `.compact-hold.json` hold and
+   prints the snapshot, hold and a manifest of candidate relation IDs,
+   fingerprints and graph and receipt digests. Adding `"backup_path"` re-derives
+   the manifest from an existing verified snapshot without touching the store.
+   Review the manifest privately; it identifies store rows, so keep it out of
+   repositories and public records.
+2. Clear: pipe `{"action":"clear","backup_path":"<inspected snapshot>",
+   "manifest":<reviewed manifest>,"idempotency_key":"<new key>"}`. The command
+   uses the manifest as given and never regenerates it. It refuses the whole
+   operation unless the snapshot sits in the data root's `backups` directory
+   with its matching hold, the snapshot still yields the manifest, and the
+   store's candidates, graph and receipts match it exactly. Repeating the same request returns the
+   recorded result, even after the snapshot moves.
+3. Verify: send the clear's input with `"action":"verify"` and the clear's
+   key. It reads only, and classifies each candidate as treated, restored, gone
+   or changed, with digest preservation. A verify result is not acceptance.
+4. Undo: send the clear's input with `"action":"undo"`, a new
+   `idempotency_key` and the clear's key as `"clear_key"`. Undo first takes a
+   held safety snapshot, then restores, from the original treatment snapshot,
+   only rows still exactly as the clear left them. It reports gone and changed
+   rows and never reinserts a relation.
+
+Keep the treatment snapshot and its hold until undo is no longer needed. Every
+hold defers managed snapshot cleanup; release one by removing the exact hold
+file. A refusal before treatment closes the fence and writes no row. A clear
+or undo failure that may have written reports `fence retained: true`: keep
+sessions stopped, close the boundary through the offline bootstrap, then repeat
+the same request. A committed operation replays its recorded result; an
+uncommitted one re-checks the manifest. A crash can leave a hidden
+`.concord-attribution-*` copy of a snapshot, with SQLite sidecars, beside it.
+The copy holds store data; delete it while no attribution command runs.
+
 ### Managed snapshot retention
 
 After a successful upgrade that made a verified snapshot, Concord

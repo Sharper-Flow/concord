@@ -393,9 +393,13 @@ type upgradeFence struct {
 	id            string
 	owned         bool
 	strictCompact bool
+	commandName   string
 }
 
 func (boundary upgradeFence) command() string {
+	if boundary.commandName != "" {
+		return boundary.commandName
+	}
 	if boundary.strictCompact {
 		return "compact"
 	}
@@ -524,7 +528,7 @@ func (boundary upgradeFence) observeSessions(maintenanceRequired, confirmSession
 		if len(legacy) > 0 {
 			boundary.close(errOut)
 			if boundary.strictCompact {
-				writeOperatorDiagnostic(errOut, "compact", "store maintenance refuses unfenceable live sessions: "+strings.Join(legacy, "; "))
+				writeOperatorDiagnostic(errOut, boundary.command(), "store maintenance refuses unfenceable live sessions: "+strings.Join(legacy, "; "))
 				return nil, 1
 			}
 			writeOperatorDiagnostic(errOut, "upgrade",
@@ -545,13 +549,13 @@ func (boundary upgradeFence) observeSessions(maintenanceRequired, confirmSession
 		selfRoot, _, err := selfRelease()
 		if err != nil {
 			boundary.close(errOut)
-			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
+			writeOperatorDiagnostic(errOut, boundary.command(), diagnosticText(err))
 			return nil, 1
 		}
 		unfenceable, err := unfenceableReleaseRoots(dataRoot, selfRoot)
 		if err != nil {
 			boundary.close(errOut)
-			writeOperatorDiagnostic(errOut, "upgrade", "cannot enumerate installed release trees: "+diagnosticText(err))
+			writeOperatorDiagnostic(errOut, boundary.command(), "cannot enumerate installed release trees: "+diagnosticText(err))
 			return nil, 1
 		}
 		if len(unfenceable) > 0 && !confirmSessionsStopped {
@@ -574,7 +578,7 @@ func (boundary upgradeFence) observeSessions(maintenanceRequired, confirmSession
 func (boundary upgradeFence) refuseUnfenceable(roots []string, errOut io.Writer) {
 	boundary.close(errOut)
 	if boundary.strictCompact {
-		writeOperatorDiagnostic(errOut, "compact", "release tree(s) without a fence-protocol marker cannot be excluded: "+strings.Join(roots, "; ")+"; compact refuses until those release trees can honor the fence")
+		writeOperatorDiagnostic(errOut, boundary.command(), "release tree(s) without a fence-protocol marker cannot be excluded: "+strings.Join(roots, "; ")+"; maintenance refuses until those release trees can honor the fence")
 		return
 	}
 	writeOperatorDiagnostic(errOut, "upgrade",
@@ -720,7 +724,7 @@ func decodeReleaseInput(args []string, in io.Reader, errOut io.Writer, command s
 		writeCommandUsageSection(errOut, command)
 		return 2
 	}
-	if command == "upgrade" || command == "compact" {
+	if command == "upgrade" || command == "compact" || command == "relation-attribution" {
 		if file, ok := in.(*os.File); ok {
 			var terminal syscall.Termios
 			_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), syscall.TCGETS, uintptr(unsafe.Pointer(&terminal))) //nolint:gosec // TCGETS writes to a correctly sized Termios buffer; no request data enters the ioctl.
@@ -728,6 +732,9 @@ func decodeReleaseInput(args []string, in io.Reader, errOut io.Writer, command s
 				message := `upgrade requires JSON on stdin; pipe '{}' for defaults or '{"plan":true}' for a read-only plan`
 				if command == "compact" {
 					message = `compact requires JSON on stdin; pipe '{}'`
+				}
+				if command == "relation-attribution" {
+					message = `relation-attribution requires a JSON action on stdin`
 				}
 				writeOperatorDiagnostic(errOut, command, message)
 				return 1

@@ -18,11 +18,12 @@ const workListProjectionDetail = "work-list-projection"
 // continuation. The outer signed cursor binds the query and authenticates the
 // digest, which detects changes to the recaptured document.
 type workListProjectionCursor struct {
-	Version        int    `json:"v"`
-	ListCursor     string `json:"list_cursor"`
-	SourceRevision string `json:"source_revision"`
-	Digest         string `json:"digest"`
-	NextByteOffset int64  `json:"next_byte_offset"`
+	Version        int     `json:"v"`
+	ListCursor     string  `json:"list_cursor"`
+	SourceRevision string  `json:"source_revision"`
+	NextListCursor *string `json:"next_list_cursor"`
+	Digest         string  `json:"digest"`
+	NextByteOffset int64   `json:"next_byte_offset"`
 }
 
 // workListProjectionPage renders only the captured Q3 page. Fit candidates never
@@ -34,6 +35,7 @@ func (r runtime) workListProjectionPage(ctx context.Context, base agentcontract.
 	}
 	if cursor.SourceRevision == "" {
 		cursor.SourceRevision = strconv.FormatInt(captured.SourceVersionWatermark, 10)
+		cursor.NextListCursor = captured.NextCursor
 	}
 	doc := inline.Result
 	digest := sha256Hex(doc)
@@ -49,11 +51,11 @@ func (r runtime) workListProjectionPage(ctx context.Context, base agentcontract.
 	}
 	at := func(n int) (agentcontract.Envelope, int, error) {
 		end := offset + n
-		nextCursor := captured.NextCursor
+		nextCursor := cursor.NextListCursor
 		var nextKind any
 		if end < len(doc) {
 			nextKind = "projection"
-			raw, err := json.Marshal(workListProjectionCursor{Version: 1, ListCursor: cursor.ListCursor, SourceRevision: cursor.SourceRevision, Digest: digest, NextByteOffset: int64(end)})
+			raw, err := json.Marshal(workListProjectionCursor{Version: 1, ListCursor: cursor.ListCursor, SourceRevision: cursor.SourceRevision, NextListCursor: cursor.NextListCursor, Digest: digest, NextByteOffset: int64(end)})
 			if err != nil {
 				return base, 0, err
 			}

@@ -232,6 +232,79 @@ func TestFullWorkListProjectionAfterInlinePageAndUnrelatedWrite(t *testing.T) {
 	}
 }
 
+func TestFullWorkListProjectionTailLeavesBeforeFragmentCompletion(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s, r, base := projectionFixture(t)
+	if err := pm1fixture.SeedWorkItem(ctx, s, "project-1", "work-2", "work-2", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET lifecycle='needed', created_at=CASE id WHEN 'work-1' THEN '2026-01-02T00:00:00Z' ELSE '2026-01-01T00:00:00Z' END; DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	input := map[string]any{"product_id": "product-1", "detail": "full", "limit": 1, "lifecycle": "needed"}
+	read := func() agentcontract.Envelope {
+		t.Helper()
+		raw, _ := json.Marshal(input)
+		out, err := r.read(ctx, base, raw, "PM1.Q3")
+		if err != nil || out.Outcome != agentcontract.OutcomeOK {
+			t.Fatalf("list: %v %+v", err, out.Error)
+		}
+		assertBoundedRead(t, out)
+		return out
+	}
+	fragment := read()
+	var part workListTestFragment
+	if err := json.Unmarshal(fragment.Result, &part); err != nil || part.Encoding != "json-fragment" || part.Complete || fragment.NextCursor == nil {
+		t.Fatalf("first fragment: %s %+v", fragment.Result, fragment.Error)
+	}
+	before, err := s.Revision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET lifecycle='in_progress' WHERE id='work-2'; DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transact(ctx, func(*store.Transaction) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	after, err := s.Revision(ctx)
+	if err != nil || after <= before {
+		t.Fatalf("revision: %d -> %d: %v", before, after, err)
+	}
+	document := []byte(part.Data)
+	digest := part.Digest
+	for !part.Complete {
+		input["page"] = map[string]any{"cursor": *fragment.NextCursor}
+		fragment = read()
+		if err := json.Unmarshal(fragment.Result, &part); err != nil || part.Offset != len(document) || part.Digest != digest {
+			t.Fatalf("fragment: %+v %v", part, err)
+		}
+		document = append(document, part.Data...)
+		if !part.Complete && fragment.NextCursor == nil {
+			t.Fatal("missing fragment continuation")
+		}
+	}
+	var page struct {
+		Items []workSummary `json:"items"`
+	}
+	if len(document) != part.TotalBytes || sha256Hex(document) != digest || json.Unmarshal(document, &page) != nil || len(page.Items) != 1 || page.Items[0].ID != "work-1" || page.Items[0].Task != strings.Repeat("<", 8192) {
+		t.Fatal("fragment reconstruction changed the captured item")
+	}
+	if len(fragment.SourceVersionWatermark) != 1 || fragment.SourceVersionWatermark[0].Version != strconv.FormatInt(after, 10) {
+		t.Fatalf("wrong latest watermark: %+v", fragment.SourceVersionWatermark)
+	}
+	if part.NextKind == nil || *part.NextKind != "items" || fragment.NextCursor == nil {
+		t.Fatal("lost original item continuation after tail left filter")
+	}
+	input["page"] = map[string]any{"cursor": *fragment.NextCursor}
+	raw, _ := json.Marshal(input)
+	stale, err := r.read(ctx, base, raw, "PM1.Q3")
+	if err != nil || stale.Error == nil || stale.Error.Kind != "invalid_cursor" || stale.Error.RecoveryAction.Kind != "restart_query" {
+		t.Fatalf("stale item continuation: %+v %v", stale.Error, err)
+	}
+}
+
 func TestFullWorkListProjectionCursorIntegrity(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()

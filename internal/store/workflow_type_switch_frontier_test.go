@@ -49,14 +49,15 @@ func TestWorkflowTypeSwitchFrontierTypedActions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			advertised := false
+			advertised := map[string]bool{}
 			for _, intent := range pin.NextValidIntents {
-				if intent.ActionID == action {
-					advertised = true
-				}
+				advertised[intent.ActionID] = true
 			}
-			if !advertised {
+			if !advertised[action] {
 				t.Fatalf("pin does not advertise %s", action)
+			}
+			if advertised["record_delivery"] {
+				t.Fatal("pin advertises an action no frontier step admits")
 			}
 			if err := act("complete_step", map[string]any{"step_id": "implement", "note": "Not yet."}); err == nil {
 				t.Fatal("non-frontier step accepted")

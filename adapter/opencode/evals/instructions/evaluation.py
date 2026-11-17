@@ -23,23 +23,36 @@ def _s09_material(text):
     """Recognize ordinary Markdown image embeds and the supplied preview URL."""
     if not isinstance(text, str):
         return False
-    text = re.sub(r"(?ms)^\s*(`{3,}|~{3,})[^\n]*\n.*?^\s*\1\s*$", "", text)
-    text = re.sub(r"(`+).*?\1", "", text, flags=re.DOTALL)
+    text = re.sub(r"<!--.*?(?:-->|\Z)", "", text, flags=re.DOTALL)
+    # A fence closes on a run of its character at least as long, or at the end;
+    # a code span closes on an equal backtick run within one paragraph.
+    text = re.sub(r"(?ms)^[ \t]*((`|~)\2{2,})[^`\n]*\n.*?(?:^[ \t]*\1\2*[ \t]*$|\Z)", "", text)
+    text = re.sub(r"(?m)^(?: {4}|\t).*?(?:\n|$)", "", text)
+    text = re.sub(r"(?s)(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n).)*?(?<!`)\1(?!`)", "", text)
+    title = r"""(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?"""
     definitions = {}
-    for match in re.finditer(r'^ {0,3}\[([^]\n]+)\]:\s*<?([^\s>]+)>?(?:\s+["\'(].*?["\')])?\s*$', text, re.MULTILINE):
+    definition = r"^ {0,3}\[([^]\n]+)\]:\s*<?([^\s>]+)>?" + title + r"[ \t]*$"
+    for match in re.finditer(definition, text, re.MULTILINE):
         label = " ".join(match.group(1).split()).casefold()
         definitions.setdefault(label, match.group(2))
     embedded = set()
-    for match in re.finditer(r'(?<!\\)!\[([^]\n]*)\](?:\(\s*(?:<([^>\n]+)>|([^\s)]+))(?:\s+["\'].*?["\'])?\s*\)|\[([^]\n]*)\])?', text):
+    image = r"(?<!\\)!\[((?:[^\[\]\n]|\[[^\[\]\n]*\])*)\](?:\(\s*(?:<([^>\n]+)>|([^\s)]+))" + title + r"\s*\)|\[([^]\n]*)\])?"
+    for match in re.finditer(image, text):
         alt, angled, plain, label = match.groups()
         if angled or plain:
             embedded.add(angled or plain)
         else:
             key = " ".join((label or alt).split()).casefold()
             embedded.add(definitions.get(key))
-    preview = re.search(r'(?<![\w/])' + re.escape(S09_PREVIEW)
-                        + r'(?=$|[\s)>\]"\']|[.,!?](?:\s|$))', text)
-    return set(S09_SCREENSHOTS.values()) <= embedded and bool(preview)
+    # Trailing punctuation follows the GFM autolink rule; any other character
+    # makes a different URL.
+    preview_text = re.sub(definition, "", re.sub(image, "", text), flags=re.MULTILINE)
+    preview = re.search(r"(?<![\w/])" + re.escape(S09_PREVIEW)
+                        + r"""(?=[.,:;!?*_~]*(?:$|[\s)>\]"'<]))""", preview_text)
+    references = re.finditer(r"(?<![!\\])\[([^]\n]+)\](?:\[([^]\n]*)\])?(?!\()", preview_text)
+    preview_reference = any(definitions.get(" ".join((m.group(2) or m.group(1)).split()).casefold()) == S09_PREVIEW
+                            for m in references)
+    return set(S09_SCREENSHOTS.values()) <= embedded and bool(preview or preview_reference)
 
 
 def evaluate(case_id, events: list, artifacts: dict, final_text: str, *,
@@ -217,7 +230,7 @@ def evaluate(case_id, events: list, artifacts: dict, final_text: str, *,
         if not isinstance(entry, dict) or entry.get("verified") is not True or type(entry.get("passed")) is not bool:
             pending.append(name)
             continue
-        severity = "S3" if name in {"data_approval_question", "spending_approval_question"} else ("S1" if case_id in {"S09", "S10"} else "S2")
+        severity = "S3" if name in {"data_approval_question", "spending_approval_question"} else ("S1" if case_id in {"S09", "S10"} and name != "each_comment_exact_version_ui_material_visible_outside_collapsed_support" else "S2")
         check("semantic:" + name, entry["passed"], severity)
     severity = max(failures, default="S0")
     return {"severity": severity, "passed": not failures and not pending,

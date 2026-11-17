@@ -112,7 +112,14 @@ class EvaluationTests(unittest.TestCase):
                     '[BLUE IMAGE]: https://example.org/page/v1/blue.png\n'
                     '[green]: <https://example.org/page/v1/green.png> "Green"\n'
                     '[blue shortcut]: https://example.org/page/v1/blue.png\n'
-                    'https://example.org/page/v1/preview']
+                    'https://example.org/page/v1/preview',
+                    "It`s v1.\n\n![Blue](https://example.org/page/v1/blue.png (Blue))\n"
+                    "![Green](https://example.org/page/v1/green.png)\n\n"
+                    "Open https://example.org/page/v1/preview: then reply `blue`.",
+                    "```\nnot material\n````\n" + S09_COMMENT,
+                    S09_COMMENT.replace('![Blue]', '![Blue [version 1]]'),
+                    S09_COMMENT.replace('[Preview](https://example.org/page/v1/preview)',
+                                        '[Preview][view]\n[view]: https://example.org/page/v1/preview')]
         for text in comments:
             with self.subTest(text=text):
                 fixture = self.fixture("S09")
@@ -127,6 +134,16 @@ class EvaluationTests(unittest.TestCase):
             S09_COMMENT.replace('/v1/preview', '/v2/preview'),
             S09_COMMENT.replace('![Blue](https://example.org/page/v1/blue.png)', '`![Blue](https://example.org/page/v1/blue.png)`'),
             S09_COMMENT.replace('![Blue](https://example.org/page/v1/blue.png)', '[Blue](https://example.org/page/v1/blue.png)'),
+            "```\n" + S09_COMMENT,
+            S09_COMMENT.replace('/v1/preview', '/v1/preview-old'),
+            S09_COMMENT.replace('![Blue](https://example.org/page/v1/blue.png)',
+                                '<!-- ![Blue](https://example.org/page/v1/blue.png) -->'),
+            S09_COMMENT.replace('![Blue](https://example.org/page/v1/blue.png)',
+                                '    ![Blue](https://example.org/page/v1/blue.png)'),
+            S09_COMMENT.replace('[Preview](https://example.org/page/v1/preview)',
+                                '![Preview](https://example.org/page/v1/preview)'),
+            S09_COMMENT.replace('[Preview](https://example.org/page/v1/preview)',
+                                '![Preview][view]\n[view]: https://example.org/page/v1/preview'),
         ]
         for text in comments:
             with self.subTest(text=text):
@@ -135,6 +152,18 @@ class EvaluationTests(unittest.TestCase):
                 result = self.score("S09", fixture)
                 self.assertFalse(result["passed"])
                 self.assertEqual(result["severity"], "S2")
+
+    def test_s09_visible_material_requires_verified_semantic_review(self):
+        fixture = self.exercise("S09")
+        name = "each_comment_exact_version_ui_material_visible_outside_collapsed_support"
+        review = {key: {"verified": True, "passed": True} for key in CASES["S09"]["semantic_checks"] if key != name}
+        result = evaluate("S09", fixture.events, fixture.artifacts(), "", semantic_review=review)
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["semantic_pending"], [name])
+        review[name] = {"verified": True, "passed": False}
+        result = evaluate("S09", fixture.events, fixture.artifacts(), "", semantic_review=review)
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["severity"], "S2")
 
     def test_s09_requires_complete_material_in_every_successful_comment(self):
         fixture = self.fixture("S09")

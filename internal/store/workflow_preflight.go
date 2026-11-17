@@ -448,6 +448,13 @@ func workflowPlanFrontierAdmissionTx(ctx context.Context, tx *sql.Tx, workID, ac
 			return step, err
 		}
 	default:
+		if plan != nil {
+			for _, candidate := range WorkflowStepPlanFrontier(*plan) {
+				if workflowStepDeclaresAction(plan, candidate.ID, actionID) {
+					return candidate.ID, nil
+				}
+			}
+		}
 		if !workflowPlanAllowsAction(plan, step, actionID) {
 			owner, err := workflowPlanCompleteActionTx(ctx, tx, workID, plan, actionID, false)
 			if err != nil {

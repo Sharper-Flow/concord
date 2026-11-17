@@ -618,10 +618,20 @@ func workflowStepDeclaresAction(plan *WorkflowStepPlan, stepID, actionID string)
 	if !ok {
 		return false
 	}
+	return slices.Contains(workflowPlanStepActions(plan, step), actionID)
+}
+
+func workflowPlanStepActions(plan *WorkflowStepPlan, step WorkflowPlanStep) []string {
 	if step.Required {
-		return slices.Contains(WorkflowStepPlanTemplateActions(plan.Type, stepID), actionID)
+		if actions := WorkflowStepPlanTemplateActions(plan.Type, step.ID); actions != nil {
+			return actions
+		}
+		if step.Reviewed {
+			return []string{"complete_step", "record_review"}
+		}
+		return []string{"complete_step"}
 	}
-	return slices.Contains([]string{"complete_step", "record_review", "record_delivery", "link_successor", "bind_evidence"}, actionID)
+	return []string{"complete_step", "record_review", "record_delivery", "link_successor", "bind_evidence"}
 }
 
 func workflowPlanAllowsAction(plan *WorkflowStepPlan, stepID, actionID string) bool {

@@ -449,11 +449,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 256,
-      "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
-      "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..256 code points inclusive; example: \"a\"",
-      "examples": [
-        "a"
-      ]
+      "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
     },
     "short": {
       "type": "string",
@@ -1062,7 +1058,7 @@
       "properties": {
         "home_domain_id": {
           "$ref": "#/$defs/domain_id",
-          "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..256 code points inclusive; example: \"a\"",
+          "description": "The home Domain must be in affected_domain_ids. Domain IDs contain 1..256 UTF-8 bytes, without leading or trailing whitespace. Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..256 code points inclusive; example: \"a\"",
           "examples": [
             "a"
           ]
@@ -1074,12 +1070,12 @@
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/domain_id",
-            "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..256 code points inclusive; example: \"a\"",
+            "description": "Domain IDs contain 1..256 UTF-8 bytes, without leading or trailing whitespace. Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..256 code points inclusive; example: \"a\"",
             "examples": [
               "a"
             ]
           },
-          "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..64 items inclusive; example: [\"a\"]",
+          "description": "Every affected Domain must be current unless declared in domain_additions. Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..64 items inclusive; example: [\"a\"]",
           "examples": [
             [
               "a"
@@ -1092,12 +1088,12 @@
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/domain_id",
-            "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..256 code points inclusive; example: \"a\"",
+            "description": "Domain IDs contain 1..256 UTF-8 bytes, without leading or trailing whitespace. Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..256 code points inclusive; example: \"a\"",
             "examples": [
               "a"
             ]
           },
-          "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: <=64 items inclusive; example: []",
+          "description": "Each addition must be affected, absent from the registry, disjoint from domain_modifies, and home at least one law addition. Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: <=64 items inclusive; example: []",
           "examples": [
             []
           ]
@@ -1108,12 +1104,12 @@
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/domain_id",
-            "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..256 code points inclusive; example: \"a\"",
+            "description": "Domain IDs contain 1..256 UTF-8 bytes, without leading or trailing whitespace. Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..256 code points inclusive; example: \"a\"",
             "examples": [
               "a"
             ]
           },
-          "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: <=64 items inclusive; example: []",
+          "description": "Every modified Domain must be affected. Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: <=64 items inclusive; example: []",
           "examples": [
             []
           ]
@@ -1132,7 +1128,7 @@
             "properties": {
               "source_domain_id": {
                 "$ref": "#/$defs/domain_id",
-                "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..256 code points inclusive; example: \"a\"",
+                "description": "Domain IDs contain 1..256 UTF-8 bytes, without leading or trailing whitespace. Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..256 code points inclusive; example: \"a\"",
                 "examples": [
                   "a"
                 ]
@@ -1151,22 +1147,22 @@
               },
               "target_domain_id": {
                 "$ref": "#/$defs/domain_id",
-                "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..256 code points inclusive; example: \"a\"",
+                "description": "Domain IDs contain 1..256 UTF-8 bytes, without leading or trailing whitespace. Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..256 code points inclusive; example: \"a\"",
                 "examples": [
                   "a"
                 ]
               }
             },
-            "description": "Accepted shape: object; example: {\"kind\":\"depends_on\",\"source_domain_id\":\"a\",\"target_domain_id\":\"a\"}",
+            "description": "Accepted shape: object; example: {\"kind\":\"depends_on\",\"source_domain_id\":\"a\",\"target_domain_id\":\"b\"}",
             "examples": [
               {
                 "kind": "depends_on",
                 "source_domain_id": "a",
-                "target_domain_id": "a"
+                "target_domain_id": "b"
               }
             ]
           },
-          "description": "Accepted shape: array of object; Bounds: <=64 items inclusive; example: []",
+          "description": "Each source/kind/target tuple must be unique and name a current registry relation with distinct affected endpoints; order shares_contract_with endpoints lexically. Accepted shape: array of object; Bounds: <=64 items inclusive; example: []",
           "examples": [
             []
           ]
@@ -1184,14 +1180,14 @@
             "properties": {
               "law_id": {
                 "$ref": "#/$defs/law_id",
-                "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
+                "description": "Law IDs contain 2..256 UTF-8 bytes, without leading or trailing whitespace. Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
                 "examples": [
                   "aa"
                 ]
               },
               "home_domain_id": {
                 "$ref": "#/$defs/domain_id",
-                "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..256 code points inclusive; example: \"a\"",
+                "description": "Domain IDs contain 1..256 UTF-8 bytes, without leading or trailing whitespace. Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..256 code points inclusive; example: \"a\"",
                 "examples": [
                   "a"
                 ]
@@ -1205,7 +1201,7 @@
               }
             ]
           },
-          "description": "Accepted shape: array of object; Bounds: <=32 items inclusive; example: []",
+          "description": "Each law addition must be authorized by spec_mandate and disjoint from law_modifies and existing law. Each addition must have an affected home. Reserve each resolved identity once: a bare ID and its own-home qualified spelling are the same identity. The resolved identity must contain 2..256 UTF-8 bytes without leading or trailing whitespace. An existing reservation must belong to the same work and home Domain. Accepted shape: array of object; Bounds: <=32 items inclusive; example: []",
           "examples": [
             []
           ]
@@ -1223,28 +1219,28 @@
             "properties": {
               "law_id": {
                 "$ref": "#/$defs/law_id",
-                "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
+                "description": "Law IDs contain 2..256 UTF-8 bytes, without leading or trailing whitespace. Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 2..256 code points inclusive; example: \"aa\"",
                 "examples": [
                   "aa"
                 ]
               },
               "obligation_id": {
-                "$ref": "#/$defs/obligation_id",
-                "description": "Accepted shape: string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 1..256 code points inclusive; example: \"a\"",
+                "$ref": "#/$defs/workflow_obligation_evidence_kind",
+                "description": "Accepted shape: one of \"verification\", \"review\", \"approval\", \"commit\", \"durable_note\", \"native_run\", \"artifact\"; example: \"verification\"",
                 "examples": [
-                  "a"
+                  "verification"
                 ]
               }
             },
-            "description": "Accepted shape: object; example: {\"law_id\":\"aa\",\"obligation_id\":\"a\"}",
+            "description": "Accepted shape: object; example: {\"law_id\":\"aa\",\"obligation_id\":\"verification\"}",
             "examples": [
               {
                 "law_id": "aa",
-                "obligation_id": "a"
+                "obligation_id": "verification"
               }
             ]
           },
-          "description": "Accepted shape: array of object; Bounds: <=64 items inclusive; example: []",
+          "description": "Evidence obligations must name a kind in the closed evidence kind set and a current mandated law. Each law/kind tuple must be unique. The law must appear with exactly the same spelling in the remaining spec_mandate after law additions are removed; added laws cannot be obligations. Accepted shape: array of object; Bounds: <=64 items inclusive; example: []",
           "examples": [
             []
           ]
@@ -4463,7 +4459,7 @@
               },
               "minItems": 0,
               "maxItems": 32,
-              "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
+              "description": "Entries must be unique and appear in spec_mandate with exactly the same spelling. Each must name committed current law; when architecture_binding is present, its home Domain must be in affected_domain_ids. Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
               "examples": [
                 []
               ]
@@ -5468,7 +5464,7 @@
           },
           "minItems": 0,
           "maxItems": 32,
-          "description": "Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
+          "description": "Entries must be unique and appear in spec_mandate with exactly the same spelling. Each must name committed current law; when architecture_binding is present, its home Domain must be in affected_domain_ids. Accepted shape: array of string matching ^\\S(?:[\\s\\S]*\\S)?$; Bounds: 0..32 items inclusive; example: []",
           "examples": [
             []
           ]
@@ -6243,6 +6239,22 @@
       "maxLength": 2048,
       "pattern": "\\S",
       "description": "Bounds: 1..2048 code points inclusive"
+    },
+    "workflow_obligation_evidence_kind": {
+      "type": "string",
+      "enum": [
+        "verification",
+        "review",
+        "approval",
+        "commit",
+        "durable_note",
+        "native_run",
+        "artifact"
+      ],
+      "description": "Accepted shape: one of \"verification\", \"review\", \"approval\", \"commit\", \"durable_note\", \"native_run\", \"artifact\"; example: \"verification\"",
+      "examples": [
+        "verification"
+      ]
     }
   }
 }

@@ -31,6 +31,18 @@ func firstCallPublishedDefs(t *testing.T) map[string]any {
 	return doc.Defs
 }
 
+func TestFirstCallObligationEvidenceKindParity(t *testing.T) {
+	defs := firstCallPublishedDefs(t)
+	schema := defs["workflow_obligation_evidence_kind"].(map[string]any)
+	var got []string
+	for _, kind := range schema["enum"].([]any) {
+		got = append(got, kind.(string))
+	}
+	if want := evidenceStrings(workflowEvidenceKinds); !slices.Equal(got, want) {
+		t.Fatalf("published obligation kinds = %v, store admits %v", got, want)
+	}
+}
+
 func firstCallResolve(defs map[string]any, node map[string]any) map[string]any {
 	resolved := node
 	for {

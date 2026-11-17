@@ -15,6 +15,56 @@ payload_schema = json.loads((ROOT / "contracts/agent-tool-surface-payloads.schem
 
 
 class RetainedWorkflowPayloadTests(unittest.TestCase):
+    def test_architecture_obligation_teaches_closed_evidence_kinds(self):
+        binding = payload_schema["$defs"]["architecture_binding"]
+        obligation = binding["properties"]["verification_obligations"]["items"]["properties"]["obligation_id"]
+        self.assertEqual(obligation_ref := obligation.get("$ref"), "#/$defs/workflow_obligation_evidence_kind")
+        self.assertEqual(payload_schema["$defs"][obligation_ref.split("/")[-1]]["enum"],
+                         ["verification", "review", "approval", "commit", "durable_note", "native_run", "artifact"])
+        self.assertIn("verification", obligation.get("examples", []))
+
+    def test_architecture_binding_teaches_cross_field_admission(self):
+        defs = payload_schema["$defs"]
+        fields = defs["architecture_binding"]["properties"]
+        for name, phrases in {
+            "home_domain_id": ["affected_domain_ids"],
+            "affected_domain_ids": ["current", "domain_additions"],
+            "domain_additions": ["absent", "disjoint", "home at least one"],
+            "domain_modifies": ["affected"],
+            "domain_relation_modifies": ["unique", "distinct", "affected endpoints", "lexically", "current registry"],
+            "law_additions": ["spec_mandate", "affected home", "law_modifies", "existing law", "own-home", "same work and home Domain", "resolved identity", "UTF-8 bytes without leading or trailing whitespace"],
+            "verification_obligations": ["unique", "current", "exactly the same spelling", "added laws"],
+        }.items():
+            for phrase in phrases:
+                with self.subTest(field=name, phrase=phrase):
+                    self.assertIn(phrase, fields[name]["description"])
+        for name in ("workflow_contract_update", "work_transition_action_variant_approve_contract"):
+            schema = defs[name]
+            if name.startswith("work_transition"):
+                schema = schema["properties"]["fields"]
+            description = schema["properties"]["law_modifies"]["description"]
+            self.assertIn("exactly the same spelling", description)
+            self.assertIn("unique", description)
+            self.assertIn("when architecture_binding is present", description)
+
+    def test_architecture_id_byte_guidance_reaches_each_binding_path(self):
+        fields = payload_schema["$defs"]["architecture_binding"]["properties"]
+        domain_nodes = [fields["home_domain_id"]]
+        domain_nodes += [fields[name]["items"] for name in ("affected_domain_ids", "domain_additions", "domain_modifies")]
+        relation = fields["domain_relation_modifies"]["items"]["properties"]
+        addition = fields["law_additions"]["items"]["properties"]
+        obligation = fields["verification_obligations"]["items"]["properties"]
+        domain_nodes += [relation["source_domain_id"], relation["target_domain_id"], addition["home_domain_id"]]
+        for node in domain_nodes:
+            self.assertIn("1..256 UTF-8 bytes", node["description"])
+        for node in (addition["law_id"], obligation["law_id"]):
+            self.assertIn("2..256 UTF-8 bytes", node["description"])
+
+    def test_architecture_relation_example_has_distinct_endpoints(self):
+        item = payload_schema["$defs"]["architecture_binding"]["properties"]["domain_relation_modifies"]["items"]
+        example = item["examples"][0]
+        self.assertNotEqual(example["source_domain_id"], example["target_domain_id"])
+
     def test_evidence_binding_accepts_optional_producer_watermark(self):
         schema = payload_schema["$defs"]["work_transition_action_variant_bind_evidence"]
         call = {"work_id": "work-1", "expected_version": 1, "action_id": "bind_evidence",
@@ -1707,8 +1757,10 @@ class ProjectionAdmissionTests(unittest.TestCase):
     def canned(actions):
         teaching = {rule: "rule" for rule in (
             "spec_mandate_rule", "law_addition_mandate_rule", "obligation_membership_rule",
-            "architecture_domain_rule")}
+            "architecture_domain_rule", "law_modifies_rule", "domain_id_rule", "law_id_rule")}
         teaching["action_rules"] = {}
+        teaching["architecture_fields"] = {}
+        teaching["evidence_kinds"] = ["verification"]
         return json.dumps({
             "schema_version": "2.0", "actions": actions,
             "teaching": teaching, "schema_refs": {"current": []},

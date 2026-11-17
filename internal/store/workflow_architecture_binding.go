@@ -162,7 +162,7 @@ func uniqueDomainBindingIDs(values []string) bool {
 // architectureBindingCurrentMandate and validateLawModificationSubset
 // enforce; the teaching projection beside this guard publishes the same
 // text, so the published guidance cannot drift from admission.
-const workflowLawAdditionMandateTeaching = "Every law addition must be authorized by spec_mandate of the contract being approved and must stay disjoint from law modifications and existing law; the store refuses an addition outside the mandate."
+const workflowLawAdditionMandateTeaching = "Each law addition must be authorized by spec_mandate and disjoint from law_modifies and existing law."
 
 // workflowArchitectureDomainTeaching states the Domain-membership rule the
 // binding guards enforce: additions are explicit and absent from the registry,
@@ -200,14 +200,26 @@ func architectureBindingCurrentMandate(specMandate []string, homeProjectID strin
 
 const workflowObligationMembershipTeaching = "Evidence obligations must name a kind in the closed evidence kind set and a current mandated law."
 
+var workflowArchitectureFieldTeaching = map[string]string{
+	"home_domain_id":           "The home Domain must be in affected_domain_ids.",
+	"affected_domain_ids":      "Every affected Domain must be current unless declared in domain_additions.",
+	"domain_additions":         "Each addition must be affected, absent from the registry, disjoint from domain_modifies, and home at least one law addition.",
+	"domain_modifies":          "Every modified Domain must be affected.",
+	"domain_relation_modifies": "Each source/kind/target tuple must be unique and name a current registry relation with distinct affected endpoints; order shares_contract_with endpoints lexically.",
+	"law_additions":            workflowLawAdditionMandateTeaching + " Each addition must have an affected home. Reserve each resolved identity once: a bare ID and its own-home qualified spelling are the same identity. The resolved identity must contain 2..256 UTF-8 bytes without leading or trailing whitespace. An existing reservation must belong to the same work and home Domain.",
+	"verification_obligations": workflowObligationMembershipTeaching + " Each law/kind tuple must be unique. The law must appear with exactly the same spelling in the remaining spec_mandate after law additions are removed; added laws cannot be obligations.",
+}
+
 // WorkflowContractTeaching carries the typed descriptions of the relational
-// and live-context constraints the store enforces. Every rule is a
-// constant defined beside its enforcing owner, so the generated publication
-// and the refusal guidance cannot
-// drift from admission. The projection in scripts/workflow-action-contracts
-// renders these strings into the published schema; no second policy enforces
-// them.
+// and live-context constraints the store enforces. The projection in
+// scripts/workflow-action-contracts publishes these guard-owned descriptions;
+// no second policy enforces them.
 type WorkflowContractTeaching struct {
+	ArchitectureFields map[string]string `json:"architecture_fields"`
+	EvidenceKinds      []string          `json:"evidence_kinds"`
+	LawModifiesRule    string            `json:"law_modifies_rule"`
+	DomainIDRule       string            `json:"domain_id_rule"`
+	LawIDRule          string            `json:"law_id_rule"`
 	// SpecMandateRule states the law-reference form the mandate guards
 	// parse and where non-law scope belongs instead.
 	SpecMandateRule string `json:"spec_mandate_rule"`
@@ -228,6 +240,11 @@ type WorkflowContractTeaching struct {
 // consuming each guard-site constant directly.
 func WorkflowContractTeachingRules(actions []WorkflowActionDefinition) WorkflowContractTeaching {
 	rules := WorkflowContractTeaching{
+		ArchitectureFields:       workflowArchitectureFieldTeaching,
+		EvidenceKinds:            evidenceStrings(workflowEvidenceKinds),
+		LawModifiesRule:          "Entries must be unique and appear in spec_mandate with exactly the same spelling. Each must name committed current law; when architecture_binding is present, its home Domain must be in affected_domain_ids.",
+		DomainIDRule:             "Domain IDs contain 1..256 UTF-8 bytes, without leading or trailing whitespace.",
+		LawIDRule:                "Law IDs contain 2..256 UTF-8 bytes, without leading or trailing whitespace.",
 		SpecMandateRule:          workflowSpecMandateTeaching,
 		LawAdditionMandateRule:   workflowLawAdditionMandateTeaching,
 		ObligationMembershipRule: workflowObligationMembershipTeaching,

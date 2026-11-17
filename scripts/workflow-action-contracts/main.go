@@ -104,6 +104,7 @@ func main() {
 		}
 	}
 	contracts := make(map[string]actionContract, len(actionIDs))
+	var actions []store.WorkflowActionDefinition
 	refs := map[string]bool{}
 	for id := range actionIDs {
 		action, err := store.WorkflowPlanActionContract(id)
@@ -111,6 +112,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+		actions = append(actions, action)
 		public := action.Payload
 		if action.PublicPayload != nil {
 			public = *action.PublicPayload
@@ -132,7 +134,7 @@ func main() {
 	for _, ref := range payloadSchemaRefs(update) {
 		refs[ref] = true
 	}
-	teaching := store.WorkflowContractTeachingRules()
+	teaching := store.WorkflowContractTeachingRules(actions)
 	projection := contractProjection{SchemaVersion: "2.0", Actions: make([]actionContract, 0, len(ids)), Teaching: contractTeaching{teaching.SpecMandateRule, teaching.LawAdditionMandateRule, teaching.ObligationMembershipRule, teaching.ArchitectureDomainRule, teaching.ActionRules}, SchemaRefs: schemaRefProjection{Current: sortedRefNames(refs)}, ContractUpdates: []store.WorkflowPayloadDefinition{update}}
 	for _, id := range ids {
 		projection.Actions = append(projection.Actions, contracts[id])

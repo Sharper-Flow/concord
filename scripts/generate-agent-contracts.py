@@ -725,6 +725,10 @@ def project_workflow_action_schema(document: dict, actions: list[dict], teaching
                 if branch not in branches:
                     branches.append(branch)
             field_object = closed_field_union(branches, defs, name)
+            if all(payload.get("closed") and not payload.get("fields") for payload in payloads):
+                rule = teaching.get("action_rules", {}).get(action_id)
+                if rule:
+                    field_object["description"] = rule
             properties["fields"] = field_object
             def requires_fields(branch: dict) -> bool:
                 return bool(branch.get("required")) or any(all(requires_fields(child) for child in branch[keyword]) for keyword in ("oneOf", "anyOf") if keyword in branch)

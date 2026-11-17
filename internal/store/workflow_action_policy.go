@@ -76,6 +76,8 @@ type WorkflowPayloadDefinition struct {
 	Fields []WorkflowPayloadField `json:"fields"`
 }
 
+const workflowFieldFreeActionTeaching = "Omit fields or send {}; this action accepts no fields. Put prose in complete_step.fields.note when completing that step."
+
 type WorkflowActionDefinition struct {
 	ID            string              `json:"id"`
 	Consequence   ActionConsequence   `json:"consequence"`

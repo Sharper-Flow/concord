@@ -140,6 +140,25 @@ test("the published workflow_action variants state each action's exact required 
   expect(JSON.stringify(schema)).not.toContain("max_millis")
 })
 
+test("field-free workflow actions teach their empty payload and step note", () => {
+  const schema = publishedSchema("concord_work_transition")
+  const expanded: any = expandedPublishedRequestSchema(schema)
+  for (const actionId of ["checkpoint_execution", "frame_research", "record_conclusion", "record_finding", "start_execution"]) {
+    const input = actionVariantInput(schema, actionId)
+    const branch = expanded.oneOf.find((candidate: any) => candidate.properties?.input?.properties?.action_id?.const === actionId)
+    for (const description of [branch?.description ?? input.description, input.properties.fields.description]) {
+      expect(description, actionId).toContain("Omit fields or send {}")
+      expect(description, actionId).toContain("complete_step.fields.note")
+    }
+    const minimal = { work_id: "work-test", expected_version: 1, action_id: actionId, idempotency_key: "idem-test" }
+    expect(validateAgainstSchema(input, minimal, []), actionId).toBe(true)
+    expect(validateAgainstSchema(input, { ...minimal, fields: {} }, []), actionId).toBe(true)
+    expect(validateAgainstSchema(input, { ...minimal, fields: { note: "prose" } }, []), actionId).toBe(false)
+  }
+  const premise = actionVariantInput(schema, "confirm_premise")
+  expect(premise.properties.fields).toBeUndefined()
+})
+
 // Multibyte parity, both directions, at the published boundary. The
 // store counts string bounds in UTF-8 bytes; the published code-point
 // minLength/maxLength are derived from the byte bounds (maxLength = byte

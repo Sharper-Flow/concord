@@ -191,7 +191,7 @@ func TestFullWorkListProjectionAfterInlinePageAndUnrelatedWrite(t *testing.T) {
 	if err := json.Unmarshal(fragment.Result, &part); err != nil || part.Encoding != "json-fragment" || part.Complete || fragment.NextCursor == nil {
 		t.Fatalf("first fragment: %s %+v", fragment.Result, fragment.Error)
 	}
-	inner, err := r.unwrapCursor(ctx, *fragment.NextCursor, pageBinding(workListInput{ProductID: "product-1", Detail: "full", Limit: 1}, func(in *workListInput) { in.Page.Cursor = nil }), "work-list-projection")
+	inner, err := r.unwrapCursor(ctx, *fragment.NextCursor, pageBinding(workListInput{ProductID: "product-1", Detail: "full", Limit: 1}, func(in *workListInput) { in.Page.Cursor = nil }), workListProjectionDetail)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestFullWorkListProjectionCursorIntegrity(t *testing.T) {
 		t.Fatalf("first projection: %s %+v %v", first.Result, first.Error, err)
 	}
 	binding := pageBinding(workListInput{ProductID: "product-1", Detail: "full", Limit: 1}, func(in *workListInput) { in.Page.Cursor = nil })
-	inner, err := r.unwrapCursor(ctx, *first.NextCursor, binding, "work-list-projection")
+	inner, err := r.unwrapCursor(ctx, *first.NextCursor, binding, workListProjectionDetail)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func TestFullWorkListProjectionCursorIntegrity(t *testing.T) {
 		envelope := first
 		value := string(raw)
 		envelope.NextCursor = &value
-		signed, err := r.wrapCursor(ctx, envelope, binding, "work-list-projection")
+		signed, err := r.wrapCursor(ctx, envelope, binding, workListProjectionDetail)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -375,7 +375,7 @@ func TestFullWorkListProjectionMultibyteEnvelopeFit(t *testing.T) {
 		t.Fatalf("missing multibyte fragment: %+v", first.Error)
 	}
 	binding := pageBinding(workListInput{ProductID: "product-1", Detail: "full", Limit: 1}, func(in *workListInput) { in.Page.Cursor = nil })
-	inner, err := r.unwrapCursor(ctx, *first.NextCursor, binding, "work-list-projection")
+	inner, err := r.unwrapCursor(ctx, *first.NextCursor, binding, workListProjectionDetail)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,7 +399,7 @@ func TestFullWorkListProjectionMultibyteEnvelopeFit(t *testing.T) {
 	innerValue := string(innerRaw)
 	malformed := first
 	malformed.NextCursor = &innerValue
-	malformed, err = r.wrapCursor(ctx, malformed, binding, "work-list-projection")
+	malformed, err = r.wrapCursor(ctx, malformed, binding, workListProjectionDetail)
 	if err != nil {
 		t.Fatal(err)
 	}

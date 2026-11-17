@@ -9,6 +9,10 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
+// workListProjectionDetail is the signed-cursor kind of a mid-document
+// work-list fragment continuation; every other work-list cursor is "summary".
+const workListProjectionDetail = "work-list-projection"
+
 // The original inner list cursor recaptures the same single-item document on
 // continuation. The outer signed cursor binds the query and authenticates the
 // digest, which detects changes to the recaptured document.
@@ -69,7 +73,7 @@ func (r runtime) workListProjectionPage(ctx context.Context, base agentcontract.
 		response.Omissions = append(response.Omissions, agentcontract.Notice{Kind: "work_list_projection_paged", Details: map[string]any{"total_bytes": len(doc), "offset": offset, "fragment_bytes": n, "remaining_bytes": len(doc) - end, "document_complete": end == len(doc)}})
 		detail := "summary"
 		if end < len(doc) {
-			detail = "work-list-projection"
+			detail = workListProjectionDetail
 		}
 		response, err = r.wrapCursor(ctx, response, binding, detail)
 		if err != nil {

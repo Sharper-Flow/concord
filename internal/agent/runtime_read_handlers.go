@@ -90,15 +90,15 @@ func (r runtime) readWorkList(ctx context.Context, base agentcontract.Envelope, 
 		var header struct {
 			Detail string `json:"detail"`
 		}
-		if json.Unmarshal(raw, &header) == nil && header.Detail == "work-list-projection" {
-			detail = header.Detail
+		if json.Unmarshal(raw, &header) == nil && header.Detail == workListProjectionDetail {
+			detail = workListProjectionDetail
 		}
 	}
 	inner, err := r.unwrapCursor(ctx, token, binding, detail)
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	if detail == "work-list-projection" {
+	if detail == workListProjectionDetail {
 		var cursor workListProjectionCursor
 		if in.Detail != "full" || decodeOperationInput([]byte(inner), &cursor) != nil || cursor.Version != 1 || !agentcontract.ValidSHA256Proof(cursor.Digest) || cursor.NextByteOffset < 1 {
 			return coreError(base, "invalid_cursor", "work-list projection cursor is malformed", "restart_query", false), nil

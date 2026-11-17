@@ -961,13 +961,13 @@ func (r runtime) wrapCursor(ctx context.Context, response agentcontract.Envelope
 	return response, nil
 }
 
-// documentContinuation reports the operations whose cursors page one captured
+// documentContinuation reports the cursor kinds that page one captured
 // document. Their continuations bind query identity instead of the store
 // revision, so unrelated writes do not invalidate them; the handler refuses
 // when the document bytes change.
 func (r runtime) documentContinuation(detail string) bool {
 	return r.Tool == "concord_work_trace" && (r.Operation == "mutation_result" || r.Operation == "resume") ||
-		r.Tool == "concord_work_browse" && r.Operation == "list" && detail == "work-list-projection"
+		r.Tool == "concord_work_browse" && r.Operation == "list" && detail == workListProjectionDetail
 }
 
 func watermarkString(response agentcontract.Envelope) string {

@@ -58,6 +58,21 @@ class CalibrationPacketTest(unittest.TestCase):
             packets.append(assert_packet(self, result, original, root, self.artifacts))
         self.assertEqual(packets[0], packets[1])
 
+    def test_encoded_fixture_error_refuses_without_packet(self):
+        self.artifacts = self.root / "calibration\\path"
+        outputs = []
+        def host(root, snapshot, model, case_id, **kwargs):
+            output = fixture_output(root, case_id, self.output())
+            outputs.append((output, copy.deepcopy(output)))
+            return output
+        with patch.object(run.host, "run_session", side_effect=host):
+            result = self.calibrate()[0]
+        self.assertEqual(outputs[0][0], outputs[0][1])
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["failure"]["type"], "ValueError")
+        self.assertIn("normalize", [frame["function"] for frame in result["failure"]["traceback"]])
+        self.assertFalse((self.artifacts / (result["attempt_id"] + "-blind.json")).exists())
+
 
 class PilotPacketTest(unittest.TestCase):
     setUp = test_pilot.PilotTest.setUp
@@ -77,70 +92,103 @@ class PilotPacketTest(unittest.TestCase):
         self.assertEqual(output, original)
         assert_packet(self, results[0], original, root, self.artifacts)
 
+    def test_encoded_fixture_error_refuses_without_packet(self):
+        self.artifacts = self.root / "pilot\\path"
+        outputs = []
+        def host(root, snapshot, model, case_id, *, guard, **kwargs):
+            output = self.host(root, snapshot, model, case_id, guard=guard, **kwargs)
+            output = fixture_output(root, case_id, output)
+            outputs.append((output, copy.deepcopy(output)))
+            return output
+        with patch.object(pilot.host, "run_session", side_effect=host), patch.object(run, "_blind_packet", wraps=run._blind_packet) as build:
+            result = self.execute(max_new_attempts=1)[0]
+        build.assert_called_once()
+        self.assertEqual(outputs[0][0], outputs[0][1])
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["failure"], "ValueError")
+        self.assertFalse((self.artifacts / (result["attempt_id"] + "-blind.json")).exists())
+
 
 class PacketNeutralityTest(unittest.TestCase):
-    def test_unusual_root_preserves_json_and_prose_quotes(self):
+    def test_unusual_root_raw_prose_preserves_quotes(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = (Path(directory) / "arm\\line\n\t'\"" / "attempt-host").resolve()
-            output = fixture_output(root, "S18", {})
-            output["artifacts"]["files"]["paths.json"] = json.dumps({"path": str(root / "repo" / "x")})
-            output["final_text"] = f'Keep "{root}/repo/x" in the quoted sentence.'
+            root = (Path(directory) / "arm\\line\n\t'\"" / "0123456789abcdef0123456789abcdef-host").resolve()
+            output = {"events": [], "artifacts": {}, "final_text": f'Keep "{root}/repo/x" in the quoted sentence.'}
             original = copy.deepcopy(output)
             packet = run._blind_packet("S18", output, root)
             self.assertEqual(output, original)
-            self.assertEqual(packet["artifacts"]["files"]["paths.json"], '{"path": "/fixture/repo/x"}')
-            self.assertEqual(json.loads(packet["artifacts"]["files"]["paths.json"]), {"path": "/fixture/repo/x"})
             self.assertEqual(packet["final_text"], 'Keep "/fixture/repo/x" in the quoted sentence.')
             self.assertEqual(evaluation.evaluate("S18", output["events"], output["artifacts"], output["final_text"]),
                              evaluation.evaluate("S18", packet["events"], packet["artifacts"], packet["final_text"]))
 
-    def test_oserror_with_two_filenames_preserves_both_paths(self):
+    def test_encoded_oserror_with_two_filenames_is_refused(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = (Path(directory) / "arm\\line\n\t'\"" / "attempt-host").resolve()
-            output = fixture_output(root, "S18", {})
+            root = (Path(directory) / "arm\\line\n\t'\"" / "0123456789abcdef0123456789abcdef-host").resolve()
+            output = {"events": [], "artifacts": {}}
             output["final_text"] = str(OSError(2, "No such file or directory", str(root / "repo" / "a"),
                                                None, str(root / "repo" / "b")))
             original = copy.deepcopy(output)
+            with self.assertRaisesRegex(ValueError, "retains the execution root"):
+                run._blind_packet("S18", output, root)
+            self.assertEqual(output, original)
+
+    def test_escaped_oserror_paths_are_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for name in ("baseline\\line\n\t'", "candidate\\line\n\t'\""):
+                root = Path(directory) / name / "0123456789abcdef0123456789abcdef-host"
+                output = fixture_output(root, "S18", {})
+                original = copy.deepcopy(output)
+                with self.subTest(name=name), self.assertRaisesRegex(ValueError, "retains the execution root"):
+                    run._blind_packet("S18", output, root)
+                self.assertEqual(output, original)
+
+    def test_json_of_repr_with_attempt_token_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = (Path(directory) / "arm\\path" / "0123456789abcdef0123456789abcdef-host").resolve()
+            output = {"events": [], "artifacts": {"state": {"echo": json.dumps(repr(str(root / "repo" / "x")))}},
+                      "final_text": "done"}
+            original = copy.deepcopy(output)
+            with self.assertRaisesRegex(ValueError, "retains the execution root"):
+                run._blind_packet("S18", output, root)
+            self.assertEqual(output, original)
+
+    def test_json_encoded_oserror_with_quoted_filename_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = (Path(directory) / 'arm"path' / "0123456789abcdef0123456789abcdef-host").resolve()
+            error = str(OSError(2, "No such file or directory", str(root / "repo" / "file's.txt")))
+            encoded = json.dumps({"error": error})
+            output = {"events": [], "artifacts": {"files": {"error.json": encoded}}, "final_text": "done"}
+            original = copy.deepcopy(output)
+            with self.assertRaisesRegex(ValueError, "retains the execution root"):
+                run._blind_packet("S18", output, root)
+            self.assertEqual(output, original)
+            self.assertEqual(json.loads(output["artifacts"]["files"]["error.json"]), {"error": error})
+
+    def test_standalone_attempt_token_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = (Path(directory) / "0123456789abcdef0123456789abcdef-host").resolve()
+            output = {"events": [], "artifacts": {}, "final_text": "attempt " + root.name}
+            with self.assertRaisesRegex(ValueError, "retains the execution root"):
+                run._blind_packet("S18", output, root)
+
+    def test_json_encoded_oserror_preserves_quotes_for_raw_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = (Path(directory) / "0123456789abcdef0123456789abcdef-host").resolve()
+            error = str(OSError(2, "No such file or directory", str(root / "repo" / "file's.txt")))
+            output = {"events": [], "artifacts": {"files": {"error.json": json.dumps({"error": error})}},
+                      "final_text": "done"}
+            original = copy.deepcopy(output)
             packet = run._blind_packet("S18", output, root)
             self.assertEqual(output, original)
-            self.assertEqual(packet["final_text"], str(OSError(2, "No such file or directory", "/fixture/repo/a",
-                                                               None, "/fixture/repo/b")))
-
-    def test_escaped_oserror_paths_are_arm_neutral(self):
-        with tempfile.TemporaryDirectory() as directory:
-            packets = []
-            for name in ("baseline\\line\n\t'", "candidate\\line\n\t'\""):
-                root = Path(directory) / name / "attempt-host"
-                fixture = cases.Fixture("S18", root / "repo")
-                fixture.call("read_file", {"path": "missing.txt"})
-                fixture.call("write_file", {"path": "source.py/child.txt", "content": "x"})
-                fixture.call("read_file", {"path": 'missing".txt'})
-                errors = [event["result"]["error"] for event in fixture.events]
-                output = {"events": fixture.events, "artifacts": fixture.artifacts(),
-                          "final_text": " | ".join(errors) + " | unrelated /other/path"}
-                output["artifacts"]["state"]["echo"] = {str(root / "repo" / "missing.txt"): errors}
-                original = copy.deepcopy(output)
-                packet = run._blind_packet("S18", output, root)
-                self.assertEqual(output, original)
-                packet_errors = [event["result"]["error"] for event in packet["events"]]
-                self.assertEqual(packet_errors, [
-                    "[Errno 2] No such file or directory: '/fixture/repo/missing.txt'",
-                    "[Errno 17] File exists: '/fixture/repo/source.py'",
-                    '[Errno 2] No such file or directory: \'/fixture/repo/missing".txt\'',
-                ])
-                self.assertEqual(packet["artifacts"]["state"]["echo"],
-                                 {"/fixture/repo/missing.txt": packet_errors})
-                self.assertEqual(packet["final_text"], " | ".join(packet_errors) + " | unrelated /other/path")
-                self.assertEqual(evaluation.evaluate("S18", output["events"], output["artifacts"], output["final_text"]),
-                                 evaluation.evaluate("S18", packet["events"], packet["artifacts"], packet["final_text"]))
-                packets.append(packet)
-            self.assertEqual(packets[0], packets[1])
+            self.assertEqual(json.loads(packet["artifacts"]["files"]["error.json"]),
+                             {"error": str(OSError(2, "No such file or directory", "/fixture/repo/file's.txt"))})
 
     def test_equivalent_arms_and_roots_produce_identical_packets(self):
         with tempfile.TemporaryDirectory() as directory:
             packets = []
-            for arm in ("baseline", "candidate"):
-                root = Path(directory) / arm / "different-attempt-host"
+            for arm, token in (("baseline", "0123456789abcdef0123456789abcdef-host"),
+                               ("candidate", "fedcba9876543210fedcba9876543210-host")):
+                root = Path(directory) / arm / token
                 output = fixture_output(root, "S18", {})
                 output["final_text"] += " unrelated /other/place"
                 output["artifacts"]["files"]["paths.json"] = json.dumps({"path": str(root.resolve() / "repo" / "x")})
@@ -156,7 +204,7 @@ class PacketNeutralityTest(unittest.TestCase):
 
     def test_refuses_key_collisions_and_changed_grade(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = (Path(directory) / "PRIVATE_SOURCE_PLACEHOLDER" / "attempt-host").resolve()
+            root = (Path(directory) / "PRIVATE_SOURCE_PLACEHOLDER" / "0123456789abcdef0123456789abcdef-host").resolve()
             output = fixture_output(root, "S24", {})
             output["artifacts"]["state"]["collision"] = {str(root): 1, "/fixture": 2}
             with self.assertRaisesRegex(ValueError, "colliding keys"):
@@ -166,10 +214,10 @@ class PacketNeutralityTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "changes the grade"):
                 run._blind_packet("S24", output, root)
 
-    def test_refuses_root_outside_a_path_boundary(self):
+    def test_normalizes_root_followed_by_punctuation(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = (Path(directory) / "attempt-host").resolve()
+            root = (Path(directory) / "0123456789abcdef0123456789abcdef-host").resolve()
             output = fixture_output(root, "S18", {})
             output["final_text"] += f" The attempt root is {root}."
-            with self.assertRaisesRegex(ValueError, "retains the execution root"):
-                run._blind_packet("S18", output, root)
+            packet = run._blind_packet("S18", output, root)
+            self.assertTrue(packet["final_text"].endswith(" The attempt root is /fixture."))

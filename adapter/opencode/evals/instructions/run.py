@@ -1,12 +1,10 @@
 """Run private calibration or the separately budgeted instruction pilot."""
 
 import argparse
-import ast
 import fcntl
 import hashlib
 import json
 import os
-import re
 import time
 import traceback
 import uuid
@@ -96,31 +94,12 @@ def _validate_rates(value, provider, model):
 
 def _blind_packet(case_id, output, attempt_root):
     root = str(Path(attempt_root).resolve())
-    spellings = {root, repr(root + "'\"")[1:-4],
-                 json.dumps(root, ensure_ascii=True)[1:-1], json.dumps(root, ensure_ascii=False)[1:-1]}
-    if '"' not in root:
-        spellings.add(repr(root + "'")[1:-2])
-    alternatives = "|".join(re.escape(value) for value in sorted(spellings, key=len, reverse=True))
-    prefix = re.compile("(?:" + alternatives + r")(?=/|$|[^\w.\-])")
-    quoted_path = re.compile(r"(?P<quote>['\"])(?:" + alternatives +
-                             r")(?=/|(?P=quote))(?:\\.|(?!(?P=quote))[^\\])*(?P=quote)")
-    filename = r'''(?:'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")'''
-    os_error = re.compile(r"\[Errno -?\d+\] [^\n]*?: " + filename + r"(?: -> " + filename + r")?")
-
-    def replace_quoted(match):
-        try:
-            path = ast.literal_eval(match.group())
-        except (SyntaxError, ValueError):
-            return match.group()
-        if isinstance(path, str) and (path == root or path.startswith(root + "/")):
-            return repr("/fixture" + path[len(root):])
-        return match.group()
+    token = Path(root).name
 
     def normalize(value):
         if isinstance(value, str):
-            value = os_error.sub(lambda match: quoted_path.sub(replace_quoted, match.group()), value)
-            value = prefix.sub(lambda _: "/fixture", value)
-            if any(spelling in value for spelling in spellings):
+            value = value.replace(root, "/fixture")
+            if token in value:
                 raise ValueError("blind packet retains the execution root")
             return value
         if isinstance(value, list):

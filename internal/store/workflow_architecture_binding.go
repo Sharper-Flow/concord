@@ -226,8 +226,8 @@ type WorkflowContractTeaching struct {
 
 // WorkflowContractTeachingRules returns the guard-owned teaching texts,
 // consuming each guard-site constant directly.
-func WorkflowContractTeachingRules() WorkflowContractTeaching {
-	return WorkflowContractTeaching{
+func WorkflowContractTeachingRules(actions []WorkflowActionDefinition) WorkflowContractTeaching {
+	rules := WorkflowContractTeaching{
 		SpecMandateRule:          workflowSpecMandateTeaching,
 		LawAdditionMandateRule:   workflowLawAdditionMandateTeaching,
 		ObligationMembershipRule: workflowObligationMembershipTeaching,
@@ -239,6 +239,16 @@ func WorkflowContractTeachingRules() WorkflowContractTeaching {
 			"complete":      workflowCompletionTeaching,
 		},
 	}
+	for _, action := range actions {
+		payload := action.Payload
+		if action.PublicPayload != nil {
+			payload = *action.PublicPayload
+		}
+		if payload.Closed && len(payload.Fields) == 0 {
+			rules.ActionRules[action.ID] = workflowFieldFreeActionTeaching
+		}
+	}
+	return rules
 }
 
 func architectureBindingProjectionHash(binding WorkflowArchitectureBinding) string {

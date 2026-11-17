@@ -611,7 +611,7 @@
           "maxItems": 64,
           "items": {
             "type": "string",
-            "pattern": "[^\\x09-\\x0d \u0085   -     　]",
+            "pattern": "[^\\x09-\\x0d    -     　]",
             "minLength": 1,
             "maxLength": 4096,
             "x-maxBytes": 4096,
@@ -625,7 +625,7 @@
           "maxItems": 64,
           "items": {
             "type": "string",
-            "pattern": "[^\\x09-\\x0d \u0085   -     　]",
+            "pattern": "[^\\x09-\\x0d    -     　]",
             "minLength": 1,
             "maxLength": 4096,
             "x-maxBytes": 4096,
@@ -639,7 +639,7 @@
           "maxItems": 64,
           "items": {
             "type": "string",
-            "pattern": "[^\\x09-\\x0d \u0085   -     　]",
+            "pattern": "[^\\x09-\\x0d    -     　]",
             "minLength": 1,
             "maxLength": 4096,
             "x-maxBytes": 4096,
@@ -653,7 +653,7 @@
           "maxItems": 64,
           "items": {
             "type": "string",
-            "pattern": "[^\\x09-\\x0d \u0085   -     　]",
+            "pattern": "[^\\x09-\\x0d    -     　]",
             "minLength": 1,
             "maxLength": 4096,
             "x-maxBytes": 4096,
@@ -667,7 +667,7 @@
           "maxItems": 64,
           "items": {
             "type": "string",
-            "pattern": "[^\\x09-\\x0d \u0085   -     　]",
+            "pattern": "[^\\x09-\\x0d    -     　]",
             "minLength": 1,
             "maxLength": 4096,
             "x-maxBytes": 4096,
@@ -4668,9 +4668,10 @@
           "additionalProperties": false,
           "maxProperties": 32,
           "properties": {},
-          "description": "Bounds: <=32 properties inclusive"
+          "description": "Omit fields or send {}; this action accepts no fields. Put prose in complete_step.fields.note when completing that step. Bounds: <=32 properties inclusive"
         }
-      }
+      },
+      "description": "Omit fields or send {}; this action accepts no fields. Put prose in complete_step.fields.note when completing that step."
     },
     "work_transition_action_variant_complete": {
       "type": "object",
@@ -4845,9 +4846,10 @@
           "additionalProperties": false,
           "maxProperties": 32,
           "properties": {},
-          "description": "Bounds: <=32 properties inclusive"
+          "description": "Omit fields or send {}; this action accepts no fields. Put prose in complete_step.fields.note when completing that step. Bounds: <=32 properties inclusive"
         }
-      }
+      },
+      "description": "Omit fields or send {}; this action accepts no fields. Put prose in complete_step.fields.note when completing that step."
     },
     "work_transition_action_variant_link_successor": {
       "type": "object",
@@ -4962,9 +4964,10 @@
           "additionalProperties": false,
           "maxProperties": 32,
           "properties": {},
-          "description": "Bounds: <=32 properties inclusive"
+          "description": "Omit fields or send {}; this action accepts no fields. Put prose in complete_step.fields.note when completing that step. Bounds: <=32 properties inclusive"
         }
-      }
+      },
+      "description": "Omit fields or send {}; this action accepts no fields. Put prose in complete_step.fields.note when completing that step."
     },
     "work_transition_action_variant_record_delivery": {
       "type": "object",
@@ -5077,9 +5080,10 @@
           "additionalProperties": false,
           "maxProperties": 32,
           "properties": {},
-          "description": "Bounds: <=32 properties inclusive"
+          "description": "Omit fields or send {}; this action accepts no fields. Put prose in complete_step.fields.note when completing that step. Bounds: <=32 properties inclusive"
         }
-      }
+      },
+      "description": "Omit fields or send {}; this action accepts no fields. Put prose in complete_step.fields.note when completing that step."
     },
     "work_transition_action_variant_record_report": {
       "type": "object",
@@ -5230,9 +5234,10 @@
           "additionalProperties": false,
           "maxProperties": 32,
           "properties": {},
-          "description": "Bounds: <=32 properties inclusive"
+          "description": "Omit fields or send {}; this action accepts no fields. Put prose in complete_step.fields.note when completing that step. Bounds: <=32 properties inclusive"
         }
-      }
+      },
+      "description": "Omit fields or send {}; this action accepts no fields. Put prose in complete_step.fields.note when completing that step."
     },
     "work_transition_action_variant_record_diagnosis": {
       "type": "object",

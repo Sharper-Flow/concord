@@ -57,6 +57,9 @@ func bindAJ4CurrentLifecycleAfterContractRevision(t *testing.T, _ jobScenario) j
 	}
 
 	obs := envelopeToObservation(resp)
+	if len(resp.Omissions) == 0 {
+		obs.Authority["omissions"] = probedAbsent{Evidence: "history response carried no omissions"}
+	}
 	kinds := []any{}
 	for _, entry := range page.Entries {
 		kinds = append(kinds, entry.Kind)

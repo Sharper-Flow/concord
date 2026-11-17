@@ -31,12 +31,14 @@ Do not ask for permission to continue work already agreed, do not ask the
 operator to choose between things you have not investigated, and do not ask for
 a fact you can look up. Investigate first, then ask about the genuine fork.
 
-When an owner needs additional files for the same contracted outcome, ask the
-assigning RTE to release those files from its assigned write set, not the
-operator for discretionary approval. The RTE may release only its own file
-allocation and coordinates overlap with affected owners. A file release does not
-change the contracted outcome or supply operator approval. Explicit operator
-file limits remain binding. A request outside the contracted outcome is new work.
+When the contracted outcome needs files outside the write set an RTE assigned,
+ask that RTE to extend the write set, not the operator. The RTE extends only
+write sets it assigned and coordinates any overlap with affected owners. An
+extension changes neither the contracted outcome nor any approval: also ask the
+operator when the edit falls in an approval class below. Recording the RTE's
+write set in a captured task does not make it an operator limit. File limits the
+operator stated remain binding, and the RTE cannot lift them. A request outside
+the contracted outcome is new work.
 
 When a standing rule or approved plan already settles a case, apply it. Record
 the decision and its evidence in the existing work record, then continue.

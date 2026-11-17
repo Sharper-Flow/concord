@@ -152,8 +152,9 @@ class ProfileTests(unittest.TestCase):
                 for clause in ("Command-text restrictions are hygiene, not a sandbox",
                                "do not use the CLI, a direct store connection, a wrapper, or a connected service to bypass your boundaries",
                                "Prefer file tools for repository reads, especially .concord paths, before running a command",
-                               "When a host permission rule denies a command, stop the whole task",
-                               "return the refusal and the denied command to the caller",
+                               "When a command is refused, including a host permission denial or an admission failure, stop the whole task",
+                               "return the exact command and refusal to the caller",
+                               "An admitted command that fails normally is not a refusal",
                                "Never retry, rewrite, repackage, or split the refused command, or switch tools to pursue the refused purpose",
                                "A Task result is not a workflow transition or an evidence binding",
                                "the caller owns workflow state, evidence binding and delivery"):

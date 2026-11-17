@@ -65,7 +65,7 @@ type BackupManifest struct {
 
 // BackupDatabase snapshots an existing database without migrating or repairing
 // its schema. The read-only source open cannot create a missing database. It
-// returns the manifest Backup verified and promoted: the copied destination
+// returns the manifest Backup verified and promoted: the staged snapshot
 // passes the SQLite triple, and the PM10 disposable-clone promotion gate passes
 // restore verification before the manifest is published. The whole cascade
 // shares the caller's one deadline, so the verb does not re-verify the

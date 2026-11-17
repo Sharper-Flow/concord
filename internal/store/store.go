@@ -220,16 +220,9 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport
 	var before map[int]appliedMigration
 	if version.Value == version.Development {
 		before, unstampedFresh, err = unstampedStoreFresh(ctx, s.db)
-	} else {
-		before, err = manifestVersions(ctx, s.db)
 	}
 	if err != nil {
 		return UpgradeReport{}, err
-	}
-	if pending := pendingBreaking(before); len(pending) > 0 {
-		if err := CheckUpgradeSessions(pendingBreakingList(before), held); err != nil {
-			return UpgradeReport{}, err
-		}
 	}
 	var after map[int]appliedMigration
 	var committed []int
@@ -237,9 +230,9 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport
 		after = before
 	} else {
 		if version.Value == version.Development {
-			committed, err = migrate(ctx, s.db, migrateForUnstamped, s.Clock)
+			committed, err = migrate(ctx, s.db, migrateForUnstamped, nil, s.Clock)
 		} else {
-			committed, err = migrate(ctx, s.db, migrateForUpgrade, s.Clock)
+			committed, err = migrate(ctx, s.db, migrateForUpgrade, held, s.Clock)
 		}
 		if err != nil {
 			return UpgradeReport{}, err

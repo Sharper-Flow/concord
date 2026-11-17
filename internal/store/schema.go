@@ -136,6 +136,14 @@ const (
 	migrationRetryMaxDelay     = 500 * time.Millisecond
 )
 
+type schemaAbsentHookKey struct{}
+
+func afterSchemaManifestAbsent(ctx context.Context, probe string) {
+	if hook, ok := ctx.Value(schemaAbsentHookKey{}).(func(string)); ok {
+		hook(probe)
+	}
+}
+
 // migrationScope selects which pending steps one migration pass may apply.
 type migrationScope int
 
@@ -226,10 +234,20 @@ func migrate(ctx context.Context, db *sql.DB, scope migrationScope, clock ...fun
 // refuses here when the next pending step is breaking, so a database that
 // waits for concord upgrade is refused without a write transaction.
 func migrationManifestCurrent(ctx context.Context, db *sql.DB, scope migrationScope) (bool, error) {
+	tx, err := beginReadTx(ctx, db)
+	if err != nil {
+		if migrationLockContended(err) {
+			return false, nil
+		}
+		return false, wrapFailure(KindUnavailable, "migrate", "cannot inspect the schema manifest", true,
+			"confirm the database is readable", err)
+	}
+	defer func() { _ = tx.Rollback() }()
 	var present string
-	err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='schema_migrations'`).Scan(&present)
+	err = tx.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='schema_migrations'`).Scan(&present)
 	if err == sql.ErrNoRows {
-		return false, requireEmptySchema(ctx, db)
+		afterSchemaManifestAbsent(ctx, "migrationManifestCurrent")
+		return false, requireEmptySchema(ctx, tx)
 	}
 	if err != nil {
 		if migrationLockContended(err) {
@@ -238,9 +256,9 @@ func migrationManifestCurrent(ctx context.Context, db *sql.DB, scope migrationSc
 		return false, wrapFailure(KindUnavailable, "migrate", "cannot inspect the schema manifest", true,
 			"confirm the database is readable", err)
 	}
-	applied, err := appliedMigrations(ctx, db)
+	applied, err := appliedMigrations(ctx, tx)
 	if err != nil && strings.Contains(err.Error(), "no such column: breaking") {
-		_, err = legacyManifestMigrations(ctx, db)
+		_, err = legacyManifestMigrations(ctx, tx)
 		return false, err
 	}
 	if err != nil {
@@ -284,27 +302,34 @@ func requireEmptySchema(ctx context.Context, q queryer) error {
 // binary may migrate only a store with no applied migrations. An up-to-date
 // existing store is admitted without a migration pass.
 func unstampedStoreFresh(ctx context.Context, db *sql.DB) (map[int]appliedMigration, bool, error) {
+	tx, err := beginReadTx(ctx, db)
+	if err != nil {
+		return nil, false, wrapFailure(KindUnavailable, "open", "cannot inspect the schema manifest", true,
+			"confirm the database is readable", err)
+	}
+	defer func() { _ = tx.Rollback() }()
 	var present string
-	err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='schema_migrations'`).Scan(&present)
+	err = tx.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='schema_migrations'`).Scan(&present)
 	if err == sql.ErrNoRows {
-		return map[int]appliedMigration{}, true, requireEmptySchema(ctx, db)
+		afterSchemaManifestAbsent(ctx, "unstampedStoreFresh")
+		return map[int]appliedMigration{}, true, requireEmptySchema(ctx, tx)
 	}
 	if err != nil {
 		return nil, false, wrapFailure(KindUnavailable, "open", "cannot inspect the schema manifest", true,
 			"confirm the database is readable", err)
 	}
 	var count int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&count); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&count); err != nil {
 		return nil, false, wrapFailure(KindUnavailable, "open", "cannot count applied migrations", true,
 			"confirm the database is readable", err)
 	}
 	if count == 0 {
 		return nil, false, unknownManifest()
 	}
-	applied, err := appliedMigrations(ctx, db)
+	applied, err := appliedMigrations(ctx, tx)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such column: breaking") {
-			_, err = legacyManifestMigrations(ctx, db)
+			_, err = legacyManifestMigrations(ctx, tx)
 		}
 		return nil, false, err
 	}

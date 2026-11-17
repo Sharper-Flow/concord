@@ -5,9 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from . import cases, evaluation, pilot, run
-from .test_pilot import PilotTest
-from .test_run import CalibrationTest
+from . import cases, evaluation, pilot, run, test_pilot, test_run
 
 
 def fixture_output(root, case_id, output):
@@ -40,7 +38,12 @@ def assert_packet(test, result, raw, root, directory):
     return [event["result"] for event in events]
 
 
-class CalibrationPacketTest(CalibrationTest):
+# Borrow the fixtures, not the classes: subclassing would collect their tests again.
+class CalibrationPacketTest(unittest.TestCase):
+    setUp = test_run.CalibrationTest.setUp
+    output = test_run.CalibrationTest.output
+    calibrate = test_run.CalibrationTest.calibrate
+
     def test_packet_normalizes_real_fixture_errors_without_mutating_host_output(self):
         outputs = []
         def host(root, snapshot, model, case_id, **kwargs):
@@ -56,7 +59,11 @@ class CalibrationPacketTest(CalibrationTest):
         self.assertEqual(packets[0], packets[1])
 
 
-class PilotPacketTest(PilotTest):
+class PilotPacketTest(unittest.TestCase):
+    setUp = test_pilot.PilotTest.setUp
+    execute = test_pilot.PilotTest.execute
+    host = test_pilot.PilotTest.host
+
     def test_packet_normalizes_real_fixture_errors_without_mutating_host_output(self):
         outputs = []
         def host(root, snapshot, model, case_id, *, guard, **kwargs):
@@ -90,7 +97,7 @@ class PacketNeutralityTest(unittest.TestCase):
 
     def test_refuses_key_collisions_and_changed_grade(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory) / "PRIVATE_SOURCE_PLACEHOLDER" / "attempt-host"
+            root = (Path(directory) / "PRIVATE_SOURCE_PLACEHOLDER" / "attempt-host").resolve()
             output = fixture_output(root, "S24", {})
             output["artifacts"]["state"]["collision"] = {str(root): 1, "/fixture": 2}
             with self.assertRaisesRegex(ValueError, "colliding keys"):
@@ -99,3 +106,11 @@ class PacketNeutralityTest(unittest.TestCase):
             output["artifacts"]["files"]["public.md"] = str(root)
             with self.assertRaisesRegex(ValueError, "changes the grade"):
                 run._blind_packet("S24", output, root)
+
+    def test_refuses_root_outside_a_path_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = (Path(directory) / "attempt-host").resolve()
+            output = fixture_output(root, "S18", {})
+            output["final_text"] += f" The attempt root is {root}."
+            with self.assertRaisesRegex(ValueError, "retains the execution root"):
+                run._blind_packet("S18", output, root)

@@ -99,7 +99,10 @@ def _blind_packet(case_id, output, attempt_root):
 
     def normalize(value):
         if isinstance(value, str):
-            return prefix.sub(lambda _: "/fixture", value)
+            value = prefix.sub(lambda _: "/fixture", value)
+            if root in value:
+                raise ValueError("blind packet retains the execution root")
+            return value
         if isinstance(value, list):
             return [normalize(item) for item in value]
         if isinstance(value, dict):

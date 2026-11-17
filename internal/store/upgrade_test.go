@@ -207,8 +207,9 @@ func TestUpgradeMigratesOlderSchemaAppearingAfterEmptyManifestProbeWithoutHolder
 	if hits != 1 || err != nil {
 		t.Fatalf("probe hits = %d, Upgrade() error = %v", hits, err)
 	}
-	if !slices.Equal(report.Applied, []int{200, 201}) || report.SchemaVersion != 201 || manifestMax(t, path) != 201 {
-		t.Errorf("Upgrade() report = %+v, want migrations [200 201] at schema 201", report)
+	want, current := migrationVersionsAfter(199), CurrentSchemaVersion()
+	if !slices.Equal(report.Applied, want) || report.SchemaVersion != current || manifestMax(t, path) != current {
+		t.Errorf("Upgrade() report = %+v, want migrations %v at schema %d", report, want, current)
 	}
 }
 

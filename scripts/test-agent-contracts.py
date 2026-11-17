@@ -734,6 +734,29 @@ class Ts2BudgetTests(unittest.TestCase):
                          "manifest tool list disagrees with the TS2 budget")
 
 
+class WriteSetCoordinationContractTests(unittest.TestCase):
+    def test_shared_instructions_distinguish_allocation_from_outcome_authority(self):
+        text = " ".join((ROOT / ".concord/instructions/asking.md").read_text().split())
+        for clause in (
+            "needs additional files for the same contracted outcome",
+            "ask the assigning RTE to release those files from its assigned write set",
+            "The RTE may release only its own file allocation and coordinates overlap",
+            "A file release does not change the contracted outcome or supply operator approval",
+            "Explicit operator file limits remain binding",
+            "A request outside the contracted outcome is new work",
+        ):
+            with self.subTest(clause=clause):
+                self.assertIn(clause, text)
+
+    def test_roles_route_write_set_coordination_to_shared_instructions(self):
+        for path, clause in (
+            (".concord/roles/concord.md", "For additional files within the contracted outcome, follow the write-set coordination route in `asking.md`"),
+            (".concord/roles/rte.md", "For an owner's request for additional files within the contracted outcome, follow the write-set coordination route in `asking.md`"),
+        ):
+            with self.subTest(path=path):
+                self.assertIn(clause, " ".join((ROOT / path).read_text().split()))
+
+
 class LinearVisualApprovalContractTests(unittest.TestCase):
     def test_asking_requires_embedded_versioned_screenshots_and_reachable_preview(self):
         text = " ".join((ROOT / ".concord/instructions/asking.md").read_text().split())

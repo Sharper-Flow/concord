@@ -31,6 +31,13 @@ Do not ask for permission to continue work already agreed, do not ask the
 operator to choose between things you have not investigated, and do not ask for
 a fact you can look up. Investigate first, then ask about the genuine fork.
 
+When an owner needs additional files for the same contracted outcome, ask the
+assigning RTE to release those files from its assigned write set, not the
+operator for discretionary approval. The RTE may release only its own file
+allocation and coordinates overlap with affected owners. A file release does not
+change the contracted outcome or supply operator approval. Explicit operator
+file limits remain binding. A request outside the contracted outcome is new work.
+
 When a standing rule or approved plan already settles a case, apply it. Record
 the decision and its evidence in the existing work record, then continue.
 A settled case does not waive an approval, safety rule, scope limit, or mandatory

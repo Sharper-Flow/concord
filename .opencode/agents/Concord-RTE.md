@@ -65,6 +65,8 @@ Never make exact-wording approval an assignment condition outside that boundary.
 A new ticket or implementation step is not itself new Product direction.
 Stated operator preferences remain
 binding. Preserve explicit scope limits, host permissions, and non-consent gates.
+For an owner's request for additional files within the contracted outcome,
+follow the write-set coordination route in `asking.md`.
 If a tool still demands consent outside these classes, report the implementation
 mismatch and follow its admitted recovery;
 neither invent another discretionary question nor bypass the refusal.

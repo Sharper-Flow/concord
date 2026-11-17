@@ -61,9 +61,77 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestOpenAndMigrateRefuseForeignSchema(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "foreign.db")
+	db, err := sql.Open(driverName, dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.ExecContext(ctx, `CREATE TABLE foreign_data (value TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	for name, open := range map[string]func() error{
+		"open": func() error {
+			s, err := Open(ctx, path)
+			if s != nil {
+				_ = s.Close()
+			}
+			return err
+		},
+		"migrate": func() error { return Migrate(ctx, db) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := open()
+			var failure *Failure
+			if !errors.As(err, &failure) || failure.Kind != KindReadinessUnknown {
+				t.Fatalf("error = %v, want readiness_unknown", err)
+			}
+			var objects int
+			if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='foreign_data'`).Scan(&objects); err != nil || objects != 1 {
+				t.Fatalf("foreign table count = %d, error = %v", objects, err)
+			}
+		})
+	}
+}
+
 // Serial: the concurrent-open busy budget assumes an idle machine;
 // parallel siblings exceed it and surface SQLITE_BUSY.
 func TestOpenConcurrentlyInitializesOneDatabase(t *testing.T) {
+	for _, probe := range []string{"unstampedStoreFresh", "migrationManifestCurrent"} {
+		t.Run(probe, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "concord.db")
+			ctx := context.Background()
+			var winner *Store
+			hits := 0
+			loserCtx := context.WithValue(ctx, schemaAbsentHookKey{}, func(current string) {
+				if current != probe {
+					return
+				}
+				hits++
+				var err error
+				winner, err = Open(ctx, path)
+				if err != nil {
+					t.Fatalf("winner Open() error = %v", err)
+				}
+				t.Cleanup(func() { _ = winner.Close() })
+			})
+			loser, err := Open(loserCtx, path)
+			if hits != 1 {
+				t.Fatalf("target probe reached %d times, want 1; Open() error = %v", hits, err)
+			}
+			if err != nil {
+				t.Fatalf("Open() after winner committed error = %v", err)
+			}
+			t.Cleanup(func() { _ = loser.Close() })
+			version, err := readSchemaManifestVersion(ctx, loser.DatabaseForTesting())
+			if err != nil || version != CurrentSchemaVersion() {
+				t.Errorf("schema version = %d, error = %v; want %d", version, err, CurrentSchemaVersion())
+			}
+		})
+	}
+
 	const openers = 8
 
 	path := filepath.Join(t.TempDir(), "concord.db")

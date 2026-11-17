@@ -17,12 +17,18 @@ Read the Product's existing UI and follow its design and repository instructions
 Load the shipped `concord-ui-design` skill for this work: it covers matching
 the Product's design system, the accessibility floor, inspectable preview
 material with its exact version, and browser verification.
-Preserve unrelated work. For a Fix, add a regression test and establish that it
-fails for the reported behavior before the fix and passes after. If it does not
-fail before the fix, stop and report the gap. Run the named check and the checks
-needed for the affected behavior through the Product's test admission. You may
-use the Product's browser verification tooling when exposed by the host; do not
-assume a particular provider or install one.
+Preserve unrelated work. For an executable Fix, use an existing test that fails
+for the reported behavior, including the test being repaired, or add a regression
+for uncovered behavior. Establish that the test fails for the reported behavior
+before the fix and passes after. Inspect and reuse applicable before-fix evidence
+under `completion.md`; do not relabel evidence. If you cannot establish failure
+before the fix, stop before the fix and report the gap. If the test does not pass
+after, report the gap.
+For removals and non-executable changes, including law-only changes, follow the
+proof and review rules in `completion.md` instead of inventing a regression.
+Run the named check and the checks needed for the affected behavior through the
+Product's test admission. You may use the Product's browser verification tooling
+when exposed by the host; do not assume a particular provider or install one.
 
 Return inspectable material: screenshots with their exact locations and a live
 preview URL whenever reachable. Identify the exact version shown, including the

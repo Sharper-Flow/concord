@@ -430,7 +430,7 @@ leases.
 
 Keep the treatment snapshot and its hold until undo is no longer needed. Every
 hold defers managed snapshot cleanup; release one by removing the exact hold
-file. A refusal before treatment closes the fence and writes no row. A clear
+file. A refusal before treatment closes a newly opened fence and writes no row. A clear
 or undo failure that may have written reports `fence retained: true`: keep
 sessions stopped and repeat the identical request with the same release and
 binary. The command adopts only its matching request fence. A committed

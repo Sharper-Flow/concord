@@ -25,6 +25,13 @@ class FixtureTests(unittest.TestCase):
             self.assertEqual(case["continuation_prompt"] is not None, case["family"] == "HOLD")
         self.assertEqual(Fixture("S15", self.root).artifacts()["files"], FILES)
 
+    def test_s09_supplies_exact_version_material(self):
+        prompt = CASES["S09"]["prompt"]
+        for url in ("https://example.org/page/v1/blue.png",
+                    "https://example.org/page/v1/green.png",
+                    "https://example.org/page/v1/preview"):
+            self.assertIn(url, prompt)
+
     def test_traversal_and_git_access_rejected_and_recorded(self):
         fixture = Fixture("S24", self.root)
         for path in ("../escape", "/tmp/escape", ".git/config"):

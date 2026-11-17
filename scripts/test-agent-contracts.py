@@ -1081,7 +1081,7 @@ class MethodSkillTests(unittest.TestCase):
             "rare: start, blocker and done", "spawning message", "never Linear",
             "captured work task", "concord_work_browse.list", "detail=full",
             "concord_work_trace.resume", "blockers and waits", "drain acknowledgements",
-            "knowledge home", "project description", "no Concord item", "Before capture",
+            "knowledge home", "coordination project description", "no Concord item", "Before capture",
             "all visible text outside every collapse", "including text after a collapse",
             "one event per record", "earlier diagnosis and evidence", "not a transcript",
             "whole-project progress", "owner's completion report", "unresolved questions",

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/sharper-flow/concord/internal/version"
 )
 
 func TestOpenAppliesSchemaManifest(t *testing.T) {
@@ -58,6 +60,39 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	}
 	if applied != len(migrations) {
 		t.Errorf("applied migrations = %d, want %d", applied, len(migrations))
+	}
+}
+
+func TestUpgradeConcurrentFirstOpen(t *testing.T) {
+	previous := version.Value
+	version.Value = "v1.0.0"
+	t.Cleanup(func() { version.Value = previous })
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "concord.db")
+	hits := 0
+	loserCtx := context.WithValue(ctx, schemaAbsentHookKey{}, func(probe string) {
+		if probe != "manifestVersions" {
+			return
+		}
+		hits++
+		winner, err := Open(ctx, path)
+		if err != nil {
+			t.Fatalf("winner Open() error = %v", err)
+		}
+		t.Cleanup(func() { _ = winner.Close() })
+	})
+	report, err := Upgrade(loserCtx, path, nil)
+	if hits != 1 {
+		t.Fatalf("manifestVersions probe reached %d times, want 1; Upgrade() error = %v", hits, err)
+	}
+	if err != nil {
+		t.Fatalf("Upgrade() after winner committed error = %v", err)
+	}
+	if report.SchemaVersion != CurrentSchemaVersion() {
+		t.Errorf("schema version = %d, want %d", report.SchemaVersion, CurrentSchemaVersion())
+	}
+	if len(report.Applied) != 0 {
+		t.Errorf("Upgrade() applied = %v, want empty; winner applied all migrations", report.Applied)
 	}
 }
 

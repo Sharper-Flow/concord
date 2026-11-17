@@ -303,6 +303,7 @@ func manifestVersions(ctx context.Context, db *sql.DB) (map[int]appliedMigration
 	var present string
 	err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='schema_migrations'`).Scan(&present)
 	if err == sql.ErrNoRows {
+		afterSchemaManifestAbsent(ctx, "manifestVersions")
 		return map[int]appliedMigration{}, requireEmptySchema(ctx, db)
 	}
 	if err != nil {

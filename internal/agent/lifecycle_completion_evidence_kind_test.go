@@ -56,10 +56,8 @@ func TestLifecycleCompletionRequiresVerificationEvidence(t *testing.T) {
 			}
 			if resp.Outcome != agentcontract.OutcomeError || resp.Error == nil {
 				t.Errorf("completion outcome = %s, error = %+v; want missing_evidence", resp.Outcome, resp.Error)
-			} else {
-				if resp.Error.Kind != "missing_evidence" || resp.Error.Details["required_kind"] != "verification" || resp.Error.RecoveryAction.Kind != "provide_evidence" || resp.Error.EffectState != agentcontract.EffectNone {
-					t.Errorf("refusal = %+v; want missing_evidence, verification, provide_evidence, effect none", resp.Error)
-				}
+			} else if resp.Error.Kind != "missing_evidence" || resp.Error.Details["required_kind"] != "verification" || resp.Error.RecoveryAction.Kind != "provide_evidence" || resp.Error.EffectState != agentcontract.EffectNone {
+				t.Errorf("refusal = %+v; want missing_evidence, verification, provide_evidence, effect none", resp.Error)
 			}
 			if lifecycle != beforeLifecycle || version != beforeVersion {
 				t.Errorf("work = %s version %d; want unchanged %s version %d", lifecycle, version, beforeLifecycle, beforeVersion)

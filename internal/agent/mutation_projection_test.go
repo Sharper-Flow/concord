@@ -52,10 +52,30 @@ func TestMutationResultReceiptFailureRollsBackEffect(t *testing.T) {
 func TestMutationProjectionRequiresRetainedIdentity(t *testing.T) {
 	source, _, _, first := committedWorkflowReplay(t)
 	base := agentcontract.NewBase(source.Tool, source.Operation)
-	base.Warnings = append(base.Warnings, agentcontract.Notice{Kind: "fixture", Details: map[string]any{"padding": strings.Repeat("x", 23*2048+950)}})
 	if first.ChangedRefs == nil || first.NextValidIntents == nil {
 		t.Fatal("fixture missing retained refs or intents")
 	}
+	base.Warnings = append(base.Warnings, agentcontract.Notice{Kind: "fixture", Details: map[string]any{"padding": ""}})
+	type envelopeWire agentcontract.Envelope
+	inline := agentcontract.NewOKMutation(base, first.Result, *first.ChangedRefs, *first.NextValidIntents)
+	encoded, err := json.Marshal(envelopeWire(inline))
+	if err != nil {
+		t.Fatal(err)
+	}
+	padding := agentcontract.MaxResultEnvelopeBytes - len(encoded) + 64
+	if padding < 0 {
+		t.Fatalf("unpadded fixture already exceeds envelope limit: %d bytes", len(encoded))
+	}
+	base.Warnings[0].Details["padding"] = strings.Repeat("x", padding)
+	inline = agentcontract.NewOKMutation(base, first.Result, *first.ChangedRefs, *first.NextValidIntents)
+	if err := inline.Validate(); err != nil {
+		t.Fatalf("inline fixture violates a field constraint: %v", err)
+	}
+	encoded, err = json.Marshal(envelopeWire(inline))
+	if err != nil || len(encoded) <= agentcontract.MaxResultEnvelopeBytes {
+		t.Fatalf("inline fixture does not exceed envelope limit: bytes=%d err=%v", len(encoded), err)
+	}
+	t.Logf("inline fixture: %d bytes", len(encoded))
 	for _, tc := range []struct {
 		name, tool, operation, key string
 		projected                  bool
@@ -70,6 +90,11 @@ func TestMutationProjectionRequiresRetainedIdentity(t *testing.T) {
 				if out.Outcome != agentcontract.OutcomeOK || len(out.Warnings) == 0 || out.Warnings[len(out.Warnings)-1].Kind != "mutation_result_projected" || out.NextValidIntents == nil || len(*out.NextValidIntents) != 0 {
 					t.Fatalf("projection did not withhold intent authority: %+v", out.Error)
 				}
+				projected, err := json.Marshal(envelopeWire(out))
+				if err != nil || len(projected) > agentcontract.MaxResultEnvelopeBytes {
+					t.Fatalf("projected envelope exceeds limit: bytes=%d err=%v", len(projected), err)
+				}
+				t.Logf("projected envelope: %d bytes", len(projected))
 			} else if out.Error == nil || out.Error.Kind != "limit_exceeded" || out.Error.EffectState != agentcontract.EffectNone {
 				t.Fatalf("missing identity projected: %+v", out.Error)
 			}

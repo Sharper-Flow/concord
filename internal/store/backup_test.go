@@ -199,8 +199,8 @@ func TestInterruptedRestoreRemovesStagingAndLeavesDestinationAbsent(t *testing.T
 // TestBackupDeletesForeignKeyCorruptCandidate runs Backup over a live store
 // whose only defect is a foreign-key violation. Candidate verification must
 // refuse it on foreign_key_check alone, and Backup must delete the failed
-// candidate, its sidecars, its manifest and any verification staging file
-// (PM10 section 3).
+// candidate, its sidecars, its manifest and every staging file (PM10
+// section 3).
 func TestBackupDeletesForeignKeyCorruptCandidate(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -233,8 +233,8 @@ func TestBackupDeletesForeignKeyCorruptCandidate(t *testing.T) {
 			t.Fatalf("failed backup left %s: %v", candidate, statErr)
 		}
 	}
-	if matches, globErr := filepath.Glob(filepath.Join(dir, ".concord-backup-verify-*")); globErr != nil || len(matches) != 0 {
-		t.Fatalf("failed backup left verification staging files = %v (err=%v)", matches, globErr)
+	if matches, globErr := filepath.Glob(filepath.Join(dir, ".concord-backup-*")); globErr != nil || len(matches) != 0 {
+		t.Fatalf("failed backup left staging files = %v (err=%v)", matches, globErr)
 	}
 }
 
@@ -779,8 +779,8 @@ func TestInterruptedBackupVerificationDiscardsSnapshotAndStaging(t *testing.T) {
 			t.Fatalf("interrupted backup left %s: %v", candidate, err)
 		}
 	}
-	if matches, err := filepath.Glob(filepath.Join(dir, ".concord-backup-verify-*")); err != nil || len(matches) != 0 {
-		t.Fatalf("interrupted backup left verification staging files = %v (err=%v)", matches, err)
+	if matches, err := filepath.Glob(filepath.Join(dir, ".concord-backup-*")); err != nil || len(matches) != 0 {
+		t.Fatalf("interrupted backup left staging files = %v (err=%v)", matches, err)
 	}
 	assertTableCount(t, s, "effect_receipts", 3)
 }

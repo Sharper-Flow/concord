@@ -65,7 +65,7 @@ type BackupManifest struct {
 
 // BackupDatabase snapshots an existing database without migrating or repairing
 // its schema. The read-only source open cannot create a missing database. It
-// returns the manifest Backup verified and promoted: the copied destination
+// returns the manifest Backup verified and promoted: the staged snapshot
 // passes the SQLite triple, and the PM10 disposable-clone promotion gate passes
 // restore verification before the manifest is published. The whole cascade
 // shares the caller's one deadline, so the verb does not re-verify the
@@ -88,8 +88,8 @@ func BackupDatabase(ctx context.Context, path, destination string) (BackupManife
 
 // Backup copies the store with the Online Backup API, then writes a
 // self-contained SQLite snapshot from that copy without free pages. The
-// destination and its manifest must not already exist; a live database or WAL
-// copy is never used.
+// destination, its manifest and its SQLite sidecars must not already exist; a
+// live database or WAL copy is never used.
 func Backup(ctx context.Context, s *Store, destination string) (BackupManifest, error) {
 	return BackupWithOptions(ctx, s, destination, BackupOptions{})
 }
@@ -115,21 +115,8 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 	if err := refuseUnsupportedBackupSource(ctx, conn, s.path); err != nil {
 		return manifest, err
 	}
-	if err := validateBackupDestination(s.Path(), destination); err != nil {
+	if err := validateNewBackupDestination(s.Path(), destination); err != nil {
 		return manifest, err
-	}
-	if err := AdmitStorePath(destination); err != nil {
-		return manifest, err
-	}
-	if _, err := os.Stat(destination); err == nil {
-		return manifest, newFailure(KindInvalidOperation, "backup", "backup destination already exists", false, "choose a new explicit destination")
-	} else if !os.IsNotExist(err) {
-		return manifest, wrapFailure(KindUnavailable, "backup", "cannot inspect backup destination", true, "check the destination path", err)
-	}
-	if _, err := os.Stat(manifestPath(destination)); err == nil {
-		return manifest, newFailure(KindInvalidOperation, "backup", "backup manifest already exists", false, "choose a new explicit destination")
-	} else if !os.IsNotExist(err) {
-		return manifest, wrapFailure(KindUnavailable, "backup", "cannot inspect backup manifest destination", true, "check the destination path", err)
 	}
 	if err := contextErr(ctx); err != nil {
 		return manifest, wrapFailure(KindUnavailable, "backup", "backup was cancelled before it started", true, "retry the backup", err)
@@ -145,8 +132,8 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 	}
 
 	// The Online Backup API copies every source page, free ones included, so
-	// it writes a disposable copy beside the destination. The destination is
-	// the compacted copy that the checksum and verification gates read.
+	// it writes a disposable copy beside the destination. A separate staging
+	// file holds the compacted copy for checksum and verification.
 	copyFile, err := os.CreateTemp(filepath.Dir(destination), ".concord-backup-copy-*")
 	if err != nil {
 		return manifest, wrapFailure(KindUnavailable, "backup", "cannot create backup copy staging file", true, "check destination permissions", err)
@@ -162,24 +149,30 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 		return manifest, wrapFailure(KindUnavailable, "backup", "cannot close backup copy staging file", true, "check destination permissions", err)
 	}
 
+	stageFile, err := os.CreateTemp(filepath.Dir(destination), ".concord-backup-snapshot-*")
+	if err != nil {
+		return manifest, wrapFailure(KindUnavailable, "backup", "cannot create backup snapshot staging file", true, "check destination permissions", err)
+	}
+	stage := stageFile.Name()
 	defer func() {
-		if err != nil {
-			for _, path := range []string{destination, destination + "-wal", destination + "-shm", destination + "-journal", manifestPath(destination)} {
-				_ = os.Remove(path)
-			}
+		for _, path := range []string{stage, stage + "-wal", stage + "-shm", stage + "-journal"} {
+			_ = os.Remove(path)
 		}
 	}()
+	if err := stageFile.Close(); err != nil {
+		return manifest, wrapFailure(KindUnavailable, "backup", "cannot close backup snapshot staging file", true, "check destination permissions", err)
+	}
 	connHeld = false
 	if err := mechanismFailure(sqlitedb.BackupSnapshot(ctx, conn, SQLiteFileURI(copyPath))); err != nil {
 		return manifest, err
 	}
-	if err := mechanismFailure(sqlitedb.CompactSnapshot(ctx, copyPath, destination)); err != nil {
+	if err := mechanismFailure(sqlitedb.CompactSnapshot(ctx, copyPath, stage)); err != nil {
 		return manifest, err
 	}
 	// Release the full-size copy before the restore gate clones the snapshot.
 	removeCopy()
 
-	manifest, err = verifyBackupFile(ctx, destination, CurrentSchemaVersion(), s.Clock)
+	manifest, err = verifyBackupFile(ctx, stage, CurrentSchemaVersion(), s.Clock)
 	if err != nil {
 		return BackupManifest{}, err
 	}
@@ -198,10 +191,27 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 	// The promotion gate clones the verified snapshot to a disposable staging
 	// database and checks the whole current state before applying migrations.
 	// The retained snapshot, manifest, and live store are never written.
-	if err := verifyBackupRestore(ctx, destination, manifest); err != nil {
+	if err := verifyBackupRestore(ctx, stage, manifest); err != nil {
 		return BackupManifest{}, err
 	}
+	if err := contextErr(ctx); err != nil {
+		return BackupManifest{}, wrapFailure(KindUnavailable, "backup", "backup was cancelled before publication", true, "retry the backup", err)
+	}
+	// SQLite pairs a database with whatever sidecars sit beside its name, so
+	// a published snapshot next to a foreign WAL would serve content its
+	// verification never saw.
+	if err := refuseBackupSidecars(destination); err != nil {
+		return BackupManifest{}, err
+	}
+	if err := os.Link(stage, destination); err != nil {
+		return BackupManifest{}, backupPublicationFailure("backup destination already exists", "cannot publish backup snapshot", err)
+	}
 	if err := writeBackupManifest(destination, manifest); err != nil {
+		stageInfo, stageErr := os.Stat(stage)
+		destInfo, destErr := os.Lstat(destination)
+		if stageErr == nil && destErr == nil && os.SameFile(stageInfo, destInfo) {
+			_ = os.Remove(destination)
+		}
 		return BackupManifest{}, err
 	}
 	return manifest, nil
@@ -216,6 +226,49 @@ func refuseUnsupportedBackupSource(ctx context.Context, conn beginTxSource, path
 		return unknownManifest()
 	}
 	return checkManifest(applied)
+}
+
+func validateNewBackupDestination(source, destination string) error {
+	if err := validateBackupDestination(source, destination); err != nil {
+		return err
+	}
+	if err := AdmitStorePath(destination); err != nil {
+		return err
+	}
+	if _, err := os.Stat(destination); err == nil {
+		return newFailure(KindInvalidOperation, "backup", "backup destination already exists", false, "choose a new explicit destination")
+	} else if !os.IsNotExist(err) {
+		return wrapFailure(KindUnavailable, "backup", "cannot inspect backup destination", true, "check the destination path", err)
+	}
+	if _, err := os.Stat(manifestPath(destination)); err == nil {
+		return newFailure(KindInvalidOperation, "backup", "backup manifest already exists", false, "choose a new explicit destination")
+	} else if !os.IsNotExist(err) {
+		return wrapFailure(KindUnavailable, "backup", "cannot inspect backup manifest destination", true, "check the destination path", err)
+	}
+	return refuseBackupSidecars(destination)
+}
+
+// refuseBackupSidecars refuses a destination whose SQLite sidecar names are
+// occupied. Backup never removes or reuses them.
+func refuseBackupSidecars(destination string) error {
+	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
+		if _, err := os.Lstat(destination + suffix); err == nil {
+			return newFailure(KindInvalidOperation, "backup", "backup destination SQLite sidecar already exists", false, "choose a new explicit destination")
+		} else if !os.IsNotExist(err) {
+			return wrapFailure(KindUnavailable, "backup", "cannot inspect backup destination sidecar", true, "check the destination path", err)
+		}
+	}
+	return nil
+}
+
+// backupPublicationFailure reports a no-replace link failure. Only an
+// occupied name is the destination refusal; any other failure is retry-safe
+// because the link created nothing.
+func backupPublicationFailure(exists, detail string, err error) error {
+	if os.IsExist(err) {
+		return wrapFailure(KindInvalidOperation, "backup", exists, false, "choose a new explicit destination", err)
+	}
+	return wrapFailure(KindUnavailable, "backup", detail, true, "check that the destination filesystem supports hard links, then retry the backup", err)
 }
 
 // VerifyBackup validates the snapshot and its manifest. The optional maximum
@@ -635,8 +688,8 @@ func writeBackupManifest(destination string, manifest BackupManifest) error {
 	if err := tmp.Close(); err != nil {
 		return wrapFailure(KindUnavailable, "backup", "cannot close backup manifest", true, "retry the backup", err)
 	}
-	if err := os.Rename(tmpName, manifestPath(destination)); err != nil {
-		return wrapFailure(KindUnavailable, "backup", "cannot atomically promote backup manifest", true, "retry the backup", err)
+	if err := os.Link(tmpName, manifestPath(destination)); err != nil {
+		return backupPublicationFailure("backup manifest already exists", "cannot publish backup manifest", err)
 	}
 	return nil
 }

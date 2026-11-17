@@ -8,8 +8,8 @@ description: Stress-test an idea, plan, or design by settling its unresolved mat
 Use this method to expose and settle material decisions, not to add a workflow
 step or gate. It grants no scope, approval, or authority to change state.
 
-This method adapts [grilling](https://github.com/mattpocock/skills/tree/5863806dd4e15c63174bee4e7515a4256792ecfa/skills/productivity/grilling)
-by Matt Pocock; the upstream MIT notice is in this skill's `LICENSE`.
+This method adapts grilling by Matt Pocock; the upstream MIT notice is in this
+skill's `LICENSE`.
 
 [Portable method admission](https://github.com/Sharper-Flow/concord/tree/main/.concord/law/decisions/CD-0246-concord-ships-portable-engineering-methods.md)
 defines how Concord ships this guidance.

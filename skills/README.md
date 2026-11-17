@@ -70,6 +70,8 @@ safe workflow recording or execution of your own managed item.
   find and rank shallow modules and structural friction across a codebase.
 - [Work shaping](concord-work-shaping/SKILL.md): triage a request and decompose
   it into independently verifiable outcomes.
+- [Clarify decisions](concord-grill-me/SKILL.md): stress-test an idea, plan, or
+  design by resolving material decisions in dependency order.
 - [Retrospective](concord-retrospective/SKILL.md): move a recurring correction
   to the instruction, check, or document that can hold it; publish a Product lesson.
 - [Review](concord-review/SKILL.md): review a step or change against repository
@@ -89,6 +91,10 @@ upstream MIT notice in its `LICENSE` file.
 Review adapts the two-axis method from
 [code-review](https://github.com/mattpocock/skills/blob/a496f5513d4a4cf889bc48e189e579f4b0bdf6aa/skills/engineering/code-review/SKILL.md)
 and keeps its upstream MIT notice in `concord-review/LICENSE`.
+
+Clarify decisions adapts the decision-dependency method from
+[grilling](https://github.com/mattpocock/skills/tree/5863806dd4e15c63174bee4e7515a4256792ecfa/skills/productivity/grilling)
+and keeps its upstream MIT notice in `concord-grill-me/LICENSE`.
 
 Improve codebase architecture adapts
 [improve-codebase-architecture](https://github.com/mattpocock/skills/blob/a496f5513d4a4cf889bc48e189e579f4b0bdf6aa/skills/engineering/improve-codebase-architecture/SKILL.md)

@@ -214,8 +214,7 @@ func (r runtime) readMutationResult(ctx context.Context, base agentcontract.Enve
 		}
 	}
 	base.ResolvedScope = resolved
-	base.SourceVersionWatermark = []agentcontract.Watermark{{SourceKind: "product_memory", SourceID: record.OperationID, Version: binding}}
-	base.OrderingKeys = []string{"offset"}
+	base.CursorSource = binding
 	render := func(n int) (agentcontract.Envelope, int, error) {
 		end := offset + n
 		response := base

@@ -41,17 +41,18 @@ func TestQueryMigrationFiveAndIncomingIndex(t *testing.T) {
 	t.Fatalf("incoming relation query did not use idx_relations_to_kind")
 }
 
-func TestQueryQ1CarriesUniversalMetadata(t *testing.T) {
+func TestQueryQ1CarriesSnapshotAndPagination(t *testing.T) {
 	t.Parallel()
 	s := seedQueryFixture(t)
 	result, err := s.QueryQ1(context.Background(), Q1Request{Limit: 20})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.QueryID != "PM1.Q1" || result.ContractVersion != "PM1/1.0" || result.Authority != "authoritative" {
-		t.Fatalf("metadata = %#v", result.ResultMeta)
+	revision, err := s.Revision(context.Background())
+	if err != nil || result.SourceVersionWatermark != revision {
+		t.Fatalf("snapshot revision = %d, want %d: %v", result.SourceVersionWatermark, revision, err)
 	}
-	if result.Freshness.ObservedAt == "" || result.NextCursor != nil || result.Omissions == nil || result.Warnings == nil {
+	if result.NextCursor != nil || result.Omissions == nil || result.Warnings == nil {
 		t.Fatalf("metadata fields not populated: %#v", result.ResultMeta)
 	}
 	if len(result.Products) != 1 || result.Products[0].ID != "prod" {

@@ -1,6 +1,7 @@
 package agentcontract_test
 
 import (
+	"encoding/json"
 	"regexp"
 	"slices"
 	"strings"
@@ -9,6 +10,40 @@ import (
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
+
+func TestLifecycleEvidenceInputBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name, field, value string
+		valid              bool
+	}{
+		{"valid", "kind", "verification", true},
+		{"unknown kind", "kind", "unknown", false},
+		{"authority at limit", "authority", strings.Repeat("a", 256), true},
+		{"authority over limit", "authority", strings.Repeat("a", 257), false},
+		{"locator kind at limit", "locator_kind", strings.Repeat("a", 256), true},
+		{"locator kind over limit", "locator_kind", strings.Repeat("a", 257), false},
+		{"locator at limit", "locator", strings.Repeat("a", 2048), true},
+		{"locator over limit", "locator", strings.Repeat("a", 2049), false},
+		{"version at limit", "version", strings.Repeat("a", 256), true},
+		{"version over limit", "version", strings.Repeat("a", 257), false},
+		{"digest valid", "digest", "sha256:abcdef12", true},
+		{"digest invalid", "digest", "not-a-digest", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			evidence := map[string]string{"kind": "verification", "authority": "verifier", "locator_kind": "test", "locator": "result"}
+			evidence[tc.field] = tc.value
+			request := map[string]any{"work_id": "work-1", "expected_version": 1, "target": "completed", "reason": "done", "idempotency_key": "key-1", "evidence": []any{evidence}}
+			raw, err := json.Marshal(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = agentcontract.ValidateOperationPayload("concord_work_transition", "lifecycle", raw, false)
+			if (err == nil) != tc.valid {
+				t.Fatalf("valid=%t: %v", tc.valid, err)
+			}
+		})
+	}
+}
 
 func TestValidateOperationPayloadJSONPrecedesOperationLookup(t *testing.T) {
 	t.Parallel()

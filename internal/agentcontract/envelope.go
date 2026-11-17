@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
@@ -34,14 +33,6 @@ const (
 	OriginAdapter Origin = "adapter"
 )
 
-type AuthorityLevel string
-
-const (
-	AuthorityAuthoritative AuthorityLevel = "authoritative"
-	AuthorityDegraded      AuthorityLevel = "degraded"
-	AuthorityUnreachable   AuthorityLevel = "unreachable"
-)
-
 type EffectState string
 
 const (
@@ -49,24 +40,12 @@ const (
 	EffectPossible EffectState = "possible"
 )
 
-// Scope is the wire form of resolved_scope. Its members are exactly the
-// members the envelope schema declares; an identifier set the core derives
-// for authority or approval bookkeeping must not leak onto this struct.
+// Scope holds the retained authorization scope of a mutation result.
 type Scope struct {
 	ProductID    string   `json:"product_id,omitempty"`
 	ProjectIDs   []string `json:"project_ids,omitempty"`
 	WorkIDs      []string `json:"work_ids,omitempty"`
 	ScopeVersion string   `json:"scope_version,omitempty"`
-}
-type Freshness struct {
-	ObservedAt time.Time `json:"observed_at"`
-	Age        int64     `json:"age"`
-	Stale      bool      `json:"stale"`
-}
-type Watermark struct {
-	SourceKind string `json:"source_kind"`
-	SourceID   string `json:"source_id"`
-	Version    string `json:"version"`
 }
 type Notice struct {
 	Kind     string         `json:"kind"`
@@ -141,40 +120,26 @@ type TypedError struct {
 // their owning TS3/TS4 contract can evolve independently; envelope structure is
 // validated here and by the canonical JSON schema.
 type Envelope struct {
-	SchemaVersion          string            `json:"schema_version"`
-	ManifestDigest         string            `json:"manifest_digest"`
-	RequestID              string            `json:"request_id"`
-	Origin                 Origin            `json:"origin"`
-	Tool                   string            `json:"tool"`
-	Operation              string            `json:"operation"`
-	QueryID                string            `json:"query_id,omitempty"`
-	Outcome                Outcome           `json:"outcome"`
-	ResolvedScope          *Scope            `json:"resolved_scope"`
-	Authority              AuthorityLevel    `json:"authority"`
-	Freshness              *Freshness        `json:"freshness"`
-	SourceVersionWatermark []Watermark       `json:"source_version_watermark"`
-	OrderingKeys           []string          `json:"ordering_keys"`
-	NextCursor             *string           `json:"next_cursor"`
-	Omissions              []Notice          `json:"omissions"`
-	Warnings               []Notice          `json:"warnings"`
-	EvidenceRefs           []EvidenceRef     `json:"evidence_refs"`
-	Replayed               bool              `json:"replayed"`
-	Items                  []json.RawMessage `json:"items,omitempty"`
-	Result                 json.RawMessage   `json:"result,omitempty"`
-	ChangedRefs            *[]ChangedRef     `json:"changed_refs,omitempty"`
-	NextValidIntents       *[]NextIntent     `json:"next_valid_intents,omitempty"`
-	Error                  *TypedError       `json:"error,omitempty"`
+	SchemaVersion    string            `json:"schema_version"`
+	ManifestDigest   string            `json:"manifest_digest"`
+	Origin           Origin            `json:"origin"`
+	Tool             string            `json:"tool"`
+	Operation        string            `json:"operation"`
+	Outcome          Outcome           `json:"outcome"`
+	ResolvedScope    *Scope            `json:"-"`
+	CursorSource     string            `json:"-"`
+	NextCursor       *string           `json:"next_cursor"`
+	Omissions        []Notice          `json:"omissions"`
+	Warnings         []Notice          `json:"warnings"`
+	Items            []json.RawMessage `json:"items,omitempty"`
+	Result           json.RawMessage   `json:"result,omitempty"`
+	ChangedRefs      *[]ChangedRef     `json:"changed_refs,omitempty"`
+	NextValidIntents *[]NextIntent     `json:"next_valid_intents,omitempty"`
+	Error            *TypedError       `json:"error,omitempty"`
 }
 
-func NewBase(requestID, tool, operation string) Envelope {
-	e := Envelope{SchemaVersion: "1.0", ManifestDigest: ManifestDigest, RequestID: requestID, Origin: OriginCore, Tool: tool, Operation: operation, ResolvedScope: nil, Authority: AuthorityAuthoritative, Freshness: nil, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, NextCursor: nil, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Replayed: false}
-	for _, op := range ContractOperations {
-		if op.Tool == tool && op.Operation == operation {
-			e.QueryID = op.QueryID
-			break
-		}
-	}
-	return e
+func NewBase(tool, operation string) Envelope {
+	return Envelope{SchemaVersion: "1.0", ManifestDigest: ManifestDigest, Origin: OriginCore, Tool: tool, Operation: operation, NextCursor: nil, Omissions: []Notice{}, Warnings: []Notice{}}
 }
 func NewOKMutation(base Envelope, payload json.RawMessage, changed []ChangedRef, intents []NextIntent) Envelope {
 	base.Outcome = OutcomeOK
@@ -247,7 +212,7 @@ func (e Envelope) Validate() error {
 }
 func (e Envelope) validateInvariants() error {
 	unresolvedWrapper := e.Operation == "" && e.Origin == OriginAdapter && e.Error != nil && e.Error.AdapterReason == "invalid_request_wrapper"
-	if e.SchemaVersion != "1.0" || e.ManifestDigest != ManifestDigest || e.RequestID == "" || len(e.RequestID) > 128 || e.Tool == "" || e.Operation == "" && !unresolvedWrapper {
+	if e.SchemaVersion != "1.0" || e.ManifestDigest != ManifestDigest || e.Tool == "" || e.Operation == "" && !unresolvedWrapper {
 		return errors.New("invalid envelope identity")
 	}
 	if e.Origin != OriginCore && e.Origin != OriginAdapter {
@@ -257,11 +222,11 @@ func (e Envelope) validateInvariants() error {
 		return errors.New("unknown envelope outcome")
 	}
 	if !unresolvedWrapper {
-		if err := validateOperation(e.Tool, e.Operation, e.QueryID); err != nil {
-			return err
+		if _, ok := ValidateContractOperation(e.Tool, e.Operation); !ok {
+			return errors.New("unknown tool operation")
 		}
 	}
-	if len(e.SourceVersionWatermark) > 32 || len(e.OrderingKeys) > 16 || len(e.Omissions) > MaxNotices || len(e.Warnings) > MaxNotices || len(e.EvidenceRefs) > 32 {
+	if len(e.Omissions) > MaxNotices || len(e.Warnings) > MaxNotices {
 		return errors.New("envelope bound exceeded")
 	}
 	if err := validateEnvelopeCollections(e); err != nil {
@@ -273,8 +238,8 @@ func (e Envelope) validateInvariants() error {
 	if err := ValidateScope(e.ResolvedScope); err != nil {
 		return err
 	}
-	if err := e.validateAuthority(); err != nil {
-		return err
+	if e.Origin == OriginAdapter && e.Outcome != OutcomeError {
+		return errors.New("adapter envelope must be an error")
 	}
 	if e.NextCursor != nil && len(*e.NextCursor) > 4096 {
 		return errors.New("cursor exceeds bound")
@@ -302,24 +267,6 @@ func (e Envelope) validateChangedReferences() error {
 	return nil
 }
 
-func (e Envelope) validateAuthority() error {
-	if e.Authority != AuthorityAuthoritative && e.Authority != AuthorityDegraded && e.Authority != AuthorityUnreachable {
-		return errors.New("unknown authority")
-	}
-	if e.Authority == AuthorityDegraded && len(e.Omissions) == 0 {
-		return errors.New("degraded envelope requires omissions")
-	}
-	if e.Authority == AuthorityUnreachable && (e.Outcome != OutcomeError || e.Freshness != nil || len(e.SourceVersionWatermark) != 0) {
-		return errors.New("unreachable envelope coupling violated")
-	}
-	if e.Origin == OriginCore && e.Authority == AuthorityUnreachable && e.Error != nil && e.Error.Kind != "unreachable" {
-		return errors.New("unreachable authority requires unreachable error")
-	}
-	if e.Origin == OriginAdapter && (e.Outcome != OutcomeError || e.Authority != AuthorityUnreachable) {
-		return errors.New("adapter envelope must be unreachable error")
-	}
-	return nil
-}
 func (e Envelope) validateOK() error {
 	if !isMutation(e.Tool, e.Operation) && (e.ChangedRefs != nil || e.NextValidIntents != nil) {
 		return errors.New("read ok envelope must not contain mutation metadata")
@@ -385,24 +332,11 @@ func (e Envelope) validateError() error {
 }
 
 func validateEnvelopeCollections(e Envelope) error {
-	for _, watermark := range e.SourceVersionWatermark {
-		if !slices.Contains([]string{"product_memory", "native_authority", "adapter"}, watermark.SourceKind) || !BoundedBytes(watermark.SourceID, 1, 256) || !BoundedBytes(watermark.Version, 1, 256) {
-			return errors.New("invalid source watermark")
-		}
-	}
-	for _, key := range e.OrderingKeys {
-		if !BoundedBytes(key, 1, 64) {
-			return errors.New("invalid ordering key")
-		}
-	}
 	notices := append(append([]Notice{}, e.Omissions...), e.Warnings...)
 	for _, notice := range notices {
 		if !BoundedBytes(notice.Kind, 1, 64) || len(notice.Details) > 16 || !scalarDetails(notice.Details) || (notice.SourceID != "" && !BoundedBytes(notice.SourceID, 1, 256)) || notice.Count < 0 {
 			return errors.New("invalid notice")
 		}
-	}
-	if e.Freshness != nil && (e.Freshness.ObservedAt.IsZero() || e.Freshness.Age < 0) {
-		return errors.New("invalid freshness")
 	}
 	return nil
 }

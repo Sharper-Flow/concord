@@ -12,35 +12,12 @@ import (
 	"time"
 )
 
-const queryContractVersion = "PM1/1.0"
-
-// ResultMeta is the common, machine-readable envelope for live PM1 results.
+// ResultMeta carries pagination and snapshot facts for live query results.
 type ResultMeta struct {
-	QueryID                string        `json:"query_id"`
-	ContractVersion        string        `json:"contract_version"`
-	ResolvedScope          ResolvedScope `json:"resolved_scope"`
-	SourceVersionWatermark int64         `json:"source_version_watermark"`
-	Authority              string        `json:"authority"`
-	Freshness              Freshness     `json:"freshness"`
-	OrderingKeys           []string      `json:"ordering_keys"`
-	NextCursor             *string       `json:"next_cursor"`
-	Omissions              []string      `json:"omissions"`
-	Warnings               []string      `json:"warnings"`
-}
-
-type ResolvedScope struct {
-	ProductID  string   `json:"product_id,omitempty"`
-	ProjectID  string   `json:"project_id,omitempty"`
-	WorkID     string   `json:"work_id,omitempty"`
-	DomainID   string   `json:"domain_id,omitempty"`
-	ProductIDs []string `json:"product_ids,omitempty"`
-	ProjectIDs []string `json:"project_ids,omitempty"`
-}
-
-type Freshness struct {
-	ObservedAt string `json:"observed_at"`
-	Age        int64  `json:"age"`
-	Stale      bool   `json:"stale"`
+	SourceVersionWatermark int64    `json:"-"`
+	NextCursor             *string  `json:"next_cursor"`
+	Omissions              []string `json:"omissions"`
+	Warnings               []string `json:"warnings"`
 }
 
 type Q1Request struct {
@@ -218,17 +195,14 @@ func beginRead(ctx context.Context, s *Store, op string) (*sql.Tx, error) {
 	return tx, nil
 }
 
-func queryMeta(ctx context.Context, tx *sql.Tx, id string, scope ResolvedScope, keys []string) (ResultMeta, error) {
+func queryMeta(ctx context.Context, tx *sql.Tx, id string) (ResultMeta, error) {
 	watermark, err := storeRevision(ctx, tx)
 	if err != nil {
 		return ResultMeta{}, wrapFailure(KindUnavailable, id, "cannot read the live source watermark", true, "retry once the database is readable", err)
 	}
-	now := time.Now().UTC()
 	return ResultMeta{
-		QueryID: id, ContractVersion: queryContractVersion, ResolvedScope: scope,
-		SourceVersionWatermark: watermark, Authority: "authoritative",
-		Freshness:    Freshness{ObservedAt: now.Format(time.RFC3339Nano), Age: 0, Stale: false},
-		OrderingKeys: keys, Omissions: []string{}, Warnings: []string{},
+		SourceVersionWatermark: watermark,
+		Omissions:              []string{}, Warnings: []string{},
 	}, nil
 }
 
@@ -289,7 +263,7 @@ func (s *Store) QueryQ1(ctx context.Context, req Q1Request) (Q1Result, error) {
 		if err != nil {
 			return out, err
 		}
-		out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q1", ResolvedScope{ProductID: req.Product}, []string{"project_role", "project_display_name", "project_id"})
+		out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q1")
 		if err != nil {
 			return out, err
 		}
@@ -311,7 +285,7 @@ func (s *Store) QueryQ1(ctx context.Context, req Q1Request) (Q1Result, error) {
 		if err != nil {
 			return out, err
 		}
-		out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q1", ResolvedScope{ProductID: productID, ProjectID: req.Project}, []string{"project_role", "project_display_name", "project_id"})
+		out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q1")
 		if err != nil {
 			return out, err
 		}
@@ -323,7 +297,7 @@ func (s *Store) QueryQ1(ctx context.Context, req Q1Request) (Q1Result, error) {
 	if err := readQ1ProductPage(ctx, tx, req.Cursor, limit, &out); err != nil {
 		return out, err
 	}
-	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q1", ResolvedScope{}, []string{"display_name", "id"})
+	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q1")
 	if err != nil {
 		return out, err
 	}
@@ -506,7 +480,7 @@ func (s *Store) QueryQ2(ctx context.Context, req Q2Request) (Q2Result, error) {
 	if out.Items == nil {
 		out.Items = []WorkItem{}
 	}
-	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q2", ResolvedScope{ProductID: req.Product}, []string{"relevant_time", "id"})
+	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q2")
 	if err != nil {
 		return out, err
 	}
@@ -638,7 +612,7 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	if out.Items == nil {
 		out.Items = []WorkItem{}
 	}
-	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q3", ResolvedScope{ProductID: req.Product, ProjectID: req.Project}, []string{"relevant_time", "id"})
+	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q3")
 	if err != nil {
 		return out, err
 	}
@@ -1103,14 +1077,14 @@ func (s *Store) QueryQ8(ctx context.Context, req Q8Request) (Q8Result, error) {
 			return out, err
 		}
 		out.Result = &Q8ResultPayload{Edges: out.Edges}
-		out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q8", ResolvedScope{WorkID: req.Work}, []string{"kind", "source", "target", "depth"})
+		out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q8")
 		return out, err
 	}
 	if err := readQ8DirectEdges(ctx, tx, req.Work, direction, specs, &out); err != nil {
 		return out, err
 	}
 	out.Result = &Q8ResultPayload{Edges: out.Edges}
-	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q8", ResolvedScope{WorkID: req.Work}, []string{"kind", "source", "target", "depth"})
+	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q8")
 	return out, err
 }
 

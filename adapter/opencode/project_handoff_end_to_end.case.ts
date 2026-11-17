@@ -225,7 +225,6 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
   expect(workID).toBeTruthy()
   const replay = await invoke("concord_work_define", "capture", captureInput, contextFor(SOURCE_SESSION, repoSource))
   expect(replay.outcome, JSON.stringify(replay)).toBe("ok")
-  expect(replay.replayed).toBe(true)
   expect(replay.changed_refs).toEqual(capture.changed_refs)
   expect(dbValue(dbPath, "SELECT count(*) AS n FROM work_items").n).toBe(1)
   const sourceWorktree = join(root, "source-checkout")
@@ -438,7 +437,7 @@ routeDeclaration("prepares, consumes, and retires through the real core routes",
     expect(renderedAgain.next_action).toContain("consume the handoff")
     expect(dbValue(dbPath, `SELECT state, consumed_by_session_ref AS consumer FROM project_handoffs WHERE handoff_id='${handoffID}'`).consumer).toBe(RECEIVE_SESSION)
     const replay = await consumeHandoff(workID, renderedAgain.handoff_id, consumeKey, receiveContext)
-    expect(replay).toMatchObject({ outcome: "ok", replayed: true, result: { handoff_id: handoffID } })
+    expect(replay).toMatchObject({ outcome: "ok", result: { handoff_id: handoffID } })
 
     // A second host-started receiver resolves the same work-and-Project bind.
     await prepareSession(fixture, receiveWorktree)
@@ -579,7 +578,7 @@ routeDeclaration(RESTART_WITNESS, async () => {
     const rendered = await readAddressedHandoff(fixture, RECEIVE_SESSION)
     expect(rendered).toMatchObject(expectedHandoff)
     const replay = await consumeHandoff(workID, rendered.handoff_id, "handoff-restart-consume", context)
-    expect(replay).toMatchObject({ outcome: "ok", replayed: true, result: { handoff_id: handoffID } })
+    expect(replay).toMatchObject({ outcome: "ok", result: { handoff_id: handoffID } })
     expect(handoff()).toEqual(fixture.originalHandoff)
     expect(consumedCount()).toBe(1)
     host.sessions[RECEIVE_SESSION].messages = [{ info: { id: "original-parent-message", sessionID: RECEIVE_SESSION, role: "assistant" }, parts: [{ type: "text", text: expectedHandoff.bounded_job }] }]

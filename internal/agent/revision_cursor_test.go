@@ -15,7 +15,7 @@ func assertStoreRevisionWatermark(t *testing.T, s *store.Store, response agentco
 	if err := s.DatabaseForTesting().QueryRow(`SELECT revision FROM store_revision WHERE id=1`).Scan(&revision); err != nil {
 		t.Fatal(err)
 	}
-	if got := watermarkString(response); got != strconv.FormatInt(revision, 10) {
+	if got := response.CursorSource; got != strconv.FormatInt(revision, 10) {
 		t.Fatalf("response source=%q, want store revision %d", got, revision)
 	}
 }

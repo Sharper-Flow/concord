@@ -793,8 +793,9 @@ def check_ticket_writing_step_table() -> list[str]:
 def _check_envelope_operation_vocabulary() -> list[str]:
     """Prove the envelope tool/operation join (issue #352).
 
-    `$defs/base` and `$defs/nextIntent` each conjoin `$defs/toolOperation` with
-    their own `operation` enum and `query_id` pattern. A conjunction is only
+    `$defs/nextIntent` conjoins `$defs/toolOperation` with its operation enum
+    and query_id pattern. The base envelope also constrains its operation enum.
+    A conjunction is only
     satisfiable where the terms agree, so a pair declared in `toolOperation`
     whose operation the enum omits — or whose query_id the pattern rejects — is
     dead on arrival: no envelope naming it can ever validate, and the adapter
@@ -853,6 +854,8 @@ def envelope_operation_findings(envelope: object) -> list[str]:
                 f"{label}: $defs/{definition}/properties/operation/enum omits operation(s) that "
                 f"$defs/toolOperation declares, making them unsatisfiable: {unsatisfiable}"
             )
+        if definition == "base":
+            continue
         pattern = properties.get("query_id", {}).get("pattern")
         if not isinstance(pattern, str) or not pattern:
             findings.append(f"{label}: $defs/{definition}/properties/query_id/pattern must be a nonempty string")

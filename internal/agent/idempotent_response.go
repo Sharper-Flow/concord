@@ -40,11 +40,11 @@ type mutationResponseSnapshot struct {
 	PinlessWorkIDs   []string                    `json:"pinless_work_ids"`
 }
 
-func mutationResponseScope(scope map[string]any, response agentcontract.Envelope, pinless []string) map[string]any {
+func mutationResponseScope(scope map[string]any, response agentcontract.Envelope, pinless []string, evidence []agentcontract.EvidenceRef) map[string]any {
 	snapshot := boundedMutationScope(scope)
 	snapshot["mutation_response"] = mutationResponseSnapshot{
 		ManifestDigest: agentcontract.ManifestDigest, ResolvedScope: response.ResolvedScope, Omissions: response.Omissions,
-		NextValidIntents: *response.NextValidIntents, EvidenceRefs: response.EvidenceRefs,
+		NextValidIntents: *response.NextValidIntents, EvidenceRefs: append([]agentcontract.EvidenceRef{}, evidence...),
 		PinlessWorkIDs: pinless,
 	}
 	return snapshot
@@ -122,10 +122,8 @@ func (r runtime) recordedMutationResult(base agentcontract.Envelope, prior store
 	if err := json.Unmarshal([]byte(prior.ChangedRefs), &changed); err != nil || changed == nil {
 		return incompleteMutationResponse(base, "committed mutation changed references are incomplete; contact the operator to repair the retained response before retrying the same request")
 	}
-	base.Replayed = true
 	base.ResolvedScope = snapshot.ResolvedScope
 	base.Omissions = snapshot.Omissions
-	base.EvidenceRefs = snapshot.EvidenceRefs
 	response := r.mutationResult(base, json.RawMessage(prior.ResultPayload), changed, snapshot.NextValidIntents, snapshot.PinlessWorkIDs...)
 	if response.Outcome == agentcontract.OutcomeError {
 		response.Error.EffectState = agentcontract.EffectPossible
@@ -161,7 +159,6 @@ func (r runtime) legacyMutationResult(base agentcontract.Envelope, payload, refs
 			intent.QueryID = op.QueryID
 		}
 	}
-	base.Replayed = true
 	response := r.mutationResult(base, json.RawMessage(payload), changed, document.Intents, missing...)
 	if response.Outcome == agentcontract.OutcomeError {
 		response.Error.EffectState = agentcontract.EffectPossible

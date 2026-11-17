@@ -12,26 +12,17 @@ func TestValidateEnvelope(t *testing.T) {
 	core := `{
 		"schema_version":"1.0",
 		"manifest_digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		"request_id":"envelope-schema",
 		"origin":"core",
 		"tool":"concord_work_transition",
 		"operation":"lifecycle",
 		"outcome":"error",
-		"resolved_scope":null,
-		"authority":"authoritative",
-		"freshness":null,
-		"source_version_watermark":[],
-		"ordering_keys":[],
 		"next_cursor":null,
 		"omissions":[],
 		"warnings":[],
-		"evidence_refs":[],
-		"replayed":false,
 		"error":{"kind":"invalid_input","retry_safe":false,"recovery_action":{"kind":"reread_entities"},"effect_state":"none"}
 	}`
 	adapter := strings.NewReplacer(
 		`"origin":"core"`, `"origin":"adapter"`,
-		`"authority":"authoritative"`, `"authority":"unreachable"`,
 		`"kind":"reread_entities"`, `"kind":"correct_request"`,
 		`"effect_state":"none"`, `"effect_state":"none","adapter_reason":"invalid_tool_input"`,
 	).Replace(core)
@@ -47,7 +38,7 @@ func TestValidateEnvelope(t *testing.T) {
 		{name: "large number", raw: strings.Replace(core, `"effect_state":"none"`, `"effect_state":"none","details":{"large":1e10000}`, 1), ok: true},
 		{name: "duplicate member keeps last value", raw: `{"schema_version":"invalid",` + strings.TrimPrefix(core, "{"), ok: true},
 		{name: "duplicate nested member keeps last value", raw: strings.Replace(core, `"kind":"invalid_input"`, `"kind":"unknown","kind":"invalid_input"`, 1), ok: true},
-		{name: "unknown root member", raw: strings.Replace(core, `"replayed":false`, `"replayed":false,"unknown":true`, 1)},
+		{name: "unknown root member", raw: strings.Replace(core, `"warnings":[]`, `"warnings":[],"unknown":true`, 1)},
 		{name: "unknown nested member", raw: strings.Replace(core, `"effect_state":"none"`, `"effect_state":"none","unknown":true`, 1)},
 		{name: "unknown variant", raw: strings.Replace(core, `"outcome":"error"`, `"outcome":"unknown"`, 1)},
 		{name: "missing adapter reason", raw: strings.Replace(adapter, `,"adapter_reason":"invalid_tool_input"`, "", 1)},

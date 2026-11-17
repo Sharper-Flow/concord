@@ -43,13 +43,10 @@ test("ordinary tool entries resolve the live directory on every call with a GET-
     calls.push({ argv, body })
     if (argv[1] === "project-resolve") return { exitCode: 0, stderr: "", stdout: JSON.stringify({ project_id: `project-${directory.split("/").at(-1)}`, product_ids: ["product-test"], scope_version: "scope-test", main_worktree: false }) }
     expect(argv[1]).toBe("invoke")
-    const operation = contractOperations.find(candidate => candidate.id === `${body.tool}.${body.operation}`)
-    const queryID = operation && "query_id" in operation ? operation.query_id : undefined
     return { exitCode: 0, stderr: "", stdout: JSON.stringify({
-      schema_version: "1.0", manifest_digest: manifestDigest, request_id: body.call_envelope.request_id,
-      origin: "core", tool: body.tool, operation: body.operation, ...(queryID ? { query_id: queryID } : {}), outcome: "error", resolved_scope: null,
-      authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null,
-      omissions: [], warnings: [], evidence_refs: [], replayed: false,
+      schema_version: "1.0", manifest_digest: manifestDigest,
+      origin: "core", tool: body.tool, operation: body.operation, outcome: "error", next_cursor: null,
+      omissions: [], warnings: [],
       error: { kind: "internal_error", retry_safe: false, recovery_action: { kind: "contact_operator" }, effect_state: "none" },
     }) }
   } } })

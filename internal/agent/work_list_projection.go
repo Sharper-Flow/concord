@@ -66,7 +66,7 @@ func (r runtime) workListProjectionPage(ctx context.Context, base agentcontract.
 		}
 		meta := captured.ResultMeta
 		meta.NextCursor = nextCursor
-		response, err := r.resultEnvelope(base, meta, r.scope(meta), map[string]any{
+		response, err := r.resultEnvelope(base, meta, map[string]any{
 			"encoding": "json-fragment", "digest": digest, "total_bytes": len(doc),
 			"offset": offset, "data": string(doc[offset:end]), "fragment_bytes": n,
 			"document_complete": end == len(doc), "next_kind": nextKind,

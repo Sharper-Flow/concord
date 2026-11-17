@@ -100,9 +100,8 @@ test("projection contracts restrict source pairs and retain closed inline result
 test("a projected mutation envelope preserves effects but grants no inline intents", () => {
   const fixture = mutationProjectionFixture()
   const envelope = {
-    schema_version: "1.0", manifest_digest: manifestDigest, request_id: "projection-request", origin: "core",
-    resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [],
-    next_cursor: null, omissions: [], evidence_refs: [], replayed: false, ...fixture.envelope,
+    schema_version: "1.0", manifest_digest: manifestDigest, origin: "core",
+    next_cursor: null, omissions: [], ...fixture.envelope,
   }
   expect(validateGeneratedEnvelope(envelope)).toBe(true)
   expect(validateGeneratedEnvelope({ ...envelope, warnings: [] })).toBe(false)

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
@@ -258,7 +257,7 @@ func (r runtime) readTraceResume(ctx context.Context, base agentcontract.Envelop
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	meta := store.ResultMeta{QueryID: "C19.Resume", ContractVersion: "C19/1.0", ResolvedScope: store.ResolvedScope{WorkID: in.WorkID}, SourceVersionWatermark: resume.SourceVersionWatermark, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: r.Authority.now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"plan:" + in.WorkID}}
+	meta := store.ResultMeta{SourceVersionWatermark: resume.SourceVersionWatermark}
 	doc, err := json.Marshal(resume)
 	if err != nil {
 		return base, err
@@ -271,7 +270,7 @@ func (r runtime) readTraceResume(ctx context.Context, base agentcontract.Envelop
 		return coreError(base, "invalid_cursor", "resume document changed or cursor offset is invalid; restart the read", "restart_query", false), nil
 	}
 	if inner == "" {
-		response, err := r.resultEnvelope(base, meta, r.scope(store.ResultMeta{}), resume)
+		response, err := r.resultEnvelope(base, meta, resume)
 		if err != nil {
 			return response, err
 		}
@@ -296,7 +295,7 @@ func (r runtime) readTraceResume(ctx context.Context, base agentcontract.Envelop
 			next := string(token)
 			pageMeta.NextCursor = &next
 		}
-		response, err := r.resultEnvelope(base, pageMeta, r.scope(store.ResultMeta{}), page)
+		response, err := r.resultEnvelope(base, pageMeta, page)
 		if err != nil {
 			return base, 0, err
 		}
@@ -353,7 +352,7 @@ func (r runtime) readTraceProjectRetirement(ctx context.Context, base agentcontr
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	return r.resultEnvelope(base, store.ResultMeta{QueryID: "CD-0182.R1", ContractVersion: "CD-0182/1.0", ResolvedScope: store.ResolvedScope{WorkID: in.WorkID, ProjectIDs: []string{project}}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: r.Authority.now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"retirement:" + in.WorkID}}, r.scope(store.ResultMeta{}), retirement)
+	return r.resultEnvelope(base, store.ResultMeta{}, retirement)
 }
 
 func (r runtime) readDomain(ctx context.Context, base agentcontract.Envelope, input []byte, queryID string) (agentcontract.Envelope, error) {
@@ -377,7 +376,7 @@ func (r runtime) readDomain(ctx context.Context, base agentcontract.Envelope, in
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
-		response, err := r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainListPayload(result))
+		response, err := r.resultEnvelope(base, result.ResultMeta, store.NewDomainListPayload(result))
 		if err != nil {
 			return response, err
 		}
@@ -390,7 +389,7 @@ func (r runtime) readDomain(ctx context.Context, base agentcontract.Envelope, in
 		if err != nil {
 			return failureEnvelope(base, err), nil
 		}
-		return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainDetailPayload(result))
+		return r.resultEnvelope(base, result.ResultMeta, store.NewDomainDetailPayload(result))
 	default:
 		// Every Domain operation names its own read. Refusing an unmatched
 		// operation keeps a new one from silently answering with another

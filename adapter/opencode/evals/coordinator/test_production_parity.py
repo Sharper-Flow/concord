@@ -19,9 +19,8 @@ in this test run:
   so the served envelopes and the calls.jsonl trace are the double's real
   behavior.
 
-Transport-only members of the executed core envelope (request_id,
-manifest_digest, origin, resolved_scope, authority, freshness, cursors,
-watermarks, omissions, warnings, evidence_refs, replayed, schema_version)
+Transport-only members of the executed core envelope (manifest_digest, origin,
+next_cursor, omissions, warnings, schema_version)
 are excluded from the double comparison by named structural reason: they are
 per-invocation transport identity and framing the synthetic double does not
 fabricate. A separate check proves the executed production envelope carries
@@ -317,13 +316,11 @@ class ProductionCoreBoundaryTests(unittest.TestCase):
         # excluding them from the double comparison hides no semantic drift.
         envelope = self.captured()["workflow-missing-idem"]
         self.assertEqual(envelope.get("schema_version"), "1.0")
-        self.assertEqual(envelope.get("request_id"), "parity-workflow-missing-idem")
         self.assertEqual(envelope.get("manifest_digest"), MANIFEST_DIGEST)
         self.assertEqual(envelope.get("origin"), "core")
         self.assertEqual(envelope.get("tool"), "concord_work_transition")
         self.assertEqual(envelope.get("operation"), "workflow_action")
-        for member in ("resolved_scope", "freshness", "next_cursor", "omissions",
-                       "warnings", "evidence_refs", "ordering_keys", "source_version_watermark"):
+        for member in ("next_cursor", "omissions", "warnings"):
             self.assertIn(member, envelope)
 
 

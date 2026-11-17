@@ -400,9 +400,8 @@ function argsSchema(toolName: string): any {
   return args
 }
 
-function baseEnvelope(toolName: string, operation: string, requestID: string) {
-  const queryID = (contractOperations.find((candidate: any) => candidate.tool === toolName && candidate.id === `${toolName}.${operation}`) as any)?.query_id
-  return { schema_version: "1.0", manifest_digest: activeManifestDigest(), request_id: requestID, origin: "adapter", tool: toolName, operation, ...(queryID ? { query_id: queryID } : {}), outcome: "error", resolved_scope: null, authority: "unreachable", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false }
+function baseEnvelope(toolName: string, operation: string) {
+  return { schema_version: "1.0", manifest_digest: activeManifestDigest(), origin: "adapter", tool: toolName, operation, outcome: "error", next_cursor: null, omissions: [], warnings: [] }
 }
 
 // Producers select a closed tuple key; the generated envelope schema validates
@@ -437,22 +436,13 @@ type AdapterErrorTuple = (typeof adapterErrorTuples)[AdapterErrorKey]
 type AdapterErrorEnvelope = {
   schema_version: "1.0"
   manifest_digest: string
-  request_id: string
   origin: "adapter"
   tool: string
   operation: string
-  query_id?: string
   outcome: "error"
-  resolved_scope: null
-  authority: "unreachable"
-  freshness: null
-  source_version_watermark: []
-  ordering_keys: []
   next_cursor: null
   omissions: []
   warnings: []
-  evidence_refs: []
-  replayed: false
   error: {
     kind: AdapterErrorTuple["kind"]
     retry_safe: boolean
@@ -513,7 +503,7 @@ function tupleForKey(key: AdapterErrorKey, toolName: string, operation: string, 
 // envelope the generated contract refuses.
 export function adapterError(toolName: string, operation: string, requestID: string, key: GenericAdapterErrorKey, message: string, details?: Record<string, unknown>): AdapterErrorEnvelope {
   const tuple = tupleForKey(key, toolName, operation, requestID)
-  const envelope = { ...baseEnvelope(toolName, operation, requestID), error: { kind: tuple.kind, retry_safe: adapterRetrySafe(tuple), recovery_action: { kind: tuple.recovery }, effect_state: tuple.effect_state, adapter_reason: tuple.adapter_reason, message: boundedUTF8(message, ADAPTER_ERROR_MESSAGE_MAX_BYTES), ...(details ? { details } : {}) } }
+  const envelope = { ...baseEnvelope(toolName, operation), error: { kind: tuple.kind, retry_safe: adapterRetrySafe(tuple), recovery_action: { kind: tuple.recovery }, effect_state: tuple.effect_state, adapter_reason: tuple.adapter_reason, message: boundedUTF8(message, ADAPTER_ERROR_MESSAGE_MAX_BYTES), ...(details ? { details } : {}) } }
   return validateAdapterEnvelope(envelope as AdapterErrorEnvelope)
 }
 

@@ -138,11 +138,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base agentcontra
 		if err == nil && !present {
 			var input lifecycleMutationInput
 			if err := decodeOperationInput(raw, &input); err != nil {
-				base.Replayed = true
 				return incompleteMutationResponse(base, "committed lifecycle request is unreadable; contact the operator before retrying the same request"), true, nil
-			}
-			if input.Target == "completed" {
-				base.EvidenceRefs = append([]agentcontract.EvidenceRef{}, input.Evidence...)
 			}
 		}
 	}
@@ -187,7 +183,6 @@ func mutationReplayDurability(durable bool, authorizedScope map[string]any, sele
 }
 
 func (r runtime) replayAuthorizedMutation(ctx context.Context, base agentcontract.Envelope, op agentcontract.ContractOperation, record store.MutationIdempotencyRecord, authorizedScope map[string]any, idempotency store.MutationIdempotencyKey, durable bool) (agentcontract.Envelope, bool, error) {
-	base.Replayed = true
 	base.ResolvedScope = scopeFromMap(authorizedScope)
 	var response agentcontract.Envelope
 	if op.ID == "concord_work_transition.workflow_action" {
@@ -450,7 +445,6 @@ func workflowActionFields(raw json.RawMessage) (json.RawMessage, error) {
 }
 
 func (r runtime) replayWorkflowActionTx(ctx context.Context, tx *store.Transaction, base agentcontract.Envelope, prior store.MutationIdempotencyRecord, scope map[string]any) (agentcontract.Envelope, error) {
-	base.Replayed = true
 	operation, err := store.OperationResultTx(ctx, tx, prior.OperationID)
 	if err != nil {
 		var failure *store.Failure
@@ -684,7 +678,7 @@ func (m *workflowActionMutation) applyTx(ctx context.Context, tx *store.Transact
 		return errors.New("mutation result rejected")
 	}
 	changedJSON, _ := json.Marshal(changed)
-	responseScope, _ := json.Marshal(mutationResponseScope(m.scope, agentcontract.NewOKMutation(base, resultPayload, changed, derivedIntents), pinless))
+	responseScope, _ := json.Marshal(mutationResponseScope(m.scope, agentcontract.NewOKMutation(base, resultPayload, changed, derivedIntents), pinless, nil))
 	return store.CompleteMutationResponseTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, CanonicalDigest: m.digest, OperationID: m.operationID, ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(responseScope), ResultEventIDs: marshalEventIDs(execution.EventIDs), ObservedAt: r.Authority.now()})
 }
 
@@ -702,13 +696,10 @@ func workKindMutationRefusal(kind string, allowed bool, fallback string) (string
 // mutationPlan carries the scope, next intents, and transactional effect
 // prepared by one operation handler for the common executor.
 type mutationPlan struct {
-	scope   map[string]any
-	intents []agentcontract.NextIntent
-	effect  mutationEffect
-	// evidenceRefs surfaces the operation's evidence on the result envelope.
-	// A lifecycle transition into a terminal state sets it so the envelope
-	// that reports the state also carries the evidence behind it.
-	evidenceRefs []agentcontract.EvidenceRef
+	scope    map[string]any
+	intents  []agentcontract.NextIntent
+	effect   mutationEffect
+	evidence []agentcontract.EvidenceRef
 	// plannedInitialDurability is the optional initial-durability fact a
 	// planner raises from its own consequence branch. Nil leaves the
 	// operation's declared baseline in force.
@@ -885,7 +876,7 @@ func (r runtime) planLifecycle(_ context.Context, base agentcontract.Envelope, r
 	terminalTarget := in.Target == "completed" || in.Target == "cancelled"
 	plan.declareInitialDurability(terminalTarget)
 	if in.Target == "completed" {
-		plan.evidenceRefs = append([]agentcontract.EvidenceRef{}, in.Evidence...)
+		plan.evidence = append([]agentcontract.EvidenceRef{}, in.Evidence...)
 	}
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_ids", "detail"}}}
@@ -1225,8 +1216,7 @@ func (r runtime) mutate(ctx context.Context, base agentcontract.Envelope, raw []
 		return failureEnvelope(base, preflightErr), nil
 	}
 	plan.scope["product_ids"] = preflightProducts
-	base.EvidenceRefs = append([]agentcontract.EvidenceRef{}, plan.evidenceRefs...)
-	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.plannedInitialDurability, plan.intents, plan.effect)
+	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.plannedInitialDurability, plan.intents, plan.evidence, plan.effect)
 }
 
 func (r runtime) deriveMutationProducts(ctx context.Context, scope map[string]any) ([]string, error) {
@@ -1566,7 +1556,7 @@ func (r runtime) executeAdmittedMutation(ctx *context.Context, durable *bool, mu
 	return err
 }
 
-func (r runtime) executeMutation(ctx context.Context, base agentcontract.Envelope, raw []byte, digest string, scope map[string]any, plannedInitialDurability *bool, intents []agentcontract.NextIntent, effect mutationEffect) (agentcontract.Envelope, error) {
+func (r runtime) executeMutation(ctx context.Context, base agentcontract.Envelope, raw []byte, digest string, scope map[string]any, plannedInitialDurability *bool, intents []agentcontract.NextIntent, evidence []agentcontract.EvidenceRef, effect mutationEffect) (agentcontract.Envelope, error) {
 	// Durability resolves before any effect: the operation's declaration is
 	// the baseline, a planner fact replaces it, and a missing or unknown
 	// declaration is an invariant failure, never an ordinary write.
@@ -1596,7 +1586,7 @@ func (r runtime) executeMutation(ctx context.Context, base agentcontract.Envelop
 			ctx = verified
 		}
 	}
-	execution := mutationExecution{runtime: r, base: base, raw: raw, digest: digest, scope: scope, intents: intents, effect: effect, host: host, contractOp: contractOp}
+	execution := mutationExecution{runtime: r, base: base, raw: raw, digest: digest, scope: scope, intents: intents, evidence: evidence, effect: effect, host: host, contractOp: contractOp}
 	mutation := func(tx *store.Transaction) error {
 		return execution.executeTx(ctx, tx, durable)
 	}
@@ -1631,6 +1621,7 @@ type mutationExecution struct {
 	digest         string
 	scope          map[string]any
 	intents        []agentcontract.NextIntent
+	evidence       []agentcontract.EvidenceRef
 	effect         mutationEffect
 	host           store.ResolvedProjectHost
 	contractOp     agentcontract.ContractOperation
@@ -1731,9 +1722,6 @@ func (m *mutationExecution) applyTx(ctx context.Context, tx *store.Transaction, 
 	if base.ResolvedScope == nil {
 		base.ResolvedScope = &agentcontract.Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
 	}
-	if replay {
-		base.Replayed = true
-	}
 	m.base = base
 	m.response = r.mutationResult(base, payload, changed, m.intents, pinless...)
 	if m.response.Outcome == agentcontract.OutcomeError {
@@ -1746,7 +1734,7 @@ func (m *mutationExecution) applyTx(ctx context.Context, tx *store.Transaction, 
 	// Retain the list the response reported: an effect that changed no
 	// auxiliary reference commits an explicit empty list, never null.
 	changedJSON, _ := json.Marshal(*m.response.ChangedRefs)
-	authorizedSnapshot := mutationResponseScope(scope, agentcontract.NewOKMutation(base, payload, changed, m.intents), pinless)
+	authorizedSnapshot := mutationResponseScope(scope, agentcontract.NewOKMutation(base, payload, changed, m.intents), pinless, m.evidence)
 	authorizedSnapshot["durable_commit"] = durable
 	authorizedScope, _ := json.Marshal(authorizedSnapshot)
 	insert := store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: m.digest, OperationID: "mutation-" + m.digest[7:31], ResultEventIDs: marshalEventIDs(eventIDs), ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()}

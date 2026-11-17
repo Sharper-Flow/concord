@@ -72,13 +72,6 @@ func TestLifecycleCompletionEvidenceFieldBoundsNeverFaultTheResult(t *testing.T)
 			if lifecycle, _ := readWorkFromStore(t, s, "work-cross"); lifecycle != "completed" {
 				t.Fatalf("post-lifecycle=%q, want completed", lifecycle)
 			}
-			if len(approved.EvidenceRefs) != 1 {
-				t.Fatalf("completion envelope evidence_refs=%d, want 1", len(approved.EvidenceRefs))
-			}
-			echoed := map[string]string{"authority": approved.EvidenceRefs[0].Authority, "locator_kind": approved.EvidenceRefs[0].LocatorKind}[tc.field]
-			if len(echoed) != tc.size {
-				t.Fatalf("completion envelope echoed a %d-byte %s, want %d", len(echoed), tc.field, tc.size)
-			}
 		})
 	}
 }

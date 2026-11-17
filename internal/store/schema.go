@@ -182,7 +182,7 @@ func inspectManifestSnapshot(ctx context.Context, db *sql.DB, probe string) mani
 	result.applied, result.appliedErr = appliedMigrations(ctx, tx)
 	if result.appliedErr != nil && strings.Contains(result.appliedErr.Error(), "no such column: breaking") {
 		result.legacy = true
-		_, result.legacyErr = legacyManifestMigrations(ctx, tx)
+		result.legacyErr = legacyManifestMigrations(ctx, tx)
 	}
 	return result
 }
@@ -503,7 +503,7 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 	} else {
 		applied, err := appliedMigrations(ctx, tx)
 		if err != nil && strings.Contains(err.Error(), "no such column: breaking") {
-			applied, err = legacyManifestMigrations(ctx, tx)
+			err = legacyManifestMigrations(ctx, tx)
 		}
 		if err != nil {
 			return rollback(err)
@@ -625,20 +625,20 @@ func appliedMigrations(ctx context.Context, tx queryer) (map[int]appliedMigratio
 // legacyManifestMigrations reads a manifest that predates the breaking
 // column. A manifest claiming a supported version without the column has
 // unknown provenance and is never repaired in place.
-func legacyManifestMigrations(ctx context.Context, tx queryer) (map[int]appliedMigration, error) {
+func legacyManifestMigrations(ctx context.Context, tx queryer) error {
 	applied, err := readManifest(ctx, tx, `SELECT version, checksum, 1 FROM schema_migrations ORDER BY version`)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if len(applied) == 0 {
-		return nil, unknownManifest()
+		return unknownManifest()
 	}
 	for version := range applied {
 		if version >= 199 {
-			return nil, unknownManifest()
+			return unknownManifest()
 		}
 	}
-	return nil, checkManifest(applied)
+	return checkManifest(applied)
 }
 
 func readManifest(ctx context.Context, tx queryer, query string) (map[int]appliedMigration, error) {

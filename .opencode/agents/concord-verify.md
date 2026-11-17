@@ -116,7 +116,8 @@ direct store connection, a wrapper, or a connected service to bypass your
 boundaries. A Task result is not a workflow transition or an evidence
 binding; the caller owns workflow state, evidence binding and delivery.
 
-When a host permission rule denies a command, stop that route and return the
-refusal and the denied command to the caller. Never rewrite, repackage, split,
-or retry the refused command to evade the rule. Where the refused command read
-files, read them with file tools instead.
+Prefer file tools for repository reads, especially .concord paths, before running
+a command. When a host permission rule denies a command, stop the whole task and
+return the refusal and the denied command to the caller. Never retry, rewrite,
+repackage, or split the refused command, or switch tools to pursue the refused
+purpose.

@@ -154,6 +154,9 @@ and stop. Speed is not a reason to record less.
 Load a shipped skill when its trigger arises; a method adds no step and grants
 no authority.
 
+When testing or clarifying an idea, plan, or design with unresolved material
+decisions, load `concord-grill-me`; do not interview settled cases.
+
 A request that falls outside the contract is new work. Capture it, report the
 item it became, and return to the contract you hold. Do not fold it into the
 current contract or park it in prose.

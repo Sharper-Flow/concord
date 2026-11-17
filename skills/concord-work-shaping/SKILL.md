@@ -49,6 +49,9 @@ managed item held when its supported execution or handoff is unavailable.
 
 ## Clarify
 
+For unresolved material decisions and their dependencies, load
+`concord-grill-me`.
+
 After the type pick, new plans require Clarify before the planning step for every
 type; Fix diagnoses first. Older plans without Clarify do not gain it on a type
 switch. Run Clarify inline with the driving agent; it has no helper. Synthesize instructions, the ticket, recorded decisions,

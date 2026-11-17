@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -81,11 +83,22 @@ func (r runtime) readWorkList(ctx context.Context, base agentcontract.Envelope, 
 	request := func(inner string, limit int) store.Q3Request {
 		return store.Q3Request{Product: in.ProductID, AmbientProject: r.Envelope.AmbientProjectID, LifecycleStates: nonEmpty(in.Lifecycle), Limit: limit, Cursor: inner, Kind: in.Kind, ProjectIDs: in.ProjectIDs, WorkIDs: in.WorkIDs, LinearIssueKey: in.LinearIssueKey, TerminalSince: in.TerminalSince, Detail: in.Detail}
 	}
-	inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), binding, "summary")
+	token := cursorValue(in.Page)
+	detail := "summary"
+	// The untrusted detail only selects the expected authenticated cursor kind.
+	if raw, err := base64.RawURLEncoding.DecodeString(strings.SplitN(token, ".", 2)[0]); err == nil {
+		var header struct {
+			Detail string `json:"detail"`
+		}
+		if json.Unmarshal(raw, &header) == nil && header.Detail == "work-list-projection" {
+			detail = header.Detail
+		}
+	}
+	inner, err := r.unwrapCursor(ctx, token, binding, detail)
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	if len(inner) > 0 && inner[0] == '{' {
+	if detail == "work-list-projection" {
 		var cursor workListProjectionCursor
 		if in.Detail != "full" || decodeOperationInput([]byte(inner), &cursor) != nil || cursor.Version != 1 || !agentcontract.ValidSHA256Proof(cursor.Digest) || cursor.NextByteOffset < 1 {
 			return coreError(base, "invalid_cursor", "work-list projection cursor is malformed", "restart_query", false), nil

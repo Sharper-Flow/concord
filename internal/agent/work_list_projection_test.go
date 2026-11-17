@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -99,6 +100,138 @@ func projectionFixture(t *testing.T) (*store.Store, runtime, agentcontract.Envel
 	return s, r, base
 }
 
+func TestFullWorkListProjectionContinuationAfterUnrelatedWrite(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s, r, base := projectionFixture(t)
+	read := func(cursor *string) agentcontract.Envelope {
+		t.Helper()
+		input := map[string]any{"product_id": "product-1", "detail": "full", "limit": 1}
+		if cursor != nil {
+			input["page"] = map[string]any{"cursor": *cursor}
+		}
+		raw, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := r.read(ctx, base, raw, "PM1.Q3")
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertBoundedRead(t, out)
+		return out
+	}
+	first := read(nil)
+	var firstPart workListTestFragment
+	if err := json.Unmarshal(first.Result, &firstPart); err != nil || first.Outcome != agentcontract.OutcomeOK || first.NextCursor == nil || firstPart.Encoding != "json-fragment" || firstPart.Complete || firstPart.Offset != 0 || firstPart.FragmentBytes == 0 {
+		t.Fatalf("first fragment: error=%+v parse=%v", first.Error, err)
+	}
+	withoutWrite := read(first.NextCursor)
+	var nextPart workListTestFragment
+	if err := json.Unmarshal(withoutWrite.Result, &nextPart); err != nil || withoutWrite.Outcome != agentcontract.OutcomeOK || nextPart.Digest != firstPart.Digest || nextPart.Offset != firstPart.FragmentBytes || nextPart.FragmentBytes == 0 {
+		t.Fatalf("continuation without write: error=%+v fragment=%+v parse=%v", withoutWrite.Error, nextPart, err)
+	}
+	before, err := s.Revision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transact(ctx, func(tx *store.Transaction) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	after, err := s.Revision(ctx)
+	if err != nil || after <= before {
+		t.Fatalf("transaction did not advance revision: %d -> %d: %v", before, after, err)
+	}
+	continued := read(first.NextCursor)
+	if continued.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("continuation after unrelated write refused: %+v", continued.Error)
+	}
+	var afterPart workListTestFragment
+	if err := json.Unmarshal(continued.Result, &afterPart); err != nil || afterPart.Digest != firstPart.Digest || afterPart.Offset != firstPart.FragmentBytes || string(continued.Result) != string(withoutWrite.Result) {
+		t.Fatalf("continuation changed: fragment=%+v parse=%v", afterPart, err)
+	}
+	if len(continued.SourceVersionWatermark) != 1 || continued.SourceVersionWatermark[0].Version != strconv.FormatInt(after, 10) {
+		t.Fatalf("wrong continuation source watermark: %+v", continued.SourceVersionWatermark)
+	}
+}
+
+func TestFullWorkListProjectionAfterInlinePageAndUnrelatedWrite(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s, r, base := projectionFixture(t)
+	for _, id := range []string{"work-2", "work-3"} {
+		if err := pm1fixture.SeedWorkItem(ctx, s, "project-1", id, id, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE work_items SET created_at=CASE id WHEN 'work-2' THEN '2026-01-03T00:00:00Z' WHEN 'work-1' THEN '2026-01-02T00:00:00Z' ELSE '2026-01-01T00:00:00Z' END; DELETE FROM write_guard`); err != nil {
+		t.Fatal(err)
+	}
+	input := map[string]any{"product_id": "product-1", "detail": "full", "limit": 1}
+	read := func() agentcontract.Envelope {
+		t.Helper()
+		raw, _ := json.Marshal(input)
+		out, err := r.read(ctx, base, raw, "PM1.Q3")
+		if err != nil || out.Outcome != agentcontract.OutcomeOK {
+			t.Fatalf("list: error=%v refusal=%+v", err, out.Error)
+		}
+		assertBoundedRead(t, out)
+		return out
+	}
+	first := read()
+	var inline struct {
+		Items []workSummary `json:"items"`
+	}
+	if err := json.Unmarshal(first.Result, &inline); err != nil || len(inline.Items) != 1 || inline.Items[0].ID != "work-2" || first.NextCursor == nil {
+		t.Fatalf("first inline page: %s %+v", first.Result, first.Error)
+	}
+	input["page"] = map[string]any{"cursor": *first.NextCursor}
+	fragment := read()
+	var part workListTestFragment
+	if err := json.Unmarshal(fragment.Result, &part); err != nil || part.Encoding != "json-fragment" || part.Complete || fragment.NextCursor == nil {
+		t.Fatalf("first fragment: %s %+v", fragment.Result, fragment.Error)
+	}
+	inner, err := r.unwrapCursor(ctx, *fragment.NextCursor, pageBinding(workListInput{ProductID: "product-1", Detail: "full", Limit: 1}, func(in *workListInput) { in.Page.Cursor = nil }), "work-list-projection")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cursor workListProjectionCursor
+	if err := json.Unmarshal([]byte(inner), &cursor); err != nil || cursor.ListCursor == "" {
+		t.Fatal("missing inner list cursor")
+	}
+	if err := s.Transact(ctx, func(*store.Transaction) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	document := []byte(part.Data)
+	for !part.Complete {
+		input["page"] = map[string]any{"cursor": *fragment.NextCursor}
+		fragment = read()
+		if err := json.Unmarshal(fragment.Result, &part); err != nil || part.Offset != len(document) {
+			t.Fatalf("fragment offset: %+v %v", part, err)
+		}
+		document = append(document, part.Data...)
+	}
+	if sha256Hex(document) != part.Digest || len(document) != part.TotalBytes || part.NextKind == nil || *part.NextKind != "items" || fragment.NextCursor == nil {
+		t.Fatal("fragment reconstruction or handoff failed")
+	}
+	if err := json.Unmarshal(document, &inline); err != nil || len(inline.Items) != 1 || inline.Items[0].ID != "work-1" || inline.Items[0].Task != strings.Repeat("<", 8192) {
+		t.Fatal("wrong reconstructed item")
+	}
+	input["page"] = map[string]any{"cursor": *fragment.NextCursor}
+	last := read()
+	if err := json.Unmarshal(last.Result, &inline); err != nil || len(inline.Items) != 1 || inline.Items[0].ID != "work-3" || last.NextCursor != nil {
+		t.Fatalf("wrong list handoff: %s", last.Result)
+	}
+	if err := s.Transact(ctx, func(*store.Transaction) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(input)
+	stale, err := r.read(ctx, base, raw, "PM1.Q3")
+	if err != nil || stale.Error == nil || stale.Error.Kind != "invalid_cursor" {
+		t.Fatalf("item cursor must remain revision-bound: %+v %v", stale.Error, err)
+	}
+}
+
 func TestFullWorkListProjectionCursorIntegrity(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -119,7 +252,7 @@ func TestFullWorkListProjectionCursorIntegrity(t *testing.T) {
 		t.Fatalf("first projection: %s %+v %v", first.Result, first.Error, err)
 	}
 	binding := pageBinding(workListInput{ProductID: "product-1", Detail: "full", Limit: 1}, func(in *workListInput) { in.Page.Cursor = nil })
-	inner, err := r.unwrapCursor(ctx, *first.NextCursor, binding, "summary")
+	inner, err := r.unwrapCursor(ctx, *first.NextCursor, binding, "work-list-projection")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +296,7 @@ func TestFullWorkListProjectionCursorIntegrity(t *testing.T) {
 		envelope := first
 		value := string(raw)
 		envelope.NextCursor = &value
-		signed, err := r.wrapCursor(ctx, envelope, binding, "summary")
+		signed, err := r.wrapCursor(ctx, envelope, binding, "work-list-projection")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -180,12 +313,6 @@ func TestFullWorkListProjectionCursorIntegrity(t *testing.T) {
 		t.Fatalf("digest fixture changed revision %d -> %d: %v", before, after, err)
 	}
 	refuse(map[string]any{"product_id": "product-1", "detail": "full", "limit": 1, "page": map[string]any{"cursor": *first.NextCursor}})
-	if err := pm1fixture.SeedWorkItem(ctx, s, "project-1", "work-drift", "drift", 1); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.unwrapCursor(ctx, *first.NextCursor, binding, "summary"); err == nil {
-		t.Fatal("source drift must refuse independently of digest")
-	}
 }
 
 func TestFullWorkListProjectionFitsCapturedPageWithoutReread(t *testing.T) {
@@ -248,7 +375,7 @@ func TestFullWorkListProjectionMultibyteEnvelopeFit(t *testing.T) {
 		t.Fatalf("missing multibyte fragment: %+v", first.Error)
 	}
 	binding := pageBinding(workListInput{ProductID: "product-1", Detail: "full", Limit: 1}, func(in *workListInput) { in.Page.Cursor = nil })
-	inner, err := r.unwrapCursor(ctx, *first.NextCursor, binding, "summary")
+	inner, err := r.unwrapCursor(ctx, *first.NextCursor, binding, "work-list-projection")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +399,7 @@ func TestFullWorkListProjectionMultibyteEnvelopeFit(t *testing.T) {
 	innerValue := string(innerRaw)
 	malformed := first
 	malformed.NextCursor = &innerValue
-	malformed, err = r.wrapCursor(ctx, malformed, binding, "summary")
+	malformed, err = r.wrapCursor(ctx, malformed, binding, "work-list-projection")
 	if err != nil {
 		t.Fatal(err)
 	}

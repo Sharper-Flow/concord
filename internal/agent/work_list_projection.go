@@ -10,8 +10,8 @@ import (
 )
 
 // The original inner list cursor recaptures the same single-item document on
-// continuation. The existing outer signed cursor binds the query and source;
-// the digest also catches projection changes that do not advance that source.
+// continuation. The outer signed cursor binds the query and authenticates the
+// digest, which detects changes to the recaptured document.
 type workListProjectionCursor struct {
 	Version        int    `json:"v"`
 	ListCursor     string `json:"list_cursor"`
@@ -67,7 +67,11 @@ func (r runtime) workListProjectionPage(ctx context.Context, base agentcontract.
 			return coreError(base, "limit_exceeded", "work-list projection needs a continuation notice but the omission limit is exhausted; contact the operator for producer repair", "contact_operator", false), 0, nil
 		}
 		response.Omissions = append(response.Omissions, agentcontract.Notice{Kind: "work_list_projection_paged", Details: map[string]any{"total_bytes": len(doc), "offset": offset, "fragment_bytes": n, "remaining_bytes": len(doc) - end, "document_complete": end == len(doc)}})
-		response, err = r.wrapCursor(ctx, response, binding, "summary")
+		detail := "summary"
+		if end < len(doc) {
+			detail = "work-list-projection"
+		}
+		response, err = r.wrapCursor(ctx, response, binding, detail)
 		if err != nil {
 			return response, 0, err
 		}

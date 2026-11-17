@@ -40,6 +40,9 @@ DELETE FROM write_guard`)
 	if len(m.Candidates) != 2 || m.Candidates[0].ID != 9876541 || m.Candidates[1].ID != 9876542 {
 		t.Fatalf("population: %+v", m.Candidates)
 	}
+	if staged, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".concord-attribution-*")); err != nil || len(staged) != 0 {
+		t.Fatalf("inspection left staging files beside the backup: %v %v", staged, err)
+	}
 	return s, path, m
 }
 
@@ -303,6 +306,31 @@ func TestRelationAttributionRefusalAndSkippedUndo(t *testing.T) {
 	verify, err := s.VerifyRelationAttribution(ctx, req)
 	if err != nil || verify.GraphPreserved || !verify.ReceiptsPreserved {
 		t.Fatalf("changed graph verification: %+v %v", verify, err)
+	}
+}
+
+func TestRelationAttributionClearRefusesBaselineDrift(t *testing.T) {
+	for name, drift := range map[string]string{
+		"graph":    `DELETE FROM relations WHERE id=9876544`,
+		"receipts": `INSERT INTO effect_receipts(event_id,effect_seq,kind,subject_type,subject_id,actor,payload_version) VALUES('repair-drift',(SELECT MAX(effect_seq)+1 FROM effect_receipts),'relation.added','work_item','repair-b','operator',1)`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, path, m := attributionFixture(t)
+			if _, err := s.db.Exec(`INSERT INTO write_guard(active) VALUES(1); ` + drift + `; DELETE FROM write_guard`); err != nil {
+				t.Fatal(err)
+			}
+			req := AttributionRequest{BackupPath: path, Manifest: m, IdempotencyKey: "drift"}
+			if _, err := s.ClearRelationAttribution(t.Context(), req); err == nil {
+				t.Fatal("clear accepted a store that differs from its backup")
+			}
+			var version int
+			if err := s.db.QueryRow(`SELECT record_version FROM relations WHERE id=9876541`).Scan(&version); err != nil || version != 2 {
+				t.Fatalf("baseline drift caused partial clear: %d %v", version, err)
+			}
+			if _, found, err := s.LookupMutationIdempotency(t.Context(), attributionKey("clear", req.IdempotencyKey)); err != nil || found {
+				t.Fatalf("refused clear recorded: %v %v", found, err)
+			}
+		})
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/store/internal/sqlitedb"
@@ -93,17 +94,20 @@ func attributionHash(value any) string {
 
 // verifiedAttributionBackup creates an immutable private copy whose bytes match
 // the verified checksum. SQLite never reads the mutable source path afterward.
+// The copy is staged beside the backup, as Backup stages its own copy, so a
+// crash can leave only a hidden duplicate in the directory that already holds
+// the same bytes, never a store copy in a shared temporary directory.
 func verifiedAttributionBackup(ctx context.Context, path string) (*sql.DB, string, func(), error) {
 	m, err := VerifyBackup(ctx, path)
 	if err != nil {
 		return nil, "", nil, err
 	}
-	source, err := os.Open(path)
+	source, err := os.Open(path) //nolint:gosec // VerifyBackup admitted this absolute clean snapshot path.
 	if err != nil {
 		return nil, "", nil, err
 	}
-	defer source.Close()
-	f, err := os.CreateTemp("", "concord-attribution-*.sqlite")
+	defer func() { _ = source.Close() }()
+	f, err := os.CreateTemp(filepath.Dir(path), ".concord-attribution-*")
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -302,36 +306,32 @@ func attributionReplay(ctx context.Context, tx *Transaction, key MutationIdempot
 	if err != nil || !found {
 		return AttributionResult{}, found, err
 	}
+	out, err := decodeAttributionReplay(record, digest)
+	return out, true, err
+}
+
+func decodeAttributionReplay(record MutationIdempotencyRecord, digest string) (AttributionResult, error) {
 	if record.CanonicalDigest != digest {
-		return AttributionResult{}, true, attributionConflict("idempotency key belongs to a different request")
+		return AttributionResult{}, attributionConflict("idempotency key belongs to a different request")
 	}
 	var stored attributionStoredResult
 	if err := json.Unmarshal([]byte(record.ResultPayload), &stored); err != nil {
-		return AttributionResult{}, true, err
+		return AttributionResult{}, err
 	}
 	if stored.ManifestDigest == "" || stored.Result.Treated == nil || stored.Result.Restored == nil || stored.Result.Gone == nil || stored.Result.FingerprintChanged == nil || stored.Result.GraphDigest == "" || stored.Result.ReceiptDigest == "" {
-		return AttributionResult{}, true, attributionConflict("retained operation result is malformed")
+		return AttributionResult{}, attributionConflict("retained operation result is malformed")
 	}
-	return stored.Result, true, nil
+	return stored.Result, nil
 }
 
 // A replay does not depend on the backup remaining online; the durable result
 // already binds the request. New effects always re-verify the backup.
 func (s *Store) replayAttributionIfPresent(ctx context.Context, key MutationIdempotencyKey, digest string) (AttributionResult, bool, error) {
-	_, found, err := s.LookupMutationIdempotency(ctx, key)
+	record, found, err := s.LookupMutationIdempotency(ctx, key)
 	if err != nil || !found {
 		return AttributionResult{}, found, err
 	}
-	var out AttributionResult
-	err = s.TransactDurable(ctx, func(tx *Transaction) error {
-		var found bool
-		var err error
-		out, found, err = attributionReplay(ctx, tx, key, digest)
-		if err == nil && !found {
-			return attributionConflict("idempotency record disappeared")
-		}
-		return err
-	})
+	out, err := decodeAttributionReplay(record, digest)
 	return out, true, err
 }
 
@@ -378,8 +378,43 @@ func relationByID(ctx context.Context, q queryer, id int64) (attributionRow, boo
 	return r[0], true, nil
 }
 
-// ClearRelationAttribution refuses the entire operation unless the backup and
-// the current Q7 population both match the supplied manifest exactly.
+// attributionClearedRow is the exact stored row a clear leaves behind.
+func attributionClearedRow(r attributionRow) attributionRow {
+	r.Reason, r.Version = "", 0
+	r.Types[6], r.Types[7] = "text", "integer"
+	return r
+}
+
+// boundAttributionClear returns the retained clear result only when it was
+// recorded for this manifest and treated exactly the backup's population.
+func boundAttributionClear(ctx context.Context, tx *Transaction, clearKey string, manifest AttributionManifest, backup []attributionRow) (attributionStoredResult, error) {
+	record, found, err := LookupMutationIdempotencyTx(ctx, tx, attributionKey("clear", clearKey))
+	if err != nil {
+		return attributionStoredResult{}, err
+	}
+	if !found {
+		return attributionStoredResult{}, attributionConflict("clear operation is missing")
+	}
+	var stored attributionStoredResult
+	if err := json.Unmarshal([]byte(record.ResultPayload), &stored); err != nil {
+		return attributionStoredResult{}, err
+	}
+	if stored.ManifestDigest != attributionHash(manifest) {
+		return attributionStoredResult{}, attributionConflict("clear operation does not match manifest")
+	}
+	ids := make([]int64, 0, len(backup))
+	for _, row := range backup {
+		ids = append(ids, row.ID)
+	}
+	if attributionHash(ids) != attributionHash(stored.Result.Treated) {
+		return attributionStoredResult{}, attributionConflict("clear operation result does not match manifest")
+	}
+	return stored, nil
+}
+
+// ClearRelationAttribution refuses the entire operation unless the backup, the
+// current Q7 population, and the current graph and receipts all match the
+// supplied manifest exactly.
 func (s *Store) ClearRelationAttribution(ctx context.Context, req AttributionRequest) (AttributionResult, error) {
 	if req.IdempotencyKey == "" {
 		return AttributionResult{}, attributionConflict("idempotency key is required")
@@ -394,59 +429,65 @@ func (s *Store) ClearRelationAttribution(ctx context.Context, req AttributionReq
 		return AttributionResult{}, err
 	}
 	out := emptyAttributionResult()
-	err = s.TransactDurable(ctx, func(tx *Transaction) error {
-		if replay, found, err := attributionReplay(ctx, tx, key, digest); found || err != nil {
-			out = replay
-			return err
-		}
-		if err := refuseAttributionKeyReuse(ctx, tx, "clear", req.IdempotencyKey); err != nil {
-			return err
-		}
-		live, err := attributionPopulation(ctx, tx.tx, req.Manifest.Cutoff)
-		if err != nil {
-			return err
-		}
-		liveCandidates := make([]AttributionCandidate, 0, len(live))
-		for _, row := range live {
-			liveCandidates = append(liveCandidates, AttributionCandidate{row.ID, attributionFingerprint(row)})
-		}
-		if attributionHash(liveCandidates) != attributionHash(req.Manifest.Candidates) {
-			return attributionConflict("current population or fingerprint changed")
-		}
-		beforeGraph, beforeReceipt, err := attributionDigests(ctx, tx.tx)
-		if err != nil {
-			return err
-		}
-		guard := sqlitedb.NewWriteGuard(tx.tx)
-		if err := guard.Enter(ctx); err != nil {
-			return mechanismFailure(err)
-		}
-		for _, row := range backup {
-			if row.Version < 1 {
-				return attributionConflict("relation version must be positive")
-			}
-			if _, err := tx.tx.ExecContext(ctx, `UPDATE relations SET reason='',record_version=0 WHERE id=?`, row.ID); err != nil {
-				return err
-			}
-			out.Treated = append(out.Treated, row.ID)
-		}
-		if err := guard.Close(ctx); err != nil {
-			return mechanismFailure(err)
-		}
-		out.GraphDigest, out.ReceiptDigest, err = attributionDigests(ctx, tx.tx)
-		if err != nil {
-			return err
-		}
-		if out.GraphDigest != beforeGraph || out.ReceiptDigest != beforeReceipt {
-			return attributionConflict("graph or receipts changed during clear")
-		}
-		out.GraphPreserved, out.ReceiptsPreserved = true, true
-		return attributionRecord(ctx, tx, key, digest, req.Manifest, out)
-	})
-	if err != nil {
+	if err := s.TransactDurable(ctx, func(tx *Transaction) error {
+		return clearRelationAttributionTx(ctx, tx, req, key, digest, backup, &out)
+	}); err != nil {
 		return AttributionResult{}, err
 	}
 	return out, nil
+}
+
+func clearRelationAttributionTx(ctx context.Context, tx *Transaction, req AttributionRequest, key MutationIdempotencyKey, digest string, backup []attributionRow, out *AttributionResult) error {
+	if replay, found, err := attributionReplay(ctx, tx, key, digest); found || err != nil {
+		*out = replay
+		return err
+	}
+	if err := refuseAttributionKeyReuse(ctx, tx, "clear", req.IdempotencyKey); err != nil {
+		return err
+	}
+	live, err := attributionPopulation(ctx, tx.tx, req.Manifest.Cutoff)
+	if err != nil {
+		return err
+	}
+	liveCandidates := make([]AttributionCandidate, 0, len(live))
+	for _, row := range live {
+		liveCandidates = append(liveCandidates, AttributionCandidate{row.ID, attributionFingerprint(row)})
+	}
+	if attributionHash(liveCandidates) != attributionHash(req.Manifest.Candidates) {
+		return attributionConflict("current population or fingerprint changed")
+	}
+	beforeGraph, beforeReceipt, err := attributionDigests(ctx, tx.tx)
+	if err != nil {
+		return err
+	}
+	if beforeGraph != req.Manifest.GraphDigest || beforeReceipt != req.Manifest.ReceiptDigest {
+		return attributionConflict("current graph or receipts differ from the backup")
+	}
+	guard := sqlitedb.NewWriteGuard(tx.tx)
+	if err := guard.Enter(ctx); err != nil {
+		return mechanismFailure(err)
+	}
+	for _, row := range backup {
+		if row.Version < 1 {
+			return attributionConflict("relation version must be positive")
+		}
+		if _, err := tx.tx.ExecContext(ctx, `UPDATE relations SET reason='',record_version=0 WHERE id=?`, row.ID); err != nil {
+			return err
+		}
+		out.Treated = append(out.Treated, row.ID)
+	}
+	if err := guard.Close(ctx); err != nil {
+		return mechanismFailure(err)
+	}
+	out.GraphDigest, out.ReceiptDigest, err = attributionDigests(ctx, tx.tx)
+	if err != nil {
+		return err
+	}
+	if out.GraphDigest != beforeGraph || out.ReceiptDigest != beforeReceipt {
+		return attributionConflict("graph or receipts changed during clear")
+	}
+	out.GraphPreserved, out.ReceiptsPreserved = true, true
+	return attributionRecord(ctx, tx, key, digest, req.Manifest, *out)
 }
 
 // UndoRelationAttribution restores only unchanged post-clear rows from the
@@ -465,87 +506,69 @@ func (s *Store) UndoRelationAttribution(ctx context.Context, req AttributionUndo
 		return AttributionResult{}, err
 	}
 	out := emptyAttributionResult()
-	err = s.TransactDurable(ctx, func(tx *Transaction) error {
-		if replay, found, err := attributionReplay(ctx, tx, key, digest); found || err != nil {
-			out = replay
-			return err
-		}
-		if err := refuseAttributionKeyReuse(ctx, tx, "undo", req.IdempotencyKey); err != nil {
-			return err
-		}
-		clear, found, err := LookupMutationIdempotencyTx(ctx, tx, attributionKey("clear", req.ClearKey))
+	if err := s.TransactDurable(ctx, func(tx *Transaction) error {
+		return undoRelationAttributionTx(ctx, tx, req, key, digest, backup, &out)
+	}); err != nil {
+		return AttributionResult{}, err
+	}
+	return out, nil
+}
+
+func undoRelationAttributionTx(ctx context.Context, tx *Transaction, req AttributionUndoRequest, key MutationIdempotencyKey, digest string, backup []attributionRow, out *AttributionResult) error {
+	if replay, found, err := attributionReplay(ctx, tx, key, digest); found || err != nil {
+		*out = replay
+		return err
+	}
+	if err := refuseAttributionKeyReuse(ctx, tx, "undo", req.IdempotencyKey); err != nil {
+		return err
+	}
+	stored, err := boundAttributionClear(ctx, tx, req.ClearKey, req.Manifest, backup)
+	if err != nil {
+		return err
+	}
+	beforeGraph, beforeReceipt, err := attributionDigests(ctx, tx.tx)
+	if err != nil {
+		return err
+	}
+	guard := sqlitedb.NewWriteGuard(tx.tx)
+	if err := guard.Enter(ctx); err != nil {
+		return mechanismFailure(err)
+	}
+	for _, original := range backup {
+		current, found, err := relationByID(ctx, tx.tx, original.ID)
 		if err != nil {
 			return err
 		}
 		if !found {
-			return attributionConflict("clear operation is missing")
+			out.Gone = append(out.Gone, original.ID)
+			continue
 		}
-		var stored attributionStoredResult
-		if err := json.Unmarshal([]byte(clear.ResultPayload), &stored); err != nil {
+		if attributionFingerprint(current) != attributionFingerprint(attributionClearedRow(original)) {
+			out.FingerprintChanged = append(out.FingerprintChanged, original.ID)
+			continue
+		}
+		var reason any = original.Reason
+		if original.Types[6] == "blob" {
+			reason = []byte(original.Reason)
+		}
+		if _, err := tx.tx.ExecContext(ctx, `UPDATE relations SET reason=?,record_version=? WHERE id=?`, reason, original.Version, original.ID); err != nil {
 			return err
 		}
-		if stored.ManifestDigest != attributionHash(req.Manifest) {
-			return attributionConflict("clear operation does not match manifest")
-		}
-		ids := make([]int64, 0, len(backup))
-		for _, row := range backup {
-			ids = append(ids, row.ID)
-		}
-		if attributionHash(ids) != attributionHash(stored.Result.Treated) {
-			return attributionConflict("clear operation result does not match manifest")
-		}
-		beforeGraph, beforeReceipt, err := attributionDigests(ctx, tx.tx)
-		if err != nil {
-			return err
-		}
-		guard := sqlitedb.NewWriteGuard(tx.tx)
-		if err := guard.Enter(ctx); err != nil {
-			return mechanismFailure(err)
-		}
-		for _, original := range backup {
-			current, found, err := relationByID(ctx, tx.tx, original.ID)
-			if err != nil {
-				return err
-			}
-			if !found {
-				out.Gone = append(out.Gone, original.ID)
-				continue
-			}
-			post := original
-			post.Reason = ""
-			post.Version = 0
-			post.Types[6], post.Types[7] = "text", "integer"
-			if attributionFingerprint(current) != attributionFingerprint(post) {
-				out.FingerprintChanged = append(out.FingerprintChanged, original.ID)
-				continue
-			}
-			var reason any = original.Reason
-			if original.Types[6] == "blob" {
-				reason = []byte(original.Reason)
-			}
-			if _, err := tx.tx.ExecContext(ctx, `UPDATE relations SET reason=?,record_version=? WHERE id=?`, reason, original.Version, original.ID); err != nil {
-				return err
-			}
-			out.Restored = append(out.Restored, original.ID)
-		}
-		if err := guard.Close(ctx); err != nil {
-			return mechanismFailure(err)
-		}
-		out.GraphDigest, out.ReceiptDigest, err = attributionDigests(ctx, tx.tx)
-		if err != nil {
-			return err
-		}
-		if out.GraphDigest != beforeGraph || out.ReceiptDigest != beforeReceipt {
-			return attributionConflict("graph or receipts changed during undo")
-		}
-		out.GraphPreserved = out.GraphDigest == stored.Result.GraphDigest
-		out.ReceiptsPreserved = out.ReceiptDigest == stored.Result.ReceiptDigest
-		return attributionRecord(ctx, tx, key, digest, req.Manifest, out)
-	})
-	if err != nil {
-		return AttributionResult{}, err
+		out.Restored = append(out.Restored, original.ID)
 	}
-	return out, nil
+	if err := guard.Close(ctx); err != nil {
+		return mechanismFailure(err)
+	}
+	out.GraphDigest, out.ReceiptDigest, err = attributionDigests(ctx, tx.tx)
+	if err != nil {
+		return err
+	}
+	if out.GraphDigest != beforeGraph || out.ReceiptDigest != beforeReceipt {
+		return attributionConflict("graph or receipts changed during undo")
+	}
+	out.GraphPreserved = out.GraphDigest == stored.Result.GraphDigest
+	out.ReceiptsPreserved = out.ReceiptDigest == stored.Result.ReceiptDigest
+	return attributionRecord(ctx, tx, key, digest, req.Manifest, *out)
 }
 
 // VerifyRelationAttribution classifies the candidate rows against both their
@@ -559,47 +582,42 @@ func (s *Store) VerifyRelationAttribution(ctx context.Context, req AttributionRe
 		return AttributionResult{}, err
 	}
 	out := emptyAttributionResult()
-	err = s.ReadTransaction(ctx, func(tx *Transaction) error {
-		clear, found, err := LookupMutationIdempotencyTx(ctx, tx, attributionKey("clear", req.IdempotencyKey))
+	if err := s.ReadTransaction(ctx, func(tx *Transaction) error {
+		return verifyRelationAttributionTx(ctx, tx, req, backup, &out)
+	}); err != nil {
+		return AttributionResult{}, err
+	}
+	return out, nil
+}
+
+func verifyRelationAttributionTx(ctx context.Context, tx *Transaction, req AttributionRequest, backup []attributionRow, out *AttributionResult) error {
+	stored, err := boundAttributionClear(ctx, tx, req.IdempotencyKey, req.Manifest, backup)
+	if err != nil {
+		return err
+	}
+	for _, original := range backup {
+		current, found, err := relationByID(ctx, tx.tx, original.ID)
 		if err != nil {
 			return err
 		}
 		if !found {
-			return attributionConflict("clear operation is missing")
+			out.Gone = append(out.Gone, original.ID)
+			continue
 		}
-		var stored attributionStoredResult
-		if err := json.Unmarshal([]byte(clear.ResultPayload), &stored); err != nil {
-			return err
+		switch attributionFingerprint(current) {
+		case attributionFingerprint(original):
+			out.Restored = append(out.Restored, original.ID)
+		case attributionFingerprint(attributionClearedRow(original)):
+			out.Treated = append(out.Treated, original.ID)
+		default:
+			out.FingerprintChanged = append(out.FingerprintChanged, original.ID)
 		}
-		if stored.ManifestDigest != attributionHash(req.Manifest) {
-			return attributionConflict("clear operation does not match manifest")
-		}
-		for _, original := range backup {
-			current, found, err := relationByID(ctx, tx.tx, original.ID)
-			if err != nil {
-				return err
-			}
-			if !found {
-				out.Gone = append(out.Gone, original.ID)
-				continue
-			}
-			post := original
-			post.Reason = ""
-			post.Version = 0
-			post.Types[6], post.Types[7] = "text", "integer"
-			switch attributionFingerprint(current) {
-			case attributionFingerprint(original):
-				out.Restored = append(out.Restored, original.ID)
-			case attributionFingerprint(post):
-				out.Treated = append(out.Treated, original.ID)
-			default:
-				out.FingerprintChanged = append(out.FingerprintChanged, original.ID)
-			}
-		}
-		out.GraphDigest, out.ReceiptDigest, err = attributionDigests(ctx, tx.tx)
-		out.GraphPreserved = out.GraphDigest == stored.Result.GraphDigest
-		out.ReceiptsPreserved = out.ReceiptDigest == stored.Result.ReceiptDigest
+	}
+	out.GraphDigest, out.ReceiptDigest, err = attributionDigests(ctx, tx.tx)
+	if err != nil {
 		return err
-	})
-	return out, err
+	}
+	out.GraphPreserved = out.GraphDigest == stored.Result.GraphDigest
+	out.ReceiptsPreserved = out.ReceiptDigest == stored.Result.ReceiptDigest
+	return nil
 }

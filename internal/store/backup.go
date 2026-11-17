@@ -115,23 +115,7 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 	if err := refuseUnsupportedBackupSource(ctx, conn, s.path); err != nil {
 		return manifest, err
 	}
-	if err := validateBackupDestination(s.Path(), destination); err != nil {
-		return manifest, err
-	}
-	if err := AdmitStorePath(destination); err != nil {
-		return manifest, err
-	}
-	if _, err := os.Stat(destination); err == nil {
-		return manifest, newFailure(KindInvalidOperation, "backup", "backup destination already exists", false, "choose a new explicit destination")
-	} else if !os.IsNotExist(err) {
-		return manifest, wrapFailure(KindUnavailable, "backup", "cannot inspect backup destination", true, "check the destination path", err)
-	}
-	if _, err := os.Stat(manifestPath(destination)); err == nil {
-		return manifest, newFailure(KindInvalidOperation, "backup", "backup manifest already exists", false, "choose a new explicit destination")
-	} else if !os.IsNotExist(err) {
-		return manifest, wrapFailure(KindUnavailable, "backup", "cannot inspect backup manifest destination", true, "check the destination path", err)
-	}
-	if err := refuseBackupSidecars(destination); err != nil {
+	if err := validateNewBackupDestination(s.Path(), destination); err != nil {
 		return manifest, err
 	}
 	if err := contextErr(ctx); err != nil {
@@ -242,6 +226,26 @@ func refuseUnsupportedBackupSource(ctx context.Context, conn beginTxSource, path
 		return unknownManifest()
 	}
 	return checkManifest(applied)
+}
+
+func validateNewBackupDestination(source, destination string) error {
+	if err := validateBackupDestination(source, destination); err != nil {
+		return err
+	}
+	if err := AdmitStorePath(destination); err != nil {
+		return err
+	}
+	if _, err := os.Stat(destination); err == nil {
+		return newFailure(KindInvalidOperation, "backup", "backup destination already exists", false, "choose a new explicit destination")
+	} else if !os.IsNotExist(err) {
+		return wrapFailure(KindUnavailable, "backup", "cannot inspect backup destination", true, "check the destination path", err)
+	}
+	if _, err := os.Stat(manifestPath(destination)); err == nil {
+		return newFailure(KindInvalidOperation, "backup", "backup manifest already exists", false, "choose a new explicit destination")
+	} else if !os.IsNotExist(err) {
+		return wrapFailure(KindUnavailable, "backup", "cannot inspect backup manifest destination", true, "check the destination path", err)
+	}
+	return refuseBackupSidecars(destination)
 }
 
 // refuseBackupSidecars refuses a destination whose SQLite sidecar names are

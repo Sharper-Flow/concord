@@ -11,9 +11,7 @@ adapter, and repository validators. Linux amd64 is the only release platform.
 - Linear owns planning; read and write it only through the Linear MCP server under
   [`.concord/law/specs/managed-development-authority.md`](.concord/law/specs/managed-development-authority.md). Pull requests
   plus required checks own review and merge evidence.
-- [`.concord/law/decisions`](.concord/law/decisions) (CD-NNNN records), specifications, and
-  constitutional documents own Product law. Ordinary prose cannot acquire that
-  authority — including this file, which is host instruction, not law.
+- For Product-law authority, see [Knowledge closure](#knowledge-closure).
 - Surface conflicts with accepted decisions. Never silently narrow a contract.
 - One branch and worktree per change. Never implement directly on `main`.
   Host tools own worktree creation, placement, recovery, and removal
@@ -62,8 +60,10 @@ enforces it.
 ## Knowledge closure
 
 A file is law only if it sits under `.concord/law/` on the default branch.
-Anything else is **not law**, however much it reads like a spec
-([law-folder-authority](.concord/law/constitution/law-folder-authority.md)).
+Decisions (CD-NNNN records), specifications, and constitutional documents there
+own Product law. Ordinary prose cannot acquire that authority, including this
+file, which is host instruction, not law. Anything else is **not law**, however
+much it reads like a spec ([law-folder-authority](.concord/law/constitution/law-folder-authority.md)).
 
 ## Go style
 

@@ -929,9 +929,9 @@ func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string
 		return "", nil
 	}
 	expected := SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default"}
-	if r.Tool == "concord_work_trace" && r.Operation == "mutation_result" {
-		// The retained document is immutable. Unrelated writes must not
-		// invalidate its continuation; the filter binds its exact identity.
+	if r.Tool == "concord_work_trace" && (r.Operation == "mutation_result" || r.Operation == "resume") {
+		// Document continuations bind their query identity independently of
+		// unrelated store revisions; the handler checks the document bytes.
 		expected.Source = binding
 	} else {
 		watermark, err := r.Store.Revision(ctx)
@@ -951,7 +951,11 @@ func (r runtime) wrapCursor(ctx context.Context, response agentcontract.Envelope
 	if response.NextCursor == nil {
 		return response, nil
 	}
-	token, err := r.Store.EncodeCursor(ctx, SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default", Source: watermarkString(response), Last: "", Inner: *response.NextCursor})
+	source := watermarkString(response)
+	if r.Tool == "concord_work_trace" && r.Operation == "resume" {
+		source = binding
+	}
+	token, err := r.Store.EncodeCursor(ctx, SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default", Source: source, Last: "", Inner: *response.NextCursor})
 	if err != nil {
 		return response, err
 	}

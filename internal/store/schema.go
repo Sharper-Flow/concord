@@ -144,6 +144,49 @@ func afterSchemaManifestAbsent(ctx context.Context, probe string) {
 	}
 }
 
+type manifestSnapshot struct {
+	present    bool
+	inspectErr error
+	emptyErr   error
+	count      int
+	countErr   error
+	applied    map[int]appliedMigration
+	appliedErr error
+	// legacy marks a manifest without the compatibility column; legacyErr
+	// is its refusal and replaces appliedErr for every caller.
+	legacy    bool
+	legacyErr error
+}
+
+func inspectManifestSnapshot(ctx context.Context, db *sql.DB, probe string) manifestSnapshot {
+	var result manifestSnapshot
+	tx, err := beginReadTx(ctx, db)
+	if err != nil {
+		result.inspectErr = err
+		return result
+	}
+	defer func() { _ = tx.Rollback() }()
+	var present string
+	err = tx.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='schema_migrations'`).Scan(&present)
+	if err == sql.ErrNoRows {
+		afterSchemaManifestAbsent(ctx, probe)
+		result.emptyErr = requireEmptySchema(ctx, tx)
+		return result
+	}
+	if err != nil {
+		result.inspectErr = err
+		return result
+	}
+	result.present = true
+	result.countErr = tx.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&result.count)
+	result.applied, result.appliedErr = appliedMigrations(ctx, tx)
+	if result.appliedErr != nil && strings.Contains(result.appliedErr.Error(), "no such column: breaking") {
+		result.legacy = true
+		result.legacyErr = legacyManifestMigrations(ctx, tx)
+	}
+	return result
+}
+
 // migrationScope selects which pending steps one migration pass may apply.
 type migrationScope int
 
@@ -176,11 +219,13 @@ const (
 // budget, and each retry re-checks the read-only fast path so a waiter returns
 // as soon as the winner commits.
 func Migrate(ctx context.Context, db *sql.DB, clock ...func() time.Time) error {
-	return migrate(ctx, db, migrateForUpgrade, clock...)
+	_, err := migrate(ctx, db, migrateForUpgrade, clock...)
+	return err
 }
 
 func migrateUnstamped(ctx context.Context, db *sql.DB, clock ...func() time.Time) error {
-	return migrate(ctx, db, migrateForUnstamped, clock...)
+	_, err := migrate(ctx, db, migrateForUnstamped, clock...)
+	return err
 }
 
 // migrateAtOpen applies the pending additive steps and refuses with
@@ -188,32 +233,33 @@ func migrateUnstamped(ctx context.Context, db *sql.DB, clock ...func() time.Time
 // steps it applied stay committed; the refusal names the step and the
 // command that applies it.
 func migrateAtOpen(ctx context.Context, db *sql.DB, clock ...func() time.Time) error {
-	return migrate(ctx, db, migrateForOpen, clock...)
+	_, err := migrate(ctx, db, migrateForOpen, clock...)
+	return err
 }
 
-func migrate(ctx context.Context, db *sql.DB, scope migrationScope, clock ...func() time.Time) error {
+func migrate(ctx context.Context, db *sql.DB, scope migrationScope, clock ...func() time.Time) ([]int, error) {
 	deadline := time.Now().Add(migrationLockBudget)
 	delay := migrationRetryInitialDelay
 	for {
 		current, err := migrationManifestCurrent(ctx, db, scope)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if current {
-			return nil
+			return nil, nil
 		}
-		err = migrateOnce(ctx, db, scope, clock...)
+		applied, err := migrateOnce(ctx, db, scope, clock...)
 		if err == nil {
-			return nil
+			return applied, nil
 		}
 		if !migrationLockContended(err) || !time.Now().Before(deadline) {
-			return err
+			return nil, err
 		}
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return wrapFailure(KindUnavailable, "migrate", "schema migration was cancelled while waiting for another process", true,
+			return nil, wrapFailure(KindUnavailable, "migrate", "schema migration was cancelled while waiting for another process", true,
 				"retry once the database is writable", ctx.Err())
 		case <-timer.C:
 		}
@@ -234,36 +280,24 @@ func migrate(ctx context.Context, db *sql.DB, scope migrationScope, clock ...fun
 // refuses here when the next pending step is breaking, so a database that
 // waits for concord upgrade is refused without a write transaction.
 func migrationManifestCurrent(ctx context.Context, db *sql.DB, scope migrationScope) (bool, error) {
-	tx, err := beginReadTx(ctx, db)
-	if err != nil {
-		if migrationLockContended(err) {
+	snapshot := inspectManifestSnapshot(ctx, db, "migrationManifestCurrent")
+	if snapshot.inspectErr != nil {
+		if migrationLockContended(snapshot.inspectErr) {
 			return false, nil
 		}
 		return false, wrapFailure(KindUnavailable, "migrate", "cannot inspect the schema manifest", true,
-			"confirm the database is readable", err)
+			"confirm the database is readable", snapshot.inspectErr)
 	}
-	defer func() { _ = tx.Rollback() }()
-	var present string
-	err = tx.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='schema_migrations'`).Scan(&present)
-	if err == sql.ErrNoRows {
-		afterSchemaManifestAbsent(ctx, "migrationManifestCurrent")
-		return false, requireEmptySchema(ctx, tx)
+	if !snapshot.present {
+		return false, snapshot.emptyErr
 	}
-	if err != nil {
-		if migrationLockContended(err) {
-			return false, nil
-		}
-		return false, wrapFailure(KindUnavailable, "migrate", "cannot inspect the schema manifest", true,
-			"confirm the database is readable", err)
+	if snapshot.legacy {
+		return false, snapshot.legacyErr
 	}
-	applied, err := appliedMigrations(ctx, tx)
-	if err != nil && strings.Contains(err.Error(), "no such column: breaking") {
-		_, err = legacyManifestMigrations(ctx, tx)
-		return false, err
-	}
-	if err != nil {
+	if snapshot.appliedErr != nil {
 		return false, nil
 	}
+	applied := snapshot.applied
 	if len(applied) == 0 {
 		return false, unknownManifest()
 	}
@@ -302,37 +336,28 @@ func requireEmptySchema(ctx context.Context, q queryer) error {
 // binary may migrate only a store with no applied migrations. An up-to-date
 // existing store is admitted without a migration pass.
 func unstampedStoreFresh(ctx context.Context, db *sql.DB) (map[int]appliedMigration, bool, error) {
-	tx, err := beginReadTx(ctx, db)
-	if err != nil {
+	snapshot := inspectManifestSnapshot(ctx, db, "unstampedStoreFresh")
+	if snapshot.inspectErr != nil {
 		return nil, false, wrapFailure(KindUnavailable, "open", "cannot inspect the schema manifest", true,
-			"confirm the database is readable", err)
+			"confirm the database is readable", snapshot.inspectErr)
 	}
-	defer func() { _ = tx.Rollback() }()
-	var present string
-	err = tx.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='schema_migrations'`).Scan(&present)
-	if err == sql.ErrNoRows {
-		afterSchemaManifestAbsent(ctx, "unstampedStoreFresh")
-		return map[int]appliedMigration{}, true, requireEmptySchema(ctx, tx)
+	if !snapshot.present {
+		return map[int]appliedMigration{}, true, snapshot.emptyErr
 	}
-	if err != nil {
-		return nil, false, wrapFailure(KindUnavailable, "open", "cannot inspect the schema manifest", true,
-			"confirm the database is readable", err)
-	}
-	var count int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&count); err != nil {
+	if snapshot.countErr != nil {
 		return nil, false, wrapFailure(KindUnavailable, "open", "cannot count applied migrations", true,
-			"confirm the database is readable", err)
+			"confirm the database is readable", snapshot.countErr)
 	}
-	if count == 0 {
+	if snapshot.count == 0 {
 		return nil, false, unknownManifest()
 	}
-	applied, err := appliedMigrations(ctx, tx)
-	if err != nil {
-		if strings.Contains(err.Error(), "no such column: breaking") {
-			_, err = legacyManifestMigrations(ctx, tx)
-		}
-		return nil, false, err
+	if snapshot.legacy {
+		return nil, false, snapshot.legacyErr
 	}
+	if snapshot.appliedErr != nil {
+		return nil, false, snapshot.appliedErr
+	}
+	applied := snapshot.applied
 	if err := checkManifest(applied); err != nil {
 		return nil, false, err
 	}
@@ -456,16 +481,16 @@ func upgradeRequired(m migration) *Failure {
 		true, fmt.Sprintf("run concord upgrade; it refuses while a live session holds a release that predates migration %d", m.Version))
 }
 
-func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ...func() time.Time) error {
+func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ...func() time.Time) ([]int, error) {
 	write, err := beginWriteTx(ctx, db, nil, schemaWriteAdmission)
 	if err != nil {
-		return wrapFailure(KindUnavailable, "migrate", "cannot begin schema migration", true,
+		return nil, wrapFailure(KindUnavailable, "migrate", "cannot begin schema migration", true,
 			"retry once the database is writable", err)
 	}
 	tx := write.Tx
-	rollback := func(cause error) error {
+	rollback := func(cause error) ([]int, error) {
 		write.finish(&cause)
-		return cause
+		return nil, cause
 	}
 	var manifestExists bool
 	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='schema_migrations')`).Scan(&manifestExists); err != nil {
@@ -478,7 +503,7 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 	} else {
 		applied, err := appliedMigrations(ctx, tx)
 		if err != nil && strings.Contains(err.Error(), "no such column: breaking") {
-			applied, err = legacyManifestMigrations(ctx, tx)
+			err = legacyManifestMigrations(ctx, tx)
 		}
 		if err != nil {
 			return rollback(err)
@@ -515,17 +540,17 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 		}
 	}
 
-	stopped, err := applyPendingMigrations(ctx, tx, scope, applied, clock...)
+	versions, stopped, err := applyPendingMigrations(ctx, tx, scope, applied, clock...)
 	if err != nil {
 		return rollback(err)
 	}
 	if err := tx.Commit(); err != nil {
-		return ordinaryCommitFailure(ctx, write, "migrate", "cannot commit schema migration", err)
+		return nil, ordinaryCommitFailure(ctx, write, "migrate", "cannot commit schema migration", err)
 	}
 	if stopped != nil {
-		return upgradeRequired(*stopped)
+		return nil, upgradeRequired(*stopped)
 	}
-	return nil
+	return versions, nil
 }
 
 func inspectUnstampedManifest(ctx context.Context, tx *sql.Tx) (bool, error) {
@@ -554,7 +579,8 @@ func inspectUnstampedManifest(ctx context.Context, tx *sql.Tx) (bool, error) {
 	return false, nil
 }
 
-func applyPendingMigrations(ctx context.Context, tx *sql.Tx, scope migrationScope, applied map[int]appliedMigration, clock ...func() time.Time) (*migration, error) {
+func applyPendingMigrations(ctx context.Context, tx *sql.Tx, scope migrationScope, applied map[int]appliedMigration, clock ...func() time.Time) ([]int, *migration, error) {
+	var versions []int
 	var stopped *migration
 	for i := range migrations {
 		m := migrations[i]
@@ -566,20 +592,21 @@ func applyPendingMigrations(ctx context.Context, tx *sql.Tx, scope migrationScop
 			break
 		}
 		if err := applyMigration(ctx, tx, m); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := advanceStoreRevision(ctx, tx); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO schema_migrations (version, name, checksum, applied_at, breaking) VALUES (?, ?, ?, ?, ?)`,
 			m.Version, m.Name, m.checksum(), nowFromClock(firstClock(clock)).Format(time.RFC3339Nano), m.Breaking); err != nil {
-			return nil, wrapFailure(KindUnavailable, "migrate",
+			return nil, nil, wrapFailure(KindUnavailable, "migrate",
 				fmt.Sprintf("cannot record migration %d (%s)", m.Version, m.Name), true,
 				"retry once the database is writable", err)
 		}
+		versions = append(versions, m.Version)
 	}
-	return stopped, nil
+	return versions, stopped, nil
 }
 
 // appliedMigration is one manifest row: what was applied, and whether it left
@@ -598,20 +625,20 @@ func appliedMigrations(ctx context.Context, tx queryer) (map[int]appliedMigratio
 // legacyManifestMigrations reads a manifest that predates the breaking
 // column. A manifest claiming a supported version without the column has
 // unknown provenance and is never repaired in place.
-func legacyManifestMigrations(ctx context.Context, tx queryer) (map[int]appliedMigration, error) {
+func legacyManifestMigrations(ctx context.Context, tx queryer) error {
 	applied, err := readManifest(ctx, tx, `SELECT version, checksum, 1 FROM schema_migrations ORDER BY version`)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if len(applied) == 0 {
-		return nil, unknownManifest()
+		return unknownManifest()
 	}
 	for version := range applied {
 		if version >= 199 {
-			return nil, unknownManifest()
+			return unknownManifest()
 		}
 	}
-	return nil, checkManifest(applied)
+	return checkManifest(applied)
 }
 
 func readManifest(ctx context.Context, tx queryer, query string) (map[int]appliedMigration, error) {

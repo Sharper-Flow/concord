@@ -232,13 +232,14 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport
 		}
 	}
 	var after map[int]appliedMigration
+	var committed []int
 	if version.Value == version.Development && !unstampedFresh {
 		after = before
 	} else {
 		if version.Value == version.Development {
-			err = migrateUnstamped(ctx, s.db, s.Clock)
+			committed, err = migrate(ctx, s.db, migrateForUnstamped, s.Clock)
 		} else {
-			err = Migrate(ctx, s.db, s.Clock)
+			committed, err = migrate(ctx, s.db, migrateForUpgrade, s.Clock)
 		}
 		if err != nil {
 			return UpgradeReport{}, err
@@ -252,14 +253,7 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport
 		return UpgradeReport{}, err
 	}
 	report := UpgradeReport{Applied: []int{}}
-	for _, m := range migrations {
-		if _, was := before[m.Version]; was {
-			continue
-		}
-		if _, is := after[m.Version]; is {
-			report.Applied = append(report.Applied, m.Version)
-		}
-	}
+	report.Applied = append(report.Applied, committed...)
 	for version := range after {
 		if version > report.SchemaVersion {
 			report.SchemaVersion = version
@@ -300,26 +294,24 @@ func CheckUpgradeSessions(pending []PendingMigration, held []HeldSchema) error {
 // table reads as empty. A manifest lacking the compatibility column is read
 // only to identify an unsupported historical store.
 func manifestVersions(ctx context.Context, db *sql.DB) (map[int]appliedMigration, error) {
-	var present string
-	err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='schema_migrations'`).Scan(&present)
-	if err == sql.ErrNoRows {
-		return map[int]appliedMigration{}, requireEmptySchema(ctx, db)
-	}
-	if err != nil {
+	snapshot := inspectManifestSnapshot(ctx, db, "manifestVersions")
+	if snapshot.inspectErr != nil {
 		return nil, wrapFailure(KindUnavailable, "upgrade", "cannot inspect the schema manifest", true,
-			"confirm the database is readable", err)
+			"confirm the database is readable", snapshot.inspectErr)
 	}
-	applied, err := appliedMigrations(ctx, db)
-	if err == nil {
-		if len(applied) == 0 {
-			return nil, unknownManifest()
-		}
-		return applied, checkManifest(applied)
+	if !snapshot.present {
+		return map[int]appliedMigration{}, snapshot.emptyErr
 	}
-	if !strings.Contains(err.Error(), "no such column: breaking") {
-		return nil, err
+	if snapshot.legacy {
+		return nil, snapshot.legacyErr
 	}
-	return legacyManifestMigrations(ctx, db)
+	if snapshot.appliedErr != nil {
+		return nil, snapshot.appliedErr
+	}
+	if len(snapshot.applied) == 0 {
+		return nil, unknownManifest()
+	}
+	return snapshot.applied, checkManifest(snapshot.applied)
 }
 
 // openUnmigrated prepares the file, the directory, and the connection without

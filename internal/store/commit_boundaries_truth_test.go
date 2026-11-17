@@ -238,7 +238,11 @@ func TestCommitBoundaryTruth(t *testing.T) {
 						connector.cancel, connector.rollbackFault = cancel, unprovedRollback
 						connector.cancelSQL = "INSERT INTO schema_migrations (version, name, checksum, applied_at, breaking)"
 					}
-					err = migrateOnce(ctx, db, migrateForUpgrade, nil, func() time.Time { return time.Unix(1, 0) })
+					var versions []int
+					versions, err = migrateOnce(ctx, db, migrateForUpgrade, nil, func() time.Time { return time.Unix(1, 0) })
+					if len(versions) != 0 {
+						t.Errorf("failed commit returned versions %v", versions)
+					}
 					witness = func() int {
 						var n int
 						if e := db.QueryRow("SELECT count(*) FROM schema_migrations WHERE version=201").Scan(&n); e != nil {

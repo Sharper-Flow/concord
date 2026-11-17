@@ -171,7 +171,7 @@ func readAppliedFromDB(ctx context.Context, db beginTxSource, path string) (map[
 	applied, err := appliedMigrations(ctx, tx)
 	if err != nil && strings.Contains(err.Error(), "no such column: breaking") {
 		// Read old rows only to identify an unsupported historical store.
-		applied, err = legacyManifestMigrations(ctx, tx)
+		err = legacyManifestMigrations(ctx, tx)
 	}
 	if err != nil {
 		var failure *Failure

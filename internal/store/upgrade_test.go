@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -140,7 +141,7 @@ func TestUpgradeRefusesWhileALiveLeaseHoldsAnOlderSchema(t *testing.T) {
 			want = append(want, m.Version)
 		}
 	}
-	if len(report.Applied) != len(want) || report.Applied[0] != want[0] {
+	if !slices.Equal(report.Applied, want) {
 		t.Fatalf("report.Applied = %v, want versions %v", report.Applied, want)
 	}
 	s, err := Open(context.Background(), path)

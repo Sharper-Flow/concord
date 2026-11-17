@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -61,6 +62,100 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestUpgradeConcurrentFirstOpen(t *testing.T) {
+	useStampedBuild(t)
+	for _, probeTarget := range []string{"manifestVersions", "migrationManifestCurrent"} {
+		t.Run(probeTarget, func(t *testing.T) {
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "concord.db")
+			hits := 0
+			loserCtx := context.WithValue(ctx, schemaAbsentHookKey{}, func(probe string) {
+				if probe != probeTarget {
+					return
+				}
+				hits++
+				winner, err := Open(ctx, path)
+				if err != nil {
+					t.Fatalf("winner Open() error = %v", err)
+				}
+				t.Cleanup(func() { _ = winner.Close() })
+			})
+			report, err := Upgrade(loserCtx, path, nil)
+			if hits != 1 {
+				t.Fatalf("%s probe reached %d times, want 1; Upgrade() error = %v", probeTarget, hits, err)
+			}
+			if err != nil {
+				t.Fatalf("Upgrade() after winner committed error = %v", err)
+			}
+			if report.SchemaVersion != CurrentSchemaVersion() {
+				t.Errorf("schema version = %d, want %d", report.SchemaVersion, CurrentSchemaVersion())
+			}
+			if len(report.Applied) != 0 {
+				t.Errorf("Upgrade() applied = %v, want empty; winner applied all migrations", report.Applied)
+			}
+		})
+	}
+}
+
+func TestUpgradeReportsCommittedMigrations(t *testing.T) {
+	for _, stamped := range []bool{false, true} {
+		name := "unstamped"
+		if stamped {
+			name = "stamped"
+		}
+		t.Run(name, func(t *testing.T) {
+			if stamped {
+				useStampedBuild(t)
+			}
+			path := filepath.Join(t.TempDir(), "fresh.db")
+			report, err := Upgrade(context.Background(), path, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := migrationVersionsAfter(0)
+			if !slices.Equal(report.Applied, want) || report.SchemaVersion != CurrentSchemaVersion() {
+				t.Fatalf("fresh Upgrade() = %+v, want applied %v and schema %d", report, want, CurrentSchemaVersion())
+			}
+			report, err = Upgrade(context.Background(), path, nil)
+			if err != nil || report.Applied == nil || len(report.Applied) != 0 || report.SchemaVersion != CurrentSchemaVersion() {
+				t.Fatalf("current Upgrade() = %+v, error = %v; want empty applied and schema %d", report, err, CurrentSchemaVersion())
+			}
+		})
+	}
+}
+
+func migrationVersionsAfter(floor int) []int {
+	var versions []int
+	for _, m := range migrations {
+		if m.Version > floor {
+			versions = append(versions, m.Version)
+		}
+	}
+	return versions
+}
+
+func TestMigrationRollbackDiscardsAppliedVersions(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "older.db")
+	if err := openMigratedTo(t, path, 199).Close(); err != nil {
+		t.Fatal(err)
+	}
+	cause := errors.New("injected manifest insert failure")
+	db, connector := earlyRollbackDB(t, path, "INSERT INTO schema_migrations (version, name, checksum, applied_at, breaking) VALUES (?, ?, ?, ?, ?)", 201, cause, false)
+	versions, err := migrate(ctx, db, migrateForUpgrade)
+	if !connector.reached.Load() || !errors.Is(err, cause) || len(versions) != 0 {
+		t.Fatalf("failed migrate returned versions %v, error %v, fault reached %v", versions, err, connector.reached.Load())
+	}
+	if got := manifestMax(t, path); got != 199 {
+		t.Fatalf("after rollback manifest = %d, want 199", got)
+	}
+	retryDB := openRawDatabase(t, path)
+	versions, err = migrate(ctx, retryDB, migrateForUpgrade)
+	if want := migrationVersionsAfter(199); err != nil || !slices.Equal(versions, want) {
+		t.Fatalf("retry returned versions %v, error %v; want %v", versions, err, want)
+	}
+}
+
 func TestOpenAndMigrateRefuseForeignSchema(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "foreign.db")
@@ -81,6 +176,7 @@ func TestOpenAndMigrateRefuseForeignSchema(t *testing.T) {
 			return err
 		},
 		"migrate": func() error { return Migrate(ctx, db) },
+		"upgrade": func() error { _, err := Upgrade(ctx, path, nil); return err },
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := open()
@@ -94,6 +190,17 @@ func TestOpenAndMigrateRefuseForeignSchema(t *testing.T) {
 			}
 		})
 	}
+	t.Run("stamped", func(t *testing.T) {
+		useStampedBuild(t)
+		_, err := manifestVersions(ctx, db)
+		assertFailureKind(t, err, KindReadinessUnknown)
+		_, err = Upgrade(ctx, path, nil)
+		assertFailureKind(t, err, KindReadinessUnknown)
+		var objects int
+		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='foreign_data'`).Scan(&objects); err != nil || objects != 1 {
+			t.Fatalf("foreign table count = %d, error = %v", objects, err)
+		}
+	})
 }
 
 // Serial: the concurrent-open busy budget assumes an idle machine;

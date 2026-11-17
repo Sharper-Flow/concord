@@ -46,8 +46,8 @@ func TestEnvelopeModelHasOneExclusiveOwner(t *testing.T) {
 	t.Parallel()
 	declarations := map[string]int{}
 	for _, name := range []string{
-		"Outcome", "Origin", "AuthorityLevel", "EffectState",
-		"Envelope", "Scope", "Freshness", "Watermark", "Notice", "EvidenceRef",
+		"Outcome", "Origin", "EffectState",
+		"Envelope", "Scope", "Notice", "EvidenceRef",
 		"ChangedRef", "NextIntent", "RecoveryAction", "TypedError",
 		"InterveningAction",
 		"NewBase", "NewOKMutation", "NewCoreError",

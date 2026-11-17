@@ -110,11 +110,14 @@ func TestLawFreshnessDisclosureThroughInvoke(t *testing.T) {
 				"work_id": workID, "expected_version": agentCompositionWorkVersion(t, s, workID), "action_id": "record_intake", "idempotency_key": "freshness-action",
 				"fields": map[string]any{"outcome": "proceed"},
 			}
+			var original string
 			for attempt := range 2 {
 				action := invoke("concord_work_transition", "workflow_action", actionInput)
 				requireLawFreshnessNotice(t, action)
-				if action.Replayed != (attempt == 1) {
-					t.Fatalf("action attempt=%d replayed=%t", attempt, action.Replayed)
+				if attempt == 0 {
+					original = string(action.Result)
+				} else if string(action.Result) != original {
+					t.Fatal("replay changed the action result")
 				}
 				for _, warning := range action.Warnings {
 					if warning.Kind == "law_remote_freshness_unchecked" {

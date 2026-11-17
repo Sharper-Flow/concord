@@ -33,11 +33,11 @@
 
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-06.
-> **Decision:** TS6; binding input to CD-0005 §6 and TS7–TS9.
+> **Decision:** TS6; binding input to CD-0005 §6, agent-result-envelope and TS8–TS9.
 > **Binding inputs:** CD-0003 short-lived Go CLI/no daemon; accepted TS1–TS5
 > contracts; capability-placement native-authority rule; current official OpenCode
 > custom-tool, plugin, permission, and MCP documentation reviewed 2026-08-06.
-> **Does not decide:** TS7 result/error field layout, TS8 digest identity/change
+> **Does not decide:** agent-result-envelope result/error field layout, TS8 digest identity/change
 > evidence, TS9 pre-go-live measurements, adapter package/repository name, or UI styling.
 
 ## Context
@@ -104,7 +104,7 @@ LLM → OpenCode custom tool → `concord.ts`
 - Routine call: one short-lived CLI process and one logical core invocation.
 - Transport: argv array plus JSON stdin/stdout; never shell interpolation, command
   strings, temporary argument files, or environment-variable payloads.
-- Stdout: exactly one TS7 JSON envelope. Bounded diagnostics use stderr and cannot
+- Stdout: exactly one agent result JSON envelope. Bounded diagnostics use stderr and cannot
   be mistaken for success.
 - OpenCode abort terminates the child. The core still reports whether a committed or
   external effect occurred; cancellation never fabricates rollback.
@@ -307,7 +307,7 @@ context, operation-bound authorization, same-key retries, and native-system owne
 
 - Given a CLI invocation that completes
   When stdout returns
-  Then it carries exactly one TS7 envelope and malformed output classifies as
+  Then it carries exactly one agent result envelope and malformed output classifies as
   a typed transport failure, never success.
 
 - Given a failed transport attempt with no typed core response

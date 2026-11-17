@@ -73,7 +73,7 @@ func TestHistoryEntriesAreClosedVariants(t *testing.T) {
 func TestHistoryDetailsGenericArrayBound(t *testing.T) {
 	for _, size := range []int{20, 21} {
 		t.Run(strconv.Itoa(size), func(t *testing.T) {
-			envelope := coreError(agentcontract.NewBase("history-details", "concord_work_trace", "history"), "invalid_input", "invalid filter", "reread_entities", false)
+			envelope := coreError(agentcontract.NewBase("concord_work_trace", "history"), "invalid_input", "invalid filter", "reread_entities", false)
 			envelope.Error.Details = map[string]any{"other": make([]string, size)}
 			_, err := json.Marshal(envelope)
 			if (err == nil) != (size == 20) {

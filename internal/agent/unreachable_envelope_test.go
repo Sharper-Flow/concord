@@ -2,19 +2,15 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// An unavailable store maps to the public kind "unreachable", and the envelope
-// contract pairs that kind with authority "unreachable" and no freshness or
-// watermark. A core error that keeps the base's authoritative claim cannot
-// marshal, so the caller sees a marshal fault instead of the refusal the core
-// decided (issue #768).
+// An unavailable store maps to a deliverable typed unreachable refusal.
 func TestUnavailableStoreRefusalMarshalsAsUnreachable(t *testing.T) {
 	t.Parallel()
 	failure := &store.Failure{
@@ -24,18 +20,21 @@ func TestUnavailableStoreRefusalMarshalsAsUnreachable(t *testing.T) {
 		RetrySafe:      true,
 		RecoveryAction: "retry once the database is writable",
 	}
-	base := agentcontract.NewBase("unreachable-1", "concord_domain", "list")
-	base.Freshness = &agentcontract.Freshness{ObservedAt: time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC)}
-	base.SourceVersionWatermark = []agentcontract.Watermark{{SourceKind: "product_memory", SourceID: "sqlite", Version: "1"}}
+	base := agentcontract.NewBase("concord_domain", "list")
 	out := failureEnvelope(base, failure)
 	if out.Error == nil || out.Error.Kind != "unreachable" {
 		t.Fatalf("error=%+v, want kind unreachable", out.Error)
 	}
-	if out.Authority != agentcontract.AuthorityUnreachable {
-		t.Fatalf("authority=%q, want %q", out.Authority, agentcontract.AuthorityUnreachable)
+	if out.Result != nil || out.Items != nil {
+		t.Fatalf("unreachable refusal carries payload: result=%s items=%v", out.Result, out.Items)
 	}
-	if out.Freshness != nil || len(out.SourceVersionWatermark) != 0 {
-		t.Fatalf("an unreachable envelope carries freshness=%v watermark=%v", out.Freshness, out.SourceVersionWatermark)
+	withResult, withItems := out, out
+	withResult.Result = json.RawMessage(`{}`)
+	withItems.Items = []json.RawMessage{json.RawMessage(`{}`)}
+	for _, poisoned := range []agentcontract.Envelope{withResult, withItems} {
+		if _, err := poisoned.Encode(); err == nil {
+			t.Fatal("unreachable refusal accepted a payload")
+		}
 	}
 	if _, err := out.Encode(); err != nil {
 		t.Fatalf("an unavailable-store refusal must be deliverable, got %v", err)
@@ -59,7 +58,7 @@ func TestUnavailableStoreRefusalCarriesItsCause(t *testing.T) {
 		RecoveryAction: "retry once the database is writable",
 		Err:            errors.New("database is locked (5) (SQLITE_BUSY)"),
 	}
-	out := failureEnvelope(agentcontract.NewBase("unreachable-cause-1", "concord_work_transition", "workflow_action"), failure)
+	out := failureEnvelope(agentcontract.NewBase("concord_work_transition", "workflow_action"), failure)
 	if out.Error == nil || out.Error.Kind != "unreachable" {
 		t.Fatalf("error=%+v, want kind unreachable", out.Error)
 	}
@@ -86,7 +85,7 @@ func TestEffectPossibleFailureWithDeadlineCauseKeepsPossibleEffect(t *testing.T)
 		EffectPossible: true,
 		Err:            context.DeadlineExceeded,
 	}
-	out := failureEnvelope(agentcontract.NewBase("deadline-possible-1", "concord_work_transition", "workflow_action"), failure)
+	out := failureEnvelope(agentcontract.NewBase("concord_work_transition", "workflow_action"), failure)
 	if out.Error == nil || out.Error.Kind != "unreachable" {
 		t.Fatalf("error=%+v, want kind unreachable", out.Error)
 	}
@@ -101,13 +100,11 @@ func TestEffectPossibleFailureWithDeadlineCauseKeepsPossibleEffect(t *testing.T)
 	}
 }
 
-// Every other core error keeps the authoritative claim: the core answered, and
-// the answer is a typed refusal.
-func TestCoreErrorKeepsAuthoritativeForOtherKinds(t *testing.T) {
+func TestCoreErrorOtherKindsMarshal(t *testing.T) {
 	t.Parallel()
-	out := coreError(agentcontract.NewBase("other-1", "concord_domain", "list"), "unknown_scope", "no Product", "contact_operator", false)
-	if out.Authority != agentcontract.AuthorityAuthoritative {
-		t.Fatalf("authority=%q, want authoritative", out.Authority)
+	out := coreError(agentcontract.NewBase("concord_domain", "list"), "unknown_scope", "no Product", "contact_operator", false)
+	if out.Error == nil || out.Error.Kind != "unknown_scope" {
+		t.Fatalf("error=%+v, want unknown_scope", out.Error)
 	}
 	if _, err := out.Encode(); err != nil {
 		t.Fatal(err)

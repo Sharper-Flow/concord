@@ -793,8 +793,9 @@ def check_ticket_writing_step_table() -> list[str]:
 def _check_envelope_operation_vocabulary() -> list[str]:
     """Prove the envelope tool/operation join (issue #352).
 
-    `$defs/base` and `$defs/nextIntent` each conjoin `$defs/toolOperation` with
-    their own `operation` enum and `query_id` pattern. A conjunction is only
+    `$defs/nextIntent` conjoins `$defs/toolOperation` with its operation enum
+    and query_id pattern. The base envelope also constrains its operation enum.
+    A conjunction is only
     satisfiable where the terms agree, so a pair declared in `toolOperation`
     whose operation the enum omits — or whose query_id the pattern rejects — is
     dead on arrival: no envelope naming it can ever validate, and the adapter
@@ -853,6 +854,8 @@ def envelope_operation_findings(envelope: object) -> list[str]:
                 f"{label}: $defs/{definition}/properties/operation/enum omits operation(s) that "
                 f"$defs/toolOperation declares, making them unsatisfiable: {unsatisfiable}"
             )
+        if definition == "base":
+            continue
         pattern = properties.get("query_id", {}).get("pattern")
         if not isinstance(pattern, str) or not pattern:
             findings.append(f"{label}: $defs/{definition}/properties/query_id/pattern must be a nonempty string")
@@ -905,6 +908,28 @@ def envelope_operation_coverage_findings(envelope: object, manifest: object) -> 
         )
     if mismatched:
         findings.append(f"{label}: $defs/toolOperation disagrees with the manifest: {sorted(mismatched)}")
+    expected_pairs = {(op.get("tool"), str(op.get("id", "")).split(".", 1)[-1]) for op in operations}
+    try:
+        branches = envelope["$defs"]["base"]["allOf"][0]["anyOf"]
+        base_pairs = set()
+        for branch in branches:
+            props = branch["properties"]
+            if "tool" not in props:
+                continue  # invalid request wrapper, with an empty operation
+            tool = props["tool"]["const"]
+            spec = props["operation"]
+            for name in [spec["const"]] if "const" in spec else spec["enum"]:
+                base_pairs.add((tool, name))
+        missing = sorted(expected_pairs - base_pairs)
+        extra = sorted(base_pairs - expected_pairs)
+        if missing or extra:
+            findings.append(f"{label}: $defs/base operation pairs differ from manifest: missing={missing}, extra={extra}")
+        read_tools = set(envelope["$defs"]["ok"]["allOf"][2]["if"]["properties"]["tool"]["enum"])
+        expected_read_tools = {op["tool"] for op in operations if op.get("kind") == "read"}
+        if read_tools != expected_read_tools:
+            findings.append(f"{label}: read tools differ from manifest: missing={sorted(expected_read_tools - read_tools)}, extra={sorted(read_tools - expected_read_tools)}")
+    except (KeyError, TypeError, IndexError):
+        findings.append(f"{label}: missing base pair or read tool constraints")
     return findings
 
 def main(argv: list[str] | None = None) -> int:

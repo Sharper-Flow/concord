@@ -12,7 +12,7 @@ func TestSizeRecoveryAllowsProducerRepairWithoutLimit(t *testing.T) {
 			if got := PublicRecovery("limit_exceeded", action); got != action {
 				t.Fatalf("size recovery=%s, want the executable action %s", got, action)
 			}
-			response := NewCoreError(NewBase("size-recovery", "concord_work_transition", "workflow_action"), TypedError{
+			response := NewCoreError(NewBase("concord_work_transition", "workflow_action"), TypedError{
 				Kind: "limit_exceeded", Message: "the fixed mutation frame needs producer repair",
 				RecoveryAction: RecoveryAction{Kind: action}, EffectState: EffectNone,
 			})

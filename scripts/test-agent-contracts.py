@@ -1232,87 +1232,6 @@ class TicketWritingStepTableTests(unittest.TestCase):
                 self.assertTrue(any("unreadable fixture" in f for f in findings), findings)
 
 
-class EvidenceBoundParityTests(unittest.TestCase):
-    """The request evidence declaration owns every evidence field bound.
-
-    The result schema $defs/evidenceRef must carry the same bounds: authority
-    and locator_kind 1..256, digest hex pattern 8..128, version <=256, locator
-    1..2048. A mismatch admits evidence values the request would refuse, or
-    refuses values the request admitted; both ways the parity check at
-    generation time is the only thing that holds them in lockstep.
-    """
-
-    def check(self, payload=None, envelope=None):
-        generator.check_evidence_bound_parity(
-            copy.deepcopy(payload if payload is not None else payload_schema),
-            copy.deepcopy(envelope if envelope is not None else envelope_schema),
-        )
-
-    def test_shipped_schemas_agree(self):
-        # No exception means the bounds agree across both declarations.
-        self.check()
-
-    def test_a_shrunken_envelope_authority_bound_is_rejected(self):
-        value = copy.deepcopy(envelope_schema)
-        value["$defs"]["evidenceRef"]["properties"]["authority"]["maxLength"] = 128
-        with self.assertRaises(ValueError) as ctx:
-            self.check(envelope=value)
-        self.assertIn("authority", str(ctx.exception))
-
-    def test_an_envelope_locator_kind_bound_divergence_is_rejected(self):
-        value = copy.deepcopy(envelope_schema)
-        value["$defs"]["evidenceRef"]["properties"]["locator_kind"]["maxLength"] = 64
-        with self.assertRaises(ValueError) as ctx:
-            self.check(envelope=value)
-        self.assertIn("locator_kind", str(ctx.exception))
-
-    def test_a_payload_authority_bound_drift_is_rejected(self):
-        # A request-side drift is also a mismatch. The request evidence
-        # reaches authority through $defs/short, while the envelope inlines
-        # its bound, so narrowing `short` alone must fire the parity check.
-        value = copy.deepcopy(payload_schema)
-        value["$defs"]["short"]["maxLength"] = 128
-        with self.assertRaises(ValueError) as ctx:
-            self.check(payload=value)
-        self.assertIn("authority", str(ctx.exception))
-
-    def test_an_envelope_digest_pattern_drift_is_rejected(self):
-        # The digest bound includes its pattern. A different pattern string,
-        # here one that drops the optional sha256: prefix and uppercase hex,
-        # is a mismatch even when the length bounds agree.
-        value = copy.deepcopy(envelope_schema)
-        value["$defs"]["evidenceRef"]["properties"]["digest"]["pattern"] = r"^[a-f0-9]+$"
-        with self.assertRaises(ValueError) as ctx:
-            self.check(envelope=value)
-        self.assertIn("digest", str(ctx.exception))
-
-    def test_a_payload_locator_maxlength_drift_is_rejected(self):
-        value = copy.deepcopy(payload_schema)
-        value["$defs"]["evidence"]["properties"]["locator"]["maxLength"] = 1024
-        with self.assertRaises(ValueError) as ctx:
-            self.check(payload=value)
-        self.assertIn("locator", str(ctx.exception))
-
-    def test_a_payload_version_maxlength_drift_is_rejected(self):
-        value = copy.deepcopy(payload_schema)
-        value["$defs"]["evidence"]["properties"]["version"]["maxLength"] = 128
-        with self.assertRaises(ValueError) as ctx:
-            self.check(payload=value)
-        self.assertIn("version", str(ctx.exception))
-
-    def test_missing_envelope_evidence_ref_is_rejected(self):
-        value = copy.deepcopy(envelope_schema)
-        del value["$defs"]["evidenceRef"]
-        with self.assertRaises(ValueError):
-            self.check(envelope=value)
-
-    def test_missing_payload_evidence_is_rejected(self):
-        value = copy.deepcopy(payload_schema)
-        del value["$defs"]["evidence"]
-        with self.assertRaises(ValueError):
-            self.check(payload=value)
-
-
 class EnvelopeOperationVocabularyTests(unittest.TestCase):
     """Issue #352: every tool/operation pair the envelope declares must be satisfiable."""
 
@@ -1323,6 +1242,31 @@ class EnvelopeOperationVocabularyTests(unittest.TestCase):
 
     def test_shipped_contracts_agree(self):
         self.assertEqual(self.findings(), [])
+
+    def test_base_pair_omissions_and_extras_are_rejected(self):
+        for operation in ("missing", "extra"):
+            with self.subTest(operation=operation):
+                value = copy.deepcopy(envelope_schema)
+                branches = value["$defs"]["base"]["allOf"][0]["anyOf"]
+                values = branches[0]["properties"]["operation"]["enum"]
+                if operation == "missing":
+                    values.remove("resolve")
+                else:
+                    values.append("list")
+                findings = lane_checker.envelope_operation_coverage_findings(value, manifest)
+                self.assertTrue(any("base" in f and "concord_product_view" in f for f in findings), findings)
+
+    def test_read_tool_omissions_and_extras_are_rejected(self):
+        for operation in ("missing", "extra"):
+            with self.subTest(operation=operation):
+                value = copy.deepcopy(envelope_schema)
+                tools = value["$defs"]["ok"]["allOf"][2]["if"]["properties"]["tool"]["enum"]
+                if operation == "missing":
+                    tools.remove("concord_domain")
+                else:
+                    tools.append("concord_work_define")
+                findings = lane_checker.envelope_operation_coverage_findings(value, manifest)
+                self.assertTrue(any("read" in f and ("concord_domain" in f or "concord_work_define" in f) for f in findings), findings)
 
     def test_operation_removed_from_the_base_enum_is_rejected(self):
         value = copy.deepcopy(envelope_schema); value["$defs"]["base"]["properties"]["operation"]["enum"].remove("resume")
@@ -1369,7 +1313,7 @@ class EnvelopeOperationVocabularyTests(unittest.TestCase):
         self.assertTrue(any("duplicate-free" in f for f in self.findings(value)))
 
     def test_uncompilable_query_id_pattern_is_rejected(self):
-        value = copy.deepcopy(envelope_schema); value["$defs"]["base"]["properties"]["query_id"]["pattern"] = "^(PM1"
+        value = copy.deepcopy(envelope_schema); value["$defs"]["nextIntent"]["properties"]["query_id"]["pattern"] = "^(PM1"
         self.assertTrue(any("not a valid regular expression" in f for f in self.findings(value)))
 
 class AdapterHostPinTests(unittest.TestCase):

@@ -35,12 +35,12 @@
 > **Status:** **Accepted — binding until superseded.**
 > **Amended:** 2026-10-18.
 > **Accepted by operator:** 2026-08-06.
-> **Decision:** TS5; binding input to CD-0005 §5 and TS6–TS9.
+> **Decision:** TS5; binding input to CD-0005 §5, TS6, agent-result-envelope, and TS8–TS9.
 > **Binding inputs:** PM2 global local authority, PM5 Product/Project/work
 > membership, accepted TS1–TS4 job/tool contracts, CD-0003 short-lived CLI, and
 > Concord's ambient-context/native-authority constraints.
 > **Does not decide:** transport/adapter implementation (TS6), result/error field
-> layout (TS7), manifest identity/change evidence (TS8), measurement evidence (TS9), user-interface
+> layout ([agent result envelope](agent-result-envelope.md)), manifest identity/change evidence (TS8), measurement evidence (TS9), user-interface
 > rendering.
 
 ## Context
@@ -148,9 +148,9 @@ The core compares `scope_version` with current membership authority on every cal
   current bounded candidates/recovery action.
 - **Unreachable authority:** fail `unreachable`; never authorize from cached scope.
 
-This gives safe read ergonomics without allowing a stale mutation target. PM1 source
-freshness remains separate: a current scope can still point at stale/degraded data,
-which TS3/TS7 must report under PM1's authority contract.
+This gives safe read ergonomics without allowing a stale mutation target. Source
+freshness remains separate: a current scope can still point at stale or incomplete
+data, which reads handle under the [Product-memory query contract](product-memory-query-contract.md).
 
 ## 4. Principal and authorization
 
@@ -249,7 +249,7 @@ Every mutation of an existing canonical entity carries its expected version.
 - capture has no prior entity version but requires idempotency.
 
 Version mismatch fails before any effect and returns current
-version plus safe reread/retry guidance under TS7. The core never silently rebases a
+version plus safe reread/retry guidance under the [agent result envelope](agent-result-envelope.md). The core never silently rebases a
 mutation onto newer state.
 
 ## 7. Idempotency

@@ -30,10 +30,6 @@ func TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect(t *test
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read", "work_define"})
-	current, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
 	read := InvokeRequest{Tool: "concord_product_view", Operation: "resolve", Input: json.RawMessage(`{"project_id":"project-1"}`)}
 	response, err := Dispatch(ctx, s, service, read, staleScopeEnvelope(grant))
 	if err != nil {
@@ -48,8 +44,8 @@ func TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect(t *test
 			refreshed = true
 		}
 	}
-	if !refreshed || response.ResolvedScope == nil || response.ResolvedScope.ScopeVersion != current {
-		t.Fatalf("response scope=%+v warnings=%+v", response.ResolvedScope, response.Warnings)
+	if !refreshed {
+		t.Fatalf("response warnings=%+v", response.Warnings)
 	}
 	before := domainEventCount(t, s)
 	mutation := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Stale","kind":"task","project_ids":["project-1"],"idempotency_key":"stale-scope-capture","human_key":"ZZ-9111","remote_issue_uuid":"fixture-stale-scope-capture","url":"https://linear.app/example/issue/ZZ-9111"}`)}

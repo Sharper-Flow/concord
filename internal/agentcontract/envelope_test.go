@@ -19,24 +19,18 @@ func TestEnvelopeGoldenOutcomes(t *testing.T) {
 		make func() Envelope
 	}{
 		{"ok read", func() Envelope {
-			return newOKReadForTest(NewBase("req-1", "concord_product_view", "resolve"), json.RawMessage(`{"product_id":"p-1","projects":[]}`))
+			return newOKReadForTest(NewBase("concord_product_view", "resolve"), json.RawMessage(`{"product_id":"p-1","projects":[]}`))
 		}},
 		{"ok mutation", func() Envelope {
-			return NewOKMutation(NewBase("req-2", "concord_work_define", "capture"), json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), []ChangedRef{{EntityKind: "work", ID: "w-1", Version: "2"}}, []NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "created"}})
+			return NewOKMutation(NewBase("concord_work_define", "capture"), json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), []ChangedRef{{EntityKind: "work", ID: "w-1", Version: "2"}}, []NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "created"}})
 		}},
 		{"core error", func() Envelope {
-			e := NewBase("req-5", "concord_work_browse", "list")
-			e.Authority = AuthorityUnreachable
+			e := NewBase("concord_work_browse", "list")
 			return NewCoreError(e, TypedError{Kind: "unreachable", RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone})
 		}},
 		{"adapter error", func() Envelope {
-			e := Envelope{SchemaVersion: "1.0", ManifestDigest: ManifestDigest, RequestID: "req-6", Origin: OriginAdapter, Tool: "concord_product_view", Operation: "resolve", ResolvedScope: nil, Authority: AuthorityUnreachable, Freshness: nil, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, NextCursor: nil, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Outcome: OutcomeError}
-			for _, op := range ContractOperations {
-				if op.Tool == e.Tool && op.Operation == e.Operation {
-					e.QueryID = op.QueryID
-					break
-				}
-			}
+			e := NewBase("concord_product_view", "resolve")
+			e.Origin, e.Outcome = OriginAdapter, OutcomeError
 			e.Error = &TypedError{Kind: "malformed_response", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone, AdapterReason: "malformed_core_response"}
 			return e
 		}},
@@ -65,7 +59,7 @@ func TestMutationOKEnvelopeEmitsRequiredMetadataWhenEmpty(t *testing.T) {
 	// Slice omitempty would drop required arrays and make committed effects
 	// undeliverable through the adapter.
 	e := NewOKMutation(
-		NewBase("req-702", "concord_work_transition", "lifecycle"),
+		NewBase("concord_work_transition", "lifecycle"),
 		json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`),
 		nil,
 		nil,
@@ -99,7 +93,7 @@ func TestMutationEnvelopeIntentCapacity(t *testing.T) {
 			for i := range intents {
 				intents[i] = NextIntent{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "created"}
 			}
-			e := NewOKMutation(NewBase("intent-capacity", "concord_work_transition", "lifecycle"),
+			e := NewOKMutation(NewBase("concord_work_transition", "lifecycle"),
 				json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), nil, intents)
 			if err := e.Validate(); (err == nil) != tc.valid {
 				t.Errorf("Go validation: %v, want valid=%t", err, tc.valid)
@@ -121,15 +115,12 @@ func TestMutationEnvelopeIntentCapacity(t *testing.T) {
 
 func TestNonMutationEnvelopesOmitMutationMetadata(t *testing.T) {
 	t.Parallel()
-	read := newOKReadForTest(NewBase("req-702-r", "concord_product_view", "resolve"), json.RawMessage(`{"product_id":"p-1","projects":[]}`))
+	read := newOKReadForTest(NewBase("concord_product_view", "resolve"), json.RawMessage(`{"product_id":"p-1","projects":[]}`))
 	readEncoded, err := read.Encode()
 	if err != nil {
 		t.Fatal(err)
 	}
-	coreError := NewCoreError(NewBase("req-702-e", "concord_work_browse", "list"), TypedError{Kind: "unreachable", RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone})
-	// The envelope law couples the unreachable error kind to unreachable
-	// envelope authority; an authoritative envelope cannot carry it.
-	coreError.Authority = AuthorityUnreachable
+	coreError := NewCoreError(NewBase("concord_work_browse", "list"), TypedError{Kind: "unreachable", RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone})
 	errorEncoded, err := coreError.Encode()
 	if err != nil {
 		t.Fatal(err)
@@ -148,8 +139,8 @@ func TestNonMutationEnvelopesOmitMutationMetadata(t *testing.T) {
 }
 
 func TestAdapterCLIInputRefusalMarshals(t *testing.T) {
-	e := NewCoreError(NewBase("cli-input-refusal", "concord_work_define", "capture"), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "correct_request"}, EffectState: EffectNone, AdapterReason: "invalid_cli_input"})
-	e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
+	e := NewCoreError(NewBase("concord_work_define", "capture"), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "correct_request"}, EffectState: EffectNone, AdapterReason: "invalid_cli_input"})
+	e.Origin = OriginAdapter
 	if _, err := e.Encode(); err != nil {
 		t.Fatalf("adapter CLI input refusal cannot marshal: %v", err)
 	}
@@ -172,10 +163,10 @@ func TestCorrectRequestRequiresPreEffectInputRefusal(t *testing.T) {
 			{"invalid_input", EffectNone, true},
 			{"unauthorized", EffectNone, false},
 		} {
-			e := NewCoreError(NewBase("input-coupling", "concord_work_transition", "lifecycle"), TypedError{Kind: test.kind, EffectState: test.effect, RetrySafe: test.retry, RecoveryAction: RecoveryAction{Kind: "correct_request"}})
+			e := NewCoreError(NewBase("concord_work_transition", "lifecycle"), TypedError{Kind: test.kind, EffectState: test.effect, RetrySafe: test.retry, RecoveryAction: RecoveryAction{Kind: "correct_request"}})
 			e.Origin = origin
 			if origin == OriginAdapter {
-				e.Authority, e.Error.AdapterReason = AuthorityUnreachable, "invalid_tool_input"
+				e.Error.AdapterReason = "invalid_tool_input"
 			}
 			want := test.kind == "invalid_input" && test.effect == EffectNone && !test.retry
 			if err := e.Validate(); (err == nil) != want {
@@ -217,8 +208,8 @@ func TestAdapterEnvelopeAdmitsSchemaVocabulary(t *testing.T) {
 	}
 	assertAdmitted := func(t *testing.T, typed TypedError) {
 		t.Helper()
-		e := NewCoreError(NewBase("adapter-vocabulary", "concord_work_transition", "lifecycle"), typed)
-		e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
+		e := NewCoreError(NewBase("concord_work_transition", "lifecycle"), typed)
+		e.Origin = OriginAdapter
 		if err := e.Validate(); err != nil {
 			t.Fatalf("schema-admitted adapter error refused: %v", err)
 		}
@@ -253,8 +244,8 @@ func TestAdapterEnvelopeAdmitsSchemaVocabulary(t *testing.T) {
 }
 
 func TestAdapterEnvelopeRetainsSchemaRejections(t *testing.T) {
-	base := NewCoreError(NewBase("adapter-rejections", "concord_work_transition", "lifecycle"), TypedError{Kind: "transport_failure", AdapterReason: "missing_binary", EffectState: EffectNone, RecoveryAction: RecoveryAction{Kind: "contact_operator"}})
-	base.Origin, base.Authority = OriginAdapter, AuthorityUnreachable
+	base := NewCoreError(NewBase("concord_work_transition", "lifecycle"), TypedError{Kind: "transport_failure", AdapterReason: "missing_binary", EffectState: EffectNone, RecoveryAction: RecoveryAction{Kind: "contact_operator"}})
+	base.Origin = OriginAdapter
 	for name, mutate := range map[string]func(*Envelope){
 		"unknown kind":             func(e *Envelope) { e.Error.Kind = "unknown_error_kind" },
 		"unknown reason":           func(e *Envelope) { e.Error.AdapterReason = "unknown_adapter_reason" },
@@ -263,7 +254,6 @@ func TestAdapterEnvelopeRetainsSchemaRejections(t *testing.T) {
 		"core reason":              func(e *Envelope) { e.Origin = OriginCore },
 		"core-only kind":           func(e *Envelope) { e.Error.Kind = "internal_error" },
 		"partial effect":           func(e *Envelope) { e.Error.EffectState = EffectState("partial") },
-		"authoritative adapter":    func(e *Envelope) { e.Authority = AuthorityAuthoritative },
 		"bootstrap effect": func(e *Envelope) {
 			e.Error.AdapterReason, e.Error.EffectState = "manifest_mismatch", EffectPossible
 		},
@@ -309,7 +299,7 @@ func TestGeneratedSchemaConflictRecoveryRequiresReconciliation(t *testing.T) {
 	}
 	for _, recovery := range []string{"retry_same_request", "contact_operator"} {
 		t.Run(recovery, func(t *testing.T) {
-			e := NewCoreError(NewBase("conflict-schema", "concord_work_transition", "lifecycle"), TypedError{Kind: "operation_conflict", EffectState: EffectPossible, RecoveryAction: RecoveryAction{Kind: recovery}})
+			e := NewCoreError(NewBase("concord_work_transition", "lifecycle"), TypedError{Kind: "operation_conflict", EffectState: EffectPossible, RecoveryAction: RecoveryAction{Kind: recovery}})
 			if err := validate(e); err == nil {
 				t.Fatal("core conflict admitted without reconciliation")
 			}
@@ -322,8 +312,8 @@ func TestGeneratedSchemaConflictRecoveryRequiresReconciliation(t *testing.T) {
 }
 
 func TestAdapterWrapperRefusalMarshals(t *testing.T) {
-	e := NewCoreError(NewBase("wrapper-refusal", "concord_work_browse", "list"), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "correct_request"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
-	e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
+	e := NewCoreError(NewBase("concord_work_browse", "list"), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "correct_request"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
+	e.Origin = OriginAdapter
 	if _, err := e.Encode(); err != nil {
 		t.Fatalf("adapter wrapper refusal cannot marshal: %v", err)
 	}
@@ -334,8 +324,8 @@ func TestAdapterWrapperRefusalMarshals(t *testing.T) {
 }
 
 func TestAdapterWrapperRefusalUnresolvedOperation(t *testing.T) {
-	e := NewCoreError(NewBase("wrapper-unresolved", "concord_work_browse", ""), TypedError{Kind: "invalid_input", RecoveryAction: RecoveryAction{Kind: "correct_request"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
-	e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
+	e := NewCoreError(NewBase("concord_work_browse", ""), TypedError{Kind: "invalid_input", RecoveryAction: RecoveryAction{Kind: "correct_request"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
+	e.Origin = OriginAdapter
 	encoded, err := e.Encode()
 	if err != nil {
 		t.Fatalf("unresolved wrapper refusal cannot marshal: %v", err)
@@ -344,13 +334,12 @@ func TestAdapterWrapperRefusalUnresolvedOperation(t *testing.T) {
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatalf("unresolved wrapper refusal cannot decode: %v", err)
 	}
-	if decoded.Operation != "" || decoded.QueryID != "" {
-		t.Fatal("unresolved wrapper refusal fabricated an operation or query")
+	if decoded.Operation != "" {
+		t.Fatal("unresolved wrapper refusal fabricated an operation")
 	}
 	for name, mutate := range map[string]func(*Envelope){
 		"core origin":       func(e *Envelope) { e.Origin = OriginCore },
 		"unknown operation": func(e *Envelope) { e.Operation = "unknown" },
-		"query identity":    func(e *Envelope) { e.QueryID = "PM1.Q1" },
 		"transport kind":    func(e *Envelope) { e.Error.Kind = "transport_failure" },
 		"other reason":      func(e *Envelope) { e.Error.AdapterReason = "missing_binary" },
 		"possible effect":   func(e *Envelope) { e.Error.EffectState = EffectPossible },
@@ -370,8 +359,8 @@ func TestAdapterWrapperRefusalUnresolvedOperation(t *testing.T) {
 
 func TestAdapterWrapperRefusalAcceptedOperationCoupling(t *testing.T) {
 	for _, pair := range []struct{ tool, operation string }{{"concord_work_browse", "list"}, {"concord_work_define", "capture"}} {
-		e := NewCoreError(NewBase("wrapper-coupling", pair.tool, pair.operation), TypedError{Kind: "invalid_input", RecoveryAction: RecoveryAction{Kind: "correct_request"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
-		e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
+		e := NewCoreError(NewBase(pair.tool, pair.operation), TypedError{Kind: "invalid_input", RecoveryAction: RecoveryAction{Kind: "correct_request"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
+		e.Origin = OriginAdapter
 		for name, mutate := range map[string]func(*TypedError){
 			"transport kind": func(e *TypedError) {
 				e.Kind, e.RecoveryAction.Kind = "transport_failure", "contact_operator"
@@ -398,7 +387,7 @@ func TestReadOKEnvelopeRejectsMutationMetadata(t *testing.T) {
 	for _, populated := range []bool{false, true} {
 		for _, field := range []string{"changed_refs", "next_valid_intents", "both"} {
 			t.Run(fmt.Sprintf("%s/populated=%t", field, populated), func(t *testing.T) {
-				e := newOKReadForTest(NewBase("read-metadata", "concord_product_view", "resolve"), json.RawMessage(`{"product_id":"p-1","projects":[]}`))
+				e := newOKReadForTest(NewBase("concord_product_view", "resolve"), json.RawMessage(`{"product_id":"p-1","projects":[]}`))
 				changed, intents := []ChangedRef{}, []NextIntent{}
 				if populated {
 					changed = append(changed, ChangedRef{EntityKind: "work", ID: "work-1", Version: "1"})
@@ -420,12 +409,12 @@ func TestReadOKEnvelopeRejectsMutationMetadata(t *testing.T) {
 
 func TestEnvelopeRejectsUnknownVariantsAndFields(t *testing.T) {
 	t.Parallel()
-	base := NewBase("req", "concord_product_view", "resolve")
+	base := NewBase("concord_product_view", "resolve")
 	base.Outcome = Outcome("surprise")
 	if err := base.Validate(); err == nil {
 		t.Fatal("unknown outcome accepted")
 	}
-	valid := newOKReadForTest(NewBase("req", "concord_product_view", "resolve"), json.RawMessage(`{"product_id":"p-1","projects":[]}`))
+	valid := newOKReadForTest(NewBase("concord_product_view", "resolve"), json.RawMessage(`{"product_id":"p-1","projects":[]}`))
 	raw, _ := valid.Encode()
 	raw = append(raw[:len(raw)-1], []byte(`,"unknown":true}`)...)
 	if _, err := decodeEnvelopeForTest(raw); err == nil {
@@ -435,7 +424,7 @@ func TestEnvelopeRejectsUnknownVariantsAndFields(t *testing.T) {
 
 func TestOutcomeMismatchIsClosedAndCannotDowngrade(t *testing.T) {
 	t.Parallel()
-	base := NewBase("outcome-mismatch", "concord_work_transition", "workflow_action")
+	base := NewBase("concord_work_transition", "workflow_action")
 	valid := NewCoreError(base, TypedError{Kind: "outcome_mismatch", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone})
 	if _, err := valid.Encode(); err != nil {
 		t.Fatalf("closed outcome_mismatch rejected: %v", err)
@@ -448,8 +437,7 @@ func TestOutcomeMismatchIsClosedAndCannotDowngrade(t *testing.T) {
 
 func TestEnvelopeAllowsBoundedListErrorDetails(t *testing.T) {
 	t.Parallel()
-	e := NewBase("req", "concord_work_define", "capture")
-	e.Authority = AuthorityAuthoritative
+	e := NewBase("concord_work_define", "capture")
 	envelope := NewCoreError(e, TypedError{
 		Kind:           "missing_evidence",
 		RecoveryAction: RecoveryAction{Kind: "provide_evidence"},
@@ -467,8 +455,7 @@ func TestEnvelopeAllowsBoundedListErrorDetails(t *testing.T) {
 
 func TestEnvelopeRejectsNestedErrorDetails(t *testing.T) {
 	t.Parallel()
-	e := NewBase("req", "concord_work_define", "capture")
-	e.Authority = AuthorityAuthoritative
+	e := NewBase("concord_work_define", "capture")
 	envelope := NewCoreError(e, TypedError{
 		Kind:           "invariant_violation",
 		RecoveryAction: RecoveryAction{Kind: "provide_evidence"},
@@ -481,7 +468,7 @@ func TestEnvelopeRejectsNestedErrorDetails(t *testing.T) {
 }
 
 func TestEnvelopeRejectsRetiredPublicationVariants(t *testing.T) {
-	base := NewOKMutation(NewBase("retired-variant", "concord_work_transition", "workflow_action"), json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), nil, nil)
+	base := NewOKMutation(NewBase("concord_work_transition", "workflow_action"), json.RawMessage(`{"changed_refs":[],"next_valid_intents":[]}`), nil, nil)
 	raw, err := base.Encode()
 	if err != nil {
 		t.Fatal(err)
@@ -517,8 +504,8 @@ func TestEnvelopeRejectsRetiredPublicationVariants(t *testing.T) {
 func TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome(t *testing.T) {
 	t.Parallel()
 	envelopes := []Envelope{
-		newOKReadForTest(NewBase("ok", "concord_product_view", "resolve"), json.RawMessage(`{"product_id":"p-1","projects":[]}`)),
-		NewCoreError(NewBase("error", "concord_work_transition", "lifecycle"), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "reread_entities"}, EffectState: EffectNone}),
+		newOKReadForTest(NewBase("concord_product_view", "resolve"), json.RawMessage(`{"product_id":"p-1","projects":[]}`)),
+		NewCoreError(NewBase("concord_work_transition", "lifecycle"), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "reread_entities"}, EffectState: EffectNone}),
 	}
 	for _, envelope := range envelopes {
 		raw, err := envelope.Encode()
@@ -536,10 +523,10 @@ func TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome(t *testing.T) {
 		}
 	}
 
-	raw, _ := envelopes[0].Encode()
+	raw, _ := envelopes[1].Encode()
 	var nested map[string]any
 	_ = json.Unmarshal(raw, &nested)
-	nested["resolved_scope"] = map[string]any{"product_id": "p-1", "unknown_nested": true}
+	nested["error"].(map[string]any)["unknown_nested"] = true
 	mutated, _ := json.Marshal(nested)
 	if _, err := decodeEnvelopeForTest(mutated); err == nil {
 		t.Fatal("unknown nested field accepted")
@@ -552,7 +539,7 @@ func TestEnvelopeHasHardSerializedLimit(t *testing.T) {
 		t.Fatalf("serialized envelope limit=%d, want 51200", MaxResultEnvelopeBytes)
 	}
 	payload := json.RawMessage(fmt.Sprintf(`{"value":%q}`, strings.Repeat("x", MaxResultEnvelopeBytes)))
-	e := newOKReadForTest(NewBase("req", "concord_product_view", "resolve"), payload)
+	e := newOKReadForTest(NewBase("concord_product_view", "resolve"), payload)
 	if _, err := e.Encode(); err == nil {
 		t.Fatal("oversize envelope accepted")
 	}
@@ -560,7 +547,7 @@ func TestEnvelopeHasHardSerializedLimit(t *testing.T) {
 
 func TestDecodeEnvelopeRejectsInvalidTrailingJSON(t *testing.T) {
 	t.Parallel()
-	valid := newOKReadForTest(NewBase("request-1", "concord_product_view", "resolve"), json.RawMessage(`{"product_id":"product-1","projects":[]}`))
+	valid := newOKReadForTest(NewBase("concord_product_view", "resolve"), json.RawMessage(`{"product_id":"product-1","projects":[]}`))
 	raw, err := valid.Encode()
 	if err != nil {
 		t.Fatal(err)
@@ -598,7 +585,6 @@ func decodeEnvelopeForTest(data []byte) (Envelope, error) {
 
 func newOKReadForTest(base Envelope, payload json.RawMessage) Envelope {
 	base.Outcome = OutcomeOK
-	base.QueryID = "PM1.Q1"
 	base.Result = payload
 	return base
 }

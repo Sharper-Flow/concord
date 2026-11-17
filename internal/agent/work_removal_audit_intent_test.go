@@ -34,8 +34,8 @@ func TestRemovedWorkServesNoUnusableIntent(t *testing.T) {
 		t.Fatalf("envelope next_valid_intents=%v, want an explicit empty list", out.NextValidIntents)
 	}
 	replay := removalDispatch(t, s, service, env, in)
-	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
-		t.Fatalf("removal replay refused for the removed identity: outcome=%s replayed=%t error=%+v", replay.Outcome, replay.Replayed, replay.Error)
+	if replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(out.Result) {
+		t.Fatalf("removal replay refused for the removed identity: outcome=%s error=%+v", replay.Outcome, replay.Error)
 	}
 	var replayed struct {
 		Intents []agentcontract.NextIntent `json:"next_valid_intents"`

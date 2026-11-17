@@ -31,7 +31,7 @@ func TestOrdinaryIssueLinkKeepsNormalDurability(t *testing.T) {
 		t.Fatalf("ordinary observation changed durability marker: %d -> %d", before, after)
 	}
 	replay, err := Dispatch(ctx, s, service, request, mutationEnvelope(grant, scopeVersion))
-	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(result.Result) {
 		t.Fatalf("ordinary replay=%+v err=%v", replay, err)
 	}
 	if after := durableCommitCount(t, s); after != before {
@@ -93,7 +93,7 @@ func TestMutationReplayDurabilityBindings(t *testing.T) {
 			}
 			before := s.DurableCommits()
 			r := runtime{Store: s, Authority: service, Tool: request.Tool, Operation: request.Operation, Envelope: env}
-			replay, handled, err := r.replayMutationBeforeScope(ctx, agentcontract.NewBase("binding-replay", request.Tool, request.Operation), request.Input, grant, op)
+			replay, handled, err := r.replayMutationBeforeScope(ctx, agentcontract.NewBase(request.Tool, request.Operation), request.Input, grant, op)
 			if err != nil || !handled {
 				t.Fatalf("replay: handled=%t err=%v", handled, err)
 			}
@@ -101,7 +101,7 @@ func TestMutationReplayDurabilityBindings(t *testing.T) {
 				if replay.Error == nil || replay.Error.Kind != tc.wantError {
 					t.Fatalf("replay error=%+v, want %s", replay.Error, tc.wantError)
 				}
-			} else if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
+			} else if replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(result.Result) {
 				t.Fatalf("replay=%+v", replay)
 			}
 			want := before
@@ -116,7 +116,7 @@ func TestMutationReplayDurabilityBindings(t *testing.T) {
 }
 
 func TestDurableCommitFailureEnvelopePreservesPossibleEffect(t *testing.T) {
-	base := agentcontract.NewBase("durable-failure", "concord_work_transition", "workflow_action")
+	base := agentcontract.NewBase("concord_work_transition", "workflow_action")
 	err := &store.Failure{Kind: store.KindUnavailable, Op: "durable_transaction", Detail: "cannot finish the durable commit", RetrySafe: true, EffectPossible: true}
 	response := failureEnvelope(base, err)
 	if response.Error == nil || response.Error.Kind != "unreachable" || response.Error.EffectState != agentcontract.EffectPossible {

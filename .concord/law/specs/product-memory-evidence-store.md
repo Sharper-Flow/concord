@@ -28,20 +28,20 @@
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** PM8; binding CD-0002 §2d amendment.
-> **Binding inputs:** PM1, accepted PM2–PM6, compaction-retention-policy, CD-0002 I1–I6, and the
+> **Binding inputs:** product-memory-query, accepted PM2–PM6, compaction-retention-policy, CD-0002 I1–I6, and the
 > one-installation/one-host envelope.
 > **Operator decision:** WIP needs no durable byte-level proof. Do not introduce
 > hashing or a content-addressed blob store without a named user job. Screenshots are
 > not required generic evidence.
 > **Related accepted boundary:** PM9 rejects a separate process-exhaust receipt.
 > **Does not decide:** PM10 backup/restore/GC,
-> TS1–TS9, artifact encryption, or external-system retention.
+> the agent-surface contracts, artifact encryption, or external-system retention.
 
 ## Context
 
 CD-0002 proposed external evidence files with hash and path, and the
 operator decided WIP needs no durable byte-level proof. The binding inputs
-are PM1, the accepted PM2 through PM6 and compaction-retention-policy, CD-0002 invariants, and the
+are product-memory-query, the accepted PM2 through PM6 and compaction-retention-policy, CD-0002 invariants, and the
 one-installation one-host envelope. This record rejects a content-addressed
 blob store for v1: process exhaust stays producer-owned, and no generic rule may
 require a screenshot.
@@ -189,7 +189,7 @@ them would imply a recovery contract Concord cannot satisfy.
 
 - **PM10:** backs up/restores only accepted Concord authorities; no CAS or blob GC is
   introduced here.
-- **TS1–TS9:** no command, tool, agent schema, permission, or transport surface.
+- **Agent-surface contracts:** no command, tool, agent schema, permission, or transport surface.
 - external CI/artifact provider retention, encryption, artifact signing, remote blob
   storage, chunking, media processing, and binary provenance.
 
@@ -213,7 +213,7 @@ any other storage mechanism.
 PM8 reviewed the previous CAS option against official SQLite external-blob guidance,
 SQLite atomic-commit behavior, NIST SHA-256, OCI content descriptors, and Linux
 install/durability primitives. Those sources validate how a CAS *could* work; they do
-not establish a Concord user need. The accepted PM1–PM6, compaction-retention-policy contracts and operator
+not establish a Concord user need. The accepted product-memory-query, PM2–PM6, compaction-retention-policy contracts and operator
 direction control this decision.
 
 ## Acceptance criteria

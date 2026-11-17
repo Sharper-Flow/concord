@@ -58,7 +58,7 @@ func assertPublicPremiseConsent(t *testing.T, s *store.Store, service *Service, 
 	}
 	before := premiseConsentSnapshot(t, s)
 	replay := spineOK(t, invokeWorkflowIssue31(t, s, service, env, retryJSON(input)))
-	if !replay.Replayed || !reflect.DeepEqual(before, premiseConsentSnapshot(t, s)) {
+	if replay.Outcome != agentcontract.OutcomeOK || !reflect.DeepEqual(before, premiseConsentSnapshot(t, s)) {
 		t.Fatal("premise replay changed workflow, operator identity or confirmation state")
 	}
 }

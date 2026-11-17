@@ -171,7 +171,7 @@ type runtime struct {
 // and routes both read and transaction-bound mutation operations through the
 // generated contract surface.
 func Dispatch(ctx context.Context, s *store.Store, authority *Service, request InvokeRequest, env CallEnvelope) (agentcontract.Envelope, error) {
-	base := agentcontract.NewBase(env.RequestID, request.Tool, request.Operation)
+	base := agentcontract.NewBase(request.Tool, request.Operation)
 	op, ok := agentcontract.ValidateContractOperation(request.Tool, request.Operation)
 	if !ok {
 		return base, errors.New("unsupported tool operation")
@@ -485,17 +485,17 @@ func Invoke(ctx context.Context, s *store.Store, authority *Service, data []byte
 		return agentcontract.Envelope{}, err
 	}
 	response, dispatchErr := Dispatch(ctx, s, authority, request, env)
-	return shapeInvokeFailure(response, dispatchErr, request, env), nil
+	return shapeInvokeFailure(response, dispatchErr, request), nil
 }
 
 // shapeInvokeFailure converts a dispatch error into the typed envelope an
 // operator receives. A dispatch failure is a product outcome, not a transport
 // fault, so it must not reach the caller as a bare Go error.
-func shapeInvokeFailure(response agentcontract.Envelope, dispatchErr error, request InvokeRequest, env CallEnvelope) agentcontract.Envelope {
+func shapeInvokeFailure(response agentcontract.Envelope, dispatchErr error, request InvokeRequest) agentcontract.Envelope {
 	if dispatchErr == nil {
 		return response
 	}
-	base := agentcontract.NewBase(env.RequestID, request.Tool, request.Operation)
+	base := agentcontract.NewBase(request.Tool, request.Operation)
 	return agentcontract.NewCoreError(base, agentcontract.TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: agentcontract.RecoveryAction{Kind: "restart_query"}, EffectState: agentcontract.EffectNone, Message: dispatchErr.Error()})
 }
 
@@ -687,16 +687,6 @@ func coreError(base agentcontract.Envelope, kind, message, recovery string, retr
 // a refusal. Envelope validation requires them for an ambiguous_scope error.
 func coreErrorAction(base agentcontract.Envelope, kind, message string, action agentcontract.RecoveryAction, retry bool, candidates []string) agentcontract.Envelope {
 	message = boundedErrorMessage(message)
-	// An unreachable refusal says the core could not answer, so the envelope
-	// carries no authoritative claim, freshness, or watermark; the contract
-	// pairs the kind with that authority and refuses any other pairing.
-	authority := agentcontract.AuthorityAuthoritative
-	if kind == "unreachable" {
-		authority = agentcontract.AuthorityUnreachable
-		base.Freshness = nil
-		base.SourceVersionWatermark = []agentcontract.Watermark{}
-	}
-	base.Authority = authority
 	base.Outcome = agentcontract.OutcomeError
 	base.Error = &agentcontract.TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: action, EffectState: agentcontract.EffectNone, Message: message, Candidates: candidates}
 	if _, err := base.Encode(); err == nil {
@@ -706,16 +696,9 @@ func coreErrorAction(base agentcontract.Envelope, kind, message string, action a
 	// optional fields large enough to exceed the envelope cap. Rebuild the base
 	// from its bounded identity only when preserving metadata is undeliverable.
 	// The typed error is the only authoritative response to a rejected result.
-	errorBase := agentcontract.NewBase(base.RequestID, base.Tool, base.Operation)
-	errorBase.ResolvedScope = base.ResolvedScope
-	errorBase.Authority = authority
+	errorBase := agentcontract.NewBase(base.Tool, base.Operation)
 	errorBase.Outcome = agentcontract.OutcomeError
 	errorBase.Error = &agentcontract.TypedError{Kind: kind, RetrySafe: retry, RecoveryAction: action, EffectState: agentcontract.EffectNone, Message: message}
-	if _, err := errorBase.Encode(); err != nil {
-		// Scope is useful when it remains deliverable, but never at the expense
-		// of the limit error itself crossing the agent boundary.
-		errorBase.ResolvedScope = nil
-	}
 	return errorBase
 }
 
@@ -875,7 +858,7 @@ func readEnvelopeSize(response agentcontract.Envelope) (int, error) {
 func readSizeRefusal(response agentcontract.Envelope, size int) agentcontract.Envelope {
 	// No rejected payload or evidence belongs in a refusal. The store remains
 	// unchanged, and the byte counts name a producer bound, not a transport fault.
-	base := agentcontract.NewBase(response.RequestID, response.Tool, response.Operation)
+	base := agentcontract.NewBase(response.Tool, response.Operation)
 	out := coreError(base, "limit_exceeded", fmt.Sprintf("read result including fixed projection and continuation requires %d serialized bytes; envelope maximum is %d bytes; reduce the page limit where supported, but a fixed projection or single item may not fit even at limit=1", size, agentcontract.MaxResultEnvelopeBytes), "reduce_limit", false)
 	out.Error.Details = map[string]any{"serialized_bytes": size, "maximum_bytes": agentcontract.MaxResultEnvelopeBytes, "reason": "result_envelope_bytes"}
 	return out
@@ -946,7 +929,7 @@ func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string
 }
 
 func (r runtime) wrapCursor(ctx context.Context, response agentcontract.Envelope, binding, detail string) (agentcontract.Envelope, error) {
-	source := watermarkString(response)
+	source := response.CursorSource
 	if r.documentContinuation(detail) {
 		source = binding
 	}
@@ -974,25 +957,7 @@ func (r runtime) documentContinuation(detail string) bool {
 		r.Tool == "concord_work_browse" && r.Operation == "list" && detail == workListProjectionDetail
 }
 
-func watermarkString(response agentcontract.Envelope) string {
-	if len(response.SourceVersionWatermark) == 0 {
-		return ""
-	}
-	return response.SourceVersionWatermark[0].Version
-}
-
-func applyMeta(base agentcontract.Envelope, meta store.ResultMeta, scope *agentcontract.Scope) agentcontract.Envelope {
-	base.QueryID = meta.QueryID
-	base.Authority = agentcontract.AuthorityLevel(meta.Authority)
-	base.ResolvedScope = scope
-	// A read that carries no observation time carries no freshness: the
-	// envelope admits null there, and a fabricated zero instant fails the
-	// marshal bound on every real call.
-	base.Freshness = nil
-	if observed := parseTime(meta.Freshness.ObservedAt); !observed.IsZero() {
-		base.Freshness = &agentcontract.Freshness{ObservedAt: observed, Age: meta.Freshness.Age, Stale: meta.Freshness.Stale}
-	}
-	base.OrderingKeys = meta.OrderingKeys
+func applyMeta(base agentcontract.Envelope, meta store.ResultMeta) agentcontract.Envelope {
 	base.NextCursor = meta.NextCursor
 	base.Omissions = notices(meta.Omissions)
 	// Dispatch-level notices are recorded on the base envelope before the read
@@ -1000,7 +965,7 @@ func applyMeta(base agentcontract.Envelope, meta store.ResultMeta, scope *agentc
 	// slice here would drop the only signal that a stale read was refreshed, so
 	// query warnings are appended within the envelope's bounded notice budget.
 	base.Warnings = boundedNotices(base.Warnings, notices(meta.Warnings))
-	base.SourceVersionWatermark = []agentcontract.Watermark{{SourceKind: "product_memory", SourceID: "sqlite", Version: strconv.FormatInt(meta.SourceVersionWatermark, 10)}}
+	base.CursorSource = strconv.FormatInt(meta.SourceVersionWatermark, 10)
 	return base
 }
 
@@ -1011,7 +976,6 @@ func boundedNotices(existing, added []agentcontract.Notice) []agentcontract.Noti
 	}
 	return out
 }
-func parseTime(v string) time.Time { t, _ := time.Parse(time.RFC3339Nano, v); return t }
 func notices(values []string) []agentcontract.Notice {
 	out := make([]agentcontract.Notice, 0, len(values))
 	for _, v := range values {
@@ -1019,19 +983,12 @@ func notices(values []string) []agentcontract.Notice {
 	}
 	return out
 }
-func (r runtime) scope(meta store.ResultMeta) *agentcontract.Scope {
-	p := meta.ResolvedScope.ProductID
-	if p == "" {
-		p = r.Envelope.SelectedProductID
-	}
-	return &agentcontract.Scope{ProductID: p, ProjectIDs: nonEmpty(r.Envelope.AmbientProjectID), ScopeVersion: r.Envelope.ScopeVersion}
-}
-func (r runtime) resultEnvelope(base agentcontract.Envelope, meta store.ResultMeta, scope *agentcontract.Scope, payload any) (agentcontract.Envelope, error) {
+func (r runtime) resultEnvelope(base agentcontract.Envelope, meta store.ResultMeta, payload any) (agentcontract.Envelope, error) {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return base, err
 	}
-	base = applyMeta(base, meta, scope)
+	base = applyMeta(base, meta)
 	base.Outcome = agentcontract.OutcomeOK
 	base.Result = raw
 	if err := agentcontract.ValidateOperationPayload(base.Tool, base.Operation, raw, true); err != nil {
@@ -1101,14 +1058,14 @@ func (r runtime) q1(base agentcontract.Envelope, q store.Q1Result) (agentcontrac
 	if q.CandidateIDs == nil {
 		q.CandidateIDs = []string{}
 	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"product_id": id, "stage": stage, "projects": projects, "candidates": q.CandidateIDs})
+	return r.resultEnvelope(base, q.ResultMeta, map[string]any{"product_id": id, "stage": stage, "projects": projects, "candidates": q.CandidateIDs})
 }
 func (r runtime) q2(base agentcontract.Envelope, q store.Q2Result) (agentcontract.Envelope, error) {
 	items := make([]workSummary, 0, len(q.Items))
 	for _, w := range q.Items {
 		items = append(items, summary(w))
 	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"counts": map[string]int{"needed": q.LifecycleCounts["needed"], "in_progress": q.LifecycleCounts["in_progress"], "completed": q.LifecycleCounts["completed"], "cancelled": q.LifecycleCounts["cancelled"]}, "previews": items})
+	return r.resultEnvelope(base, q.ResultMeta, map[string]any{"counts": map[string]int{"needed": q.LifecycleCounts["needed"], "in_progress": q.LifecycleCounts["in_progress"], "completed": q.LifecycleCounts["completed"], "cancelled": q.LifecycleCounts["cancelled"]}, "previews": items})
 }
 
 func (r runtime) q3(base agentcontract.Envelope, q store.Q3Result) (agentcontract.Envelope, error) {
@@ -1116,14 +1073,14 @@ func (r runtime) q3(base agentcontract.Envelope, q store.Q3Result) (agentcontrac
 	for _, w := range q.Items {
 		items = append(items, summary(w))
 	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"items": items})
+	return r.resultEnvelope(base, q.ResultMeta, map[string]any{"items": items})
 }
 func (r runtime) q7(base agentcontract.Envelope, q store.Q7Result) (agentcontract.Envelope, error) {
 	entries := q.Entries
 	if entries == nil {
 		entries = []store.HistoryEntry{}
 	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"entries": entries})
+	return r.resultEnvelope(base, q.ResultMeta, map[string]any{"entries": entries})
 }
 
 // fragmentLength returns the largest whole-code-point cut of
@@ -1202,7 +1159,7 @@ func (r runtime) q8(base agentcontract.Envelope, q store.Q8Result) (agentcontrac
 	for _, e := range q.Edges {
 		edges = append(edges, map[string]any{"from": e.Source, "to": e.Target, "kind": e.Kind, "depth": e.Depth, "relation_id": e.RelationID})
 	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"nodes": []any{}, "edges": edges})
+	return r.resultEnvelope(base, q.ResultMeta, map[string]any{"nodes": []any{}, "edges": edges})
 }
 
 // SignedCursor remains an agent-facing alias while the authority owns its

@@ -13,12 +13,12 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-17
-- **Scope:** Agent operation inputs and manifest bounds; TS7 budget refusal; issue #173
+- **Scope:** Agent operation inputs and manifest bounds; agent-result-envelope budget refusal; issue #173
 - **Approval:** Operator selected per-operation manifest ceilings on 2026-08-17
 - **Related:** CD-0005, CD-0036 D4, TS1 AJ8, TS4
   ([`agent-mutation-tool-contract.md`](../specs/agent-mutation-tool-contract.md)), TS6
   ([`agent-adapter-transport-contract.md`](../specs/agent-adapter-transport-contract.md)),
-  TS7 ([`agent-result-envelope.md`](../specs/agent-result-envelope.md)), TS8
+  agent-result-envelope ([`agent-result-envelope.md`](../specs/agent-result-envelope.md)), TS8
   ([`agent-tool-surface-evolution.md`](../specs/agent-tool-surface-evolution.md))
 
 ## Context

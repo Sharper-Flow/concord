@@ -46,9 +46,9 @@ func TestFullWorkListProjectionMixedEnumeration(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := runtime{Store: s, Tool: "concord_work_browse", Operation: "list", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
-	base := agentcontract.NewBase("mixed-list", r.Tool, r.Operation)
+	base := agentcontract.NewBase(r.Tool, r.Operation)
 	for range 3 {
-		base.EvidenceRefs = append(base.EvidenceRefs, agentcontract.EvidenceRef{Kind: "artifact", Authority: "test", LocatorKind: "file", Locator: strings.Repeat("x", 2048)})
+		base.Warnings = append(base.Warnings, agentcontract.Notice{Kind: "fixture", Details: map[string]any{"padding": strings.Repeat("x", 2048)}})
 	}
 	for _, limit := range []int{0, 1, 100} {
 		input := map[string]any{"product_id": "product-1", "detail": "full"}
@@ -93,9 +93,9 @@ func projectionFixture(t *testing.T) (*store.Store, runtime, agentcontract.Envel
 		t.Fatal(err)
 	}
 	r := runtime{Store: s, Tool: "concord_work_browse", Operation: "list", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
-	base := agentcontract.NewBase("cursor-integrity", r.Tool, r.Operation)
+	base := agentcontract.NewBase(r.Tool, r.Operation)
 	for range 3 {
-		base.EvidenceRefs = append(base.EvidenceRefs, agentcontract.EvidenceRef{Kind: "artifact", Authority: "test", LocatorKind: "file", Locator: strings.Repeat("x", 2048)})
+		base.Warnings = append(base.Warnings, agentcontract.Notice{Kind: "fixture", Details: map[string]any{"padding": strings.Repeat("x", 2048)}})
 	}
 	return s, r, base
 }
@@ -150,8 +150,8 @@ func TestFullWorkListProjectionContinuationAfterUnrelatedWrite(t *testing.T) {
 	if err := json.Unmarshal(continued.Result, &afterPart); err != nil || afterPart.Digest != firstPart.Digest || afterPart.Offset != firstPart.FragmentBytes || string(continued.Result) != string(withoutWrite.Result) {
 		t.Fatalf("continuation changed: fragment=%+v parse=%v", afterPart, err)
 	}
-	if len(continued.SourceVersionWatermark) != 1 || continued.SourceVersionWatermark[0].Version != strconv.FormatInt(after, 10) {
-		t.Fatalf("wrong continuation source watermark: %+v", continued.SourceVersionWatermark)
+	if continued.CursorSource != strconv.FormatInt(after, 10) {
+		t.Fatalf("wrong continuation source revision: %s", continued.CursorSource)
 	}
 }
 
@@ -196,8 +196,12 @@ func TestFullWorkListProjectionAfterInlinePageAndUnrelatedWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	var cursor workListProjectionCursor
-	if err := json.Unmarshal([]byte(inner), &cursor); err != nil || cursor.ListCursor == "" {
-		t.Fatal("missing inner list cursor")
+	if err := json.Unmarshal([]byte(inner), &cursor); err != nil || cursor.ListCursor == "" || cursor.NextListCursor == nil {
+		t.Fatal("missing captured list cursors")
+	}
+	capturedRevision, err := s.Revision(ctx)
+	if err != nil || cursor.SourceRevision != strconv.FormatInt(capturedRevision, 10) {
+		t.Fatalf("captured revision=%q store=%d err=%v", cursor.SourceRevision, capturedRevision, err)
 	}
 	if err := s.Transact(ctx, func(*store.Transaction) error { return nil }); err != nil {
 		t.Fatal(err)
@@ -213,13 +217,23 @@ func TestFullWorkListProjectionAfterInlinePageAndUnrelatedWrite(t *testing.T) {
 		if err := json.Unmarshal(fragment.Result, &part); err != nil || part.Offset != len(document) {
 			t.Fatalf("fragment offset: %+v %v", part, err)
 		}
+		if !part.Complete {
+			if fragment.NextCursor == nil {
+				t.Fatal("missing projection continuation")
+			}
+			inner, err := r.unwrapCursor(ctx, *fragment.NextCursor, pageBinding(workListInput{ProductID: "product-1", Detail: "full", Limit: 1}, func(in *workListInput) { in.Page.Cursor = nil }), workListProjectionDetail)
+			var continued workListProjectionCursor
+			if err != nil || json.Unmarshal([]byte(inner), &continued) != nil || continued.SourceRevision != cursor.SourceRevision || continued.NextListCursor == nil || *continued.NextListCursor != *cursor.NextListCursor {
+				t.Fatalf("captured continuation changed: %+v err=%v", continued, err)
+			}
+		}
 		document = append(document, part.Data...)
 	}
 	if sha256Hex(document) != part.Digest || len(document) != part.TotalBytes || part.NextKind == nil || *part.NextKind != "items" || fragment.NextCursor == nil {
 		t.Fatal("fragment reconstruction or handoff failed")
 	}
-	if len(fragment.SourceVersionWatermark) != 1 || fragment.SourceVersionWatermark[0].Version != strconv.FormatInt(after, 10) {
-		t.Fatalf("wrong final fragment source watermark: %+v", fragment.SourceVersionWatermark)
+	if fragment.CursorSource != strconv.FormatInt(after, 10) {
+		t.Fatalf("wrong final fragment source revision: %s", fragment.CursorSource)
 	}
 	if err := json.Unmarshal(document, &inline); err != nil || len(inline.Items) != 1 || inline.Items[0].ID != "work-1" || inline.Items[0].Task != strings.Repeat("<", 8192) {
 		t.Fatal("wrong reconstructed item")
@@ -291,8 +305,8 @@ func TestFullWorkListProjectionTailLeavesBeforeFragmentCompletion(t *testing.T) 
 	if len(document) != part.TotalBytes || sha256Hex(document) != digest || json.Unmarshal(document, &page) != nil || len(page.Items) != 1 || page.Items[0].ID != "work-1" || page.Items[0].Task != strings.Repeat("<", 8192) {
 		t.Fatal("fragment reconstruction changed the captured item")
 	}
-	if len(fragment.SourceVersionWatermark) != 1 || fragment.SourceVersionWatermark[0].Version != strconv.FormatInt(after, 10) {
-		t.Fatalf("wrong latest watermark: %+v", fragment.SourceVersionWatermark)
+	if fragment.CursorSource != strconv.FormatInt(after, 10) {
+		t.Fatalf("wrong latest source revision: %s", fragment.CursorSource)
 	}
 	if part.NextKind == nil || *part.NextKind != "items" || fragment.NextCursor == nil {
 		t.Fatal("lost original item continuation after tail left filter")
@@ -435,9 +449,9 @@ func TestFullWorkListProjectionMultibyteEnvelopeFit(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := runtime{Store: s, Tool: "concord_work_browse", Operation: "list", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
-	base := agentcontract.NewBase("multibyte-list", r.Tool, r.Operation)
+	base := agentcontract.NewBase(r.Tool, r.Operation)
 	for range 16 {
-		base.EvidenceRefs = append(base.EvidenceRefs, agentcontract.EvidenceRef{Kind: "artifact", Authority: "test", LocatorKind: "file", Locator: strings.Repeat("x", 2048)})
+		base.Warnings = append(base.Warnings, agentcontract.Notice{Kind: "fixture", Details: map[string]any{"padding": strings.Repeat("x", 2048)}})
 	}
 	first, err := r.read(ctx, base, []byte(`{"product_id":"product-1","detail":"full","limit":1}`), "PM1.Q3")
 	if err != nil {
@@ -495,10 +509,8 @@ func TestFullWorkListProjectionUnshrinkableFrameNamesProducerRepair(t *testing.T
 	t.Parallel()
 	s, _, _ := workflowEngineFixture(t)
 	r := runtime{Store: s, Tool: "concord_work_browse", Operation: "list", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
-	base := agentcontract.NewBase("unshrinkable-list", r.Tool, r.Operation)
-	for range 32 {
-		base.EvidenceRefs = append(base.EvidenceRefs, agentcontract.EvidenceRef{Kind: "artifact", Authority: "test", LocatorKind: "file", Locator: strings.Repeat("x", 2048)})
-	}
+	base := agentcontract.NewBase(r.Tool, r.Operation)
+	base.Warnings = append(base.Warnings, agentcontract.Notice{Kind: "fixture", Details: map[string]any{"padding": strings.Repeat("x", 65536)}})
 	response, err := r.read(t.Context(), base, []byte(`{"product_id":"product-1","detail":"full","limit":1}`), "PM1.Q3")
 	if err != nil {
 		t.Fatal(err)
@@ -511,7 +523,7 @@ func TestFullWorkListProjectionUnshrinkableFrameNamesProducerRepair(t *testing.T
 
 func readFullListDocuments(t *testing.T, ctx context.Context, r runtime, input map[string]any) ([]workSummary, int) {
 	t.Helper()
-	return readFullListDocumentsWithBase(t, ctx, r, input, agentcontract.NewBase("full-list-projection", r.Tool, r.Operation))
+	return readFullListDocumentsWithBase(t, ctx, r, input, agentcontract.NewBase(r.Tool, r.Operation))
 }
 
 func readFullListDocumentsWithBase(t *testing.T, ctx context.Context, r runtime, input map[string]any, base agentcontract.Envelope) ([]workSummary, int) {

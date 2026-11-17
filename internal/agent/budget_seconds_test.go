@@ -109,7 +109,7 @@ func TestApplyBudgetRejectsNonPositiveSeconds(t *testing.T) {
 func TestBudgetRefusalCarriesTheTypedCeiling(t *testing.T) {
 	t.Parallel()
 	r := runtime{Tool: "concord_work_transition", Operation: "workflow_action", Budget: budgetInput{CeilingRefused: true, RequestedSeconds: 60, SupportedSeconds: 30}}
-	out := r.budgetRefusal(agentcontract.NewBase("request", r.Tool, r.Operation), "requested_budget_seconds 60 exceeds supported 30")
+	out := r.budgetRefusal(agentcontract.NewBase(r.Tool, r.Operation), "requested_budget_seconds 60 exceeds supported 30")
 	if out.Error == nil || out.Error.Kind != "budget_refused" || out.Error.SupportedBudgetSeconds != 30 {
 		t.Fatalf("refusal envelope wrong: %#v", out.Error)
 	}

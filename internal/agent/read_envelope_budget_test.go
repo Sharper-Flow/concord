@@ -71,7 +71,7 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 	pages := 0
 	for {
 		input, _ := json.Marshal(map[string]any{"product_id": "product-1", "detail": "full", "limit": 100, "page": map[string]any{"cursor": cursor}})
-		response, err := r.read(ctx, agentcontract.NewBase("byte-list", r.Tool, r.Operation), input, "PM1.Q3")
+		response, err := r.read(ctx, agentcontract.NewBase(r.Tool, r.Operation), input, "PM1.Q3")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -115,7 +115,7 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 	if len(seen) != 100 || pages < 2 {
 		t.Fatalf("enumerated %d distinct items in %d pages", len(seen), pages)
 	}
-	summaryResponse, err := r.read(ctx, agentcontract.NewBase("summary-list", r.Tool, r.Operation), []byte(`{"product_id":"product-1","detail":"summary","limit":100}`), "PM1.Q3")
+	summaryResponse, err := r.read(ctx, agentcontract.NewBase(r.Tool, r.Operation), []byte(`{"product_id":"product-1","detail":"summary","limit":100}`), "PM1.Q3")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestFullWorkReadBytePagesEnumerateExactlyOnce(t *testing.T) {
 			}
 		}
 		input, _ := json.Marshal(map[string]any{"product_id": "product-1", "detail": detail, "limit": 100, "page": map[string]any{"cursor": firstCursor}})
-		response, err := r.read(ctx, agentcontract.NewBase("byte-cursor", r.Tool, r.Operation), input, "PM1.Q3")
+		response, err := r.read(ctx, agentcontract.NewBase(r.Tool, r.Operation), input, "PM1.Q3")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -165,7 +165,7 @@ func TestSingleMaximumTaskFitsFullWorkEnvelope(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := runtime{Store: s, Tool: "concord_work_browse", Operation: "list", Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
-	response, err := r.read(t.Context(), agentcontract.NewBase("maximum-task", r.Tool, r.Operation), []byte(`{"product_id":"product-1","detail":"full","limit":1}`), "PM1.Q3")
+	response, err := r.read(t.Context(), agentcontract.NewBase(r.Tool, r.Operation), []byte(`{"product_id":"product-1","detail":"full","limit":1}`), "PM1.Q3")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestWorkSummaryBytePagesKeepContinuation(t *testing.T) {
 			pages := 0
 			for {
 				input, _ := json.Marshal(map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "limit": 100, "page": map[string]any{"cursor": cursor}})
-				response, err := r.read(ctx, agentcontract.NewBase("summary-byte-pages", r.Tool, r.Operation), input, agentcontract.NewBase("", r.Tool, r.Operation).QueryID)
+				response, err := r.read(ctx, agentcontract.NewBase(r.Tool, r.Operation), input, "PM1.Q3")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -250,11 +250,13 @@ func TestReadBudgetIncludesEnvelopeMetadata(t *testing.T) {
 	} {
 		t.Run(test.operation, func(t *testing.T) {
 			r := runtime{Store: s, Tool: test.tool, Operation: test.operation, Envelope: CallEnvelope{SelectedProductID: "product-1", AmbientProjectID: "project-1", ScopeVersion: "scope-fixture"}}
-			base := agentcontract.NewBase("metadata-budget", r.Tool, r.Operation)
-			for range 32 {
-				base.EvidenceRefs = append(base.EvidenceRefs, agentcontract.EvidenceRef{Kind: "artifact", Authority: "test", LocatorKind: "file", Locator: strings.Repeat("x", 2048)})
+			base := agentcontract.NewBase(r.Tool, r.Operation)
+			base.Warnings = append(base.Warnings, agentcontract.Notice{Kind: "fixture", Details: map[string]any{"padding": strings.Repeat("x", 65536)}})
+			queryID := "PM1.Q3"
+			if test.operation == "history" {
+				queryID = "PM1.Q7"
 			}
-			response, err := r.read(context.Background(), base, []byte(test.input), base.QueryID)
+			response, err := r.read(context.Background(), base, []byte(test.input), queryID)
 			if err != nil {
 				t.Fatal(err)
 			}

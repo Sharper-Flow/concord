@@ -118,8 +118,8 @@ func testContractRevisionDispatch(t *testing.T, stage string) {
 	}
 	committedVersion := workOneVersion(t, s)
 	replayed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: approvedRaw}, env)
-	if replayed.Outcome != agentcontract.OutcomeOK || !replayed.Replayed || workOneVersion(t, s) != committedVersion {
-		t.Fatalf("correction replay mutated work or failed: outcome=%s replayed=%v error=%+v", replayed.Outcome, replayed.Replayed, replayed.Error)
+	if replayed.Outcome != agentcontract.OutcomeOK || workOneVersion(t, s) != committedVersion {
+		t.Fatalf("correction replay mutated work or failed: outcome=%s error=%+v", replayed.Outcome, replayed.Error)
 	}
 }
 

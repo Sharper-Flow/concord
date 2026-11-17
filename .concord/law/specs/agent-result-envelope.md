@@ -1,6 +1,6 @@
 ---
 {
-  "id": "TS7",
+  "id": "agent-result-envelope",
   "title": "Agent result envelope",
   "authority": {
     "tier": "derived"
@@ -17,7 +17,7 @@
     },
     {
       "criterion": 2,
-      "exemption": "Authority semantics are per-call properties. The guarantee is proved by TestEnvelopeGoldenOutcomes (internal/agentcontract/envelope_test.go)."
+      "exemption": "Completeness and refusal are per-call properties. TestDispatchWorkRemovalCommitsWithRecordedLinearIssue (internal/agent/work_removal_linear_test.go) checks the named work-pin omission, and TestUnavailableStoreRefusalMarshalsAsUnreachable (internal/agent/unreachable_envelope_test.go) checks the typed unreachable refusal and payload exclusion."
     },
     {
       "criterion": 3,
@@ -34,25 +34,19 @@
   ]
 }
 ---
-# Concord Agent Result, Error, Evidence, and Pagination Envelope (TS7)
+# Concord Agent Result, Error, Evidence, and Pagination Envelope
 
-> **Status:** **Accepted.**
-> **Accepted by operator:** 2026-08-06.
-> **Decision:** TS7; binding input to CD-0005 §7 and TS8–TS9.
 > **Canonical schema:** [`agent-tool-envelope.schema.json`](../../../contracts/agent-tool-envelope.schema.json).
-> **Binding inputs:** PM1 universal query envelope/corpus and accepted TS1–TS6
+> **Binding inputs:** [Product-memory queries](product-memory-query-contract.md) and accepted TS1–TS6
 > job/tool/context/transport contracts.
 > **Does not decide:** operation-specific payload fields already owned by TS3/TS4,
 > surface identity/change evidence (TS8), measurement evidence (TS9), or UI rendering.
 
 ## Context
 
-Every tool call needs one shared result law. The binding inputs are PM1's
-universal query envelope and corpus and the accepted TS1 through TS6
-contracts. This record fixes the strict JSON envelope with exactly one
+Every tool call needs one shared result law. This record fixes the strict JSON envelope with exactly one
 outcome per call, its universal fields, the durable outcomes, the typed error
-contract, authority and freshness semantics, evidence locators, pagination
-and output bounds, and adapter transport failures.
+contract, pagination and output bounds, and adapter transport failures.
 ## Contract
 
 Recovery reconciles current state and names a caller action; no replay exists
@@ -60,10 +54,9 @@ Recovery reconciles current state and names a caller action; no replay exists
 
 The binding contract is sections 1 through 9: the four-outcome decision,
 universal fields, the `ok` payload forms, durable `pending` and `partial`
-outcomes, the closed error contract with recovery actions, authority and
-freshness semantics, evidence reference locators, pagination and output
-bounds with the producer-side completeness obligation, and adapter transport
-failures. Sections 10 through 12 record scenario requirements, rejected
+outcomes, the closed error contract with recovery actions, omission semantics,
+pagination and output bounds with the producer-side completeness obligation,
+and adapter transport failures. Sections 10 through 12 record scenario requirements, rejected
 alternatives, and falsifiers, and carry no obligation.
 ## 1. Decision
 
@@ -88,23 +81,14 @@ Every outcome carries:
 |---|---|
 | `schema_version` | Envelope schema version. |
 | `manifest_digest` | Exact generated current-manifest digest bound to this client, session, invocation, and result. |
-| `adapter_contract_version` | Required only for `origin=adapter`: adapter envelope schema used to encode a pre-core transport/bootstrap failure; it never claims a core surface identity. |
-| `request_id` | This transport attempt; audit only, never idempotency. |
 | `origin` | `core` for a schema-valid core response. `adapter` only when no core envelope exists, for a fail-closed transport error or a pre-dispatch input refusal with no effect. |
 | `tool`, `operation` | One accepted TS3/TS4 pair. A pre-dispatch wrapper refusal uses an empty `operation` if no accepted pair can be resolved. |
 | `outcome` | `ok|pending|partial|error`. |
-| `resolved_scope` | Product/Project/work IDs actually used, or `null` when resolution failed. |
-| `authority` | `authoritative|degraded|unreachable`. Degraded may accompany bounded useful data; unreachable cannot masquerade as data. |
-| `freshness` | Observation time, `age` in milliseconds, and stale flag, or `null` when no source was reached. The field name preserves PM1 compatibility. |
-| `source_version_watermark` | Ordered source identities/versions proving the answer or effect. |
-| `ordering_keys` | Declared ordering keys for returned collections; empty for unordered/singular results. |
 | `next_cursor` | Opaque continuation token or `null`; always present, so absent never means silently truncated. |
 | `omissions` | Typed known omissions; empty when complete. |
 | `warnings` | Typed non-fatal warnings; empty when none. |
-| `evidence_refs` | Bounded typed locators to evidence authorities, never embedded process exhaust. |
-| `replayed` | `true` only when TS5 idempotency returned a prior mutation result/durable operation. |
 
-Read outcomes also carry PM1 `query_id`. Operation-specific schemas validate the
+Operation-specific schemas validate the
 payload nested under exactly one of `items` (collection) or `result` (singular).
 The envelope schema validates their placement; the canonical registry validates
 their domain fields.
@@ -119,8 +103,7 @@ their domain fields.
 Mutation success additionally returns:
 
 - `changed_refs`: stable entity kind/ID/new version only—not a copied full state;
-- `next_valid_intents`: bounded typed tool/operation choices currently valid; and
-- evidence/approval references required to establish the result.
+- `next_valid_intents`: bounded typed tool/operation choices currently valid.
 
 Routine success must be enough to choose the next action. An agent must not call a
 separate status/show tool merely to learn the resulting version, canonical reference,
@@ -224,42 +207,24 @@ Validation still evaluates every required schema branch. Diagnostic selection do
 
 The same schema owns authoring guidance and refusal guidance. An example establishes syntax only; it grants no authority, evidence, entity existence, or workflow admission. Error kind, retry safety, recovery action, effect state, approval requirements, and all existing bounds remain unchanged.
 
-## 6. Authority, freshness, and omissions
+## 6. Completeness and omissions
 
-- `authoritative`: every required source watermark proves completeness/currentness.
-- `degraded`: useful bounded result exists but named sources/items are missing or
-  lagging; `omissions` is non-empty.
-- `unreachable`: required authority could not be queried and no data payload is
-  returned.
-
-An authoritative empty result is `ok` with empty `items`, not `error`. A degraded
-empty result is still degraded and names omissions; it cannot become authoritative
-empty. Stale data follows the operation's accepted policy: explicit degraded result,
+An empty result is `ok` with empty `items`, not an error. When a result omits
+known records or sources, `omissions` names them and why, including when no items
+are returned. A required authority
+that cannot answer returns `unreachable` without a data payload. Stale data
+follows the operation's accepted policy: an explicitly incomplete result,
 `stale_requires_review`, or blocked execution—never silent fallback.
 
-Warnings do not weaken authority. If a condition changes completeness/currentness,
-it belongs in authority/omissions, not a warning string.
+Warnings do not replace omissions when a condition changes completeness.
 
-## 7. Evidence references
+## 7. Evidence
 
-Evidence is returned as bounded typed locators:
-
-```text
-kind
-authority
-locator_kind
-locator
-version?
-digest?
-```
-
-Allowed kinds include verification, review, approval, commit, durable note, native
-run, and artifact. Ordinary external references are opaque stable locators. Canonical
-git notes retain PM6 commit/content hashes because those prove durable knowledge.
-
-The envelope never embeds raw sub-agent transcripts, screenshots, logs, binary
-bytes, full git documents, credentials, client keys, or approval secrets. Agents
-retrieve bounded evidence from its authority only when needed.
+Evidence required by an operation remains bound to its store authority and is
+returned through the operation's typed payload when required. The envelope never
+embeds raw sub-agent transcripts, screenshots, logs, binary bytes, full git
+documents, credentials, client keys, or approval secrets. Agents retrieve
+bounded evidence from its authority only when needed.
 
 ## 8. Pagination and output bounds
 
@@ -269,7 +234,7 @@ retrieve bounded evidence from its authority only when needed.
   across buckets is emitted once with view flags.
 - Relation graphs: depth maximum 3, 100 nodes, 200 edges.
 - Serialized envelope: hard maximum 51,200 bytes.
-- Warnings: 16; omissions: 16; evidence refs: 32; changed refs: 32; next valid
+- Warnings: 16; omissions: 16; changed refs: 32; next valid
   intents: 83; error candidates/violations: 20 each. The
   intent bound covers the current finite producer: 16 step actions, 64
   registered declarations, and 3 single-fire appends.
@@ -309,8 +274,8 @@ closed `malformed_response`/`invalid_input`, `limit_exceeded`, or
 
 Consumers reject malformed or oversized structured output. They never replace a
 rejected result with a head, tail, middle, or other excerpt; legitimate partial
-coverage uses only the existing `partial`, `omissions`, pagination, and
-`evidence_refs` mechanisms.
+coverage uses only the existing `partial`, `omissions`, and pagination
+mechanisms.
 
 ### 8.2 Lossless oversized-result transport
 
@@ -320,17 +285,16 @@ For a mutation, the complete document is computed inside the mutation transactio
 
 A projection reference or fragment grants no complete pin, intent, question, or acceptance authority. A consumer reconstructs the complete document, verifies its identity, length and digest, and validates its schema before using that authority. The reconstructed mutation result carries every required WorkPin at its changed-reference version and every intent derived from those pins. This oversized-result transport is the exception to the routine-success rule against a follow-up status read.
 
-A full work-list read may page within an otherwise oversized single item by the same lossless transport. It preserves the complete item and the list continuation, with no missing or duplicated item. Fragment continuations bind one captured document and the original query; unchanged document bytes remain valid across unrelated store writes, and drift refuses before emitting a fragment from a different document. Each response reports its observed source watermark. Inline and item-count continuations, including the continuation after the final fragment, remain bound to the source watermark of the captured enumeration. An invalidated watermark refuses the continuation with `invalid_cursor` and `restart_query`.
+A full work-list read may page within an otherwise oversized single item by the same lossless transport. It preserves the complete item and the list continuation, with no missing or duplicated item. Fragment continuations bind one captured document and the original query; unchanged document bytes remain valid across unrelated store writes, and drift refuses before emitting a fragment from a different document. Inline and item-count continuations, including the continuation after the final fragment, remain bound to the source watermark of the captured enumeration. An invalidated watermark refuses the continuation with `invalid_cursor` and `restart_query`.
 
-A resume read may page an oversized document by the same lossless transport. Its continuation binds the original query, authority and document identity. Unchanged document bytes remain valid across unrelated store writes; document drift refuses before emitting a fragment from a different document. Each response reports its observed source watermark.
+A resume read may page an oversized document by the same lossless transport. Its continuation binds the original query, authority and document identity. Unchanged document bytes remain valid across unrelated store writes; document drift refuses before emitting a fragment from a different document.
 
 Tests prove both inline and reconstructed results meet the same completeness, version, derivation and schema obligations. No recorded failure, context, evidence or other required content is discarded to fit the envelope. A size refusal names an executable recovery for that operation; it does not prescribe reducing a limit the operation does not expose.
 
 ## 9. Adapter failures and local refusals
 
 When no valid core envelope is available, TS6's adapter may construct a minimal
-TS7 `error` envelope with `origin=adapter` and `authority=unreachable`.
-Freshness is null and the source watermark is empty. Adapter origin includes
+`error` envelope with `origin=adapter`. Adapter origin includes
 transport failures, pre-dispatch input refusals,
 and native host failures. It never claims core authority.
 
@@ -349,7 +313,7 @@ The schema admits these adapter-origin kinds:
 | `invalid_input` | The host wrapper, tool arguments, or CLI input failed validation before dispatch. | `none`, with `retry_safe=false` | `correct_request` |
 
 If the wrapper refusal cannot resolve an accepted tool/operation pair, `operation` is
-the empty string and `query_id` is absent. Only this no-effect wrapper refusal may
+the empty string. Only this no-effect wrapper refusal may
 carry an empty operation. It never fabricates an accepted operation.
 
 The CLI reserves exit 64 with empty stdout for required-field validation and
@@ -383,8 +347,7 @@ a reason and a kind beyond the input and manifest rules named below.
 
 `manifest_mismatch` requires kind `transport_failure`, effect `none`, and recovery `contact_operator`.
 The three input reasons require kind `invalid_input`, effect `none`, recovery `correct_request`, and
-`retry_safe=false`. Unknown reasons fail validation. The adapter's own
-`adapter_contract_version` validates the bootstrap envelope before core invocation.
+`retry_safe=false`. Unknown reasons fail validation.
 
 An agent may correct and resend any request refused with `effect_state: none`,
 within unchanged authority and scope, whatever its `recovery_action`.
@@ -400,13 +363,13 @@ evidence, not parsed domain state.
 
 ## 10. Scenario and current-surface requirements
 
-TS7 must pass:
+The agent result envelope must pass:
 
-- every PM1 envelope/error assertion;
+- every Product-memory query result/error assertion;
 - every TS1 final-state/communication/prohibited-effect scenario;
 - all TS5 stale/version/approval/idempotency variants;
 - mutation success without a routine follow-up status call;
-- authoritative empty vs degraded empty vs unreachable;
+- complete empty, explicitly omitted coverage, and unreachable refusal;
 - cursor continuation/tampering/cross-operation misuse;
 - maximum-byte/page/graph/warning/evidence bounds; and
 - malformed stdout, timeout, cancellation, and unknown error-kind rejection.
@@ -430,11 +393,11 @@ variants as generic prose.
 
 ## 12. Falsifiers
 
-Reopen TS7 when:
+Reopen this contract when:
 
 - supported agents cannot recover from a typed error without parsing `message`;
 - routine successful mutation still requires a follow-up read to choose next action;
-- legitimate PM1/TS1 payloads cannot fit bounded pagination;
+- legitimate Product-memory query/TS1 payloads cannot fit bounded pagination;
 - the 51,200-byte cap regularly forces pathological extra calls;
 - cursor binding prevents legitimate continuation after accepted source changes;
 - evidence locators cannot identify required proof without embedding raw content;
@@ -451,10 +414,10 @@ compatibility treatment. Prose convenience is not sufficient evidence.
   Then unknown outcome, error, or recovery discriminants are rejected, and no
   `success` boolean exists anywhere.
 
-- Given a degraded or unreachable authority
-  When a result returns
-  Then degraded carries named omissions and unreachable returns no data
-  payload; neither masquerades as authoritative.
+- Given a result with known omissions or an unavailable required authority
+  When the call returns
+  Then known omissions are named, and an unavailable authority returns an
+  `unreachable` refusal without a data payload.
 
 - Given a requested page that would cross any output bound
   When the core responds
@@ -480,8 +443,11 @@ the guarantee.
 - Criterion 1 is proved by `TestEnvelopeRejectsUnknownVariantsAndFields` and
   `TestEnvelopeRejectsUnknownFieldsAcrossEveryOutcome`
   (`internal/agentcontract/envelope_test.go`).
-- Criterion 2 is proved by `TestEnvelopeGoldenOutcomes`
-  (`internal/agentcontract/envelope_test.go`).
+- Criterion 2 is proved by `TestDispatchWorkRemovalCommitsWithRecordedLinearIssue`
+  (`internal/agent/work_removal_linear_test.go`), which checks the named work-pin
+  omission, and `TestUnavailableStoreRefusalMarshalsAsUnreachable`
+  (`internal/agent/unreachable_envelope_test.go`), which checks the typed refusal
+  and payload exclusion.
 - Criterion 3 is proved by `TestEnvelopeHasHardSerializedLimit`
   (`internal/agentcontract/envelope_test.go`),
   `TestMutationResultProducerAcceptsCanonicalPayload`

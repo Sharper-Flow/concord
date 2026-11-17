@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import * as adapter from "./concord"
-import { contractOperations, manifestDigest } from "./generated-contracts"
+import { manifestDigest } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resetManifestPinForTesting, resolveDiskManifestDigest, setManifestSourceForTesting } from "./manifest-pin"
 import { configureCoreBinary } from "./core-runtime"
 import { sessionDirectoryReader } from "./session-directory"
@@ -25,7 +25,7 @@ const hostCall = (operation: string, input: Record<string, unknown>) => ({ reque
 const contextFor = (): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: "/worktree", directory: "/worktree", abort: new AbortController().signal, ask: async () => {} })
 const contextResponse = () => ({ project_id: "project-1", product_ids: ["product-1"], scope_version: "1", main_worktree: true })
 const coreEnvelope = (tool: string, operation: string, outcome: string, fields: Record<string, unknown> = {}) => ({
-  schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core", tool, operation, ...((contractOperations.find((candidate: any) => candidate.tool === tool && candidate.id.endsWith(`.${operation}`)) as any)?.query_id ? { query_id: (contractOperations.find((candidate: any) => candidate.tool === tool && candidate.id.endsWith(`.${operation}`)) as any).query_id } : {}), outcome, resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false, ...fields,
+  schema_version: "1.0", manifest_digest: manifestDigest, origin: "core", tool, operation, outcome, next_cursor: null, omissions: [], warnings: [], ...fields,
 })
 const foreignDigest = "sha256:" + "0".repeat(63) + "1"
 

@@ -199,7 +199,7 @@ func TestStoreRevisionReadMetadataWithoutLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	meta, err := queryMeta(ctx, tx, "revision_fixture", ResolvedScope{}, nil)
+	meta, err := queryMeta(ctx, tx, "revision_fixture")
 	if err != nil {
 		t.Fatal(err)
 	}

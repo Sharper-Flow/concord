@@ -150,7 +150,7 @@ func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {
 	}
 	out.Result = &Q7ResultPayload{Entries: out.Entries}
 	next := out.NextCursor
-	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q7", ResolvedScope{WorkID: req.Work}, []string{"effect_seq", "entry_kind", "entry_id"})
+	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q7")
 	out.NextCursor = next
 	return out, err
 }

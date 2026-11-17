@@ -31,17 +31,17 @@
 
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-06.
-> **Decision:** TS2; binding input to CD-0005 §2 and TS3–TS9.
+> **Decision:** TS2; binding input to CD-0005 §2, TS3–TS6, agent-result-envelope, and TS8–TS9.
 > **Binding input:** accepted TS1 canonical jobs and 23-scenario corpus.
 > **Does not decide:** exact tool names/count within the budget, read operations
 > (TS3), mutation operations (TS4), call context (TS5), transport (TS6), result
-> envelopes (TS7), current manifest identity/change evidence (TS8), or measurement evidence (TS9).
+> envelopes (agent-result-envelope), current manifest identity/change evidence (TS8), or measurement evidence (TS9).
 
 ## Context
 
 TS1's eight evidenced job families need a governed tool surface that avoids
 both CRUD explosion and mega-dispatch. The binding inputs are the accepted
-TS1 canonical jobs and their 23-scenario corpus, PM1's bounded-query
+TS1 canonical jobs and their 23-scenario corpus, product-memory-query's bounded-query
 requirements, the large-catalog lessons recorded when this budget was set, and the
 external tool-design evidence TS1 records. This record fixes the budget and
 the granularity rule that TS3 and TS4 chose inside, and the evaluation law
@@ -122,7 +122,7 @@ bounds when later decisions expose them.
 
 ### Schema/context budget
 
-TS2 sets no absolute token number before TS3–TS7 define concrete schemas and the
+TS2 sets no absolute token number before TS3–TS6 and agent-result-envelope define concrete schemas and the
 chosen clients/tokenizers can measure them. Every candidate must record:
 
 - total always-visible schema tokens and bytes;
@@ -147,7 +147,7 @@ recovery boundaries into one tool to save prompt tokens is a failure.
 
 ## 5. Candidate evaluation
 
-TS3/TS4 candidates run the accepted TS1 corpus plus PM1 read scenarios. The runner
+TS3/TS4 candidates run the accepted TS1 corpus plus product-memory-query read scenarios. The runner
 records, per scenario and candidate:
 
 - hard-oracle pass/fail;
@@ -181,7 +181,7 @@ approval, transaction, or recovery boundary.
 
 - TS1 establishes eight end-to-end jobs and records tools exposed/considered,
   calls, retries, schema tokens, output bytes, latency, interventions, and outcome.
-- PM1 rejects repeated list→show→search choreography and requires bounded,
+- product-memory-query rejects repeated list→show→search choreography and requires bounded,
   typed queries rather than free-form SQL or dispatch.
 - A large tool catalog and repeated target-path/repair surfaces are
   evidence against mechanical command-to-tool mapping, not a candidate

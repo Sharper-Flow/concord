@@ -220,7 +220,7 @@ func queryDomainList(req DomainListRequest, snapshot *lawFolderSnapshot, committ
 		out.NextCursor = &next
 	}
 	out.Registry = registry
-	out.ResultMeta = ResultMeta{QueryID: "C22.DomainList", ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product}, Authority: "authoritative", OrderingKeys: []string{"status", "name", "domain_id"}}
+	out.ResultMeta = ResultMeta{}
 	return out, nil
 }
 
@@ -343,7 +343,6 @@ func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest, 
 	}
 	out.Observations = observations
 
-	out.ResultMeta = ResultMeta{QueryID: "C22.DomainDetail", ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product, DomainID: req.Domain}, Authority: "authoritative", OrderingKeys: []string{"kind", "source_domain_id", "target_domain_id"}}
 	return out, nil
 }
 

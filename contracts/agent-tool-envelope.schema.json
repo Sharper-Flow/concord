@@ -286,22 +286,14 @@
       "type": "object",
       "required": [
         "schema_version",
-        "request_id",
         "origin",
         "tool",
         "operation",
         "outcome",
-        "resolved_scope",
-        "authority",
-        "freshness",
         "manifest_digest",
-        "source_version_watermark",
-        "ordering_keys",
         "next_cursor",
         "omissions",
-        "warnings",
-        "evidence_refs",
-        "replayed"
+        "warnings"
       ],
       "properties": {
         "schema_version": {
@@ -310,11 +302,6 @@
         "manifest_digest": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$"
-        },
-        "request_id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128
         },
         "origin": {
           "enum": [
@@ -360,138 +347,12 @@
           ],
           "type": "string"
         },
-        "query_id": {
-          "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-36]|[1-3789])|CD-0020\\.R1|CD-0182\\.R1|C19\\.(MutationResult|Resume)|C22\\.Domain(List|Detail))$"
-        },
         "outcome": {
           "enum": [
             "ok",
             "error"
           ],
           "type": "string"
-        },
-        "resolved_scope": {
-          "oneOf": [
-            {
-              "type": "null"
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "product_id": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 128
-                },
-                "project_ids": {
-                  "type": "array",
-                  "maxItems": 100,
-                  "uniqueItems": true,
-                  "items": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 128
-                  }
-                },
-                "work_ids": {
-                  "type": "array",
-                  "maxItems": 100,
-                  "uniqueItems": true,
-                  "items": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 128
-                  }
-                },
-                "scope_version": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 128
-                }
-              }
-            }
-          ]
-        },
-        "authority": {
-          "enum": [
-            "authoritative",
-            "degraded",
-            "unreachable"
-          ],
-          "type": "string"
-        },
-        "freshness": {
-          "oneOf": [
-            {
-              "type": "null"
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "observed_at",
-                "age",
-                "stale"
-              ],
-              "properties": {
-                "observed_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "age": {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                "stale": {
-                  "type": "boolean"
-                }
-              }
-            }
-          ]
-        },
-        "source_version_watermark": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "source_kind",
-              "source_id",
-              "version"
-            ],
-            "properties": {
-              "source_kind": {
-                "enum": [
-                  "product_memory",
-                  "native_authority",
-                  "adapter"
-                ],
-                "type": "string"
-              },
-              "source_id": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 256
-              },
-              "version": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 256
-              }
-            }
-          }
-        },
-        "ordering_keys": {
-          "type": "array",
-          "maxItems": 16,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 64
-          }
         },
         "next_cursor": {
           "type": [
@@ -513,27 +374,62 @@
           "items": {
             "$ref": "#/$defs/notice"
           }
-        },
-        "evidence_refs": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/evidenceRef"
-          }
-        },
-        "replayed": {
-          "type": "boolean"
         }
       },
       "allOf": [
         {
           "anyOf": [
             {
-              "$ref": "#/$defs/toolOperation"
+              "required": ["tool", "operation"],
+              "properties": {
+                "tool": { "type": "string", "const": "concord_product_view" },
+                "operation": { "type": "string", "enum": ["resolve", "snapshot"] }
+              }
+            },
+            {
+              "required": ["tool", "operation"],
+              "properties": {
+                "tool": { "type": "string", "const": "concord_domain" },
+                "operation": { "type": "string", "enum": ["list", "detail"] }
+              }
+            },
+            {
+              "required": ["tool", "operation"],
+              "properties": {
+                "tool": { "type": "string", "const": "concord_work_browse" },
+                "operation": { "type": "string", "const": "list" }
+              }
+            },
+            {
+              "required": ["tool", "operation"],
+              "properties": {
+                "tool": { "type": "string", "const": "concord_work_trace" },
+                "operation": { "type": "string", "enum": ["history", "relations", "resume", "mutation_result", "project_retirement"] }
+              }
+            },
+            {
+              "required": ["tool", "operation"],
+              "properties": {
+                "tool": { "type": "string", "const": "concord_work_define" },
+                "operation": { "type": "string", "enum": ["capture", "revise_intent", "issue_link_record"] }
+              }
+            },
+            {
+              "required": ["tool", "operation"],
+              "properties": {
+                "tool": { "type": "string", "const": "concord_work_transition" },
+                "operation": { "type": "string", "enum": ["lifecycle", "workflow_action", "remove", "project_handoff_consume", "project_handoff_record"] }
+              }
+            },
+            {
+              "required": ["tool", "operation"],
+              "properties": {
+                "tool": { "type": "string", "const": "concord_work_relate" },
+                "operation": { "type": "string", "enum": ["set_memberships", "resolve_overlap"] }
+              }
             },
             {
               "required": ["origin", "outcome", "operation", "error"],
-              "not": { "required": ["query_id"] },
               "properties": {
                 "origin": { "const": "adapter" },
                 "outcome": { "const": "error" },
@@ -551,50 +447,6 @@
         {
           "if": {
             "properties": {
-              "authority": {
-                "const": "degraded"
-              }
-            },
-            "required": [
-              "authority"
-            ]
-          },
-          "then": {
-            "properties": {
-              "omissions": {
-                "minItems": 1
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "authority": {
-                "const": "unreachable"
-              }
-            },
-            "required": [
-              "authority"
-            ]
-          },
-          "then": {
-            "properties": {
-              "outcome": {
-                "const": "error"
-              },
-              "freshness": {
-                "type": "null"
-              },
-              "source_version_watermark": {
-                "maxItems": 0
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
               "origin": {
                 "const": "adapter"
               }
@@ -607,15 +459,6 @@
             "properties": {
               "outcome": {
                 "const": "error"
-              },
-              "authority": {
-                "const": "unreachable"
-              },
-              "freshness": {
-                "type": "null"
-              },
-              "source_version_watermark": {
-                "maxItems": 0
               }
             }
           }
@@ -655,55 +498,6 @@
             ]
           },
           "maxProperties": 16
-        }
-      }
-    },
-    "evidenceRef": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind",
-        "authority",
-        "locator_kind",
-        "locator"
-      ],
-      "properties": {
-        "kind": {
-          "enum": [
-            "verification",
-            "review",
-            "approval",
-            "commit",
-            "durable_note",
-            "native_run",
-            "artifact"
-          ],
-          "type": "string"
-        },
-        "authority": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256
-        },
-        "locator_kind": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256
-        },
-        "locator": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 2048
-        },
-        "version": {
-          "type": "string",
-          "maxLength": 256
-        },
-        "digest": {
-          "type": "string",
-          "minLength": 8,
-          "maxLength": 128,
-          "pattern": "^(sha256:)?[0-9a-fA-F]{8,}$"
         }
       }
     },
@@ -1514,7 +1308,8 @@
         },
         {
           "if": {
-            "required": ["query_id"]
+            "required": ["tool"],
+            "properties": { "tool": { "type": "string", "enum": ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_domain"] } }
           },
           "then": {
             "not": {
@@ -1761,33 +1556,6 @@
         {
           "if": {
             "properties": {
-              "origin": {
-                "const": "core"
-              },
-              "authority": {
-                "const": "unreachable"
-              }
-            },
-            "required": [
-              "origin",
-              "authority"
-            ]
-          },
-          "then": {
-            "properties": {
-              "error": {
-                "properties": {
-                  "kind": {
-                    "const": "unreachable"
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
               "error": {
                 "properties": {
                   "kind": {
@@ -1807,9 +1575,6 @@
             "properties": {
               "origin": {
                 "const": "core"
-              },
-              "authority": {
-                "const": "unreachable"
               }
             }
           }

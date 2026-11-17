@@ -42,7 +42,6 @@ func TestInvokeAdmitsEscapedRemovalInput(t *testing.T) {
 	var out, diagnostic bytes.Buffer
 	code := runWithInput([]string{"invoke"}, bytes.NewReader(body), &out, &diagnostic)
 	var result struct {
-		RequestID string `json:"request_id"`
 		Tool      string `json:"tool"`
 		Operation string `json:"operation"`
 		Outcome   string `json:"outcome"`
@@ -51,7 +50,7 @@ func TestInvokeAdmitsEscapedRemovalInput(t *testing.T) {
 			EffectState string `json:"effect_state"`
 		} `json:"error"`
 	}
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil || code != 0 || result.RequestID != "request-capacity" || result.Tool != "concord_work_transition" || result.Operation != "remove" || result.Outcome != "error" || result.Error.Kind != "unauthorized" || result.Error.EffectState != "none" {
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil || code != 0 || result.Tool != "concord_work_transition" || result.Operation != "remove" || result.Outcome != "error" || result.Error.Kind != "unauthorized" || result.Error.EffectState != "none" {
 		t.Fatalf("invoke request (%d bytes) did not reach authority refusal: exit=%d stdout=%s stderr=%q decode=%v", len(body), code, out.String(), diagnostic.String(), err)
 	}
 }

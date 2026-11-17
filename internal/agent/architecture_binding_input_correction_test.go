@@ -64,7 +64,7 @@ func TestInvokeResearchArchitectureBindingCorrection(t *testing.T) {
 	if !strings.Contains(refused.Error.Message, "non-Product-changing contract cannot carry architecture_binding") {
 		t.Fatalf("refusal lost the non-Product-changing boundary: %+v", refused.Error)
 	}
-	if refused.RequestID != env.RequestID || refused.Tool != "concord_work_transition" || refused.Operation != "workflow_action" {
+	if refused.Tool != "concord_work_transition" || refused.Operation != "workflow_action" {
 		t.Fatalf("refusal lost request identity: %+v", refused)
 	}
 	delete(fields, "architecture_binding")

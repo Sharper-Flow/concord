@@ -61,9 +61,7 @@ func TestNormalizeScopeListPreservesUniqueOrderBytesAndOwnership(t *testing.T) {
 	if !reflect.DeepEqual(resolved.WorkIDs, []string{"w-1", "w-2"}) || !reflect.DeepEqual(resolved.ProjectIDs, []string{"p-2", "p-1"}) {
 		t.Fatalf("resolved scope work=%v project=%v want unique first-occurrence order", resolved.WorkIDs, resolved.ProjectIDs)
 	}
-	refusal := agentcontract.NewCoreError(agentcontract.NewBase("scope-binding", "concord_work_transition", "workflow_action"), agentcontract.TypedError{Kind: "unauthorized", RecoveryAction: agentcontract.RecoveryAction{Kind: "contact_operator"}, EffectState: agentcontract.EffectNone})
-	refusal.ResolvedScope = resolved
-	if err := refusal.Validate(); err != nil {
+	if err := agentcontract.ValidateScope(resolved); err != nil {
 		t.Fatalf("resolved scope with repeated identities rejected: %v", err)
 	}
 }

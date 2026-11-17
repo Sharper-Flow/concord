@@ -138,11 +138,7 @@ func (r runtime) replayMutationBeforeScope(ctx context.Context, base agentcontra
 		if err == nil && !present {
 			var input lifecycleMutationInput
 			if err := decodeOperationInput(raw, &input); err != nil {
-				base.Replayed = true
 				return incompleteMutationResponse(base, "committed lifecycle request is unreadable; contact the operator before retrying the same request"), true, nil
-			}
-			if input.Target == "completed" {
-				base.EvidenceRefs = append([]agentcontract.EvidenceRef{}, input.Evidence...)
 			}
 		}
 	}
@@ -187,8 +183,6 @@ func mutationReplayDurability(durable bool, authorizedScope map[string]any, sele
 }
 
 func (r runtime) replayAuthorizedMutation(ctx context.Context, base agentcontract.Envelope, op agentcontract.ContractOperation, record store.MutationIdempotencyRecord, authorizedScope map[string]any, idempotency store.MutationIdempotencyKey, durable bool) (agentcontract.Envelope, bool, error) {
-	base.Replayed = true
-	base.ResolvedScope = scopeFromMap(authorizedScope)
 	var response agentcontract.Envelope
 	if op.ID == "concord_work_transition.workflow_action" {
 		if err := r.Store.Transact(ctx, func(tx *store.Transaction) error {
@@ -232,12 +226,8 @@ func scopeFromMap(scope map[string]any) *agentcontract.Scope {
 	if value, ok := scope["product_id"].(string); ok {
 		result.ProductID = value
 	}
-	// product_ids stays out of the wire scope: it is derived authority
-	// bookkeeping (deriveMutationProducts, stored
-	// idempotency snapshots), and the envelope schema closes resolved_scope
-	// to product_id, project_ids, work_ids, and scope_version. The list
-	// members go through the shared scope-list owner so a path that names
-	// the same identity twice resolves to one unique wire scope.
+	// product_ids is authorization bookkeeping, not part of the retained scope.
+	// Normalize repeated identities in the retained scope lists.
 	result.ProjectIDs = scopeListValues(scope["project_ids"])
 	result.WorkIDs = scopeListValues(scope["work_ids"])
 	if value, ok := scope["scope_version"].(string); ok {
@@ -450,7 +440,6 @@ func workflowActionFields(raw json.RawMessage) (json.RawMessage, error) {
 }
 
 func (r runtime) replayWorkflowActionTx(ctx context.Context, tx *store.Transaction, base agentcontract.Envelope, prior store.MutationIdempotencyRecord, scope map[string]any) (agentcontract.Envelope, error) {
-	base.Replayed = true
 	operation, err := store.OperationResultTx(ctx, tx, prior.OperationID)
 	if err != nil {
 		var failure *store.Failure
@@ -462,7 +451,6 @@ func (r runtime) replayWorkflowActionTx(ctx context.Context, tx *store.Transacti
 		}
 		return agentcontract.Envelope{}, err
 	}
-	base.ResolvedScope = scopeFromMap(scope)
 	if err := agentcontract.ValidateOperationPayload(base.Tool, base.Operation, json.RawMessage(operation.ResultPayload), true); err != nil {
 		response := coreError(base, "malformed_response", fmt.Sprintf("durable workflow result is not a valid current result: %v", err), "contact_operator", false)
 		response.Error.EffectState = agentcontract.EffectPossible
@@ -670,8 +658,6 @@ func (m *workflowActionMutation) applyTx(ctx context.Context, tx *store.Transact
 		changedVersion = in.ExpectedVersion + 1
 	}
 	changed := []agentcontract.ChangedRef{{EntityKind: "work_item", ID: in.WorkID, Version: strconv.FormatInt(changedVersion, 10)}}
-	base.ResolvedScope = scopeFromMap(m.scope)
-	m.base = base
 	resultPayload, derivedIntents, pinless, enrichErr := r.enrichMutationPayloadTx(ctx, tx, execution.Result, changed, execution.EventIDs...)
 	if enrichErr != nil {
 		return enrichErr
@@ -684,7 +670,7 @@ func (m *workflowActionMutation) applyTx(ctx context.Context, tx *store.Transact
 		return errors.New("mutation result rejected")
 	}
 	changedJSON, _ := json.Marshal(changed)
-	responseScope, _ := json.Marshal(mutationResponseScope(m.scope, agentcontract.NewOKMutation(base, resultPayload, changed, derivedIntents), pinless))
+	responseScope, _ := json.Marshal(mutationResponseScope(m.scope, scopeFromMap(m.scope), agentcontract.NewOKMutation(base, resultPayload, changed, derivedIntents), pinless))
 	return store.CompleteMutationResponseTx(ctx, tx, store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, CanonicalDigest: m.digest, OperationID: m.operationID, ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(responseScope), ResultEventIDs: marshalEventIDs(execution.EventIDs), ObservedAt: r.Authority.now()})
 }
 
@@ -705,10 +691,6 @@ type mutationPlan struct {
 	scope   map[string]any
 	intents []agentcontract.NextIntent
 	effect  mutationEffect
-	// evidenceRefs surfaces the operation's evidence on the result envelope.
-	// A lifecycle transition into a terminal state sets it so the envelope
-	// that reports the state also carries the evidence behind it.
-	evidenceRefs []agentcontract.EvidenceRef
 	// plannedInitialDurability is the optional initial-durability fact a
 	// planner raises from its own consequence branch. Nil leaves the
 	// operation's declared baseline in force.
@@ -884,9 +866,6 @@ func (r runtime) planLifecycle(_ context.Context, base agentcontract.Envelope, r
 	}
 	terminalTarget := in.Target == "completed" || in.Target == "cancelled"
 	plan.declareInitialDurability(terminalTarget)
-	if in.Target == "completed" {
-		plan.evidenceRefs = append([]agentcontract.EvidenceRef{}, in.Evidence...)
-	}
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.intents = []agentcontract.NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "refresh_work_version", RequiredFields: []string{"work_ids", "detail"}}}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []agentcontract.ChangedRef, error) {
@@ -1225,7 +1204,6 @@ func (r runtime) mutate(ctx context.Context, base agentcontract.Envelope, raw []
 		return failureEnvelope(base, preflightErr), nil
 	}
 	plan.scope["product_ids"] = preflightProducts
-	base.EvidenceRefs = append([]agentcontract.EvidenceRef{}, plan.evidenceRefs...)
 	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.plannedInitialDurability, plan.intents, plan.effect)
 }
 
@@ -1727,12 +1705,9 @@ func (m *mutationExecution) applyTx(ctx context.Context, tx *store.Transaction, 
 		m.intents = derivedIntents
 	}
 	base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
-	base.ResolvedScope = scopeFromMap(scope)
-	if base.ResolvedScope == nil {
-		base.ResolvedScope = &agentcontract.Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
-	}
-	if replay {
-		base.Replayed = true
+	resolved := scopeFromMap(scope)
+	if resolved == nil {
+		resolved = &agentcontract.Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, ScopeVersion: r.Envelope.ScopeVersion}
 	}
 	m.base = base
 	m.response = r.mutationResult(base, payload, changed, m.intents, pinless...)
@@ -1746,7 +1721,7 @@ func (m *mutationExecution) applyTx(ctx context.Context, tx *store.Transaction, 
 	// Retain the list the response reported: an effect that changed no
 	// auxiliary reference commits an explicit empty list, never null.
 	changedJSON, _ := json.Marshal(*m.response.ChangedRefs)
-	authorizedSnapshot := mutationResponseScope(scope, agentcontract.NewOKMutation(base, payload, changed, m.intents), pinless)
+	authorizedSnapshot := mutationResponseScope(scope, resolved, agentcontract.NewOKMutation(base, payload, changed, m.intents), pinless)
 	authorizedSnapshot["durable_commit"] = durable
 	authorizedScope, _ := json.Marshal(authorizedSnapshot)
 	insert := store.MutationIdempotencyInsert{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key}, CanonicalDigest: m.digest, OperationID: "mutation-" + m.digest[7:31], ResultEventIDs: marshalEventIDs(eventIDs), ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()}
@@ -1791,7 +1766,6 @@ func (r runtime) replayCachedMutationTx(ctx context.Context, tx *store.Transacti
 	if !scopeWithinAuthority(scope, grant) {
 		return agentcontract.Envelope{}, false, newRuntimeFailure("unauthorized", "original mutation scope is no longer authorized by the current grant", "contact_operator", false)
 	}
-	base.ResolvedScope = scopeFromMap(scope)
 	response := r.recordedMutationResult(base, prior)
 	if response.Outcome == agentcontract.OutcomeError {
 		return response, true, errors.New("mutation result rejected")

@@ -78,7 +78,7 @@ func TestWorkflowReplayTransactionUsesCommittedResponse(t *testing.T) {
 	r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_transition", Operation: "workflow_action"}
 	var response agentcontract.Envelope
 	var rejected, mutated bool
-	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, s, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID}, r.workflowActionReplayPreflight(ctx, agentcontract.NewBase(env.RequestID, r.Tool, r.Operation), mutationDigest(r.Tool, r.Operation, env, input), grant, in, &response, &rejected), nil, func(*store.Transaction) error {
+	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, s, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID}, r.workflowActionReplayPreflight(ctx, agentcontract.NewBase(r.Tool, r.Operation), mutationDigest(r.Tool, r.Operation, env, input), grant, in, &response, &rejected), nil, func(*store.Transaction) error {
 		mutated = true
 		return nil
 	})
@@ -88,7 +88,7 @@ func TestWorkflowReplayTransactionUsesCommittedResponse(t *testing.T) {
 	if rejected {
 		t.Fatalf("transaction replay refused its committed response: response=%+v err=%v", response.Error, err)
 	}
-	if err != nil || response.Outcome != agentcontract.OutcomeOK || !response.Replayed || string(response.Result) != string(first.Result) {
+	if err != nil || response.Outcome != agentcontract.OutcomeOK || string(response.Result) != string(first.Result) {
 		t.Fatalf("transaction replay response=%+v err=%v, want original result=%s", response, err, first.Result)
 	}
 	if err := response.Validate(); err != nil {
@@ -125,7 +125,7 @@ func TestWorkflowReplaySurvivesMissingSessionWorktree(t *testing.T) {
 		}
 	})
 	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) {
+	if replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(first.Result) {
 		t.Fatalf("stored workflow replay depended on the live worktree: %+v", replay.Error)
 	}
 	if workflowReplayEffectCounts(t, s) != before {
@@ -190,7 +190,8 @@ func TestWorkflowReplayStoresCommittedResponse(t *testing.T) {
 		t.Fatalf("completed response record found=%t err=%v", found, err)
 	}
 	snapshot, err := retainedMutationResponse(prior.AuthorizedScopeSnapshot)
-	if err != nil || !reflect.DeepEqual(snapshot.ResolvedScope, response.ResolvedScope) || response.NextValidIntents == nil || !reflect.DeepEqual(snapshot.NextValidIntents, *response.NextValidIntents) || !reflect.DeepEqual(snapshot.EvidenceRefs, response.EvidenceRefs) || !reflect.DeepEqual(snapshot.Omissions, response.Omissions) {
+	wantScope := &agentcontract.Scope{ProductID: "product-1", ProjectIDs: []string{"project-1"}, WorkIDs: []string{"work-1"}, ScopeVersion: scopeVersion}
+	if err != nil || !reflect.DeepEqual(snapshot.ResolvedScope, wantScope) || response.NextValidIntents == nil || !reflect.DeepEqual(snapshot.NextValidIntents, *response.NextValidIntents) || !reflect.DeepEqual(snapshot.Omissions, response.Omissions) {
 		t.Fatalf("committed response metadata differs: snapshot=%+v response=%+v err=%v", snapshot, response, err)
 	}
 }
@@ -301,7 +302,7 @@ func workflowTransactionReplay(t *testing.T, r runtime, grant Authority, raw jso
 	if err := json.Unmarshal(raw, &in); err != nil {
 		t.Fatal(err)
 	}
-	base := agentcontract.NewBase(r.Envelope.RequestID, r.Tool, r.Operation)
+	base := agentcontract.NewBase(r.Tool, r.Operation)
 	var response agentcontract.Envelope
 	var rejected, mutated bool
 	err := store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(context.Background(), r.Store, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID}, r.workflowActionReplayPreflight(context.Background(), base, mutationDigest(r.Tool, r.Operation, r.Envelope, raw), grant, in, &response, &rejected), nil, func(*store.Transaction) error {
@@ -423,11 +424,11 @@ func assertWorkflowReplayIdentity(t *testing.T, r runtime, grant Authority, raw 
 	t.Helper()
 	before := workflowReplayEffectCounts(t, r.Store)
 	replay, err := Dispatch(context.Background(), r.Store, r.Authority, InvokeRequest{Tool: r.Tool, Operation: r.Operation, Input: raw}, r.Envelope)
-	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(first.Result) {
 		t.Fatalf("read replay=%+v err=%v", replay, err)
 	}
 	transaction := workflowTransactionReplay(t, r, grant, raw)
-	if transaction.Outcome != agentcontract.OutcomeOK || !transaction.Replayed || string(transaction.Result) != string(first.Result) {
+	if transaction.Outcome != agentcontract.OutcomeOK || string(transaction.Result) != string(first.Result) {
 		t.Fatalf("transaction replay=%+v", transaction)
 	}
 	conflicting := json.RawMessage(strings.Replace(string(raw), `"outcome":"proceed"`, `"outcome":"decline"`, 1))
@@ -519,7 +520,7 @@ func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *t
 	}
 
 	replay, err := Dispatch(context.Background(), s, service, request, env)
-	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed || len(*replay.ChangedRefs) != 1 {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || replay.ChangedRefs == nil || len(*replay.ChangedRefs) != 1 {
 		if replay.Error != nil {
 			t.Fatalf("workflow replay response=%+v error=%+v err=%v", replay, *replay.Error, err)
 		}
@@ -589,9 +590,9 @@ func TestWorkflowActionReplayVectorsUseInvokeAndAuthoritativeDurableResults(t *t
 			if invokeErr != nil {
 				t.Fatal(invokeErr)
 			}
-			if response.Outcome != vector.want || !response.Replayed {
+			if response.Outcome != vector.want {
 				if response.Error != nil {
-					t.Fatalf("%s replay outcome=%s replayed=%t error=%s message=%s", vector.name, response.Outcome, response.Replayed, response.Error.Kind, response.Error.Message)
+					t.Fatalf("%s replay outcome=%s error=%s message=%s", vector.name, response.Outcome, response.Error.Kind, response.Error.Message)
 				}
 				t.Fatalf("%s replay response=%+v", vector.name, response)
 			}
@@ -712,14 +713,13 @@ func seedCurrentWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvel
 			if err := json.Unmarshal([]byte(scope), &originalScope); err != nil {
 				return err
 			}
-			base := agentcontract.NewBase(env.RequestID, r.Tool, r.Operation)
-			base.ResolvedScope = scopeFromMap(originalScope)
+			base := agentcontract.NewBase(r.Tool, r.Operation)
 			base.Omissions = append(base.Omissions, mutationPinOmissions(pinless)...)
 			response := r.mutationResult(base, payload, changed, intents, pinless...)
 			if response.Outcome != agentcontract.OutcomeOK {
 				t.Fatalf("completed response fixture: %+v", response.Error)
 			}
-			metadata, err := json.Marshal(mutationResponseScope(originalScope, response, pinless))
+			metadata, err := json.Marshal(mutationResponseScope(originalScope, scopeFromMap(originalScope), response, pinless))
 			if err != nil {
 				return err
 			}

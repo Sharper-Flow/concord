@@ -34,7 +34,7 @@ func TestWorkPinContextAvailabilityTypedEnvelope(t *testing.T) {
 		if err := agentcontract.ValidateOperationPayload("concord_work_transition", "workflow_action", payload, true); err != nil {
 			t.Fatalf("typed envelope with unavailable context present=%t: %v", present, err)
 		}
-		response := agentcontract.NewOKMutation(agentcontract.NewBase("context-envelope", "concord_work_transition", "workflow_action"), payload,
+		response := agentcontract.NewOKMutation(agentcontract.NewBase("concord_work_transition", "workflow_action"), payload,
 			[]agentcontract.ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "3"}}, nil)
 		encoded, err := response.Encode()
 		if err != nil {
@@ -50,10 +50,10 @@ func TestWorkPinContextAvailabilityTypedEnvelope(t *testing.T) {
 		if !bytes.Equal(decoded.Result, payload) {
 			t.Fatal("envelope round-trip changed or truncated work context metadata")
 		}
-		metadata, _ := json.Marshal(mutationResponseScope(map[string]any{}, decoded, nil))
+		metadata, _ := json.Marshal(mutationResponseScope(map[string]any{}, nil, decoded, nil))
 		refs, _ := json.Marshal(*decoded.ChangedRefs)
 		r := runtime{Tool: decoded.Tool, Operation: decoded.Operation}
-		replayed := r.recordedMutationResult(agentcontract.NewBase("context-replay", r.Tool, r.Operation), store.MutationIdempotencyRecord{ResultPayload: string(payload), ChangedRefs: string(refs), AuthorizedScopeSnapshot: string(metadata)})
+		replayed := r.recordedMutationResult(agentcontract.NewBase(r.Tool, r.Operation), store.MutationIdempotencyRecord{ResultPayload: string(payload), ChangedRefs: string(refs), AuthorizedScopeSnapshot: string(metadata)})
 		if replayed.Outcome != agentcontract.OutcomeOK || !bytes.Equal(replayed.Result, payload) {
 			t.Fatalf("retained snapshot changed, backfilled, or lost its pin: %+v", replayed)
 		}

@@ -50,7 +50,6 @@ const expectEnvelopeMatchesTuple = (envelope: any, key: TupleKey, tool: string, 
   expect(envelope.outcome).toBe("error")
   expect(envelope.tool).toBe(tool)
   expect(envelope.operation).toBe(operation)
-  expect(envelope.request_id).toBe(requestID)
   expect(envelope.error.kind).toBe(tuple.kind)
   expect(envelope.error.adapter_reason).toBe(tuple.adapter_reason)
   expect(envelope.error.effect_state).toBe(tuple.effect_state)
@@ -119,14 +118,10 @@ describe("CON-913 closed adapter error tuples", () => {
   })
 
   test("CON-913 envelope-level couplings: default reconcile, core negatives, partial outcomes", () => {
-    const queryID = (tool: string, operation: string) => {
-      const found = (contractOperations as readonly any[]).find((item) => item.tool === tool && item.id === `${tool}.${operation}`)
-      return found?.query_id ? { query_id: found.query_id } : {}
-    }
     const envelope = (fields: Record<string, unknown>) => ({
-      schema_version: "1.0", manifest_digest: manifestDigest, request_id: requestID,
-      origin: "core", tool: "concord_work_transition", operation: "lifecycle", ...queryID("concord_work_transition", "lifecycle"),
-      outcome: "error", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
+      schema_version: "1.0", manifest_digest: manifestDigest,
+      origin: "core", tool: "concord_work_transition", operation: "lifecycle",
+      outcome: "error", next_cursor: null, omissions: [], warnings: [],
       ...fields,
     })
     const errorMember = (overrides: Record<string, unknown>) => ({
@@ -137,23 +132,23 @@ describe("CON-913 closed adapter error tuples", () => {
     expect(validateGeneratedEnvelope(envelope({ error: errorMember({ recovery_action: { kind: "retry_same_request" } }) }))).toBe(false)
     expect(validateGeneratedEnvelope(envelope({ error: errorMember({ adapter_reason: "unknown_effect" }) }))).toBe(false)
     const partial = (recovery: string) => ({
-      schema_version: "1.0", manifest_digest: manifestDigest, request_id: requestID,
+      schema_version: "1.0", manifest_digest: manifestDigest,
       origin: "core", tool: "concord_work_transition", operation: "lifecycle",
-      outcome: "partial", resolved_scope: null,
+      outcome: "partial",
       operation_ref: { id: "op-913", kind: "workflow", version: "1", state: "partial", current_step: "approve", updated_at: "2026-10-10T00:00:00Z" },
       completed_steps: ["step-one"],
-      authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
+      next_cursor: null, omissions: [], warnings: [],
       error: { kind: "operation_conflict", retry_safe: false, recovery_action: { kind: recovery }, effect_state: "partial" },
     })
     expect(validateGeneratedEnvelope(partial("retry_same_request")), "partial operation_conflict retry must be refused").toBe(false)
     expect(validateGeneratedEnvelope(partial("reconcile_operation")), "retired partial outcome must be refused").toBe(false)
-    const adapterBase = { ...envelope({}), origin: "adapter", authority: "unreachable" }
-    const transport = (kind: string, effect: string) => ({ ...adapterBase, tool: "concord_work_browse", operation: "list", ...queryID("concord_work_browse", "list"), error: errorMember({ kind, adapter_reason: "malformed_core_response", effect_state: effect }) })
+    const adapterBase = { ...envelope({}), origin: "adapter" }
+    const transport = (kind: string, effect: string) => ({ ...adapterBase, tool: "concord_work_browse", operation: "list", error: errorMember({ kind, adapter_reason: "malformed_core_response", effect_state: effect }) })
     expect(validateGeneratedEnvelope(transport("transport_failure", "possible")), "adapter transport + possible must be refused").toBe(false)
     expect(validateGeneratedEnvelope(transport("malformed_response", "possible")), "adapter malformed + possible must be refused").toBe(false)
     expect(validateGeneratedEnvelope(transport("transport_failure", "none")), "adapter transport + none stays admitted").toBe(true)
     const inputEnvelope = (reason: string, operation: string, effect: string) => ({
-      ...adapterBase, tool: "concord_work_browse", ...(operation ? queryID("concord_work_browse", operation) : {}), operation,
+      ...adapterBase, tool: "concord_work_browse", operation,
       error: errorMember({ kind: "invalid_input", adapter_reason: reason, effect_state: effect, retry_safe: effect === "none" ? false : true, recovery_action: { kind: "correct_request" } }),
     })
     for (const reason of ["invalid_request_wrapper", "invalid_cli_input", "invalid_tool_input"]) {
@@ -184,19 +179,19 @@ describe("CON-913 closed adapter error tuples", () => {
 
   test("CON-913 validateAdapterEnvelope returns valid envelopes and fails closed only for adapter origin", () => {
     const valid = adapter.adapterError("concord_work_browse", "list", requestID, "unknown_effect", "bounded diagnostic")
-    expect(adapter.validateAdapterEnvelope(valid)).toBe(valid)
+    expect(adapter.validateAdapterEnvelope(valid, requestID)).toBe(valid)
     const core = {
-      schema_version: "1.0", manifest_digest: manifestDigest, request_id: requestID, origin: "core", tool: "concord_work_browse", operation: "list",
-      outcome: "error", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
+      schema_version: "1.0", manifest_digest: manifestDigest, origin: "core", tool: "concord_work_browse", operation: "list",
+      outcome: "error", next_cursor: null, omissions: [], warnings: [],
       error: { kind: "operation_conflict", retry_safe: false, recovery_action: { kind: "reconcile_operation" }, effect_state: "possible", adapter_reason: "unknown_effect", message: "a core envelope never carries an adapter reason" },
     }
     expect(validateGeneratedEnvelope(core)).toBe(false)
-    expect(adapter.validateAdapterEnvelope(core)).toBe(core)
+    expect(adapter.validateAdapterEnvelope(core, requestID)).toBe(core)
     const mutation = adapter.adapterError("concord_work_transition", "lifecycle", requestID, "unknown_effect", "bounded diagnostic")
     const poisoned = { ...mutation, error: { ...mutation.error, details: { note: { nested: "shape" } } } }
     let caught: unknown = null
     try {
-      adapter.validateAdapterEnvelope(poisoned)
+      adapter.validateAdapterEnvelope(poisoned, requestID)
     } catch (error) {
       caught = error
     }
@@ -210,7 +205,7 @@ describe("CON-913 closed adapter error tuples", () => {
     expect(defectMessage).toContain("unknown")
     const read = adapter.adapterError("concord_work_browse", "list", requestID, "spawn_failure", "bounded diagnostic")
     const poisonedRead = { ...read, error: { ...read.error, effect_state: "possible" } }
-    expect(() => adapter.validateAdapterEnvelope(poisonedRead)).toThrow(adapter.AdapterContractDefect)
+    expect(() => adapter.validateAdapterEnvelope(poisonedRead, requestID)).toThrow(adapter.AdapterContractDefect)
   })
 
 })

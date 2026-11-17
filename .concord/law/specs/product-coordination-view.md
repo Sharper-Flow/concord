@@ -36,7 +36,7 @@ Domain/overlap layer is outstanding follow-up work.
 Selecting a Product row must open a coordination view, and before C17 no
 accepted document said what it renders. The binding inputs are the standing
 visibility and planning obligations in [`../constitution/priorities.md`](../constitution/priorities.md#visibility-and-continuity)
-and the canonical PM1 reads. This record accepts the coordination view: two
+and the canonical product-memory-query reads. This record accepts the coordination view: two
 bounded modes over canonical Product-scoped reads, structural grouping only,
 stable ordering, and visible incomplete coverage. CD-0222 amends the
 shape: Product detail opens through Product to Domain first, and these two
@@ -106,8 +106,9 @@ the relations read supplies the cause. No public `blocked` flag exists.
 
 The view carries this reliance discipline:
 
-- One shared source and version watermark per render, with per-row reliance where
-  sources differ.
+- One shared source and version watermark per render, using the internal query
+  snapshot revision, with per-row reliance where sources differ. This does not
+  require the revision in the agent result envelope.
 - Authority is `authoritative`, `degraded`, or `unreachable`. Degraded and unreachable
   carry a textual or icon marker and never depend on color alone.
 - Incomplete required coverage renders `unavailable` with a typed reason and bounded
@@ -141,7 +142,8 @@ unstable across runs.
 - One bounded query per mode, with no per-work fan-out.
 - Q8 depth capped at 3 with node and edge caps.
 - Q3 paged by limit and cursor.
-- Both modes derive from the same typed projections and authority watermark as PM1.
+- Both modes derive from the same typed projections and internal snapshot revision
+  as product-memory-query; coverage and refusal determine the view's authority.
 
 ## 7. Acceptance tests
 

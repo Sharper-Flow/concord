@@ -72,7 +72,7 @@ func TestDispatchIssueLinkRecordStoresReportedIdentity(t *testing.T) {
 	// refuses as an idempotency conflict.
 	env.RequestID = "link-request-2"
 	replay, err := Dispatch(ctx, s, service, request, env)
-	if err != nil || replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
+	if err != nil || replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(response.Result) {
 		t.Fatalf("link replay=%+v err=%v", replay, err)
 	}
 	request.Input = json.RawMessage(`{"work_id":"link-agent-work","human_key":"EX-4","remote_issue_uuid":"dddddddd-0000-0000-0000-000000000004","url":"https://linear.app/example/issue/EX-4","idempotency_key":"link-idem-1"}`)

@@ -64,13 +64,13 @@ product_ids[], project_ids[], domain_ids[], tag_ids[]
 
 Scope is frozen at the note's recorded revision. Later memberships do not
 rewrite it. `completed_at` is the terminal timestamp for completed and cancelled
-work; PM1's `terminal_at` maps to it. Historical edges carry no mutable
+work; product-memory-query's `terminal_at` maps to it. Historical edges carry no mutable
 blocker, readiness, evidence or per-Project status.
 
 Q2/Q3 answer over the retained current-state population with PM5 membership
 semantics; neither query unions historical projections, and neither computes a
-cross-tier watermark or coverage check. Authority levels on the answer envelope
-follow [TS7](agent-result-envelope.md): an OK answer is authoritative over the
+cross-tier watermark or coverage check. Under the [agent result envelope](agent-result-envelope.md),
+an OK answer is authoritative over the
 store read, and a store that cannot answer refuses as `unreachable` rather than
 serving stale or guessed rows.
 

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -50,14 +51,14 @@ func TestExternalEvidenceBindingAfterReview(t *testing.T) {
 	var result struct {
 		OperationID string `json:"operation_id"`
 	}
-	if err := json.Unmarshal(bound.Result, &result); err != nil || result.OperationID == "" || bound.RequestID == "" {
-		t.Fatalf("result=%s request=%q err=%v", bound.Result, bound.RequestID, err)
+	if err := json.Unmarshal(bound.Result, &result); err != nil || result.OperationID == "" {
+		t.Fatalf("result=%s err=%v", bound.Result, err)
 	}
 	var subject, kind, producer, op, watermark string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.immutable_subject_ref'),json_extract(payload,'$.evidence_kind'),json_extract(payload,'$.producer_id'),json_extract(payload,'$.producer_run_ref'),json_extract(payload,'$.producer_watermark') FROM workflow_evidence_bindings WHERE work_id=?`, work).Scan(&subject, &kind, &producer, &op, &watermark); err != nil {
 		t.Fatal(err)
 	}
-	if subject != locator || kind != "verification" || producer != env.PrincipalRef || op != result.OperationID || watermark != bound.RequestID {
+	if subject != locator || kind != "verification" || producer != env.PrincipalRef || op != result.OperationID || watermark != env.RequestID {
 		t.Fatalf("unexpected binding: %q %q %q %q %q", subject, kind, producer, op, watermark)
 	}
 }
@@ -86,6 +87,7 @@ func TestExternalEvidenceRecordingAndBinding(t *testing.T) {
 	}
 	locator := "https://github.com/example/project/actions/runs/123"
 	evidence := []agentcontract.EvidenceRef{{Kind: "verification", Authority: "github", LocatorKind: "check_run", Locator: locator}}
+	recordingRequestID := "request:external-record:" + strconv.FormatInt(version, 10)
 	recorded, version := ekbDispatch(t, s, service, env, work, version, "checkpoint_execution", nil, evidence, "external-record")
 	if recorded.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("checkpoint: %+v", recorded.Error)
@@ -93,8 +95,8 @@ func TestExternalEvidenceRecordingAndBinding(t *testing.T) {
 	var result struct {
 		OperationID string `json:"operation_id"`
 	}
-	if err := json.Unmarshal(recorded.Result, &result); err != nil || result.OperationID == "" || recorded.RequestID == "" {
-		t.Fatalf("recording result=%s request=%q err=%v", recorded.Result, recorded.RequestID, err)
+	if err := json.Unmarshal(recorded.Result, &result); err != nil || result.OperationID == "" {
+		t.Fatalf("recording result=%s err=%v", recorded.Result, err)
 	}
 	counts := func() (int, int) {
 		t.Helper()
@@ -107,10 +109,10 @@ func TestExternalEvidenceRecordingAndBinding(t *testing.T) {
 	operations, receipts := counts()
 	for _, tc := range []struct{ name, producer, op, watermark, subject, message string }{
 		{"fabricated", "github", "https://github.com/example/project/actions/runs/123", "github-run:123", locator, "no durable operation record"},
-		{"principal", "github", result.OperationID, recorded.RequestID, locator, "producer_id"},
+		{"principal", "github", result.OperationID, recordingRequestID, locator, "producer_id"},
 		{"watermark", env.PrincipalRef, result.OperationID, "wrong-request", locator, "producer_watermark"},
 		{"omitted-run", env.PrincipalRef, "", "github-run:123", locator, "producer_watermark"},
-		{"locator", env.PrincipalRef, result.OperationID, recorded.RequestID, "https://github.com/example/project/actions/runs/456", "locator mismatch"},
+		{"locator", env.PrincipalRef, result.OperationID, recordingRequestID, "https://github.com/example/project/actions/runs/456", "locator mismatch"},
 	} {
 		fields := map[string]any{"evidence_kind": "verification", "immutable_subject_ref": tc.subject, "producer_id": tc.producer, "producer_run_ref": tc.op, "producer_watermark": tc.watermark}
 		if tc.name == "omitted-run" {
@@ -143,7 +145,7 @@ func TestExternalEvidenceRecordingAndBinding(t *testing.T) {
 	}
 	// The recording response does not show the principal; an omitted
 	// producer_id defaults to the binding caller's principal.
-	fields := map[string]any{"evidence_kind": "verification", "immutable_subject_ref": locator, "producer_run_ref": result.OperationID, "producer_watermark": recorded.RequestID}
+	fields := map[string]any{"evidence_kind": "verification", "immutable_subject_ref": locator, "producer_run_ref": result.OperationID, "producer_watermark": recordingRequestID}
 	bound, after := ekbDispatch(t, s, service, env, work, version, "bind_evidence", fields, nil, "external-bind")
 	if bound.Outcome != agentcontract.OutcomeOK || after <= version || len(ekbEvidenceBoundEvents(t, s, work)) != 1 {
 		t.Fatalf("bind: %+v version=%d", bound.Error, after)
@@ -163,7 +165,7 @@ func TestExternalEvidenceRecordingAndBinding(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.immutable_subject_ref'),json_extract(payload,'$.producer_id'),json_extract(payload,'$.producer_run_ref'),json_extract(payload,'$.producer_watermark') FROM workflow_evidence_bindings WHERE work_id=?`, work).Scan(&subject, &producer, &op, &watermark); err != nil {
 		t.Fatal(err)
 	}
-	if subject != locator || producer != env.PrincipalRef || op != result.OperationID || watermark != recorded.RequestID {
+	if subject != locator || producer != env.PrincipalRef || op != result.OperationID || watermark != recordingRequestID {
 		t.Fatalf("bound unexpected attribution: %q %q %q %q", subject, producer, op, watermark)
 	}
 }

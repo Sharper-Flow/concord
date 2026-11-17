@@ -35,7 +35,7 @@
 ## Context
 
 Concord's live Product memory needs one physical authority scope. The binding
-inputs are the accepted PM1 query contract, CD-0002 invariants I1 through I6,
+inputs are product-memory-query, CD-0002 invariants I1 through I6,
 and the one-installation one-host operating envelope. This record decides where
 live authority lives: one global local SQLite database per installation,
 with logical boundaries kept first-class in the domain model.
@@ -45,7 +45,7 @@ The SQLite engine, WAL, synchronous=NORMAL, and I1 through I6 remain binding.
 The binding contract is sections 1 and 2: the decision — one global local
 SQLite database in the per-user application-data directory, repo-local durable
 knowledge kept in git, and no per-Product or per-Project live shards — and the
-decisive constraints from PM1's no-fan-out requirement and SQLite's WAL
+decisive constraints from product-memory-query's no-fan-out requirement and SQLite's WAL
 atomicity guarantees. Sections 3 and 4 record the candidate assessment and
 external alignment; sections 5 through 8 record portability, falsifiers,
 consequences, and sources, and carry no obligation.
@@ -75,9 +75,9 @@ or any tool/CLI/plugin surface.
 
 ## 2. Decisive constraints
 
-### 2.1 PM1 requires one coherent Product-memory corpus
+### 2.1 Product-memory query requires one coherent corpus
 
-Accepted PM1 requires direct, bounded answers for:
+product-memory-query requires direct, bounded answers for:
 
 - all Products and their Projects,
 - Product-wide work snapshots and lists,
@@ -85,7 +85,7 @@ Accepted PM1 requires direct, bounded answers for:
 - one canonical work item spanning Projects,
 - dependencies and history.
 
-PM1 explicitly rejects application fan-out across authority stores. A global file
+product-memory-query explicitly rejects application fan-out across authority stores. A global file
 answers each job within one authority and one query planner. Physical sharding
 turns Product memory into an application-level aggregation problem.
 
@@ -108,7 +108,7 @@ work→Project validation, and Project removal to be one transaction and one bac
 
 ## 3. Candidate assessment
 
-| Candidate | PM1 reads | Relationship atomicity under WAL | Backup/restore | Portability | Verdict |
+| Candidate | product-memory-query reads | Relationship atomicity under WAL | Backup/restore | Portability | Verdict |
 |---|---|---|---|---|---|
 | **Global DB** | One authority; no app fan-out | One-file transactions | One coherent snapshot | Logical Product export | **Select** |
 | Per-Product DBs | Q1 enumeration/reverse ownership fans out unless a catalog exists | Shared-Project facts span Product files | N independent snapshots | File-native only if a Product is fully isolated | Reject for current Product model |
@@ -119,7 +119,7 @@ work→Project validation, and Project removal to be one transaction and one bac
 
 Strengths:
 
-- exact fit for PM1's Product-wide and cross-Project jobs,
+- exact fit for product-memory-query's Product-wide and cross-Project jobs,
 - no duplicate Product/Project/work authority,
 - one transaction for cross-scope invariants,
 - one coherent backup/restore unit,
@@ -148,13 +148,13 @@ This is the exact class of distributed local truth Concord is intended to avoid.
 
 Per-Product is attractive when each Product is a complete tenant/export/security
 unit. Concord's current Product model allows Projects to belong to multiple
-Products, and PM1 includes all-Product orientation and Project→Product ambiguity.
+Products, and product-memory-query includes all-Product orientation and Project→Product ambiguity.
 Without a catalog those reads fan out; with a catalog the design becomes the
 hybrid below.
 
 ### Catalog + per-Product — first fallback, not the default
 
-A global identity/membership catalog plus Product work files can route PM1 reads
+A global identity/membership catalog plus Product work files can route product-memory-query reads
 cleanly. It is rejected now because it introduces two authoritative file classes:
 
 - creating/relating work validates catalog membership and writes a Product file,
@@ -173,7 +173,7 @@ to current load.
 
 A credible contrary pattern is **repo/vault-local authority plus a global derived
 index** (for example Fossil/Beads/Engram-like systems). It is correct when the
-repo/vault is the complete ownership and transaction unit. Concord's accepted PM1
+repo/vault is the complete ownership and transaction unit. Concord's product-memory-query
 contract differs: one Product spans Projects, one work item may span Projects, and
 Product-wide reads cannot fan out across authorities. Therefore those systems
 validate the authority/projection distinction but do not justify per-Project live
@@ -229,7 +229,7 @@ Reopen PM2 when any becomes a real requirement:
 3. **Load falsifier:** escaped busy failures, incorrect effects, or queueing that
    materially blocks ordinary operator work meets CD-0011's reopen conditions;
    data/query scale remains subject to CD-0002's documented conditions.
-4. **PM1 changes:** a repeated accepted job requires another authority boundary.
+4. **product-memory-query changes:** a repeated accepted job requires another authority boundary.
 5. **Recovery failure:** one-file backup/restore cannot meet PM10 objectives.
 
 ## 7. Consequences and narrow supersession

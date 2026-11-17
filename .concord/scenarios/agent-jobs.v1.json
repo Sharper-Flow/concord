@@ -510,9 +510,8 @@
           },
           {
             "target": "authority",
-            "path": "status",
-            "op": "eq",
-            "value": "authoritative"
+            "path": "omissions",
+            "op": "absent"
           }
         ],
         "invariants": [

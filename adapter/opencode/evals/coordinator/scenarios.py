@@ -20,7 +20,7 @@ def resume_ok():
     """A synthetic authoritative stored step plan."""
     return {
         "schema_version": "1.0", "origin": "core", "tool": TRACE, "operation": "resume",
-        "outcome": "ok", "authority": "authoritative",
+        "outcome": "ok",
         "result": {"work_id": WORK, "version": 1, "state": "running", "type": "change",
                    "steps": [{"id": "review", "required": True, "after": [], "reviewed": False}],
                    "next_steps": ["review"]},

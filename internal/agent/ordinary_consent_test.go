@@ -25,8 +25,11 @@ func TestOrdinaryTerminalLifecycleNeedsNoConsent(t *testing.T) {
 				t.Fatalf("state = %s v%d, want %s v%d", lifecycle, got, target, version+1)
 			}
 			replay := dispatchMutation(t, s, service, request, env)
-			if replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
+			if replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(result.Result) {
 				t.Fatalf("replay = %+v", replay)
+			}
+			if lifecycle, got := readWorkFromStore(t, s, "work-cross"); lifecycle != target || got != version+1 {
+				t.Fatalf("replay state = %s v%d, want %s v%d", lifecycle, got, target, version+1)
 			}
 		})
 	}

@@ -3,16 +3,13 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 )
 
-// The Domain reads carry no observation time from the store. The envelope
-// admits a null freshness for that; a zero instant is refused at marshal.
-func TestDomainReadEnvelopeMarshalsWithoutFreshness(t *testing.T) {
+func TestDomainReadEnvelopeMarshals(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []agentcontract.Capability{"product_read"})
@@ -28,12 +25,9 @@ func TestDomainReadEnvelopeMarshalsWithoutFreshness(t *testing.T) {
 	if resp.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("domain list: %+v", resp.Error)
 	}
-	raw, err := json.Marshal(resp)
+	_, err = json.Marshal(resp)
 	if err != nil {
 		t.Fatalf("domain list does not marshal: %v", err)
-	}
-	if !strings.Contains(string(raw), `"freshness":null`) {
-		t.Fatalf("a read with no observation time must carry a null freshness, got: %s", firstBytes(raw, 400))
 	}
 }
 
@@ -48,7 +42,7 @@ func TestEveryReadOperationMarshalsAsARead(t *testing.T) {
 		}
 		checked++
 		t.Run(op.Tool+"."+op.Operation, func(t *testing.T) {
-			e := agentcontract.Envelope{SchemaVersion: "1.0", ManifestDigest: agentcontract.ManifestDigest, RequestID: "r", Origin: "core", Tool: op.Tool, Operation: op.Operation, QueryID: op.QueryID, Outcome: agentcontract.OutcomeOK, Authority: agentcontract.AuthorityAuthoritative, SourceVersionWatermark: []agentcontract.Watermark{}, OrderingKeys: []string{}, Omissions: []agentcontract.Notice{}, Warnings: []agentcontract.Notice{}, EvidenceRefs: []agentcontract.EvidenceRef{}, Items: []json.RawMessage{json.RawMessage(`{}`)}}
+			e := agentcontract.Envelope{SchemaVersion: "1.0", ManifestDigest: agentcontract.ManifestDigest, Origin: "core", Tool: op.Tool, Operation: op.Operation, Outcome: agentcontract.OutcomeOK, Omissions: []agentcontract.Notice{}, Warnings: []agentcontract.Notice{}, Items: []json.RawMessage{json.RawMessage(`{}`)}}
 			if _, err := json.Marshal(e); err != nil {
 				t.Fatalf("read does not marshal without mutation metadata: %v", err)
 			}

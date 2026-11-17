@@ -22,21 +22,16 @@ const mutationPairs = new Set((((envelopeSchema as any).$defs.ok.allOf[1].allOf 
   return properties.operation.enum.map((operation: string) => `${properties.tool.const}.${operation}`)
 }))
 
-function coreEnvelope({ tool, operation, queryId }: Pair) {
+function coreEnvelope({ tool, operation }: Pair) {
   const envelope: Record<string, unknown> = {
-    schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core",
-    tool, operation, ...(queryId ? { query_id: queryId } : {}), outcome: "ok", resolved_scope: null,
-    authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [],
-    next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false, result: {},
+    schema_version: "1.0", manifest_digest: manifestDigest, origin: "core",
+    tool, operation, outcome: "ok", next_cursor: null, omissions: [], warnings: [], result: {},
   }
   if (mutationPairs.has(`${tool}.${operation}`)) { envelope.changed_refs = []; envelope.next_valid_intents = [] }
   return envelope
 }
 
-// Issue #352: `$defs/base` conjoins `$defs/toolOperation` with its own
-// `operation` enum and `query_id` pattern, so a pair the enum omits or the
-// pattern rejects is unsatisfiable and every core response for it becomes an
-// adapter `malformed_response`.
+// Every declared pair must remain satisfiable at the result boundary.
 test("every declared tool/operation pair is satisfiable at the adapter boundary", () => {
   expect(declaredPairs.length).toBeGreaterThan(0)
   const refused = declaredPairs.filter((pair) => !validateGeneratedEnvelope(coreEnvelope(pair)))
@@ -70,10 +65,11 @@ test("resume and its controls validate", () => {
   }
 })
 
-test("a declared pair carrying another pair's query_id is still refused", () => {
-  const resume = declaredPairs.find((item) => item.operation === "resume")!
-  expect(validateGeneratedEnvelope(coreEnvelope({ ...resume, queryId: "PM1.Q7" }))).toBe(false)
-  expect(validateGeneratedEnvelope(coreEnvelope({ ...resume, queryId: undefined }))).toBe(false)
+test("a next intent carrying another pair's query_id is refused", () => {
+  const mutation = coreEnvelope({ tool: "concord_work_define", operation: "capture" })
+  const intent = { tool: "concord_work_trace", operation: "resume", query_id: "PM1.Q7", reason_code: "inspect" }
+  expect(validateGeneratedEnvelope({ ...mutation, next_valid_intents: [intent] })).toBe(false)
+  expect(validateGeneratedEnvelope({ ...mutation, next_valid_intents: [{ ...intent, query_id: "C19.Resume" }] })).toBe(true)
 })
 
 test("an undeclared operation is refused even though the tool is declared", () => {

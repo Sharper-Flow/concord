@@ -24,7 +24,7 @@ func TestCompletedDeliverySameIdentityReplay(t *testing.T) {
 	input := json.RawMessage(`{"work_id":"` + f.work + `","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_delivery","fields":{"delivery_artifact":"https://example.com/corrected","delivery_state":"asserted"},"idempotency_key":"completed-delivery-replay"}`)
 	request := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}
 	first := dispatchMutation(t, f.s, f.service, request, f.env)
-	if first.Outcome != agentcontract.OutcomeOK || first.Error != nil || first.Replayed {
+	if first.Outcome != agentcontract.OutcomeOK || first.Error != nil {
 		t.Fatalf("first delivery edit: %+v error=%+v", first, first.Error)
 	}
 	if got := workVersion(t, f.s, f.work); got <= version {
@@ -37,7 +37,7 @@ func TestCompletedDeliverySameIdentityReplay(t *testing.T) {
 	}
 	baseline := agentCurrentEffects(t, f.s)
 	replay := dispatchMutation(t, f.s, f.service, request, f.env)
-	if replay.Outcome != agentcontract.OutcomeOK || replay.Error != nil || !replay.Replayed || string(first.Result) != string(replay.Result) || !reflect.DeepEqual(first.ChangedRefs, replay.ChangedRefs) {
+	if replay.Outcome != agentcontract.OutcomeOK || replay.Error != nil || string(first.Result) != string(replay.Result) || !reflect.DeepEqual(first.ChangedRefs, replay.ChangedRefs) {
 		t.Fatalf("replay did not return original result: first=%+v replay=%+v", first, replay)
 	}
 	if got := agentCurrentEffects(t, f.s); got != baseline {

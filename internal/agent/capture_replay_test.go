@@ -21,9 +21,6 @@ func TestPublicCaptureReplayRecordsNoDuplicate(t *testing.T) {
 	if replay.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("replayed capture response=%+v", replay)
 	}
-	if !replay.Replayed {
-		t.Fatal("identical capture did not replay")
-	}
 	if (*replay.ChangedRefs)[0].ID != (*first.ChangedRefs)[0].ID {
 		t.Fatalf("replay work ID=%s, want %s", (*replay.ChangedRefs)[0].ID, (*first.ChangedRefs)[0].ID)
 	}

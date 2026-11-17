@@ -94,7 +94,7 @@
           "target_domain_id": "agent-contract"
         },
         {
-          "governing_law_ids": ["TS7", "CD-0132"],
+          "governing_law_ids": ["agent-result-envelope", "CD-0132"],
           "kind": "shares_contract_with",
           "target_domain_id": "agent-contract"
         }
@@ -118,7 +118,7 @@
           "target_domain_id": "agent-evolution"
         },
         {
-          "governing_law_ids": ["TS5", "TS7", "CD-0132"],
+          "governing_law_ids": ["TS5", "agent-result-envelope", "CD-0132"],
           "kind": "depends_on",
           "target_domain_id": "agent-call-boundary"
         }

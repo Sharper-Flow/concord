@@ -249,9 +249,7 @@ test("request-wrapped tools refuse a missing request wrapper before any host eff
       expect(envelope.operation).toBe("operation" in args && args.operation === operation ? operation : "")
       expect(validateGeneratedEnvelope(envelope), result.output).toBe(true)
       if (envelope.operation === "") {
-        expect(envelope.query_id).toBeUndefined()
         expect(validateGeneratedEnvelope({ ...envelope, origin: "core" })).toBe(false)
-        expect(validateGeneratedEnvelope({ ...envelope, query_id: "PM1.Q1" })).toBe(false)
       }
       for (const error of [{ kind: "transport_failure", recovery_action: { kind: "contact_operator" } }, { adapter_reason: "missing_binary" }, { effect_state: "possible" }, { retry_safe: true }, { recovery_action: { kind: "retry_same_request" } }]) {
         expect(validateGeneratedEnvelope({ ...envelope, error: { ...envelope.error, ...error } })).toBe(false)
@@ -320,9 +318,7 @@ test("an echoed operation copy never reaches the core payload", async () => {
 
 test("oversize core results become bounded ToolResult error envelopes", async () => {
   const oversized = coreEnvelope("concord_product_view", "resolve", "error", {
-    evidence_refs: Array.from({ length: 32 }, (_, index) => ({
-      kind: "artifact", authority: "core", locator_kind: "id", locator: `${index}-${"x".repeat(2040)}`,
-    })),
+    warnings: [{ kind: "diagnostic", details: { message: "x".repeat(52_000) } }],
     error: { kind: "internal_error", retry_safe: false, recovery_action: { kind: "contact_operator" }, effect_state: "none" },
   })
   expect(validateGeneratedEnvelope(oversized)).toBe(true)
@@ -513,13 +509,13 @@ test("a contract-failing mutation names the offending member", async () => {
     resolved_scope: { product_id: "product-1", project_ids: ["project-1"], scope_version: "v1", work_ids: [], product_ids: ["product-1"] },
   })
   expect(validateGeneratedEnvelope(drifted)).toBe(false)
-  expect(envelopeFailurePath(drifted)).toBe("resolved_scope.product_ids")
+  expect(envelopeFailurePath(drifted)).toBe("resolved_scope")
   const result: any = await runTransition(runnerWithContext(drifted))
   assertAdapterEnvelope(result)
   expect(result.error.kind).toBe("operation_conflict")
   expect(result.error.adapter_reason).toBe("unknown_effect")
   expect(result.error.effect_state).toBe("possible")
-  expect(result.error.message).toContain("member resolved_scope.product_ids failed the generated envelope contract")
+  expect(result.error.message).toContain("member resolved_scope failed the generated envelope contract")
 })
 
 test("strict response failures salvage bounded entity identifiers", async () => {
@@ -722,9 +718,7 @@ test("a read's thrown runner failure at the invoke keeps the no-effect refusal",
 test("oversized mutation envelopes reconcile the request work ID", async () => {
   const oversized = coreEnvelope("concord_work_transition", "lifecycle", "ok", {
     result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [],
-    evidence_refs: Array.from({ length: 32 }, (_, index) => ({
-      kind: "artifact", authority: "core", locator_kind: "id", locator: `${index}-${"x".repeat(2040)}`,
-    })),
+    warnings: [{ kind: "diagnostic", details: { message: "x".repeat(52_000) } }],
   })
   expect(validateGeneratedEnvelope(oversized)).toBe(true)
   const readback = coreEnvelope("concord_work_browse", "list", "ok", { result: { items: [] } })
@@ -965,7 +959,7 @@ test("confirm_premise refusals come from the core, not the adapter", async () =>
 })
 
 const coreEnvelope = <T extends Record<string, unknown>>(tool: string, operation: string, outcome: string, fields: T) => ({
-  schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core", tool, operation, ...((contractOperations.find((candidate: any) => candidate.tool === tool && candidate.id.endsWith(`.${operation}`)) as any)?.query_id ? { query_id: (contractOperations.find((candidate: any) => candidate.tool === tool && candidate.id.endsWith(`.${operation}`)) as any).query_id } : {}), outcome, resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false, ...fields,
+  schema_version: "1.0", manifest_digest: manifestDigest, origin: "core", tool, operation, outcome, next_cursor: null, omissions: [], warnings: [], ...fields,
 })
 
 for (const tampered of [false, true]) {
@@ -1017,12 +1011,12 @@ for (const capacity of ["room", "warnings-full", "bytes-full"] as const) {
         ...fixture.envelope,
         warnings: [...fixture.envelope.warnings, ...(capacity === "warnings-full" ? Array.from({ length: 15 }, () => ({ kind: "core_note" })) : [])],
       }),
-      evidence_refs: [] as Array<{ kind: string; authority: string; locator_kind: string; locator: string }>,
     }
     if (capacity === "bytes-full") {
-      core.evidence_refs = Array.from({ length: 32 }, () => ({ kind: "artifact", authority: "core", locator_kind: "id", locator: "" }))
+      const padding = { kind: "padding", details: { message: "" } }
+      ;(core.warnings as Array<{ kind: string; details?: { message: string } }>).push(padding)
       const remaining = maxEnvelopeBytes - Buffer.byteLength(JSON.stringify(core)) - 1
-      for (const ref of core.evidence_refs) ref.locator = "x".repeat(Math.floor(remaining / 32))
+      padding.details.message = "x".repeat(remaining)
       expect(maxEnvelopeBytes - Buffer.byteLength(JSON.stringify(core))).toBeLessThan(40)
     }
     expect(validateGeneratedEnvelope(core), envelopeFailurePath(core) ?? "valid receipt").toBe(true)
@@ -1185,25 +1179,6 @@ test("mutation cancellation kills the default runner's context child", async () 
     configureCoreBinary("concord")
     adapter.configureConcordAdapter({ reset: true })
     await rm(root, { recursive: true, force: true })
-  }
-})
-
-test("every declared query id passes the generated envelope contract", () => {
-  // The generated validator runs on every core response. A query_id pattern
-  // narrower than the manifest makes the adapter answer malformed_core_response
-  // for a well-formed result, so each declared id is checked against it here.
-  // An error outcome carries no result, so the only operation-specific field
-  // under test is the query id itself.
-  const error = { kind: "timeout", retry_safe: true, recovery_action: { kind: "retry_same_request" }, effect_state: "none" }
-  const declared = contractOperations.filter((candidate: any) => candidate.query_id) as any[]
-  expect(declared.length).toBeGreaterThan(0)
-  for (const operation of declared) {
-    const envelope: any = coreEnvelope(operation.tool, operation.id.split(".").slice(1).join("."), "error", { error })
-    expect(envelope.query_id, `${operation.id} lost its query id`).toBe(operation.query_id)
-    expect(
-      validateGeneratedEnvelope(envelope),
-      `${operation.id} carries query id ${operation.query_id}, which the envelope contract rejects`,
-    ).toBe(true)
   }
 })
 
@@ -1481,10 +1456,9 @@ test("CON-913 row 6: a malformed mutation answer takes the whole conflict tuple"
 test("CON-913 rows 13/14: an oversized mutation result takes the whole classifier tuple and reconciles", async () => {
   const oversized = coreEnvelope("concord_work_transition", "lifecycle", "ok", {
     result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [],
-    evidence_refs: Array.from({ length: 32 }, (_, index) => ({
-      kind: "artifact", authority: "core", locator_kind: "id", locator: `${index}-${"x".repeat(2040)}`,
-    })),
+    warnings: [{ kind: "diagnostic", details: { message: "x".repeat(52_000) } }],
   })
+  expect(validateGeneratedEnvelope(oversized)).toBe(true)
   const readback = coreEnvelope("concord_work_browse", "list", "ok", { result: { items: [] } })
   let calls = 0
   const result: any = await runTransition({ async run() {

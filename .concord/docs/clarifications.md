@@ -21,9 +21,9 @@ questions get added here as the vision evolves.**
 Two ordered, build-authorizing backlogs now govern the foundation:
 
 - **Product-memory contracts:** Product-memory and per-store decisions.
-- **TS1–TS9:** minimal agent tool-surface decisions.
+- **Agent-surface contracts:** minimal agent tool-surface decisions.
 
-**The product-memory contracts, TS1–TS9, and C7 are accepted.**
+**The product-memory contracts, agent-surface contracts, and C7 are accepted.**
 Storage/core and agent-adapter/tool acceptance slices may begin once the implementation
 repo/package is chosen and separately authorized; pre-go-live changes remain subject
 to the deterministic TS9 evidence contract.
@@ -35,7 +35,7 @@ Domains. CD-0213 places planning and business grouping in Linear through the
 Linear MCP server; Concord keeps managed execution and recorded issue identity.
 CD-0042 keeps Concord pre-go-live on one generated, digest-identified agent surface:
 surface versions, compatibility/deprecation paths, supported-model release gates,
-and unreleased replay paths are not current policy. Deterministic PM1/TS1, strict
+and unreleased replay paths are not current policy. Deterministic Product-memory query/TS1, strict
 schema, authority, transaction, negative, and conformance evidence remains required;
 the first go-live decision must define future compatibility and measurement law.
 Open clarifications remain open; acceptance of these records does not close C9–C10
@@ -175,7 +175,7 @@ re-litigate them silently.
   local authority; PM3 replaces CD-0003 D1's generic materialized spine with typed
   projections; CD-0242 D2 keeps current state and finite snapshots with no event
   log or replay.
-- **Blocks (resolved):** PM1–PM5 authorize storage/core implementation, and CD-0007
+- **Blocks (resolved):** Product-memory query and PM2–PM5 authorize storage/core implementation, and CD-0007
   resolves repository and deploy packaging. CD-0089 permits Concord development
   coordination without changing the accepted storage authority.
   TS tracks govern release completeness rather than reopening that authority.
@@ -235,7 +235,7 @@ re-litigate them silently.
   and what is next.
 - **Lean:** two modes over already-accepted canonical queries — a structural relation
   tree from Q8, and a work table from Q3 with Q8 for blocker
-  columns. Ordering follows PM1; blocked stays PM4-derived
+  columns. Ordering follows Product-memory query; blocked stays PM4-derived
   and two-valued; grouping comes from declared edges only; incomplete coverage renders
   `unavailable` rather than a shortened table. Single-Product only, since cross-Product
   prioritization remains deferred pending PM2 authority and portability.
@@ -363,7 +363,7 @@ Accepted TS decisions do not by themselves authorize runtime/tool surfaces.
 
 | Order | Decision | Store(s) shaped | Blocks |
 |---:|---|---|---|
-| PM1 | Canonical Product-memory query contract | all | PM2–PM5; implementation |
+| product-memory-query | Canonical Product-memory query contract | all | PM2–PM5; implementation |
 | PM2 | Memory authority scope and physical home | SQLite | PM3, PM5; implementation |
 | PM3 | Explicit domain schema vs generic spine | SQLite | PM4–PM5; implementation |
 | PM4 | Work lifecycle and relation semantics | SQLite | work-state implementation |
@@ -378,23 +378,23 @@ Accepted TS decisions do not by themselves authorize runtime/tool surfaces.
 
 | ID | Decision boundary + current binding | Non-authorizing lean | Evidence / falsifier | Depends → artifact |
 |---|---|---|---|---|
-| **PM1** Canonical Product-memory query contract. *Binding:* Q1, Q2, Q3, Q7 and Q8 plus the universal result/authority/freshness/pagination/error/performance contract in [`../law/specs/product-memory-query-contract.md`](../law/specs/product-memory-query-contract.md). | Product context, snapshot, work lists, history and relations. | Binding corpus at [`product-memory-query.v1.json`](../scenarios/product-memory-query.v1.json). | — → **PM1 contract + TS1/TS3 input**. |
+| **Product-memory query** contract. *Binding:* Q1, Q2, Q3, Q7 and Q8 plus the result, pagination, error and performance rules in [`../law/specs/product-memory-query-contract.md`](../law/specs/product-memory-query-contract.md). | Product context, snapshot, work lists, history and relations. | Binding corpus at [`product-memory-query.v1.json`](../scenarios/product-memory-query.v1.json). | — → **Product-memory query contract + TS1/TS3 input**. |
 
 > **The product-memory contracts are accepted and binding.** PM4/PM5 bridge provisional lifecycle/
 > relation/membership fixture fields through explicit normalization notes; PM6 owns
 > completion and historical locator reads; compaction-retention-policy fixes retained post-delivery categories; PM8 excludes
 > WIP-byte storage and generic screenshot requirements; PM9 rejects a separate receipt.
-| **PM2 Accepted 2026-08-05** Memory authority scope + physical home. *Binding:* [`../law/specs/product-memory-authority-scope.md`](../law/specs/product-memory-authority-scope.md) narrowly supersedes CD-0002's per-Project file line. | **One global local SQLite database per Concord installation/host.** Product/Project are logical scopes; git remains durable-knowledge authority. | Accepted PM1 + official SQLite/Context7 guarantees + Exa architecture research. Reopen for multi-host, hard Product isolation/export/encryption/retention, CD-0002 load falsifiers, new PM1 jobs, or PM10 restore failure. | PM1 → **PM2 authority scope + PM3/PM5/TS5 input**, operator-approved. |
+| **PM2 Accepted 2026-08-05** Memory authority scope + physical home. *Binding:* [`../law/specs/product-memory-authority-scope.md`](../law/specs/product-memory-authority-scope.md) narrowly supersedes CD-0002's per-Project file line. | **One global local SQLite database per Concord installation/host.** Product/Project are logical scopes; git remains durable-knowledge authority. | Product-memory queries + official SQLite/Context7 guarantees + Exa architecture research. Reopen for multi-host, hard Product isolation/export/encryption/retention, CD-0002 load falsifiers, new query jobs, or PM10 restore failure. | Product-memory queries → **PM2 authority scope + PM3/PM5/TS5 input**, operator-approved. |
 
 > **PM2–PM5 are accepted and binding.** Membership may not reintroduce duplicate
 > physical authority, application fan-out, copied work state, or a generic
 > materialized spine without explicit supersession.
-| **PM3 Accepted 2026-08-05** Product-memory domain schema. *Binding:* [`../law/specs/product-memory-domain-schema.md`](../law/specs/product-memory-domain-schema.md) narrowly supersedes CD-0003 D1's generic materialized spine. | **Hybrid explicit core:** current rows and finite verified snapshots per CD-0242 D2; explicit typed Product/Project/component/work/membership/relation projections; bounded versioned JSON only for rare extensions. | PM1/PM2 + official SQLite/Context7 guarantees + public-source comparisons. Reopen on the accepted falsifiers: repeated schema churn by work kind, bounded generic projection without facet proliferation, non-total current-state writes, per-kind-table need, or misclassified first-class identities. | PM1–PM2 → **PM3 schema + PM4/PM5 input**, operator-approved. |
+| **PM3 Accepted 2026-08-05** Product-memory domain schema. *Binding:* [`../law/specs/product-memory-domain-schema.md`](../law/specs/product-memory-domain-schema.md) narrowly supersedes CD-0003 D1's generic materialized spine. | **Hybrid explicit core:** current rows and finite verified snapshots per CD-0242 D2; explicit typed Product/Project/component/work/membership/relation projections; bounded versioned JSON only for rare extensions. | Product-memory queries/PM2 + official SQLite/Context7 guarantees + public-source comparisons. Reopen on the accepted falsifiers: repeated schema churn by work kind, bounded generic projection without facet proliferation, non-total current-state writes, per-kind-table need, or misclassified first-class identities. | Product-memory queries and PM2 → **PM3 schema + PM4/PM5 input**, operator-approved. |
 
 > **PM3 is accepted and binding.** It keeps explicit typed Product-memory
 > projections over current rows and finite snapshots (CD-0242 D2), replaces
 > CD-0003 D1's generic materialized spine, and bounds JSON to versioned extensions. PM4/PM5 are accepted;
-> TS1–TS9 are now accepted separately.
+> The agent-surface contracts are accepted separately.
 > **Amended by CD-0222:** component is not a lasting first-class projection.
 > Follow-up implementation migrates stable component identities one-for-one into
 > canonical Domains and adds endpoint-specific Domain relations; historical PM3
@@ -402,22 +402,22 @@ Accepted TS decisions do not by themselves authorize runtime/tool surfaces.
 | **PM4 Accepted 2026-08-05** Work lifecycle + relation semantics. *Binding:* [`../law/specs/product-memory-lifecycle-relations.md`](../law/specs/product-memory-lifecycle-relations.md). | Four states: `needed`, `in_progress`, `completed`, `cancelled`. Blocked/ready/active/terminal are derived. Relations include `parent`, `blocks`, `raised_from`, and `implements`; depends-on/blocked-by are inverse reads. | Local predecessor mapping + official/public Linear/Jira/Bugzilla/GitHub/Plane/Fossil models. | PM3 → **PM4 lifecycle/relation + PM5 input**, operator-approved. |
 > **PM4 is accepted and binding.** It fixes lifecycle, derived status, relation
 > direction/inverses, graph validation, reopen, and external-blocker
-> semantics. PM5 and TS1–TS9 are accepted.
+> semantics. PM5 and the agent-surface contracts are accepted.
 | **PM5 Accepted 2026-08-05** Multi-Project work identity + membership. *Binding:* [`../law/specs/product-memory-membership.md`](../law/specs/product-memory-membership.md). | Many-to-many Product↔Project and work↔Project membership; one canonical work item; Product scope derived through joins; cross-Product work allowed; optional singular primary roles; no required/merge-order/lifecycle/status edge fields. | Local predecessor mapping + official/public Linear/GitLab/GitHub/Changesets/Jira/Bugzilla comparisons. Reopen on bounded-query failure, legitimate per-Project lifecycle need, repeated stored-Product need, PM6 failure from optional primary, unsafe membership moves, new membership attributes required by accepted jobs, or independent per-Product status need. | PM2–PM4 → **PM5 membership + PM6/TS5 input**, operator-approved. |
-> **PM5 is accepted and binding.** It completes the PM1–PM5 storage build-authorizing
-> sequence. PM6, TS5, and TS1–TS9 are now accepted separately.
+> **PM5 is accepted and binding.** It completes the Product-memory query and PM2–PM5 storage build-authorizing
+> sequence. PM6, TS5, and the agent-surface contracts are accepted separately.
 | **PM6 Accepted 2026-08-05** Reported delivery and historical note locators. *Binding:* [`../law/specs/canonical-git-note-placement.md`](../law/specs/canonical-git-note-placement.md). | Completion records the typed reported-delivery assertion and its links without a publication operation, canonical note, closure hash or Git/GitHub verification; historical readers return the single retained locator without probing Git, and Git resolution belongs to the consumer. Historical identity keeps stable home, path, commit OID and content hash. | Public predecessor lessons + Fowler/Log4brains/cross-cutting ADR patterns + official git docs. Reopen on a repeated locator-resolution job the retained record cannot answer, or PM10 restore failure. | PM2, PM5 → **compaction-retention-policy–PM9 / PM10 input**, operator-approved. |
 > **PM6 is accepted and binding.** It owns completion and historical locator reads. Accepted
 > compaction-retention-policy fixes retained post-delivery categories; PM8 excludes WIP-byte storage; PM9
-> rejects a separate receipt; PM10 fixes recovery. TS1–TS9 are now accepted.
+> rejects a separate receipt; PM10 fixes recovery. The agent-surface contracts are accepted.
 | **compaction-retention-policy Accepted 2026-10-09** Compaction, retention, historical projections. *Binding:* [`../law/specs/compaction-retention-policy.md`](../law/specs/compaction-retention-policy.md) amends PM6. | Retained post-delivery categories and their removal conditions — terminal identity with reported delivery links, effect receipts for retry and reconciliation, retained Git-derived historical locator projections, and PM10 snapshots; no prune command, publication-gated cleanup, or deleted-ID registry ([CD-0242](../law/decisions/CD-0242-knowledge-first-workflows-keep-current-state-not-history.md) D2). | Reopen if retained receipts and snapshots are the growth problem, linked successor work repeatedly fails legitimate jobs, maintenance burdens operators, or PM9/PM10 provides a simpler recovery authority. | PM4, PM6 → **PM6 amendment**, operator-approved. |
 > **compaction-retention-policy is accepted and binding.** It rejects a fixed 30-day sweep, keeps current rows and finite verified
 > snapshots as the state authority (CD-0242 D2), and holds historical locator projections as retained Git-derived read
 > projections with frozen scope. PM8 excludes WIP-byte storage;
-> PM9 rejects a separate receipt; PM10 fixes recovery. TS1–TS9 are accepted.
-| **PM8 Accepted 2026-08-06** WIP evidence/blob scope. *Binding:* [`../law/specs/product-memory-evidence-store.md`](../law/specs/product-memory-evidence-store.md) narrows CD-0002 §2d. | No CAS, hashing, external-byte path references, or generic screenshot requirement. WIP output stays with its producer; Concord retains bounded state, concise notes, and ordinary external refs only. | Reopen only for a measured recurring job with a named reader, exact-byte need after WIP is gone, explicit retention/restore promise, and value sufficient to justify storage complexity. | PM1–PM6, compaction-retention-policy → **CD-0002 §2d amendment**, operator-approved. |
-| **PM9 Accepted 2026-08-06** Process-exhaust salvage + audit receipt. *Binding:* [`../law/specs/product-memory-process-exhaust.md`](../law/specs/product-memory-process-exhaust.md) amends CD-0002. | No receipt object: existing terminal record, reviewed lesson note, and the retained PM6 locator are sufficient. Material lessons enter reviewed note/decision text; raw exhaust stays producer-owned. | Reopen only for a recurring named reader whose needed fact cannot be answered by existing record/note/locator/link state and whose proposal states proof, retention, restore promise, and why concise knowledge is insufficient. | PM1–PM8 → **CD-0002 amendment**, operator-approved. |
-| **PM10 Accepted 2026-08-06** Backup, restore, GC. *Binding:* [`../law/specs/product-memory-recovery.md`](../law/specs/product-memory-recovery.md). | Online SQLite snapshots plus canonical git; clean staging restore, verification, forward migration, then atomic no-replace promotion. No WIP/CAS/receipt input. | Reopen on unmet measured recovery objectives, omitted authority, required continuous replication, or a deletion job outside this policy. | PM1–PM9 → **recovery amendment**, operator-approved. |
+> PM9 rejects a separate receipt; PM10 fixes recovery. The agent-surface contracts are accepted.
+| **PM8 Accepted 2026-08-06** WIP evidence/blob scope. *Binding:* [`../law/specs/product-memory-evidence-store.md`](../law/specs/product-memory-evidence-store.md) narrows CD-0002 §2d. | No CAS, hashing, external-byte path references, or generic screenshot requirement. WIP output stays with its producer; Concord retains bounded state, concise notes, and ordinary external refs only. | Reopen only for a measured recurring job with a named reader, exact-byte need after WIP is gone, explicit retention/restore promise, and value sufficient to justify storage complexity. | Product-memory queries, PM2–PM6, compaction-retention-policy → **CD-0002 §2d amendment**, operator-approved. |
+| **PM9 Accepted 2026-08-06** Process-exhaust salvage + audit receipt. *Binding:* [`../law/specs/product-memory-process-exhaust.md`](../law/specs/product-memory-process-exhaust.md) amends CD-0002. | No receipt object: existing terminal record, reviewed lesson note, and the retained PM6 locator are sufficient. Material lessons enter reviewed note/decision text; raw exhaust stays producer-owned. | Reopen only for a recurring named reader whose needed fact cannot be answered by existing record/note/locator/link state and whose proposal states proof, retention, restore promise, and why concise knowledge is insufficient. | Product-memory queries and PM2–PM8 → **CD-0002 amendment**, operator-approved. |
+| **PM10 Accepted 2026-08-06** Backup, restore, GC. *Binding:* [`../law/specs/product-memory-recovery.md`](../law/specs/product-memory-recovery.md). | Online SQLite snapshots plus canonical git; clean staging restore, verification, forward migration, then atomic no-replace promotion. No WIP/CAS/receipt input. | Reopen on unmet measured recovery objectives, omitted authority, required continuous replication, or a deletion job outside this policy. | Product-memory queries and PM2–PM9 → **recovery amendment**, operator-approved. |
 
 ---
 
@@ -447,11 +447,11 @@ bounded schemas.
 | TS4 | Intent mutation tool shape | agent writes |
 | TS5 | Scope, context, authorization, and idempotency | safe reads/writes |
 | TS6 | Adapter, plugin, and transport role | implementation |
-| TS7 | Result/error/evidence envelope | stable implementation |
+| agent-result-envelope | Result/error/evidence envelope | stable implementation |
 | TS8 | Generated current-surface identity and change evidence | first-go-live compatibility law |
 | TS9 | Pre-go-live deterministic evidence contract | first-go-live measurement law |
 
-### TS1–TS9 — decisions at a glance
+### Agent-surface decisions at a glance
 
 The AJ5 overlap binding pins both endpoint versions and judged contract content.
 Operator decisions follow CD-0243 D2 in conversation. Workflow scenarios bind
@@ -460,26 +460,26 @@ the one generated current definition ([CD-0242](../law/decisions/CD-0242-knowled
 
 | ID | Decision boundary + current binding | Non-authorizing lean | Evidence / falsifier | Depends → artifact |
 |---|---|---|---|---|
-| **TS1 Accepted** Canonical agent jobs + evaluation scenarios. *Binding:* [`../law/specs/agent-tool-surface-jobs.md`](../law/specs/agent-tool-surface-jobs.md) and [`agent-jobs.v1.json`](../scenarios/agent-jobs.v1.json). | Tool-neutral jobs and scenarios judge resulting state, required communication, prohibited effects, and shared invariants. The linked contract and corpus own the current set. | Local Concord requirements/postmortem + official MCP/Anthropic/OpenAI guidance + tau²/WebArena/BFCL evaluation patterns. Reopen only for a repeated unmet intent, measured merge/split need, unbounded job, wrong-state oracle, or missing recurring recovery case. | PM1 → **CD-0005 §1 + TS2–TS9 input**, operator-approved. |
+| **TS1 Accepted** Canonical agent jobs + evaluation scenarios. *Binding:* [`../law/specs/agent-tool-surface-jobs.md`](../law/specs/agent-tool-surface-jobs.md) and [`agent-jobs.v1.json`](../scenarios/agent-jobs.v1.json). | Tool-neutral jobs and scenarios judge resulting state, required communication, prohibited effects, and shared invariants. The linked contract and corpus own the current set. | Local Concord requirements/postmortem + official MCP/Anthropic/OpenAI guidance + tau²/WebArena/BFCL evaluation patterns. Reopen only for a repeated unmet intent, measured merge/split need, unbounded job, wrong-state oracle, or missing recurring recovery case. | Product-memory queries → **CD-0005 §1 + agent-surface input**, operator-approved. |
 | **TS2 Accepted 2026-08-06** Surface budget + granularity. *Binding:* [`../law/specs/agent-tool-surface-budget.md`](../law/specs/agent-tool-surface-budget.md). | The linked contract owns the surface budget. Merge only across aligned intent, authority, consequence, retry, and result families; split at material boundary changes. Static v1 exposure; no discovery meta-tool before evidence. | TS1 corpus candidate comparison; hard-oracle correctness first, then success/recovery, tool count, schema/context cost, calls, and retries. Reopen if no candidate within the accepted budget passes, tools are measurably indistinguishable/always chained, context cost causes failure, or discovery becomes materially better. | TS1 → **CD-0005 §2 + TS3–TS9 input**, operator-approved. |
-| **TS3 Accepted 2026-08-06** Read/query tool shape. *Binding:* [`../law/specs/agent-read-tool-contract.md`](../law/specs/agent-read-tool-contract.md). | Product, work and Domain reads use strict typed unions, bounded detail/cursors/graphs, and no read-side mutation. | PM1 Q1, Q2, Q3, Q7 and Q8 plus TS1 scenarios under TS2 rules. | PM1, TS1–TS2 → **CD-0005 §3 + TS5–TS9 input**, operator-approved. |
-| **TS4 Accepted 2026-08-06** Intent mutation tool shape. *Binding:* [`../law/specs/agent-mutation-tool-contract.md`](../law/specs/agent-mutation-tool-contract.md). | Three tools: `concord_work_define` (`capture|revise_intent`), `concord_work_transition` (`lifecycle|workflow_action`), and `concord_work_relate` (memberships/overlap/messages). Single-intent calls, no generic patch/mixed batch; native systems retain external execution. | PM3–PM6 + TS1 scenarios under TS2 rules. Reopen for client-sequenced invariants, repeated selection confusion, demonstrated full-replacement failure, justified homogeneous batch, or a recurring operation requiring new Concord authority. | PM3–PM6, TS1–TS3 → **CD-0005 §4 + TS5–TS9 input**, operator-approved. |
+| **TS3 Accepted 2026-08-06** Read/query tool shape. *Binding:* [`../law/specs/agent-read-tool-contract.md`](../law/specs/agent-read-tool-contract.md). | Product, work and Domain reads use strict typed unions, bounded detail/cursors/graphs, and no read-side mutation. | Product-memory queries Q1, Q2, Q3, Q7 and Q8 plus TS1 scenarios under TS2 rules. | Product-memory queries, TS1–TS2 → **CD-0005 §3 + agent-surface input**, operator-approved. |
+| **TS4 Accepted 2026-08-06** Intent mutation tool shape. *Binding:* [`../law/specs/agent-mutation-tool-contract.md`](../law/specs/agent-mutation-tool-contract.md). | Three tools: `concord_work_define` (`capture|revise_intent`), `concord_work_transition` (`lifecycle|workflow_action`), and `concord_work_relate` (memberships/overlap/messages). Single-intent calls, no generic patch/mixed batch; native systems retain external execution. | PM3–PM6 + TS1 scenarios under TS2 rules. Reopen for client-sequenced invariants, repeated selection confusion, demonstrated full-replacement failure, justified homogeneous batch, or a recurring operation requiring new Concord authority. | PM3–PM6, TS1–TS3 → **CD-0005 §4 + agent-surface input**, operator-approved. |
 | **TS5 Accepted 2026-08-06** Scope, context, authorization, idempotency. *Binding:* [`../law/specs/agent-call-context-contract.md`](../law/specs/agent-call-context-contract.md). | Trusted host injects a typed self-contained envelope; the registered client policy and resolved scope prove principal/client/scope/capabilities. Core re-resolves ambient scope every call; mutations require current scope/entity versions and durable idempotency. No path/trust booleans. | Shared/cross-Product, stale-context, spoofed-principal, duplicate-delivery, and partial-operation scenarios. Reopen if the primary client cannot inject proof, scope resolution fails, client scope is too broad, dedupe dominates retention, or another client cannot map to the envelope. | PM2, PM5, TS3–TS4 → **CD-0005 §5 + TS6–TS9 input**, operator-approved. |
-| **TS6 Accepted 2026-08-06** Adapter, plugin, transport role. *Binding:* [`../law/specs/agent-adapter-transport-contract.md`](../law/specs/agent-adapter-transport-contract.md). | The thin plugin entry and shared `concord.ts` transport follow [`core-architecture.md` §1](./core-architecture.md#1-language-ownership). The adapter invokes the short-lived Go CLI over JSON stdin/stdout; domain logic and authority stay in Go. | Official OpenCode docs/current source + TS1–TS5. Reopen if the hidden envelope cannot be established, module lifecycle loses to another adapter, spawn reversal fires, a real second client appears, or OpenCode adds a simpler equivalent binary adapter. | TS2–TS5 → **CD-0005 §6 + TS7–TS9 input**, operator-approved. |
-| **TS7 Accepted 2026-08-06; amendment approved 2026-08-11** Result/error/evidence/pagination envelope. *Binding:* [`../law/specs/agent-result-envelope.md`](../law/specs/agent-result-envelope.md) + [`agent-tool-envelope.schema.json`](../../contracts/agent-tool-envelope.schema.json). | Strict `ok|error`; producer-validated closed results; required origin/scope/authority/freshness/watermarks/pagination/omissions/evidence; typed errors/effect/recovery; mutation changed refs + next intents; 64 KiB cap; authenticated cursor; no raw exhaust or excerpts. | PM1/TS1/TS5 scenario replay plus Draft 2020-12 structural probes and producer-side budget/schema vectors. Reopen if agents must parse messages, routine success needs follow-up status, bounds cause pathological calls, cursor binding blocks legitimate continuation, locators cannot identify proof, client validators diverge, or a distinct outcome class is proven. | TS3–TS6 → **CD-0005 §7 + TS8–TS9 input**, operator-approved. |
-| **TS8 Accepted 2026-08-06, amended by CD-0024 and CD-0042** Current surface identity and change evidence. *Binding:* [`../law/specs/agent-tool-surface-evolution.md`](../law/specs/agent-tool-surface-evolution.md). | One generated manifest and exact digest; static registration, strict generation, mismatch failure, named deterministic proof, and operator acceptance for authority/consequence changes. No pre-go-live surface versions, negotiation, aliases, deprecation windows, or old-client paths. First go-live defines future compatibility law. | Generated drift, digest mismatch, unknown inputs, authority/transaction failures, unsafe static loading, or a concrete supported client requiring a different identity. | TS2–TS7 → **current-surface evolution contract + TS9 evidence**, operator-approved. |
-| **TS9 Accepted 2026-08-06; amended by CD-0042** Pre-go-live measurement/evidence contract. *Binding:* [`../law/specs/agent-tool-surface-measurement.md`](../law/specs/agent-tool-surface-measurement.md). | PM1/TS1 deterministic scenarios, strict schemas, authority/transaction/negative/conformance proof. Supported-model trials and production telemetry are research only before go-live. First go-live defines populations and re-accepts any measurement gate. | A named unmet intent, schema defect, authority/recovery regression, conformance failure, or later supported population requiring a new method. | TS1–TS8 → **pre-go-live evidence contract**, operator-approved. |
+| **TS6 Accepted 2026-08-06** Adapter, plugin, transport role. *Binding:* [`../law/specs/agent-adapter-transport-contract.md`](../law/specs/agent-adapter-transport-contract.md). | The thin plugin entry and shared `concord.ts` transport follow [`core-architecture.md` §1](./core-architecture.md#1-language-ownership). The adapter invokes the short-lived Go CLI over JSON stdin/stdout; domain logic and authority stay in Go. | Official OpenCode docs/current source + TS1–TS5. Reopen if the hidden envelope cannot be established, module lifecycle loses to another adapter, spawn reversal fires, a real second client appears, or OpenCode adds a simpler equivalent binary adapter. | TS2–TS5 → **CD-0005 §6 + agent-surface input**, operator-approved. |
+| **Agent result envelope.** *Binding:* [`../law/specs/agent-result-envelope.md`](../law/specs/agent-result-envelope.md) + [`agent-tool-envelope.schema.json`](../../contracts/agent-tool-envelope.schema.json). | Closed results; typed errors/effect/recovery; pagination and omissions; mutation changed refs and next intents; 51,200-byte cap; authenticated cursor; no raw exhaust or excerpts. | Product-memory query/TS1/TS5 scenarios plus structural probes and producer-side budget/schema vectors. | TS3–TS6 → **CD-0005 §7 + TS8–TS9 input**. |
+| **TS8 Accepted 2026-08-06, amended by CD-0024 and CD-0042** Current surface identity and change evidence. *Binding:* [`../law/specs/agent-tool-surface-evolution.md`](../law/specs/agent-tool-surface-evolution.md). | One generated manifest and exact digest; static registration, strict generation, mismatch failure, named deterministic proof, and operator acceptance for authority/consequence changes. No pre-go-live surface versions, negotiation, aliases, deprecation windows, or old-client paths. First go-live defines future compatibility law. | Generated drift, digest mismatch, unknown inputs, authority/transaction failures, unsafe static loading, or a concrete supported client requiring a different identity. | Agent-surface contracts → **current-surface evolution contract + TS9 evidence**, operator-approved. |
+| **TS9 Accepted 2026-08-06; amended by CD-0042** Pre-go-live measurement/evidence contract. *Binding:* [`../law/specs/agent-tool-surface-measurement.md`](../law/specs/agent-tool-surface-measurement.md). | Product-memory query/TS1 deterministic scenarios, strict schemas, authority/transaction/negative/conformance proof. Supported-model trials and production telemetry are research only before go-live. First go-live defines populations and re-accepts any measurement gate. | A named unmet intent, schema defect, authority/recovery regression, conformance failure, or later supported population requiring a new method. | Agent-surface contracts → **pre-go-live evidence contract**, operator-approved. |
 
 ---
 
 ## Recommended answering order
 
-**The product-memory contracts, TS1–TS9, CD-0006, CD-0007, CD-0008, and CD-0082 are accepted.** Product-memory
+**The product-memory contracts, agent-surface contracts, CD-0006, CD-0007, CD-0008, and CD-0082 are accepted.** Product-memory
 decisions authorize the storage/core acceptance slice; CD-0005 consolidates the
 accepted agent surface;
 CD-0006/CD-0007/CD-0008/CD-0082 fix root policy, public authority boundaries,
 evidence binding, unreadable-record isolation, execution mechanics, and
-demand-driven migration/correction. PM1 remains the shared query/read-tool corpus.
+demand-driven migration/correction. Product-memory query remains the shared query/read-tool corpus.
 No storage table or CLI command automatically earns a tool. Remaining open
 clarifications resolve through their own evidence gates; C5 and C9–C10 remain
 deferred.

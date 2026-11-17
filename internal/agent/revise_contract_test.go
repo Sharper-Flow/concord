@@ -69,13 +69,16 @@ func TestReviseIntentUpdatesContractAtomicallyAndReplays(t *testing.T) {
 	expected := workVersion(t, s, "work-1")
 	raw, _ := json.Marshal(map[string]any{"work_id": "work-1", "expected_version": expected, "title": "Revised plan", "kind": "task", "reason": "Clarify the plan", "contract": contract, "idempotency_key": "ordinary-contract-update"})
 	request := InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: raw}
+	var original string
 	for attempt := 0; attempt < 2; attempt++ {
 		response, err := Dispatch(t.Context(), s, service, request, env)
 		if err != nil || response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("update attempt %d: %+v, %v", attempt, response.Error, err)
 		}
-		if response.Replayed != (attempt == 1) {
-			t.Fatalf("attempt %d replay = %v", attempt, response.Replayed)
+		if attempt == 0 {
+			original = string(response.Result)
+		} else if string(response.Result) != original {
+			t.Fatal("replay changed the contract revision result")
 		}
 	}
 	if got := workVersion(t, s, "work-1"); got != expected+1 {

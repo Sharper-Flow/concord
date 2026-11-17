@@ -9,7 +9,7 @@
   "applies_to_domain_ids": [],
   "law_relations": [
     {"kind": "refines", "target_id": "TS3"},
-    {"kind": "refines", "target_id": "PM1"},
+    {"kind": "refines", "target_id": "product-memory-query"},
     {"kind": "refines", "target_id": "CD-0005"},
     {"kind": "refines", "target_id": "CD-0113"},
     {"kind": "refines", "target_id": "CD-0224"}

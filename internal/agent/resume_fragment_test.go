@@ -28,8 +28,8 @@ func TestResumeOversizedDocumentDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(inline.SourceVersionWatermark) != 1 || inline.SourceVersionWatermark[0].Version != strconv.FormatInt(revision, 10) {
-		t.Fatalf("wrong source watermark: %+v", inline.SourceVersionWatermark)
+	if inline.CursorSource != strconv.FormatInt(revision, 10) {
+		t.Fatalf("wrong snapshot revision: %s", inline.CursorSource)
 	}
 	plan, err := store.WorkflowStepPlanTemplate(store.WorkflowStepPlanChange)
 	if err != nil {
@@ -106,8 +106,8 @@ func TestResumeOversizedDocumentDispatch(t *testing.T) {
 		if document.Len() == len(page.Data) && string(response.Result) != string(withoutWrite.Result) {
 			t.Fatal("unrelated write changed the continuation fragment")
 		}
-		if len(response.SourceVersionWatermark) != 1 || response.SourceVersionWatermark[0].Version != strconv.FormatInt(revision, 10) {
-			t.Fatalf("wrong continuation source watermark: %+v", response.SourceVersionWatermark)
+		if response.CursorSource != strconv.FormatInt(revision, 10) {
+			t.Fatalf("wrong continuation snapshot revision: %s", response.CursorSource)
 		}
 	}
 	doc := []byte(document.String())

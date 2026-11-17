@@ -25,7 +25,7 @@
 - **Approval:** Operator approved the carrier, probe, freshness, divergence, consumption, absence, decision-vehicle, and writer choices on 2026-08-17
 - **Related:** CD-0008 D2/D3/D5, CD-0014,
   CD-0036 D3/D4, CD-0039, issues #87, #88, #174, TS3
-  ([`agent-read-tool-contract.md`](../specs/agent-read-tool-contract.md)), TS7
+  ([`agent-read-tool-contract.md`](../specs/agent-read-tool-contract.md)), agent-result-envelope
   ([`agent-result-envelope.md`](../specs/agent-result-envelope.md))
 
 **Approval amendment:** [CD-0243 D7](CD-0243-four-roles-and-six-operator-approval-classes.md#d7-the-remaining-owners-use-the-same-approval-boundary)
@@ -268,9 +268,9 @@ migration.
 
 ### D12. Surface and existing-record obligations
 
-Purpose-built paths remain on their owning operations. TS7's authority, freshness,
-omissions, watermarks, and stale/degraded refusals carry read status; no new
-success/error vocabulary is needed.
+Purpose-built paths remain on their owning operations. The [agent result envelope](../specs/agent-result-envelope.md)
+uses omissions and stale/degraded-not-allowed/unreachable refusals to convey incomplete read status;
+no new success/error vocabulary is needed.
 
 Strict new input/output fields cannot be shown to old clients when omission
 would make an unverified record look ordinary. The first implementation joined

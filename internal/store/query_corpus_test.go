@@ -66,9 +66,6 @@ func TestAcceptedQ1ToQ8AndDomainCorpus(t *testing.T) {
 		}
 		encoded := marshalCorpusResult(t, result)
 		assertCorpusEnvelope(t, scenario.ID, encoded)
-		if authority, _ := encoded["authority"].(string); authority != scenario.Expected.Authority {
-			t.Fatalf("%s: authority %q, want %q", scenario.ID, authority, scenario.Expected.Authority)
-		}
 		for _, assertion := range scenario.Expected.Assertions {
 			assertCorpus(t, scenario.ID, encoded, assertion.Path, assertion.Op, assertion.Value)
 		}
@@ -189,18 +186,9 @@ func marshalCorpusResult(t *testing.T, result any) map[string]any {
 }
 func assertCorpusEnvelope(t *testing.T, id string, result map[string]any) {
 	t.Helper()
-	for _, field := range []string{"query_id", "contract_version", "resolved_scope", "source_version_watermark", "authority", "freshness", "ordering_keys", "next_cursor", "omissions", "warnings"} {
+	for _, field := range []string{"next_cursor", "omissions", "warnings"} {
 		if _, ok := result[field]; !ok {
 			t.Fatalf("%s: missing envelope field %s", id, field)
-		}
-	}
-	fresh, ok := result["freshness"].(map[string]any)
-	if !ok {
-		t.Fatalf("%s: malformed freshness", id)
-	}
-	for _, field := range []string{"observed_at", "age", "stale"} {
-		if _, ok := fresh[field]; !ok {
-			t.Fatalf("%s: missing freshness field %s", id, field)
 		}
 	}
 	for _, field := range []string{"items", "result"} {

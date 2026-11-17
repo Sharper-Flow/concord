@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "contract": "PM1",
+  "contract": "product-memory-query",
   "contract_status": "accepted",
   "performance_profile": {
     "dataset_multiplier": 10,
@@ -16,21 +16,9 @@
   },
   "runner_requirements": {
     "successful_result_required_fields": [
-      "query_id",
-      "contract_version",
-      "resolved_scope",
-      "source_version_watermark",
-      "authority",
-      "freshness",
-      "ordering_keys",
       "next_cursor",
       "omissions",
       "warnings"
-    ],
-    "freshness_required_fields": [
-      "observed_at",
-      "age",
-      "stale"
     ],
     "successful_result_payload_one_of": [
       "items",
@@ -41,7 +29,7 @@
       "retry_safe",
       "recovery_action"
     ],
-    "evaluation_order": "validate the applicable universal envelope or typed error before scenario expected authority and assertions"
+    "evaluation_order": "validate the applicable result or typed error before scenario assertions"
   },
   "fixtures": {
     "products": [
@@ -272,7 +260,6 @@
         "limit": 20
       },
       "expected": {
-        "authority": "authoritative",
         "assertions": [
           {
             "path": "$.products[*].id",
@@ -297,7 +284,6 @@
         "project": "proj-web"
       },
       "expected": {
-        "authority": "authoritative",
         "assertions": [
           {
             "path": "$.product.id",
@@ -348,7 +334,6 @@
         "preview_limit": 3
       },
       "expected": {
-        "authority": "authoritative",
         "assertions": [
           {
             "path": "$.lifecycle_counts.in_progress",
@@ -402,7 +387,6 @@
         "limit": 20
       },
       "expected": {
-        "authority": "authoritative",
         "assertions": [
           {
             "path": "$.items[*].id",
@@ -433,7 +417,6 @@
         "limit": 2
       },
       "expected": {
-        "authority": "authoritative",
         "assertions": [
           {
             "path": "$.items[*].id",
@@ -467,7 +450,6 @@
         }
       },
       "expected": {
-        "authority": "authoritative",
         "assertions": [
           {
             "path": "$.items[*].id",
@@ -506,10 +488,14 @@
         ]
       },
       "expected": {
-        "authority": "authoritative",
         "assertions": [
           {
             "path": "$.items",
+            "op": "eq",
+            "value": []
+          },
+          {
+            "path": "$.omissions",
             "op": "eq",
             "value": []
           }
@@ -525,7 +511,6 @@
         "direction": "oldest_first"
       },
       "expected": {
-        "authority": "authoritative",
         "assertions": [
           {
             "path": "$.entries[0].entry_kind",
@@ -556,7 +541,6 @@
         "direction": "outgoing"
       },
       "expected": {
-        "authority": "authoritative",
         "assertions": [
           {
             "path": "$.edges[0].source",
@@ -593,7 +577,6 @@
         "product": "prod-alpha"
       },
       "expected": {
-        "authority": "authoritative",
         "assertions": [
           {
             "path": "$.items[*].domain_id",
@@ -625,7 +608,6 @@
         "domain": "product-root:fixture-product"
       },
       "expected": {
-        "authority": "authoritative",
         "assertions": [
           {
             "path": "$.result.domain.domain_id",

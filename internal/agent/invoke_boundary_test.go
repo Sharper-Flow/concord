@@ -33,7 +33,7 @@ func TestInvokeShapesUnsupportedOperationAsTypedEnvelope(t *testing.T) {
 	if response.Error.RecoveryAction.Kind != "restart_query" {
 		t.Fatalf("recovery action=%q, want restart_query", response.Error.RecoveryAction.Kind)
 	}
-	if response.RequestID != env.RequestID || response.Tool != request.Tool || response.Operation != request.Operation {
+	if response.Tool != request.Tool || response.Operation != request.Operation {
 		t.Fatalf("envelope is not addressed to the refused request: %+v", response)
 	}
 }
@@ -73,11 +73,14 @@ func TestInvokePreEffectInputCorrection(t *testing.T) {
 	}
 	input["remote_issue_uuid"] = "remote-42"
 	corrected := invoke()
-	if corrected.Outcome != agentcontract.OutcomeOK || corrected.Replayed {
+	if corrected.Outcome != agentcontract.OutcomeOK {
 		t.Fatalf("correcting only issue identity under unchanged authority failed: %+v", corrected)
 	}
-	if replay := invoke(); replay.Outcome != agentcontract.OutcomeOK || !replay.Replayed {
+	if replay := invoke(); replay.Outcome != agentcontract.OutcomeOK || string(replay.Result) != string(corrected.Result) {
 		t.Fatalf("committed correction must keep idempotency: %+v", replay)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM linear_issue_links WHERE work_id='work-1'`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("correction and replay wrote %d issue links: %v", count, err)
 	}
 }
 

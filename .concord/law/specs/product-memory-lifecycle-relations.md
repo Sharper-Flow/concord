@@ -32,7 +32,7 @@
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-05.
 > **Decision:** PM4; direct accepted authority for Concord's Product-memory lifecycle and relation semantics.
-> **Binding inputs:** accepted PM1 query contract, PM2 global SQLite authority,
+> **Binding inputs:** product-memory-query, PM2 global SQLite authority,
 > PM3 hybrid explicit-core schema, and CD-0002 invariants I1–I6.
 > **Research basis:** official/public
 > models from Linear, Jira, Bugzilla, GitHub Issues, Plane, and Fossil. No benchmark
@@ -56,8 +56,8 @@ per-item, scoped, fenced, and subject to the existing planning handoff.
 
 ## Context
 
-Work items need one lifecycle and relation semantics shared by every PM1
-read. The binding inputs are the accepted PM1 query contract, PM2 global
+Work items need one lifecycle and relation semantics shared by every product-memory-query
+read. The binding inputs are product-memory-query, PM2 global
 authority, PM3's hybrid explicit core, and CD-0002 invariants I1 through I6.
 This record decides the closed lifecycle state set, the allowed transitions,
 the derived work views, and the typed relation model with its graph rules.
@@ -78,7 +78,7 @@ typed directional relations between work items. Read-time properties such as
 `blocked`, `ready`, `active`, and `terminal` are deterministic projections of that
 state and relation graph—never independently mutable fields.
 
-This creates one explainable lifecycle/relation answer to PM1 Q2, Q3, Q7 and Q8
+This creates one explainable lifecycle/relation answer to product-memory-query Q2, Q3, Q7 and Q8
 without importing a gate hierarchy into Product memory or allowing stored
 summary flags to drift from truth. Accepted PM5 supplies membership identity.
 
@@ -165,7 +165,7 @@ execution has no blocking effect. Its stored edge stays readable as history.
 Parent relations do not silently block children or auto-transition parents.
 Any progress roll-up is a derived read model.
 
-PM1 defines deterministic ordering. Lifecycle stage does not imply business priority.
+product-memory-query defines deterministic ordering. Lifecycle stage does not imply business priority.
 
 ## 4. Relation model
 
@@ -187,7 +187,7 @@ lease, executor, or per-work-item concurrency fence.
 `implements` is a non-governing fulfillment link. It does not determine readiness,
 terminality, or hierarchy, and imposes no transitive-closure or cycle rule.
 
-`relates_to` is excluded because no accepted PM1 job requires an untyped symmetric
+`relates_to` is excluded because no accepted product-memory-query job requires an untyped symmetric
 link. Add it only through a future demonstrated query need.
 
 ## 5. Validation and atomic operations
@@ -217,9 +217,9 @@ acceptance work at Concord's measured scale.
 7. **No partial terminality:** terminal state and required terminal metadata commit
    together or not at all.
 
-## 7. PM1 corpus fixture compatibility
+## 7. Product-memory query corpus fixture compatibility
 
-PM1's scenario corpus intentionally used provisional PM4 vocabulary. An adapter
+The Product-memory query scenario corpus intentionally used provisional PM4 vocabulary. An adapter
 normalizes it as follows:
 
 - fixture `depends_on` with `source=A, target=B` becomes the canonical stored edge
@@ -273,12 +273,12 @@ PM4 does not decide:
 
 Reopen PM4 if:
 
-1. derived readiness reads cannot meet PM1's bounded P99 target at 10× scale;
+1. derived readiness reads cannot meet product-memory-query's bounded P99 target at 10× scale;
 2. repeated real work requires a soft/hard dependency distinction that cannot be a
    typed relation attribute;
 3. external blockers repeatedly fail the work-item model;
 4. `implements` repeatedly needs a non-work typed target;
-5. an accepted PM1 job requires a lifecycle state or relation absent here.
+5. an accepted product-memory-query job requires a lifecycle state or relation absent here.
 
 ## 11. Primary sources
 
@@ -292,7 +292,7 @@ Reopen PM4 if:
 - Plane workflow states: https://docs.plane.so/core-concepts/issues/states
 - Fossil ticket model: https://fossil-scm.org/doc/tip/www/tickets.wiki
 
-External models are comparison evidence, not authority for Concord. PM1's accepted
+External models are comparison evidence, not authority for Concord. The accepted product-memory-query
 jobs/oracles, CD-0002 invariants, and the falsifiers above remain controlling.
 
 ## Acceptance criteria

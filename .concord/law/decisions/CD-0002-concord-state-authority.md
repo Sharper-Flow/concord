@@ -305,9 +305,9 @@ daemon that §2b demoted.
 3. **Entity shape** — PM3 requires **explicit typed Product-memory state** and
    typed-edge integrity; the store keeps current rows ([CD-0242 D2](CD-0242-knowledge-first-workflows-keep-current-state-not-history.md#d2-the-store-keeps-current-state-and-finite-snapshots-not-history)).
 
-The storage-spine slice records the current baseline. PM1–PM3 now fix canonical
+The storage-spine slice records the current baseline. product-memory-query and PM2–PM3 now fix canonical
 queries, authority scope, domain projection shape, lifecycle/relation semantics,
-and membership scope. PM1–PM5 now authorize storage/core implementation.
+and membership scope. product-memory-query and PM2–PM5 now authorize storage/core implementation.
 
 ---
 

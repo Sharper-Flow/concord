@@ -3,7 +3,7 @@
 **Question:** Did the CON-1888 (Concord instruction dedup) and CON-1889 (host
 overlap) merges make agent instruction-following worse?
 **Answer:** No merge-attributable material regression was found; per the
-recorded ship-then-test rule the merges should stand. Restoration is pending.
+recorded ship-then-test rule the merges should stand. Restoration merged.
 The REC regression flag traces to a fixture defect — the candidate arm followed the
 UI/UX screenshot rule that both arms carry, and the S09 rubric omits that
 rule — not to worse behavior. S3 safety events occurred in both
@@ -109,8 +109,7 @@ worse is undone") and the ticket's end state 4:
    [revert PR](https://github.com/Sharper-Flow/concord/pull/2462) for CON-1888
    merged at `6f21c145170b1f649f145c5d632bf4fae4d05150` on the initial REC
    reading. The [restoration PR](https://github.com/Sharper-Flow/concord/pull/2463)
-   is pending required queue checks. Its current head
-   `7dcc8bf676e3077688b55325e6c7adabb7beead9` passed final incremental review;
+   merged at `89bddd8655df290f06a9da6f8a6d6b90e7f628e2` on 2026-11-17;
    the 16-file restoration patch and #2464 are preserved. The combined arms cannot isolate the Concord merge
    from the host change, including ticket-question routing.
 2. **Follow-ups, not a new run:** reconcile the

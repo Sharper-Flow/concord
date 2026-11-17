@@ -10,7 +10,7 @@ the relevant SQLite reopen condition. The rate alone does not justify a storage
 change, and this report is not a latency or architecture verdict.
 
 The operator accepted partial findings and stopped further instrumentation.
-Earlier capture commands are withdrawn. This observation is not evidence of
+This observation is not evidence of
 the same operation population, future load, or a representative all-day rate.
 
 ## Scope and method
@@ -30,11 +30,7 @@ The sampler timeout is not the core's five-second busy timeout.
 
 Database identity and migration identity remained unchanged across samples:
 201 migrations and SQLite `schema_version` 2226. Raw samples and sampler
-source are retained outside Git in the owning work record. The retained
-sample file SHA-256 is
-`50b336be8fa53e879150809a0cf6bab89fa03a570f8078d82c1b265c6d037566`;
-the sampler source SHA-256 is
-`00d3d76d135ad777eec4304a9b18e893292c26f5e0579f4c752283fded4fca6f`.
+source are retained outside Git in the owning work record.
 
 Each sample read these two counters from one database snapshot:
 
@@ -77,8 +73,8 @@ durations, and this observation had no timing recorder.
 ## Host context
 
 The sampler observed 27–29 live host leases, matching the observed OpenCode
-process count at every sample. These are neither 20 writers nor a count of
-active writers. Process scans had 1–6 `/proc` read errors in 34 samples, so
+process count at every sample. They are not a count of active writers.
+Process scans had 1–6 `/proc` read errors in 34 samples, so
 the observed process counts are lower bounds; lease reads had zero errors.
 The host reported 16 logical CPUs and a constant affinity of 16 CPUs.
 

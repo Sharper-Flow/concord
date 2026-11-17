@@ -202,7 +202,24 @@ const currentQ7EntriesSQL = `WITH selected_work AS (SELECT * FROM work_items WHE
  json_object('work_id_from',r.work_id_from,'work_id_to',r.work_id_to,'relation_kind',r.kind,'created_at',r.created_at,'resolution_id',r.resolution_id)
  FROM relations r JOIN effect_receipts f ON f.relation_seq=r.id
  WHERE (r.work_id_from=(SELECT id FROM selected_work) OR r.work_id_to=(SELECT id FROM selected_work))
- AND f.subject_type='work_item' AND f.effect_seq>0 AND r.record_version>0
+  AND ` + currentQ7RelationPredicate + `
+  UNION ALL
+  SELECT 'phase_exit:'||x.work_id||':'||x.action_id,'phase_exit',x.exit_seq,x.record_version,x.work_id,x.actor,'','[]',
+  json_object('action_id',x.action_id,'step_id',x.step_id,'contract_version',x.contract_version)
+  FROM workflow_phase_exits x JOIN selected_work w ON w.id=x.work_id
+  UNION ALL
+  SELECT 'evidence_binding:'||b.binding_id,'evidence_binding',b.binding_seq,COALESCE(json_extract(b.payload,'$.resulting_version'),0),b.work_id,b.actor,'',
+  json_array(json_extract(b.payload,'$.immutable_subject_ref')),
+  json_object('binding_id',b.binding_id,'evidence_kind',json_extract(b.payload,'$.evidence_kind'),
+  'immutable_subject_ref',json_extract(b.payload,'$.immutable_subject_ref'),'producer_id',json_extract(b.payload,'$.producer_id'),
+  'producer_run_ref',json_extract(b.payload,'$.producer_run_ref'),'producer_watermark',json_extract(b.payload,'$.producer_watermark'),
+  'observed_at',json_extract(b.payload,'$.observed_at'))
+  FROM workflow_evidence_bindings b JOIN selected_work w ON w.id=b.work_id
+ )`
+
+// currentQ7RelationPredicate is shared by history and attribution inspection.
+// It expects relations r and their joined effect_receipts f.
+const currentQ7RelationPredicate = `f.subject_type='work_item' AND f.effect_seq>0 AND r.record_version>0
  AND NOT EXISTS (SELECT 1 FROM effect_receipts other WHERE other.relation_seq=r.id AND other.event_id<>f.event_id)
  AND (
    (f.kind='relation.added' AND f.subject_id=r.work_id_from AND r.resolution_id IS NULL AND r.kind IN ('blocks','depends_on','implements','parent','raised_from'))
@@ -212,17 +229,4 @@ const currentQ7EntriesSQL = `WITH selected_work AS (SELECT * FROM work_items WHE
      SELECT 1 FROM workflow_overlap_resolutions x WHERE x.resolution_id=r.resolution_id AND x.event_seq=f.effect_seq
      AND x.from_work_id=r.work_id_from AND x.to_work_id=r.work_id_to AND x.resolution_kind=r.kind AND x.reason=r.reason
      AND x.created_at=r.created_at AND x.invalidated_seq IS NULL))
- )
- UNION ALL
- SELECT 'phase_exit:'||x.work_id||':'||x.action_id,'phase_exit',x.exit_seq,x.record_version,x.work_id,x.actor,'','[]',
- json_object('action_id',x.action_id,'step_id',x.step_id,'contract_version',x.contract_version)
- FROM workflow_phase_exits x JOIN selected_work w ON w.id=x.work_id
- UNION ALL
- SELECT 'evidence_binding:'||b.binding_id,'evidence_binding',b.binding_seq,COALESCE(json_extract(b.payload,'$.resulting_version'),0),b.work_id,b.actor,'',
- json_array(json_extract(b.payload,'$.immutable_subject_ref')),
- json_object('binding_id',b.binding_id,'evidence_kind',json_extract(b.payload,'$.evidence_kind'),
- 'immutable_subject_ref',json_extract(b.payload,'$.immutable_subject_ref'),'producer_id',json_extract(b.payload,'$.producer_id'),
- 'producer_run_ref',json_extract(b.payload,'$.producer_run_ref'),'producer_watermark',json_extract(b.payload,'$.producer_watermark'),
- 'observed_at',json_extract(b.payload,'$.observed_at'))
- FROM workflow_evidence_bindings b JOIN selected_work w ON w.id=b.work_id
-)`
+  )`

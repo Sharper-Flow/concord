@@ -216,9 +216,8 @@ type resumeInput struct {
 }
 
 type resumeCursor struct {
-	Digest    string `json:"digest"`
-	Watermark int64  `json:"watermark"`
-	Offset    int    `json:"offset"`
+	Digest string `json:"digest"`
+	Offset int    `json:"offset"`
 }
 
 func (r runtime) readTraceResume(ctx context.Context, base agentcontract.Envelope, input []byte) (agentcontract.Envelope, error) {
@@ -255,8 +254,8 @@ func (r runtime) readTraceResume(ctx context.Context, base agentcontract.Envelop
 		return base, err
 	}
 	digest := mutationDocumentDigest(doc)
-	if inner != "" && (cursor.Digest != digest || cursor.Watermark != resume.SourceVersionWatermark || cursor.Offset >= len(doc) || !utf8.RuneStart(doc[cursor.Offset])) {
-		return coreError(base, "invalid_cursor", "resume document or source version changed; restart the read", "restart_query", false), nil
+	if inner != "" && (cursor.Digest != digest || cursor.Offset >= len(doc) || !utf8.RuneStart(doc[cursor.Offset])) {
+		return coreError(base, "invalid_cursor", "resume document changed or cursor offset is invalid; restart the read", "restart_query", false), nil
 	}
 	if inner == "" {
 		response, err := r.resultEnvelope(base, meta, r.scope(store.ResultMeta{}), resume)
@@ -277,7 +276,7 @@ func (r runtime) readTraceResume(ctx context.Context, base agentcontract.Envelop
 		page := mutationFragmentPage{"json-fragment", digest, len(doc), offset, string(doc[offset:end]), n, end == len(doc)}
 		pageMeta := meta
 		if end < len(doc) {
-			token, err := json.Marshal(resumeCursor{digest, resume.SourceVersionWatermark, end})
+			token, err := json.Marshal(resumeCursor{digest, end})
 			if err != nil {
 				return base, 0, err
 			}

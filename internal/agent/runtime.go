@@ -929,9 +929,7 @@ func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string
 		return "", nil
 	}
 	expected := SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default"}
-	if r.Tool == "concord_work_trace" && r.Operation == "mutation_result" {
-		// The retained document is immutable. Unrelated writes must not
-		// invalidate its continuation; the filter binds its exact identity.
+	if r.documentContinuation() {
 		expected.Source = binding
 	} else {
 		watermark, err := r.Store.Revision(ctx)
@@ -951,12 +949,24 @@ func (r runtime) wrapCursor(ctx context.Context, response agentcontract.Envelope
 	if response.NextCursor == nil {
 		return response, nil
 	}
-	token, err := r.Store.EncodeCursor(ctx, SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default", Source: watermarkString(response), Last: "", Inner: *response.NextCursor})
+	source := watermarkString(response)
+	if r.documentContinuation() {
+		source = binding
+	}
+	token, err := r.Store.EncodeCursor(ctx, SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default", Source: source, Last: "", Inner: *response.NextCursor})
 	if err != nil {
 		return response, err
 	}
 	response.NextCursor = &token
 	return response, nil
+}
+
+// documentContinuation reports the operations whose cursors page one captured
+// document. Their continuations bind query identity instead of the store
+// revision, so unrelated writes do not invalidate them; the handler refuses
+// when the document bytes change.
+func (r runtime) documentContinuation() bool {
+	return r.Tool == "concord_work_trace" && (r.Operation == "mutation_result" || r.Operation == "resume")
 }
 
 func watermarkString(response agentcontract.Envelope) string {

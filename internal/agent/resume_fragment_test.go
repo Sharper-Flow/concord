@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -45,9 +46,9 @@ func TestResumeOversizedDocumentDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	read := func(work string, cursor *string, operation string) agentcontract.Envelope {
-		input := map[string]any{"work_id": work}
+		input := map[string]any{"work_id": work, "page": map[string]any{"limit": 100}}
 		if cursor != nil {
-			input["page"] = map[string]any{"cursor": *cursor}
+			input["page"] = map[string]any{"limit": 100, "cursor": *cursor}
 		}
 		return dispatchRead(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_trace", Operation: operation, Input: retryJSON(input)}, fx.envelope(t))
 	}
@@ -60,6 +61,10 @@ func TestResumeOversizedDocumentDispatch(t *testing.T) {
 		t.Fatalf("expected first fragment: %+v %v", response, err)
 	}
 	firstCursor := *response.NextCursor
+	withoutWrite := read(fx.workID, &firstCursor, "resume")
+	if withoutWrite.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("continuation without a write refused: %+v", withoutWrite.Error)
+	}
 	var document strings.Builder
 	digest, total := page.Digest, page.TotalBytes
 	for {
@@ -80,9 +85,29 @@ func TestResumeOversizedDocumentDispatch(t *testing.T) {
 		if response.NextCursor == nil {
 			t.Fatal("missing continuation")
 		}
+		before, err := fx.store.Revision(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := fx.store.Transact(context.Background(), func(tx *store.Transaction) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+		revision, err := fx.store.Revision(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if revision <= before {
+			t.Fatalf("write did not advance store revision: %d -> %d", before, revision)
+		}
 		response = read(fx.workID, response.NextCursor, "resume")
 		if response.Outcome != agentcontract.OutcomeOK {
 			t.Fatalf("continuation refused: %+v", response.Error)
+		}
+		if document.Len() == len(page.Data) && string(response.Result) != string(withoutWrite.Result) {
+			t.Fatal("unrelated write changed the continuation fragment")
+		}
+		if len(response.SourceVersionWatermark) != 1 || response.SourceVersionWatermark[0].Version != strconv.FormatInt(revision, 10) {
+			t.Fatalf("wrong continuation source watermark: %+v", response.SourceVersionWatermark)
 		}
 	}
 	doc := []byte(document.String())
@@ -109,12 +134,60 @@ func TestResumeOversizedDocumentDispatch(t *testing.T) {
 	assertRefused("tampering", read(fx.workID, &tampered, "resume"))
 	assertRefused("work rebinding", read(readPopulationPeer, &firstCursor, "resume"))
 	assertRefused("operation rebinding", read(fx.workID, &firstCursor, "history"))
+	changedLimit := dispatchRead(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_trace", Operation: "resume", Input: retryJSON(map[string]any{"work_id": fx.workID, "page": map[string]any{"limit": 99, "cursor": firstCursor}})}, fx.envelope(t))
+	if changedLimit.Outcome == agentcontract.OutcomeOK || changedLimit.Error == nil || changedLimit.Error.Kind != "invalid_cursor" {
+		t.Fatalf("different limit accepted cursor: %+v", changedLimit.Error)
+	}
+	otherScope := fx.envelope(t)
+	otherScope.SelectedProductID = ""
+	scopeResponse := dispatchRead(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_trace", Operation: "resume", Input: retryJSON(map[string]any{"work_id": fx.workID, "page": map[string]any{"limit": 100, "cursor": firstCursor}})}, otherScope)
+	if scopeResponse.Outcome == agentcontract.OutcomeOK || scopeResponse.Error == nil || scopeResponse.Error.Kind != "invalid_cursor" {
+		t.Fatalf("different scope accepted cursor: %+v", scopeResponse.Error)
+	}
 	otherService, _, otherGrant := newAuthorizedService(t, fx.store, "client-other-resume", "human-other-resume", []agentcontract.Capability{"product_read"}, []string{readPopulationProduct}, []string{readPopulationProject}, store.ProjectResolution{ProjectID: readPopulationProject})
 	otherGrant.SessionRef = "session-other-resume"
 	otherGrant.AgentRef = "agent-1"
-	other := dispatchRead(t, fx.store, otherService, InvokeRequest{Tool: "concord_work_trace", Operation: "resume", Input: retryJSON(map[string]any{"work_id": fx.workID, "page": map[string]any{"cursor": firstCursor}})}, agentJobsEnvelope(otherGrant, readPopulationProject, readPopulationProduct))
+	other := dispatchRead(t, fx.store, otherService, InvokeRequest{Tool: "concord_work_trace", Operation: "resume", Input: retryJSON(map[string]any{"work_id": fx.workID, "page": map[string]any{"limit": 100, "cursor": firstCursor}})}, agentJobsEnvelope(otherGrant, readPopulationProject, readPopulationProduct))
 	if other.Outcome == agentcontract.OutcomeOK || other.Error == nil || other.Error.Kind != "invalid_cursor" {
 		t.Fatalf("different principal accepted cursor: %+v", other.Error)
+	}
+	outerRaw, err := base64.RawURLEncoding.DecodeString(strings.Split(firstCursor, ".")[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var outer SignedCursor
+	if err := json.Unmarshal(outerRaw, &outer); err != nil {
+		t.Fatal(err)
+	}
+	var issued resumeCursor
+	if err := json.Unmarshal([]byte(outer.Inner), &issued); err != nil {
+		t.Fatal(err)
+	}
+	resign := func(offset int) agentcontract.Envelope {
+		inner, err := json.Marshal(resumeCursor{digest, offset})
+		if err != nil {
+			t.Fatal(err)
+		}
+		forged := outer
+		forged.Inner = string(inner)
+		signed, err := fx.store.EncodeCursor(context.Background(), forged)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return read(fx.workID, &signed, "resume")
+	}
+	if got := resign(issued.Offset); got.Outcome != agentcontract.OutcomeOK {
+		t.Fatalf("re-signed issued offset refused: %+v", got.Error)
+	}
+	midRune := strings.Index(string(doc), "界") + 1
+	if midRune == 0 {
+		t.Fatal("document carries no multibyte rune")
+	}
+	for _, offset := range []int{0, midRune, len(doc)} {
+		got := resign(offset)
+		if got.Outcome == agentcontract.OutcomeOK || got.Error == nil || got.Error.Kind != "invalid_cursor" {
+			t.Fatalf("invalid offset %d accepted cursor: %+v", offset, got.Error)
+		}
 	}
 	plan.Steps[0].Attempts[0].Note = "changed note"
 	changed, err := json.Marshal(plan)
@@ -127,13 +200,6 @@ func TestResumeOversizedDocumentDispatch(t *testing.T) {
 	drift := read(fx.workID, &firstCursor, "resume")
 	if drift.Outcome == agentcontract.OutcomeOK || drift.Error == nil || drift.Error.Kind != "invalid_cursor" {
 		t.Fatalf("changed document accepted cursor: %+v", drift.Error)
-	}
-	if _, err := fx.store.DatabaseForTesting().Exec(`INSERT INTO write_guard(active) VALUES(1); UPDATE workflow_instances SET step_plan=? WHERE work_id=?; DELETE FROM write_guard; UPDATE store_revision SET revision=revision+1 WHERE id=1`, string(raw), fx.workID); err != nil {
-		t.Fatal(err)
-	}
-	drift = read(fx.workID, &firstCursor, "resume")
-	if drift.Outcome == agentcontract.OutcomeOK || drift.Error == nil || drift.Error.Kind != "invalid_cursor" {
-		t.Fatalf("changed source version accepted cursor: %+v", drift.Error)
 	}
 }
 

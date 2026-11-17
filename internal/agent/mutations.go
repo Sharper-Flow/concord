@@ -859,7 +859,7 @@ func (r runtime) planLifecycle(_ context.Context, base agentcontract.Envelope, r
 	if in.Target != "needed" && in.Target != "in_progress" && in.Target != "completed" && in.Target != "cancelled" && in.Target != "reopen" {
 		return coreError(base, "invalid_input", "unknown lifecycle target "+in.Target, "reread_entities", false), nil, true
 	}
-	if in.Target == "completed" && len(in.Evidence) == 0 {
+	if in.Target == "completed" && !slices.ContainsFunc(in.Evidence, func(e agentcontract.EvidenceRef) bool { return e.Kind == "verification" }) {
 		response := coreError(base, "missing_evidence", "completion requires verification evidence", "provide_evidence", false)
 		response.Error.Details = map[string]any{"operation_digest": digest, "work_id": in.WorkID, "expected_version": in.ExpectedVersion, "required_kind": "verification"}
 		return response, nil, true

@@ -31,9 +31,12 @@ TOOL_SCHEMA = {"type": "object", "properties": {"action": {"type": "string"},
                "arguments": {"type": "object", "additionalProperties": {}}},
                "required": ["action", "arguments"], "additionalProperties": False}
 PLUGIN = r'''import { tool } from "@opencode-ai/plugin";
-export default async function () {
+export default async function ({serverUrl}) {
   const endpoint = process.env.HARNESS_BRIDGE;
   const token = process.env.HARNESS_TOKEN;
+  const guarded = process.env.HARNESS_GUARDED === "1";
+  const assistants = new Map();
+  let updates = Promise.resolve();
   async function send(path, value) {
     const response = await fetch(endpoint + path, {
       method: "POST", headers: {"content-type": "application/json", "authorization": "Bearer " + token},
@@ -43,6 +46,34 @@ export default async function () {
     return await response.json();
   }
   return {
+    event: async ({event}) => {
+      if (!guarded || event.type !== "message.updated") return;
+      const info = event.properties?.info;
+      if (info?.role !== "assistant" || !info.sessionID || !info.parentID || !info.id) return;
+      if (!info.time?.completed) assistants.set(info.sessionID + ":" + info.parentID, info);
+      if (info.time?.completed) {
+        const key = info.sessionID + ":" + info.parentID;
+        if (assistants.get(key)?.id === info.id) assistants.delete(key);
+        updates = updates.then(() => send("/usage", info));
+        try { await updates; } catch (_) { /* The next preflight refuses. */ }
+      }
+    },
+    "chat.params": async (input, output) => {
+      if (!guarded) return;
+      await updates;
+      const info = assistants.get(input.sessionID + ":" + input.message?.id);
+      if (!info) throw new Error("pilot preflight refused");
+      const auth = Buffer.from("opencode:" + process.env.OPENCODE_SERVER_PASSWORD).toString("base64");
+      const response = await fetch(new URL("/session/" + encodeURIComponent(input.sessionID) + "/message", serverUrl),
+                                   {headers: {authorization: "Basic " + auth}});
+      if (!response.ok) throw new Error("pilot preflight refused");
+      const messages = await response.json();
+      if (!Array.isArray(messages)) throw new Error("pilot preflight refused");
+      const latest = messages.toReversed().find(m => m.info?.role === "assistant" && m.info.parentID === input.message?.id)?.info;
+      if (!latest || latest.id !== info.id || latest.time?.completed) throw new Error("pilot preflight refused");
+      await send("/reserve", {sessionID: input.sessionID, message: input.message,
+                              model: input.model, assistant: info});
+    },
     tool: {fixture: tool({
       description: "Use the synthetic fixture. Actions: " + process.env.HARNESS_ACTIONS,
       args: {action: tool.schema.string(), arguments: tool.schema.record(tool.schema.string(), tool.schema.unknown())},
@@ -138,7 +169,7 @@ def _final_text(messages):
 
 
 def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
-                timeout_seconds: int = 180, max_steps: int = 6, max_calls: int = 12) -> dict:
+                timeout_seconds: int = 180, max_steps: int = 6, max_calls: int = 12, guard=None) -> dict:
     """Run one fixture. Errors fail closed; partial captures remain in root.
 
     max_calls is enforced conservatively at the messages transform hook. Host
@@ -172,6 +203,7 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
     call_count = 0
     phase = "setup"
     messages = []
+    usage_ids = set()
     lock = threading.Lock()
     token = secrets.token_urlsafe(32)
 
@@ -199,13 +231,22 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
                             raise ValueError("invalid capture")
                         if value["kind"] == "messages":
                             call_count += 1
-                            if call_count > max_calls:
+                            if guard is None and call_count > max_calls:
                                 self.send_error(429, "capture call limit exceeded")
                                 return
                         path = root / "captures" / f"{len(capture_paths):04d}-{value['kind']}.json"
                         path.write_bytes(_json_bytes({"stage": STAGE, "phase": phase, **value}))
                         path.chmod(0o600)
                         capture_paths.append(str(path))
+                        result = {"ok": True}
+                    elif self.path == "/reserve" and guard is not None:
+                        result = {"ordinal": guard.reserve(value)}
+                    elif self.path == "/usage" and guard is not None:
+                        try:
+                            guard.settle(value)
+                        finally:
+                            if isinstance(value, dict):
+                                usage_ids.add(value.get("id"))
                         result = {"ok": True}
                     else:
                         self.send_error(404)
@@ -217,7 +258,7 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
                 self.end_headers()
                 self.wfile.write(encoded)
             except (ValueError, TypeError, json.JSONDecodeError):
-                self.send_error(400)
+                self.send_error(403, "pilot preflight refused")
 
     bridge = ThreadingHTTPServer((LOOPBACK, 0), Bridge)
     bridge.daemon_threads = True
@@ -234,7 +275,9 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
                     "OPENCODE_DISABLE_CLAUDE_CODE": "1", "OPENCODE_DISABLE_PROJECT_CONFIG": "1",
                     "OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX": "4096",
                     "HARNESS_BRIDGE": f"http://{LOOPBACK}:{bridge.server_port}", "HARNESS_TOKEN": token,
-                    "HARNESS_ACTIONS": json.dumps(ACTIONS, sort_keys=True)})
+                     "HARNESS_ACTIONS": json.dumps(ACTIONS, sort_keys=True)})
+        if guard is not None:
+            env["HARNESS_GUARDED"] = "1"
         instruction_paths = []
         instruction_hashes = []
         for index, content in enumerate([*snapshot["instructions"], snapshot["catalog"]]):
@@ -251,7 +294,8 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
                   "agent": {"instruction-probe": {"mode": "primary", "description": "Synthetic instruction evaluation",
                              "prompt": snapshot["role"], "steps": max_steps, "permission": permissions},
                             "build": {"disable": True}, "plan": {"disable": True},
-                            "general": {"disable": True}, "explore": {"disable": True}}}
+                             "general": {"disable": True}, "explore": {"disable": True},
+                             "title": {"disable": True}}}
         config_path = config_dir / "opencode.json"
         config_path.write_bytes(_json_bytes(config))
         env["OPENCODE_CONFIG_DIR"] = str(config_dir)
@@ -321,6 +365,15 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
         messages = _request(url + "/message", timeout=_remaining(deadline), password=password)
         if not capture_paths or not any("messages" in Path(p).name for p in capture_paths) or not any("system" in Path(p).name for p in capture_paths):
             raise RuntimeError("required capture hooks did not run")
+        if guard is not None:
+            # OpenCode does not await plugin event hooks, so usage can arrive after the prompt returns.
+            completed = {m.get("info", {}).get("id") for m in messages
+                         if m.get("info", {}).get("role") == "assistant" and m.get("info", {}).get("time", {}).get("completed")}
+            while True:
+                with lock:
+                    if completed <= usage_ids:
+                        break
+                time.sleep(min(0.05, _remaining(deadline)))
         return {"messages": messages, "events": fixture.events, "artifacts": fixture.artifacts(),
                 "final_text": _final_text(messages), "compacted": compacted, "compaction_index": compaction_index,
                 "capture_paths": capture_paths, "capture_stage": STAGE, "elapsed_seconds": time.monotonic() - start,

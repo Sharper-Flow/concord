@@ -4,15 +4,17 @@ import json
 import hashlib
 import os
 import tempfile
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
-from . import host
+from . import budget, host, pilot
 
 
 STUB = r'''#!/usr/bin/env python3
-import json, os, sys, time, urllib.request
+import json, os, sys, threading, time, urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 if sys.argv[1:] == ["--version"]:
@@ -34,6 +36,15 @@ def bridge(path, value):
 def capture():
     for kind in ("system", "messages"):
         bridge("/capture", {"kind": kind, "input": {}, "output": {"messages": messages}})
+    if os.environ.get("HARNESS_GUARDED") == "1":
+        bridge("/reserve", {"synthetic": "request"})
+def assistant():
+    info = {"role": "assistant"}
+    if os.environ.get("HARNESS_GUARDED") == "1":
+        # OpenCode delivers usage through an unawaited event hook, after the prompt can return.
+        info.update(id="assistant-" + str(len(messages)), time={"completed": 1})
+        threading.Thread(target=lambda value=dict(info): (time.sleep(0.5), bridge("/usage", value))).start()
+    return info
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args): pass
     def send(self, value):
@@ -60,7 +71,7 @@ class Handler(BaseHTTPRequestHandler):
             messages.append({"info": {"role": "user"}, "parts": body["parts"]})
             capture()
             bridge("/fixture", {"action": "read_work", "arguments": {}})
-            messages.append({"info": {"role": "assistant"}, "parts": [{"type": "text", "text": "done"}]})
+            messages.append({"info": assistant(), "parts": [{"type": "text", "text": "done"}]})
             self.send(messages[-1])
 hostname = sys.argv[sys.argv.index("--hostname") + 1]
 port = int(sys.argv[sys.argv.index("--port") + 1])
@@ -149,6 +160,100 @@ class HostTest(unittest.TestCase):
         state = json.loads((root / "failure-state.json").read_text())
         self.assertEqual([e.get("action", e.get("boundary")) for e in state["events"]], ["read_work", "compaction"])
         self.assertTrue(state["messages"])
+
+    def test_guarded_session_waits_for_late_usage(self):
+        class Guard:
+            def __init__(self): self.events = []
+            def reserve(self, value):
+                self.events.append(("reserve", value))
+                return len(self.events)
+            def settle(self, value): self.events.append(("usage", value))
+        guard = Guard()
+        result = host.run_session(self.base / "guarded", self.snapshot, "provider/model", "S19", guard=guard)
+        self.assertEqual(sorted(kind for kind, _ in guard.events), ["reserve", "reserve", "usage", "usage"])
+        completed = [m["info"]["id"] for m in result["messages"] if m["info"].get("time")]
+        self.assertEqual(len(completed), 2)
+        self.assertEqual(sorted(value["id"] for kind, value in guard.events if kind == "usage"), sorted(completed))
+
+
+@unittest.skipUnless(os.environ.get("CONCORD_NATIVE_PILOT_TEST") == "1", "opt-in real OpenCode loopback test")
+class NativeGuardTest(unittest.TestCase):
+    def test_guarded_retry_and_compaction(self):
+        class Provider(BaseHTTPRequestHandler):
+            calls = 0
+            def log_message(self, *args): pass
+            def do_POST(self):
+                self.rfile.read(int(self.headers["Content-Length"]))
+                Provider.calls += 1
+                if Provider.calls == 1:
+                    self.send_response(429)
+                    self.send_header("Retry-After", "0")
+                    self.end_headers()
+                    self.wfile.write(b'{"error":{"message":"rate limited","type":"rate_limit_error"}}')
+                    return
+                delta = {"content": "synthetic response"}
+                finish = "stop"
+                if Provider.calls == 2:
+                    # A tool step makes OpenCode start a second assistant message for the same user message.
+                    delta = {"tool_calls": [{"index": 0, "id": "call_synthetic", "type": "function", "function": {
+                        "name": "fixture", "arguments": json.dumps({"action": "read_work", "arguments": {}})}}]}
+                    finish = "tool_calls"
+                chunk = {"id": "synthetic", "object": "chat.completion.chunk", "created": 1, "model": "synthetic",
+                         "choices": [{"index": 0, "delta": delta, "finish_reason": None}]}
+                end = {"id": "synthetic", "object": "chat.completion.chunk", "created": 1, "model": "synthetic",
+                       "choices": [{"index": 0, "delta": {}, "finish_reason": finish}],
+                       "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18}}
+                data = ("data: " + json.dumps(chunk) + "\n\ndata: " + json.dumps(end) + "\n\ndata: [DONE]\n\n").encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+        server = ThreadingHTTPServer((host.LOOPBACK, 0), Provider)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            limits = {"context": 10000, "input": 9000, "output": 1000}
+            rates = {"input": 2, "output": 10, "cache_read": 0.1, "cache_write": 2.5}
+            journal = budget.Journal(root)
+            journal.create()
+            journal.update(lambda data: data["attempts"].append({"id": "attempt", "status": "pending"}))
+            guard = pilot.Guard(journal, "attempt", "fake/synthetic", limits, rates)
+            original = host._json_bytes
+            def configured(value):
+                if isinstance(value, dict) and value.get("default_agent") == "instruction-probe":
+                    value = {**value, "enabled_providers": ["fake"], "provider": {"fake": {
+                        "npm": "@ai-sdk/openai-compatible", "name": "Fake",
+                        "options": {"baseURL": f"http://{host.LOOPBACK}:{server.server_port}/v1", "apiKey": "synthetic"},
+                        "models": {"synthetic": {"name": "Synthetic", "limit": limits}}}}}
+                return original(value)
+            snapshot = {"role": "synthetic", "instructions": [], "catalog": "", "provenance": {}}
+            with patch.object(host, "_json_bytes", side_effect=configured), patch.dict(os.environ, {"XDG_DATA_HOME": str(root / "data")}):
+                output = host.run_session(root / "session", snapshot, "fake/synthetic", "S19", timeout_seconds=600, guard=guard)
+            guard.verify()
+            self.assertTrue(output["compacted"])
+            self.assertEqual([e.get("action", e.get("boundary")) for e in output["events"]], ["read_work", "compaction"])
+            requests = journal.update(lambda data: data["requests"])
+            self.assertEqual(Provider.calls, 5)
+            self.assertEqual([r["status"] for r in requests], ["reserved", "settled", "settled", "settled", "settled"])
+            self.assertEqual(requests[0]["assistant_id"], requests[1]["assistant_id"])
+            self.assertEqual(requests[1]["user_id"], requests[2]["user_id"])
+            self.assertNotEqual(requests[1]["assistant_id"], requests[2]["assistant_id"])
+            for _ in range(284):
+                journal.reserve("attempt", "other", "user", "session", budget.reservation(limits, rates))
+            blocked = pilot.Guard(journal, "attempt", "fake/synthetic", limits, rates)
+            with patch.object(host, "_json_bytes", side_effect=configured), patch.dict(os.environ, {"XDG_DATA_HOME": str(root / "data")}):
+                try:
+                    host.run_session(root / "blocked", snapshot, "fake/synthetic", "S18", timeout_seconds=600, guard=blocked)
+                except (OSError, RuntimeError, ValueError):
+                    pass
+            self.assertTrue(blocked.failed)
+            self.assertEqual(Provider.calls, 5)
 
 
 if __name__ == "__main__":

@@ -3,20 +3,27 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"unicode/utf8"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
+// workListProjectionDetail is the signed-cursor kind of a mid-document
+// work-list fragment continuation; every other work-list cursor is "summary".
+const workListProjectionDetail = "work-list-projection"
+
 // The original inner list cursor recaptures the same single-item document on
-// continuation. The existing outer signed cursor binds the query and source;
-// the digest also catches projection changes that do not advance that source.
+// continuation. The outer signed cursor binds the query and authenticates the
+// digest, which detects changes to the recaptured document.
 type workListProjectionCursor struct {
-	Version        int    `json:"v"`
-	ListCursor     string `json:"list_cursor"`
-	Digest         string `json:"digest"`
-	NextByteOffset int64  `json:"next_byte_offset"`
+	Version        int     `json:"v"`
+	ListCursor     string  `json:"list_cursor"`
+	SourceRevision string  `json:"source_revision"`
+	NextListCursor *string `json:"next_list_cursor"`
+	Digest         string  `json:"digest"`
+	NextByteOffset int64   `json:"next_byte_offset"`
 }
 
 // workListProjectionPage renders only the captured Q3 page. Fit candidates never
@@ -25,6 +32,10 @@ func (r runtime) workListProjectionPage(ctx context.Context, base agentcontract.
 	inline, err := r.q3(base, captured)
 	if err != nil {
 		return inline, err
+	}
+	if cursor.SourceRevision == "" {
+		cursor.SourceRevision = strconv.FormatInt(captured.SourceVersionWatermark, 10)
+		cursor.NextListCursor = captured.NextCursor
 	}
 	doc := inline.Result
 	digest := sha256Hex(doc)
@@ -40,11 +51,11 @@ func (r runtime) workListProjectionPage(ctx context.Context, base agentcontract.
 	}
 	at := func(n int) (agentcontract.Envelope, int, error) {
 		end := offset + n
-		nextCursor := captured.NextCursor
+		nextCursor := cursor.NextListCursor
 		var nextKind any
 		if end < len(doc) {
 			nextKind = "projection"
-			raw, err := json.Marshal(workListProjectionCursor{Version: 1, ListCursor: cursor.ListCursor, Digest: digest, NextByteOffset: int64(end)})
+			raw, err := json.Marshal(workListProjectionCursor{Version: 1, ListCursor: cursor.ListCursor, SourceRevision: cursor.SourceRevision, NextListCursor: cursor.NextListCursor, Digest: digest, NextByteOffset: int64(end)})
 			if err != nil {
 				return base, 0, err
 			}
@@ -67,7 +78,15 @@ func (r runtime) workListProjectionPage(ctx context.Context, base agentcontract.
 			return coreError(base, "limit_exceeded", "work-list projection needs a continuation notice but the omission limit is exhausted; contact the operator for producer repair", "contact_operator", false), 0, nil
 		}
 		response.Omissions = append(response.Omissions, agentcontract.Notice{Kind: "work_list_projection_paged", Details: map[string]any{"total_bytes": len(doc), "offset": offset, "fragment_bytes": n, "remaining_bytes": len(doc) - end, "document_complete": end == len(doc)}})
-		response, err = r.wrapCursor(ctx, response, binding, "summary")
+		detail := "summary"
+		if end < len(doc) {
+			detail = workListProjectionDetail
+		}
+		if detail == "summary" {
+			response, err = r.wrapCursorWithSource(ctx, response, binding, detail, cursor.SourceRevision)
+		} else {
+			response, err = r.wrapCursor(ctx, response, binding, detail)
+		}
 		if err != nil {
 			return response, 0, err
 		}

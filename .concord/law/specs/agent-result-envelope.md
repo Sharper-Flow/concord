@@ -281,9 +281,9 @@ emits malformed JSON, silently truncates, or substitutes an unbounded file.
 
 The opaque authenticated cursor binds tool, operation, resolved scope, filters,
 detail, ordering, source identity, and last emitted key. Except for resume document
-paging under §8.2, the source identity is the source watermark. Cursor tampering, wrong
-operation/scope/filter reuse, or invalidated source version returns `invalid_cursor`.
-No server session is required.
+and oversized work-list fragment paging under §8.2, the source identity is the
+source watermark. Cursor tampering, wrong operation/scope/filter reuse, or
+invalidated source version returns `invalid_cursor`. No server session is required.
 
 ### 8.1 Producer-side completeness obligation
 
@@ -320,7 +320,7 @@ For a mutation, the complete document is computed inside the mutation transactio
 
 A projection reference or fragment grants no complete pin, intent, question, or acceptance authority. A consumer reconstructs the complete document, verifies its identity, length and digest, and validates its schema before using that authority. The reconstructed mutation result carries every required WorkPin at its changed-reference version and every intent derived from those pins. This oversized-result transport is the exception to the routine-success rule against a follow-up status read.
 
-A full work-list read may page within an otherwise oversized single item by the same lossless transport. It preserves the complete item and the list continuation, with no missing or duplicated item. Pages bind one captured document and the original query; drift refuses before emitting a fragment from a different document. Existing inline and item-count paging remain unchanged when they fit.
+A full work-list read may page within an otherwise oversized single item by the same lossless transport. It preserves the complete item and the list continuation, with no missing or duplicated item. Fragment continuations bind one captured document and the original query; unchanged document bytes remain valid across unrelated store writes, and drift refuses before emitting a fragment from a different document. Each response reports its observed source watermark. Inline and item-count continuations, including the continuation after the final fragment, remain bound to the source watermark of the captured enumeration. An invalidated watermark refuses the continuation with `invalid_cursor` and `restart_query`.
 
 A resume read may page an oversized document by the same lossless transport. Its continuation binds the original query, authority and document identity. Unchanged document bytes remain valid across unrelated store writes; document drift refuses before emitting a fragment from a different document. Each response reports its observed source watermark.
 

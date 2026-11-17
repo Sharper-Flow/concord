@@ -929,7 +929,7 @@ func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string
 		return "", nil
 	}
 	expected := SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default"}
-	if r.documentContinuation() {
+	if r.documentContinuation(detail) {
 		expected.Source = binding
 	} else {
 		watermark, err := r.Store.Revision(ctx)
@@ -946,12 +946,16 @@ func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string
 }
 
 func (r runtime) wrapCursor(ctx context.Context, response agentcontract.Envelope, binding, detail string) (agentcontract.Envelope, error) {
+	source := watermarkString(response)
+	if r.documentContinuation(detail) {
+		source = binding
+	}
+	return r.wrapCursorWithSource(ctx, response, binding, detail, source)
+}
+
+func (r runtime) wrapCursorWithSource(ctx context.Context, response agentcontract.Envelope, binding, detail, source string) (agentcontract.Envelope, error) {
 	if response.NextCursor == nil {
 		return response, nil
-	}
-	source := watermarkString(response)
-	if r.documentContinuation() {
-		source = binding
 	}
 	token, err := r.Store.EncodeCursor(ctx, SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default", Source: source, Last: "", Inner: *response.NextCursor})
 	if err != nil {
@@ -961,12 +965,13 @@ func (r runtime) wrapCursor(ctx context.Context, response agentcontract.Envelope
 	return response, nil
 }
 
-// documentContinuation reports the operations whose cursors page one captured
+// documentContinuation reports the cursor kinds that page one captured
 // document. Their continuations bind query identity instead of the store
 // revision, so unrelated writes do not invalidate them; the handler refuses
 // when the document bytes change.
-func (r runtime) documentContinuation() bool {
-	return r.Tool == "concord_work_trace" && (r.Operation == "mutation_result" || r.Operation == "resume")
+func (r runtime) documentContinuation(detail string) bool {
+	return r.Tool == "concord_work_trace" && (r.Operation == "mutation_result" || r.Operation == "resume") ||
+		r.Tool == "concord_work_browse" && r.Operation == "list" && detail == workListProjectionDetail
 }
 
 func watermarkString(response agentcontract.Envelope) string {

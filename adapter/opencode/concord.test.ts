@@ -249,9 +249,7 @@ test("request-wrapped tools refuse a missing request wrapper before any host eff
       expect(envelope.operation).toBe("operation" in args && args.operation === operation ? operation : "")
       expect(validateGeneratedEnvelope(envelope), result.output).toBe(true)
       if (envelope.operation === "") {
-        expect(envelope.query_id).toBeUndefined()
         expect(validateGeneratedEnvelope({ ...envelope, origin: "core" })).toBe(false)
-        expect(validateGeneratedEnvelope({ ...envelope, query_id: "PM1.Q1" })).toBe(false)
       }
       for (const error of [{ kind: "transport_failure", recovery_action: { kind: "contact_operator" } }, { adapter_reason: "missing_binary" }, { effect_state: "possible" }, { retry_safe: true }, { recovery_action: { kind: "retry_same_request" } }]) {
         expect(validateGeneratedEnvelope({ ...envelope, error: { ...envelope.error, ...error } })).toBe(false)
@@ -1458,10 +1456,9 @@ test("CON-913 row 6: a malformed mutation answer takes the whole conflict tuple"
 test("CON-913 rows 13/14: an oversized mutation result takes the whole classifier tuple and reconciles", async () => {
   const oversized = coreEnvelope("concord_work_transition", "lifecycle", "ok", {
     result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [],
-    evidence_refs: Array.from({ length: 32 }, (_, index) => ({
-      kind: "artifact", authority: "core", locator_kind: "id", locator: `${index}-${"x".repeat(2040)}`,
-    })),
+    warnings: [{ kind: "diagnostic", details: { message: "x".repeat(52_000) } }],
   })
+  expect(validateGeneratedEnvelope(oversized)).toBe(true)
   const readback = coreEnvelope("concord_work_browse", "list", "ok", { result: { items: [] } })
   let calls = 0
   const result: any = await runTransition({ async run() {

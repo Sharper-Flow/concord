@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,6 +17,28 @@ func plantForeignFileAt(t *testing.T, ctx context.Context, path, content string)
 	})
 }
 
+// assertBackupLeftOnlyForeignEntries fails when a failed backup left any
+// staging file or a destination name the foreign writer did not create.
+func assertBackupLeftOnlyForeignEntries(t *testing.T, dir string, foreign ...string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		name := filepath.Join(dir, entry.Name())
+		owned := true
+		for _, path := range foreign {
+			if name == path {
+				owned = false
+			}
+		}
+		if owned {
+			t.Errorf("failed Backup() left %s", entry.Name())
+		}
+	}
+}
+
 func TestBackupLeavesForeignDestinationFileThatAppearedAfterValidation(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
@@ -28,7 +51,10 @@ func TestBackupLeavesForeignDestinationFileThatAppearedAfterValidation(t *testin
 	if err == nil {
 		t.Fatal("Backup() succeeded although a foreign file occupied the destination")
 	}
-	t.Logf("Backup() error with a foreign destination file: %v", err)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != "backup destination already exists" {
+		t.Errorf("Backup() error = %v, want the destination refusal", err)
+	}
 	got, readErr := os.ReadFile(destination)
 	if readErr != nil {
 		t.Fatalf("failed Backup() deleted a foreign destination file it never owned: %v", readErr)
@@ -36,6 +62,7 @@ func TestBackupLeavesForeignDestinationFileThatAppearedAfterValidation(t *testin
 	if string(got) != foreign {
 		t.Fatalf("foreign destination content = %q, want %q", got, foreign)
 	}
+	assertBackupLeftOnlyForeignEntries(t, dir, destination)
 }
 
 func TestBackupLeavesForeignManifestFileThatAppearedAfterValidation(t *testing.T) {
@@ -50,7 +77,10 @@ func TestBackupLeavesForeignManifestFileThatAppearedAfterValidation(t *testing.T
 	if backupErr == nil {
 		t.Error("Backup() succeeded with a foreign manifest")
 	}
-	t.Logf("Backup() error with a foreign manifest file: %v", backupErr)
+	var failure *Failure
+	if !errors.As(backupErr, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != "backup manifest already exists" {
+		t.Errorf("Backup() error = %v, want the manifest refusal", backupErr)
+	}
 	got, readErr := os.ReadFile(manifestPath(destination))
 	if readErr != nil {
 		t.Fatalf("Backup() removed a foreign manifest file it never owned: %v", readErr)
@@ -58,6 +88,7 @@ func TestBackupLeavesForeignManifestFileThatAppearedAfterValidation(t *testing.T
 	if string(got) != foreign {
 		t.Fatalf("foreign manifest content = %q, want %q", got, foreign)
 	}
+	assertBackupLeftOnlyForeignEntries(t, dir, manifestPath(destination))
 }
 
 func TestInterruptedBackupLeavesForeignManifestFileThatAppearedAfterValidation(t *testing.T) {
@@ -83,6 +114,35 @@ func TestInterruptedBackupLeavesForeignManifestFileThatAppearedAfterValidation(t
 	if string(got) != foreign {
 		t.Fatalf("foreign manifest content = %q, want %q", got, foreign)
 	}
+	assertBackupLeftOnlyForeignEntries(t, dir, manifestPath(destination))
+}
+
+// A snapshot published beside foreign SQLite sidecars would be read through
+// them, so Backup refuses the destination and leaves the sidecars untouched.
+func TestBackupRefusesExistingDestinationSidecars(t *testing.T) {
+	t.Parallel()
+	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
+		t.Run(suffix, func(t *testing.T) {
+			t.Parallel()
+			s := openTemp(t)
+			defer s.Close()
+			dir := t.TempDir()
+			destination := filepath.Join(dir, "snapshot.db")
+			sidecar := destination + suffix
+			if err := os.WriteFile(sidecar, []byte("stale sidecar"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Backup(context.Background(), s, destination)
+			var failure *Failure
+			if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != "backup destination SQLite sidecar already exists" {
+				t.Fatalf("Backup() error = %v, want the sidecar refusal", err)
+			}
+			if data, err := os.ReadFile(sidecar); err != nil || string(data) != "stale sidecar" {
+				t.Fatalf("sidecar changed: %q, %v", data, err)
+			}
+			assertBackupLeftOnlyForeignEntries(t, dir, sidecar)
+		})
+	}
 }
 
 func TestBackupPreservesForeignEntriesAfterValidation(t *testing.T) {
@@ -96,9 +156,7 @@ func TestBackupPreservesForeignEntriesAfterValidation(t *testing.T) {
 			if err := os.WriteFile(target, []byte("foreign"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			ctx = context.WithValue(ctx, backupStartedContextKey{}, func() {
+			ctx := context.WithValue(context.Background(), backupStartedContextKey{}, func() {
 				var err error
 				switch kind {
 				case "empty destination":
@@ -113,17 +171,19 @@ func TestBackupPreservesForeignEntriesAfterValidation(t *testing.T) {
 							t.Error(e)
 						}
 					}
-					cancel()
 				}
 				if err != nil {
 					t.Error(err)
 				}
 			})
-			if _, err := Backup(ctx, s, destination); err == nil {
+			_, backupErr := Backup(ctx, s, destination)
+			if backupErr == nil {
 				t.Error("Backup succeeded")
 			}
+			foreign := []string{target}
 			switch kind {
 			case "empty destination":
+				foreign = append(foreign, destination)
 				data, err := os.ReadFile(destination)
 				if err != nil || len(data) != 0 {
 					t.Errorf("empty destination changed: %q, %v", data, err)
@@ -133,6 +193,7 @@ func TestBackupPreservesForeignEntriesAfterValidation(t *testing.T) {
 				if kind == "manifest symlink" {
 					path = manifestPath(destination)
 				}
+				foreign = append(foreign, path)
 				link, err := os.Readlink(path)
 				if err != nil || link != target {
 					t.Errorf("symlink changed: %q, %v", link, err)
@@ -142,13 +203,19 @@ func TestBackupPreservesForeignEntriesAfterValidation(t *testing.T) {
 					t.Errorf("target changed: %q, %v", data, err)
 				}
 			case "public sidecars":
+				var failure *Failure
+				if !errors.As(backupErr, &failure) || failure.Detail != "backup destination SQLite sidecar already exists" {
+					t.Errorf("Backup() error = %v, want the sidecar refusal before publication", backupErr)
+				}
 				for _, suffix := range []string{"-wal", "-shm", "-journal"} {
+					foreign = append(foreign, destination+suffix)
 					data, err := os.ReadFile(destination + suffix)
 					if err != nil || string(data) != "sidecar" {
 						t.Errorf("sidecar %s changed: %q, %v", suffix, data, err)
 					}
 				}
 			}
+			assertBackupLeftOnlyForeignEntries(t, dir, foreign...)
 		})
 	}
 }

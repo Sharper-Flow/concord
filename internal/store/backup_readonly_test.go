@@ -338,15 +338,15 @@ func TestBackupDatabaseVerificationEntryObserver(t *testing.T) {
 	if _, err := BackupDatabase(ctx, source, destination); err != nil {
 		t.Fatal(err)
 	}
-	// The verb verifies exactly twice inside the caller's context: the copied
-	// destination, then the PM10 disposable-clone promotion gate. The cascade
+	// The verb verifies exactly twice inside the caller's context: the staged
+	// snapshot, then the PM10 disposable-clone promotion gate. The cascade
 	// shares the caller's one deadline, so consumers, not the verb, verify the
 	// published artifact on use.
 	if len(entries) != 2 {
-		t.Fatalf("verifier entries = %q, want destination, disposable clone", entries)
+		t.Fatalf("verifier entries = %q, want staged snapshot, disposable clone", entries)
 	}
-	if entries[0] != destination {
-		t.Fatalf("verifier entries = %q, want the destination first", entries)
+	if filepath.Dir(entries[0]) != filepath.Dir(destination) || !strings.HasPrefix(filepath.Base(entries[0]), ".concord-backup-snapshot-") {
+		t.Fatalf("verifier entries = %q, want a staged snapshot first", entries)
 	}
 	clone := entries[1]
 	if clone == destination || filepath.Dir(clone) != filepath.Dir(destination) || !strings.HasPrefix(filepath.Base(clone), ".concord-backup-verify-") {

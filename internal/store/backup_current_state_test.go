@@ -207,6 +207,9 @@ func TestBackupEventWatermarkIsInventoryOnly(t *testing.T) {
 		t.Fatalf("backup event inventory = %d/%d, want %d", manifest.EventWatermark, manifest.SourceEventMaxSeq, want)
 	}
 	manifest.EventWatermark = want + 100
+	if err := os.Remove(manifestPath(snapshot)); err != nil {
+		t.Fatal(err)
+	}
 	if err := writeBackupManifest(snapshot, manifest); err != nil {
 		t.Fatal(err)
 	}

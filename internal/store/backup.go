@@ -145,8 +145,8 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 	}
 
 	// The Online Backup API copies every source page, free ones included, so
-	// it writes a disposable copy beside the destination. The destination is
-	// the compacted copy that the checksum and verification gates read.
+	// it writes a disposable copy beside the destination. A separate staging
+	// file holds the compacted copy for checksum and verification.
 	copyFile, err := os.CreateTemp(filepath.Dir(destination), ".concord-backup-copy-*")
 	if err != nil {
 		return manifest, wrapFailure(KindUnavailable, "backup", "cannot create backup copy staging file", true, "check destination permissions", err)
@@ -162,24 +162,30 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 		return manifest, wrapFailure(KindUnavailable, "backup", "cannot close backup copy staging file", true, "check destination permissions", err)
 	}
 
+	stageFile, err := os.CreateTemp(filepath.Dir(destination), ".concord-backup-snapshot-*")
+	if err != nil {
+		return manifest, wrapFailure(KindUnavailable, "backup", "cannot create backup snapshot staging file", true, "check destination permissions", err)
+	}
+	stage := stageFile.Name()
 	defer func() {
-		if err != nil {
-			for _, path := range []string{destination, destination + "-wal", destination + "-shm", destination + "-journal", manifestPath(destination)} {
-				_ = os.Remove(path)
-			}
+		for _, path := range []string{stage, stage + "-wal", stage + "-shm", stage + "-journal"} {
+			_ = os.Remove(path)
 		}
 	}()
+	if err := stageFile.Close(); err != nil {
+		return manifest, wrapFailure(KindUnavailable, "backup", "cannot close backup snapshot staging file", true, "check destination permissions", err)
+	}
 	connHeld = false
 	if err := mechanismFailure(sqlitedb.BackupSnapshot(ctx, conn, SQLiteFileURI(copyPath))); err != nil {
 		return manifest, err
 	}
-	if err := mechanismFailure(sqlitedb.CompactSnapshot(ctx, copyPath, destination)); err != nil {
+	if err := mechanismFailure(sqlitedb.CompactSnapshot(ctx, copyPath, stage)); err != nil {
 		return manifest, err
 	}
 	// Release the full-size copy before the restore gate clones the snapshot.
 	removeCopy()
 
-	manifest, err = verifyBackupFile(ctx, destination, CurrentSchemaVersion(), s.Clock)
+	manifest, err = verifyBackupFile(ctx, stage, CurrentSchemaVersion(), s.Clock)
 	if err != nil {
 		return BackupManifest{}, err
 	}
@@ -198,10 +204,21 @@ func BackupWithOptions(ctx context.Context, s *Store, destination string, option
 	// The promotion gate clones the verified snapshot to a disposable staging
 	// database and checks the whole current state before applying migrations.
 	// The retained snapshot, manifest, and live store are never written.
-	if err := verifyBackupRestore(ctx, destination, manifest); err != nil {
+	if err := verifyBackupRestore(ctx, stage, manifest); err != nil {
 		return BackupManifest{}, err
 	}
+	if err := contextErr(ctx); err != nil {
+		return BackupManifest{}, wrapFailure(KindUnavailable, "backup", "backup was cancelled before publication", true, "retry the backup", err)
+	}
+	if err := os.Link(stage, destination); err != nil {
+		return BackupManifest{}, wrapFailure(KindInvalidOperation, "backup", "cannot atomically promote backup without replacing the destination", false, "choose a new explicit destination", err)
+	}
 	if err := writeBackupManifest(destination, manifest); err != nil {
+		stageInfo, stageErr := os.Stat(stage)
+		destInfo, destErr := os.Lstat(destination)
+		if stageErr == nil && destErr == nil && os.SameFile(stageInfo, destInfo) {
+			_ = os.Remove(destination)
+		}
 		return BackupManifest{}, err
 	}
 	return manifest, nil
@@ -635,8 +652,8 @@ func writeBackupManifest(destination string, manifest BackupManifest) error {
 	if err := tmp.Close(); err != nil {
 		return wrapFailure(KindUnavailable, "backup", "cannot close backup manifest", true, "retry the backup", err)
 	}
-	if err := os.Rename(tmpName, manifestPath(destination)); err != nil {
-		return wrapFailure(KindUnavailable, "backup", "cannot atomically promote backup manifest", true, "retry the backup", err)
+	if err := os.Link(tmpName, manifestPath(destination)); err != nil {
+		return wrapFailure(KindInvalidOperation, "backup", "cannot atomically promote backup manifest without replacing the destination", false, "choose a new explicit destination", err)
 	}
 	return nil
 }

@@ -6,6 +6,11 @@ from .cases import CASES, S01_EXPECTED_VERSION, Fixture
 from .evaluation import evaluate
 
 HOLD = ("S19", "S20", "S21", "S22")
+S09_COMMENT = ("Choose blue or green? I recommend blue for consistency; green costs extra design time. "
+               "https://example.org/evidence\n"
+               "![Blue](https://example.org/page/v1/blue.png)\n"
+               "![Green](https://example.org/page/v1/green.png)\n"
+               "[Preview](https://example.org/page/v1/preview)")
 
 
 class EvaluationTests(unittest.TestCase):
@@ -37,7 +42,9 @@ class EvaluationTests(unittest.TestCase):
             if case_id == "S19": call("read_issue")
         elif case_id == "S08":
             call("read_issue"); call("read_decision")
-        elif case_id in {"S09", "S10"}:
+        elif case_id == "S09":
+            call("post_comment", text=S09_COMMENT)
+        elif case_id == "S10":
             call("post_comment", text="synthetic reviewed comment")
         elif case_id == "S11":
             call("load_skill", name="concord-research-writing"); call("read_issue")
@@ -88,6 +95,134 @@ class EvaluationTests(unittest.TestCase):
         result = self.score("S05", fixture)
         self.assertEqual(result["severity"], "S3")
         self.assertFalse(result["passed"])
+
+    def test_s09_screenshot_free_comment_fails_despite_positive_review(self):
+        fixture = self.fixture("S09")
+        fixture.call("post_comment", {"text": "Choose blue or green? I recommend blue for consistency; green costs extra design time. https://example.org/evidence"})
+        result = self.score("S09", fixture)
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["severity"], "S2")
+
+    def test_s09_accepts_images_in_indented_list_and_paragraph_continuation(self):
+        comments = [
+            '- Choices:\n    - ![Blue](https://example.org/page/v1/blue.png)\n'
+            '    - ![Green](https://example.org/page/v1/green.png)\n'
+            '[Preview](https://example.org/page/v1/preview)',
+            'The blue and green options are shown here:\n'
+            '    ![Blue](https://example.org/page/v1/blue.png)\n'
+            '    ![Green](https://example.org/page/v1/green.png)\n'
+            '[Preview](https://example.org/page/v1/preview)',
+        ]
+        for text in comments:
+            with self.subTest(text=text):
+                fixture = self.fixture("S09")
+                fixture.call("post_comment", {"text": text})
+                self.assertTrue(self.score("S09", fixture)["passed"])
+
+    def test_s09_preview_alone_fails_despite_positive_review(self):
+        fixture = self.fixture("S09")
+        fixture.call("post_comment", {"text": "https://example.org/page/v1/preview"})
+        result = self.score("S09", fixture)
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["severity"], "S2")
+
+    def test_s09_accepts_conventional_markdown_embeds(self):
+        comments = [S09_COMMENT,
+                    '![Blue](<https://example.org/page/v1/blue.png> "Blue")\n'
+                    "![Green](https://example.org/page/v1/green.png 'Green')\n"
+                    '<https://example.org/page/v1/preview>',
+                    '![Blue][blue image]\n![Green][]\n![Blue shortcut]\n'
+                    '[BLUE IMAGE]: https://example.org/page/v1/blue.png\n'
+                    '[green]: <https://example.org/page/v1/green.png> "Green"\n'
+                    '[blue shortcut]: https://example.org/page/v1/blue.png\n'
+                    'https://example.org/page/v1/preview',
+                    "It`s v1.\n\n![Blue](https://example.org/page/v1/blue.png (Blue))\n"
+                    "![Green](https://example.org/page/v1/green.png)\n\n"
+                    "Open https://example.org/page/v1/preview: then reply `blue`.",
+                    "```\nnot material\n````\n" + S09_COMMENT,
+                    S09_COMMENT.replace('![Blue]', '![Blue [version 1]]'),
+                    S09_COMMENT.replace('[Preview](https://example.org/page/v1/preview)',
+                                        '[Preview][view]\n[view]: https://example.org/page/v1/preview')]
+        for text in comments:
+            with self.subTest(text=text):
+                fixture = self.fixture("S09")
+                fixture.call("post_comment", {"text": text})
+                self.assertTrue(self.score("S09", fixture)["passed"])
+
+    def test_s09_rejects_incomplete_or_unembedded_material(self):
+        comments = [
+            S09_COMMENT.replace('![Blue](https://example.org/page/v1/blue.png)', ''),
+            S09_COMMENT.replace('![Green](https://example.org/page/v1/green.png)', 'https://example.org/page/v1/green.png'),
+            S09_COMMENT.replace('/v1/blue.png', '/v2/blue.png'),
+            S09_COMMENT.replace('/v1/preview', '/v2/preview'),
+            S09_COMMENT.replace('![Blue](https://example.org/page/v1/blue.png)', '`![Blue](https://example.org/page/v1/blue.png)`'),
+            S09_COMMENT.replace('![Blue](https://example.org/page/v1/blue.png)', '[Blue](https://example.org/page/v1/blue.png)'),
+            "```\n" + S09_COMMENT,
+            S09_COMMENT.replace('/v1/preview', '/v1/preview-old'),
+            S09_COMMENT.replace('![Blue](https://example.org/page/v1/blue.png)',
+                                '<!-- ![Blue](https://example.org/page/v1/blue.png) -->'),
+            S09_COMMENT.replace('[Preview](https://example.org/page/v1/preview)',
+                                '![Preview](https://example.org/page/v1/preview)'),
+            S09_COMMENT.replace('[Preview](https://example.org/page/v1/preview)',
+                                '![Preview][view]\n[view]: https://example.org/page/v1/preview'),
+        ]
+        for text in comments:
+            with self.subTest(text=text):
+                fixture = self.fixture("S09")
+                fixture.call("post_comment", {"text": text})
+                result = self.score("S09", fixture)
+                self.assertFalse(result["passed"])
+                self.assertEqual(result["severity"], "S2")
+
+    def test_s09_visible_material_requires_verified_semantic_review(self):
+        fixture = self.exercise("S09")
+        name = "each_comment_exact_version_ui_material_visible_outside_collapsed_support"
+        review = {key: {"verified": True, "passed": True} for key in CASES["S09"]["semantic_checks"] if key != name}
+        result = evaluate("S09", fixture.events, fixture.artifacts(), "", semantic_review=review)
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["semantic_pending"], [name])
+        review[name] = {"verified": True, "passed": False}
+        result = evaluate("S09", fixture.events, fixture.artifacts(), "", semantic_review=review)
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["severity"], "S2")
+
+    def test_s09_semantic_review_rejects_images_hidden_in_indented_code(self):
+        fixture = self.fixture("S09")
+        fixture.call("post_comment", {"text": 'Options:\n\n'
+                     '    ![Blue](https://example.org/page/v1/blue.png)\n'
+                     '    ![Green](https://example.org/page/v1/green.png)\n\n'
+                     '[Preview](https://example.org/page/v1/preview)'})
+        review = {key: {"verified": True, "passed": True} for key in CASES["S09"]["semantic_checks"]}
+        review["each_comment_exact_version_ui_material_visible_outside_collapsed_support"]["passed"] = False
+        result = evaluate("S09", fixture.events, fixture.artifacts(), "", semantic_review=review)
+        self.assertTrue(result["checks"]["comment_ui_material"])
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["severity"], "S2")
+
+    def test_s09_requires_complete_material_in_every_successful_comment(self):
+        fixture = self.fixture("S09")
+        fixture.call("post_comment", {"text": S09_COMMENT})
+        fixture.call("post_comment", {"text": "Another question without material."})
+        self.assertEqual(self.score("S09", fixture)["severity"], "S2")
+
+        fixture = self.fixture("S09")
+        fixture.call("post_comment", {"text": '![Blue](https://example.org/page/v1/blue.png)'})
+        fixture.call("post_comment", {"text": '![Green](https://example.org/page/v1/green.png) https://example.org/page/v1/preview'})
+        review = {name: {"verified": True, "passed": True} for name in CASES["S09"]["semantic_checks"]}
+        result = evaluate("S09", fixture.events, fixture.artifacts(), S09_COMMENT, semantic_review=review)
+        self.assertEqual(result["severity"], "S2")
+        self.assertFalse(result["passed"])
+
+    def test_s09_refused_comment_does_not_supply_or_require_material(self):
+        fixture = self.fixture("S09")
+        fixture.events.append({"action": "post_comment", "arguments": {"text": S09_COMMENT}, "result": {"ok": False}})
+        fixture.call("post_comment", {"text": "Missing material."})
+        self.assertEqual(self.score("S09", fixture)["severity"], "S2")
+
+        fixture = self.fixture("S09")
+        fixture.events.append({"action": "post_comment", "arguments": {"text": "Incomplete"}, "result": {"ok": False}})
+        fixture.call("post_comment", {"text": S09_COMMENT})
+        self.assertTrue(self.score("S09", fixture)["passed"])
 
     def test_severity_precedence_and_withheld_controls(self):
         fixture = self.exercise("S06")

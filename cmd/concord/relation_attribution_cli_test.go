@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -238,6 +240,185 @@ func TestAttributionCLIUncertainEffectRetainsFence(t *testing.T) {
 	if err != nil || fence == nil || fence.Operation != hostlease.FenceOperationRelationAttribution {
 		t.Fatalf("fence: %+v %v", fence, err)
 	}
+}
+
+func TestAttributionCLIRetainedFenceRecovery(t *testing.T) {
+	for _, committed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("committed=%t", committed), func(t *testing.T) {
+			_, root := attributionCLIStore(t)
+			code, data, diag := attributionCall(t, attributionInput{Action: "inspect", Cutoff: "2090-01-01T00:00:00Z"})
+			if code != 0 {
+				t.Fatal(diag)
+			}
+			var inspected struct {
+				Snapshot string                    `json:"snapshot"`
+				Manifest store.AttributionManifest `json:"manifest"`
+			}
+			if err := json.Unmarshal(data, &inspected); err != nil {
+				t.Fatal(err)
+			}
+			input := attributionInput{Action: "clear", BackupPath: inspected.Snapshot, Manifest: inspected.Manifest, IdempotencyKey: "recovery"}
+			original := clearAttribution
+			t.Cleanup(func() { clearAttribution = original })
+			var result store.AttributionResult
+			clearAttribution = func(s *store.Store, ctx context.Context, req store.AttributionRequest) (store.AttributionResult, error) {
+				if committed {
+					var err error
+					result, err = original(s, ctx, req)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				return store.AttributionResult{}, fmt.Errorf("uncertain outcome")
+			}
+			if code, _, diag := attributionCall(t, input); code == 0 || !strings.Contains(diag, "fence retained: true") {
+				t.Fatalf("initial: %d %s", code, diag)
+			}
+			clearAttribution = original
+			code, data, diag = attributionCall(t, input)
+			if code != 0 {
+				t.Fatalf("identical rerun: %d %s", code, diag)
+			}
+			var recovered struct {
+				Result store.AttributionResult `json:"result"`
+			}
+			if err := json.Unmarshal(data, &recovered); err != nil {
+				t.Fatal(err)
+			}
+			if len(recovered.Result.Treated) == 0 || (committed && !reflect.DeepEqual(result, recovered.Result)) {
+				t.Fatalf("result: %+v", recovered.Result)
+			}
+			if fence, err := hostlease.ReadFence(root); err != nil || fence != nil {
+				t.Fatalf("fence: %+v %v", fence, err)
+			}
+			start, err := hostlease.ProcessStart(os.Getpid())
+			if err != nil {
+				t.Fatal(err)
+			}
+			releaseRoot, binary, err := selfRelease()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := hostlease.Write(root, hostlease.Lease{PID: os.Getpid(), PidStart: start, ReleaseRoot: releaseRoot, CoreBinary: binary, SchemaVersion: store.CurrentSchemaVersion(), FenceProtocol: hostlease.CurrentFenceProtocol}); err != nil {
+				t.Fatalf("session admission: %v", err)
+			}
+		})
+	}
+}
+
+func TestAttributionCLIRetainedFenceRefusals(t *testing.T) {
+	_, root := attributionCLIStore(t)
+	code, data, diag := attributionCall(t, attributionInput{Action: "inspect", Cutoff: "2090-01-01T00:00:00Z"})
+	if code != 0 {
+		t.Fatal(diag)
+	}
+	var inspected struct {
+		Snapshot string                    `json:"snapshot"`
+		Manifest store.AttributionManifest `json:"manifest"`
+	}
+	if err := json.Unmarshal(data, &inspected); err != nil {
+		t.Fatal(err)
+	}
+	input := attributionInput{Action: "clear", BackupPath: inspected.Snapshot, Manifest: inspected.Manifest, IdempotencyKey: "refusal"}
+	start, err := hostlease.ProcessStart(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseRoot, binary, err := selfRelease()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease := hostlease.Lease{PID: os.Getpid(), PidStart: start, ReleaseRoot: releaseRoot, CoreBinary: binary, SchemaVersion: store.CurrentSchemaVersion(), FenceProtocol: hostlease.CurrentFenceProtocol}
+	if err := hostlease.Write(root, lease); err != nil {
+		t.Fatal(err)
+	}
+	leasePath := filepath.Join(hostlease.Directory(root), strconv.Itoa(os.Getpid())+".json")
+	leaseBytes, err := os.ReadFile(leasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(leasePath); err != nil {
+		t.Fatal(err)
+	}
+	original := clearAttribution
+	t.Cleanup(func() { clearAttribution = original })
+	clearAttribution = func(*store.Store, context.Context, store.AttributionRequest) (store.AttributionResult, error) {
+		return store.AttributionResult{}, fmt.Errorf("uncertain outcome")
+	}
+	if code, _, diag := attributionCall(t, input); code == 0 || !strings.Contains(diag, "fence retained: true") {
+		t.Fatalf("initial: %d %s", code, diag)
+	}
+	clearAttribution = original
+	fencePath := hostlease.FencePath(root)
+	fenceBytes, err := os.ReadFile(fencePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRefusal := func(t *testing.T, request attributionInput, expected []byte) {
+		t.Helper()
+		if code, _, diag := attributionCall(t, request); code == 0 {
+			t.Fatalf("accepted request: %s", diag)
+		}
+		after, err := os.ReadFile(fencePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(after, expected) {
+			t.Fatalf("fence changed: before %s after %s", expected, after)
+		}
+	}
+	changedManifest := input
+	changedManifest.Manifest.GraphDigest = "different"
+	changedBackup := input
+	changedBackup.BackupPath += ".other"
+	changedAction := input
+	changedAction.Action = "verify"
+	changedKey := input
+	changedKey.IdempotencyKey = "other"
+	for name, request := range map[string]attributionInput{"manifest": changedManifest, "backup": changedBackup, "action": changedAction, "key": changedKey} {
+		t.Run(name, func(t *testing.T) { assertRefusal(t, request, fenceBytes) })
+	}
+	for name, value := range map[string]any{"operation": "foreign", "release_root": "/other", "core_binary": "/other/core", "schema_version": -1, "request_digest": "sha256:foreign"} {
+		t.Run(name, func(t *testing.T) {
+			var fence map[string]any
+			if err := json.Unmarshal(fenceBytes, &fence); err != nil {
+				t.Fatal(err)
+			}
+			fence[name] = value
+			changed, err := json.Marshal(fence)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(fencePath, changed, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			assertRefusal(t, input, changed)
+		})
+	}
+	t.Run("missing digest", func(t *testing.T) {
+		var fence map[string]any
+		if err := json.Unmarshal(fenceBytes, &fence); err != nil {
+			t.Fatal(err)
+		}
+		delete(fence, "request_digest")
+		changed, err := json.Marshal(fence)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fencePath, changed, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		assertRefusal(t, input, changed)
+	})
+	t.Run("live participant", func(t *testing.T) {
+		if err := os.WriteFile(fencePath, fenceBytes, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(leasePath, leaseBytes, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		assertRefusal(t, input, fenceBytes)
+	})
 }
 
 func TestAttributionCLICurrentPopulationMismatchDoesNotWrite(t *testing.T) {

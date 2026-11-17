@@ -15,6 +15,34 @@ import (
 	"time"
 )
 
+func TestFenceOptionalRequestDigestRoundTrip(t *testing.T) {
+	for _, digest := range []string{"", "sha256:example"} {
+		t.Run(fmt.Sprintf("digest=%q", digest), func(t *testing.T) {
+			root := t.TempDir()
+			opened, err := EnsureFence(root, Fence{FenceID: "identity", RequestDigest: digest})
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := os.ReadFile(FencePath(root))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]any
+			if err := json.Unmarshal(encoded, &fields); err != nil {
+				t.Fatal(err)
+			}
+			value, present := fields["request_digest"]
+			if present != (digest != "") || (present && value != digest) {
+				t.Fatalf("fields: %s", encoded)
+			}
+			read, err := ReadFence(root)
+			if err != nil || read == nil || *read != opened {
+				t.Fatalf("round trip: %+v %v", read, err)
+			}
+		})
+	}
+}
+
 func TestLeaseRoundTripKeepsALiveProcessAndPrunesAStaleOne(t *testing.T) {
 	root := t.TempDir()
 	start, err := ProcessStart(os.Getpid())

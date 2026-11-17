@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -144,15 +145,23 @@ func runRelationAttribution(args []string, in io.Reader, out, errOut io.Writer) 
 		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 		return 1
 	}
-	fence, err := hostlease.EnsureFence(root, hostlease.Fence{FenceID: id, Operation: hostlease.FenceOperationRelationAttribution, ReleaseRoot: releaseRoot, CoreBinary: binary, SchemaVersion: store.CurrentSchemaVersion(), Notice: "relation attribution maintenance excludes session admission"})
-	if err != nil || fence.FenceID != id {
-		if err == nil {
-			err = fmt.Errorf("existing maintenance fence is retained; refusing to adopt it")
-		}
+	encoded, err := json.Marshal(input)
+	if err != nil {
 		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 		return 1
 	}
-	boundary := upgradeFence{dataRoot: root, id: id, owned: true, strictCompact: true, commandName: command}
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256(encoded))
+	fence, err := hostlease.EnsureFence(root, hostlease.Fence{FenceID: id, Operation: hostlease.FenceOperationRelationAttribution, ReleaseRoot: releaseRoot, CoreBinary: binary, SchemaVersion: store.CurrentSchemaVersion(), RequestDigest: digest, Notice: "relation attribution maintenance excludes session admission"})
+	if err != nil {
+		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
+		return 1
+	}
+	owned := fence.FenceID == id
+	if !owned && (fence.Operation != hostlease.FenceOperationRelationAttribution || fence.ReleaseRoot != releaseRoot || fence.CoreBinary != binary || fence.SchemaVersion != store.CurrentSchemaVersion() || fence.RequestDigest == "" || fence.RequestDigest != digest) {
+		writeOperatorDiagnostic(errOut, command, "existing maintenance fence is retained; refusing to adopt it")
+		return 1
+	}
+	boundary := upgradeFence{dataRoot: root, id: fence.FenceID, owned: owned, strictCompact: true, commandName: command}
 	held, code := boundary.observeSessions(true, false, true, errOut)
 	if code != 0 {
 		return code

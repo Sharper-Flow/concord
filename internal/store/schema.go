@@ -219,11 +219,13 @@ const (
 // budget, and each retry re-checks the read-only fast path so a waiter returns
 // as soon as the winner commits.
 func Migrate(ctx context.Context, db *sql.DB, clock ...func() time.Time) error {
-	return migrate(ctx, db, migrateForUpgrade, clock...)
+	_, err := migrate(ctx, db, migrateForUpgrade, clock...)
+	return err
 }
 
 func migrateUnstamped(ctx context.Context, db *sql.DB, clock ...func() time.Time) error {
-	return migrate(ctx, db, migrateForUnstamped, clock...)
+	_, err := migrate(ctx, db, migrateForUnstamped, clock...)
+	return err
 }
 
 // migrateAtOpen applies the pending additive steps and refuses with
@@ -231,32 +233,33 @@ func migrateUnstamped(ctx context.Context, db *sql.DB, clock ...func() time.Time
 // steps it applied stay committed; the refusal names the step and the
 // command that applies it.
 func migrateAtOpen(ctx context.Context, db *sql.DB, clock ...func() time.Time) error {
-	return migrate(ctx, db, migrateForOpen, clock...)
+	_, err := migrate(ctx, db, migrateForOpen, clock...)
+	return err
 }
 
-func migrate(ctx context.Context, db *sql.DB, scope migrationScope, clock ...func() time.Time) error {
+func migrate(ctx context.Context, db *sql.DB, scope migrationScope, clock ...func() time.Time) ([]int, error) {
 	deadline := time.Now().Add(migrationLockBudget)
 	delay := migrationRetryInitialDelay
 	for {
 		current, err := migrationManifestCurrent(ctx, db, scope)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if current {
-			return nil
+			return nil, nil
 		}
-		err = migrateOnce(ctx, db, scope, clock...)
+		applied, err := migrateOnce(ctx, db, scope, clock...)
 		if err == nil {
-			return nil
+			return applied, nil
 		}
 		if !migrationLockContended(err) || !time.Now().Before(deadline) {
-			return err
+			return nil, err
 		}
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return wrapFailure(KindUnavailable, "migrate", "schema migration was cancelled while waiting for another process", true,
+			return nil, wrapFailure(KindUnavailable, "migrate", "schema migration was cancelled while waiting for another process", true,
 				"retry once the database is writable", ctx.Err())
 		case <-timer.C:
 		}
@@ -478,16 +481,16 @@ func upgradeRequired(m migration) *Failure {
 		true, fmt.Sprintf("run concord upgrade; it refuses while a live session holds a release that predates migration %d", m.Version))
 }
 
-func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ...func() time.Time) error {
+func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ...func() time.Time) ([]int, error) {
 	write, err := beginWriteTx(ctx, db, nil, schemaWriteAdmission)
 	if err != nil {
-		return wrapFailure(KindUnavailable, "migrate", "cannot begin schema migration", true,
+		return nil, wrapFailure(KindUnavailable, "migrate", "cannot begin schema migration", true,
 			"retry once the database is writable", err)
 	}
 	tx := write.Tx
-	rollback := func(cause error) error {
+	rollback := func(cause error) ([]int, error) {
 		write.finish(&cause)
-		return cause
+		return nil, cause
 	}
 	var manifestExists bool
 	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='schema_migrations')`).Scan(&manifestExists); err != nil {
@@ -537,17 +540,17 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 		}
 	}
 
-	stopped, err := applyPendingMigrations(ctx, tx, scope, applied, clock...)
+	versions, stopped, err := applyPendingMigrations(ctx, tx, scope, applied, clock...)
 	if err != nil {
 		return rollback(err)
 	}
 	if err := tx.Commit(); err != nil {
-		return ordinaryCommitFailure(ctx, write, "migrate", "cannot commit schema migration", err)
+		return nil, ordinaryCommitFailure(ctx, write, "migrate", "cannot commit schema migration", err)
 	}
 	if stopped != nil {
-		return upgradeRequired(*stopped)
+		return nil, upgradeRequired(*stopped)
 	}
-	return nil
+	return versions, nil
 }
 
 func inspectUnstampedManifest(ctx context.Context, tx *sql.Tx) (bool, error) {
@@ -576,7 +579,8 @@ func inspectUnstampedManifest(ctx context.Context, tx *sql.Tx) (bool, error) {
 	return false, nil
 }
 
-func applyPendingMigrations(ctx context.Context, tx *sql.Tx, scope migrationScope, applied map[int]appliedMigration, clock ...func() time.Time) (*migration, error) {
+func applyPendingMigrations(ctx context.Context, tx *sql.Tx, scope migrationScope, applied map[int]appliedMigration, clock ...func() time.Time) ([]int, *migration, error) {
+	var versions []int
 	var stopped *migration
 	for i := range migrations {
 		m := migrations[i]
@@ -588,20 +592,21 @@ func applyPendingMigrations(ctx context.Context, tx *sql.Tx, scope migrationScop
 			break
 		}
 		if err := applyMigration(ctx, tx, m); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := advanceStoreRevision(ctx, tx); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO schema_migrations (version, name, checksum, applied_at, breaking) VALUES (?, ?, ?, ?, ?)`,
 			m.Version, m.Name, m.checksum(), nowFromClock(firstClock(clock)).Format(time.RFC3339Nano), m.Breaking); err != nil {
-			return nil, wrapFailure(KindUnavailable, "migrate",
+			return nil, nil, wrapFailure(KindUnavailable, "migrate",
 				fmt.Sprintf("cannot record migration %d (%s)", m.Version, m.Name), true,
 				"retry once the database is writable", err)
 		}
+		versions = append(versions, m.Version)
 	}
-	return stopped, nil
+	return versions, stopped, nil
 }
 
 // appliedMigration is one manifest row: what was applied, and whether it left

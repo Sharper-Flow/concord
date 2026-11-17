@@ -232,13 +232,14 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport
 		}
 	}
 	var after map[int]appliedMigration
+	var committed []int
 	if version.Value == version.Development && !unstampedFresh {
 		after = before
 	} else {
 		if version.Value == version.Development {
-			err = migrateUnstamped(ctx, s.db, s.Clock)
+			committed, err = migrate(ctx, s.db, migrateForUnstamped, s.Clock)
 		} else {
-			err = Migrate(ctx, s.db, s.Clock)
+			committed, err = migrate(ctx, s.db, migrateForUpgrade, s.Clock)
 		}
 		if err != nil {
 			return UpgradeReport{}, err
@@ -252,14 +253,7 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport
 		return UpgradeReport{}, err
 	}
 	report := UpgradeReport{Applied: []int{}}
-	for _, m := range migrations {
-		if _, was := before[m.Version]; was {
-			continue
-		}
-		if _, is := after[m.Version]; is {
-			report.Applied = append(report.Applied, m.Version)
-		}
-	}
+	report.Applied = append(report.Applied, committed...)
 	for version := range after {
 		if version > report.SchemaVersion {
 			report.SchemaVersion = version

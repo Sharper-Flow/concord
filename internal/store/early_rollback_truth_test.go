@@ -128,7 +128,10 @@ func TestEarlyRollbackTruth(t *testing.T) {
 			}
 			cause := errors.New("injected migration manifest insert refusal")
 			db, connector := earlyRollbackDB(t, path, "INSERT INTO schema_migrations (version, name, checksum, applied_at, breaking) VALUES (?, ?, ?, ?, ?)", 201, cause, fault)
-			err := migrateOnce(ctx, db, migrateForUpgrade, nil, func() time.Time { return time.Unix(1, 0) })
+			versions, err := migrateOnce(ctx, db, migrateForUpgrade, nil, func() time.Time { return time.Unix(1, 0) })
+			if len(versions) != 0 {
+				t.Errorf("failed migration returned versions %v", versions)
+			}
 			if !connector.reached.Load() {
 				t.Fatalf("migration insert not reached: %v", err)
 			}
@@ -160,9 +163,12 @@ func TestEarlyRollbackTruth(t *testing.T) {
 			}
 			db, connector := earlyRollbackDB(t, path, "", 0, nil, fault)
 			connector.base.failRollback.Store(fault)
-			err = migrateOnce(ctx, db, migrateForUnstamped, nil)
+			versions, err := migrateOnce(ctx, db, migrateForUnstamped, nil)
 			if connector.base.failRollback.Load() {
 				t.Fatal("stop path did not reach rollback")
+			}
+			if len(versions) != 0 {
+				t.Errorf("stop path returned versions %v", versions)
 			}
 			if !fault {
 				if err != nil {

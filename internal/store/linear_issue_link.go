@@ -88,7 +88,7 @@ func RecordLinearIssueLinkTx(ctx context.Context, transaction *Transaction, link
 		if current == link {
 			return current, nil
 		}
-		return LinearIssueLink{}, newFailure(KindInvalidOperation, op, "the work item already records a different Linear issue identity", false, "a work item holds at most one Linear issue identity")
+		return LinearIssueLink{}, newFailure(KindInvalidOperation, op, "the work item already records a different Linear issue identity", false, "if the recorded identity is wrong, cancel the work item with a reason, then capture the correct issue identity afresh")
 	}
 	if !isTerminalLifecycle(lifecycle) {
 		if err := requireAvailableLinearIssue(ctx, tx, link); err != nil {

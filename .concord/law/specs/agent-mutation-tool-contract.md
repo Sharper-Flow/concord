@@ -31,7 +31,6 @@
 
 > **Status:** **Accepted — binding until superseded.**
 > **Amended:** 2026-10-18.
-> **Accepted by operator:** 2026-08-06.
 > **Decision:** TS4; binding input to CD-0005 §4 and TS5–TS9.
 > **Binding inputs:** accepted PM3–PM6, compaction-retention-policy domain operations, TS1 jobs/scenarios,
 > TS2 budget/granularity, TS3 read surface, and the capability-placement native-authority
@@ -120,7 +119,7 @@ picked, then its plan frontier.
 
 | Operation | Required domain input | Core effect |
 |---|---|---|
-| `lifecycle` | work ID, expected version, target `needed|in_progress|completed|cancelled|reopen`, reason, required evidence | Validate PM4 transition and workflow obligations; write the current rows atomically. |
+| `lifecycle` | work ID, expected version, target `needed|in_progress|completed|cancelled|reopen`, reason; verification evidence for completion, optional evidence for cancellation | Validate PM4 transition and workflow obligations; write the current rows atomically, retaining supplied evidence. |
 | `workflow_action` | work ID, expected version, stable action ID admitted for the work item (intake prelude before the type pick, then the plan frontier), required fields/evidence | Execute the workflow-defined domain action atomically or reject it; action ID is authoritative data, not a caller-invented command. |
 
 Completed or cancelled work may be reopened to `needed` with a reason, subject

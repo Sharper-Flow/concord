@@ -413,7 +413,7 @@ func (s *Service) authorizeResolved(ctx context.Context, tx *store.Transaction, 
 		_, capabilityAllowed := mainCheckoutAllowedCapabilities[in.RequiredCapability]
 		_, operationAllowed := mainCheckoutAllowedOperations[in.RequiredCapability][in.RequiredOperation]
 		if !capabilityAllowed && !operationAllowed {
-			return Authority{}, authorityRefusal("implementation-bearing authority requires a linked worktree; the main checkout refuses it (CD-0092 D2)")
+			return Authority{}, newRuntimeFailure("unauthorized", "implementation-bearing authority requires a linked worktree; the main checkout refuses it (CD-0092 D2). Use host tools to create and place this work item's linked worktree, then resume the same work from it", "refresh_context", false)
 		}
 	}
 	if !containsCapability(capabilityValues(policyCaps), in.RequiredCapability) {

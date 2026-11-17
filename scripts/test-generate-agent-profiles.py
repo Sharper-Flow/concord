@@ -262,7 +262,11 @@ class ProfileTests(unittest.TestCase):
         normalized = " ".join(text.split())
         for clause in ("within the assigned files", "named check", "explicit scope to prepare an unapproved preview",
                        "If any of these, including a required approval, is missing, return needs-decision", "outside that assignment",
-                       "fails for the reported behavior before the fix and passes after", "If it does not fail before the fix, stop and report the gap",
+                       "existing test that fails for the reported behavior", "including the test being repaired",
+                       "add a regression for uncovered behavior", "failure before the fix and passing after",
+                       "reuse applicable before-fix evidence", "cannot establish failure before the fix, stop before the fix",
+                       "If the test does not pass after, report the gap",
+                       "For removals and non-executable changes", "proof and review rules in `completion.md`",
                        "Product's browser verification tooling when exposed",
                        "do not assume a particular provider or install one", "screenshots with their exact locations", "live preview URL whenever reachable",
                        "exact version shown", "uncommitted diff identity", "Missing or inaccessible preview material is a gap",
@@ -310,7 +314,12 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(profile["tools"]["question"], "deny")
         self.assertEqual(set(profile["denied_concord_tools"]), set(checks.PLANNER_WRITERS))
         normalized = " ".join(text.split())
-        for clause in ("Change, Fix or Removal", "paths or subsystem", "outcome", "named check", "needs-decision", "failing before", "passing after", "uncommitted"):
+        for clause in ("Change, Fix or Removal", "paths or subsystem", "outcome", "named check", "needs-decision",
+                       "existing test that fails for the reported behavior", "including the test being repaired",
+                       "add a regression for uncovered behavior", "failure before the fix and passing after",
+                       "reuse applicable before-fix evidence", "cannot establish failure before the fix, stop before the fix",
+                       "If the test does not pass after, report the gap",
+                       "For removals and non-executable changes", "proof and review rules in `completion.md`", "uncommitted"):
             self.assertIn(clause, normalized)
         frontmatter = checks.split_frontmatter(text)
         bash = checks.permission_rules(frontmatter, "bash")

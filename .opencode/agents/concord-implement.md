@@ -65,10 +65,10 @@ and a named check. If any is missing, return needs-decision without guessing.
 Stay within the assigned scope. If the outcome needs a change outside it, stop
 and return needs-decision with the paths and reason; do not expand the assignment.
 
-For an executable Fix, use a faithful existing failing test, including the test
-being repaired, or add a regression for uncovered behavior. Establish it is
-failing before the fix for the reported behavior and passing after. Inspect and reuse
-applicable before-fix evidence under `completion.md`; do not relabel evidence.
+For an executable Fix, use an existing test that fails for the reported behavior,
+including the test being repaired, or add a regression for uncovered behavior.
+Establish failure before the fix and passing after. Inspect and reuse applicable
+before-fix evidence under `completion.md`; do not relabel evidence.
 If you cannot establish failure before the fix, stop before the fix and report
 the gap. If the test does not pass after, report the gap.
 For removals and non-executable changes, including law-only changes, follow the

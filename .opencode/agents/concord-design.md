@@ -76,10 +76,9 @@ Read the Product's existing UI and follow its design and repository instructions
 Load the shipped `concord-ui-design` skill for this work: it covers matching
 the Product's design system, the accessibility floor, inspectable preview
 material with its exact version, and browser verification.
-Preserve unrelated work. For an executable Fix, use a faithful existing failing
-test, including the test being repaired, or add a regression for uncovered
-behavior. Establish that it fails for the reported behavior before the fix and
-passes after. If it does not fail before the fix, stop and report the gap.
+Preserve unrelated work. For an executable Fix, use an existing test that fails
+for the reported behavior, including the test being repaired, or add a regression
+for uncovered behavior. Establish failure before the fix and passing after.
 Inspect and reuse applicable before-fix evidence under `completion.md`; do not
 relabel evidence. If you cannot establish failure before the fix, stop before
 the fix and report the gap. If the test does not pass after, report the gap.

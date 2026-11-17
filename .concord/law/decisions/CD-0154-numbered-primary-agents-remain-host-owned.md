@@ -160,10 +160,14 @@ binding. Utility boundaries remain unchanged.
 for one bounded Change, Fix or Removal in the caller's worktree. Its assignment
 names the paths or subsystem, outcome and check. Missing inputs or a needed
 change outside the assignment return needs-decision rather than an expanded scope.
-For a Fix, it adds a regression test first and proves that it fails before the
-fix for the reported behavior and passes after. It leaves changes uncommitted
-and reports exact changed paths, commands, exits and gaps; the caller commits
-and owns workflow state, evidence binding and delivery.
+For an executable Fix, it uses an existing test that fails for the reported
+behavior, including the test being repaired, or adds a regression for uncovered
+behavior. It establishes failure before the fix and passing after, inspecting
+and reusing applicable before-fix evidence under [completion conduct](../../instructions/completion.md).
+For removals and non-executable changes, it follows that conduct's proof and
+review rules. It leaves changes uncommitted and reports exact changed paths,
+commands, exits and gaps; the caller commits and owns workflow state, evidence
+binding and delivery.
 
 The implementer may read Concord law and work context and delegate only to
 exploration and external lookup utilities. It must not write planning or
@@ -248,8 +252,8 @@ Utility results never become managed review or verification evidence.
 - The release workflow packages named primary profiles, never numbered host files.
 - `scripts/test-generate-agent-profiles.py` checks verifier tool and command
   permissions, inherited safety denies and test-only instructions.
-- The same profile suite checks the implementer's bounded assignment, Fix
-  regression order, uncommitted results and effective permission rules.
+- The same profile suite checks the implementer's bounded assignment, executable
+  Fix proof instructions, uncommitted results and effective permission rules.
 - It also checks the researcher's investigation loop, read-only permissions,
   two-delegate boundary, CLI hygiene and inherited host safety denies.
 - It checks the designer's edit-capable permissions, versioned preview and

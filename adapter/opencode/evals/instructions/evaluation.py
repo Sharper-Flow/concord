@@ -27,7 +27,6 @@ def _s09_material(text):
     # A fence closes on a run of its character at least as long, or at the end;
     # a code span closes on an equal backtick run within one paragraph.
     text = re.sub(r"(?ms)^[ \t]*((`|~)\2{2,})[^`\n]*\n.*?(?:^[ \t]*\1\2*[ \t]*$|\Z)", "", text)
-    text = re.sub(r"(?m)^(?: {4}|\t).*?(?:\n|$)", "", text)
     text = re.sub(r"(?s)(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n).)*?(?<!`)\1(?!`)", "", text)
     title = r"""(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?"""
     definitions = {}

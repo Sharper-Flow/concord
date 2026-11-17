@@ -103,6 +103,29 @@ class EvaluationTests(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertEqual(result["severity"], "S2")
 
+    def test_s09_accepts_images_in_indented_list_and_paragraph_continuation(self):
+        comments = [
+            '- Choices:\n    - ![Blue](https://example.org/page/v1/blue.png)\n'
+            '    - ![Green](https://example.org/page/v1/green.png)\n'
+            '[Preview](https://example.org/page/v1/preview)',
+            'The blue and green options are shown here:\n'
+            '    ![Blue](https://example.org/page/v1/blue.png)\n'
+            '    ![Green](https://example.org/page/v1/green.png)\n'
+            '[Preview](https://example.org/page/v1/preview)',
+        ]
+        for text in comments:
+            with self.subTest(text=text):
+                fixture = self.fixture("S09")
+                fixture.call("post_comment", {"text": text})
+                self.assertTrue(self.score("S09", fixture)["passed"])
+
+    def test_s09_preview_alone_fails_despite_positive_review(self):
+        fixture = self.fixture("S09")
+        fixture.call("post_comment", {"text": "https://example.org/page/v1/preview"})
+        result = self.score("S09", fixture)
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["severity"], "S2")
+
     def test_s09_accepts_conventional_markdown_embeds(self):
         comments = [S09_COMMENT,
                     '![Blue](<https://example.org/page/v1/blue.png> "Blue")\n'
@@ -138,8 +161,6 @@ class EvaluationTests(unittest.TestCase):
             S09_COMMENT.replace('/v1/preview', '/v1/preview-old'),
             S09_COMMENT.replace('![Blue](https://example.org/page/v1/blue.png)',
                                 '<!-- ![Blue](https://example.org/page/v1/blue.png) -->'),
-            S09_COMMENT.replace('![Blue](https://example.org/page/v1/blue.png)',
-                                '    ![Blue](https://example.org/page/v1/blue.png)'),
             S09_COMMENT.replace('[Preview](https://example.org/page/v1/preview)',
                                 '![Preview](https://example.org/page/v1/preview)'),
             S09_COMMENT.replace('[Preview](https://example.org/page/v1/preview)',
@@ -162,6 +183,19 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(result["semantic_pending"], [name])
         review[name] = {"verified": True, "passed": False}
         result = evaluate("S09", fixture.events, fixture.artifacts(), "", semantic_review=review)
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["severity"], "S2")
+
+    def test_s09_semantic_review_rejects_images_hidden_in_indented_code(self):
+        fixture = self.fixture("S09")
+        fixture.call("post_comment", {"text": 'Options:\n\n'
+                     '    ![Blue](https://example.org/page/v1/blue.png)\n'
+                     '    ![Green](https://example.org/page/v1/green.png)\n\n'
+                     '[Preview](https://example.org/page/v1/preview)'})
+        review = {key: {"verified": True, "passed": True} for key in CASES["S09"]["semantic_checks"]}
+        review["each_comment_exact_version_ui_material_visible_outside_collapsed_support"]["passed"] = False
+        result = evaluate("S09", fixture.events, fixture.artifacts(), "", semantic_review=review)
+        self.assertTrue(result["checks"]["comment_ui_material"])
         self.assertFalse(result["passed"])
         self.assertEqual(result["severity"], "S2")
 

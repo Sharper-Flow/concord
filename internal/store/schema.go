@@ -166,10 +166,18 @@ func inspectManifestSnapshot(ctx context.Context, db *sql.DB, probe string) mani
 		return result
 	}
 	defer func() { _ = tx.Rollback() }()
+	return inspectManifest(ctx, tx, probe)
+}
+
+func inspectManifest(ctx context.Context, tx queryer, probe string) manifestSnapshot {
+	var result manifestSnapshot
+	var err error
 	var present string
 	err = tx.QueryRowContext(ctx, `SELECT name FROM sqlite_schema WHERE type='table' AND name='schema_migrations'`).Scan(&present)
 	if err == sql.ErrNoRows {
-		afterSchemaManifestAbsent(ctx, probe)
+		if probe != "" {
+			afterSchemaManifestAbsent(ctx, probe)
+		}
 		result.emptyErr = requireEmptySchema(ctx, tx)
 		return result
 	}
@@ -196,7 +204,7 @@ const (
 	// migration has no older release to protect and applies every step.
 	migrateForOpen migrationScope = iota
 	// migrateForUpgrade applies every pending step, breaking ones included.
-	// Only concord upgrade reaches it, after the live-session check.
+	// Upgrade checks live sessions inside the migration transaction.
 	migrateForUpgrade
 	// migrateForUnstamped applies every pending step only after the caller has
 	// established that no migration is recorded. The transaction checks that
@@ -219,12 +227,12 @@ const (
 // budget, and each retry re-checks the read-only fast path so a waiter returns
 // as soon as the winner commits.
 func Migrate(ctx context.Context, db *sql.DB, clock ...func() time.Time) error {
-	_, err := migrate(ctx, db, migrateForUpgrade, clock...)
+	_, err := migrate(ctx, db, migrateForUpgrade, nil, clock...)
 	return err
 }
 
 func migrateUnstamped(ctx context.Context, db *sql.DB, clock ...func() time.Time) error {
-	_, err := migrate(ctx, db, migrateForUnstamped, clock...)
+	_, err := migrate(ctx, db, migrateForUnstamped, nil, clock...)
 	return err
 }
 
@@ -233,11 +241,11 @@ func migrateUnstamped(ctx context.Context, db *sql.DB, clock ...func() time.Time
 // steps it applied stay committed; the refusal names the step and the
 // command that applies it.
 func migrateAtOpen(ctx context.Context, db *sql.DB, clock ...func() time.Time) error {
-	_, err := migrate(ctx, db, migrateForOpen, clock...)
+	_, err := migrate(ctx, db, migrateForOpen, nil, clock...)
 	return err
 }
 
-func migrate(ctx context.Context, db *sql.DB, scope migrationScope, clock ...func() time.Time) ([]int, error) {
+func migrate(ctx context.Context, db *sql.DB, scope migrationScope, held []HeldSchema, clock ...func() time.Time) ([]int, error) {
 	deadline := time.Now().Add(migrationLockBudget)
 	delay := migrationRetryInitialDelay
 	for {
@@ -248,7 +256,7 @@ func migrate(ctx context.Context, db *sql.DB, scope migrationScope, clock ...fun
 		if current {
 			return nil, nil
 		}
-		applied, err := migrateOnce(ctx, db, scope, clock...)
+		applied, err := migrateOnce(ctx, db, scope, held, clock...)
 		if err == nil {
 			return applied, nil
 		}
@@ -437,25 +445,6 @@ func openStopsBefore(applied map[int]appliedMigration) *migration {
 	return nil
 }
 
-// pendingBreaking lists, in order, the breaking steps the database has not
-// applied, whatever additive steps sit between them. Upgrade gates on them; a
-// fresh database has none to gate.
-func pendingBreaking(applied map[int]appliedMigration) []migration {
-	if len(applied) == 0 {
-		return nil
-	}
-	var pending []migration
-	for _, m := range migrations {
-		if _, done := applied[m.Version]; done {
-			continue
-		}
-		if m.Breaking {
-			pending = append(pending, m)
-		}
-	}
-	return pending
-}
-
 // migrationLockContended reports whether a failure means another process holds
 // the write lock. It never treats drift or an unsupported schema as contention.
 func migrationLockContended(err error) bool {
@@ -481,7 +470,7 @@ func upgradeRequired(m migration) *Failure {
 		true, fmt.Sprintf("run concord upgrade; it refuses while a live session holds a release that predates migration %d", m.Version))
 }
 
-func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ...func() time.Time) ([]int, error) {
+func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, held []HeldSchema, clock ...func() time.Time) ([]int, error) {
 	write, err := beginWriteTx(ctx, db, nil, schemaWriteAdmission)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "migrate", "cannot begin schema migration", true,
@@ -492,27 +481,32 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 		write.finish(&cause)
 		return nil, cause
 	}
-	var manifestExists bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='schema_migrations')`).Scan(&manifestExists); err != nil {
-		return rollback(err)
+	snapshot := inspectManifest(ctx, tx, "")
+	if snapshot.inspectErr != nil {
+		return rollback(snapshot.inspectErr)
 	}
-	if !manifestExists {
-		if err := requireEmptySchema(ctx, tx); err != nil {
-			return rollback(err)
+	if !snapshot.present {
+		if snapshot.emptyErr != nil {
+			return rollback(snapshot.emptyErr)
 		}
 	} else {
-		applied, err := appliedMigrations(ctx, tx)
-		if err != nil && strings.Contains(err.Error(), "no such column: breaking") {
-			err = legacyManifestMigrations(ctx, tx)
+		if snapshot.legacy {
+			return rollback(snapshot.legacyErr)
 		}
-		if err != nil {
-			return rollback(err)
+		if snapshot.appliedErr != nil {
+			return rollback(snapshot.appliedErr)
 		}
+		applied := snapshot.applied
 		if len(applied) == 0 {
 			return rollback(unknownManifest())
 		}
 		if err := checkManifest(applied); err != nil {
 			return rollback(err)
+		}
+		if scope == migrateForUpgrade {
+			if err := CheckUpgradeSessions(pendingBreakingList(applied), held); err != nil {
+				return rollback(err)
+			}
 		}
 	}
 	if scope == migrateForUnstamped {
@@ -534,7 +528,7 @@ func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ..
 	if err := checkManifest(applied); err != nil {
 		return rollback(err)
 	}
-	if !manifestExists {
+	if !snapshot.present {
 		if _, err := tx.ExecContext(ctx, schemaBaseline198); err != nil {
 			return rollback(wrapFailure(KindUnavailable, "migrate", "cannot initialize the fresh store baseline", true, "check database permissions", err))
 		}

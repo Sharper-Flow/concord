@@ -160,3 +160,68 @@ func TestUpgradeRefusesWhileALiveLeaseHoldsAnOlderSchema(t *testing.T) {
 		t.Fatalf("a current database applied %v, want nothing", again.Applied)
 	}
 }
+
+func TestUpgradeBlocksWhenOlderSchemaAppearsAfterEmptyManifestProbe(t *testing.T) {
+	useStampedBuild(t)
+	path := filepath.Join(t.TempDir(), "concord.db")
+	hits := 0
+	ctx := context.WithValue(context.Background(), schemaAbsentHookKey{}, func(probe string) {
+		if probe != "migrationManifestCurrent" {
+			return
+		}
+		hits++
+		if err := openMigratedTo(t, path, 199).Close(); err != nil {
+			t.Fatalf("close initializer: %v", err)
+		}
+	})
+	report, err := Upgrade(ctx, path, []HeldSchema{{PID: 4242, SchemaVersion: 199}})
+	if hits != 1 {
+		t.Fatalf("migrationManifestCurrent probe reached %d times, want 1; Upgrade() error = %v", hits, err)
+	}
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindUpgradeBlocked {
+		t.Errorf("Upgrade() error = %v, report = %+v; want %s", err, report, KindUpgradeBlocked)
+	}
+	if len(report.Applied) != 0 {
+		t.Errorf("Upgrade() applied = %v, want none", report.Applied)
+	}
+	if got := manifestMax(t, path); got != 199 {
+		t.Errorf("manifest version = %d, want 199", got)
+	}
+}
+
+func TestUpgradeMigratesOlderSchemaAppearingAfterEmptyManifestProbeWithoutHolders(t *testing.T) {
+	useStampedBuild(t)
+	path := filepath.Join(t.TempDir(), "concord.db")
+	hits := 0
+	ctx := context.WithValue(context.Background(), schemaAbsentHookKey{}, func(probe string) {
+		if probe != "migrationManifestCurrent" {
+			return
+		}
+		hits++
+		if err := openMigratedTo(t, path, 199).Close(); err != nil {
+			t.Fatalf("close initializer: %v", err)
+		}
+	})
+	report, err := Upgrade(ctx, path, nil)
+	if hits != 1 || err != nil {
+		t.Fatalf("probe hits = %d, Upgrade() error = %v", hits, err)
+	}
+	if !slices.Equal(report.Applied, []int{200, 201}) || report.SchemaVersion != 201 || manifestMax(t, path) != 201 {
+		t.Errorf("Upgrade() report = %+v, want migrations [200 201] at schema 201", report)
+	}
+}
+
+func TestUpgradeFreshStoreIgnoresOlderHeldSchema(t *testing.T) {
+	useStampedBuild(t)
+	path := filepath.Join(t.TempDir(), "concord.db")
+	held := []HeldSchema{{PID: 4242, SchemaVersion: 199}}
+	report, err := Upgrade(context.Background(), path, held)
+	if err != nil || report.SchemaVersion != CurrentSchemaVersion() || len(report.Applied) == 0 {
+		t.Fatalf("fresh Upgrade() = %+v, error = %v; want initialized store", report, err)
+	}
+	report, err = Upgrade(context.Background(), path, held)
+	if err != nil || report.SchemaVersion != CurrentSchemaVersion() || len(report.Applied) != 0 {
+		t.Fatalf("current Upgrade() = %+v, error = %v; want no migrations", report, err)
+	}
+}

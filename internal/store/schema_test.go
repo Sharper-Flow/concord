@@ -64,36 +64,32 @@ func TestMigrateIsIdempotent(t *testing.T) {
 
 func TestUpgradeConcurrentFirstOpen(t *testing.T) {
 	useStampedBuild(t)
-	for _, probeTarget := range []string{"manifestVersions", "migrationManifestCurrent"} {
-		t.Run(probeTarget, func(t *testing.T) {
-			ctx := context.Background()
-			path := filepath.Join(t.TempDir(), "concord.db")
-			hits := 0
-			loserCtx := context.WithValue(ctx, schemaAbsentHookKey{}, func(probe string) {
-				if probe != probeTarget {
-					return
-				}
-				hits++
-				winner, err := Open(ctx, path)
-				if err != nil {
-					t.Fatalf("winner Open() error = %v", err)
-				}
-				t.Cleanup(func() { _ = winner.Close() })
-			})
-			report, err := Upgrade(loserCtx, path, nil)
-			if hits != 1 {
-				t.Fatalf("%s probe reached %d times, want 1; Upgrade() error = %v", probeTarget, hits, err)
-			}
-			if err != nil {
-				t.Fatalf("Upgrade() after winner committed error = %v", err)
-			}
-			if report.SchemaVersion != CurrentSchemaVersion() {
-				t.Errorf("schema version = %d, want %d", report.SchemaVersion, CurrentSchemaVersion())
-			}
-			if len(report.Applied) != 0 {
-				t.Errorf("Upgrade() applied = %v, want empty; winner applied all migrations", report.Applied)
-			}
-		})
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "concord.db")
+	hits := 0
+	loserCtx := context.WithValue(ctx, schemaAbsentHookKey{}, func(probe string) {
+		if probe != "migrationManifestCurrent" {
+			return
+		}
+		hits++
+		winner, err := Open(ctx, path)
+		if err != nil {
+			t.Fatalf("winner Open() error = %v", err)
+		}
+		t.Cleanup(func() { _ = winner.Close() })
+	})
+	report, err := Upgrade(loserCtx, path, nil)
+	if hits != 1 {
+		t.Fatalf("migrationManifestCurrent probe reached %d times, want 1; Upgrade() error = %v", hits, err)
+	}
+	if err != nil {
+		t.Fatalf("Upgrade() after winner committed error = %v", err)
+	}
+	if report.SchemaVersion != CurrentSchemaVersion() {
+		t.Errorf("schema version = %d, want %d", report.SchemaVersion, CurrentSchemaVersion())
+	}
+	if len(report.Applied) != 0 {
+		t.Errorf("Upgrade() applied = %v, want empty; winner applied all migrations", report.Applied)
 	}
 }
 
@@ -142,7 +138,7 @@ func TestMigrationRollbackDiscardsAppliedVersions(t *testing.T) {
 	}
 	cause := errors.New("injected manifest insert failure")
 	db, connector := earlyRollbackDB(t, path, "INSERT INTO schema_migrations (version, name, checksum, applied_at, breaking) VALUES (?, ?, ?, ?, ?)", 201, cause, false)
-	versions, err := migrate(ctx, db, migrateForUpgrade)
+	versions, err := migrate(ctx, db, migrateForUpgrade, nil)
 	if !connector.reached.Load() || !errors.Is(err, cause) || len(versions) != 0 {
 		t.Fatalf("failed migrate returned versions %v, error %v, fault reached %v", versions, err, connector.reached.Load())
 	}
@@ -150,7 +146,7 @@ func TestMigrationRollbackDiscardsAppliedVersions(t *testing.T) {
 		t.Fatalf("after rollback manifest = %d, want 199", got)
 	}
 	retryDB := openRawDatabase(t, path)
-	versions, err = migrate(ctx, retryDB, migrateForUpgrade)
+	versions, err = migrate(ctx, retryDB, migrateForUpgrade, nil)
 	if want := migrationVersionsAfter(199); err != nil || !slices.Equal(versions, want) {
 		t.Fatalf("retry returned versions %v, error %v; want %v", versions, err, want)
 	}

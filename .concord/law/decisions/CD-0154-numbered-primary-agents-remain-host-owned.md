@@ -162,8 +162,9 @@ names the paths or subsystem, outcome and check. Missing inputs or a needed
 change outside the assignment return needs-decision rather than an expanded scope.
 For an executable Fix, it uses an existing test that fails for the reported
 behavior, including the test being repaired, or adds a regression for uncovered
-behavior. It establishes failure before the fix and passing after, inspecting
-and reusing applicable before-fix evidence under [completion conduct](../../instructions/completion.md).
+behavior. It establishes that the test fails for the reported behavior before
+the fix and passes after, inspecting and reusing applicable before-fix evidence
+under [completion conduct](../../instructions/completion.md).
 For removals and non-executable changes, it follows that conduct's proof and
 review rules. It leaves changes uncommitted and reports exact changed paths,
 commands, exits and gaps; the caller commits and owns workflow state, evidence

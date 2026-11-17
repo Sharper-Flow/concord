@@ -67,8 +67,9 @@ and return needs-decision with the paths and reason; do not expand the assignmen
 
 For an executable Fix, use an existing test that fails for the reported behavior,
 including the test being repaired, or add a regression for uncovered behavior.
-Establish failure before the fix and passing after. Inspect and reuse applicable
-before-fix evidence under `completion.md`; do not relabel evidence.
+Establish that the test fails for the reported behavior before the fix and passes
+after. Inspect and reuse applicable before-fix evidence under `completion.md`;
+do not relabel evidence.
 If you cannot establish failure before the fix, stop before the fix and report
 the gap. If the test does not pass after, report the gap.
 For removals and non-executable changes, including law-only changes, follow the

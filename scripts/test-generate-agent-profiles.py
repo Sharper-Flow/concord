@@ -263,7 +263,7 @@ class ProfileTests(unittest.TestCase):
         for clause in ("within the assigned files", "named check", "explicit scope to prepare an unapproved preview",
                        "If any of these, including a required approval, is missing, return needs-decision", "outside that assignment",
                        "existing test that fails for the reported behavior", "including the test being repaired",
-                       "add a regression for uncovered behavior", "failure before the fix and passing after",
+                       "add a regression for uncovered behavior", "the test fails for the reported behavior before the fix and passes after",
                        "reuse applicable before-fix evidence", "cannot establish failure before the fix, stop before the fix",
                        "If the test does not pass after, report the gap",
                        "For removals and non-executable changes", "proof and review rules in `completion.md`",
@@ -316,7 +316,7 @@ class ProfileTests(unittest.TestCase):
         normalized = " ".join(text.split())
         for clause in ("Change, Fix or Removal", "paths or subsystem", "outcome", "named check", "needs-decision",
                        "existing test that fails for the reported behavior", "including the test being repaired",
-                       "add a regression for uncovered behavior", "failure before the fix and passing after",
+                       "add a regression for uncovered behavior", "the test fails for the reported behavior before the fix and passes after",
                        "reuse applicable before-fix evidence", "cannot establish failure before the fix, stop before the fix",
                        "If the test does not pass after, report the gap",
                        "For removals and non-executable changes", "proof and review rules in `completion.md`", "uncommitted"):

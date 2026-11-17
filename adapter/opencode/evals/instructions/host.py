@@ -203,6 +203,7 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
     call_count = 0
     phase = "setup"
     messages = []
+    usage_ids = set()
     lock = threading.Lock()
     token = secrets.token_urlsafe(32)
 
@@ -241,7 +242,11 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
                     elif self.path == "/reserve" and guard is not None:
                         result = {"ordinal": guard.reserve(value)}
                     elif self.path == "/usage" and guard is not None:
-                        guard.settle(value)
+                        try:
+                            guard.settle(value)
+                        finally:
+                            if isinstance(value, dict):
+                                usage_ids.add(value.get("id"))
                         result = {"ok": True}
                     else:
                         self.send_error(404)
@@ -360,6 +365,15 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
         messages = _request(url + "/message", timeout=_remaining(deadline), password=password)
         if not capture_paths or not any("messages" in Path(p).name for p in capture_paths) or not any("system" in Path(p).name for p in capture_paths):
             raise RuntimeError("required capture hooks did not run")
+        if guard is not None:
+            # OpenCode does not await plugin event hooks, so usage can arrive after the prompt returns.
+            completed = {m.get("info", {}).get("id") for m in messages
+                         if m.get("info", {}).get("role") == "assistant" and m.get("info", {}).get("time", {}).get("completed")}
+            while True:
+                with lock:
+                    if completed <= usage_ids:
+                        break
+                time.sleep(min(0.05, _remaining(deadline)))
         return {"messages": messages, "events": fixture.events, "artifacts": fixture.artifacts(),
                 "final_text": _final_text(messages), "compacted": compacted, "compaction_index": compaction_index,
                 "capture_paths": capture_paths, "capture_stage": STAGE, "elapsed_seconds": time.monotonic() - start,

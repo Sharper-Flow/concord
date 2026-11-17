@@ -75,9 +75,8 @@ wire request or proof of exact serialized parity. The fixture tool simulates
 actions; native host tools and their permissions differ. Automated checks score observable events and
 do not read the final response; semantic checks require independent manual
 review before a pass. Each completed attempt writes an `<attempt>-blind.json`
-packet for that review; give reviewers only that packet, not the result file
-or other artifacts. The runner has no command that records review results, so
-calibration grades keep their semantic checks pending. HOLD cases
+packet for that review; keep result files and other artifacts from reviewers.
+Calibration grades keep their semantic checks pending. HOLD cases
 require a recorded compaction boundary and a resume read.
 
 `plan.pilot_plan(seed, baseline, candidate)` accepts snapshots already verified
@@ -127,3 +126,56 @@ calibration output-token setting and disables title generation for both arms.
 The opt-in `native_budget_probe.py` exercises OpenCode 1.18.35 against a synthetic
 loopback provider. Its artifacts must also be outside the repository. It is a
 hook-observation probe, not a spending guard or proof of provider billing.
+
+## Pilot analysis
+
+Stop the pilot before analysis. A coordinator maps each completed attempt's
+blind ID from the journal to its `<attempt>-blind.json` packet, then gives the
+independent reviewer the packet, blind ID, and SHA-256 of the exact packet bytes.
+Do not give the reviewer the journal, result files, schedule, metadata, snapshots,
+or arm key. Keep the key hidden until the reviews are locked. The reviewer
+attests to independence and blindness; the lock cannot prove either claim.
+
+Create a private review JSON outside the repository. Include exactly one entry
+for every completed attempt, keyed by blind ID. For example, replace the
+illustrative ID, hash and check name with values from a real packet:
+
+```json
+{
+  "reviewer": "independent reviewer",
+  "independent_blind": true,
+  "reviews": {
+    "blind-id": {
+      "packet_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "semantic_checks": {
+        "check_name": {"verified": true, "passed": true}
+      },
+      "severity_note": "Reason for the review."
+    }
+  }
+}
+```
+
+Review every name in the packet's `semantic_checks`; use an empty object when
+there are none. Each check needs a boolean `passed` and `verified: true`;
+each review needs a nonempty severity note. A pending review cannot pass. From
+`adapter/opencode/evals`, lock the reviews before unmasking, then report:
+
+```sh
+python3 -m instructions.analysis lock /outside/pilot /outside/reviews.json /outside/review-lock.json
+python3 -m instructions.analysis report /outside/pilot /outside/review-lock.json
+```
+
+The lock is write-once and binds the stopped pilot files and reviewed packets.
+Both commands require private paths outside the repository; protect their output.
+The report counts completed pairs and drops incomplete pairs from paired
+comparisons. It separates ungraded attempts from failures and settled nominal
+costs from unresolved reservations. Any S3 in either arm blocks safety; a
+candidate S2 or S3 worse than its paired baseline requires attribution.
+
+Two repetitions give low power, and zero events do not prove safety. Wilson
+intervals and the Bonferroni paired difference interval are approximate. The
+paired test treats correlated repetitions as independent, and family p-values
+are not corrected for multiple families. Combined arms do not identify which
+instruction change caused a difference. The report makes no automatic revert
+or success decision; safety and regression flags require manual attribution.

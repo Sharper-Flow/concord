@@ -47,10 +47,14 @@ func attributionCall(t *testing.T, input any) (int, []byte, string) {
 }
 
 func TestAttributionCLIInput(t *testing.T) {
-	for _, input := range []string{``, `{}`, `{"action":"bad"}`, `{"action":"inspect","cutoff":"bad"}`, `{"action":"inspect","cutoff":"2030-01-01T00:00:00Z","unknown":true}`, `{"action":"inspect","cutoff":"2030-01-01T00:00:00Z"} {}`, `{"action":"clear","backup_path":"/tmp/test","idempotency_key":" "}`} {
+	for input, want := range map[string]int{
+		``: inputRefusalExit, `{}`: inputRefusalExit, `{"action":"bad"}`: inputRefusalExit, `{"action":"inspect","cutoff":"bad"}`: inputRefusalExit,
+		`{"action":"clear","backup_path":"/tmp/test","idempotency_key":" "}`:  inputRefusalExit,
+		`{"action":"inspect","cutoff":"2030-01-01T00:00:00Z","unknown":true}`: 1, `{"action":"inspect","cutoff":"2030-01-01T00:00:00Z"} {}`: 1,
+	} {
 		var out, errOut bytes.Buffer
-		if code := runWithInput([]string{"relation-attribution"}, strings.NewReader(input), &out, &errOut); code == 0 {
-			t.Fatalf("accepted %s", input)
+		if code := runWithInput([]string{"relation-attribution"}, strings.NewReader(input), &out, &errOut); code != want {
+			t.Fatalf("%s: exit %d, want %d: %s", input, code, want, errOut.String())
 		}
 	}
 	var out, errOut bytes.Buffer
@@ -280,7 +284,7 @@ func TestAttributionCLICurrentPopulationMismatchDoesNotWrite(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT reason FROM relations WHERE id=?`, id).Scan(&reason); err != nil || reason != "changed" {
 		t.Fatalf("row changed: %q %v", reason, err)
 	}
-	_, found, err := s.LookupMutationIdempotency(t.Context(), store.MutationIdempotencyKey{PrincipalRef: "operator", Tool: "relation_attribution", OperationKind: "clear", IdempotencyKey: "clear-test"})
+	found, err := s.RelationAttributionRecorded(t.Context(), "clear", "clear-test")
 	if err != nil || found {
 		t.Fatalf("unexpected retained result: %t %v", found, err)
 	}

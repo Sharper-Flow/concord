@@ -105,7 +105,7 @@ func runRelationAttribution(args []string, in io.Reader, out, errOut io.Writer) 
 	}
 	if err := input.validate(); err != nil {
 		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
-		return 1
+		return inputRefusalExit
 	}
 	ctx := context.Background()
 	if input.Action == "inspect" && input.BackupPath != "" {
@@ -163,6 +163,15 @@ func runRelationAttribution(args []string, in io.Reader, out, errOut io.Writer) 
 	return runFencedAttribution(ctx, input, path, root, boundary, out, errOut)
 }
 
+// attributionPaths names every snapshot and hold the operator may need to keep.
+type attributionPaths struct{ snapshot, hold, safety, safetyHold string }
+
+func (p attributionPaths) String() string {
+	return fmt.Sprintf("snapshot: %s; hold: %s; safety snapshot: %s; safety hold: %s", p.snapshot, p.hold, p.safety, p.safetyHold)
+}
+
+// runFencedAttribution keeps the fence only when a treatment may have written.
+// The maintenance handle always closes before session admission reopens.
 func runFencedAttribution(ctx context.Context, input attributionInput, path, root string, boundary upgradeFence, out, errOut io.Writer) int {
 	const command = "relation-attribution"
 	s, err := store.OpenMaintenance(ctx, path)
@@ -171,48 +180,59 @@ func runFencedAttribution(ctx context.Context, input attributionInput, path, roo
 		writeOperatorDiagnostic(errOut, command, diagnosticText(err))
 		return 1
 	}
-	defer func() { _ = s.Close() }()
-	if input.Action == "inspect" {
-		snapshot, hold, err := attributionSnapshot(path, root)
-		var manifest store.AttributionManifest
+	report, paths, treating, err := attributionAction(ctx, s, input, path, root)
+	var failure *store.Failure
+	retain := treating && err != nil && (!errors.As(err, &failure) || failure.EffectPossible)
+	if retain {
+		_ = s.Close()
+	} else if releaseErr := releaseAttributionFence(s, root, boundary.id); releaseErr != nil {
+		retain = true
 		if err == nil {
-			manifest, err = store.InspectRelationAttribution(ctx, snapshot, input.Cutoff)
-		}
-		if err != nil {
-			boundary.close(errOut)
-			writeOperatorDiagnostic(errOut, command, fmt.Sprintf("inspection failed: %v; snapshot: %s; hold: %s", err, snapshot, hold))
-			return 1
-		}
-		if err := s.Close(); err != nil {
-			writeOperatorDiagnostic(errOut, command, fmt.Sprintf("inspection finished but store close failed: %v; snapshot: %s; hold: %s; fence retained", err, snapshot, hold))
-			return 1
-		}
-		if err := hostlease.RemoveFenceOwned(root, boundary.id); err != nil {
-			writeOperatorDiagnostic(errOut, command, fmt.Sprintf("inspection finished but fence cleanup failed: %v; snapshot: %s; hold: %s", err, snapshot, hold))
-			return 1
-		}
-		return writeJSON(out, map[string]any{"snapshot": snapshot, "hold": hold, "manifest": manifest}, errOut)
-	}
-	req := store.AttributionRequest{BackupPath: input.BackupPath, Manifest: input.Manifest, IdempotencyKey: input.IdempotencyKey}
-	var safety, safetyHold string
-	if input.Action != "verify" {
-		key := store.MutationIdempotencyKey{PrincipalRef: "operator", Tool: "relation_attribution", OperationKind: input.Action, IdempotencyKey: input.IdempotencyKey}
-		_, found, lookupErr := s.LookupMutationIdempotency(ctx, key)
-		switch {
-		case lookupErr != nil:
-			err = lookupErr
-		case !found && input.Action == "clear":
-			err = checkAttributionHold(ctx, input.BackupPath, root)
-		case !found:
-			safety, safetyHold, err = attributionSnapshot(path, root)
+			err = fmt.Errorf("operation finished but %w", releaseErr)
+		} else {
+			err = errors.Join(err, releaseErr)
 		}
 	}
 	if err != nil {
-		boundary.close(errOut)
-		writeOperatorDiagnostic(errOut, command, fmt.Sprintf("refused before treatment: %v; treatment snapshot: %s; treatment hold: %s; safety snapshot: %s; safety hold: %s", err, input.BackupPath, input.BackupPath+compactHoldSuffix, safety, safetyHold))
+		writeOperatorDiagnostic(errOut, command, fmt.Sprintf("%v; %s; fence retained: %t; reconcile before retry if retained", err, paths, retain))
 		return 1
 	}
+	return writeJSON(out, report, errOut)
+}
+
+func releaseAttributionFence(s *store.Store, root, id string) error {
+	if err := s.Close(); err != nil {
+		return fmt.Errorf("store close failed: %w", err)
+	}
+	if err := hostlease.RemoveFenceOwned(root, id); err != nil {
+		return fmt.Errorf("fence cleanup failed: %w", err)
+	}
+	return nil
+}
+
+// attributionAction reports treating when a failed clear or undo may have
+// reached its write transaction.
+func attributionAction(ctx context.Context, s *store.Store, input attributionInput, path, root string) (map[string]any, attributionPaths, bool, error) {
+	if input.Action == "inspect" {
+		var p attributionPaths
+		var manifest store.AttributionManifest
+		var err error
+		p.snapshot, p.hold, err = attributionSnapshot(path, root)
+		if err == nil {
+			manifest, err = store.InspectRelationAttribution(ctx, p.snapshot, input.Cutoff)
+		}
+		if err != nil {
+			return nil, p, false, fmt.Errorf("inspection failed: %w", err)
+		}
+		return map[string]any{"snapshot": p.snapshot, "hold": p.hold, "manifest": manifest}, p, false, nil
+	}
+	p := attributionPaths{snapshot: input.BackupPath, hold: input.BackupPath + compactHoldSuffix}
+	if err := attributionPreflight(ctx, s, input, path, root, &p); err != nil {
+		return nil, p, false, fmt.Errorf("refused before treatment: %w", err)
+	}
+	req := store.AttributionRequest{BackupPath: input.BackupPath, Manifest: input.Manifest, IdempotencyKey: input.IdempotencyKey}
 	var result store.AttributionResult
+	var err error
 	switch input.Action {
 	case "clear":
 		result, err = clearAttribution(s, ctx, req)
@@ -222,24 +242,26 @@ func runFencedAttribution(ctx context.Context, input attributionInput, path, roo
 		result, err = undoAttribution(s, ctx, store.AttributionUndoRequest{AttributionRequest: req, ClearKey: input.ClearKey})
 	}
 	if err != nil {
-		var failure *store.Failure
-		retain := input.Action != "verify" && (!errors.As(err, &failure) || failure.EffectPossible)
-		if !retain {
-			if closeErr := hostlease.RemoveFenceOwned(root, boundary.id); closeErr != nil {
-				retain = true
-				err = errors.Join(err, fmt.Errorf("fence cleanup failed: %w", closeErr))
-			}
-		}
-		writeOperatorDiagnostic(errOut, command, fmt.Sprintf("%v; treatment snapshot: %s; treatment hold: %s; safety snapshot: %s; safety hold: %s; fence retained: %t; reconcile before retry if retained", err, input.BackupPath, input.BackupPath+compactHoldSuffix, safety, safetyHold, retain))
-		return 1
+		return nil, p, input.Action != "verify", err
 	}
-	if err := s.Close(); err != nil {
-		writeOperatorDiagnostic(errOut, command, fmt.Sprintf("operation finished but store close failed: %v; snapshot: %s; safety snapshot: %s; hold: %s; fence retained", err, input.BackupPath, safety, safetyHold))
-		return 1
+	return map[string]any{"snapshot": p.snapshot, "hold": p.hold, "safety_snapshot": p.safety, "safety_hold": p.safetyHold, "result": result}, p, false, nil
+}
+
+// attributionPreflight skips checks a recorded replay does not need. A new
+// clear requires the held treatment backup; a new undo first takes and holds
+// a safety snapshot of the current store.
+func attributionPreflight(ctx context.Context, s *store.Store, input attributionInput, path, root string, p *attributionPaths) error {
+	if input.Action == "verify" {
+		return nil
 	}
-	if err := hostlease.RemoveFenceOwned(root, boundary.id); err != nil {
-		writeOperatorDiagnostic(errOut, command, fmt.Sprintf("operation finished but fence cleanup failed: %v; snapshot: %s; safety snapshot: %s; hold: %s", err, input.BackupPath, safety, safetyHold))
-		return 1
+	recorded, err := s.RelationAttributionRecorded(ctx, input.Action, input.IdempotencyKey)
+	switch {
+	case err != nil || recorded:
+		return err
+	case input.Action == "clear":
+		return checkAttributionHold(ctx, input.BackupPath, root)
+	default:
+		p.safety, p.safetyHold, err = attributionSnapshot(path, root)
+		return err
 	}
-	return writeJSON(out, map[string]any{"snapshot": input.BackupPath, "hold": input.BackupPath + compactHoldSuffix, "safety_snapshot": safety, "safety_hold": safetyHold, "result": result}, errOut)
 }

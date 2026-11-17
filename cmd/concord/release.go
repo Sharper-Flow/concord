@@ -549,13 +549,13 @@ func (boundary upgradeFence) observeSessions(maintenanceRequired, confirmSession
 		selfRoot, _, err := selfRelease()
 		if err != nil {
 			boundary.close(errOut)
-			writeOperatorDiagnostic(errOut, "upgrade", diagnosticText(err))
+			writeOperatorDiagnostic(errOut, boundary.command(), diagnosticText(err))
 			return nil, 1
 		}
 		unfenceable, err := unfenceableReleaseRoots(dataRoot, selfRoot)
 		if err != nil {
 			boundary.close(errOut)
-			writeOperatorDiagnostic(errOut, "upgrade", "cannot enumerate installed release trees: "+diagnosticText(err))
+			writeOperatorDiagnostic(errOut, boundary.command(), "cannot enumerate installed release trees: "+diagnosticText(err))
 			return nil, 1
 		}
 		if len(unfenceable) > 0 && !confirmSessionsStopped {

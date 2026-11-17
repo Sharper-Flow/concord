@@ -116,5 +116,5 @@ Commands read one strict JSON object from stdin:
     accepted values: stopped-session maintenance; retains a verified snapshot and operator-release hold
   concord relation-attribution < JSON stdin
     required: action
-    optional: cutoff for inspect; backup_path, manifest and idempotency_key for clear, verify and undo; clear_key for undo
+    optional: inspect: cutoff, optional backup_path; clear, verify and undo: backup_path, manifest, idempotency_key (verify takes the clear's key); undo: clear_key
     accepted values: action: inspect | clear | verify | undo; stopped-session operator maintenance

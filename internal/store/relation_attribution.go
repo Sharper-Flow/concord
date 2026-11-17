@@ -282,6 +282,13 @@ func attributionKey(kind, key string) MutationIdempotencyKey {
 	return MutationIdempotencyKey{PrincipalRef: "operator", Tool: "relation_attribution", OperationKind: kind, IdempotencyKey: key}
 }
 
+// RelationAttributionRecorded reports whether action already holds a durable
+// result under key, so the operator command can skip preflight a replay does not need.
+func (s *Store) RelationAttributionRecorded(ctx context.Context, action, key string) (bool, error) {
+	_, found, err := s.LookupMutationIdempotency(ctx, attributionKey(action, key))
+	return found, err
+}
+
 func refuseAttributionKeyReuse(ctx context.Context, tx *Transaction, kind, key string) error {
 	other := "clear"
 	if kind == "clear" {

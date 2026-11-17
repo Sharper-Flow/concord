@@ -202,6 +202,10 @@ func TestFullWorkListProjectionAfterInlinePageAndUnrelatedWrite(t *testing.T) {
 	if err := s.Transact(ctx, func(*store.Transaction) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
+	after, err := s.Revision(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	document := []byte(part.Data)
 	for !part.Complete {
 		input["page"] = map[string]any{"cursor": *fragment.NextCursor}
@@ -214,20 +218,16 @@ func TestFullWorkListProjectionAfterInlinePageAndUnrelatedWrite(t *testing.T) {
 	if sha256Hex(document) != part.Digest || len(document) != part.TotalBytes || part.NextKind == nil || *part.NextKind != "items" || fragment.NextCursor == nil {
 		t.Fatal("fragment reconstruction or handoff failed")
 	}
+	if len(fragment.SourceVersionWatermark) != 1 || fragment.SourceVersionWatermark[0].Version != strconv.FormatInt(after, 10) {
+		t.Fatalf("wrong final fragment source watermark: %+v", fragment.SourceVersionWatermark)
+	}
 	if err := json.Unmarshal(document, &inline); err != nil || len(inline.Items) != 1 || inline.Items[0].ID != "work-1" || inline.Items[0].Task != strings.Repeat("<", 8192) {
 		t.Fatal("wrong reconstructed item")
 	}
 	input["page"] = map[string]any{"cursor": *fragment.NextCursor}
-	last := read()
-	if err := json.Unmarshal(last.Result, &inline); err != nil || len(inline.Items) != 1 || inline.Items[0].ID != "work-3" || last.NextCursor != nil {
-		t.Fatalf("wrong list handoff: %s", last.Result)
-	}
-	if err := s.Transact(ctx, func(*store.Transaction) error { return nil }); err != nil {
-		t.Fatal(err)
-	}
 	raw, _ := json.Marshal(input)
 	stale, err := r.read(ctx, base, raw, "PM1.Q3")
-	if err != nil || stale.Error == nil || stale.Error.Kind != "invalid_cursor" {
+	if err != nil || stale.Error == nil || stale.Error.Kind != "invalid_cursor" || stale.Error.RecoveryAction.Kind != "restart_query" {
 		t.Fatalf("item cursor must remain revision-bound: %+v %v", stale.Error, err)
 	}
 }

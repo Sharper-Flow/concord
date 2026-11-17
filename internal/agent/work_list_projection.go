@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"unicode/utf8"
 
 	"github.com/sharper-flow/concord/internal/agentcontract"
@@ -19,6 +20,7 @@ const workListProjectionDetail = "work-list-projection"
 type workListProjectionCursor struct {
 	Version        int    `json:"v"`
 	ListCursor     string `json:"list_cursor"`
+	SourceRevision string `json:"source_revision"`
 	Digest         string `json:"digest"`
 	NextByteOffset int64  `json:"next_byte_offset"`
 }
@@ -29,6 +31,9 @@ func (r runtime) workListProjectionPage(ctx context.Context, base agentcontract.
 	inline, err := r.q3(base, captured)
 	if err != nil {
 		return inline, err
+	}
+	if cursor.SourceRevision == "" {
+		cursor.SourceRevision = strconv.FormatInt(captured.SourceVersionWatermark, 10)
 	}
 	doc := inline.Result
 	digest := sha256Hex(doc)
@@ -48,7 +53,7 @@ func (r runtime) workListProjectionPage(ctx context.Context, base agentcontract.
 		var nextKind any
 		if end < len(doc) {
 			nextKind = "projection"
-			raw, err := json.Marshal(workListProjectionCursor{Version: 1, ListCursor: cursor.ListCursor, Digest: digest, NextByteOffset: int64(end)})
+			raw, err := json.Marshal(workListProjectionCursor{Version: 1, ListCursor: cursor.ListCursor, SourceRevision: cursor.SourceRevision, Digest: digest, NextByteOffset: int64(end)})
 			if err != nil {
 				return base, 0, err
 			}
@@ -75,7 +80,11 @@ func (r runtime) workListProjectionPage(ctx context.Context, base agentcontract.
 		if end < len(doc) {
 			detail = workListProjectionDetail
 		}
-		response, err = r.wrapCursor(ctx, response, binding, detail)
+		if detail == "summary" {
+			response, err = r.wrapCursorWithSource(ctx, response, binding, detail, cursor.SourceRevision)
+		} else {
+			response, err = r.wrapCursor(ctx, response, binding, detail)
+		}
 		if err != nil {
 			return response, 0, err
 		}

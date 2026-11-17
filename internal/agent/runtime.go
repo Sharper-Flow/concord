@@ -946,12 +946,16 @@ func (r runtime) unwrapCursor(ctx context.Context, token, binding, detail string
 }
 
 func (r runtime) wrapCursor(ctx context.Context, response agentcontract.Envelope, binding, detail string) (agentcontract.Envelope, error) {
-	if response.NextCursor == nil {
-		return response, nil
-	}
 	source := watermarkString(response)
 	if r.documentContinuation(detail) {
 		source = binding
+	}
+	return r.wrapCursorWithSource(ctx, response, binding, detail, source)
+}
+
+func (r runtime) wrapCursorWithSource(ctx context.Context, response agentcontract.Envelope, binding, detail, source string) (agentcontract.Envelope, error) {
+	if response.NextCursor == nil {
+		return response, nil
 	}
 	token, err := r.Store.EncodeCursor(ctx, SignedCursor{Tool: r.Tool, Operation: r.Operation, Scope: r.Envelope.SelectedProductID + "|" + r.Envelope.AmbientProjectID, Filter: binding, Detail: detail, Order: "default", Source: source, Last: "", Inner: *response.NextCursor})
 	if err != nil {

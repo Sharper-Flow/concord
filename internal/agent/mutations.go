@@ -877,9 +877,8 @@ func (r runtime) planLifecycle(_ context.Context, base agentcontract.Envelope, r
 	if in.Target != "needed" && in.Target != "in_progress" && in.Target != "completed" && in.Target != "cancelled" && in.Target != "reopen" {
 		return coreError(base, "invalid_input", "unknown lifecycle target "+in.Target, "reread_entities", false), nil, true
 	}
-	// A terminal lifecycle transition requires verification evidence.
-	if (in.Target == "completed" || in.Target == "cancelled") && len(in.Evidence) == 0 {
-		response := coreError(base, "missing_evidence", "terminal lifecycle transition requires verification evidence", "provide_evidence", false)
+	if in.Target == "completed" && len(in.Evidence) == 0 {
+		response := coreError(base, "missing_evidence", "completion requires verification evidence", "provide_evidence", false)
 		response.Error.Details = map[string]any{"operation_digest": digest, "work_id": in.WorkID, "expected_version": in.ExpectedVersion, "required_kind": "verification"}
 		return response, nil, true
 	}

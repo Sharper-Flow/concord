@@ -1,4 +1,4 @@
-"""Run at most six private calibration attempts per artifact directory; this is not a global limit; never run a pilot."""
+"""Run private calibration or the separately budgeted instruction pilot."""
 
 import argparse
 import fcntl
@@ -232,11 +232,29 @@ def main(argv=None):
     projection = sub.add_parser("estimate")
     projection.add_argument("--artifacts", required=True)
     projection.add_argument("--proposed-cap", type=float, required=True)
+    pilot_parser = sub.add_parser("pilot")
+    pilot_parser.add_argument("--baseline", required=True)
+    pilot_parser.add_argument("--candidate", required=True)
+    pilot_parser.add_argument("--artifacts", required=True)
+    pilot_parser.add_argument("--model", required=True)
+    pilot_parser.add_argument("--limits-json", required=True)
+    pilot_parser.add_argument("--rates-json", required=True)
+    pilot_parser.add_argument("--timeout-seconds", type=int, default=180)
     args = parser.parse_args(argv)
     try:
         if args.command == "estimate":
             print(json.dumps(estimate_artifacts(args.artifacts, args.proposed_cap), allow_nan=False))
             return 0
+        if args.command == "pilot":
+            from . import pilot
+            results = pilot.execute(args.baseline, args.candidate, args.artifacts, args.model,
+                                    args.limits_json, args.rates_json, args.timeout_seconds)
+            journal = json.loads((snapshots.outside_repository(args.artifacts, REPOSITORY) / "pilot-journal.json").read_text())
+            complete = len(journal["attempts"]) == 96 and all(a.get("status") == "completed" for a in journal["attempts"])
+            print(json.dumps({"attempts": [{"id": r["attempt_id"], "status": r["status"]} for r in results],
+                              "complete": complete,
+                              "warning": "Nominal normalized usage is not provider billing."}))
+            return 0 if complete else 1
         results = calibrate(args.snapshot, args.artifacts, args.model, args.cases, args.rates_json, args.timeout_seconds)
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         parser.exit(2, f"{args.command} refused: {type(exc).__name__}\n")

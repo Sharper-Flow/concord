@@ -3,8 +3,8 @@
 This harness tests synthetic instruction-following cases. Offline fixture tests
 make no model calls; private calibration runs up to six claimed attempts per
 artifact directory, including failed and pending claims. This is not a global
-limit. The harness has no full pilot execution route, and calibration is not
-evidence of effectiveness.
+limit. The separate pilot route runs the blinded schedule under a nominal ceiling.
+Calibration is not evidence of effectiveness.
 
 ## Offline tests
 
@@ -86,3 +86,44 @@ bits. The snapshots must have distinct identities, Concord references and host
 references. The function returns a blinded schedule and a separate
 arm key, not running sessions. Keep both outside the repository and the key
 away from graders until grades are locked.
+
+## Pilot execution
+
+The experimental pilot needs independent review before any paid run. Use one
+private artifact directory for the entire pilot; never divide the schedule into
+directories to reset its journal. The runner creates a randomized 96-row schedule
+and a separate arm key, then claims rows before running them sequentially. Keep the
+key and other artifacts away from blind graders. A failed or pending claim stops
+the pilot and is never retried. The command exits nonzero while incomplete.
+
+The limits JSON must identify the selected model and source and provide positive
+integer `context`, `input`, and `output` limits. The rates JSON has the same shape
+as calibration. For example, these are synthetic values, not model guidance:
+
+```json
+{"model":"provider/model","source":"synthetic","limits":{"context":10000,"input":9000,"output":1000}}
+```
+
+From `adapter/opencode/evals`:
+
+```sh
+python3 -m instructions.run pilot --baseline /outside/baseline.json --candidate /outside/candidate.json --artifacts /outside/pilot --model provider/model --limits-json /outside/limits.json --rates-json /outside/rates.json
+```
+
+The runner freezes model identity, supplied rates and limits, snapshot identities,
+and harness hashes. It reserves the full declared context at the highest input or
+cache rate plus the output limit at the output rate before each `chat.params`
+request. The pilot-wide nominal ceiling is USD 10. Unknown and failed request
+reservations remain charged. A completed, matching assistant message can settle
+only the most recent reservation for its message ID; zero or invalid usage stops
+the attempt. The ceiling can leave the pilot incomplete.
+
+Nominal amounts use OpenCode's normalized token fields, not provider billing. The
+loopback probe observed that OpenCode can normalize omitted usage fields to zero;
+nonzero normalized usage does not attest the provider's raw response. The runner
+cannot guarantee subscription spend or provider charges. The host retains the
+calibration output-token setting and disables title generation for both arms.
+
+The opt-in `native_budget_probe.py` exercises OpenCode 1.18.35 against a synthetic
+loopback provider. Its artifacts must also be outside the repository. It is a
+hook-observation probe, not a spending guard or proof of provider billing.

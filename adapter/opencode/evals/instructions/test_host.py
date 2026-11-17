@@ -4,11 +4,13 @@ import json
 import hashlib
 import os
 import tempfile
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
-from . import host
+from . import budget, host, pilot
 
 
 STUB = r'''#!/usr/bin/env python3
@@ -34,6 +36,9 @@ def bridge(path, value):
 def capture():
     for kind in ("system", "messages"):
         bridge("/capture", {"kind": kind, "input": {}, "output": {"messages": messages}})
+    if os.environ.get("HARNESS_GUARDED") == "1":
+        bridge("/reserve", {"synthetic": "request"})
+        bridge("/usage", {"synthetic": "completion"})
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args): pass
     def send(self, value):
@@ -149,6 +154,86 @@ class HostTest(unittest.TestCase):
         state = json.loads((root / "failure-state.json").read_text())
         self.assertEqual([e.get("action", e.get("boundary")) for e in state["events"]], ["read_work", "compaction"])
         self.assertTrue(state["messages"])
+
+    def test_guarded_bridge_receives_each_reservation_and_usage(self):
+        class Guard:
+            def __init__(self): self.events = []
+            def reserve(self, value):
+                self.events.append(("reserve", value))
+                return len(self.events)
+            def settle(self, value): self.events.append(("usage", value))
+        guard = Guard()
+        host.run_session(self.base / "guarded", self.snapshot, "provider/model", "S19", guard=guard)
+        self.assertEqual([kind for kind, _ in guard.events], ["reserve", "usage", "reserve", "usage"])
+
+
+@unittest.skipUnless(os.environ.get("CONCORD_NATIVE_PILOT_TEST") == "1", "opt-in real OpenCode loopback test")
+class NativeGuardTest(unittest.TestCase):
+    def test_guarded_retry_and_compaction(self):
+        class Provider(BaseHTTPRequestHandler):
+            calls = 0
+            def log_message(self, *args): pass
+            def do_POST(self):
+                self.rfile.read(int(self.headers["Content-Length"]))
+                Provider.calls += 1
+                if Provider.calls == 1:
+                    self.send_response(429)
+                    self.send_header("Retry-After", "0")
+                    self.end_headers()
+                    self.wfile.write(b'{"error":{"message":"rate limited","type":"rate_limit_error"}}')
+                    return
+                chunk = {"id": "synthetic", "object": "chat.completion.chunk", "created": 1, "model": "synthetic",
+                         "choices": [{"index": 0, "delta": {"content": "synthetic response"}, "finish_reason": None}]}
+                end = {"id": "synthetic", "object": "chat.completion.chunk", "created": 1, "model": "synthetic",
+                       "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                       "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18}}
+                data = ("data: " + json.dumps(chunk) + "\n\ndata: " + json.dumps(end) + "\n\ndata: [DONE]\n\n").encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+        server = ThreadingHTTPServer((host.LOOPBACK, 0), Provider)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            limits = {"context": 10000, "input": 9000, "output": 1000}
+            rates = {"input": 2, "output": 10, "cache_read": 0.1, "cache_write": 2.5}
+            journal = budget.Journal(root)
+            journal.create()
+            journal.update(lambda data: data["attempts"].append({"id": "attempt", "status": "pending"}))
+            guard = pilot.Guard(journal, "attempt", "fake/synthetic", limits, rates)
+            original = host._json_bytes
+            def configured(value):
+                if isinstance(value, dict) and value.get("default_agent") == "instruction-probe":
+                    value = {**value, "enabled_providers": ["fake"], "provider": {"fake": {
+                        "npm": "@ai-sdk/openai-compatible", "name": "Fake",
+                        "options": {"baseURL": f"http://{host.LOOPBACK}:{server.server_port}/v1", "apiKey": "synthetic"},
+                        "models": {"synthetic": {"name": "Synthetic", "limit": limits}}}}}
+                return original(value)
+            snapshot = {"role": "synthetic", "instructions": [], "catalog": "", "provenance": {}}
+            with patch.object(host, "_json_bytes", side_effect=configured), patch.dict(os.environ, {"XDG_DATA_HOME": str(root / "data")}):
+                output = host.run_session(root / "session", snapshot, "fake/synthetic", "S19", timeout_seconds=600, guard=guard)
+            guard.verify()
+            self.assertTrue(output["compacted"])
+            requests = journal.update(lambda data: data["requests"])
+            self.assertEqual(Provider.calls, 4)
+            self.assertEqual([r["status"] for r in requests], ["reserved", "settled", "settled", "settled"])
+            for _ in range(284):
+                journal.reserve("attempt", "other", "user", "session", budget.reservation(limits, rates))
+            blocked = pilot.Guard(journal, "attempt", "fake/synthetic", limits, rates)
+            with patch.object(host, "_json_bytes", side_effect=configured), patch.dict(os.environ, {"XDG_DATA_HOME": str(root / "data")}):
+                try:
+                    host.run_session(root / "blocked", snapshot, "fake/synthetic", "S18", timeout_seconds=600, guard=blocked)
+                except (OSError, RuntimeError, ValueError):
+                    pass
+            self.assertTrue(blocked.failed)
+            self.assertEqual(Provider.calls, 4)
 
 
 if __name__ == "__main__":

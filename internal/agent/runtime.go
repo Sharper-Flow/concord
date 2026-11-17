@@ -485,13 +485,13 @@ func Invoke(ctx context.Context, s *store.Store, authority *Service, data []byte
 		return agentcontract.Envelope{}, err
 	}
 	response, dispatchErr := Dispatch(ctx, s, authority, request, env)
-	return shapeInvokeFailure(response, dispatchErr, request, env), nil
+	return shapeInvokeFailure(response, dispatchErr, request), nil
 }
 
 // shapeInvokeFailure converts a dispatch error into the typed envelope an
 // operator receives. A dispatch failure is a product outcome, not a transport
 // fault, so it must not reach the caller as a bare Go error.
-func shapeInvokeFailure(response agentcontract.Envelope, dispatchErr error, request InvokeRequest, env CallEnvelope) agentcontract.Envelope {
+func shapeInvokeFailure(response agentcontract.Envelope, dispatchErr error, request InvokeRequest) agentcontract.Envelope {
 	if dispatchErr == nil {
 		return response
 	}

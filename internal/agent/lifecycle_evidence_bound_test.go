@@ -51,7 +51,7 @@ func TestLifecycleCompletionEvidenceFieldBoundsNeverFaultTheResult(t *testing.T)
 			if tc.wantInvalid {
 				// Invoke shapes a dispatch refusal into the envelope the caller receives.
 				response, dispatchErr := Dispatch(context.Background(), s, service, request, env)
-				first := shapeInvokeFailure(response, dispatchErr, request, env)
+				first := shapeInvokeFailure(response, dispatchErr, request)
 				if first.Error == nil || first.Error.Kind != "invalid_input" {
 					t.Fatalf("%d-byte %s: outcome=%s err=%+v, want invalid_input", tc.size, tc.field, first.Outcome, first.Error)
 				}

@@ -176,6 +176,8 @@ substitutes for retained native verification, identity, or authority checks.
 If the user starts an RTE session, it may assign this item, relay facts, and sequence dependent or conflicting
 branches. It never approves, accepts, or publishes for your item. Its
 assignment is a reference, not a contract: the approved Concord contract governs what you build.
+When the contracted outcome needs files outside a write set the RTE assigned,
+follow the write-set route in the shared asking instructions.
 
 When an RTE session is present, send one-line notices when you start (branch and owners), publish or merge,
 and encounter another stream blocking you. Name the subject and evidence by

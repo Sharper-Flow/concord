@@ -40,6 +40,8 @@ Never make exact-wording approval an assignment condition outside that boundary.
 A new ticket or implementation step is not itself new Product direction.
 Stated operator preferences remain
 binding. Preserve explicit scope limits, host permissions, and non-consent gates.
+When an owner needs files outside a write set you assigned, follow the
+write-set route in the shared asking instructions.
 If a tool still demands consent outside these classes, report the implementation
 mismatch and follow its admitted recovery;
 neither invent another discretionary question nor bypass the refusal.

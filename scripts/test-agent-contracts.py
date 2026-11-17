@@ -734,6 +734,33 @@ class Ts2BudgetTests(unittest.TestCase):
                          "manifest tool list disagrees with the TS2 budget")
 
 
+class WriteSetCoordinationContractTests(unittest.TestCase):
+    def test_shared_instructions_distinguish_allocation_from_outcome_authority(self):
+        text = " ".join((ROOT / ".concord/instructions/asking.md").read_text().split())
+        for clause in (
+            "When the contracted outcome needs files outside the write set an RTE assigned, "
+            "ask that RTE to extend the write set, not the operator.",
+            "The RTE extends only write sets it assigned and coordinates any overlap",
+            "An extension changes neither the contracted outcome nor any approval: "
+            "also ask the operator when the edit falls in an approval class below.",
+            "Recording the RTE's write set in a captured task does not make it an operator limit.",
+            "File limits the operator stated remain binding, and the RTE cannot lift them.",
+            "A request outside the contracted outcome is new work.",
+        ):
+            with self.subTest(clause=clause):
+                self.assertIn(clause, text)
+
+    def test_roles_route_write_set_coordination_to_shared_instructions(self):
+        for path, clause in (
+            (".concord/roles/concord.md", "When the contracted outcome needs files outside a write set the RTE assigned, "
+             "follow the write-set route in the shared asking instructions."),
+            (".concord/roles/rte.md", "When an owner needs files outside a write set you assigned, "
+             "follow the write-set route in the shared asking instructions."),
+        ):
+            with self.subTest(path=path):
+                self.assertIn(clause, " ".join((ROOT / path).read_text().split()))
+
+
 class LinearVisualApprovalContractTests(unittest.TestCase):
     def test_asking_requires_embedded_versioned_screenshots_and_reachable_preview(self):
         text = " ".join((ROOT / ".concord/instructions/asking.md").read_text().split())

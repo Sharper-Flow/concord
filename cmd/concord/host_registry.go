@@ -65,10 +65,12 @@ func probeSignaled(probeErr error) bool {
 	return false
 }
 
-// hostProbeArgv returns the argv the calling host resolves its configuration
-// with.
+// hostProbeArgv uses the inherited host's managed server and registry. A
+// standalone server can resolve a different registry and adds a database writer.
+// See OpenCode's packages/cli/src/services/server-connection.ts (resolve) and
+// packages/cli/src/commands/handlers/debug/agents.ts (agent.list).
 func hostProbeArgv(command []string) []string {
-	return append(append([]string(nil), command...), "debug", "config")
+	return append(append([]string(nil), command...), "debug", "agents")
 }
 
 // hostSessionPrepareRegistry probes in dir under the calling host's inherited

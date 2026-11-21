@@ -296,9 +296,9 @@ func TestSessionPrepareProbesTheCallingHostOnce(t *testing.T) {
 			seedLocatorAuthority(t, s, repo)
 			result := seedCLISessionWorktree(t, s, repo)
 			t.Setenv(dbOverrideEnv, dbPath)
-			bare := `{"agent":{"someone-else":{"mode":"primary"}}}`
+			bare := `[{"id":"someone-else","name":"Someone Else","description":"Synthetic agent","mode":"primary","hidden":false,"permissions":[],"request":{}}]`
 			if registered {
-				bare = `{"agent":{"concord-1":{"mode":"primary"}}}`
+				bare = `[{"id":"concord-1","name":"Concord","description":"Synthetic agent","mode":"primary","hidden":false,"permissions":[],"request":{}}]`
 			}
 			if err := os.WriteFile(filepath.Join(result.Entry.Path, "opencode.registry.json"), []byte(bare), 0o644); err != nil {
 				t.Fatal(err)

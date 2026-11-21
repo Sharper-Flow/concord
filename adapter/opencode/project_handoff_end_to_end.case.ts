@@ -150,7 +150,7 @@ async function bootHandoffFixture(root: string, restartWitness = false): Promise
   await mkdir(join(homeRoot, ".config", "opencode", "agents"), { recursive: true })
   await writeFile(join(homeRoot, ".config", "opencode", "agents", `${AGENT}.md`), `${AGENT} synthetic definition\n`)
   const probe = join(binRoot, "opencode")
-  await Bun.write(probe, `#!/bin/sh\necho '{"agent":{"${AGENT}":{"mode":"all","disable":false}}}'\n`)
+  await Bun.write(probe, `#!/bin/sh\necho '[{"id":"${AGENT}","name":"${AGENT}","description":"Synthetic agent","mode":"all","hidden":false,"permissions":[],"request":{}}]'\n`)
   await chmod(probe, 0o755)
   const childEnv = { HOME: homeRoot, PATH: `${binRoot}:${process.env.PATH ?? ""}` }
   const binary = join(binRoot, "concord")

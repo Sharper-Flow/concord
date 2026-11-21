@@ -35,7 +35,7 @@ func (p *probeStub) probe(_ context.Context, argv []string, _ string) ([]byte, e
 // The session-prepare registry resolution runs exactly one bare probe, and the document that
 // probe printed is the registry the identity verification reads.
 func TestSessionPrepareRegistryRunsOneBareProbe(t *testing.T) {
-	document := `{"agent":{"concord-1":{"mode":"primary"}}}`
+	document := `[{"id":"concord-1","mode":"primary"}]`
 	probe := &probeStub{documents: map[string]string{"opencode": document}}
 	resolution, err := sessionPrepareRegistryProbe(context.Background(), "/resolved/dir", probe.probe)
 	if err != nil {
@@ -47,7 +47,7 @@ func TestSessionPrepareRegistryRunsOneBareProbe(t *testing.T) {
 	if string(resolution.Registry) != document {
 		t.Fatalf("registry=%q, want the bare probe's document", resolution.Registry)
 	}
-	if len(probe.calls) != 1 || !slices.Equal(probe.calls[0], []string{"opencode", "debug", "config"}) {
+	if len(probe.calls) != 1 || !slices.Equal(probe.calls[0], []string{"opencode", "debug", "agents"}) {
 		t.Fatalf("probes=%q, want exactly the bare probe argv", probe.calls)
 	}
 }

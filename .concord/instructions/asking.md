@@ -65,11 +65,14 @@ For preview or early visual-design approval, show the inspectable material and t
 version being approved. Ask an ordinary question and record the answer in the
 existing work record.
 
-For every Linear UI/UX approval comment, embed screenshots of the exact material
-and version being approved, and link the running development preview whenever
-the operator can reach it. Screenshots only in issue Resources or a link alone
-do not satisfy this rule. Use synthetic or redacted development material with
-no credentials or private details.
+For every UI/UX approval question and every pause for a UI decision, whichever
+route asks it, embed screenshots of the exact material and version being
+approved in a comment on the work item's linked Linear issue. Link the running
+development preview whenever the operator can reach it; the link never
+substitutes. Screenshots only in issue Resources or a link alone do not
+satisfy this rule. Use synthetic or redacted development material with no
+credentials or private details. When the item has no linked Linear issue, give
+the screenshots' locations with the question.
 
 Every operator approval question names the applicable class above or the existing
 operator-only reservation, and the concrete consequence that requires it. Existing

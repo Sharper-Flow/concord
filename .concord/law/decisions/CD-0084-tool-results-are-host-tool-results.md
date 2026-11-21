@@ -27,7 +27,7 @@
 ## Context
 
 The pinned `@opencode/plugin@2.3.2` host result uses `content` for tool text
-([schema](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/schema/src/tool.ts#L86)).
+([schema](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/schema/src/tool.ts#L103-L107)).
 The host treats an `output` key on a tool without an output schema as a defect,
 even when its value is undefined
 ([runtime](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/core/src/tool/runtime.ts#L48-L49)).
@@ -47,7 +47,9 @@ object to the host.
 reordered. `metadata` carries no copy of the envelope, so the result has one
 carrier and one parse: a reader never has to decide which of two copies is
 current, and the payload is not doubled against the host's byte ceiling. The
-result has no `output` key and `metadata` never contains `truncated`.
+result has no `output` key and `metadata` never contains `truncated`: the host
+skips its output bound for any result whose `metadata.truncated` is set
+([source](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/core/src/tool-output.ts#L76)).
 
 The adapter does not render prose for the model. A rendered summary would move
 presentation into the envelope-thin adapter, and would
@@ -63,11 +65,14 @@ boundary.
 ### D4. An oversize result becomes a bounded error envelope
 
 The host bounds output at 2,000 lines or 51,200 bytes
-([source](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/core/src/tool-output.ts#L13-L15)). Rather than let it cut an
+([source](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/core/src/tool-output.ts#L13-L14)). Rather than let it cut an
 envelope into invalid JSON, `encodeHostResult` measures the serialized envelope
-against the 51,200-byte `maxEnvelopeBytes` and replaces an oversize result with a
-`malformed_core_response` adapter error. A reader therefore parses either the
-whole envelope or a valid statement that it did not fit, and never a fragment.
+against the 51,200-byte `maxEnvelopeBytes` and replaces an oversize result with
+an adapter error chosen by operation kind. An oversize mutation response may
+describe a committed effect, so it becomes `unknown_effect` with effect state
+`possible`. A read cannot have written, so it becomes
+`malformed_core_response`. A reader therefore parses either the whole envelope
+or a valid statement that it did not fit, and never a fragment.
 
 ### D5. The host owns sessions and tool availability; the agent writes completion
 

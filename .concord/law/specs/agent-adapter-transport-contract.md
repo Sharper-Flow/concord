@@ -75,8 +75,8 @@ Concord's primary OpenCode integration is a **thin TypeScript adapter**. The
 `concord.ts` module defines the generated current tools and adapts calls to
 CD-0003's short-lived Go CLI. The `concord-plugin.ts` entry module registers
 those definitions under their `concord_*` names through OpenCode's plugin API.
-The directory plugin defaults to a plain `{id, setup}` object and imports
-`@opencode/plugin` only for types. Setup location is never session authority.
+The directory plugin's default export is a plain `{id, setup}` object, and it
+imports `@opencode/plugin` only for types. Setup location is never session authority.
 
 The adapter's domain-tool interface has two host-specific responsibilities:
 
@@ -159,8 +159,8 @@ Every model-visible Concord tool input exposes its enforced numeric, string-leng
 
 The TS5 envelope is not model-visible. Execute receives `agent`, `sessionID`,
 `messageID`, and `signal`. On every call the adapter reads
-`ctx.session.get(sessionID)` and uses `location.directory`; an absent directory
-fails closed. It sends context beside domain input. Core resolves the worktree
+`ctx.session.get({ sessionID })` and uses `location.directory`; a failed read or
+absent directory fails closed. It sends context beside domain input. Core resolves the worktree
 and stable Project/Product identity and rejects untrusted/stale assertions.
 
 The registered client key stays in the OS credential store and never enters

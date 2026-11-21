@@ -40,7 +40,9 @@ func (e *hostRegistrationError) Unwrap() error { return e.Cause }
 // verifyHostRegistersHandle checks the host's resolved registry. A definition
 // alone cannot prove registration: configuration can rename, disable or demote
 // an agent without changing its file. Unreadable or unsuitable registrations
-// refuse; the host otherwise silently substitutes its default agent.
+// refuse; the host otherwise silently substitutes its default agent. The host
+// omits disabled agents from the registry. `hidden` only removes an agent from
+// host pickers, so it does not refuse.
 func verifyHostRegistersHandle(host hostCommandResolution, handle string) error {
 	printed := strings.Join(hostProbeArgv(host.Command), " ")
 	document := host.Registry

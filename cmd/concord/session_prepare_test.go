@@ -220,7 +220,7 @@ func TestTimedOutRegistryProbeTypedAndExit1(t *testing.T) {
 	t.Chdir(result.Entry.Path)
 	probeCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	_, probeErr := probeHostConfig(probeCtx, hostProbeArgv(defaultHostCommand), result.Entry.Path)
+	_, probeErr := probeHostRegistry(probeCtx, hostProbeArgv(defaultHostCommand), result.Entry.Path)
 	var interrupted *hostProbeInterruptedError
 	if !errors.As(probeErr, &interrupted) || !interrupted.DeadlinePassed {
 		t.Fatalf("timed-out probe error=%v", probeErr)
@@ -296,9 +296,9 @@ func TestSessionPrepareProbesTheCallingHostOnce(t *testing.T) {
 			seedLocatorAuthority(t, s, repo)
 			result := seedCLISessionWorktree(t, s, repo)
 			t.Setenv(dbOverrideEnv, dbPath)
-			bare := `[{"id":"someone-else","name":"Someone Else","description":"Synthetic agent","mode":"primary","hidden":false,"permissions":[],"request":{}}]`
+			bare := `[{"id":"someone-else","name":"Someone Else","description":"Synthetic agent","mode":"primary","hidden":false,"permissions":[{"action":"*","resource":"*","effect":"allow"}],"request":{"settings":{},"headers":{},"body":{}}}]`
 			if registered {
-				bare = `[{"id":"concord-1","name":"Concord","description":"Synthetic agent","mode":"primary","hidden":false,"permissions":[],"request":{}}]`
+				bare = `[{"id":"concord-1","name":"Concord","description":"Synthetic agent","mode":"primary","hidden":false,"permissions":[{"action":"*","resource":"*","effect":"allow"}],"request":{"settings":{},"headers":{},"body":{}}}]`
 			}
 			if err := os.WriteFile(filepath.Join(result.Entry.Path, "opencode.registry.json"), []byte(bare), 0o644); err != nil {
 				t.Fatal(err)

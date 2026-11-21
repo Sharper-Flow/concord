@@ -28,10 +28,10 @@ type hostCommandResolution struct {
 // identity steps use.
 type sessionHostCommandFunc func(ctx context.Context, dir string) (hostCommandResolution, error)
 
-// hostConfigProbeFunc runs the supplied host argv in dir and returns the
-// configuration document the host prints. It is a parameter so tests can
+// hostRegistryProbeFunc runs the supplied host argv in dir and returns the
+// registry document the host prints. It is a parameter so tests can
 // supply documents without starting a host process.
-type hostConfigProbeFunc func(ctx context.Context, argv []string, dir string) ([]byte, error)
+type hostRegistryProbeFunc func(ctx context.Context, argv []string, dir string) ([]byte, error)
 
 // hostProbeInterruptedError covers a probe ended by its deadline or a signal.
 // session-prepare reports ordinary failure, not a configuration refusal.
@@ -76,13 +76,13 @@ func hostProbeArgv(command []string) []string {
 // hostSessionPrepareRegistry probes in dir under the calling host's inherited
 // environment; session-prepare does not launch a new session.
 func hostSessionPrepareRegistry(ctx context.Context, dir string) (hostCommandResolution, error) {
-	return sessionPrepareRegistryProbe(ctx, dir, probeHostConfig)
+	return sessionPrepareRegistryProbe(ctx, dir, probeHostRegistry)
 }
 
 // sessionPrepareRegistryProbe is the probe-parameterized core of the
 // session-prepare registry resolution, so tests can supply documents without
 // starting a host process.
-func sessionPrepareRegistryProbe(ctx context.Context, dir string, probe hostConfigProbeFunc) (hostCommandResolution, error) {
+func sessionPrepareRegistryProbe(ctx context.Context, dir string, probe hostRegistryProbeFunc) (hostCommandResolution, error) {
 	document, err := probe(ctx, hostProbeArgv(defaultHostCommand), dir)
 	if err != nil {
 		var interrupted *hostProbeInterruptedError
@@ -94,12 +94,12 @@ func sessionPrepareRegistryProbe(ctx context.Context, dir string, probe hostConf
 	return hostCommandResolution{Command: append([]string(nil), defaultHostCommand...), Registry: document}, nil
 }
 
-// probeHostConfig uses a temporary file because the host may exit without
+// probeHostRegistry uses a temporary file because the host may exit without
 // draining stdout, truncating a pipe and producing a JSON parse error.
-func probeHostConfig(ctx context.Context, argv []string, dir string) ([]byte, error) {
+func probeHostRegistry(ctx context.Context, argv []string, dir string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, hostRegistryProbeTimeout)
 	defer cancel()
-	sink, err := os.CreateTemp("", "concord-host-config-*.json")
+	sink, err := os.CreateTemp("", "concord-host-registry-*.json")
 	if err != nil {
 		return nil, err
 	}

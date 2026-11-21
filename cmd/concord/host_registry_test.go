@@ -82,7 +82,7 @@ func TestSessionPrepareRegistryCarriesAProbeFailure(t *testing.T) {
 	}
 }
 
-// probeHostConfig classifies the probe's own deadline as an interrupted
+// probeHostRegistry classifies the probe's own deadline as an interrupted
 // probe: the error is the typed interrupted-probe error and it names the
 // deadline.
 func TestTimedOutRegistryProbeIsTheTypedInterruptedError(t *testing.T) {
@@ -94,7 +94,7 @@ func TestTimedOutRegistryProbeIsTheTypedInterruptedError(t *testing.T) {
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	probeCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	_, err := probeHostConfig(probeCtx, hostProbeArgv([]string{"sleepy-host"}), t.TempDir())
+	_, err := probeHostRegistry(probeCtx, hostProbeArgv([]string{"sleepy-host"}), t.TempDir())
 	var interrupted *hostProbeInterruptedError
 	if !errors.As(err, &interrupted) || !interrupted.DeadlinePassed {
 		t.Fatalf("probe error=%v, want the typed interrupted-probe error naming the deadline", err)

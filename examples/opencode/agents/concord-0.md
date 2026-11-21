@@ -4,6 +4,7 @@ description: Concord 0, intake posture — aligns Product data and defines manag
 mode: primary
 permissions:
   - {"action": "edit", "resource": "*", "effect": "deny"}
+  - {"action": "morph_edit", "resource": "*", "effect": "deny"}
   - {"action": "shell", "resource": "*", "effect": "deny"}
   - {"action": "shell", "resource": "gh issue list *", "effect": "allow"}
   - {"action": "shell", "resource": "gh issue view *", "effect": "allow"}

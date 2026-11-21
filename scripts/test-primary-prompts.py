@@ -299,7 +299,7 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         self.assertTrue(any("missing primary agent example" in finding for finding in findings))
 
     def test_host_tool_name_in_frontmatter_reports(self) -> None:
-        self.rewrite("concord-0.md", lambda text: text.replace("permission:\n", "permission:\n  github_*: allow\n", 1))
+        self.rewrite("concord-0.md", lambda text: text.replace("permissions:\n", "permissions:\n" + rule("github_*", "*", "allow"), 1))
         findings = self.findings()
         self.assertTrue(any("github_'" in finding and "frontmatter" in finding for finding in findings))
 
@@ -358,18 +358,14 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         self.assertEqual(check_primary_prompts.split_frontmatter(text), """# Example only. Concord never installs or manages this file.
 description: Concord 0, intake posture — aligns Product data and defines managed work without executing it; Linear MCP owns planning.
 mode: primary
-permission:
-  edit: deny
-  write: deny
-  patch: deny
-  morph_edit: deny
-  bash:
-    "*": deny
-    "gh issue list *": allow
-    "gh issue view *": allow
-  task:
-    "*": deny
-  concord_work_transition: deny""")
+permissions:
+  - {"action": "edit", "resource": "*", "effect": "deny"}
+  - {"action": "morph_edit", "resource": "*", "effect": "deny"}
+  - {"action": "shell", "resource": "*", "effect": "deny"}
+  - {"action": "shell", "resource": "gh issue list *", "effect": "allow"}
+  - {"action": "shell", "resource": "gh issue view *", "effect": "allow"}
+  - {"action": "subagent", "resource": "*", "effect": "deny"}
+  - {"action": "concord_work_transition", "resource": "*", "effect": "deny"}""")
         body = check_primary_prompts.flatten(check_primary_prompts.body(text))
         for marker in ("dispatch", "lane", "packet", "attempt window", "retry a failure"):
             with self.subTest(marker=marker):
@@ -379,17 +375,26 @@ permission:
         self.assertIn("This posture records what the work is, not where it stands", body)
 
     def test_intake_boundary_loss_reports(self) -> None:
-        self.rewrite("concord-0.md", lambda text: text.replace("  write: deny\n", ""))
+        self.rewrite("concord-0.md", lambda text: text.replace(rule("edit", "*", "deny"), ""))
         findings = self.findings()
         self.assertTrue(any("intake boundary" in finding for finding in findings))
+
+    def test_intake_later_grant_overrides_denial(self) -> None:
+        original = check_primary_prompts.read_prompt(self.root, "concord-0.md")
+        for action in ("edit", "morph_edit", "concord_work_transition", "subagent"):
+            with self.subTest(action=action):
+                self.rewrite("concord-0.md", lambda _: original.replace(
+                    "\n---\n", "\n" + rule(action, "*", "allow").rstrip() + "\n---\n", 1,
+                ))
+                self.assertTrue(any("intake boundary" in finding and action in finding for finding in self.findings()))
 
     def test_intake_github_planning_write_grants_report(self) -> None:
         original = check_primary_prompts.read_prompt(self.root, "concord-0.md")
         for pattern in ("gh issue create *", "gh issue edit *", "gh issue comment *", "gh issue create*", "gh issue close *", "gh api *"):
             with self.subTest(pattern=pattern):
                 self.rewrite("concord-0.md", lambda _: original.replace(
-                    '    "gh issue view *": allow\n',
-                    f'    "gh issue view *": allow\n    "{pattern}": allow\n',
+                    rule("shell", "gh issue view *", "allow"),
+                    rule("shell", "gh issue view *", "allow") + rule("shell", pattern, "allow"),
                 ))
                 self.assertTrue(any("unapproved bash grant" in finding for finding in self.findings()))
 

@@ -399,20 +399,14 @@ def check_primary_prompts(root: Path) -> list[str]:
     )
 
     intake_frontmatter = split_frontmatter(texts["concord-0.md"])
-    findings.extend(
-        f"concord-0.md frontmatter lost its intake boundary {boundary!r}"
-        for boundary in (
-            "edit: deny",
-            "write: deny",
-            "patch: deny",
-            "morph_edit: deny",
-            "concord_work_transition: deny",
-        )
-        if boundary not in intake_frontmatter
-    )
     try:
+        findings.extend(
+            f"concord-0.md frontmatter lost its intake boundary {action!r}"
+            for action in ("edit", "morph_edit", "concord_work_transition", "subagent")
+            if evaluate(permission_rules(intake_frontmatter, action), "*") != "deny"
+        )
         intake_bash = permission_rules(intake_frontmatter, "bash")
-        if not intake_bash or intake_bash[0] != ("*", "deny"):
+        if not intake_bash or intake_bash[0] != ("*", "deny") or evaluate(intake_bash, "*") != "deny":
             findings.append("concord-0.md frontmatter does not deny bash by default")
         findings.extend(
             f"concord-0.md has an unapproved bash grant {pattern!r}; Linear MCP owns planning"

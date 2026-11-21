@@ -1907,7 +1907,7 @@ esac''',
         # inputs. Shipping them would put test code and fixtures in the
         # installed archive, so the installer's adapter file list is asserted to
         # exclude them by name.
-        for dev_only in ("concord.test.ts", "session-scope.test.ts", "mutation-projection.fixture.ts", "plugin-tool.fixture.ts"):
+        for dev_only in ("concord.test.ts", "session-scope.test.ts", "mutation-projection.fixture.ts", "v2-context.fixture.ts"):
             self.assertNotIn(dev_only, installer.ADAPTER_FILES, f"dev-only file {dev_only} must not ship in the adapter archive")
         self.make_release("v1.0.0", "old")
         self.make_release("v1.1.0", "new")

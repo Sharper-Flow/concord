@@ -205,7 +205,7 @@ def qualify_session_prepare(project, cli, captures):
     source.write_text(wrong)
     (captures / "wrong-mode.json").write_text(registry_probe(project, cli))
     source.write_text(original)
-    env = dict(os.environ, CONCORD_QUALIFY_REGISTRY_DIR=str(captures))
+    env = dict(os.environ, OPENCODE_QUALIFY_REGISTRY_DIR=str(captures))
     test = subprocess.run(["go", "test", "./cmd/concord", "-run", "^TestHostRegistryQualification$", "-count=1", "-v"],
                           cwd=ROOT, env=env, capture_output=True, text=True, timeout=110)
     lines = test.stdout.splitlines()

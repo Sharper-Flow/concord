@@ -9,9 +9,9 @@ import (
 )
 
 func TestHostRegistryQualification(t *testing.T) {
-	dir := os.Getenv("CONCORD_QUALIFY_REGISTRY_DIR")
+	dir := os.Getenv("OPENCODE_QUALIFY_REGISTRY_DIR")
 	if dir == "" {
-		t.Skip("CONCORD_QUALIFY_REGISTRY_DIR is not set")
+		t.Skip("OPENCODE_QUALIFY_REGISTRY_DIR is not set")
 	}
 	data, err := os.ReadFile("../../contracts/agent-primary-profiles.v1.json")
 	if err != nil {

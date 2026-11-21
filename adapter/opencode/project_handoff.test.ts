@@ -15,12 +15,9 @@ const context = () =>
     sessionID: "session-receive",
     messageID: "message-1",
     agent: "agent-receive",
-    directory: "/worktree",
-    worktree: "/worktree",
     signal: new AbortController().signal,
-    metadata: () => {},
-    ask: async () => {},
-  }) as Parameters<typeof work_trace.execute>[1]
+    sessionDirectory: async () => "/worktree",
+  }) satisfies Parameters<typeof work_trace.execute>[1]
 
 // fakeHost wires the plugin's session context so the session lookup
 // answers the host-placed checkout, and swaps the runner

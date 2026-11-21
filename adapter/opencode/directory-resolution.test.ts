@@ -33,7 +33,7 @@ test("ordinary tool entries resolve the live directory on every call", async () 
     return { location: { directory } }
   })
   await ConcordAdapterPlugin.setup(host.context)
-  const calls: Array<{ argv: string[]; body: any }> = []
+  const calls: Array<{ argv: string[]; body: { directory: string; worktree: string; call_envelope?: unknown } }> = []
   configureConcordAdapter({ runner: { async run(argv, input) {
     const body = JSON.parse(input)
     calls.push({ argv, body })

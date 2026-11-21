@@ -97,7 +97,7 @@ if (!process.env.TEST_CONCORD_TICKET_CASE || new RegExp(process.env.TEST_CONCORD
   configureHostLease({ release: { coreBinary: "concord", releaseRoot: "/releases/v11.0.0" }, runner: { async run() { return { exitCode: 0, stdout: JSON.stringify({ pid: process.pid, pid_start: 1, release_root: "/releases/v11.0.0", core_binary: "concord", schema_version: 93, manifest_digest: manifestDigest, directory, worktree: directory }), stderr: "" } } } as never })
   configureConcordAdapter({ runner: { async run(argv: string[], input: string, signal?: AbortSignal, options?: { cwd?: string }) { if (argv[1] === "invoke") captured.invoke = JSON.parse(input); return runFixtureProcess([binary, ...argv.slice(1)], input, { cwd: options?.cwd, env: { ...process.env, CONCORD_DB_PATH: dbPath }, signal }) } } as never })
   const fake = fakeV2Context(async ({ sessionID: requested }) => { expect(requested).toBe(sessionID); return { location: { directory } } })
-  const bindHost = async () => { fake.context.location.directory = directory; fake.tools.length = 0; await ConcordAdapterPlugin.setup(fake.context) }
+  const bindHost = async () => { fake.tools.length = 0; await ConcordAdapterPlugin.setup({ ...fake.context, location: { ...fake.context.location, directory } }) }
   await bindHost()
   const context = { sessionID, messageID: "message-1", agent: "Concord", directory, worktree: directory, signal: new AbortController().signal, metadata: () => {}, ask: async () => {} } as any
   const invoke = async (tool: string, operation: string, input: JSONRecord) => {

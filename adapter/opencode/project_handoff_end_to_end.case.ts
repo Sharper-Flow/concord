@@ -104,10 +104,10 @@ async function fakeHostControlPlane(seed: Array<[string, string]>, runner: CoreR
     if (!session) throw new Error("session missing")
     return { location: { directory: session.directory } }
   })
-  fake.context.location.directory = seed[0][1]
-  hostContext = fake.context
+  const context = { ...fake.context, location: { ...fake.context.location, directory: seed[0][1] as typeof fake.context.location.directory } }
+  hostContext = context
   registeredTools = fake.tools
-  await ConcordAdapterPlugin.setup(fake.context)
+  await ConcordAdapterPlugin.setup(context)
 }
 
 const contextFor = (sessionID: string, directory: string) =>

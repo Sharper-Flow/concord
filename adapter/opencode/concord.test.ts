@@ -322,7 +322,7 @@ test("project resolution and envelopes use the live session directory", async ()
       return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_product_view", "resolve", "ok", { result: { product_id: "product-1", projects: [], stage: "prototype" } })), stderr: "" }
     },
   } })
-  const result: any = await rawHostResult(adapter.product_view.execute(hostCall("resolve", {}), contextFor(() => {}, undefined, "/stale", "/stale")))
+  const result: any = await rawHostResult(adapter.product_view.execute(hostCall("resolve", {}), { ...contextFor(), directory: "/stale", worktree: "/stale" }))
   expect(result.outcome).toBe("ok")
   expect(requests[0]).toEqual({ directory: "/moved", worktree: "/moved" })
   expect(requests[1].call_envelope.directory).toBe("/moved")
@@ -605,7 +605,7 @@ test("an aborted signal does not mask a missing binary on a mutation", async () 
   } } })
   const missing: any = await rawHostResult(adapter.work_transition.execute(
     hostCall("lifecycle", { work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "idem-1" }),
-    contextFor(undefined, controller),
+    contextFor(controller),
   ))
   assertAdapterEnvelope(missing)
   expect(calls).toBe(2)
@@ -630,7 +630,7 @@ test("an aborted signal does not mask a missing binary on a mutation", async () 
     } } })
     const retried: any = await rawHostResult(adapter.work_transition.execute(
       hostCall("lifecycle", { work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "idem-2" }),
-      contextFor(undefined, controller),
+      contextFor(controller),
     ))
     assertAdapterEnvelope(retried)
     expect(retryCalls).toBe(5) // context, skewed invoke whose child ran, healed retry whose binary is gone, readback context, readback read
@@ -681,7 +681,7 @@ test("oversized mutation envelopes reconcile the request work ID", async () => {
 })
 
 const contextResponse = (main_worktree = true, product_ids = ["product-1"]) => ({ project_id: "project-1", product_ids, scope_version: "1", main_worktree })
-const contextFor = (ask: (...args: unknown[]) => unknown = () => {}, controller = new AbortController(), directory = "/worktree", worktree = directory): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", signal: controller.signal, sessionDirectory })
+const contextFor = (controller = new AbortController()): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", signal: controller.signal, sessionDirectory })
 const rawHostResult = async (result: Promise<{ content: string; metadata: Record<string, unknown> }>) => {
   const value = await result
   expect(typeof value.content).toBe("string")
@@ -694,9 +694,9 @@ const assertAdapterEnvelope = (value: any) => {
   expect(value.origin).toBe("adapter")
   expect(value.outcome).toBe("error")
 }
-const runProduct = (runner: any, options: { ask?: () => Promise<void>; controller?: AbortController } = {}) => {
+const runProduct = (runner: any, options: { controller?: AbortController } = {}) => {
   adapter.configureConcordAdapter({ runner })
-  return rawHostResult(adapter.product_view.execute(hostCall("resolve", { product_id: "product-1" }), contextFor(options.ask, options.controller)))
+  return rawHostResult(adapter.product_view.execute(hostCall("resolve", { product_id: "product-1" }), contextFor(options.controller)))
 }
 const runnerWithContext = (invoke: any) => {
   let calls = 0
@@ -854,14 +854,14 @@ test("I/O, malformed, timeout, and cancellation outcomes remain schema-valid", a
   expect(cancelled.error.effect_state).toBe("none")
 })
 
-const runTransition = (runner: any, ask?: () => Promise<void>) => {
+const runTransition = (runner: any) => {
   adapter.configureConcordAdapter({ runner })
-  return rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", { work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "idem-1" }), contextFor(ask)))
+  return rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", { work_id: "work-1", expected_version: 2, target: "completed", reason: "done", idempotency_key: "idem-1" }), contextFor()))
 }
 
-const runWorkflowAction = (runner: any, input: Record<string, unknown>, ask?: () => Promise<void>) => {
+const runWorkflowAction = (runner: any, input: Record<string, unknown>) => {
   adapter.configureConcordAdapter({ runner })
-  return rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", input), contextFor(ask)))
+  return rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", input), contextFor()))
 }
 test("host publication round-trips legislative subjects unchanged", async () => {
   const input = {
@@ -1013,7 +1013,7 @@ for (const blockedVerb of ["project-resolve", "invoke"] as const) {
         const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", {
           work_id: "work-1", expected_version: 2, target: "in_progress", reason: "Start work",
           idempotency_key: "recover-interruption", requested_budget_seconds: 1,
-        }), contextFor(() => {}, controller)))
+        }), contextFor(controller)))
         assertAdapterEnvelope(result)
         expect(result.outcome).toBe("error")
         // An uncertain mutation attempts readback with the same cancelled
@@ -1071,7 +1071,7 @@ for (const blockedVerb of ["project-resolve", "invoke"] as const) {
         const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", {
           work_id: "work-1", expected_version: 2, target: "in_progress", reason: "Start work",
           idempotency_key: "recover-context-read", requested_budget_seconds: 1,
-        }), contextFor(() => {}, controller)))
+        }), contextFor(controller)))
         assertAdapterEnvelope(result)
         expect(result.error.kind, JSON.stringify(result)).toBe("cancelled")
         expect(result.error.effect_state).toBe("none")
@@ -1100,7 +1100,7 @@ test("mutation cancellation kills the default runner's context child", async () 
     const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("lifecycle", {
       work_id: "work-1", expected_version: 2, target: "in_progress", reason: "Start work",
       idempotency_key: "recover-default-runner", requested_budget_seconds: 1,
-    }), contextFor(() => {}, controller)))
+    }), contextFor(controller)))
     assertAdapterEnvelope(result)
     expect(result.error.kind, JSON.stringify(result)).toBe("cancelled")
     expect(result.error.effect_state).toBe("none")

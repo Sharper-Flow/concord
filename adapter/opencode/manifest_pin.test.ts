@@ -7,7 +7,7 @@ import * as adapter from "./concord"
 import { manifestDigest } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resetManifestPinForTesting, resolveDiskManifestDigest, setManifestSourceForTesting } from "./manifest-pin"
 import { configureCoreBinary } from "./core-runtime"
-import { sessionDirectoryReader } from "./session-directory"
+import { claimHostLease, configureHostLease } from "./host-lease"
 const testDirectories: string[] = []
 function mkdtempSync(prefix: string): string {
   const directory = createDirectory(prefix)
@@ -22,21 +22,24 @@ function mkdtempSync(prefix: string): string {
 configureCoreBinary("concord")
 
 const hostCall = (operation: string, input: Record<string, unknown>) => ({ request: { operation, input } })
-const contextFor = (): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: "/worktree", directory: "/worktree", abort: new AbortController().signal, ask: async () => {} })
+const contextFor = (): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", signal: new AbortController().signal, sessionDirectory: async () => "/worktree" })
 const contextResponse = () => ({ project_id: "project-1", product_ids: ["product-1"], scope_version: "1", main_worktree: true })
 const coreEnvelope = (tool: string, operation: string, outcome: string, fields: Record<string, unknown> = {}) => ({
   schema_version: "1.0", manifest_digest: manifestDigest, origin: "core", tool, operation, outcome, next_cursor: null, omissions: [], warnings: [], ...fields,
 })
 const foreignDigest = "sha256:" + "0".repeat(63) + "1"
 
-beforeEach(() => {
+beforeEach(async () => {
   resetManifestPinForTesting()
-  sessionDirectoryReader().bind({
-    get: async () => ({ data: { id: "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }),
-  })
+  configureCoreBinary("concord")
+  configureHostLease({ reset: true, release: { coreBinary: "concord", releaseRoot: "/releases/test" }, runner: { async run() {
+    return { exitCode: 0, stderr: "", stdout: JSON.stringify({ core_binary: "concord", release_root: "/releases/test", manifest_digest: manifestDigest }) }
+  } } })
+  await claimHostLease(process.pid)
 })
 afterEach(() => {
   adapter.configureConcordAdapter({ reset: true })
+  configureHostLease({ reset: true })
   resetManifestPinForTesting()
   setManifestSourceForTesting(null)
   for (const directory of testDirectories.splice(0)) rmSync(directory, { recursive: true, force: true })
@@ -84,7 +87,7 @@ describe("version-skew self-heal", () => {
           return { exitCode: 64, stdout, stderr: "missing required field input" }
         } } })
         const raw = await tool.execute(hostCall(operation, {}), contextFor())
-        const result: any = JSON.parse(typeof raw === "string" ? raw : raw.output)
+        const result: any = JSON.parse(raw.content)
         expect(invokes).toBe(2)
         const typedRefusal = !mutation && stdout === ""
         expect(result.error.kind).toBe(mutation ? "operation_conflict" : typedRefusal ? "invalid_input" : "transport_failure")
@@ -109,7 +112,7 @@ describe("version-skew self-heal", () => {
     } } })
 
     const raw = await adapter.product_view.execute(hostCall("resolve", { product_id: "product-1" }), contextFor())
-    const result: any = typeof raw === "string" ? JSON.parse(raw) : JSON.parse((raw as any).output)
+    const result: any = JSON.parse(raw.content)
     expect(invokeCalls).toBe(3) // context, skewed invoke, healed retry
     expect(result.outcome).toBe("ok")
     expect(result.manifest_digest).toBe(foreignDigest)
@@ -130,7 +133,7 @@ describe("version-skew self-heal", () => {
     } } })
 
     const raw = await adapter.product_view.execute(hostCall("resolve", { product_id: "product-1" }), contextFor())
-    const result: any = typeof raw === "string" ? JSON.parse(raw) : JSON.parse((raw as any).output)
+    const result: any = JSON.parse(raw.content)
     expect(result.outcome).toBe("error")
     expect(result.error.kind).toBe("transport_failure")
     expect(result.error.adapter_reason).toBe("manifest_mismatch")
@@ -156,7 +159,7 @@ describe("version-skew self-heal", () => {
     } } })
 
     const raw = await adapter.work_define.execute(hostCall("capture", { title: "t", kind: "task", project_ids: ["p"], human_key: "ZZ-1", remote_issue_uuid: "u", url: "https://linear.app/example/issue/ZZ-1", idempotency_key: "k" }), contextFor())
-    const result: any = typeof raw === "string" ? JSON.parse(raw) : JSON.parse((raw as any).output)
+    const result: any = JSON.parse(raw.content)
     expect(invokeCalls).toBe(3) // context, skewed invoke, healed retry whose child died
     expect(result.outcome).toBe("error")
     expect(result.error.kind).toBe("operation_conflict")
@@ -183,7 +186,7 @@ describe("version-skew self-heal", () => {
     } } })
 
     const raw = await adapter.work_define.execute(hostCall("capture", { title: "t", kind: "task", project_ids: ["p"], human_key: "ZZ-1", remote_issue_uuid: "u", url: "https://linear.app/example/issue/ZZ-1", idempotency_key: "k" }), contextFor())
-    const result: any = typeof raw === "string" ? JSON.parse(raw) : JSON.parse((raw as any).output)
+    const result: any = JSON.parse(raw.content)
     expect(invokeCalls).toBe(3) // context, skewed invoke, healed retry whose binary is gone
     expect(result.outcome).toBe("error")
     expect(result.error.kind).toBe("operation_conflict")
@@ -207,7 +210,7 @@ describe("version-skew self-heal", () => {
     } } })
 
     const raw = await adapter.product_view.execute(hostCall("resolve", { product_id: "product-1" }), contextFor())
-    const result: any = typeof raw === "string" ? JSON.parse(raw) : JSON.parse((raw as any).output)
+    const result: any = JSON.parse(raw.content)
     expect(invokeCalls).toBe(3) // exactly one retry
     expect(result.outcome).toBe("error")
     expect(result.error.adapter_reason).toBe("manifest_mismatch")

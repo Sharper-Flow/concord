@@ -5,13 +5,12 @@ import { configureCoreBinary } from "./core-runtime"
 import { configureHostLease } from "./host-lease"
 import { contractOperations, manifestDigest } from "./generated-contracts"
 import { validateGeneratedEnvelope } from "./generated-contract-tests"
-import { sessionDirectoryReader, type RouteResult } from "./session-directory"
+import { fakeV2Context } from "./v2-context.fixture"
 
 afterEach(() => {
   configureConcordAdapter({ reset: true })
   configureHostLease({ reset: true })
   configureCoreBinary(null)
-  sessionDirectoryReader().bind(undefined)
 })
 
 function configureLease() {
@@ -24,19 +23,16 @@ function configureLease() {
   })
 }
 
-test("ordinary tool entries resolve the live directory on every call with a GET-only bound client", async () => {
+test("ordinary tool entries resolve the live directory on every call", async () => {
   configureLease()
   let directory = "/host/first"
   const reads: unknown[] = []
   const abort = new AbortController().signal
-  const plugin = await ConcordAdapterPlugin({
-    directory: "/stale/plugin", worktree: "/stale/plugin",
-    client: { _client: { get: async (request: unknown) => {
-      reads.push(request)
-      return { data: { directory }, response: new Response(null, { status: 200 }) }
-    } } } as never,
-    serverUrl: new URL("https://example.invalid"),
+  const host = fakeV2Context(async (request) => {
+    reads.push(request)
+    return { location: { directory } }
   })
+  await ConcordAdapterPlugin.setup(host.context)
   const calls: Array<{ argv: string[]; body: any }> = []
   configureConcordAdapter({ runner: { async run(argv, input) {
     const body = JSON.parse(input)
@@ -51,14 +47,14 @@ test("ordinary tool entries resolve the live directory on every call with a GET-
     }) }
   } } })
   let index = 0
-  for (const [toolName, tool] of Object.entries(plugin.tool)) {
+  for (const tool of host.tools) {
+    const toolName = tool.name
     directory = `/host/call-${index++}`
     const operation = contractOperations.find(candidate => candidate.tool === toolName)!.id.split(".")[1]
     const result = await tool.execute({ request: { operation, input: {} } }, {
-      sessionID: "session-directory", messageID: `message-${index}`, agent: "Concord",
-      directory: "/stale/context", worktree: "/stale/context", abort, metadata: () => {}, ask: async () => {},
+      sessionID: "session-directory", messageID: `message-${index}`, agent: "Concord", signal: abort,
     })
-    const envelope = JSON.parse(typeof result === "string" ? result : result.output)
+    const envelope = JSON.parse(result.content)
     expect(envelope.origin, JSON.stringify(envelope)).toBe("core")
     expect(calls.at(-2)?.body, toolName).toEqual({ directory, worktree: directory })
     expect(calls.at(-1)?.body.call_envelope, toolName).toMatchObject({
@@ -69,32 +65,23 @@ test("ordinary tool entries resolve the live directory on every call with a GET-
   }
   expect(index).toBe(7)
   expect(calls).toHaveLength(14)
-  expect(reads).toEqual(Array.from({ length: 7 }, () => ({ url: "/session/{id}", path: { id: "session-directory" }, signal: abort })))
+  expect(reads).toEqual(Array.from({ length: 7 }, () => ({ sessionID: "session-directory" })))
 })
 
-const consumed = async (data: unknown): Promise<RouteResult> => {
-  const response = new Response(JSON.stringify(data), { status: 403 })
-  await response.text()
-  return { data, response }
-}
 for (const [name, get, message] of [
-  ["parsed refusal", () => consumed({ message: "host access denied" }), "host access denied"],
-  ["nested parsed refusal", () => consumed({ data: { message: "nested refusal" } }), "nested refusal"],
-  ["text refusal", async () => ({ response: new Response("host unavailable", { status: 503 }) }), "host unavailable"],
-  ["empty refusal", async () => ({ response: new Response(null, { status: 500 }) }), "no readable refusal"],
-  ["missing directory", async () => ({ data: { directory: "" }, response: new Response(null, { status: 200 }) }), "no directory"],
+  ["missing directory", async () => ({ location: {} }), "missing"],
   ["transport exception", async () => { throw new Error("host disconnected") }, "host disconnected"],
-] as Array<[string, () => Promise<RouteResult>, string]>) {
+] as Array<[string, () => Promise<any>, string]>) {
   test(`ordinary directory read fails closed with useful diagnostics: ${name}`, async () => {
     configureLease()
-    const plugin = await ConcordAdapterPlugin({ directory: "/not-a-fallback", client: { _client: { get } } as never })
+    const host = fakeV2Context(get)
+    await ConcordAdapterPlugin.setup(host.context)
     let calls = 0
     configureConcordAdapter({ runner: { async run() { calls++; throw new Error("failed host reads must not invoke core") } } })
-    const raw = await plugin.tool.concord_product_view.execute({ request: { operation: "resolve", input: {} } }, {
-      sessionID: "session-refused", messageID: "message-refused", agent: "Concord", directory: "/not-a-fallback",
-      worktree: "/not-a-fallback", abort: new AbortController().signal, metadata: () => {}, ask: async () => {},
+    const raw = await host.tools.find(tool => tool.name === "concord_product_view").execute({ request: { operation: "resolve", input: {} } }, {
+      sessionID: "session-refused", messageID: "message-refused", agent: "Concord", signal: new AbortController().signal,
     })
-    const result = JSON.parse(typeof raw === "string" ? raw : raw.output)
+    const result = JSON.parse(raw.content)
     expect(result.error).toMatchObject({ kind: "transport_failure", adapter_reason: "session_directory_unreadable", effect_state: "none", retry_safe: true, recovery_action: { kind: "retry_same_request" } })
     expect(result.error.message).toContain(message)
     expect(validateGeneratedEnvelope(result)).toBe(true)

@@ -7,7 +7,6 @@ import { contractOperations, manifestDigest, maxEnvelopeBytes, payloadSchemas, w
 import { configureCoreBinary } from "./core-runtime"
 import { claimHostLease, configureHostLease, hostLeaseFault } from "./host-lease"
 import { validateGeneratedEnvelope, envelopeFailurePath, expandedPublishedRequestSchema, actionFieldsBranches } from "./generated-contract-tests"
-import { sessionDirectoryReader, type RouteResult } from "./session-directory"
 import { adoptManifestDigest, resetManifestPinForTesting } from "./manifest-pin"
 import { mutationProjectionFixture } from "./mutation-projection.fixture"
 import { fakeTool } from "./plugin-tool.fixture"
@@ -34,10 +33,14 @@ configureCoreBinary("concord")
 const adapter = await import("./concord")
 
 const outerSelectedProductID = process.env.CONCORD_SELECTED_PRODUCT_ID
-beforeEach(() => {
-  sessionDirectoryReader().bind({
-    get: async () => ({ data: { id: "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }),
-  })
+let sessionDirectory: () => Promise<string>
+beforeEach(async () => {
+  configureCoreBinary("concord")
+  configureHostLease({ reset: true, release: { coreBinary: "concord", releaseRoot: "/releases/test" }, runner: { async run() {
+    return { exitCode: 0, stderr: "", stdout: JSON.stringify({ core_binary: "concord", release_root: "/releases/test", manifest_digest: manifestDigest }) }
+  } } })
+  await claimHostLease(process.pid)
+  sessionDirectory = async () => "/worktree"
   delete process.env.CONCORD_SELECTED_PRODUCT_ID
 })
 afterEach(async () => {
@@ -70,8 +73,10 @@ test("published tool arguments expose a host-safe request shape", async () => {
     return branch.properties.input
   }
   for (const [toolName, exportedTool] of Object.entries(tools)) {
-    expect(Object.keys((exportedTool as any).args), toolName).toEqual(["request"])
-    const published = adapter.publishedRequestSchema(toolName) as any
+    const registration: any = exportedTool.input
+    expect(registration.required, toolName).toEqual(["request"])
+    expect(exportedTool.options.codemode, toolName).toBe(false)
+    const published = { ...registration.properties.request, $defs: registration.$defs } as any
     const expected = contractOperations.filter((item: any) => item.tool === toolName).map((item: any) => item.id.split(".")[1])
     expect(published.properties.operation.enum, toolName).toEqual(expected)
     // The published input is compact: the request parent keeps its
@@ -224,11 +229,13 @@ test("all exported tools return one serialized Concord envelope", async () => {
     expect(validateGeneratedEnvelope(core), `${toolName} core fixture`).toBe(true)
     adapter.configureConcordAdapter({ runner: runnerWithContext(core) })
     const hostResult: any = await exportedTool.execute(hostCall(operation, {}), contextFor())
-    expect(hostResult).toMatchObject({ title: toolName, metadata: {} })
-    expect(typeof hostResult.output).toBe("string")
-    const envelope = JSON.parse(hostResult.output)
-    expect(hostResult.output).toBe(JSON.stringify(envelope))
-    expect(validateGeneratedEnvelope(envelope), `${toolName} returned invalid envelope: ${hostResult.output}`).toBe(true)
+    expect(hostResult.metadata).toEqual({})
+    expect(typeof hostResult.content).toBe("string")
+    expect(hostResult).not.toHaveProperty("output")
+    expect(hostResult.metadata).not.toHaveProperty("truncated")
+    const envelope = JSON.parse(hostResult.content)
+    expect(hostResult.content).toBe(JSON.stringify(envelope))
+    expect(validateGeneratedEnvelope(envelope), `${toolName} returned invalid envelope: ${hostResult.content}`).toBe(true)
     expect(envelope.tool).toBe(toolName)
   }
 })
@@ -242,12 +249,12 @@ test("request-wrapped tools refuse a missing request wrapper before any host eff
     const operation = contractOperations.find((candidate) => candidate.tool === toolName)!.id.split(".")[1]
     for (const args of [{ operation, input: {} }, { operation, request: null }, { operation, request: [] }, {}, { request: null }, { request: [] }, { request: "invalid" }, { operation: "unknown" }, { operation: "x".repeat(65536) }, { operation: 1 }]) {
       const result: any = await exportedTool.execute(args as any, contextFor())
-      const envelope = JSON.parse(result.output)
+      const envelope = JSON.parse(result.content)
       expect(envelope.error).toMatchObject({ kind: "invalid_input", effect_state: "none", retry_safe: false, recovery_action: { kind: "correct_request" } })
       expect(envelope.error.message).toContain("request wrapper")
       expect(envelope.tool).toBe(toolName)
-      expect(envelope.operation).toBe("operation" in args && args.operation === operation ? operation : "")
-      expect(validateGeneratedEnvelope(envelope), result.output).toBe(true)
+      expect(envelope.operation).toBe("")
+      expect(validateGeneratedEnvelope(envelope), result.content).toBe(true)
       if (envelope.operation === "") {
         expect(validateGeneratedEnvelope({ ...envelope, origin: "core" })).toBe(false)
       }
@@ -259,63 +266,6 @@ test("request-wrapped tools refuse a missing request wrapper before any host eff
   expect(calls).toBe(0)
 })
 
-test("request-wrapped tools accept the Code Mode double-wrapped argument shape", async () => {
-  let invokeStdin = ""
-  const core = coreEnvelope("concord_work_browse", "list", "error", {
-    error: { kind: "internal_error", retry_safe: false, recovery_action: { kind: "contact_operator" }, effect_state: "none" },
-  })
-  adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], input: string) => {
-    invokeStdin = input
-    return core
-  }) })
-  // opencode 1.18.30's Code Mode bridge delivers the published arguments to
-  // plugin tool execute wrapped one extra time under the schema's own
-  // `request` property.
-  const hostResult: any = await adapter.work_browse.execute({ request: { request: { operation: "list", input: {} } } }, contextFor())
-  const envelope = JSON.parse(hostResult.output)
-  expect(envelope.origin).toBe("core")
-  expect(envelope.outcome).toBe("error")
-  const sent = JSON.parse(invokeStdin)
-  expect(sent.operation).toBe("list")
-  expect(sent.input).toEqual({})
-  expect(sent.tool).toBe("concord_work_browse")
-})
-
-test("a dropped top-level operation is recovered from the input copy", async () => {
-  let invokeStdin = ""
-  const core = coreEnvelope("concord_work_browse", "list", "error", {
-    error: { kind: "internal_error", retry_safe: false, recovery_action: { kind: "contact_operator" }, effect_state: "none" },
-  })
-  adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], input: string) => {
-    invokeStdin = input
-    return core
-  }) })
-  // The bridge can deliver the wrapper without the published top-level
-  // operation, leaving the caller's input copy as the only surviving name.
-  const hostResult: any = await adapter.work_browse.execute({ request: { request: { input: { operation: "list", product_id: "concord" } } } } as any, contextFor())
-  const envelope = JSON.parse(hostResult.output)
-  expect(envelope.origin).toBe("core")
-  const sent = JSON.parse(invokeStdin)
-  expect(sent.operation).toBe("list")
-  expect(sent.input).toEqual({ product_id: "concord" })
-})
-
-test("an echoed operation copy never reaches the core payload", async () => {
-  let invokeStdin = ""
-  const core = coreEnvelope("concord_work_browse", "list", "error", {
-    error: { kind: "internal_error", retry_safe: false, recovery_action: { kind: "contact_operator" }, effect_state: "none" },
-  })
-  adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], input: string) => {
-    invokeStdin = input
-    return core
-  }) })
-  const hostResult: any = await adapter.work_browse.execute({ request: { operation: "list", input: { operation: "list", product_id: "concord" } } } as any, contextFor())
-  JSON.parse(hostResult.output)
-  const sent = JSON.parse(invokeStdin)
-  expect(sent.operation).toBe("list")
-  expect(sent.input).toEqual({ product_id: "concord" })
-})
-
 test("oversize core results become bounded ToolResult error envelopes", async () => {
   const oversized = coreEnvelope("concord_product_view", "resolve", "error", {
     warnings: [{ kind: "diagnostic", details: { message: "x".repeat(52_000) } }],
@@ -325,10 +275,11 @@ test("oversize core results become bounded ToolResult error envelopes", async ()
   expect(Buffer.byteLength(JSON.stringify(oversized))).toBeGreaterThan(51_200)
   adapter.configureConcordAdapter({ runner: runnerWithContext(oversized) })
   const hostResult = await adapter.product_view.execute(hostCall("resolve", {}), contextFor())
-  expect(typeof hostResult).not.toBe("string")
-  if (typeof hostResult === "string") throw new Error("adapter returned a string ToolResult")
-  expect(Buffer.byteLength(hostResult.output)).toBeLessThanOrEqual(51_200)
-  const envelope = JSON.parse(hostResult.output)
+  expect(typeof hostResult.content).toBe("string")
+  expect(hostResult).not.toHaveProperty("output")
+  expect(hostResult.metadata).not.toHaveProperty("truncated")
+  expect(Buffer.byteLength(hostResult.content)).toBeLessThanOrEqual(51_200)
+  const envelope = JSON.parse(hostResult.content)
   expect(validateGeneratedEnvelope(envelope)).toBe(true)
   expect(envelope.error.kind).toBe("malformed_response")
   expect(envelope.error.adapter_reason).toBe("malformed_core_response")
@@ -363,9 +314,7 @@ test("project context is resolved before invoke", async () => {
 
 test("project resolution and envelopes use the live session directory", async () => {
   const requests: any[] = []
-  sessionDirectoryReader().bind({
-    get: async () => ({ data: { id: "session-1", directory: "/moved" }, response: new Response(null, { status: 200 }) }),
-  })
+  sessionDirectory = async () => "/moved"
   adapter.configureConcordAdapter({ runner: {
     async run(_argv: string[], input: string) {
       requests.push(JSON.parse(input))
@@ -382,9 +331,7 @@ test("project resolution and envelopes use the live session directory", async ()
 })
 
 test("an unreadable session directory refuses before core transport", async () => {
-  sessionDirectoryReader().bind({
-    get: async () => ({ data: { id: "session-1", metadata: {} }, response: new Response(null, { status: 200 }) }),
-  })
+  sessionDirectory = async () => { throw new Error("directory unreadable") }
   let calls = 0
   adapter.configureConcordAdapter({ runner: { async run() { calls++; throw new Error("core transport must not run") } } })
   const result: any = await rawHostResult(adapter.product_view.execute(hostCall("resolve", {}), contextFor()))
@@ -734,15 +681,13 @@ test("oversized mutation envelopes reconcile the request work ID", async () => {
 })
 
 const contextResponse = (main_worktree = true, product_ids = ["product-1"]) => ({ project_id: "project-1", product_ids, scope_version: "1", main_worktree })
-const contextFor = (ask: (...args: unknown[]) => unknown = () => {}, controller = new AbortController(), directory = "/worktree", worktree = directory): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree, directory, abort: controller.signal, ask })
-// The envelope is the first line of the tool output. Failed best-effort side
-// effects append warning lines after it, so the JSON parse reads the first
-// line alone and a test that owns a warning asserts on the raw output.
-const rawHostResult = async (result: Promise<string | { output: string }>) => {
+const contextFor = (ask: (...args: unknown[]) => unknown = () => {}, controller = new AbortController(), directory = "/worktree", worktree = directory): any => ({ sessionID: "session-1", messageID: "message-1", agent: "agent-1", signal: controller.signal, sessionDirectory })
+const rawHostResult = async (result: Promise<{ content: string; metadata: Record<string, unknown> }>) => {
   const value = await result
-  if (typeof value === "string") throw new Error("adapter returned a string ToolResult")
-  const newline = value.output.indexOf("\n")
-  return JSON.parse(newline === -1 ? value.output : value.output.slice(0, newline))
+  expect(typeof value.content).toBe("string")
+  expect(value).not.toHaveProperty("output")
+  expect(value.metadata).not.toHaveProperty("truncated")
+  return JSON.parse(value.content)
 }
 const assertAdapterEnvelope = (value: any) => {
   expect(validateGeneratedEnvelope(value), JSON.stringify(value)).toBe(true)
@@ -840,12 +785,6 @@ const recordingRunner = () => {
   }
 }
 test("a native subagent call preserves ordinary caller grants without an ancestry read", async () => {
-  sessionDirectoryReader().bind({
-    get: async ({ path }) => {
-      expect(path?.id).toBe("session-1")
-      return { data: { id: "session-1", directory: "/worktree", parentID: "native-parent" }, response: new Response(null, { status: 200 }) }
-    },
-  })
   let seen: any
   adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], input: string) => {
     seen = JSON.parse(input)
@@ -862,9 +801,7 @@ test("a native subagent call preserves ordinary caller grants without an ancestr
 })
 
 test("an unreadable live session directory refuses before core transport", async () => {
-  sessionDirectoryReader().bind({
-    get: async () => ({ data: null, response: new Response(null, { status: 404 }) }),
-  })
+  sessionDirectory = async () => { throw new Error("directory unavailable") }
   const runner = recordingRunner()
   adapter.configureConcordAdapter({ runner })
   const result: any = await rawHostResult(adapter.product_view.execute(hostCall("snapshot", {}), contextFor()))
@@ -875,11 +812,10 @@ test("an unreadable live session directory refuses before core transport", async
   expect(runner.calls()).toEqual([])
 })
 
-test("an unbound directory reader refuses a concord call closed", async () => {
-  sessionDirectoryReader().bind(undefined)
+test("a missing session directory callback refuses a concord call closed", async () => {
   const runner = recordingRunner()
   adapter.configureConcordAdapter({ runner })
-  const result: any = await rawHostResult(adapter.product_view.execute(hostCall("resolve", { product_id: "product-1" }), contextFor()))
+  const result: any = await rawHostResult(adapter.product_view.execute(hostCall("resolve", { product_id: "product-1" }), { ...contextFor(), sessionDirectory: undefined }))
   assertAdapterEnvelope(result)
   expect(result.error.kind).toBe("transport_failure")
   expect(result.error.adapter_reason).toBe("session_directory_unreadable")
@@ -966,9 +902,6 @@ for (const tampered of [false, true]) {
   test(`host mutation privately reconstructs projected pins; tampered=${tampered}`, async () => {
     const fixture = mutationProjectionFixture()
     if (tampered) fixture.pages[1].result.offset++
-    sessionDirectoryReader().bind({
-      get: async () => ({ data: { id: "session-1", directory: "/worktree" }, response: new Response(null, { status: 200 }) }),
-    })
     let reads = 0
     let writes = 0
     adapter.configureConcordAdapter({ runner: { async run(argv, input) {
@@ -984,7 +917,7 @@ for (const tampered of [false, true]) {
       return { exitCode: 0, stdout: JSON.stringify(coreEnvelope(request.tool, request.operation, "ok", page)), stderr: "" }
     } } })
     const raw = await adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-projection-0", action_id: "start_execution", expected_version: 2, idempotency_key: "projection-key" }), contextFor())
-    const output = typeof raw === "string" ? raw : raw.output
+    const output = raw.content
     const result = JSON.parse(output.split("\n")[0])
     expect(result.outcome).toBe("ok")
     expect(result.result).toEqual(fixture.envelope.result)
@@ -1034,7 +967,7 @@ for (const capacity of ["room", "warnings-full", "bytes-full"] as const) {
       return { exitCode: 0, stdout: JSON.stringify(coreEnvelope(request.tool, request.operation, "ok", fixture.pages[0])), stderr: "" }
     } } })
     const raw = await adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-projection-0", action_id: "start_execution", expected_version: 2, idempotency_key: "projection-key" }), contextFor())
-    const output = typeof raw === "string" ? raw : raw.output
+    const output = raw.content
     const result = JSON.parse(output)
     expect(writes).toBe(1)
     expect(reads).toBe(1)
@@ -1115,21 +1048,20 @@ for (const blockedVerb of ["project-resolve", "invoke"] as const) {
       const signals: AbortSignal[] = []
       const calls: string[] = []
       let abortedAt: number | null = null
-      sessionDirectoryReader().bind({
-        get: async ({ signal }) => {
-          signals.push(signal!)
-          signal!.throwIfAborted()
-          return await new Promise<RouteResult>((resolve, reject) => {
-            const abort = () => { abortedAt = performance.now(); clearTimeout(timer); reject(signal!.reason) }
+      sessionDirectory = async () => {
+          const signal = controller.signal
+          signals.push(signal)
+          signal.throwIfAborted()
+          return await new Promise<string>((resolve, reject) => {
+            const abort = () => { abortedAt = performance.now(); clearTimeout(timer); reject(signal.reason) }
             const timer = setTimeout(() => {
-              signal!.removeEventListener("abort", abort)
-              resolve({ data: { id: "session-1", directory: "/worktree" }, response: new Response("{}") })
+              signal.removeEventListener("abort", abort)
+              resolve("/worktree")
             }, 2_000)
-            signal!.addEventListener("abort", abort, { once: true })
+            signal.addEventListener("abort", abort, { once: true })
             controller.abort()
           })
-        },
-      })
+      }
       adapter.configureConcordAdapter({ runner: { async run(argv) {
         calls.push(argv[1])
         throw new Error("interrupted host context must stop before core transport")
@@ -1238,7 +1170,7 @@ test("fake seams exercise context resolution and malformed-response handling", a
   adapter.configureConcordAdapter({
     runner: { async run(argv: string[], _input: string, _signal: AbortSignal) { calls.push(argv); return calls.length === 1 ? { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" } : { exitCode: 0, stdout: "not-json", stderr: "diagnostic" } } },
   })
-  const context: any = { sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree: "/worktree", directory: "/worktree", abort: new AbortController().signal, ask: async () => {} }
+  const context = contextFor()
   const result: any = await rawHostResult(adapter.product_view.execute(hostCall("resolve", {}), context))
   expect(calls).toEqual([["concord", "project-resolve"], ["concord", "invoke"]])
   expect(result.outcome).toBe("error")
@@ -1304,6 +1236,7 @@ test("a session without a host lease refuses every core operation", async () => 
 // A breaking-migration outage names the terminal behind each blocking pid, so
 // the lease claim carries the session's directory and worktree alongside it.
 test("the host lease claim names the session directory and worktree", async () => {
+  configureHostLease({ reset: true })
   const claimed: any[] = []
   configureHostLease({
     release: { coreBinary: "concord", releaseRoot: "/releases/v11.0.0" },
@@ -1324,6 +1257,7 @@ test("the host lease claim names the session directory and worktree", async () =
 // A session starting during a maintenance boundary must show the fence's
 // activation notice when admission fails.
 test("a lease claim refused by the maintenance fence carries the boundary notice", async () => {
+  configureHostLease({ reset: true })
   configureHostLease({
     release: { coreBinary: "concord", releaseRoot: "/releases/v11.0.0" },
     runner: { async run() {

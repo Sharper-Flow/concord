@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { contractOperations, hostToolSchemas, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema, validateGeneratedPayload } from "./generated-contract-tests"
-import { publishRequestDefinition } from "./concord"
+import * as adapter from "./concord"
 import { validateAgainstSchema } from "./core-runtime"
 
 // Bound-annotation contract for every enforced countable bound. The node
@@ -243,15 +243,18 @@ function canonicalBoundRoots(): { at: string; schema: unknown }[] {
   return roots
 }
 
-// publishedBoundRoots collects every hook output restored to its
-// legacy-effective view: one expanded branch per operation (one per
-// workflow_action variant), and the host-only tool hooks whole.
+// Collect each registered schema as one expanded branch per operation and
+// workflow_action variant.
 async function publishedBoundRoots(): Promise<{ at: string; schema: unknown }[]> {
   const roots: { at: string; schema: unknown }[] = []
+  const tools: Record<string, any> = {
+    concord_product_view: adapter.product_view, concord_work_browse: adapter.work_browse,
+    concord_work_trace: adapter.work_trace, concord_work_define: adapter.work_define,
+    concord_domain: adapter.domain, concord_work_transition: adapter.work_transition,
+    concord_work_relate: adapter.work_relate,
+  }
   for (const toolID of new Set(contractOperations.map(operation => (operation as unknown as { tool: string }).tool))) {
-    const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
-    await publishRequestDefinition({ toolID }, output)
-    const expanded: any = expandedPublishedRequestSchema(output.jsonSchema)
+    const expanded: any = expandedPublishedRequestSchema(tools[toolID].input)
     for (const branch of expanded.oneOf) {
       const operationConst = branch.properties.operation.const
       roots.push(
@@ -421,9 +424,7 @@ test("bounds checker: anyOf factoring preserves inherited bounds and branch loss
 })
 
 test("capture keeps its closed surface and source-free research inputs validate", async () => {
-  const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
-  await publishRequestDefinition({ toolID: "concord_work_define" }, output)
-  const expanded: any = expandedPublishedRequestSchema(output.jsonSchema)
+  const expanded: any = expandedPublishedRequestSchema(adapter.work_define.input)
   const capture = expanded.oneOf.find((branch: any) => branch.properties.operation.const === "capture").properties.input
   const input = { title: "Research", kind: "research", task: "Investigate only", project_ids: ["project-1"], human_key: "EX-1", remote_issue_uuid: "00000000-0000-4000-8000-000000000001", url: "https://example.com/issue/EX-1", idempotency_key: "research" }
   expect(validateAgainstSchema(capture, input, [])).toBe(true)

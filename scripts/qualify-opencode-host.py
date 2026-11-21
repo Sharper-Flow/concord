@@ -92,17 +92,22 @@ def exit_code(report, selected):
 
 def sandbox_base(project, cli):
     home = str(Path.home())
-    return ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
+    return ["bwrap", "--clearenv", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
             "--tmpfs", home, "--tmpfs", "/tmp", "--ro-bind", str(cli), "/tmp/oc",
             "--bind", str(project), "/tmp/work", "--unshare-net", "--unshare-pid",
             "--die-with-parent", "--chdir", "/tmp/work", "--setenv", "HOME", home,
+            "--setenv", "PATH", "/tmp/oc/node_modules/.bin:/usr/bin:/bin",
+            "--setenv", "LANG", "C.UTF-8", "--setenv", "LC_ALL", "C.UTF-8",
             "--setenv", "OPENCODE_DISABLE_MODELS_FETCH", "true",
-            "--setenv", "PATH", "/tmp/oc/node_modules/.bin:" + os.environ.get("PATH", "/usr/bin:/bin")]
+            "--setenv", "XDG_CONFIG_HOME", home + "/.config",
+            "--setenv", "XDG_DATA_HOME", home + "/.local/share",
+            "--setenv", "XDG_CACHE_HOME", home + "/.cache",
+            "--setenv", "XDG_STATE_HOME", home + "/.local/state"]
 
 
 def run_sandbox(project, cli, argv):
     # argv may also be an inner-stage interpreter that starts multiple processes.
-    return subprocess.run(sandbox_base(project, cli) + argv, capture_output=True, text=True, timeout=110)
+    return subprocess.run(sandbox_base(project, cli) + argv, capture_output=True, text=True, timeout=110, env={})
 
 
 def native_integrity(cli, executable):
@@ -269,7 +274,7 @@ def main():
                 stage = subprocess.run(sandbox_base(project, cli) + ["--ro-bind", str(ROOT), "/tmp/repo",
                     "/usr/bin/python3", "/tmp/repo/scripts/testdata/qualify-opencode-host/inner.py",
                     *[scenario for _, scenario in inner_scenarios]],
-                    capture_output=True, text=True, timeout=170)
+                     capture_output=True, text=True, timeout=170, env={})
                 inner_results = {}
                 for line in stage.stdout.splitlines():
                     values = json.loads(line)

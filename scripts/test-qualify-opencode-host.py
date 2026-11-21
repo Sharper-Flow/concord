@@ -52,6 +52,24 @@ class QualificationTests(unittest.TestCase):
         report["environment_refusal"] = "bwrap unavailable"
         self.assertEqual(2, qualify.exit_code(report, ["permissions"]))
 
+    def test_sandbox_environment_is_isolated(self):
+        poisoned = {"OPENCODE_CONFIG": "/outside/config", "ANTHROPIC_API_KEY": "poisoned-key",
+                    "XDG_CONFIG_HOME": "/outside/xdg", "PATH": "/outside/bin"}
+        with patch.dict(os.environ, poisoned), patch.object(qualify.subprocess, "run") as runner:
+            qualify.run_sandbox(Path("/project"), Path("/cli"), ["/usr/bin/env"])
+        argv = runner.call_args.args[0]
+        self.assertIn("--clearenv", argv)
+        sandbox_env = {argv[i + 1]: argv[i + 2] for i, item in enumerate(argv) if item == "--setenv"}
+        home = str(Path.home())
+        self.assertEqual({"HOME": home, "PATH": "/tmp/oc/node_modules/.bin:/usr/bin:/bin",
+                          "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
+                          "OPENCODE_DISABLE_MODELS_FETCH": "true",
+                          "XDG_CONFIG_HOME": home + "/.config", "XDG_DATA_HOME": home + "/.local/share",
+                          "XDG_CACHE_HOME": home + "/.cache", "XDG_STATE_HOME": home + "/.local/state"}, sandbox_env)
+        self.assertEqual({}, runner.call_args.kwargs.get("env"))
+        for key, value in poisoned.items():
+            self.assertNotIn(value, argv)
+
     def test_pin_parsing(self):
         document = {"packages": [{"name": "bun-types", "version": "1.4.0"},
                                  {"name": "@opencode/plugin", "version": "2.3.2"}]}

@@ -50,9 +50,10 @@ ${XDG_DATA_HOME:-$HOME/.local/share}/concord/v0.1.0/
 ```
 
 The managed `concord` launcher is placed under `$HOME/.local/bin/`, and the
-adapter files remain in the versioned release. Existing files at
-those paths are never overwritten unless they are still the files recorded by
-the Concord installer manifest. Re-running the same version makes no changes.
+adapter files remain in the versioned release. The installer removes obsolete
+copies in OpenCode's `tools/` directory only when the manifest records them
+and their contents still match. It leaves user-owned files untouched.
+Existing managed files are not overwritten when their contents have changed.
 Installing a newer version replaces the prior Concord-managed version after
 the new artifact is verified. It does not remove user-authored files.
 

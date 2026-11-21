@@ -133,7 +133,6 @@ ADAPTER_FILES = (
 )
 # The generic entry name belongs only in the release directory, not the shared
 # OpenCode tools directory where it could collide with an operator's tool.
-MANAGED_ADAPTER_FILES = tuple(name for name in ADAPTER_FILES if name != PLUGIN_ENTRY_FILE)
 # Adapter files an earlier release shipped and this installer no longer does.
 # A manifest an older installer wrote may still record them. A transaction
 # over such a manifest removes a recorded one from the tools directory; a release tree
@@ -1807,7 +1806,7 @@ def validate_manifest(paths: Paths, manifest: dict[str, object]) -> None:
         or not all(isinstance(value, str) and SHA256_RE.fullmatch(value) for value in adapter_files.values())
     ):
         raise InstallerError("installer manifest has invalid adapter file records")
-    for name in ADAPTER_FILES + RETIRED_ADAPTER_FILES:
+    for name in adapter_files:
         safe_relative_target(paths.tools_dir, name, "adapter")
 
     # Central agent definitions: filenames only (the path inside the version
@@ -1885,13 +1884,6 @@ def command_status(command: str) -> str | None:
     return shutil.which(command)
 
 
-def unmanaged_manifest_note(old_manifest: dict[str, object] | None, paths: Paths) -> str:
-    """Name the manifest a preflight refusal consulted, so an install run from
-    a redirected data root explains why it sees no managed files (#648)."""
-    if old_manifest:
-        return ""
-    return f" (no install manifest at {paths.data_root / MANIFEST_NAME})"
-
 def runtime_preflight(paths: Paths) -> None:
     """Check host usability before install or repair, not after migration."""
     failures: list[str] = []
@@ -1910,7 +1902,7 @@ def runtime_preflight(paths: Paths) -> None:
         raise InstallerError("Preflight refused installation:\n- " + "\n- ".join(failures))
 
 
-def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None, staged_adapters: dict[str, str] | None = None) -> ConfigPlan:
+def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None) -> ConfigPlan:
     failures: list[str] = []
     failures.extend(
         f"refusing symlinked managed path {managed_parent}"
@@ -1939,24 +1931,7 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
         if not old_manifest or not paths.launcher.is_symlink() or os.readlink(paths.launcher) != expected_launcher:
             failures.append(f"refusing to overwrite user-authored launcher {paths.launcher}")
     adapter_records = managed_adapter_records(old_manifest)
-    manifest_note = unmanaged_manifest_note(old_manifest, paths)
-    for name in MANAGED_ADAPTER_FILES:
-        destination = paths.tools_dir / name
-        if (destination.exists() or destination.is_symlink()) and (
-            not old_manifest or name not in adapter_records
-        ):
-            # Repair accepts a file an incomplete deployment placed that
-            # the stale manifest never recorded, when its content is the
-            # release's own.
-                if (
-                    staged_adapters is not None
-                    and destination.is_file()
-                    and not destination.is_symlink()
-                    and sha256(destination) == staged_adapters.get(name)
-                ):
-                    continue
-                failures.append(f"refusing to overwrite user-authored adapter file {destination}{manifest_note}")
-    for name in retired_adapter_slots(old_manifest):
+    for name in adapter_records:
         destination = paths.tools_dir / name
         if (destination.exists() or destination.is_symlink()) and (
             not destination.is_file() or destination.is_symlink() or sha256(destination) != adapter_records[name]
@@ -2163,19 +2138,8 @@ def managed_adapter_records(manifest: dict[str, object] | None) -> dict[str, str
     return value  # type: ignore[return-value]
 
 
-def retired_adapter_slots(manifest: dict[str, object] | None) -> tuple[str, ...]:
-    """The retired adapter files a transaction over this manifest owns.
-
-    Only a name the manifest records is owned. A file in a retired slot that
-    no manifest recorded is the operator's, and no transaction touches it.
-    """
-    records = managed_adapter_records(manifest)
-    return tuple(name for name in RETIRED_ADAPTER_FILES if name in records)
-
-
 def journal_adapter_slots(journal: dict[str, object]) -> list[str]:
-    """Every adapter slot a validated journal captured: the shipped set plus
-    the retired files its old manifest recorded."""
+    """Every adapter slot a validated journal captured."""
     return sorted(journal["old_adapter"])  # type: ignore[arg-type]
 
 
@@ -2405,7 +2369,7 @@ def validate_transaction(journal: dict[str, object], transaction_root: Path, pat
                 raise InstallerError(f"refusing malformed transaction file record {journal_path(transaction_root)}")
             safe_relative_target(record_root, relative, "transaction file")
     old_adapter = journal.get("old_adapter")
-    if not isinstance(old_adapter, dict) or not set(MANAGED_ADAPTER_FILES) <= set(old_adapter) <= set(MANAGED_ADAPTER_FILES + RETIRED_ADAPTER_FILES):
+    if not isinstance(old_adapter, dict) or not set(old_adapter) <= set(ADAPTER_FILES + RETIRED_ADAPTER_FILES):
         raise InstallerError(f"refusing malformed transaction adapter records {journal_path(transaction_root)}")
     for name, state in old_adapter.items():
         if not isinstance(state, dict) or not isinstance(state.get("exists"), bool):
@@ -2417,7 +2381,7 @@ def validate_transaction(journal: dict[str, object], transaction_root: Path, pat
     new_adapter = journal.get("new_adapter")
     if new_adapter is not None and (
         not isinstance(new_adapter, dict)
-        or set(new_adapter) != set(MANAGED_ADAPTER_FILES)
+        or not set(new_adapter) <= set(old_adapter)
         or not all(isinstance(value, str) and SHA256_RE.fullmatch(value) for value in new_adapter.values())
     ):
         raise InstallerError(f"refusing malformed transaction adapter targets {journal_path(transaction_root)}")
@@ -2541,13 +2505,14 @@ def make_transaction(
         durable_copy_tree(activation_root, version_backup)
     elif operation == "uninstall":
         raise InstallerError("cannot uninstall without a managed version directory")
-    # A retired file the old manifest recorded is captured beside the shipped
-    # set: the new adapter targets omit it, so the swap removes it and a
-    # rollback restores it.
-    adapter_slots = sorted(MANAGED_ADAPTER_FILES + retired_adapter_slots(old_manifest))
+    adapter_records = managed_adapter_records(old_manifest)
+    adapter_slots = sorted(adapter_records)
     old_adapter: dict[str, object] = {}
     for name in adapter_slots:
-        old_adapter[name] = capture_file(paths.tools_dir / name, backup / "adapter" / name, f"adapter {name}")
+        state = capture_file(paths.tools_dir / name, backup / "adapter" / name, f"adapter {name}")
+        if state.get("exists") and state.get("sha256") != adapter_records[name]:
+            raise InstallerError(f"refusing to remove modified managed adapter file {paths.tools_dir / name}")
+        old_adapter[name] = state
     # Capture only agent paths this transaction owns or will write. A broad
     # concord-*.md snapshot would give uninstall deletion authority over
     # operator-authored primary agents that the manifest never managed.
@@ -2782,13 +2747,36 @@ def apply_agents(transaction_root: Path, journal: dict[str, object], paths: Path
 def apply_adapters(transaction_root: Path, journal: dict[str, object], paths: Paths) -> None:
     for name in journal_adapter_slots(journal):
         target = paths.tools_dir / name
-        if activating(journal["operation"]) and name in MANAGED_ADAPTER_FILES:
-            version = journal["new_version"]
-            source = paths.data_root / str(version) / "adapter" / "opencode" / name
-            write_atomic(target, source.read_bytes())
-        elif target.exists() or target.is_symlink():
+        if target.exists() or target.is_symlink():
+            if not state_matches(target, journal["old_adapter"][name]):
+                raise InstallerError(f"transaction conflict at adapter {name}")
             target.unlink()
-    fsync_directory(paths.tools_dir)
+    if paths.tools_dir.exists():
+        fsync_directory(paths.tools_dir)
+
+
+def retire_legacy_adapters(journal: dict[str, object], paths: Paths) -> None:
+    """Converge an interrupted old activation without placing adapter files."""
+    new_adapter = journal.get("new_adapter")
+    if not isinstance(new_adapter, dict) or not new_adapter:
+        return
+    # The old swap could have stopped within its per-file writes, before
+    # advancing past agents_swapped. Earlier phases could not have placed one.
+    may_have_swapped = journal["phase"] not in {"staged", "version_activated"}
+    touched = False
+    for name in journal_adapter_slots(journal):
+        target = paths.tools_dir / name
+        if not target.exists() and not target.is_symlink():
+            continue
+        old = journal["old_adapter"][name]
+        digest = new_adapter.get(name) if may_have_swapped else None
+        new = {"exists": True, "kind": "file", "sha256": digest} if digest else {"exists": False}
+        if not state_matches(target, old) and not state_matches(target, new):
+            raise InstallerError(f"transaction conflict at adapter {name}")
+        target.unlink()
+        touched = True
+    if touched:
+        fsync_directory(paths.tools_dir)
 
 
 def apply_launcher(transaction_root: Path, journal: dict[str, object], paths: Paths) -> None:
@@ -2910,7 +2898,6 @@ def verify_states(journal: dict[str, object], paths: Paths, committed: bool) -> 
             raise InstallerError("transaction conflict: new version data is not intact")
         if operation == "uninstall" and journal["activation_version"] and (paths.data_root / str(journal["activation_version"])).exists():
             raise InstallerError("transaction conflict: uninstalled version data reappeared")
-        adapter_expected = journal["new_adapter"]
         agents_expected = journal.get("new_agents") or {}
         launcher_expected = journal["new_launcher"]
         config_expected = journal["new_config"]
@@ -2935,8 +2922,7 @@ def verify_states(journal: dict[str, object], paths: Paths, committed: bool) -> 
         stable_root_expected = journal.get("old_stable_root", {"exists": False})
     for name in journal_adapter_slots(journal):
         if committed:
-            digest = adapter_expected.get(name) if isinstance(adapter_expected, dict) else None
-            expected = {"exists": True, "kind": "file", "sha256": digest} if digest else {"exists": False}
+            expected = {"exists": False}
         else:
             expected = adapter_expected[name] if isinstance(adapter_expected, dict) and name in adapter_expected else {"exists": False}
         if not state_matches(paths.tools_dir / name, expected):
@@ -3372,6 +3358,7 @@ def resume_forward(transaction_root: Path, journal: dict[str, object], paths: Pa
     version tree must already match the journal's records; each remaining
     swap is idempotent, and the walk advances the journal after each one.
     """
+    retire_legacy_adapters(journal, paths)
     phase = journal["phase"]
     if phase == "staged":
         apply_version(transaction_root, journal, paths)
@@ -3455,6 +3442,7 @@ def recover_transaction(transaction_root: Path, paths: Paths, *, prepared_cutove
         advance_phase(transaction_root, journal, "manifest_committed")
         phase = "manifest_committed"
     if phase in {"manifest_committed", "cleanup"}:
+        retire_legacy_adapters(journal, paths)
         verify_states(journal, paths, committed=True)
         if phase != "cleanup":
             advance_phase(transaction_root, journal, "cleanup")
@@ -3563,6 +3551,8 @@ def install(args: argparse.Namespace) -> int:
     prepared = load_prepared_release(paths)
     runtime_preflight(paths)
     config_plan = preflight(paths, version, manifest)
+    if manifest and manifest.get("version") == version and managed_adapter_records(manifest):
+        return repair(args)
     if manifest and manifest.get("version") == version:
         records = manifest.get("version_files")
         if not isinstance(records, dict):
@@ -3664,7 +3654,7 @@ def install(args: argparse.Namespace) -> int:
         fsync_tree(source_stage)
         managed_version_paths = [str(path.relative_to(source_stage)) for path in source_stage.rglob("*") if path.is_file()]
         version_records = file_records(source_stage, managed_version_paths)
-        adapter_stage_records = {name: sha256(source_stage / "adapter" / "opencode" / name) for name in MANAGED_ADAPTER_FILES}
+        adapter_stage_records: dict[str, str] = {}
         agent_stage_records = {
             path.name: sha256(path)
             for path in sorted((source_stage / "agents").glob(AGENT_GLOB))
@@ -3844,7 +3834,6 @@ def install(args: argparse.Namespace) -> int:
         complete_prepared_boundary(paths)
     link_worktrees_root(paths)
     print(f"Installed Concord {version} under {version_root}.")
-    print(f"OpenCode custom tools installed under {paths.tools_dir}.")
     print(f"Concord agent definitions installed under {paths.agents_dir}.")
     print("Restart OpenCode before using the newly registered stable skills path.")
     return 0
@@ -4024,7 +4013,7 @@ def activate(args: argparse.Namespace, *, require_quiet: bool = False) -> int:
         source_stage = Path(temporary) / "version"
         shutil.copytree(version_root, source_stage, symlinks=False)
         fsync_tree(source_stage)
-        adapter_stage_records = {name: sha256(source_stage / "adapter" / "opencode" / name) for name in MANAGED_ADAPTER_FILES}
+        adapter_stage_records: dict[str, str] = {}
         agent_stage_records = {
             path.name: sha256(path)
             for path in sorted((source_stage / "agents").glob(AGENT_GLOB))
@@ -4099,7 +4088,6 @@ def plan_repair(
     manifest: dict[str, object],
     config_plan: ConfigPlan,
     version_records: dict[str, str],
-    adapter_records: dict[str, str],
     agent_records: dict[str, str],
 ) -> set[str]:
     """Diff the deployment against the verified release and list repairs.
@@ -4117,7 +4105,6 @@ def plan_repair(
     manifest_version_files = manifest.get("version_files")
     if not isinstance(manifest_version_files, dict):
         manifest_version_files = {}
-    manifest_adapter = managed_adapter_records(manifest)
     manifest_agents = managed_agent_records(manifest)
     present = {str(path.relative_to(version_root)) for path in version_root.rglob("*") if path.is_file()}
     for relative in sorted(present):
@@ -4137,20 +4124,6 @@ def plan_repair(
             continue
         if digest == manifest_version_files.get(relative):
             repairs.add(f"restored {relative}")
-            continue
-        raise InstallerError(f"refusing to repair modified managed file {target}")
-    for name, expected in adapter_records.items():
-        target = paths.tools_dir / name
-        if not target.exists():
-            repairs.add(f"restored adapter {name}")
-            continue
-        if not target.is_file() or target.is_symlink():
-            raise InstallerError(f"refusing to repair managed adapter path {target}: it is not a regular file")
-        digest = sha256(target)
-        if digest == expected:
-            continue
-        if digest == manifest_adapter.get(name):
-            repairs.add(f"restored adapter {name}")
             continue
         raise InstallerError(f"refusing to repair modified managed file {target}")
     agent_names = set(manifest_agents) | set(agent_records)
@@ -4253,14 +4226,14 @@ def repair(args: argparse.Namespace) -> int:
         fsync_tree(source_stage)
         managed_version_paths = [str(path.relative_to(source_stage)) for path in source_stage.rglob("*") if path.is_file()]
         version_records = file_records(source_stage, managed_version_paths)
-        adapter_stage_records = {name: sha256(source_stage / "adapter" / "opencode" / name) for name in MANAGED_ADAPTER_FILES}
+        adapter_stage_records: dict[str, str] = {}
         agent_stage_records = {
             path.name: sha256(path)
             for path in sorted((source_stage / "agents").glob(AGENT_GLOB))
         }
         runtime_preflight(paths)
-        config_plan = preflight(paths, installed, manifest, staged_adapters=adapter_stage_records)
-        repairs = plan_repair(paths, manifest, config_plan, version_records, adapter_stage_records, agent_stage_records)
+        config_plan = preflight(paths, installed, manifest)
+        repairs = plan_repair(paths, manifest, config_plan, version_records, agent_stage_records)
         new_manifest = {
             "managed_by": "concord-installer-v1",
             "version": installed,
@@ -4347,7 +4320,9 @@ def uninstall(args: argparse.Namespace) -> int:
     adapter_records = managed_adapter_records(manifest)
     for relative, expected in adapter_records.items():
         destination = paths.tools_dir / relative
-        if not destination.is_file() or sha256(destination) != expected:
+        if (destination.exists() or destination.is_symlink()) and (
+            not destination.is_file() or destination.is_symlink() or sha256(destination) != expected
+        ):
             raise InstallerError(f"refusing to remove modified adapter file {destination}")
     agent_records = managed_agent_records(manifest)
     for name, expected in agent_records.items():

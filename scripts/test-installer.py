@@ -455,7 +455,7 @@ else:
                 installer.repair(args)
             with self.assert_workspace_cleanup("concord-repair-"):
                 self.assertEqual(installer.repair(args), 0)
-            (self.root / "config" / "opencode" / "tools" / "concord.ts").unlink()
+            (self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / "concord.ts").unlink()
             with self.assert_workspace_cleanup("concord-repair-"):
                 self.assertEqual(installer.repair(args), 0)
 
@@ -609,7 +609,7 @@ esac''',
         self.assertEqual(first.returncode, 0, first.stderr)
         managed_files = [
             self.root / "data" / "concord" / "v1.0.0" / "bin" / "concord",
-            self.root / "config" / "opencode" / "tools" / "concord.ts",
+            self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / "concord.ts",
             self.root / "bin" / "concord",
             self.config,
         ]
@@ -631,7 +631,7 @@ esac''',
         self.assertIn(
             "marker:new", (self.root / "data" / "concord" / "v1.1.0" / "bin" / "concord").read_text()
         )
-        adapter = self.root / "config" / "opencode" / "tools" / "concord.ts"
+        adapter = self.root / "data" / "concord" / "v1.1.0" / "adapter" / "opencode" / "concord.ts"
         self.assertIn("new", adapter.read_text(encoding="utf-8"))
         config = self.config.read_text(encoding="utf-8")
         self.assertIn("concord/current/skills", config)
@@ -832,8 +832,9 @@ esac''',
         self.assertTrue(launcher.is_symlink(), "the launcher is not a symlink")
         self.assertEqual(os.readlink(launcher), str(self.data_root / version / "bin" / "concord"))
         self.assertEqual(os.readlink(self.data_root / "current"), str(self.data_root / version))
-        tools_marker = (self.root / "config" / "opencode" / "tools" / "concord.ts").read_text(encoding="utf-8").strip()
-        self.assertEqual(tools_marker, f"concord.ts:{marker}")
+        adapter_marker = (self.data_root / "current" / "adapter" / "opencode" / "concord.ts").read_text(encoding="utf-8").strip()
+        self.assertEqual(adapter_marker, f"concord.ts:{marker}")
+        self.assertIn(self.plugin_entry_path(), installer.jsonc_data(self.config.read_text(encoding="utf-8"))["plugins"])
         agents_marker = (self.root / "config" / "opencode" / "agents" / "concord-explore.md").read_text(encoding="utf-8").strip()
         self.assertEqual(agents_marker, f"agent:concord-explore.md:{marker}")
 
@@ -1749,6 +1750,54 @@ esac''',
                 self.assertFalse(self.prepared_path.exists())
                 self.assertFalse(self.fence_path.exists())
 
+    def assert_legacy_activation_recovery(self, phase: str, *, modified: bool = False) -> None:
+        self.prepare_a_blocked_release()
+        tools = self.record_old_tools_copies()
+        environment = self.plan_env(blocked=False)
+        environment["CONCORD_INSTALLER_STOP_AFTER_PHASE"] = phase
+        stopped = self.run_installer("activate", "--version", "v1.1.0", env=environment)
+        self.assertEqual(stopped.returncode, 97, stopped.stderr)
+        transaction = next((self.data_root / installer.TRANSACTION_PARENT).iterdir())
+        journal_file = transaction / "journal.json"
+        journal = json.loads(journal_file.read_text(encoding="utf-8"))
+        version_adapter = self.data_root / "v1.1.0" / "adapter" / "opencode"
+        records = {name: hashlib.sha256((version_adapter / name).read_bytes()).hexdigest()
+                   for name in installer.ADAPTER_FILES}
+        journal["new_adapter"] = records
+        staged_manifest = transaction / "stage" / "manifest"
+        manifest = json.loads(staged_manifest.read_text(encoding="utf-8"))
+        manifest["adapter_files"] = records
+        staged_manifest.write_text(json.dumps(manifest), encoding="utf-8")
+        journal["new_manifest"]["sha256"] = hashlib.sha256(staged_manifest.read_bytes()).hexdigest()
+        journal_file.write_text(json.dumps(journal), encoding="utf-8")
+        if phase == "adapter_swapped":
+            for name in records:
+                (tools / name).write_bytes((version_adapter / name).read_bytes())
+        if modified:
+            (tools / "concord.ts").write_text("operator change\n", encoding="utf-8")
+        recovered = self.run_installer("status", env=self.plan_env(blocked=False))
+        if modified:
+            self.assertNotEqual(recovered.returncode, 0)
+            self.assertIn("transaction conflict at adapter concord.ts", recovered.stderr)
+            self.assertEqual((tools / "concord.ts").read_text(encoding="utf-8"), "operator change\n")
+            self.assertEqual((tools / "operator.ts").read_text(encoding="utf-8"), "operator content\n")
+            return
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        self.assert_old_tools_removed(tools)
+        removed = self.run_installer("uninstall")
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertEqual((tools / "operator.ts").read_text(encoding="utf-8"), "operator content\n")
+
+    def test_legacy_forward_recovery_before_adapter_swap(self) -> None:
+        self.assert_legacy_activation_recovery("agents_swapped")
+
+    def test_legacy_forward_recovery_after_adapter_swap(self) -> None:
+        self.assert_legacy_activation_recovery("adapter_swapped")
+
+    def test_legacy_forward_recovery_preserves_modified_copy(self) -> None:
+        self.assert_legacy_activation_recovery("adapter_swapped", modified=True)
+
     def test_a_prepared_install_crash_converges_to_the_prepared_state(self) -> None:
         """A crash after the prepared record landed recovers to the prepared
         state, and a re-run install re-prepares coherently."""
@@ -1828,7 +1877,7 @@ esac''',
         self.make_release("v1.0.0")
         result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(result.returncode, 0, result.stderr)
-        stamped = (self.root / "config" / "opencode" / "tools" / installer.RELEASE_CONSTANTS_FILE).read_text(encoding="utf-8")
+        stamped = (self.root / "data" / "concord" / "current" / "adapter" / "opencode" / installer.RELEASE_CONSTANTS_FILE).read_text(encoding="utf-8")
         release_root = str((self.root / "data" / "concord" / "v1.0.0").resolve())
         self.assertIn(f'export const coreBinary: string = "{release_root}/bin/concord"', stamped)
         self.assertIn(f'export const releaseRoot: string = "{release_root}"', stamped)
@@ -1838,10 +1887,8 @@ esac''',
     def test_upgrade_from_a_manifest_recording_fewer_adapter_files(self) -> None:
         """An installation predating an added adapter file upgrades cleanly.
 
-        The manifest of an existing installation records the adapter files that
-        shipped at the time. Adding one must not turn a broken adapter into a
-        broken upgrade, so the new file is placed rather than refused as
-        user-authored.
+        The manifest records the versioned adapter files that shipped at the
+        time. An upgrade adds a later file to the new version tree.
         """
         added = "core-runtime.ts"
         self.assertIn(added, installer.ADAPTER_FILES)
@@ -1860,32 +1907,28 @@ esac''',
 
         manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        del manifest["adapter_files"][added]
+        del manifest["version_files"][f"adapter/opencode/{added}"]
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-        (self.root / "config" / "opencode" / "tools" / added).unlink()
+        (self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / added).unlink()
 
         second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(second.returncode, 0, second.stderr)
-        for name in installer.MANAGED_ADAPTER_FILES:
-            placed = self.root / "config" / "opencode" / "tools" / name
+        for name in installer.ADAPTER_FILES:
+            placed = self.root / "data" / "concord" / "v1.1.0" / "adapter" / "opencode" / name
             self.assertTrue(placed.is_file(), f"{name} was not placed by the upgrade")
             expected = "new" if name != installer.RELEASE_CONSTANTS_FILE else str(self.root / "data" / "concord" / "v1.1.0")
             self.assertIn(expected, placed.read_text(encoding="utf-8"))
 
     def _shrink_installation_to(self, names: tuple[str, ...]) -> None:
-        """Rewrite the installed manifest and delete files, as an older
-        installer with a shorter adapter list leaves behind: the manifest
-        records only the files it deployed, and no more exist on disk."""
+        """Leave a version tree and manifest with a shorter adapter list."""
         manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         for name in names:
-            del manifest["adapter_files"][name]
             del manifest["version_files"][f"adapter/opencode/{name}"]
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         version_tree = self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode"
         for name in names:
             (version_tree / name).unlink()
-            (self.root / "config" / "opencode" / "tools" / name).unlink()
 
     def test_repair_restores_an_incomplete_deployment(self) -> None:
         missing = ("host-lease.ts", installer.RELEASE_CONSTANTS_FILE)
@@ -1899,11 +1942,10 @@ esac''',
         self.assertEqual(result.returncode, 0, result.stderr)
         manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
         for name in missing:
-            placed = self.root / "config" / "opencode" / "tools" / name
-            self.assertTrue(placed.is_file(), f"{name} was not restored to the tools directory")
-            self.assertIn(name, manifest["adapter_files"], f"{name} missing from repaired manifest adapter_files")
+            placed = self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / name
+            self.assertTrue(placed.is_file(), f"{name} was not restored to the versioned adapter")
             self.assertIn(f"adapter/opencode/{name}", manifest["version_files"])
-        stamped = (self.root / "config" / "opencode" / "tools" / installer.RELEASE_CONSTANTS_FILE).read_text(encoding="utf-8")
+        stamped = (self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / installer.RELEASE_CONSTANTS_FILE).read_text(encoding="utf-8")
         self.assertIn(str(self.root / "data" / "concord" / "v1.0.0"), stamped)
         again = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(again.returncode, 0, again.stderr)
@@ -2194,7 +2236,7 @@ esac''',
         self.make_release("v1.0.0")
         first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(first.returncode, 0, first.stderr)
-        target = self.root / "config" / "opencode" / "tools" / "concord.ts"
+        target = self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / "concord.ts"
         target.write_text("operator edited this file\n", encoding="utf-8")
 
         result = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
@@ -2236,8 +2278,78 @@ esac''',
                 self.assertEqual(died.returncode, 97, died.stderr)
                 recovered = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
                 self.assertEqual(recovered.returncode, 0, recovered.stderr)
-                placed = self.root / "config" / "opencode" / "tools" / installer.RELEASE_CONSTANTS_FILE
+                placed = self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / installer.RELEASE_CONSTANTS_FILE
                 self.assertTrue(placed.is_file(), f"{phase}: stamped constants were not restored after recovery")
+
+    def test_fresh_install_does_not_write_tools_directory(self) -> None:
+        self.make_release("v1.0.0")
+        tools = self.root / "config" / "opencode" / "tools"
+        tools.mkdir(parents=True)
+        result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(tools.exists() and list(tools.iterdir()))
+
+    def record_old_tools_copies(self) -> Path:
+        manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        tools = self.root / "config" / "opencode" / "tools"
+        tools.mkdir(parents=True, exist_ok=True)
+        records = {}
+        for name in installer.ADAPTER_FILES:
+            content = (self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / name).read_bytes()
+            (tools / name).write_bytes(content)
+            records[name] = hashlib.sha256(content).hexdigest()
+        manifest["adapter_files"] = records
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        foreign = tools / "operator.ts"
+        foreign.write_text("operator content\n", encoding="utf-8")
+        return tools
+
+    def assert_old_tools_removed(self, tools: Path) -> None:
+        self.assertEqual([p.name for p in tools.iterdir()], ["operator.ts"])
+        self.assertEqual((tools / "operator.ts").read_text(encoding="utf-8"), "operator content\n")
+
+    def test_upgrade_removes_recorded_tools_and_preserves_foreign_file(self) -> None:
+        self.make_release("v1.0.0", "old")
+        self.make_release("v1.1.0", "new")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        tools = self.record_old_tools_copies()
+        second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assert_old_tools_removed(tools)
+
+    def test_repair_removes_recorded_tools_and_preserves_foreign_file(self) -> None:
+        self.assertEqual(self.install_release("v1.0.0").returncode, 0)
+        tools = self.record_old_tools_copies()
+        result = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_old_tools_removed(tools)
+
+    def test_same_version_install_removes_recorded_tools_and_preserves_foreign_file(self) -> None:
+        self.assertEqual(self.install_release("v1.0.0").returncode, 0)
+        tools = self.record_old_tools_copies()
+        result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_old_tools_removed(tools)
+
+    def test_adapter_removal_refuses_a_change_after_transaction_capture(self) -> None:
+        paths = installer.paths_for(self.root)
+        paths.tools_dir.mkdir(parents=True)
+        target = paths.tools_dir / "concord.ts"
+        target.write_text("recorded\n", encoding="utf-8")
+        journal = {"old_adapter": {"concord.ts": installer.file_state(target)}}
+        target.write_text("operator edit\n", encoding="utf-8")
+        with self.assertRaisesRegex(installer.InstallerError, "transaction conflict at adapter"):
+            installer.apply_adapters(self.root, journal, paths)
+        self.assertEqual(target.read_text(encoding="utf-8"), "operator edit\n")
+
+    def test_activate_removes_recorded_tools_and_preserves_foreign_file(self) -> None:
+        self.prepare_a_blocked_release()
+        tools = self.record_old_tools_copies()
+        result = self.run_installer("activate", "--version", "v1.1.0", env=self.plan_env(blocked=False))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_old_tools_removed(tools)
 
     def test_upgrade_from_a_pre_plugin_entry_manifest(self) -> None:
         """An installation before the plugin entry module upgrades cleanly."""
@@ -2250,15 +2362,13 @@ esac''',
 
         manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        del manifest["adapter_files"][added]
         del manifest["version_files"][f"adapter/opencode/{added}"]
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         (self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / added).unlink()
-        (self.root / "config" / "opencode" / "tools" / added).unlink()
 
         second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(second.returncode, 0, second.stderr)
-        self.assertTrue((self.root / "config" / "opencode" / "tools" / added).is_file())
+        self.assertTrue((self.root / "data" / "concord" / "v1.1.0" / "adapter" / "opencode" / added).is_file())
 
     RETIRED_ADAPTER = "native-subtask-refusal.ts"
 
@@ -2275,6 +2385,7 @@ esac''',
         digest = hashlib.sha256(content).hexdigest()
         (self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / name).write_bytes(content)
         retired = self.root / "config" / "opencode" / "tools" / name
+        retired.parent.mkdir(parents=True, exist_ok=True)
         retired.write_bytes(content)
         manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -2295,8 +2406,6 @@ esac''',
         self.assertNotIn(self.RETIRED_ADAPTER, manifest["adapter_files"])
         self.assertNotIn(f"adapter/opencode/{self.RETIRED_ADAPTER}", manifest["version_files"])
         self.assertFalse((self.root / "data" / "concord" / "v1.1.0" / "adapter" / "opencode" / self.RETIRED_ADAPTER).exists())
-        for name in installer.MANAGED_ADAPTER_FILES:
-            self.assertTrue((self.root / "config" / "opencode" / "tools" / name).is_file(), f"{name} was not placed")
         status = self.run_installer("status")
         self.assertEqual(status.returncode, 0, status.stderr)
 
@@ -2342,6 +2451,7 @@ esac''',
         first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(first.returncode, 0, first.stderr)
         foreign = self.root / "config" / "opencode" / "tools" / self.RETIRED_ADAPTER
+        foreign.parent.mkdir(parents=True, exist_ok=True)
         foreign.write_text("operator authored\n", encoding="utf-8")
 
         second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
@@ -2357,6 +2467,7 @@ esac''',
         never = "never-shipped.ts"
         self.assertNotIn(never, installer.ADAPTER_FILES + installer.RETIRED_ADAPTER_FILES)
         placed = self.root / "config" / "opencode" / "tools" / never
+        placed.parent.mkdir(parents=True, exist_ok=True)
         placed.write_text("untouched\n", encoding="utf-8")
         manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
         original = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -2428,10 +2539,8 @@ esac''',
         adapter.write_text("operator-authored\n", encoding="utf-8")
         self.make_release("v1.0.0")
         result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("user-authored adapter file", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(adapter.read_text(encoding="utf-8"), "operator-authored\n")
-        self.assert_retained_empty_lock_root()
 
     def plugin_entry_path(self) -> str:
         return str(self.root / "data" / "concord" / "current" / "adapter" / "opencode")
@@ -2599,7 +2708,10 @@ esac''',
         outside = self.root / "outside-symlink.txt"
         outside.write_text("untouched", encoding="utf-8")
         adapter = self.root / "config" / "opencode" / "tools" / "concord.ts"
-        adapter.unlink()
+        adapter.parent.mkdir(parents=True, exist_ok=True)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["adapter_files"]["concord.ts"] = hashlib.sha256(b"old").hexdigest()
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         adapter.symlink_to(outside)
         result = self.run_installer("uninstall")
         self.assertNotEqual(result.returncode, 0)
@@ -2694,9 +2806,18 @@ esac''',
     def test_recovery_refuses_post_transaction_user_change(self) -> None:
         version = "v5.0.0"
         self.make_release(version)
+        self.make_release("v4.9.0")
+        installed = self.run_installer("install", "--version", "v4.9.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        adapter = self.root / "config" / "opencode" / "tools" / "concord.ts"
+        adapter.parent.mkdir(parents=True, exist_ok=True)
+        adapter.write_text("old adapter\n", encoding="utf-8")
+        manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["adapter_files"]["concord.ts"] = hashlib.sha256(adapter.read_bytes()).hexdigest()
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         stopped = self.run_after_phase("adapter_swapped", "install", "--version", version, "--artifact-dir", str(self.artifacts))
         self.assertEqual(stopped.returncode, 97, stopped.stderr)
-        adapter = self.root / "config" / "opencode" / "tools" / "concord.ts"
         adapter.write_text("operator changed this after the crash\n", encoding="utf-8")
         recovered = self.run_installer("status")
         self.assertNotEqual(recovered.returncode, 0)
@@ -2775,11 +2896,6 @@ esac''',
         with mock.patch.dict(installer.os.environ, {"XDG_DATA_HOME": str(durable)}, clear=False):
             paths = installer.paths_for(None)
         self.assertEqual(paths.data_root, durable / "concord")
-
-    def test_unmanaged_note_names_the_manifest(self) -> None:
-        paths = installer.paths_for(self.root / "operator-note")
-        self.assertIn(str(paths.data_root / installer.MANIFEST_NAME), installer.unmanaged_manifest_note(None, paths))
-        self.assertEqual(installer.unmanaged_manifest_note({"version": "v"}, paths), "")
 
     # --- CD-0063: shipped operator conduct rules -----------------------
 

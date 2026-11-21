@@ -1,10 +1,7 @@
-import { test, expect, mock } from "bun:test"
+import { test, expect } from "bun:test"
 import { contractOperations, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema, actionFieldsBranches } from "./generated-contract-tests"
 import { validateAgainstSchema } from "./core-runtime"
-
-const fakeTool = (config: unknown) => config
-mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
 const adapter = await import("./concord")
 

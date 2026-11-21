@@ -41,6 +41,33 @@ class QualificationTests(unittest.TestCase):
     def test_permissions_missing(self):
         self.assertTrue(qualify.compare_agents(self.expected, self.registry([self.first])))
 
+    def test_agent_mode_mismatch(self):
+        registry = self.registry([self.first, self.second])
+        registry[0]["mode"] = "subagent"
+        self.assertIn("agent: mode differs", qualify.compare_agents(self.expected, registry))
+
+    def test_agent_hidden_mismatch(self):
+        registry = self.registry([self.first, self.second])
+        registry[0]["hidden"] = True
+        self.assertIn("agent: hidden differs", qualify.compare_agents(self.expected, registry))
+
+    def test_declarations_reject_invalid_frontmatter(self):
+        cases = ("", "no frontmatter\n", "---\nmode: primary\n",
+                 "---\nmode: primary\nhidden: perhaps\npermissions:\n---\n",
+                 "---\nmode: primary\npermissions:\n  wrong\n---\n",
+                 "---\nmode: invalid\npermissions:\n---\n",
+                 "---\nmode: primary\n---\n",
+                 "---\nmode: primary\npermissions:\n  - not-json\n---\n")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(ValueError):
+                qualify.declarations(root)
+            for content in cases:
+                with self.subTest(content=content):
+                    (root / "agent.md").write_text(content)
+                    with self.assertRaises(ValueError):
+                        qualify.declarations(root)
+
     def test_extra_host_agent_allowed(self):
         registry = self.registry([self.first, self.second]) + [{"id": "host-default"}]
         self.assertEqual([], qualify.compare_agents(self.expected, registry))
@@ -55,7 +82,8 @@ class QualificationTests(unittest.TestCase):
     def test_sandbox_environment_is_isolated(self):
         poisoned = {"OPENCODE_CONFIG": "/outside/config", "ANTHROPIC_API_KEY": "poisoned-key",
                     "XDG_CONFIG_HOME": "/outside/xdg", "PATH": "/outside/bin"}
-        with patch.dict(os.environ, poisoned), patch.object(qualify.subprocess, "run") as runner:
+        with patch.dict(os.environ, poisoned), patch.object(qualify.shutil, "which", return_value="/custom/bin/bwrap"), \
+                patch.object(qualify.subprocess, "run") as runner:
             qualify.run_sandbox(Path("/project"), Path("/cli"), ["/usr/bin/env"])
         argv = runner.call_args.args[0]
         self.assertIn("--clearenv", argv)
@@ -69,6 +97,13 @@ class QualificationTests(unittest.TestCase):
         self.assertEqual({}, runner.call_args.kwargs.get("env"))
         for key, value in poisoned.items():
             self.assertNotIn(value, argv)
+
+    def test_sandbox_uses_resolved_bwrap_with_empty_environment(self):
+        with patch.object(qualify.shutil, "which", return_value="/custom/bin/bwrap"), \
+                patch.object(qualify.subprocess, "run") as runner:
+            qualify.run_sandbox(Path("/project"), Path("/cli"), ["/usr/bin/true"])
+        self.assertEqual("/custom/bin/bwrap", runner.call_args.args[0][0])
+        self.assertEqual({}, runner.call_args.kwargs["env"])
 
     def test_pin_parsing(self):
         document = {"packages": [{"name": "bun-types", "version": "1.4.0"},
@@ -126,6 +161,8 @@ class QualificationTests(unittest.TestCase):
                     ("ses_parent", "user", {"text": '<subagent sessionID="ses_child" state="completed">done</subagent>'})]
         self.assertEqual("pass", inner.inspect_background(messages, "ses_parent")["status"])
         self.assertIsNone(inner.inspect_background(messages[:-1], "ses_parent"))
+        messages[-1] = ("ses_parent", "user", {"text": '<subagent sessionID="ses_other" state="completed">done</subagent>'})
+        self.assertIsNone(inner.inspect_background(messages, "ses_parent"))
 
     def abort_proof(self, **error):
         return {"status": "pass", "origin": "adapter", "outcome": "error",

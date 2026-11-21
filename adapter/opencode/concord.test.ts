@@ -1,4 +1,4 @@
-import { test, expect, mock, beforeEach, afterEach } from "bun:test"
+import { test, expect, beforeEach, afterEach } from "bun:test"
 import { chmod, mkdtemp as createDirectory, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -9,7 +9,6 @@ import { claimHostLease, configureHostLease, hostLeaseFault } from "./host-lease
 import { validateGeneratedEnvelope, envelopeFailurePath, expandedPublishedRequestSchema, actionFieldsBranches } from "./generated-contract-tests"
 import { adoptManifestDigest, resetManifestPinForTesting } from "./manifest-pin"
 import { mutationProjectionFixture } from "./mutation-projection.fixture"
-import { fakeTool } from "./plugin-tool.fixture"
 const testDirectories: string[] = []
 async function mkdtemp(prefix: string): Promise<string> {
   const directory = await createDirectory(prefix)
@@ -17,8 +16,6 @@ async function mkdtemp(prefix: string): Promise<string> {
   return directory
 }
 
-
-mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
 const source = await Bun.file(new URL("./concord.ts", import.meta.url)).text()
 const askingSource = await Bun.file(new URL("../../.concord/instructions/asking.md", import.meta.url)).text()

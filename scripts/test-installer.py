@@ -39,6 +39,15 @@ import install as installer
 
 
 class NativeTaskInstallerTests(unittest.TestCase):
+    def test_v2_invalid_skills_diagnostics_name_array(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "opencode.json"
+            for skills, message in ((42, "incompatible skills value"), ([1], "non-string skills entries")):
+                with self.subTest(skills=skills):
+                    path.write_text(json.dumps({"skills": skills}))
+                    with self.assertRaisesRegex(installer.InstallerError, message):
+                        installer.plan_config(path, "/synthetic/skills", None)
+
     def test_v2_config_registers_skills_array(self):
         with tempfile.TemporaryDirectory() as directory:
             paths = installer.paths_for(Path(directory))
@@ -3552,8 +3561,9 @@ esac''',
         machine_dir.mkdir(parents=True)
         machine_agent = {
             "model": "openai/machine-model",
-            "tools": {"read": False},
-            "permission": {"read": "deny", "bash": {"git status *": "deny", "custom-command *": "allow"}},
+            "permissions": [{"action": "read", "resource": "*", "effect": "deny"},
+                            {"action": "shell", "resource": "git status *", "effect": "deny"},
+                            {"action": "shell", "resource": "custom-command *", "effect": "allow"}],
         }
         machine_config = machine_dir / "opencode.jsonc"
         machine_config.write_text(json.dumps({"$schema": "https://opencode.ai/config.json", "agent": {"concord-explore": machine_agent}}, indent=2) + "\n", encoding="utf-8")

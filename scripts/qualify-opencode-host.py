@@ -92,7 +92,11 @@ def exit_code(report, selected):
 
 def sandbox_base(project, cli):
     home = str(Path.home())
-    return ["bwrap", "--clearenv", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
+    bwrap = shutil.which("bwrap")
+    if not bwrap:
+        raise EnvironmentRefusal("bwrap is missing")
+    bwrap = os.path.abspath(bwrap)
+    return [bwrap, "--clearenv", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
             "--tmpfs", home, "--tmpfs", "/tmp", "--ro-bind", str(cli), "/tmp/oc",
             "--bind", str(project), "/tmp/work", "--unshare-net", "--unshare-pid",
             "--die-with-parent", "--chdir", "/tmp/work", "--setenv", "HOME", home,
@@ -230,8 +234,6 @@ def main():
     try:
         if not selected or any(name not in OBLIGATIONS for name in selected):
             raise ValueError("invalid --only obligation")
-        if not shutil.which("bwrap"):
-            raise EnvironmentRefusal("bwrap is missing")
         with tempfile.TemporaryDirectory(prefix="concord-host-qualification-") as temporary:
             temp = Path(temporary)
             project = temp / "project"

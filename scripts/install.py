@@ -131,8 +131,6 @@ ADAPTER_FILES = (
     "mutation-result.ts",
     "primary-role.ts",
 )
-# The generic entry name belongs only in the release directory, not the shared
-# OpenCode tools directory where it could collide with an operator's tool.
 # Adapter files an earlier release shipped and this installer no longer does.
 # A manifest an older installer wrote may still record them. A transaction
 # over such a manifest removes a recorded one from the tools directory; a release tree
@@ -1375,13 +1373,13 @@ def plan_config(path: Path, skill_path: str, old_skill_path: str | None) -> Conf
         return ConfigPlan(path, original[:start] + replacement + original[end:], True, body)
     if not isinstance(skills, list):
         raise InstallerError(
-            f"OpenCode config {path} has an incompatible skills.paths value; "
+            f"OpenCode config {path} has an incompatible skills value; "
             f"add {registration_snippet(skill_path)} manually"
         )
     values = skills
     if not all(isinstance(value, str) for value in values):
         raise InstallerError(
-            f"OpenCode config {path} has non-string skills.paths entries; "
+            f"OpenCode config {path} has non-string skills entries; "
             f"add {json.dumps(skill_path)} manually"
         )
     if skill_path in values:

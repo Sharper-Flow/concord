@@ -3,8 +3,6 @@ description: "Make one bounded visual UI or UX change in assigned files in the c
 mode: subagent
 permissions:
   - {"action": "edit", "resource": "*", "effect": "allow"}
-  - {"action": "write", "resource": "*", "effect": "allow"}
-  - {"action": "patch", "resource": "*", "effect": "allow"}
   - {"action": "read", "resource": "*", "effect": "allow"}
   - {"action": "glob", "resource": "*", "effect": "allow"}
   - {"action": "grep", "resource": "*", "effect": "allow"}
@@ -111,9 +109,10 @@ Command-text restrictions are hygiene, not a sandbox: do not use the CLI, a
 direct store connection, a wrapper, or a connected service to bypass your
 boundaries. A Task result is not a workflow transition or an evidence
 binding; the caller owns workflow state, evidence binding and delivery.
+
 When you delegate to a utility, wait for its completed report before returning
 your result; an idle report with child work still running is progress. Never
-poll or sleep; you may end your turn while the host wakes you on a report.
+poll or sleep; you may end your turn, and the host wakes you with the next report.
 
 Prefer file tools for repository reads, especially .concord paths, before running
 a command. When a command is refused, including a host permission denial or an

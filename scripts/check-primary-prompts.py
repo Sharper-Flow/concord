@@ -71,7 +71,9 @@ NAMED_PROFILE_FILES = (
 # The profiles that leave every unnamed shell command to the host (CD-0154 D2).
 FULL_PROFILE_FILES = ("Concord-RTE.md", "Concord.md")
 PLANNER_PROFILE_FILE = "Concord-Planner.md"
-PRIMARY_BUILD_TOOLS = ("edit", "write", "patch")
+# OpenCode 2.3.2 checks its write and patch tools against the edit action.
+PRIMARY_BUILD_TOOLS = ("edit",)
+V2_ACTIONS = {"bash": "shell", "task": "subagent", "write": "edit", "patch": "edit", "apply_patch": "edit"}
 # The RTE holds coordination in a Linear project. An issue used as the
 # coordination record stays open with no deliverable, so any mention of one
 # in the RTE body is a regression, whatever the surrounding sentence says.
@@ -213,7 +215,7 @@ def wildcard_match(value: str, pattern: str) -> bool:
 def permission_rules(frontmatter: str, key: str) -> list[tuple[str, str]]:
     """Read ordered V2 action rules, or the legacy intake permission block."""
     if "permissions:\n" in frontmatter:
-        action = {"bash": "shell", "task": "subagent"}.get(key, key)
+        action = V2_ACTIONS.get(key, key)
         return [(rule["resource"], rule["effect"]) for rule in v2_rules(frontmatter) if rule["action"] == action]
     match = re.search(rf"\n  {re.escape(key)}:\n((?:    .*\n?)*)", "\n" + frontmatter + "\n")
     if not match:
@@ -281,13 +283,6 @@ def check_planner_profile(name: str, frontmatter: str) -> list[str]:
             f"{name} permission.{key} resolves {value!r} to {evaluate(rules[key], value)}, not {expected}"
             for value, expected in probes
             if evaluate(rules[key], value) != expected
-        )
-    for action in ("write", "patch"):
-        action_rules = permission_rules(frontmatter, action)
-        findings.extend(
-            f"{name} permission.{action} resolves {value!r} to {evaluate(action_rules, value)}, not {expected}"
-            for value, expected in PLANNER_EDIT_PROBES
-            if evaluate(action_rules, value) != expected
         )
     findings.extend(
         f"{name} permission.edit allows {pattern!r} outside .planning/"

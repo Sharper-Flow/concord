@@ -3,8 +3,6 @@ description: "Concord — self-sufficient primary agent; owns design, engineerin
 mode: primary
 permissions:
   - {"action": "edit", "resource": "*", "effect": "allow"}
-  - {"action": "write", "resource": "*", "effect": "allow"}
-  - {"action": "patch", "resource": "*", "effect": "allow"}
   - {"action": "read", "resource": "*", "effect": "allow"}
   - {"action": "glob", "resource": "*", "effect": "allow"}
   - {"action": "grep", "resource": "*", "effect": "allow"}
@@ -85,7 +83,7 @@ serially. Give the combined change one final clean review.
 Each Task call returns a child session ID immediately. Act on a delegated slice
 or review only after its completed report. An idle report while the child still
 has background work is progress, not a result. Never poll or sleep; you may end
-your turn while the host wakes you for the next report.
+your turn, and the host wakes you with the next report.
 
 Edit inline only for a single-file fix totaling at most five added or removed
 lines. Count the whole fix, not individual tool calls; do not divide a larger

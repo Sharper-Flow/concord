@@ -45,6 +45,7 @@ class ProfileTests(unittest.TestCase):
             self.assertTrue(set(top_level) <= {"description", "mode", "hidden", "permissions"})
             for rule in checks.v2_rules(frontmatter):
                 self.assertEqual(set(rule), {"action", "resource", "effect"})
+                self.assertNotIn(rule["action"], generator.V2_ACTIONS, "OpenCode 2.3.2 never checks this action")
 
     def test_only_native_utilities_are_generated(self):
         self.assertEqual([entry["id"] for entry in self.manifest["utilities"]], ["explore", "lookup", "advisor"])
@@ -70,6 +71,9 @@ class ProfileTests(unittest.TestCase):
             for command in utility["allowed_commands"]:
                 self.assertEqual(effect("shell", command.removesuffix(" *")), "allow")
             self.assertEqual(effect("shell", "git stash"), "deny")
+            # OpenCode hides a tool whose last matching rule denies resource "*".
+            last_shell = next(rule for rule in reversed(rules) if checks.wildcard_match("shell", rule["action"]))
+            self.assertEqual((last_shell["resource"], last_shell["effect"]) == ("*", "deny"), not utility["allowed_commands"], utility["id"])
 
     def test_utilities_can_discover_connected_tools_by_need(self):
         guidance = {
@@ -244,10 +248,10 @@ class ProfileTests(unittest.TestCase):
         flat = [(rule["action"], rule["effect"]) for rule in checks.v2_rules(frontmatter) if rule["resource"] == "*"]
         for tool in ("edit", "write", "patch", "apply_patch", "morph_edit", "question", "todowrite", "ci_watch",
                      "opencode_mcp_connect", "opencode_mcp_disconnect", *checks.PLANNER_WRITERS):
-            self.assertEqual(checks.evaluate([("*", "allow"), *flat], tool), "deny", tool)
+            self.assertEqual(checks.evaluate([("*", "allow"), *flat], generator.action_name(tool)), "deny", tool)
         for tool in ("read", "glob", "grep", "skill", "execute", "webfetch",
                      "concord_work_browse", "concord_work_trace", "concord_domain", "concord_product_view"):
-            self.assertEqual(checks.evaluate([("*", "allow"), *flat], tool), "allow", tool)
+            self.assertEqual(checks.evaluate([("*", "allow"), *flat], generator.action_name(tool)), "allow", tool)
         self.assertEqual(set(profile["denied_concord_tools"]), set(checks.PLANNER_WRITERS))
         bash = checks.permission_rules(frontmatter, "bash")
         self.assertNotIn("*", [pattern for pattern, _ in bash])
@@ -300,11 +304,11 @@ class ProfileTests(unittest.TestCase):
         frontmatter = checks.split_frontmatter(text)
         flat = [(rule["action"], rule["effect"]) for rule in checks.v2_rules(frontmatter) if rule["resource"] == "*"]
         for tool in ("question", *checks.PLANNER_WRITERS):
-            self.assertEqual(checks.evaluate([("*", "allow"), *flat], tool), "deny", tool)
+            self.assertEqual(checks.evaluate([("*", "allow"), *flat], generator.action_name(tool)), "deny", tool)
         for tool in ("edit", "write", "patch", "apply_patch", "morph_edit", "execute", "read", "skill", "webfetch",
                      "concord_domain", "concord_work_browse", "concord_work_trace", "concord_product_view",
                      "playwright_browser_snapshot", "playwright_browser_take_screenshot"):
-            self.assertEqual(checks.evaluate([("*", "allow"), *flat], tool), "allow", tool)
+            self.assertEqual(checks.evaluate([("*", "allow"), *flat], generator.action_name(tool)), "allow", tool)
         self.assertEqual(set(profile["denied_concord_tools"]), set(checks.PLANNER_WRITERS))
         bash = checks.permission_rules(frontmatter, "bash")
         self.assertNotIn("*", [pattern for pattern, _ in bash])
@@ -465,8 +469,7 @@ class ProfileTests(unittest.TestCase):
                 return data
 
             def action(data, permission, value="*"):
-                action_name = {"bash": "shell", "task": "subagent"}.get(permission, permission)
-                rules = [(rule["resource"], rule["effect"]) for rule in data["permissions"] if checks.wildcard_match(action_name, rule["action"])]
+                rules = [(rule["resource"], rule["effect"]) for rule in data["permissions"] if checks.wildcard_match(generator.action_name(permission), rule["action"])]
                 return checks.evaluate(rules, value)
 
             driver, reviewer = resolve("Concord"), resolve("concord-review")

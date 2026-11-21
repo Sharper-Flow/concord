@@ -7,8 +7,6 @@ permissions:
   - {"action": "glob", "resource": "*", "effect": "deny"}
   - {"action": "grep", "resource": "*", "effect": "deny"}
   - {"action": "edit", "resource": "*", "effect": "deny"}
-  - {"action": "write", "resource": "*", "effect": "deny"}
-  - {"action": "patch", "resource": "*", "effect": "deny"}
   - {"action": "morph_edit", "resource": "*", "effect": "deny"}
   - {"action": "subagent", "resource": "*", "effect": "deny"}
   - {"action": "todowrite", "resource": "*", "effect": "deny"}
@@ -24,10 +22,6 @@ permissions:
   - {"action": "concord_work_trace", "resource": "*", "effect": "deny"}
   - {"action": "concord_work_transition", "resource": "*", "effect": "deny"}
   - {"action": "shell", "resource": "*", "effect": "deny"}
-  - {"action": "shell", "resource": "git stash *", "effect": "deny"}
-  - {"action": "shell", "resource": "git * stash *", "effect": "deny"}
-  - {"action": "shell", "resource": "*/git stash *", "effect": "deny"}
-  - {"action": "shell", "resource": "*/git * stash *", "effect": "deny"}
 ---
 
 # concord-lookup

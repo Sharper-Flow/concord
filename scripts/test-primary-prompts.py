@@ -204,10 +204,7 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         self.assert_planner_finding(lambda text: text.replace(rule("edit", "*", "deny"), rule("edit", "*", "allow"), 1), "permission.edit")
 
     def test_planner_unscoped_editor_grant_reports(self) -> None:
-        self.assert_planner_finding(lambda text: text.replace(rule("write", "*", "deny"), rule("write", "*", "allow"), 1), "unscoped 'write: allow'")
-
-    def test_planner_patch_outside_planning_reports(self) -> None:
-        self.assert_planner_finding(lambda text: text.replace(rule("patch", "*", "deny"), rule("patch", "*", "allow"), 1), "permission.patch")
+        self.assert_planner_finding(lambda text: text.replace(rule("webfetch", "*", "allow"), rule("webfetch", "*", "allow") + rule("edit", "*", "allow"), 1), "unscoped 'edit: allow'")
 
     def test_planner_reallowed_push_reports(self) -> None:
         self.assert_planner_finding(lambda text: text.replace(rule("shell", "git push *", "deny"), "", 1), "'git push origin main' to ask, not deny")

@@ -211,7 +211,10 @@ def wildcard_match(value: str, pattern: str) -> bool:
 
 
 def permission_rules(frontmatter: str, key: str) -> list[tuple[str, str]]:
-    """The ordered pattern rules of one `permission.<key>` block."""
+    """Read ordered V2 action rules, or the legacy intake permission block."""
+    if "permissions:\n" in frontmatter:
+        action = {"bash": "shell", "task": "subagent"}.get(key, key)
+        return [(rule["resource"], rule["effect"]) for rule in v2_rules(frontmatter) if rule["action"] == action]
     match = re.search(rf"\n  {re.escape(key)}:\n((?:    .*\n?)*)", "\n" + frontmatter + "\n")
     if not match:
         return []
@@ -224,25 +227,30 @@ def permission_rules(frontmatter: str, key: str) -> list[tuple[str, str]]:
     return rules
 
 
+def v2_rules(frontmatter: str) -> list[dict]:
+    return [json.loads(line[4:]) for line in frontmatter.splitlines() if line.startswith("  - ")]
+
+
 def evaluate(rules: list[tuple[str, str]], value: str) -> str:
     """The last matching rule wins; with no match OpenCode asks."""
     return next((action for pattern, action in reversed(rules) if wildcard_match(value, pattern)), "ask")
 
 
 def check_full_profile(name: str, frontmatter: str, flat_body: str) -> list[str]:
+    rules = v2_rules(frontmatter)
     findings = [
         f"{name} frontmatter lost the Build-level grant '{tool}: allow'"
         for tool in PRIMARY_BUILD_TOOLS
-        if f"\n  {tool}: allow" not in "\n" + frontmatter
+        if evaluate(permission_rules(frontmatter, tool), "*") != "allow"
     ]
-    if '\n  task:\n    "*": allow' not in "\n" + frontmatter:
+    if evaluate(permission_rules(frontmatter, "task"), "*") != "allow":
         findings.append(f"{name} frontmatter does not allow task by default")
-    bash = re.search(r'\n  bash:\n((?:    .*\n?)*)', "\n" + frontmatter)
-    if not bash or re.search(r'^    "\*":|: "?(?:allow|ask)"?\s*$', bash[1], re.MULTILINE):
+    bash = permission_rules(frontmatter, "bash")
+    if not bash or any(pattern == "*" or effect != "deny" for pattern, effect in bash):
         findings.append(f"{name} bash rules must only deny named commands; the host governs other commands")
     findings.extend(
-        f"{name} frontmatter denies Concord tool {tool}"
-        for tool in re.findall(r"^  (concord_\w+): deny$", frontmatter, re.MULTILINE)
+        f"{name} frontmatter denies Concord tool {rule['action']}"
+        for rule in rules if rule["action"].startswith("concord_") and rule["effect"] == "deny"
     )
     if name == "Concord-RTE.md" and (match := RTE_FORBIDDEN_PATTERN.search(flat_body)):
         findings.append(f"{name} names {match.group(0)!r}; the RTE holds coordination in a Linear project, never an issue")
@@ -259,7 +267,7 @@ def check_planner_profile(name: str, frontmatter: str) -> list[str]:
     findings = [
         f"{name} frontmatter grants unscoped '{tool}: allow'; edits must stay path-scoped"
         for tool in PRIMARY_BUILD_TOOLS
-        if re.search(rf"^  {tool}: (?:allow|ask)$", frontmatter, re.MULTILINE)
+        if any(pattern == "*" and action != "deny" for pattern, action in permission_rules(frontmatter, tool))
     ]
     try:
         rules = {key: permission_rules(frontmatter, key) for key in ("edit", "bash", "task")}
@@ -274,6 +282,13 @@ def check_planner_profile(name: str, frontmatter: str) -> list[str]:
             for value, expected in probes
             if evaluate(rules[key], value) != expected
         )
+    for action in ("write", "patch"):
+        action_rules = permission_rules(frontmatter, action)
+        findings.extend(
+            f"{name} permission.{action} resolves {value!r} to {evaluate(action_rules, value)}, not {expected}"
+            for value, expected in PLANNER_EDIT_PROBES
+            if evaluate(action_rules, value) != expected
+        )
     findings.extend(
         f"{name} permission.edit allows {pattern!r} outside .planning/"
         for pattern, action in rules["edit"]
@@ -282,7 +297,7 @@ def check_planner_profile(name: str, frontmatter: str) -> list[str]:
     findings.extend(
         f"{name} frontmatter does not deny Concord tool {tool}"
         for tool in PLANNER_WRITERS
-        if f"\n  {tool}: deny" not in "\n" + frontmatter
+        if evaluate(permission_rules(frontmatter, tool), "*") != "deny"
     )
     return findings
 

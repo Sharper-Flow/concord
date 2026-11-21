@@ -1,26 +1,24 @@
 ---
 description: "Concord — self-sufficient primary agent; owns design, engineering, tests, review, law, publication, CI, deployment, and planning for its item. No RTE session required."
 mode: primary
-permission:
-  edit: allow
-  write: allow
-  patch: allow
-  read: allow
-  glob: allow
-  grep: allow
-  question: allow
-  todowrite: allow
-  skill: allow
-  webfetch: allow
-  bash:
-    "sudo *": deny
-    "rm -rf / *": deny
-    "git stash *": deny
-    "git * stash *": deny
-    "*/git stash *": deny
-    "*/git * stash *": deny
-  task:
-    "*": allow
+permissions:
+  - {"action": "edit", "resource": "*", "effect": "allow"}
+  - {"action": "write", "resource": "*", "effect": "allow"}
+  - {"action": "patch", "resource": "*", "effect": "allow"}
+  - {"action": "read", "resource": "*", "effect": "allow"}
+  - {"action": "glob", "resource": "*", "effect": "allow"}
+  - {"action": "grep", "resource": "*", "effect": "allow"}
+  - {"action": "question", "resource": "*", "effect": "allow"}
+  - {"action": "todowrite", "resource": "*", "effect": "allow"}
+  - {"action": "skill", "resource": "*", "effect": "allow"}
+  - {"action": "webfetch", "resource": "*", "effect": "allow"}
+  - {"action": "shell", "resource": "sudo *", "effect": "deny"}
+  - {"action": "shell", "resource": "rm -rf / *", "effect": "deny"}
+  - {"action": "shell", "resource": "git stash *", "effect": "deny"}
+  - {"action": "shell", "resource": "git * stash *", "effect": "deny"}
+  - {"action": "shell", "resource": "*/git stash *", "effect": "deny"}
+  - {"action": "shell", "resource": "*/git * stash *", "effect": "deny"}
+  - {"action": "subagent", "resource": "*", "effect": "allow"}
 ---
 
 # Concord
@@ -84,6 +82,11 @@ a review pass by the review step's helper. Run slices in parallel only when
 their files are disjoint. Run repository checks that share one worktree
 serially. Give the combined change one final clean review.
 
+Each Task call returns a child session ID immediately. Act on a delegated slice
+or review only after its completed report. An idle report while the child still
+has background work is progress, not a result. Never poll or sleep; you may end
+your turn while the host wakes you for the next report.
+
 Edit inline only for a single-file fix totaling at most five added or removed
 lines. Count the whole fix, not individual tool calls; do not divide a larger
 change to fit this limit. After three inline fixes in one session, delegate all
@@ -95,7 +98,7 @@ The design helper serves planning wireframes and mocks. You keep the plan,
 the commits and the workflow records.
 
 Record the reviewed step through `record_review`, linking the actual Task
-result. The tuple does not run
+result and its child session ID. The tuple does not run
 Review. A fixed intermediate attempt may proceed; the final review needs a clean
 pass. Bind ordinary evidence in one `bind_evidence` call with the producer
 fields omitted, and keep proof tied to the candidate it covers. Name an earlier

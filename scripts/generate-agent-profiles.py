@@ -13,14 +13,16 @@ PRIMARY_PROFILES = ROOT / "contracts/agent-primary-profiles.v1.json"
 PRIMARY_PROFILES_SCHEMA = ROOT / "contracts/agent-primary-profiles.schema.json"
 PRIMARY_PROFILE_IDS = ("Concord-RTE", "Concord", "Concord-Planner")
 STEP_HELPER_IDS = ("concord-review", "concord-verify", "concord-implement", "concord-design", "concord-research")
-STASH_DENIALS = tuple(f"    {json.dumps(pattern)}: deny" for pattern in
-                     ("git stash *", "git * stash *", "*/git stash *", "*/git * stash *"))
+STASH_DENIALS = ("git stash *", "git * stash *", "*/git stash *", "*/git * stash *")
 STEP_HELPER_BOUNDARY = """## Shared boundaries
 
 Command-text restrictions are hygiene, not a sandbox: do not use the CLI, a
 direct store connection, a wrapper, or a connected service to bypass your
 boundaries. A Task result is not a workflow transition or an evidence
 binding; the caller owns workflow state, evidence binding and delivery.
+When you delegate to a utility, wait for its completed report before returning
+your result; an idle report with child work still running is progress. Never
+poll or sleep; you may end your turn while the host wakes you on a report.
 
 Prefer file tools for repository reads, especially .concord paths, before running
 a command. When a command is refused, including a host permission denial or an
@@ -232,9 +234,11 @@ def load_manifest(path: Path | None = None) -> dict:
 
 
 def utility_projection(utility: dict) -> str:
-    tools = [f"  {key}: {'true' if key in utility['allowed_tools'] else 'false'}" for key in UTILITY_TOOL_KEYS]
-    permissions = ['    "*": deny'] + [f'    "{command}": allow' for command in utility["allowed_commands"]]
-    permissions.extend(STASH_DENIALS)
+    permissions = [permission_rule(action_name(key), "*", "deny")
+                   for key in UTILITY_TOOL_KEYS if key != "bash" and key not in utility["allowed_tools"]]
+    permissions.append(permission_rule("shell", "*", "deny"))
+    permissions.extend(permission_rule("shell", command, "allow") for command in utility["allowed_commands"])
+    permissions.extend(permission_rule("shell", pattern, "deny") for pattern in STASH_DENIALS)
     minutes, seconds = divmod(utility["time_seconds_max"], 60)
     duration = f"{minutes} minutes" if seconds == 0 else f"{utility['time_seconds_max']} seconds"
     commands = ", ".join(f"`{command.removesuffix(' *')}`" for command in utility["allowed_commands"])
@@ -243,10 +247,7 @@ def utility_projection(utility: dict) -> str:
 description: Concord {utility['id']} utility — {utility['purpose']}
 mode: subagent
 hidden: true
-tools:
-{chr(10).join(tools)}
-permission:
-  bash:
+permissions:
 {chr(10).join(permissions)}
 ---
 
@@ -289,17 +290,26 @@ def load_primary_profiles(manifest: dict, path: Path = PRIMARY_PROFILES) -> dict
     return profiles
 
 
+def action_name(name: str) -> str:
+    return {"bash": "shell", "task": "subagent"}.get(name, name)
+
+
+def permission_rule(action: str, resource: str, effect: str) -> str:
+    return "  - " + json.dumps({"action": action, "resource": resource, "effect": effect})
+
+
 def primary_projection(profile: dict, role_source: str) -> str:
-    lines = ["---", f"description: {json.dumps(profile['description'], ensure_ascii=False)}", f"mode: {profile.get('mode', 'primary')}", "permission:"]
-    lines.extend(f"  {tool}: {action}" for tool, action in profile["tools"].items())
+    lines = ["---", f"description: {json.dumps(profile['description'], ensure_ascii=False)}", f"mode: {profile.get('mode', 'primary')}", "permissions:"]
+    lines.extend(permission_rule(action_name(tool), "*", effect) for tool, effect in profile["tools"].items())
     for key in ("edit", "bash", "task"):
         if key not in profile:
             continue
-        lines.append(f"  {key}:")
-        lines.extend(f"    {json.dumps(rule['pattern'])}: {rule['action']}" for rule in profile[key])
+        actions = ("edit", "write", "patch") if key == "edit" else (action_name(key),)
+        for action in actions:
+            lines.extend(permission_rule(action, rule["pattern"], rule["action"]) for rule in profile[key])
         if key == "bash":
-            lines.extend(STASH_DENIALS)
-    lines.extend(f"  {tool}: deny" for tool in profile["denied_concord_tools"])
+            lines.extend(permission_rule("shell", pattern, "deny") for pattern in STASH_DENIALS)
+    lines.extend(permission_rule(tool, "*", "deny") for tool in profile["denied_concord_tools"])
     lines.extend(["---", "", role_source.rstrip("\n")])
     if profile["id"] in STEP_HELPER_IDS:
         lines.extend(["", STEP_HELPER_BOUNDARY])

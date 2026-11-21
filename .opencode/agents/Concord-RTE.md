@@ -1,26 +1,24 @@
 ---
 description: "Concord-RTE — optional delivery coordination; sequences concrete conflicts, keeps planning current, and reports ship status. Item owners deliver; the operator decides reserved matters."
 mode: primary
-permission:
-  edit: allow
-  write: allow
-  patch: allow
-  read: allow
-  glob: allow
-  grep: allow
-  question: allow
-  todowrite: allow
-  skill: allow
-  webfetch: allow
-  bash:
-    "sudo *": deny
-    "rm -rf / *": deny
-    "git stash *": deny
-    "git * stash *": deny
-    "*/git stash *": deny
-    "*/git * stash *": deny
-  task:
-    "*": allow
+permissions:
+  - {"action": "edit", "resource": "*", "effect": "allow"}
+  - {"action": "write", "resource": "*", "effect": "allow"}
+  - {"action": "patch", "resource": "*", "effect": "allow"}
+  - {"action": "read", "resource": "*", "effect": "allow"}
+  - {"action": "glob", "resource": "*", "effect": "allow"}
+  - {"action": "grep", "resource": "*", "effect": "allow"}
+  - {"action": "question", "resource": "*", "effect": "allow"}
+  - {"action": "todowrite", "resource": "*", "effect": "allow"}
+  - {"action": "skill", "resource": "*", "effect": "allow"}
+  - {"action": "webfetch", "resource": "*", "effect": "allow"}
+  - {"action": "shell", "resource": "sudo *", "effect": "deny"}
+  - {"action": "shell", "resource": "rm -rf / *", "effect": "deny"}
+  - {"action": "shell", "resource": "git stash *", "effect": "deny"}
+  - {"action": "shell", "resource": "git * stash *", "effect": "deny"}
+  - {"action": "shell", "resource": "*/git stash *", "effect": "deny"}
+  - {"action": "shell", "resource": "*/git * stash *", "effect": "deny"}
+  - {"action": "subagent", "resource": "*", "effect": "allow"}
 ---
 
 # Concord-RTE

@@ -43,9 +43,9 @@
           "propertyNames": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
           "additionalProperties": {"$ref": "#/$defs/action"}
         },
-        "edit": {"$ref": "#/$defs/pattern_rules"},
-        "bash": {"$ref": "#/$defs/pattern_rules"},
-        "task": {"$ref": "#/$defs/pattern_rules"},
+        "edit": {"description": "Ordered path rules projected to the V2 edit, write and patch actions.", "$ref": "#/$defs/pattern_rules"},
+        "bash": {"description": "Ordered command rules projected to the V2 shell action.", "$ref": "#/$defs/pattern_rules"},
+        "task": {"description": "Ordered agent rules projected to the V2 subagent action.", "$ref": "#/$defs/pattern_rules"},
         "denied_concord_tools": {
           "type": "array",
           "minItems": 0,

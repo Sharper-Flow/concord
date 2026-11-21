@@ -6,11 +6,11 @@ import { basename, join } from "node:path"
 import { fixtureTempRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
 requireOwnedFixtureRun()
 import ConcordAdapterPlugin from "./concord-plugin"
-import { configureConcordAdapter, invokeConcordOperation, work_transition } from "./concord"
+import { configureConcordAdapter } from "./concord"
 import { configureCoreBinary, type CoreRunner } from "./core-runtime"
 import { configureHostLease } from "./host-lease"
 import { manifestDigest } from "./generated-contracts"
-import { sessionDirectoryReader, SESSION_ROUTE } from "./session-directory"
+import { fakeV2Context } from "./v2-context.fixture"
 import { dbValue, fixturePublicKeyBase64, type JSONRecord } from "./end-to-end.fixture"
 
 // The core owns capture, session identity, work state and handoff state. Git
@@ -44,6 +44,13 @@ interface HandoffHost {
   sessions: Record<string, { directory: string; metadata: JSONRecord; messages: JSONRecord[]; parentID?: string }>
   taskCalls: number
   lostConsumeAcknowledgement?: boolean
+}
+
+let registeredTools: any[] = []
+let hostContext: ReturnType<typeof fakeV2Context>["context"]
+
+async function invokeConcordOperation(name: string, request: any, context: any): Promise<JSONRecord> {
+  return parseToolResult(await registeredTools.find((tool) => tool.name === name).execute({ request }, context))
 }
 
 async function runProcess(argv: string[], input = "", cwd?: string): Promise<{ exitCode: number; stdout: string; stderr: string }> {
@@ -92,25 +99,15 @@ async function fakeHostControlPlane(seed: Array<[string, string]>, runner: CoreR
     } as never,
   })
   configureConcordAdapter({ runner })
-  return await ConcordAdapterPlugin({
-    directory: seed[0][1],
-    client: {
-      _client: {
-        get: async ({ url, path }: { url?: string; path?: Record<string, unknown> }) => {
-          const id = String(path?.id ?? "")
-          const session = host.sessions[id]
-          if (!session) return { data: { message: "session missing" }, response: new Response(null, { status: 404 }) }
-          expect(url).toBe(SESSION_ROUTE)
-          return { data: { id, ...session }, response: new Response(null, { status: 200 }) }
-        },
-        post: async ({ url }: { url: string; path?: Record<string, unknown>; body?: unknown }) => {
-          throw new Error(`Concord must not create or relocate host sessions: ${url}`)
-        },
-        patch: async () => { throw new Error("Concord must not change host sessions") },
-      },
-    },
-    serverUrl: new URL("https://example.invalid"),
-  } as never)
+  const fake = fakeV2Context(async ({ sessionID }) => {
+    const session = host.sessions[sessionID]
+    if (!session) throw new Error("session missing")
+    return { location: { directory: session.directory } }
+  })
+  fake.context.location.directory = seed[0][1]
+  hostContext = fake.context
+  registeredTools = fake.tools
+  await ConcordAdapterPlugin.setup(fake.context)
 }
 
 const contextFor = (sessionID: string, directory: string) =>
@@ -120,7 +117,7 @@ const contextFor = (sessionID: string, directory: string) =>
     agent: AGENT,
     directory,
     worktree: directory,
-    abort: new AbortController().signal,
+    signal: new AbortController().signal,
     metadata: () => {},
     ask: async () => {},
   }) as any
@@ -299,7 +296,7 @@ async function prepareSession(fixture: HandoffFixture, directory: string): Promi
 }
 
 async function readAddressedHandoff(fixture: HandoffFixture, sessionID: string): Promise<JSONRecord> {
-  const directory = await sessionDirectoryReader().sessionDirectory(sessionID)
+  const directory = (await hostContext.session.get({ sessionID })).location.directory
   expect(directory).toBe(fixture.receiveWorktree)
   const listing = await invokeConcordOperation("concord_work_browse", { operation: "list", input: { product_id: PRODUCT_ID, work_ids: [fixture.workID], detail: "full" } }, contextFor(sessionID, directory!))
   expect(listing.outcome, JSON.stringify(listing)).toBe("ok")
@@ -313,8 +310,6 @@ async function readAddressedHandoff(fixture: HandoffFixture, sessionID: string):
 
 afterEach(async () => {
   configureConcordAdapter({ reset: true })
-  configureHostLease({ reset: true })
-  await ConcordAdapterPlugin({})
   configureHostLease({ reset: true })
   delete process.env.CONCORD_DB_PATH
 })
@@ -495,14 +490,14 @@ const RESTART_WITNESS = "restarts the handoff host and continues the original re
 
 function parseToolResult(result: any): JSONRecord {
   try {
-    return JSON.parse(String(result.output).split("\n")[0]) as JSONRecord
+    return JSON.parse(String(result.content).split("\n")[0]) as JSONRecord
   } catch {
-    throw new Error(`unparsable tool output: ${String(result.output).slice(0, 2000)}`)
+    throw new Error(`unparsable tool output: ${String(result.content).slice(0, 2000)}`)
   }
 }
 
 async function consumeHandoff(workID: string, handoffID: string, key: string, context: any): Promise<JSONRecord> {
-  return parseToolResult(await work_transition.execute({ request: { operation: "project_handoff_consume", input: { work_id: workID, handoff_id: handoffID, idempotency_key: key } } }, context))
+  return invokeConcordOperation("concord_work_transition", { operation: "project_handoff_consume", input: { work_id: workID, handoff_id: handoffID, idempotency_key: key } }, context)
 }
 
 function assertReceiverCounts(fixture: HandoffFixture): void {

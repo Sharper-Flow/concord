@@ -13,6 +13,7 @@ import ConcordAdapterPlugin from "./concord-plugin"
 import { manifestDigest } from "./generated-contracts"
 import { configureHostLease } from "./host-lease"
 import { sessionDirectoryReader } from "./session-directory"
+import { fakeV2Context } from "./v2-context.fixture"
 
 const ADAPTER_DIR = import.meta.dir
 const ENTRY_FILE = "concord-plugin.ts"
@@ -69,7 +70,7 @@ function isToolShaped(value: unknown): boolean {
   )
 }
 
-// The registered names come from the plugin factory's own result, under the
+// The registered names come from the plugin's tool editor, under the
 // same mocked host-lease claim the adapter suite's other plugin tests use;
 // no tool runs, so the client refuses every route it is handed.
 async function registeredToolNames(): Promise<Set<string>> {
@@ -96,10 +97,9 @@ async function registeredToolNames(): Promise<Set<string>> {
       },
     } as never,
   })
-  const plugin = await ConcordAdapterPlugin({
-    client: { _client: { get: refusing, post: refusing } } as never,
-  })
-  return new Set(Object.keys(plugin.tool))
+  const { context, tools } = fakeV2Context(refusing)
+  await ConcordAdapterPlugin.setup(context)
+  return new Set(tools.map((tool) => tool.name))
 }
 
 test("every tool-shaped export of a shipped module autoloads only under a plugin-registered name", async () => {

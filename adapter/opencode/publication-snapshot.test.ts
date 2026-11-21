@@ -7,11 +7,11 @@ import { expandedPublishedRequestSchema, PINNED_PUBLISHED_TOTAL_BYTES } from "./
 const adapter = await import("./concord")
 
 // The published surface is deterministic: `publishedRequestSchema` is the
-// same production function the plugin tool hook registers through `argsSchema`.
+// same production function used by the registered input schema.
 // Publication is compact: one branch per operation with the
 // workflow actions grouped under their operation, local `#/$defs/`
 // references, and factored unions; `expandedPublishedRequestSchema` resolves
-// that document for structural inspection. `publishRequestDefinition` hoists
+// that document for structural inspection. `registeredInputSchema` hoists
 // the definitions onto the final registered argument root the host hands the
 // provider. Two publications of one tool are byte-identical, branch order
 // follows the contract operations and the registry action order, and the
@@ -106,17 +106,15 @@ test("published byte sizes are pinned in UTF-8 bytes", () => {
   }
 })
 
-// Registered request tools publish through the production definition hook,
-// with definitions hoisted to the argument root. Host tools keep their own
-// hooks. Both identified populations must stay below the
+// Registered request tools publish through the production input schema,
+// with definitions hoisted to the argument root. Both identified populations must stay below the
 // serving budget.
 test("all registered parameter schemas stay below the serving budget", async () => {
   const registered = new Map<string, number>()
   for (const tool of tools) {
-    const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
-    await adapter.publishRequestDefinition({ toolID: tool }, output)
-    expect(output.jsonSchema, tool).toBeObject()
-    registered.set(tool, Buffer.byteLength(JSON.stringify(output.jsonSchema), "utf8"))
+    const input = adapter.registeredInputSchema(tool)
+    expect(input, tool).toBeObject()
+    registered.set(tool, Buffer.byteLength(JSON.stringify(input), "utf8"))
   }
   // The registered set is exactly the catalog the two tool-surface
   // contracts declare, so a new registration cannot escape the generated

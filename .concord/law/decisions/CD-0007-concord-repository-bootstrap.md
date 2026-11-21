@@ -125,9 +125,9 @@ conformance coverage is owned by
 - Shipped skills use `concord-*` namespace and share the Concord Product version.
 - Installed assets live under
   `${XDG_DATA_HOME:-~/.local/share}/concord/<version>/skills/`.
-- OpenCode v1 discovers that versioned directory through one explicit
-  `skills.paths` entry. This is schema/source-supported but prose-undocumented, so
-  every supported OpenCode upgrade must run a compatibility check.
+- OpenCode discovers that versioned directory through an entry in the V2
+  `skills` string array ([schema](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/schema/src/config.ts#L91-L93)).
+  Every supported OpenCode upgrade must run a compatibility check.
 - Installer owns add/update/remove; no Product-repo copies, user-skill overwrite,
   plugin injection, new skill tool, or always-on methodology prompt.
 - OpenCode restart is required after the registered version path changes.

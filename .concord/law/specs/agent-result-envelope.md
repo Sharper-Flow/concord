@@ -252,10 +252,12 @@ invalidated source version returns `invalid_cursor`. No server session is requir
 
 ### 8.1 Producer-side completeness obligation
 
-The OpenCode adapter encodes each raw Concord envelope as one `ToolResult` object:
-`{title, output, metadata}`. The `output` field contains exactly one serialized
-envelope. OpenCode truncates tool output at 2,000 lines or 51,200 bytes, so the
-Concord envelope cap matches the pinned host transport limit.
+The OpenCode adapter returns one host `Tool.Result` per call. Its `content` is
+the single serialized envelope string; `metadata` carries no envelope copy and
+never contains `truncated`, and the result has no `output` key. OpenCode bounds
+tool output at 2,000 lines or 51,200 bytes, so the Concord envelope cap matches
+the pinned host byte limit. Before host handling, the adapter replaces an
+envelope exceeding 51,200 bytes with a valid error envelope.
 
 Every delegated or mutation-result producer validates the exact tool/operation
 payload against its closed generated output schema before exchange. It also

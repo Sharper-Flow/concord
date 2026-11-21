@@ -769,8 +769,8 @@ class LinearVisualApprovalContractTests(unittest.TestCase):
             "whichever route asks it",
             "embed screenshots of the exact material and version being approved "
             "in a comment on the work item's linked Linear issue",
+            "a question asked in a Linear comment embeds them in that comment",
             "Link the running development preview whenever the operator can reach it",
-            "the link never substitutes",
             "Screenshots only in issue Resources or a link alone do not satisfy this rule",
             "synthetic or redacted development material",
             "no credentials or private details",
@@ -784,7 +784,7 @@ class LinearVisualApprovalContractTests(unittest.TestCase):
         for path, clause in (
             ("skills/concord-ui-design/SKILL.md",
              "For UI/UX approval, follow `asking.md` in the shared instructions, "
-             "including its screenshot and preview rule for UI/UX approvals"),
+             "including its screenshot and preview rule."),
             ("skills/concord-ticket-frontend/SKILL.md",
              "For Linear question comments, follow `asking.md` in the shared instructions, "
              "including its screenshot and preview rule for UI/UX approvals"),

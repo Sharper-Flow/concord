@@ -765,12 +765,17 @@ class LinearVisualApprovalContractTests(unittest.TestCase):
     def test_asking_requires_embedded_versioned_screenshots_and_reachable_preview(self):
         text = " ".join((ROOT / ".concord/instructions/asking.md").read_text().split())
         for clause in (
-            "For every Linear UI/UX approval comment, embed screenshots",
-            "exact material and version being approved",
-            "link the running development preview whenever the operator can reach it",
+            "For every UI/UX approval question and every pause for a UI decision",
+            "whichever route asks it",
+            "embed screenshots of the exact material and version being approved "
+            "in a comment on the work item's linked Linear issue",
+            "a question asked in a Linear comment embeds them in that comment",
+            "Link the running development preview whenever the operator can reach it",
             "Screenshots only in issue Resources or a link alone do not satisfy this rule",
             "synthetic or redacted development material",
             "no credentials or private details",
+            "When the item has no linked Linear issue, give the screenshots' locations "
+            "with the question",
         ):
             with self.subTest(clause=clause):
                 self.assertIn(clause, text)
@@ -779,10 +784,10 @@ class LinearVisualApprovalContractTests(unittest.TestCase):
         for path, clause in (
             ("skills/concord-ui-design/SKILL.md",
              "For UI/UX approval, follow `asking.md` in the shared instructions, "
-             "including its screenshot and preview rule for Linear approval comments"),
+             "including its screenshot and preview rule."),
             ("skills/concord-ticket-frontend/SKILL.md",
              "For Linear question comments, follow `asking.md` in the shared instructions, "
-             "including its screenshot and preview rule for UI/UX approval comments"),
+             "including its screenshot and preview rule for UI/UX approvals"),
         ):
             with self.subTest(path=path):
                 self.assertIn(clause, " ".join((ROOT / path).read_text().split()))

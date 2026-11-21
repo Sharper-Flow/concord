@@ -22,7 +22,7 @@ the durable wait. The operator's
 answer plus a retrigger resumes the same work, assigned through the RTE.
 
 For Linear question comments, follow `asking.md` in the shared instructions,
-including its screenshot and preview rule for UI/UX approval comments.
+including its screenshot and preview rule for UI/UX approvals.
 Follow the new Linear record standard and question-comment format in `records.md`.
 
 Each question comment @mentions every person whose answer it needs: the

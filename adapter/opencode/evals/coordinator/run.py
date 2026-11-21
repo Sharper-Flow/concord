@@ -6,6 +6,7 @@ import json
 import secrets
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -455,21 +456,7 @@ def run_case(args, name, source, originals):
     return result
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[4])
-    parser.add_argument("--agent-source", type=Path)
-    parser.add_argument("--sdk-tool", type=Path)
-    parser.add_argument("--model")
-    parser.add_argument("--artifacts-dir", type=Path)
-    select = parser.add_mutually_exclusive_group()
-    select.add_argument("--scenario", choices=SCENARIOS, nargs="+")
-    select.add_argument("--all", action="store_true")
-    select.add_argument("--list", action="store_true")
-    args = parser.parse_args()
-    if args.list:
-        print(json.dumps(list(SCENARIOS)))
-        return 0
+def run_model(args, parser):
     for key in ("agent_source", "sdk_tool", "model", "artifacts_dir"):
         if not getattr(args, key):
             parser.error(f"--{key.replace('_', '-')} is required for a model run")
@@ -488,6 +475,27 @@ def main():
         results.append(result)
         print(json.dumps({key: result.get(key) for key in ("scenario", "passed", "artifact_dir", "checks", "advisory", "artifact_error", "dependency_cleanup_error", "final_response")}), flush=True)
     return 0 if all(result["passed"] for result in results) else 1
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[4])
+    parser.add_argument("--agent-source", type=Path)
+    parser.add_argument("--sdk-tool", type=Path)
+    parser.add_argument("--model")
+    parser.add_argument("--artifacts-dir", type=Path)
+    select = parser.add_mutually_exclusive_group()
+    select.add_argument("--scenario", choices=SCENARIOS, nargs="+")
+    select.add_argument("--all", action="store_true")
+    select.add_argument("--list", action="store_true")
+    args = parser.parse_args()
+    if args.list:
+        print(json.dumps(list(SCENARIOS)))
+        return 0
+    print("Coordinator model runs are unavailable until CON-1944 provides a qualified OpenCode 2.3.2 provider: "
+          "https://linear.app/sharper-flow/issue/CON-1944/instruction-evals-cannot-run-on-an-opencode-232-host",
+          file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":

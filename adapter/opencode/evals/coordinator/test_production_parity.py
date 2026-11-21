@@ -14,10 +14,10 @@ in this test run:
   binary built from this repository (`go build ./cmd/concord`, then
   `concord invoke` against an isolated empty store). The core owns this
   input boundary.
-- the recording double executes under bun from the same generated tool
-  source run.py writes for a model run, against the real plugin tool module,
-  so the served envelopes and the calls.jsonl trace are the double's real
-  behavior.
+- the recording double executes under bun from the same generated plugin
+  directory run.py writes for a model run, registered and driven through
+  the plugin setup's own tool editor, so the served envelopes and the
+  calls.jsonl trace are the double's real behavior.
 
 Transport-only members of the executed core envelope (manifest_digest, origin,
 next_cursor, omissions, warnings, schema_version)
@@ -33,6 +33,7 @@ reporting a skip everywhere.
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -46,7 +47,7 @@ from scenarios import SCENARIOS, WORK, REVIEW_FIELDS
 REPO = Path(__file__).resolve().parents[4]
 ADAPTER = REPO / "adapter" / "opencode"
 PIN = json.loads((REPO / ".concord" / "docs" / "adapter-host-pin.v1.json").read_text())
-PINNED_PLUGIN = next(package for package in PIN["packages"] if package["name"] == "@opencode-ai/plugin")
+PINNED_PLUGIN = next(package for package in PIN["packages"] if package["name"] == "@opencode/plugin")
 PINNED_PLUGIN_NAME = PINNED_PLUGIN["name"]
 PINNED_PLUGIN_VERSION = PINNED_PLUGIN["version"]
 
@@ -60,15 +61,19 @@ PRODUCTION_WORKFLOW_INPUT_REFUSAL = {
     "retry_safe": False,
 }
 MANIFEST_DIGEST = (REPO / "contracts" / "agent-tool-surface.digest").read_text().strip()
-# The blank and oversize payload variants: each one passes
-# the double's tool schema (every value is a string) and reaches the core's
-# payload-schema value validation, which classifies it by the public
-# constraints the payload contract states — never as a missing field.
+# The blank and oversize payload variants: every value is correctly typed,
+# and the parity driver calls the registered tool's execute directly, so
+# each one reaches the core's payload-schema value validation — the layer
+# the served-message comparison owns — and is classified by the public
+# constraints the payload contract states, never as a missing field. (At a
+# model run the host's schema layer refuses these values before execute,
+# against the same published schema bytes the double and production
+# register, so that layer refuses identically on both sides.)
 EMPTY_IDEMPOTENCY_KEY = ""
 WHITESPACE_IDEMPOTENCY_KEY = "   "
 OVERSIZE_IDEMPOTENCY_KEY = "a" * 129
-# The numeric constraint variant: expected_version passes the tool schema's
-# integer typing and reaches the core's payload numeric validation.
+# The numeric constraint variant: expected_version passes integer typing
+# and reaches the core's payload numeric validation.
 ZERO_EXPECTED_VERSION = 0
 
 def require(command, purpose):
@@ -133,15 +138,15 @@ def pinned_plugin_module():
                              text=True, timeout=300)
     if install.returncode != 0:
         raise AssertionError(
-            "cannot resolve @opencode-ai/plugin through the repository pin "
+            f"cannot resolve {PINNED_PLUGIN_NAME} through the repository pin "
             f"({PINNED_PLUGIN_VERSION}): bun install failed with exit {install.returncode}: "
             f"{install.stderr.strip()[:400]}")
     package_root = pinned_package_root(root / "node_modules")
-    module = package_root / "dist" / "tool.js"
+    module = package_root / "dist" / "promise" / "index.js"
     if not module.is_file():
         raise AssertionError(
             f"cannot resolve {PINNED_PLUGIN_NAME} through the repository pin "
-            f"({PINNED_PLUGIN_VERSION}): the install succeeded but placed no dist/tool.js module")
+            f"({PINNED_PLUGIN_VERSION}): the install succeeded but placed no dist/promise/index.js module")
     state, metadata = plugin_metadata_state(package_root)
     if state != "ok":
         raise AssertionError(
@@ -156,7 +161,7 @@ def pinned_plugin_module():
 
 
 def plugin_tool_module(repo=REPO):
-    """The real @opencode-ai/plugin tool module, through the repository's
+    """The real @opencode/plugin plugin API module, through the repository's
     accepted dependency mechanisms only, never a host-installed path.
 
     The repository-local cache (.opencode/node_modules) is selected only
@@ -168,7 +173,7 @@ def plugin_tool_module(repo=REPO):
     way. Every failure is explicit.
     """
     package_root = pinned_package_root(repo / ".opencode" / "node_modules")
-    module = package_root / "dist" / "tool.js"
+    module = package_root / "dist" / "promise" / "index.js"
     if module.is_file():
         state, metadata = plugin_metadata_state(package_root)
         if state == "ok" and metadata_pin_mismatch(metadata) is None:
@@ -325,12 +330,20 @@ class ProductionCoreBoundaryTests(unittest.TestCase):
 
 
 DOUBLE_DRIVER = """
-import { work_transition } from {tools_import};
+import plugin from {plugin_import};
+// The V2 plugin registers its tools through ctx.tool.transform; capture
+// the editor's adds, then drive the registered work_transition execute
+// exactly as the host's schema-cleared call path would.
+const registered = new Map();
+const editor = { add: (tool) => { registered.set(tool.name, tool); } };
+const setupContext = { tool: { transform: async (apply) => { apply(editor); } } };
+await plugin.setup(setupContext);
+const work_transition = registered.get("concord_work_transition");
 const context = { sessionID: "parity-session", messageID: "m1", agent: "coordinator-probe",
-  directory: "/synthetic/repo", worktree: "/synthetic/repo", abort: new AbortController().signal };
+  signal: new AbortController().signal };
 async function call(name, tool, args) {
   const result = await tool.execute(args, context);
-  const output = typeof result === "string" ? result : result.output;
+  const output = typeof result === "string" ? result : result.content;
   const newline = output.indexOf("\\n");
   console.log(JSON.stringify({ tool: name, envelope: JSON.parse(newline === -1 ? output : output.slice(0, newline)),
     notice: newline === -1 ? null : output.slice(newline + 1) }));
@@ -369,7 +382,7 @@ class RecordingDoubleParityTests(unittest.TestCase):
             f'await call({json.dumps(label)}, work_transition, {json.dumps(args)});'
             for label, args in workflow_corpus_args().items())
         driver = (DOUBLE_DRIVER
-                  .replace("{tools_import}", json.dumps(str(root / ".opencode/tools/concord.ts")))
+                  .replace("{plugin_import}", json.dumps(str(root / ".opencode/plugins/coordinator/index.ts")))
                   .replace("{workflow_calls}", workflow_calls))
         run = run_bun(root, driver)
         if run.returncode != 0:
@@ -449,6 +462,20 @@ class RecordingDoubleParityTests(unittest.TestCase):
                 self.assertTrue(structural_equal(entry.get("result"), observation[label]["envelope"]),
                                 f"trace entry for {label} does not match the served envelope")
 
+    def test_generated_plugin_binds_to_the_pinned_plugin_module(self):
+        # The generated plugin's only plugin-package dependency is the type
+        # import in its plugin entry: the pinned module this class resolved
+        # must be the exact module that generated source names, so the
+        # resolver machinery keeps proving what a model run executes with.
+        root = Path(tempfile.mkdtemp(prefix="concord-parity-binding-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        sources = run_module.double_sources(root, SCENARIOS["native-route-discovery"],
+                                            sdk_tool=self.sdk_tool,
+                                            production_concord=ADAPTER / "concord.ts")
+        plugin_entry = sources[".opencode/plugins/coordinator/concord-plugin.ts"]
+        self.assertIn(json.dumps(str(self.sdk_tool)), plugin_entry)
+        self.assertIn('} satisfies Plugin.Plugin', plugin_entry)
+
 class PluginToolModuleResolverTests(unittest.TestCase):
     """The owning plugin resolver: which module it actually selects, and
     that the selected module's package metadata proves the tracked pin.
@@ -466,8 +493,8 @@ class PluginToolModuleResolverTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, repo, ignore_errors=True)
         package_root = pinned_package_root(repo / ".opencode" / "node_modules")
         if with_module:
-            (package_root / "dist").mkdir(parents=True, exist_ok=True)
-            (package_root / "dist" / "tool.js").write_text("// scratch plugin module\n")
+            (package_root / "dist" / "promise").mkdir(parents=True, exist_ok=True)
+            (package_root / "dist" / "promise" / "index.js").write_text("// scratch plugin module\n")
         if with_metadata:
             raw = metadata_raw if metadata_raw is not None else json.dumps({
                 "name": metadata_name or PINNED_PLUGIN_NAME,
@@ -486,8 +513,8 @@ class PluginToolModuleResolverTests(unittest.TestCase):
             if with_module or with_metadata:
                 package_root.mkdir(parents=True, exist_ok=True)
             if with_module:
-                (package_root / "dist").mkdir(parents=True, exist_ok=True)
-                (package_root / "dist" / "tool.js").write_text("// scratch installed module\n")
+                (package_root / "dist" / "promise").mkdir(parents=True, exist_ok=True)
+                (package_root / "dist" / "promise" / "index.js").write_text("// scratch installed module\n")
             if with_metadata:
                 package_root.joinpath("package.json").write_text(
                     json.dumps({"name": name or PINNED_PLUGIN_NAME,
@@ -496,14 +523,14 @@ class PluginToolModuleResolverTests(unittest.TestCase):
         return install
 
     def local_module(self, repo):
-        return pinned_package_root(repo / ".opencode" / "node_modules") / "dist" / "tool.js"
+        return pinned_package_root(repo / ".opencode" / "node_modules") / "dist" / "promise" / "index.js"
 
     def assert_module_proves_the_pin(self, module):
         """The selected module's own package metadata must prove the exact
         tracked package name and version — read independently of the
         resolver helpers, from the module the resolver returned."""
-        expected = next(p for p in PIN["packages"] if p["name"] == "@opencode-ai/plugin")
-        metadata = json.loads(module.parents[1].joinpath("package.json").read_text())
+        expected = PINNED_PLUGIN
+        metadata = json.loads(module.parents[2].joinpath("package.json").read_text())
         self.assertEqual(metadata.get("name"), expected["name"])
         self.assertEqual(metadata.get("version"), expected["version"])
         return metadata
@@ -519,7 +546,7 @@ class PluginToolModuleResolverTests(unittest.TestCase):
 
     def test_wrong_version_local_cache_falls_back_to_the_pinned_install(self):
         import unittest.mock as mock
-        repo = self.scratch_repo(metadata_version="1.18.34")
+        repo = self.scratch_repo(metadata_version="2.3.1")
         with mock.patch.object(subprocess, "run", side_effect=self.fake_installer()):
             module = plugin_tool_module(repo=repo)
         self.assertNotEqual(module, self.local_module(repo))
@@ -631,14 +658,14 @@ class PluginToolModuleResolverTests(unittest.TestCase):
         import unittest.mock as mock
         repo = self.scratch_repo(with_module=False, with_metadata=False)
         with mock.patch.object(subprocess, "run", side_effect=self.fake_installer(with_module=False)):
-            with self.assertRaisesRegex(AssertionError, "no dist/tool.js"):
+            with self.assertRaisesRegex(AssertionError, "no dist/promise/index.js"):
                 plugin_tool_module(repo=repo)
 
     def test_fallback_with_the_wrong_version_fails_explicitly(self):
         import unittest.mock as mock
         repo = self.scratch_repo(with_module=False, with_metadata=False)
-        with mock.patch.object(subprocess, "run", side_effect=self.fake_installer(version="1.18.34")):
-            with self.assertRaisesRegex(AssertionError, "1.18.23"):
+        with mock.patch.object(subprocess, "run", side_effect=self.fake_installer(version="2.3.1")):
+            with self.assertRaisesRegex(AssertionError, re.escape(PINNED_PLUGIN_VERSION)):
                 plugin_tool_module(repo=repo)
 
     def test_fallback_with_the_wrong_name_fails_explicitly(self):
@@ -663,16 +690,16 @@ class PluginToolModuleResolverTests(unittest.TestCase):
         self.assert_module_proves_the_pin(module)
 
     def test_selected_module_on_this_checkout_proves_the_tracked_pin(self):
-        expected = next(p for p in PIN["packages"] if p["name"] == "@opencode-ai/plugin")
+        expected = PINNED_PLUGIN
         module = plugin_tool_module()
-        metadata = json.loads(module.parents[1].joinpath("package.json").read_text())
+        metadata = json.loads(module.parents[2].joinpath("package.json").read_text())
         self.assertEqual(metadata.get("name"), expected["name"])
         self.assertEqual(metadata.get("version"), expected["version"])
         host_package = pinned_package_root(REPO / ".opencode" / "node_modules")
         host_state, host_metadata = plugin_metadata_state(host_package)
         if host_state != "ok" or (host_metadata.get("name"), host_metadata.get("version")) != (expected["name"], expected["version"]):
             self.assertNotEqual(
-                module, host_package / "dist" / "tool.js",
+                module, host_package / "dist" / "promise" / "index.js",
                 "a host cache that does not prove the tracked pin must not be selected")
 
     def test_checkout_selection_assertion_handles_malformed_host_metadata(self):
@@ -704,7 +731,11 @@ class PrerequisiteFailureTests(unittest.TestCase):
         original_is_file = Path.is_file
 
         def no_local_plugin(self):
-            return False if self.parts[-3:] == ("@opencode-ai", "plugin", "dist") or self.name == "tool.js" and "plugin" in self.parts else original_is_file(self)
+            if self.parts[-4:] == ("@opencode", "plugin", "dist", "promise"):
+                return False
+            if self.name == "index.js" and "@opencode" in self.parts and "plugin" in self.parts:
+                return False
+            return original_is_file(self)
         with mock.patch.object(shutil, "which", lambda name: "/usr/bin/bun" if name == "bun" else None):
             with mock.patch.object(Path, "is_file", no_local_plugin):
                 with mock.patch.object(subprocess, "run") as run:

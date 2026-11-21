@@ -28,6 +28,11 @@ def sha(data):
 
 
 class RunCleanupTests(unittest.TestCase):
+    def test_generated_doubles_use_v2_plugin_entry(self):
+        sources = run.double_sources(Path('/synthetic'), {}, sdk_tool=Path('/synthetic/sdk'),
+                                     production_concord=REPO / 'adapter/opencode/concord.ts')
+        self.assertIn('.opencode/plugins/coordinator/index.ts', sources)
+
     def setUp(self):
         self.repo = Path(tempfile.mkdtemp(prefix="coordinator-repo-"))
         self.artifacts = Path(tempfile.mkdtemp(prefix="coordinator-artifacts-"))
@@ -49,15 +54,15 @@ class RunCleanupTests(unittest.TestCase):
         shutil.rmtree(self.artifacts, ignore_errors=True)
 
     def args(self):
-        return argparse.Namespace(repo=self.repo, sdk_tool=Path("/synthetic/sdk/tool.js"),
+        return argparse.Namespace(repo=self.repo, sdk_tool=Path("/synthetic/sdk/index.js"),
                                   model="synthetic/model", artifacts_dir=self.artifacts)
 
     def install_dependency_copy(self, root):
         """The disposable copy the runtime installs under the run's .opencode."""
-        package = root / ".opencode" / "node_modules" / "@opencode-ai" / "plugin"
+        package = root / ".opencode" / "node_modules" / "@opencode" / "plugin"
         package.mkdir(parents=True, exist_ok=True)
         (package / "index.js").write_text("// synthetic dependency copy\n")
-        (root / ".opencode" / "package.json").write_text('{"dependencies": {"@opencode-ai/plugin": "1.18.35"}}\n')
+        (root / ".opencode" / "package.json").write_text('{"dependencies": {"@opencode/plugin": "2.3.2"}}\n')
         (root / ".opencode" / "bun.lock").write_text("synthetic lockfile bytes\n")
 
     def run_case(self, during=None, exit_code=0):
@@ -108,7 +113,7 @@ class RunCleanupTests(unittest.TestCase):
 
     def test_another_active_run_dependency_copy_stays_unchanged(self):
         foreign = self.artifacts / "coordinator-active-run"
-        foreign_module = foreign / ".opencode" / "node_modules" / "@opencode-ai" / "plugin"
+        foreign_module = foreign / ".opencode" / "node_modules" / "@opencode" / "plugin"
         foreign_module.mkdir(parents=True)
         (foreign_module / "index.js").write_text("// another active run's copy\n")
         (foreign / "run.json").write_text('{"active": true}\n')
@@ -133,7 +138,7 @@ class RunCleanupTests(unittest.TestCase):
         def block_removal(root):
             # A read-only leaf package dir fails the removal at its first
             # unlink, before any of the copy's bytes are deleted.
-            target = root / ".opencode" / "node_modules" / "@opencode-ai" / "plugin"
+            target = root / ".opencode" / "node_modules" / "@opencode" / "plugin"
             os.chmod(target, 0o500)
             self.readonly.append(target)
         result = self.run_case(during=block_removal)
@@ -144,7 +149,7 @@ class RunCleanupTests(unittest.TestCase):
         persisted = json.loads((root / "result.json").read_text())
         self.assertEqual(persisted["dependency_cleanup_error"], result["dependency_cleanup_error"])
         # The unremovable copy and every retained artifact stay in place.
-        self.assertTrue((root / ".opencode" / "node_modules" / "@opencode-ai" / "plugin" / "index.js").exists())
+        self.assertTrue((root / ".opencode" / "node_modules" / "@opencode" / "plugin" / "index.js").exists())
         self.assert_evidence_retained(result)
 
 

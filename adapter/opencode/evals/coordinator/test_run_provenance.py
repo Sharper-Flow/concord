@@ -37,7 +37,7 @@ class RunProvenanceTests(unittest.TestCase):
         shutil.rmtree(self.artifacts, ignore_errors=True)
 
     def args(self):
-        return argparse.Namespace(repo=self.repo, sdk_tool=Path("/synthetic/sdk/tool.js"),
+        return argparse.Namespace(repo=self.repo, sdk_tool=Path("/synthetic/sdk/index.js"),
                                   model="synthetic/model", artifacts_dir=self.artifacts)
 
     def run_case(self, during=None):
@@ -59,7 +59,11 @@ class RunProvenanceTests(unittest.TestCase):
             snapshot = root / "production-sources" / relative.replace("/", "__")
             self.assertEqual(sha(snapshot.read_bytes()), value)
         self.assertEqual(set(result["tool_source_sha256"]), {
-            ".opencode/tools/concord.ts", ".opencode/recording-tool.ts", ".opencode/tools/runtime_status.ts"})
+            ".opencode/plugins/coordinator/index.ts",
+            ".opencode/plugins/coordinator/concord-plugin.ts",
+            ".opencode/plugins/coordinator/concord.ts",
+            ".opencode/plugins/coordinator/runtime_status.ts",
+            ".opencode/plugins/coordinator/recording-tool.ts"})
         for relative, value in result["tool_source_sha256"].items():
             self.assertEqual(sha((root / relative).read_bytes()), value)
         self.assertEqual(json.loads((root / "result.json").read_text())["production_source_sha256"],
@@ -78,7 +82,7 @@ class RunProvenanceTests(unittest.TestCase):
     def test_tool_source_change_during_a_run_fails_the_snapshot_check(self):
         def change():
             [root] = list(self.artifacts.iterdir())
-            tool = root / ".opencode/tools/concord.ts"
+            tool = root / ".opencode/plugins/coordinator/concord.ts"
             tool.write_text(tool.read_text() + "\n// changed\n")
         result = self.run_case(during=change)
         self.assertFalse(result["snapshots_unchanged"])

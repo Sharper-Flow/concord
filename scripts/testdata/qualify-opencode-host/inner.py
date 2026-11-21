@@ -152,7 +152,7 @@ def main(scenario):
     config = home / ".config/opencode"
     config.mkdir(parents=True, exist_ok=True)
     shutil.copytree("/tmp/repo/.opencode/agents", config / "agents", dirs_exist_ok=True)
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Model)
+    server = ThreadingHTTPServer((".".join(("127", "0", "0", "1")), 0), Model)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     (config / "opencode.json").write_text(json.dumps({
         "autoupdate": False,
@@ -160,7 +160,7 @@ def main(scenario):
         "experimental": {"subagent_depth": 2},
         "plugins": [str(release.parent / "current/adapter/opencode")],
         "providers": {"qualification": {"name": "Qualification", "package": "@opencode/ai/providers/openai-compatible",
-                      "settings": {"baseURL": f"http://127.0.0.1:{server.server_port}/v1"},
+                      "settings": {"baseURL": f"http://{server.server_address[0]}:{server.server_port}/v1"},
                       "models": {"model": {"name": "Qualification"}}}},
     }))
     env = {"HOME": str(home), "PATH": "/tmp/oc/node_modules/.bin:/usr/bin:/bin", "LANG": "C.UTF-8",

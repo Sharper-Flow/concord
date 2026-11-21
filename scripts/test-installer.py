@@ -39,13 +39,103 @@ import install as installer
 
 
 class NativeTaskInstallerTests(unittest.TestCase):
+    def test_v2_config_registers_skills_array(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = installer.paths_for(Path(directory))
+            plan = installer.plan_config(paths.config_file, installer.stable_skill_path(paths), None)
+            config = installer.jsonc_data(plan.text)
+            self.assertEqual(config["skills"], [installer.stable_skill_path(paths)])
+
+    def test_v2_plugin_registration_migrates_legacy_tuple(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = installer.paths_for(Path(directory))
+            old = str((paths.tools_dir / "concord-plugin.ts").resolve())
+            target = installer.plugin_entry_path(paths)
+            text = json.dumps({"plugin": [[old, {"label": "keep"}], "other"]})
+            paths.config_file.parent.mkdir(parents=True)
+            paths.config_file.write_text(text)
+            with mock.patch.object(installer, "command_status", return_value="/synthetic/tool"), \
+                    mock.patch.object(installer.platform, "system", return_value="Linux"), \
+                    mock.patch.object(installer.platform, "machine", return_value="x86_64"):
+                config = installer.jsonc_data(installer.preflight(paths, "v1.0.0", None).text)
+            self.assertEqual(config["plugin"], ["other"])
+            self.assertEqual(config["plugins"], [{"package": target, "options": {"label": "keep"}}])
+
+    def test_v2_skills_migrates_managed_object(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = installer.paths_for(Path(directory))
+            paths.config_file.parent.mkdir(parents=True)
+            path = installer.stable_skill_path(paths)
+            paths.config_file.write_text(json.dumps({"skills": {"paths": [path, "/other"]}}))
+            plan = installer.plan_config(paths.config_file, path, path)
+            self.assertEqual(installer.jsonc_data(plan.text)["skills"], [path, "/other"])
+
+    def test_v2_skills_migration_preserves_jsonc_comments_and_urls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = installer.paths_for(Path(directory))
+            paths.config_file.parent.mkdir(parents=True)
+            old = str(paths.data_root / "v1.0.0" / "skills")
+            text = '{"skills": { /* note */ "paths": ["https://example.org/skills", ' + json.dumps(old) + '], // keep\n }}'
+            paths.config_file.write_text(text)
+            plan = installer.plan_config(paths.config_file, installer.stable_skill_path(paths), old)
+            self.assertEqual(installer.jsonc_data(plan.text)["skills"], ["https://example.org/skills", installer.stable_skill_path(paths)])
+            self.assertIn("/* note */", plan.text)
+            self.assertIn("// keep", plan.text)
+
+    def test_v2_skills_preserves_foreign_entries_and_removes_only_managed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = installer.paths_for(Path(directory))
+            paths.config_file.parent.mkdir(parents=True)
+            paths.config_file.write_text('{"skills": ["/other", /* keep */]}')
+            managed = installer.stable_skill_path(paths)
+            plan = installer.plan_config(paths.config_file, managed, None)
+            self.assertEqual(installer.jsonc_data(plan.text)["skills"], [managed, "/other"])
+            self.assertIn("/* keep */", plan.text)
+            paths.config_file.write_text(plan.text)
+            removed = installer.remove_path_from_config(paths.config_file, managed)
+            self.assertEqual(installer.jsonc_data(removed)["skills"], ["/other"])
+
+    def test_foreign_skills_object_is_not_rewritten(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = installer.paths_for(Path(directory))
+            paths.config_file.parent.mkdir(parents=True)
+            text = '{"skills": {"paths": ["/other"]}}'
+            paths.config_file.write_text(text)
+            with self.assertRaises(installer.InstallerError):
+                installer.plan_config(paths.config_file, installer.stable_skill_path(paths), None)
+            self.assertEqual(paths.config_file.read_text(), text)
+
+    def test_null_config_shapes_refuse_and_trailing_comma_is_preserved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = installer.paths_for(Path(directory))
+            paths.config_file.parent.mkdir(parents=True)
+            paths.config_file.write_text('{"skills": null}')
+            with self.assertRaises(installer.InstallerError):
+                installer.plan_config(paths.config_file, installer.stable_skill_path(paths), None)
+            for key in ("plugin", "plugins"):
+                with self.subTest(key=key), self.assertRaises(installer.InstallerError):
+                    installer.plan_plugin_entry(json.dumps({key: None}), "/synthetic/adapter")
+            paths.config_file.write_text('{"other": true, // keep\n}')
+            text = installer.plan_config(paths.config_file, installer.stable_skill_path(paths), None).text
+            text = installer.plan_plugin_entry(text, "/synthetic/adapter")
+            self.assertTrue(installer.jsonc_data(text)["other"])
+            self.assertIn("// keep", text)
+
+    def test_native_plugin_options_are_preserved_and_removed_whole(self):
+        entry = "/synthetic/adapter"
+        text = json.dumps({"plugins": [{"package": entry, "options": {"label": "ops"}}, "other"]})
+        self.assertEqual(installer.plan_plugin_entry(text, entry), text)
+        self.assertEqual(installer.jsonc_data(installer.remove_plugin_entry(text, entry))["plugins"], ["other"])
+
     def test_deleted_continuity_module_is_retired_and_other_hooks_still_ship(self):
         self.assertNotIn("continuity-hook.ts", installer.ADAPTER_FILES)
         self.assertIn("continuity-hook.ts", installer.RETIRED_ADAPTER_FILES)
         self.assertNotIn("claimed-worktree.ts", installer.ADAPTER_FILES)
         self.assertIn("claimed-worktree.ts", installer.RETIRED_ADAPTER_FILES)
-        for name in ("agent-switch-hook.ts", "host-lease.ts", "session-directory.ts"):
+        for name in ("agent-switch-hook.ts", "host-lease.ts"):
             self.assertIn(name, installer.ADAPTER_FILES)
+        self.assertNotIn("session-directory.ts", installer.ADAPTER_FILES)
+        self.assertIn("session-directory.ts", installer.RETIRED_ADAPTER_FILES)
         for name in ("move-session.ts", "host-prompt.ts", "turn-move-boundary.ts",
                      "work-start-continuation.ts", "workflow-status.ts"):
             self.assertNotIn(name, installer.ADAPTER_FILES)
@@ -1755,7 +1845,7 @@ esac''',
         """
         added = "core-runtime.ts"
         self.assertIn(added, installer.ADAPTER_FILES)
-        for shipped in ("core-runtime.ts", "mutation-result.ts", "session-directory.ts"):
+        for shipped in ("core-runtime.ts", "mutation-result.ts"):
             self.assertIn(shipped, installer.ADAPTER_FILES, f"missing shared host module {shipped}")
         # Test suites and their vectors are dev-only inputs, not adapter runtime
         # inputs. Shipping them would put test code and fixtures in the
@@ -1776,7 +1866,7 @@ esac''',
 
         second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(second.returncode, 0, second.stderr)
-        for name in installer.ADAPTER_FILES:
+        for name in installer.MANAGED_ADAPTER_FILES:
             placed = self.root / "config" / "opencode" / "tools" / name
             self.assertTrue(placed.is_file(), f"{name} was not placed by the upgrade")
             expected = "new" if name != installer.RELEASE_CONSTANTS_FILE else str(self.root / "data" / "concord" / "v1.1.0")
@@ -2205,7 +2295,7 @@ esac''',
         self.assertNotIn(self.RETIRED_ADAPTER, manifest["adapter_files"])
         self.assertNotIn(f"adapter/opencode/{self.RETIRED_ADAPTER}", manifest["version_files"])
         self.assertFalse((self.root / "data" / "concord" / "v1.1.0" / "adapter" / "opencode" / self.RETIRED_ADAPTER).exists())
-        for name in installer.ADAPTER_FILES:
+        for name in installer.MANAGED_ADAPTER_FILES:
             self.assertTrue((self.root / "config" / "opencode" / "tools" / name).is_file(), f"{name} was not placed")
         status = self.run_installer("status")
         self.assertEqual(status.returncode, 0, status.stderr)
@@ -2344,18 +2434,18 @@ esac''',
         self.assert_retained_empty_lock_root()
 
     def plugin_entry_path(self) -> str:
-        return str((self.root / "config" / "opencode" / "tools" / installer.PLUGIN_ENTRY_FILE).resolve())
+        return str(self.root / "data" / "concord" / "current" / "adapter" / "opencode")
 
     def test_install_registers_plugin_entry(self) -> None:
         self.make_release("v1.0.0")
         result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(result.returncode, 0, result.stderr)
         entry = self.plugin_entry_path()
-        self.assertTrue((self.root / "config" / "opencode" / "tools" / installer.PLUGIN_ENTRY_FILE).is_file())
+        self.assertTrue((Path(entry) / installer.PLUGIN_ENTRY_FILE).is_file())
         config = self.config.read_text(encoding="utf-8")
         self.assertIn(f'"{entry}"', config)
         # The entry must be a member of the plugin array, not only a comment.
-        self.assertIn(entry, installer.jsonc_data(config)["plugin"])
+        self.assertIn(entry, installer.jsonc_data(config)["plugins"])
 
     def test_install_appends_plugin_entry_to_existing_array(self) -> None:
         self.config.write_text(
@@ -2366,7 +2456,7 @@ esac''',
         result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(result.returncode, 0, result.stderr)
         plugin = installer.jsonc_data(self.config.read_text(encoding="utf-8"))["plugin"]
-        self.assertIn(self.plugin_entry_path(), plugin)
+        self.assertIn(self.plugin_entry_path(), installer.jsonc_data(self.config.read_text(encoding="utf-8"))["plugins"])
         # Existing entries are preserved, including the tuple form.
         self.assertIn("/operator/other", plugin)
         self.assertTrue(any(isinstance(item, list) and item[0] == "/operator/plugin" for item in plugin))
@@ -2857,7 +2947,7 @@ esac''',
             self.assertEqual(project_data["theme"], "dark")
             self.assertIn(b"// Keep the intentional Product-local instruction.", project_config.read_bytes())
             global_data = installer.jsonc_data(self.config.read_text(encoding="utf-8"))
-            self.assertIn(str(stable / "skills"), global_data["skills"]["paths"])
+            self.assertIn(str(stable / "skills"), global_data["skills"])
             registered = stable / "skills"
             for relative in sorted(skill_relatives):
                 skill = stable / relative
@@ -4844,7 +4934,7 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
     def test_plan_still_adds_a_bare_entry_when_absent(self) -> None:
         text = '{\n  "keep": true,\n  "plugin": [\n    ["/operator/plugin", {"agents": {}}]\n  ]\n}\n'
         planned = installer.plan_plugin_entry(text, self.ENTRY)
-        self.assertIn(self.ENTRY, installer.jsonc_data(planned)["plugin"])
+        self.assertIn(self.ENTRY, installer.jsonc_data(planned)["plugins"])
 
     def test_remove_drops_the_whole_tuple_and_keeps_neighbours(self) -> None:
         text = (
@@ -4979,7 +5069,7 @@ class DeriveAdapterFilesTest(unittest.TestCase):
     def test_shipped_set_follows_the_entry_import_graph(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text(
+            (root / "index.ts").write_text(
                 'import { a } from "./concord"\nimport { b } from "./agent-switch-hook"\n',
                 encoding="utf-8",
             )
@@ -4989,27 +5079,27 @@ class DeriveAdapterFilesTest(unittest.TestCase):
             (root / "unreferenced.test.ts").write_text("", encoding="utf-8")
             self.assertEqual(
                 installer.derive_adapter_files(root),
-                ("agent-switch-hook.ts", "concord-plugin.ts", "concord.ts", "credentials.ts"),
+                ("agent-switch-hook.ts", "concord.ts", "credentials.ts", "index.ts"),
             )
 
     def test_unresolvable_entry_import_refuses(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text('import { a } from "./missing"\n', encoding="utf-8")
+            (root / "index.ts").write_text('import { a } from "./missing"\n', encoding="utf-8")
             with self.assertRaises(installer.InstallerError):
                 installer.derive_adapter_files(root)
 
     def test_import_escaping_the_adapter_directory_refuses(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text('import { a } from "../escape"\n', encoding="utf-8")
+            (root / "index.ts").write_text('import { a } from "../escape"\n', encoding="utf-8")
             with self.assertRaises(installer.InstallerError):
                 installer.derive_adapter_files(root)
 
     def test_an_explicit_js_specifier_ships_the_plain_js_module_under_its_exact_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text(
+            (root / "index.ts").write_text(
                 'import { nativeHelper } from "./native-helper.js"\n',
                 encoding="utf-8",
             )
@@ -5017,7 +5107,7 @@ class DeriveAdapterFilesTest(unittest.TestCase):
                 "export const nativeHelper = 1\n", encoding="utf-8"
             )
             derived = installer.derive_adapter_files(root)
-            self.assertEqual(derived, ("concord-plugin.ts", "native-helper.js"))
+            self.assertEqual(derived, ("index.ts", "native-helper.js"))
             self.assertNotIn("native-helper.js.ts", derived)
 
     def test_an_exact_js_file_wins_over_a_same_stem_ts_sibling(self) -> None:
@@ -5025,20 +5115,20 @@ class DeriveAdapterFilesTest(unittest.TestCase):
         # ship that file alone, not the sibling source beside it.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text(
+            (root / "index.ts").write_text(
                 'import { a } from "./shared.js"\n', encoding="utf-8"
             )
             (root / "shared.js").write_text("export const a = 1\n", encoding="utf-8")
             (root / "shared.ts").write_text("export const a = 2\n", encoding="utf-8")
             self.assertEqual(
                 installer.derive_adapter_files(root),
-                ("concord-plugin.ts", "shared.js"),
+                ("index.ts", "shared.js"),
             )
 
     def test_a_plain_js_module_walks_its_own_relative_import_chain(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text(
+            (root / "index.ts").write_text(
                 'import { first } from "./first.js"\n', encoding="utf-8"
             )
             (root / "first.js").write_text(
@@ -5047,7 +5137,7 @@ class DeriveAdapterFilesTest(unittest.TestCase):
             (root / "second.js").write_text("export const second = 2\n", encoding="utf-8")
             self.assertEqual(
                 installer.derive_adapter_files(root),
-                ("concord-plugin.ts", "first.js", "second.js"),
+                ("first.js", "index.ts", "second.js"),
             )
 
     def test_an_explicit_js_specifier_without_the_plain_js_module_refuses(self) -> None:
@@ -5056,7 +5146,7 @@ class DeriveAdapterFilesTest(unittest.TestCase):
         # conceal the loss of the declared module at release time.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text(
+            (root / "index.ts").write_text(
                 'import { a } from "./emitted.js"\n', encoding="utf-8"
             )
             (root / "emitted.ts").write_text("export const a = 1\n", encoding="utf-8")
@@ -5066,19 +5156,19 @@ class DeriveAdapterFilesTest(unittest.TestCase):
     def test_an_explicit_ts_specifier_resolves_under_its_own_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text(
+            (root / "index.ts").write_text(
                 'import { a } from "./named.ts"\n', encoding="utf-8"
             )
             (root / "named.ts").write_text("export const a = 1\n", encoding="utf-8")
             self.assertEqual(
                 installer.derive_adapter_files(root),
-                ("concord-plugin.ts", "named.ts"),
+                ("index.ts", "named.ts"),
             )
 
     def test_a_js_specifier_with_neither_a_js_nor_a_ts_module_refuses(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text(
+            (root / "index.ts").write_text(
                 'import { a } from "./gone.js"\n', encoding="utf-8"
             )
             with self.assertRaises(installer.InstallerError):
@@ -5087,7 +5177,7 @@ class DeriveAdapterFilesTest(unittest.TestCase):
     def test_an_escaping_import_inside_a_plain_js_module_refuses(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text(
+            (root / "index.ts").write_text(
                 'import { a } from "./plain.js"\n', encoding="utf-8"
             )
             (root / "plain.js").write_text(

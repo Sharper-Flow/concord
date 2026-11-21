@@ -4,13 +4,10 @@ The release installer owns adapter placement and version registration. Follow
 the [installation guide](../../.concord/docs/installation.md) for release artifacts,
 prerequisites, upgrade, and uninstall behavior.
 
-The release installer places the adapter under `~/.config/opencode/tools/` and
-registers the plugin entry module `concord-plugin.ts` in the host `plugin`
-array so OpenCode loads the typed tools. Keep the generated contract files
-beside the entry module. OpenCode invokes every function-valued export of a
-plugin entry module as a factory, so `concord-plugin.ts` exports exactly one
-default factory and re-exports the tool definitions from `concord.ts`; the tool
-modules are never used as entry points directly.
+The release installer registers the stable `current/adapter/opencode` directory
+in the host `plugins` array. Its `index.ts` exports the plugin, which registers
+the typed tools directly with `codemode: false`. Each result carries one JSON
+envelope string in `content`.
 
 The adapter presents the registered client reference selected by
 `CONCORD_CLIENT_REF`, defaulting to `opencode`. It reads no private signing key.
@@ -168,6 +165,11 @@ OpenCode owns Task execution, child sessions, progress, cancellation, permission
 and model selection. The adapter does not intercept Task arguments, authorize
 subagents, package prompts, or read their results into Concord evidence.
 
+On OpenCode 2.3.2, every subagent runs in the background. Task returns a session
+ID with status running; when the child goes idle, the host sends a `<subagent>`
+report to the parent. Act on a child only from its completed report, never by
+polling or sleeping.
+
 The coordinator obtains independent review through native Task, then records
 `record_review` through `concord_work_transition.workflow_action` with
 `fields` containing `step_id`, `note`, `reviewer`, `result`, `commit`, and
@@ -188,17 +190,11 @@ The resolved Project owns the session's Product scope. An inherited
 Project's Products. A Project that spans Products refuses until the operator
 names one.
 
-### The calling-host registry probe
+### Host qualification and registry probe
 
-Preparing a session for managed work runs one bounded probe of the calling
-host: the bare `opencode debug config` command in the session's
-directory, under the environment the calling process already has. The probe
-resolves the registry the identity check reads, and Concord appends no
-wrapper, option, or placeholder to it. An interrupted probe is a typed
-transient failure, and the same request passes once the host answers.
-
-An operator who wraps the host binary does that in host configuration, outside
-this repository.
+Preparing a session for managed work probes the calling host with `opencode
+debug agents` and reads the JSON array for the identity check. The credential-free
+host qualification script is `scripts/qualify-opencode-host.py`.
 
 ### Recommended host permission and fallback configuration
 
@@ -258,7 +254,7 @@ operator-owned UI/UX approval; a Task result never supplies it. Product browser
 tooling may be used when exposed by the host, but the profile adds no provider.
 
 Hosts that enable helper-to-utility delegation must set OpenCode's
-[`subagent_depth`](https://github.com/anomalyco/opencode/blob/v1.18.29/packages/web/src/content/docs/config.mdx)
+[`experimental.subagent_depth`](https://github.com/anomalyco/opencode/blob/fedc6f208aa2bd54c1019227214568083f6380ad/packages/core/src/tool/plugin/subagent.ts#L135)
 to `2`. Its default `1` admits the helper but stops nested Tasks; the profile's
 Task allowlist does not override that host ceiling. Concord does not change it.
 
@@ -268,11 +264,11 @@ targets under its plugin tuple, for example:
 
 ```jsonc
 {
-  "plugin": [["opencode-model-routing", {
+  "plugins": [{"package": "opencode-model-routing", "options": {
     "agents": {
       "concord-review": { "fallback_models": ["provider/preferred", "provider/fallback"] }
     }
-  }]]
+  }}]
 }
 ```
 

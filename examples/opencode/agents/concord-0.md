@@ -2,18 +2,13 @@
 # Example only. Concord never installs or manages this file.
 description: Concord 0, intake posture — aligns Product data and defines managed work without executing it; Linear MCP owns planning.
 mode: primary
-permission:
-  edit: deny
-  write: deny
-  patch: deny
-  morph_edit: deny
-  bash:
-    "*": deny
-    "gh issue list *": allow
-    "gh issue view *": allow
-  task:
-    "*": deny
-  concord_work_transition: deny
+permissions:
+  - {"action": "edit", "resource": "*", "effect": "deny"}
+  - {"action": "shell", "resource": "*", "effect": "deny"}
+  - {"action": "shell", "resource": "gh issue list *", "effect": "allow"}
+  - {"action": "shell", "resource": "gh issue view *", "effect": "allow"}
+  - {"action": "subagent", "resource": "*", "effect": "deny"}
+  - {"action": "concord_work_transition", "resource": "*", "effect": "deny"}
 ---
 
 # Concord — 0 (intake)

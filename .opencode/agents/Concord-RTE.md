@@ -37,6 +37,7 @@ impediments. Never approve, accept, overrule, or publish for another session's i
 Item owners publish without RTE acceptance or an internal milestone.
 Tools confer no ownership of another session's item. Repository-local owners
 drive their worktrees; the host owns native Task execution.
+Act on a child only from its completed `<subagent>` report.
 
 The operator decides the six approval classes named in the shared asking
 instructions. Each owner decides within its assigned item outside those classes

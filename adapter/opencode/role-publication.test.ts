@@ -18,8 +18,7 @@ import { roleDeniedConcordTools } from "./generated-primary-profiles"
 
 const adapter = await import("./concord")
 
-// The complete registered catalog: the request tools plus the
-// separately hooked host tools.
+// The complete registered catalog: the request tools and host tools.
 const CATALOG = [...new Set(contractOperations.map((operation: any) => operation.tool)), ...Object.keys(hostToolSchemas)].sort()
 const utilities = JSON.parse(
   fs.readFileSync(path.resolve(import.meta.dir, "../../contracts/agent-utilities.v1.json"), "utf8"),
@@ -27,14 +26,12 @@ const utilities = JSON.parse(
 const UTILITY_AGENTS = utilities.utilities.map((utility) => `concord-${utility.id}`)
 const READS = ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_domain"]
 
-// Every registered parameter root, measured through the production
-// definition hooks exactly as the host renders them for the provider.
+// Every registered parameter root, measured through the production input schema.
 const registeredBytes = new Map<string, number>()
 for (const tool of [...new Set(contractOperations.map((operation: any) => operation.tool))]) {
-  const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
-  await adapter.publishRequestDefinition({ toolID: tool }, output)
-  expect(output.jsonSchema, tool).toBeObject()
-  registeredBytes.set(tool, Buffer.byteLength(JSON.stringify(output.jsonSchema), "utf8"))
+  const input = adapter.registeredInputSchema(tool)
+  expect(input, tool).toBeObject()
+  registeredBytes.set(tool, Buffer.byteLength(JSON.stringify(input), "utf8"))
 }
 
 function projectedBytes(role: string): { allowed: string[]; bytes: number } {
@@ -111,15 +108,13 @@ test("per-role no-overlay byte budgets match the complete parameter roots", () =
   }
 })
 
-test("grants select whole tools and never trim a published schema", async () => {
+test("grants select whole tools and never trim a published schema", () => {
   // Each allowed tool keeps its complete per-operation branch list; the
   // primary profiles keep the full transition root with every registry
   // action variant. Role authority never rewrites publication: it can only
   // withhold a whole tool.
   for (const tool of READS) {
-    const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
-    await adapter.publishRequestDefinition({ toolID: tool }, output)
-    const expanded: any = expandedPublishedRequestSchema(output.jsonSchema)
+    const expanded: any = expandedPublishedRequestSchema(adapter.registeredInputSchema(tool))
     const operations = contractOperations.filter((operation: any) => operation.tool === tool)
     expect(expanded.oneOf, tool).toHaveLength(operations.length)
   }
@@ -127,18 +122,17 @@ test("grants select whole tools and never trim a published schema", async () => 
   expect(workflowActionPublicVariants.length).toBe(21)
 })
 
-test("publication is role-blind, so a denied role's budget is not an immutable ceiling", async () => {
+test("publication is role-blind, so a denied role's budget is not an immutable ceiling", () => {
   // Registration publishes the complete root for every tool regardless of
-  // any role's denial: the definition hook receives only the tool ID. The
+  // any role's denial: the registered schema depends only on the tool ID. The
   // role projection is therefore host visibility, not schema removal. A
   // later session or agent allow can re-expose a denied tool. This test
   // pins that structural precondition.
   for (const tool of CATALOG) {
-    const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
-    await adapter.publishRequestDefinition({ toolID: tool }, output)
+    const input = adapter.registeredInputSchema(tool)
     const rootBytes = registeredBytes.get(tool)
     expect(rootBytes, tool).toBeNumber()
-    expect(Buffer.byteLength(JSON.stringify(output.jsonSchema), "utf8"), tool).toBe(rootBytes!)
+    expect(Buffer.byteLength(JSON.stringify(input), "utf8"), tool).toBe(rootBytes!)
   }
 })
 

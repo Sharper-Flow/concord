@@ -126,10 +126,10 @@ Project locator. Register a `canonical_path` locator (or a matching `git_remote`
 before the adapter invokes a tool.
 
 Each ordinary tool call reads the session's current directory through
-`GET /session/{id}` on the client bound by the plugin factory, then passes that
-directory to `project-resolve` and the call envelope. It does not use the
+`ctx.session.get({ sessionID })` and uses `location.directory` for
+`project-resolve` and the call envelope. It does not use the
 plugin's startup directory, cache a Project, or reconstruct a host URL.
-A missing client, refused read, or absent directory returns a typed no-effect
+A failed read or absent directory returns a typed no-effect
 failure before core invocation. Host refusal messages remain visible.
 
 ## Verbatim first installation
@@ -254,7 +254,7 @@ operator-owned UI/UX approval; a Task result never supplies it. Product browser
 tooling may be used when exposed by the host, but the profile adds no provider.
 
 Hosts that enable helper-to-utility delegation must set OpenCode's
-[`experimental.subagent_depth`](https://github.com/anomalyco/opencode/blob/fedc6f208aa2bd54c1019227214568083f6380ad/packages/core/src/tool/plugin/subagent.ts#L135)
+[`experimental.subagent_depth`](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/core/src/session/subagent-depth.ts#L14)
 to `2`. Its default `1` admits the helper but stops nested Tasks; the profile's
 Task allowlist does not override that host ceiling. Concord does not change it.
 

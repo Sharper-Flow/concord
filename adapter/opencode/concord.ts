@@ -23,7 +23,8 @@ function tool<T extends { name: string; description: string }>(definition: T) {
       const request = record(args) ? args.request : undefined
       if (!record(request)) {
         const requestID = `${context.sessionID}-${context.messageID}`
-        return encodeHostResult(definition.name, "", requestID, adapterError(definition.name, "", requestID, "invalid_request_wrapper", "Missing or invalid request wrapper: submit {request: {operation, input}}."))
+        const operation = record(args) && typeof args.operation === "string" && contractOperations.some((item) => item.tool === definition.name && item.id === `${definition.name}.${args.operation}`) ? args.operation : ""
+        return encodeHostResult(definition.name, operation, requestID, adapterError(definition.name, operation, requestID, "invalid_request_wrapper", "Missing or invalid request wrapper: submit {request: {operation, input}}."))
       }
       return executeHostTool(definition.name, request as HostToolArgs, context)
     },
@@ -123,6 +124,9 @@ function publishClosedSchema(value: unknown, resolving = new Set<string>()): JSO
     const next = new Set(resolving)
     next.add(name)
     const resolved = publishClosedSchema((payloadSchemas as Record<string, unknown>)[name], next)
+    // Sibling keywords alongside a $ref apply in the authored contract: required
+    // sets union, properties overlay, and every other sibling key overrides the
+    // resolved target's. Dropping structural siblings would loosen the bounds.
     const siblings = Object.fromEntries(Object.entries(schema).filter(([key]) => key !== "$ref" && !(key === "examples" && typeof schema.description === "string" && schema.description.includes("Accepted shape:"))))
     if (Object.keys(siblings).length === 0) return resolved
     const merged: Record<string, unknown> = { ...resolved }
@@ -156,12 +160,17 @@ function publishClosedSchema(value: unknown, resolving = new Set<string>()): JSO
   return result as JSONSchema
 }
 
+// An alternative container has no field of its own. Its property descriptions
+// already teach every authored member; repeating a full request example on each
+// container spends the provider's bounded input budget without adding a field.
 function publishSchemaAlternative(value: unknown, resolving = new Set<string>()): JSONSchema {
   const schema = publishClosedSchema(value, resolving)
   if (schema.type === "object" && typeof schema.description === "string") {
     const marker = schema.description.indexOf("Accepted shape:")
     if (marker >= 0) {
       const original = schema.description.slice(0, marker).trimEnd()
+      // The container's example duplicates its properties, but its own
+      // cardinality or numeric constraints still need first-call teaching.
       const bounds = schema.description.indexOf("Bounds:", marker)
       const end = schema.description.indexOf("; example:", bounds)
       const teaching = bounds >= 0 ? schema.description.slice(bounds, end >= 0 ? end : undefined) : ""
@@ -218,6 +227,14 @@ function factorPublication(schema: JSONSchema): JSONSchema {
   return parent
 }
 
+// Each publication owns its definition table. Only identical repeated schema
+// nodes large enough to outweigh a local pointer/table entry are interned.
+// Children are interned first, so definition dependencies form an acyclic DAG.
+// Interning then re-measures the finished graph: an interned ancestor absorbs
+// duplicate occurrences of a child, so a child definition can end up
+// referenced fewer times than the expanded tree counted. Definitions whose
+// final references no longer outweigh their table entry are inlined back,
+// one candidate per pass in table order, to a fixpoint.
 function internPublication(schema: JSONSchema): JSONSchema {
   const counts = new Map<string, number>()
   const count = (node: JSONSchema): JSONSchema => {
@@ -233,6 +250,8 @@ function internPublication(schema: JSONSchema): JSONSchema {
     const key = JSON.stringify(node)
     if (names.has(key)) return { $ref: `#/$defs/${names.get(key)}` }
     const body = mapPublicationChildren(node, intern)
+    // Provider validators require reference targets to carry a concrete
+    // schema, not a bare combinator. Keep those unions inline.
     if (Object.keys(body).every((keyword) => ["oneOf", "anyOf", "allOf"].includes(keyword))) return body
     const name = `d${names.size}`
     const pointer = { $ref: `#/$defs/${name}` }
@@ -270,6 +289,8 @@ function internPublication(schema: JSONSchema): JSONSchema {
     if (inlined === undefined) break
     const ref = `#/$defs/${inlined}`
     const body = definitions[inlined]
+    // Each substitution site gets its own copy: published documents must stay
+    // structurally alias-free because host hooks may mutate what they receive.
     const substitute = (node: JSONSchema): JSONSchema => {
       if (Object.keys(node).length === 1 && node.$ref === ref) return JSON.parse(JSON.stringify(body)) as JSONSchema
       return mapPublicationChildren(node, substitute)

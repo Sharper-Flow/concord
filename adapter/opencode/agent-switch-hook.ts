@@ -1,3 +1,5 @@
+// Keep the SENTINEL byte-identical to the host-level opencode-agent-switch
+// plugin so whichever emitter runs first causes the other to skip.
 const SENTINEL = "\n\n--- ACTIVE AGENT CHANGED ---\n"
 const MAX_SESSIONS = 512
 

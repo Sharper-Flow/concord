@@ -253,7 +253,7 @@ test("request-wrapped tools refuse a missing request wrapper before any host eff
       expect(envelope.error).toMatchObject({ kind: "invalid_input", effect_state: "none", retry_safe: false, recovery_action: { kind: "correct_request" } })
       expect(envelope.error.message).toContain("request wrapper")
       expect(envelope.tool).toBe(toolName)
-      expect(envelope.operation).toBe("")
+      expect(envelope.operation).toBe("operation" in args && args.operation === operation ? operation : "")
       expect(validateGeneratedEnvelope(envelope), result.content).toBe(true)
       if (envelope.operation === "") {
         expect(validateGeneratedEnvelope({ ...envelope, origin: "core" })).toBe(false)

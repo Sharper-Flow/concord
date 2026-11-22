@@ -133,6 +133,10 @@ class SyntheticProviderIntegrationTest(unittest.TestCase):
             self.assertTrue(output["compacted"])
             self.assertGreaterEqual(primary, 2)
             self.assertEqual(len(output["guard_observations"]["retry_events"]), 1)
+            error = output["guard_observations"]["retry_events"][0]["error"]
+            self.assertIsInstance(error.get("type"), str)
+            self.assertEqual(error.get("status"), 429)
+            self.assertLessEqual(set(error), {"type", "status"})
             self.assertEqual(entries[0]["group_id"], entries[1]["group_id"])
             self.assertEqual(Decimal(entries[0]["charge"]), budget.reservation(limits, rates))
             self.assertEqual(Decimal(entries[1]["charge"]), Decimal("0.000092"))

@@ -2,6 +2,9 @@
 
 import os
 import pwd
+import shutil
+import socket
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -43,6 +46,51 @@ class SandboxTest(unittest.TestCase):
         self.assertNotIn("poison", argv)
         self.assertTrue(any(argv[i:i + 3] == ["--setenv", "SYNTHETIC_PROVIDER_KEY", "synthetic"]
                             for i in range(len(argv) - 2)))
+
+    def test_resolver_file_is_bound_only_when_target_is_inside_run(self):
+        resolver = self.root.parent / "resolv.conf"
+        resolver.symlink_to("/run/synthetic-resolver/resolv.conf")
+        launcher = sandbox.Launcher(self.root, self.binary, self.profile, resolver_path=resolver)
+        argv, _ = launcher.command(["--version"])
+        target = "/run/synthetic-resolver/resolv.conf"
+        bind = ["--ro-bind", target, target]
+        index = next(i for i in range(len(argv) - 2) if argv[i:i + 3] == bind)
+        run_tmpfs = next(i for i in range(len(argv) - 1) if argv[i:i + 2] == ["--tmpfs", "/run"])
+        self.assertGreater(index, run_tmpfs)
+        self.assertEqual([argv[i:i + 3] for i in range(len(argv) - 2)
+                          if argv[i] in ("--ro-bind", "--bind") and (argv[i + 1] == "/run" or argv[i + 1].startswith("/run/"))], [bind])
+        resolver.unlink()
+        resolver.write_text("nameserver 192.0.2.1\n")
+        launcher = sandbox.Launcher(self.root, self.binary, self.profile, resolver_path=resolver)
+        argv, _ = launcher.command(["--version"])
+        self.assertNotIn(bind, [argv[i:i + 3] for i in range(len(argv) - 2)])
+        self.assertFalse(any(argv[i] in ("--ro-bind", "--bind") and (argv[i + 1] == "/run" or argv[i + 1].startswith("/run/"))
+                             for i in range(len(argv) - 1)))
+
+    @unittest.skipUnless(os.environ.get("CONCORD_EVAL_OPENCODE_BIN"), "set CONCORD_EVAL_OPENCODE_BIN for sandbox integration")
+    def test_real_sandbox_resolver(self):
+        getent = shutil.which("getent")
+        self.assertIsNotNone(getent)
+        try:
+            socket.getaddrinfo("api.anthropic.com", 443)
+            online = True
+        except socket.gaierror:
+            online = False
+        binary = getent if online else shutil.which("test")
+        self.assertIsNotNone(binary)
+        launcher = sandbox.Launcher(self.root, binary, {})
+        args = ["hosts", "api.anthropic.com"] if online else ["-r", "/etc/resolv.conf"]
+        process = launcher.popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = process.communicate(timeout=30)
+        self.assertEqual(process.returncode, 0, stderr.decode(errors="replace"))
+        if online:
+            self.assertTrue(stdout.strip())
+        else:
+            target = Path("/etc/resolv.conf").resolve()
+            if target.is_relative_to("/run"):
+                argv, _ = launcher.command(args)
+                self.assertIn(["--ro-bind", str(target), str(target)],
+                              [argv[i:i + 3] for i in range(len(argv) - 2)])
 
     def test_unsafe_profile_binds_and_environment_are_refused(self):
         home = Path(pwd.getpwuid(os.getuid()).pw_dir)

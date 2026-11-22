@@ -35,9 +35,10 @@ def profile_digest(profile):
 
 
 class Launcher:
-    def __init__(self, root, binary, profile):
+    def __init__(self, root, binary, profile, *, resolver_path=Path("/etc/resolv.conf")):
         self.root = Path(root).resolve()
         self.binary = Path(binary).resolve()
+        self.resolver = Path(resolver_path).resolve()
         if not self.root.is_dir() or not self.binary.is_file():
             raise ValueError("run root and executable must exist")
         if not isinstance(profile, dict):
@@ -89,8 +90,11 @@ class Launcher:
                 raise ValueError("invalid or conflicting harness environment")
             env.update(extra_env)
         argv = ["bwrap", "--clearenv", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
-                "--tmpfs", self.home, "--tmpfs", "/tmp", "--tmpfs", "/run", "--unshare-pid", "--die-with-parent",
-                "--bind", str(self.root), str(self.root), "--ro-bind", str(self.binary), str(self.binary)]
+                "--tmpfs", self.home, "--tmpfs", "/tmp", "--tmpfs", "/run"]
+        if self.resolver.is_relative_to("/run") and self.resolver != Path("/run"):
+            argv.extend(["--ro-bind", str(self.resolver), str(self.resolver)])
+        argv.extend(["--unshare-pid", "--die-with-parent", "--bind", str(self.root), str(self.root),
+                     "--ro-bind", str(self.binary), str(self.binary)])
         for path in self.binds:
             argv.extend(["--ro-bind", path, path])
         for path in readonly:

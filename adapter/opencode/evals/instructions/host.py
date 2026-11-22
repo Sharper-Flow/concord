@@ -105,7 +105,8 @@ PLUGIN = r'''export default {
                                    assistantMessageID: event.data.assistantMessageID,
                                    finish: event.data.finish, tokens: event.data.tokens});
             if (event.type === "session.retry.scheduled")
-              await send("/retry", {sessionID: event.data.sessionID, attempt: event.data.attempt});
+              await send("/retry", {sessionID: event.data.sessionID, attempt: event.data.attempt,
+                                    error: {type: event.data.error?.type, status: event.data.error?.status}});
           }
         } catch (error) {
           reason = /^harness bridge refused \/(?:step|retry): \d{3}$/.test(error?.message)

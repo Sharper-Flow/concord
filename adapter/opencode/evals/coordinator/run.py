@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 import secrets
 import shutil
 import subprocess
@@ -10,6 +11,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import sandbox
 from evaluation import evaluate
 from scenarios import REVIEW_FIELDS, SCENARIOS, runtime_response
 
@@ -204,11 +207,20 @@ def write_json(path, value):
     path.write_text(json.dumps(value, indent=2) + "\n")
 
 
-def command_to_files(command, root, stem, timeout):
+def command_to_files(launcher, command, root, stem, timeout):
     with (root / f"{stem}.jsonl").open("wb") as stdout, (root / f"{stem}.stderr").open("wb") as stderr:
         try:
-            result = subprocess.run(command, cwd=root, stdout=stdout, stderr=stderr, timeout=timeout)
-            return result.returncode
+            process = launcher.popen(command, stdout=stdout, stderr=stderr, extra_env={
+                "OPENCODE_DISABLE_EXTERNAL_SKILLS": "1", "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS": "1",
+                "OPENCODE_DISABLE_CLAUDE_CODE": "1", "OPENCODE_DISABLE_MODELS_FETCH": "true",
+                "OPENCODE_DISABLE_PROJECT_CONFIG": "1", "OPENCODE_CONFIG_DIR": str(root),
+            })
+            try:
+                return process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                return None
         except subprocess.TimeoutExpired:
             return None
 
@@ -245,7 +257,13 @@ def remove_own_dependency_copy(root):
 PRODUCTION_SOURCES = (
     "adapter/opencode/concord.ts",
     "adapter/opencode/core-runtime.ts",
+    "adapter/opencode/credentials.ts",
     "adapter/opencode/generated-contracts.ts",
+    "adapter/opencode/generated-contract-tests.ts",
+    "adapter/opencode/generated-release.ts",
+    "adapter/opencode/host-lease.ts",
+    "adapter/opencode/manifest-pin.ts",
+    "adapter/opencode/mutation-result.ts",
     "contracts/agent-tool-surface-payloads.schema.json",
     "contracts/agent-tool-surface.v1.json",
     "contracts/host-tool-surface.v1.json",
@@ -341,6 +359,9 @@ return {content:JSON.stringify(value),metadata:{synthetic:true}};
 def run_case(args, name, source, originals):
     case = SCENARIOS[name]
     root = Path(tempfile.mkdtemp(prefix=f"coordinator-{name}-", dir=args.artifacts_dir))
+    launcher_profile = {**args.profile, "ro_binds": [*args.profile.get("ro_binds", []), str(args.sdk_tool.resolve())]}
+    launcher = sandbox.Launcher(root, args.binary, launcher_profile)
+    provenance = launcher.verify_version(timeout=30)
     (root / ".opencode" / "plugins" / "coordinator").mkdir(parents=True)
     (root / "instructions").mkdir()
     (root / "evaluation-sources").mkdir()
@@ -354,6 +375,9 @@ def run_case(args, name, source, originals):
     for relative in PRODUCTION_SOURCES:
         content = (args.repo.resolve() / relative).read_bytes()
         (root / "production-sources" / relative.replace("/", "__")).write_bytes(content)
+        staged = root / "production-tree" / relative
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_bytes(content)
         production_hashes[relative] = digest(content)
     write_json(root / "case.json", case)
     receipts, paths, hashes = {}, [], {}
@@ -384,8 +408,10 @@ def run_case(args, name, source, originals):
         "instructions": paths, "permissions": permissions,
         # The doubles load as one local plugin directory with an index
         # entry, registered explicitly by absolute path.
-        "plugins": [str(root / ".opencode" / "plugins" / "coordinator")],
-        "agents": {"coordinator-probe": {
+        "plugins": [str(root / ".opencode" / "plugins" / "coordinator"), *args.profile.get("plugins", [])],
+        "providers": args.profile.get("providers", {}),
+        "share": "disabled", "update": "disable", "compaction": {"auto": False},
+        "agents": {"title": {"disabled": True}, "coordinator-probe": {
             "description": "Isolated coordinator behavior evaluation", "mode": "primary",
             "model": args.model, "steps": 6, "permissions": permissions, "system": prompt,
         }},
@@ -393,7 +419,7 @@ def run_case(args, name, source, originals):
     write_json(root / "opencode.json", config)
     config_hash = digest((root / "opencode.json").read_bytes())
     sources = double_sources(root, case, sdk_tool=args.sdk_tool,
-                             production_concord=args.repo.resolve() / "adapter/opencode/concord.ts")
+                             production_concord=root / "production-tree/adapter/opencode/concord.ts")
     for relative, content in sources.items():
         target = root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -405,8 +431,8 @@ def run_case(args, name, source, originals):
     # OpenCode 2.3.2 takes the working directory as a root positional argument
     # and isolates through a private server (--standalone), and session export
     # lives under the session subcommand.
-    exit_code = command_to_files([
-        "opencode", "--standalone", str(root), "run", "--agent", "coordinator-probe",
+    exit_code = command_to_files(launcher, [
+        "--standalone", str(root), "run", "--agent", "coordinator-probe",
         "--model", args.model, "--format", "json", case["prompt"],
     ], root, "events", 240)
     try:
@@ -416,17 +442,19 @@ def run_case(args, name, source, originals):
         ids = {event["sessionID"] for event in events if event.get("sessionID")}
         readback = {}
         if len(ids) == 1:
-            exported = command_to_files(["opencode", "--standalone", str(root), "session", "export", ids.pop(), "--sanitize"], root, "session", 60)
+            exported = command_to_files(launcher, ["--standalone", str(root), "session", "export", ids.pop(), "--sanitize"], root, "session", 60)
             if exported == 0:
                 readback = json.loads((root / "session.jsonl").read_text())
-        identities = [{"agent": item["info"].get("agent"), "model": f'{item["info"].get("providerID")}/{item["info"].get("modelID")}'}
-                      for item in readback.get("messages", []) if item.get("info", {}).get("role") == "assistant"]
+        identities = [{"agent": item.get("agent"), "model": f'{item.get("model", {}).get("providerID")}/{item.get("model", {}).get("id")}'}
+                      for item in readback.get("messages", []) if item.get("type") == "assistant"]
         identity_verified = bool(identities) and all(item == {"agent": "coordinator-probe", "model": args.model} for item in identities)
         unchanged = all(digest(Path(path).read_bytes()) == hashes[Path(path).name] for path in paths)
         unchanged = unchanged and digest((root / "opencode.json").read_bytes()) == config_hash
         unchanged = unchanged and all(digest((root / relative).read_bytes()) == value for relative, value in tool_hashes.items())
         unchanged = unchanged and all(
             digest((args.repo.resolve() / relative).read_bytes()) == value for relative, value in production_hashes.items())
+        unchanged = unchanged and all(
+            digest((root / "production-tree" / relative).read_bytes()) == value for relative, value in production_hashes.items())
         result = evaluate(case, calls, events, exit_code, receipts)
         result.update({"runtime_identities": identities, "identity_verified": identity_verified, "snapshots_unchanged": unchanged})
         result["passed"] = result["passed"] and identity_verified and unchanged
@@ -440,6 +468,7 @@ def run_case(args, name, source, originals):
         "evaluator_sha256": evaluator_hashes,
         "production_source_sha256": production_hashes,
         "tool_source_sha256": tool_hashes,
+        "opencode": provenance, "provider_profile_sha256": args.profile_digest,
         "limits": "Advisory instrumented coordinator evaluation. No subagent execution, real state mutation, deployment proof, or independent review authority.",
     })
     write_json(root / "result.json", result)
@@ -457,9 +486,25 @@ def run_case(args, name, source, originals):
 
 
 def run_model(args, parser):
-    for key in ("agent_source", "sdk_tool", "model", "artifacts_dir"):
+    for key in ("agent_source", "sdk_tool", "model", "artifacts_dir", "provider_profile"):
         if not getattr(args, key):
             parser.error(f"--{key.replace('_', '-')} is required for a model run")
+    binary = os.environ.get("CONCORD_EVAL_OPENCODE_BIN")
+    if not binary or not os.path.isabs(binary) or not Path(binary).is_file():
+        parser.error("CONCORD_EVAL_OPENCODE_BIN must name the pinned executable")
+    try:
+        profile = json.loads(args.provider_profile.read_text())
+        if not isinstance(profile, dict) or profile.get("model") != args.model:
+            raise ValueError("provider profile model mismatch")
+        if not isinstance(profile.get("providers", {}), dict):
+            raise ValueError("invalid providers")
+        args.profile_digest = sandbox.profile_digest(profile)
+        args.profile, args.binary = profile, binary
+        if not args.sdk_tool.is_file():
+            raise ValueError("--sdk-tool must name an existing file")
+        sandbox.Launcher(args.artifacts_dir, binary, {**profile, "ro_binds": [*profile.get("ro_binds", []), str(args.sdk_tool.resolve())]})
+    except (ValueError, OSError, TypeError) as error:
+        parser.error(str(error))
     if not args.artifacts_dir.is_dir():
         parser.error("--artifacts-dir must be an existing directory outside the repository")
     if args.artifacts_dir.resolve().is_relative_to(args.repo.resolve()):
@@ -484,6 +529,7 @@ def main():
     parser.add_argument("--sdk-tool", type=Path)
     parser.add_argument("--model")
     parser.add_argument("--artifacts-dir", type=Path)
+    parser.add_argument("--provider-profile", type=Path)
     select = parser.add_mutually_exclusive_group()
     select.add_argument("--scenario", choices=SCENARIOS, nargs="+")
     select.add_argument("--all", action="store_true")
@@ -492,10 +538,7 @@ def main():
     if args.list:
         print(json.dumps(list(SCENARIOS)))
         return 0
-    print("Coordinator model runs are unavailable until CON-1944 provides a qualified OpenCode 2.3.2 provider: "
-          "https://linear.app/sharper-flow/issue/CON-1944/instruction-evals-cannot-run-on-an-opencode-232-host",
-          file=sys.stderr)
-    return 1
+    return run_model(args, parser)
 
 
 if __name__ == "__main__":

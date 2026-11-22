@@ -55,7 +55,8 @@ class RunCleanupTests(unittest.TestCase):
 
     def args(self):
         return argparse.Namespace(repo=self.repo, sdk_tool=Path("/synthetic/sdk/index.js"),
-                                  model="synthetic/model", artifacts_dir=self.artifacts)
+                                  model="synthetic/model", artifacts_dir=self.artifacts,
+                                  profile={"model": "synthetic/model"}, binary="/synthetic/bin", profile_digest="profile-hash")
 
     def install_dependency_copy(self, root):
         """The disposable copy the runtime installs under the run's .opencode."""
@@ -66,13 +67,14 @@ class RunCleanupTests(unittest.TestCase):
         (root / ".opencode" / "bun.lock").write_text("synthetic lockfile bytes\n")
 
     def run_case(self, during=None, exit_code=0):
-        def stub(command, root, stem, timeout):
+        def stub(launcher, command, root, stem, timeout):
             (root / f"{stem}.jsonl").write_text("")
             self.install_dependency_copy(root)
             if during is not None:
                 during(root)
             return exit_code
-        with mock.patch.object(run, "command_to_files", side_effect=stub):
+        with mock.patch.object(run, "command_to_files", side_effect=stub), mock.patch.object(run.sandbox, "Launcher") as factory:
+            factory.return_value.verify_version.return_value = {"version": run.sandbox.VERSION, "sha256": "binary-hash"}
             return run.run_case(self.args(), "native-route-discovery", "coordinator body", {"rules.md": b"rule"})
 
     def assert_evidence_retained(self, result):

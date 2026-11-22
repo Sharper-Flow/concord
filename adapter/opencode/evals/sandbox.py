@@ -67,10 +67,13 @@ class Launcher:
         self.profile_env = profile.get("env", {})
         if not isinstance(self.profile_env, dict):
             raise ValueError("invalid profile environment")
+        binary_bytes = self.binary.read_bytes()
+        self.binary_sha256 = hashlib.sha256(binary_bytes).hexdigest()
         for name, value in self.profile_env.items():
             if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)
                     or name in _RESERVED or name == "NODE_OPTIONS"
-                    or name.startswith(("XDG_", "HARNESS_", "OPENCODE_", "BUN_", "LD_"))
+                    or name.startswith(("XDG_", "HARNESS_", "BUN_", "LD_"))
+                    or name.encode("ascii") in binary_bytes
                     or not isinstance(value, str) or "\0" in value):
                 raise ValueError("unsafe profile environment")
 
@@ -125,4 +128,4 @@ class Launcher:
             result = subprocess.run(argv, env=env, pass_fds=(fd,), capture_output=True, text=True, timeout=timeout, check=False)
         if result.returncode or result.stdout.strip() != VERSION:
             raise ValueError(f"unexpected OpenCode version (exit {result.returncode}): {result.stderr.strip()}")
-        return {"version": VERSION, "sha256": hashlib.sha256(self.binary.read_bytes()).hexdigest()}
+        return {"version": VERSION, "sha256": self.binary_sha256}

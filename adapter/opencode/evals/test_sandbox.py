@@ -17,7 +17,7 @@ class SandboxTest(unittest.TestCase):
         self.root = Path(temporary.name) / "run"
         self.root.mkdir()
         self.binary = Path(temporary.name) / "opencode"
-        self.binary.write_text("synthetic executable")
+        self.binary.write_bytes(b"synthetic executable OPENCODE_CONFIG_CONTENT PROVIDER_NATIVE")
         self.plugin = Path(temporary.name) / "plugin"
         self.plugin.mkdir()
         self.extra = Path(temporary.name) / "credentials"
@@ -50,9 +50,18 @@ class SandboxTest(unittest.TestCase):
                      str(home / ".local/share/opencode"), str(home / ".config/opencode"), "relative"):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 sandbox.Launcher(self.root, self.binary, {**self.profile, "ro_binds": [path]})
-        for name in ("HOME", "PATH", "XDG_CONFIG_HOME", "OPENCODE_CONFIG_DIR", "OPENCODE_OTHER", "NODE_OPTIONS", "BUN_FOO", "LD_PRELOAD", "bad=name"):
+        for name in ("HOME", "PATH", "XDG_CONFIG_HOME", "HARNESS_TOKEN", "OPENCODE_CONFIG_DIR", "NODE_OPTIONS", "BUN_FOO", "LD_PRELOAD", "bad=name"):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 sandbox.Launcher(self.root, self.binary, {**self.profile, "env": {name: "x"}})
+
+    def test_binary_owned_names_are_refused_but_plugin_names_are_allowed(self):
+        for name in ("OPENCODE_CONFIG_CONTENT", "PROVIDER_NATIVE"):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                sandbox.Launcher(self.root, self.binary, {**self.profile, "env": {name: "x"}})
+        launcher = sandbox.Launcher(self.root, self.binary, {**self.profile, "env": {"OPENCODE_CLAUDE_MAX_CONFIG": "fixture"}})
+        argv, _ = launcher.command(["--version"])
+        self.assertIn(["--setenv", "OPENCODE_CLAUDE_MAX_CONFIG", "fixture"],
+                      [argv[i:i + 3] for i in range(len(argv) - 2)])
 
     def test_wrong_version_is_refused_before_server_start(self):
         launcher = sandbox.Launcher(self.root, self.binary, self.profile)

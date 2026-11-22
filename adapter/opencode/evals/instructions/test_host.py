@@ -227,6 +227,15 @@ class V2HostTest(unittest.TestCase):
             host.run_session(root, self.snapshot, "provider/model", "S18", provider_profile=self.profile)
         self.assertFalse((root / "v2-requests.jsonl").exists())
 
+    def test_session_receives_explicit_model_variant(self):
+        model = "provider/model#high"
+        self.profile.write_text(json.dumps({"plugins": [], "ro_binds": [], "env": {}, "model": model}))
+        root = self.base / "variant"
+        host.run_session(root, self.snapshot, model, "S18", provider_profile=self.profile, timeout_seconds=30)
+        requests = [json.loads(line) for line in (root / "v2-requests.jsonl").read_text().splitlines()]
+        session = next(r for r in requests if r["path"] == "/api/session")
+        self.assertEqual(session["body"]["model"], {"providerID": "provider", "id": "model", "variant": "high"})
+
 
 class HostTest(V2HostTest):
     def test_guard_failure_interrupts_wait(self):

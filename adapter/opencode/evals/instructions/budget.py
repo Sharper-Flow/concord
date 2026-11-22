@@ -22,9 +22,10 @@ def _decimal(value):
 
 
 def reservation(limits, rates):
-    if not isinstance(limits, dict) or any(type(limits.get(k)) is not int or limits[k] <= 0 for k in ("context", "input", "output")):
+    if (not isinstance(limits, dict) or any(type(limits.get(k)) is not int or limits[k] <= 0 for k in ("context", "output"))
+            or ("input" in limits and (type(limits["input"]) is not int or limits["input"] <= 0))):
         raise ValueError("positive integer model limits required")
-    if limits["input"] > limits["context"]:
+    if "input" in limits and limits["input"] > limits["context"]:
         raise ValueError("input limit exceeds context")
     if not isinstance(rates, dict) or set(rates) != {"input", "output", "cache_read", "cache_write"}:
         raise ValueError("four nominal rates required")
@@ -33,9 +34,11 @@ def reservation(limits, rates):
             + limits["output"] * prices["output"]) / 1_000_000
 
 
-def normalized_charge(info, provider, model, limits, rates):
+def normalized_charge(info, provider, model, limits, rates, variant=None):
     if isinstance(info, dict) and info.get("type") in ("assistant", "compaction"):
         model_ref = info.get("model") or {}
+        if not isinstance(model_ref, dict) or (variant is not None and model_ref.get("variant") != variant):
+            raise ValueError("assistant completion is not verified")
         if info["type"] == "compaction":
             if info.get("status") != "completed" or not info.get("summary"):
                 raise ValueError("compaction completion is not verified")
@@ -44,6 +47,8 @@ def normalized_charge(info, provider, model, limits, rates):
         info = {**info, "role": "assistant", "providerID": model_ref.get("providerID"),
                 "modelID": model_ref.get("id"), "finish": info.get("finish", "stop"),
                 "time": {"completed": info.get("time", {}).get("completed", 1)}}
+    elif variant is not None:
+        raise ValueError("assistant completion is not verified")
     if (not isinstance(info, dict) or info.get("role") != "assistant" or info.get("error") is not None
             or info.get("providerID") != provider or info.get("modelID") != model
             or not isinstance(info.get("finish"), str) or not info["finish"] or info["finish"] == "error"
@@ -170,7 +175,7 @@ class Journal:
             return ordinal
         return self.update(apply)
 
-    def settle(self, attempt_id, session_id, kind, group_id, info, provider, model, limits, rates):
+    def settle(self, attempt_id, session_id, kind, group_id, info, provider, model, limits, rates, variant=None):
         def apply(data):
             if not any(a.get("id") == attempt_id and a.get("status") == "pending" for a in data["attempts"]):
                 raise ValueError("attempt is not pending")
@@ -179,7 +184,7 @@ class Journal:
             if (not matches or not isinstance(info, dict) or not isinstance(info.get("id"), str) or not info["id"]
                     or info.get("type") != ("assistant" if kind == "context" else "compaction")):
                 raise ValueError("usage does not match request reservation")
-            charge = normalized_charge(info, provider, model, limits, rates)
+            charge = normalized_charge(info, provider, model, limits, rates, variant)
             if charge > Decimal(matches[-1]["charge"]):
                 raise ValueError("usage does not match request reservation")
             for entry in matches:

@@ -23,7 +23,8 @@ def _hashes():
 class Guard:
     def __init__(self, journal, attempt, model, limits, rates):
         self.journal, self.attempt = journal, attempt
-        self.provider, self.model = model.split("/")
+        ref = host.model_ref(model)
+        self.provider, self.model, self.variant = ref["providerID"], ref["id"], ref.get("variant")
         self.limits, self.rates = limits, rates
         self.failed = False
         self.groups = {}
@@ -38,11 +39,13 @@ class Guard:
             session = value.get("sessionID")
             kind = value.get("kind")
             limits = value.get("limits")
+            amount = budget.reservation(self.limits, self.rates)
             if (not isinstance(session, str) or not session or kind not in ("primary", "compaction")
                     or model.get("providerID") != self.provider or model.get("id") != self.model
+                    or (self.variant is not None and model.get("variant") != self.variant)
                     or not isinstance(limits, dict)
-                    or any(type(limits.get(k)) is not int or limits[k] != self.limits[k]
-                           for k in ("context", "input", "output"))):
+                    or set(limits) != set(self.limits)
+                    or any(type(limits[k]) is not type(self.limits[k]) or limits[k] != self.limits[k] for k in limits)):
                 raise ValueError("request identity or declared limits mismatch")
             group_kind = "context" if kind == "primary" else "compaction"
             group = self.groups.get(session)
@@ -51,7 +54,7 @@ class Guard:
                 self.groups[session] = group
             if group[0] != group_kind:
                 raise ValueError("previous group not settled")
-            return self.journal.reserve(self.attempt, session, *group, budget.reservation(self.limits, self.rates))
+            return self.journal.reserve(self.attempt, session, *group, amount)
         except Exception:
             self.failed = True
             raise
@@ -65,7 +68,7 @@ class Guard:
             if len(matches) != 1:
                 raise ValueError("settlement without matching reservation")
             session, group = matches[0]
-            result = self.journal.settle(self.attempt, session, *group, info, self.provider, self.model, self.limits, self.rates)
+            result = self.journal.settle(self.attempt, session, *group, info, self.provider, self.model, self.limits, self.rates, self.variant)
             del self.groups[session]
             return result
         except Exception:
@@ -90,9 +93,8 @@ class Guard:
 
 def execute(baseline_path, candidate_path, artifacts, model, limits_path, rates_path,
             timeout_seconds=180, *, max_new_attempts=96, repository=run.REPOSITORY, provider_profile=None):
-    if not isinstance(model, str) or model.count("/") != 1 or any(not p or p.strip() != p for p in model.split("/")):
-        raise ValueError("model must be providerID/modelID")
-    if model.split("/")[0] == "claude-agent":
+    selected_model = host.model_ref(model)
+    if selected_model["providerID"] == "claude-agent":
         raise ValueError("claude-agent bypasses the pilot HTTP guard")
     if type(timeout_seconds) is not int or timeout_seconds <= 0:
         raise ValueError("timeout must be a positive integer")
@@ -121,7 +123,7 @@ def execute(baseline_path, candidate_path, artifacts, model, limits_path, rates_
             or not isinstance(limits_data.get("source"), str) or not limits_data["source"].strip()):
         raise ValueError("limits require matching model and source")
     limits = limits_data.get("limits")
-    rates, source = run._validate_rates(json.loads(rates_path.read_text()), *model.split("/"))
+    rates, source = run._validate_rates(json.loads(rates_path.read_text()), selected_model["providerID"], selected_model["id"])
     reserve = budget.reservation(limits, rates)
     if reserve > budget.CAP:
         raise ValueError("one reservation exceeds the pilot ceiling")

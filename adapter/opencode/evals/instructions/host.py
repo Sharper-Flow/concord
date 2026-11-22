@@ -29,6 +29,21 @@ from .cases import ACTIONS, CASES, Fixture
 VERSION = "2.3.2"
 LOOPBACK = ".".join(("127", "0", "0", "1"))
 STAGE = "pre-provider-serialization"
+
+
+def model_ref(model):
+    if not isinstance(model, str) or model.count("/") != 1:
+        raise ValueError("model must be providerID/modelID[#variant]")
+    provider, selected = model.split("/")
+    parts = selected.split("#")
+    if len(parts) > 2 or any(not part or part.strip() != part for part in [provider, *parts]):
+        raise ValueError("model must be providerID/modelID[#variant]")
+    result = {"providerID": provider, "id": parts[0]}
+    if len(parts) == 2:
+        result["variant"] = parts[1]
+    return result
+
+
 TOOL_SCHEMA = {"type": "object", "properties": {"action": {"type": "string"},
                "arguments": {"type": "object", "additionalProperties": {}}},
                "required": ["action", "arguments"], "additionalProperties": False}
@@ -190,11 +205,8 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
     """Run one fixture in the pinned isolated OpenCode host."""
     if any(type(v) is not int or v < 1 for v in (timeout_seconds, max_steps, max_calls)):
         raise ValueError("timeout_seconds, max_steps and max_calls must be positive integers")
-    if not isinstance(model, str) or "/" not in model:
-        raise ValueError("model must be providerID/modelID")
-    provider, model_id = model.split("/", 1)
-    if not provider or not model_id:
-        raise ValueError("model must be providerID/modelID")
+    selected_model = model_ref(model)
+    provider, model_id = selected_model["providerID"], selected_model["id"]
     case = CASES[case_id]
     if provider_profile is None:
         raise ValueError("provider profile required")
@@ -321,7 +333,7 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
                             raise ValueError("invalid or failed step")
                         # Step events have no model; every admitted request already verified this identity.
                         message = {"id": value.get("assistantMessageID"), "type": "assistant",
-                                   "model": {"providerID": provider, "id": model_id},
+                                   "model": selected_model,
                                    "time": {"completed": 1}, "finish": value.get("finish"),
                                    "tokens": value.get("tokens")}
                         guard.settle(message)
@@ -416,7 +428,7 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
             except (urllib.error.URLError, TimeoutError, ConnectionError):
                 time.sleep(min(0.05, _remaining(deadline)))
         session = _request(base + "/api/session", payload={"title": "Instruction fixture " + case_id,
-                           "agent": "instruction-probe", "model": {"providerID": provider, "id": model_id},
+                           "agent": "instruction-probe", "model": selected_model,
                            "location": {"directory": str(fixture.root)}}, timeout=_remaining(deadline), password=password)
         session_id = session["data"]["id"]
         url = base + "/api/session/" + session_id
@@ -520,7 +532,8 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
                 "final_text": _final_text(messages), "compacted": compacted, "compaction_index": compaction_index,
                 "capture_paths": capture_paths, "capture_stage": STAGE, "elapsed_seconds": time.monotonic() - start,
                  "guard_observations": {"step_events": step_events, "retry_events": retry_events, "failures": guard_failures},
-                "host_version": version, "identity": {"providerID": provider, "modelID": model_id, "executable_sha256": identity["sha256"],
+                "host_version": version, "identity": {"providerID": provider, "modelID": model_id,
+                **({"variant": selected_model["variant"]} if "variant" in selected_model else {}), "executable_sha256": identity["sha256"],
                 "plugin_sha256": _digest(PLUGIN.encode()), "tool_schema_sha256": _digest(_json_bytes(TOOL_SCHEMA)),
                 "snapshot_provenance": snapshot.get("provenance"), "config_sha256": _digest(config_path.read_bytes()),
                 "instruction_sha256": instruction_hashes}}

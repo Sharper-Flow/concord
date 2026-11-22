@@ -31,6 +31,18 @@ class BudgetTest(unittest.TestCase):
     def test_reservation_is_full_context_and_output(self):
         self.assertEqual(budget.reservation(LIMITS, RATES), Decimal("2.155"))
 
+    def test_input_limit_is_optional_but_validated_when_present(self):
+        limits = {"context": 350000, "output": 128000}
+        self.assertEqual(budget.reservation(limits, RATES), Decimal("2.155"))
+        self.assertEqual(budget.normalized_charge(assistant(), "openai", "synthetic", limits, RATES), Decimal("0.000629"))
+        for value in (0, -1, True, 350001, "100"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                budget.reservation({**limits, "input": value}, RATES)
+        for key in ("context", "output"):
+            for value in (None, 0, -1, True):
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    budget.reservation({**limits, key: value}, RATES)
+
     def test_retry_group_settles_at_aggregate_charge(self):
         amount = budget.reservation(LIMITS, RATES)
         self.journal.reserve("attempt", "session", "context", "group", amount)

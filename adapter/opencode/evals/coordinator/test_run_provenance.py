@@ -53,7 +53,7 @@ class RunProvenanceTests(unittest.TestCase):
             launcher.return_value.verify_version.return_value = {"version": run.sandbox.VERSION, "sha256": "binary-hash"}
             return run.run_case(self.args(), "native-route-discovery", "coordinator body", {"rules.md": b"rule"})
 
-    def test_model_run_refuses_without_binary_or_profile_before_artifacts(self):
+    def test_model_run_refuses_missing_binary_or_unsafe_profile_before_artifacts(self):
         (self.repo / ".concord/instructions").mkdir(parents=True)
         (self.repo / ".concord/instructions/rules.md").write_bytes(b"rule")
         source = self.artifacts / "coordinator.md"
@@ -61,8 +61,12 @@ class RunProvenanceTests(unittest.TestCase):
         argv = ["run.py", "--repo", str(self.repo), "--agent-source", str(source),
                 "--sdk-tool", "/synthetic/sdk/tool.js", "--model", "synthetic/model",
                 "--artifacts-dir", str(self.artifacts)]
+        inside = self.repo / "provider.json"
+        inside.write_text(json.dumps({"model": "synthetic/model"}))
         for extra, env, expected in (([], {}, "provider-profile"),
-                                    (["--provider-profile", str(source)], {"CONCORD_EVAL_OPENCODE_BIN": ""}, "CONCORD_EVAL_OPENCODE_BIN")):
+                                    (["--provider-profile", str(source)], {"CONCORD_EVAL_OPENCODE_BIN": ""}, "CONCORD_EVAL_OPENCODE_BIN"),
+                                    (["--provider-profile", str(inside)], {"CONCORD_EVAL_OPENCODE_BIN": sys.executable},
+                                     "outside the repository")):
             output = io.StringIO()
             with mock.patch.object(sys, "argv", argv + extra), mock.patch.dict(os.environ, env, clear=True), \
                     mock.patch.object(run.sandbox, "Launcher") as spawn, redirect_stderr(output), self.assertRaises(SystemExit):

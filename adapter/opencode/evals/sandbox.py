@@ -75,7 +75,7 @@ class Launcher:
                     or name.startswith(("XDG_", "HARNESS_", "BUN_", "LD_"))
                     or name.encode("ascii") in binary_bytes
                     or not isinstance(value, str) or "\0" in value):
-                raise ValueError("unsafe profile environment")
+                raise ValueError(f"unsafe profile environment entry {name!r}")
 
     def command(self, args, extra_env=None, cwd=None, readonly=()):
         env = {"HOME": str(self.root / "home"), "XDG_CONFIG_HOME": str(self.root / "config"),

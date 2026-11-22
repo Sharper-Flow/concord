@@ -209,19 +209,16 @@ def write_json(path, value):
 
 def command_to_files(launcher, command, root, stem, timeout):
     with (root / f"{stem}.jsonl").open("wb") as stdout, (root / f"{stem}.stderr").open("wb") as stderr:
+        process = launcher.popen(command, stdout=stdout, stderr=stderr, extra_env={
+            "OPENCODE_DISABLE_EXTERNAL_SKILLS": "1", "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS": "1",
+            "OPENCODE_DISABLE_CLAUDE_CODE": "1", "OPENCODE_DISABLE_MODELS_FETCH": "true",
+            "OPENCODE_DISABLE_PROJECT_CONFIG": "1", "OPENCODE_CONFIG_DIR": str(root),
+        })
         try:
-            process = launcher.popen(command, stdout=stdout, stderr=stderr, extra_env={
-                "OPENCODE_DISABLE_EXTERNAL_SKILLS": "1", "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS": "1",
-                "OPENCODE_DISABLE_CLAUDE_CODE": "1", "OPENCODE_DISABLE_MODELS_FETCH": "true",
-                "OPENCODE_DISABLE_PROJECT_CONFIG": "1", "OPENCODE_CONFIG_DIR": str(root),
-            })
-            try:
-                return process.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
-                return None
+            return process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
             return None
 
 
@@ -443,7 +440,7 @@ def run_case(args, name, source, originals):
             exported = command_to_files(launcher, ["--standalone", "session", "export", ids.pop(), "--sanitize"], root, "session", 60)
             if exported == 0:
                 readback = json.loads((root / "session.jsonl").read_text())
-        identities = [{"agent": item.get("agent"), "model": f'{item.get("model", {}).get("providerID")}/{item.get("model", {}).get("id")}'}
+        identities = [{"agent": item.get("agent"), "model": f'{(item.get("model") or {}).get("providerID")}/{(item.get("model") or {}).get("id")}'}
                       for item in readback.get("messages", []) if item.get("type") == "assistant"]
         identity_verified = bool(identities) and all(item == {"agent": "coordinator-probe", "model": args.model} for item in identities)
         unchanged = all(digest(Path(path).read_bytes()) == hashes[Path(path).name] for path in paths)
@@ -491,6 +488,8 @@ def run_model(args, parser):
     if not binary or not os.path.isabs(binary) or not Path(binary).is_file():
         parser.error("CONCORD_EVAL_OPENCODE_BIN must name the pinned executable")
     try:
+        if args.provider_profile.resolve().is_relative_to(args.repo.resolve()):
+            raise ValueError("the provider profile must remain outside the repository")
         profile = json.loads(args.provider_profile.read_text())
         if not isinstance(profile, dict) or profile.get("model") != args.model:
             raise ValueError("provider profile model mismatch")

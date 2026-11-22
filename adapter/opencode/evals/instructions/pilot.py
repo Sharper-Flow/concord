@@ -9,6 +9,7 @@ import time
 import uuid
 from pathlib import Path
 
+from adapter.opencode.evals import sandbox
 from . import budget, evaluation, host, plan, run, snapshots
 
 
@@ -22,26 +23,38 @@ def _hashes():
 class Guard:
     def __init__(self, journal, attempt, model, limits, rates):
         self.journal, self.attempt = journal, attempt
-        self.provider, self.model = model.split("/")
+        ref = host.model_ref(model)
+        self.provider, self.model, self.variant = ref["providerID"], ref["id"], ref.get("variant")
         self.limits, self.rates = limits, rates
         self.failed = False
+        self.groups = {}
 
     def reserve(self, value):
         try:
             if self.failed:
                 raise ValueError("pilot guard stopped")
-            message, model, assistant = value["message"], value["model"], value["assistant"]
-            session = value["sessionID"]
-            if (not isinstance(session, str) or not session or not isinstance(message.get("id"), str)
-                    or assistant.get("sessionID") != session or assistant.get("parentID") != message["id"]
-                    or assistant.get("providerID") != self.provider or assistant.get("modelID") != self.model
-                    or assistant.get("time", {}).get("completed") or not isinstance(assistant.get("id"), str) or not assistant["id"]
-                    or model.get("providerID") != self.provider or model.get("id") != self.model
-                    or any(type(model.get("limit", {}).get(k)) is not int or model["limit"][k] != self.limits[k]
-                           for k in ("context", "input", "output"))):
+            if not isinstance(value, dict) or not isinstance(value.get("model"), dict):
                 raise ValueError("request identity or declared limits mismatch")
-            return self.journal.reserve(self.attempt, assistant["id"], message["id"], session,
-                                        budget.reservation(self.limits, self.rates))
+            model = value.get("model") or {}
+            session = value.get("sessionID")
+            kind = value.get("kind")
+            limits = value.get("limits")
+            amount = budget.reservation(self.limits, self.rates)
+            if (not isinstance(session, str) or not session or kind not in ("primary", "compaction")
+                    or model.get("providerID") != self.provider or model.get("id") != self.model
+                    or (self.variant is not None and model.get("variant") != self.variant)
+                    or not isinstance(limits, dict)
+                    or set(limits) != set(self.limits)
+                    or any(type(limits[k]) is not type(self.limits[k]) or limits[k] != self.limits[k] for k in limits)):
+                raise ValueError("request identity or declared limits mismatch")
+            group_kind = "context" if kind == "primary" else "compaction"
+            group = self.groups.get(session)
+            if group is None:
+                group = (group_kind, uuid.uuid4().hex)
+                self.groups[session] = group
+            if group[0] != group_kind:
+                raise ValueError("previous group not settled")
+            return self.journal.reserve(self.attempt, session, *group, amount)
         except Exception:
             self.failed = True
             raise
@@ -50,26 +63,58 @@ class Guard:
         try:
             if self.failed:
                 raise ValueError("pilot guard stopped")
-            return self.journal.settle(self.attempt, info, self.provider, self.model, self.limits, self.rates)
+            kind = {"assistant": "context", "compaction": "compaction"}.get(info.get("type"))
+            matches = [(session, group) for session, group in self.groups.items() if group[0] == kind]
+            if len(matches) != 1:
+                raise ValueError("settlement without matching reservation")
+            session, group = matches[0]
+            result = self.journal.settle(self.attempt, session, *group, info, self.provider, self.model, self.limits, self.rates, self.variant)
+            del self.groups[session]
+            return result
         except Exception:
             self.failed = True
             raise
 
     def verify(self):
         requests = self.journal.update(lambda data: [r for r in data["requests"] if r["attempt_id"] == self.attempt])
-        latest = {r["assistant_id"]: r for r in requests}
-        if self.failed or not latest or any(r["status"] != "settled" for r in latest.values()):
+        if self.failed or self.groups or not requests or any(r["status"] != "settled" for r in requests):
             raise ValueError("attempt has unresolved current usage")
+
+    def fail_step(self, session, subject):
+        try:
+            group = self.groups.get(session)
+            if self.failed or group is None or group[0] != "context":
+                raise ValueError("failed step has no open context group")
+            self.journal.fail_group(self.attempt, session, *group, subject)
+            del self.groups[session]
+        finally:
+            self.failed = True
 
 
 def execute(baseline_path, candidate_path, artifacts, model, limits_path, rates_path,
-            timeout_seconds=180, *, max_new_attempts=96, repository=run.REPOSITORY):
-    if not isinstance(model, str) or model.count("/") != 1 or any(not p or p.strip() != p for p in model.split("/")):
-        raise ValueError("model must be providerID/modelID")
+            timeout_seconds=180, *, max_new_attempts=96, repository=run.REPOSITORY, provider_profile=None):
+    selected_model = host.model_ref(model)
+    if selected_model["providerID"] == "claude-agent":
+        raise ValueError("claude-agent bypasses the pilot HTTP guard")
     if type(timeout_seconds) is not int or timeout_seconds <= 0:
         raise ValueError("timeout must be a positive integer")
     if type(max_new_attempts) is not int or max_new_attempts <= 0:
         raise ValueError("max_new_attempts must be a positive integer")
+    if provider_profile is None:
+        raise ValueError("provider profile required")
+    binary = os.environ.get("CONCORD_EVAL_OPENCODE_BIN")
+    if not binary or not os.path.isabs(binary) or not Path(binary).is_file():
+        raise ValueError("CONCORD_EVAL_OPENCODE_BIN must name an executable")
+    executable_sha256 = hashlib.sha256(Path(binary).read_bytes()).hexdigest()
+    provider_profile = snapshots.outside_repository(provider_profile, repository)
+    profile = json.loads(provider_profile.read_bytes())
+    if not isinstance(profile, dict) or profile.get("model") != model:
+        raise ValueError("provider profile model mismatch")
+    providers = profile.get("providers", {})
+    if not isinstance(providers, dict) or any(isinstance(value, dict) and "claude-agent" in str(value.get("package", "")).lower()
+                                              for value in providers.values()):
+        raise ValueError("claude-agent bypasses the pilot HTTP guard")
+    profile_sha256 = sandbox.profile_digest(profile)
     baseline_path, candidate_path, artifacts, limits_path, rates_path = [
         snapshots.outside_repository(p, repository) for p in (baseline_path, candidate_path, artifacts, limits_path, rates_path)]
     baseline, candidate = snapshots.load(baseline_path, repository), snapshots.load(candidate_path, repository)
@@ -78,7 +123,7 @@ def execute(baseline_path, candidate_path, artifacts, model, limits_path, rates_
             or not isinstance(limits_data.get("source"), str) or not limits_data["source"].strip()):
         raise ValueError("limits require matching model and source")
     limits = limits_data.get("limits")
-    rates, source = run._validate_rates(json.loads(rates_path.read_text()), *model.split("/"))
+    rates, source = run._validate_rates(json.loads(rates_path.read_text()), selected_model["providerID"], selected_model["id"])
     reserve = budget.reservation(limits, rates)
     if reserve > budget.CAP:
         raise ValueError("one reservation exceeds the pilot ceiling")
@@ -90,7 +135,8 @@ def execute(baseline_path, candidate_path, artifacts, model, limits_path, rates_
         metadata = {"version": 1, "model": model, "limits": limits, "limits_source": limits_data["source"],
                     "rates": rates, "rate_source": source, "cap_usd": "10", "reservation_usd": str(reserve),
                     "snapshots": {"baseline": baseline["snapshot_id"], "candidate": candidate["snapshot_id"]},
-                    "hashes": _hashes(), "timeout_seconds": timeout_seconds}
+                    "hashes": _hashes(), "timeout_seconds": timeout_seconds,
+                    "provider_profile_sha256": profile_sha256, "executable_sha256": executable_sha256}
         meta_path, schedule_path, key_path = [artifacts / n for n in ("pilot-metadata.json", "pilot-schedule.json", "pilot-key.json")]
         journal = budget.Journal(artifacts)
         if not meta_path.exists():
@@ -128,7 +174,9 @@ def execute(baseline_path, candidate_path, artifacts, model, limits_path, rates_
                     or json.loads(schedule_path.read_text()) != schedule
                     or json.loads(key_path.read_text()) != key):
                 raise ValueError("pilot metadata or schedule changed")
-            if _hashes() != metadata["hashes"] or snapshots.load(baseline_path, repository)["snapshot_id"] != baseline["snapshot_id"] or snapshots.load(candidate_path, repository)["snapshot_id"] != candidate["snapshot_id"]:
+            if (sandbox.profile_digest(json.loads(provider_profile.read_bytes())) != metadata["provider_profile_sha256"]
+                    or hashlib.sha256(Path(binary).read_bytes()).hexdigest() != metadata["executable_sha256"]
+                    or _hashes() != metadata["hashes"] or snapshots.load(baseline_path, repository)["snapshot_id"] != baseline["snapshot_id"] or snapshots.load(candidate_path, repository)["snapshot_id"] != candidate["snapshot_id"]):
                 raise ValueError("snapshot or harness changed")
             attempt_id = uuid.uuid4().hex
             def claim(data):
@@ -144,9 +192,12 @@ def execute(baseline_path, candidate_path, artifacts, model, limits_path, rates_
             started = time.monotonic()
             try:
                 output = host.run_session(artifacts / (attempt_id + "-host"), {"baseline": baseline, "candidate": candidate}[arm],
-                                          model, row["case_id"], timeout_seconds=timeout_seconds, guard=guard)
+                                          model, row["case_id"], timeout_seconds=timeout_seconds, guard=guard,
+                                          provider_profile=provider_profile)
                 guard.verify()
-                if _hashes() != metadata["hashes"] or snapshots.load(baseline_path, repository)["snapshot_id"] != baseline["snapshot_id"] or snapshots.load(candidate_path, repository)["snapshot_id"] != candidate["snapshot_id"]:
+                if (sandbox.profile_digest(json.loads(provider_profile.read_bytes())) != metadata["provider_profile_sha256"]
+                        or hashlib.sha256(Path(binary).read_bytes()).hexdigest() != metadata["executable_sha256"]
+                        or _hashes() != metadata["hashes"] or snapshots.load(baseline_path, repository)["snapshot_id"] != baseline["snapshot_id"] or snapshots.load(candidate_path, repository)["snapshot_id"] != candidate["snapshot_id"]):
                     raise ValueError("snapshot or harness changed")
                 result["grade"] = evaluation.evaluate(row["case_id"], output["events"], output["artifacts"], output["final_text"])
                 result["identity"] = output["identity"]

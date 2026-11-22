@@ -4,7 +4,9 @@ import copy
 import hashlib
 import io
 import json
+import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -38,18 +40,20 @@ class RunProvenanceTests(unittest.TestCase):
 
     def args(self):
         return argparse.Namespace(repo=self.repo, sdk_tool=Path("/synthetic/sdk/index.js"),
-                                  model="synthetic/model", artifacts_dir=self.artifacts)
+                                  model="synthetic/model", artifacts_dir=self.artifacts,
+                                  profile={"model": "synthetic/model"}, binary="/synthetic/bin", profile_digest="profile-hash")
 
     def run_case(self, during=None):
-        def stub(command, root, stem, timeout):
+        def stub(launcher, command, root, stem, timeout):
             (root / f"{stem}.jsonl").write_text("")
             if during is not None:
                 during()
             return 0
-        with mock.patch.object(run, "command_to_files", side_effect=stub):
+        with mock.patch.object(run, "command_to_files", side_effect=stub), mock.patch.object(run.sandbox, "Launcher") as launcher:
+            launcher.return_value.verify_version.return_value = {"version": run.sandbox.VERSION, "sha256": "binary-hash"}
             return run.run_case(self.args(), "native-route-discovery", "coordinator body", {"rules.md": b"rule"})
 
-    def test_model_run_refuses_before_spawning(self):
+    def test_model_run_refuses_missing_binary_or_unsafe_profile_before_artifacts(self):
         (self.repo / ".concord/instructions").mkdir(parents=True)
         (self.repo / ".concord/instructions/rules.md").write_bytes(b"rule")
         source = self.artifacts / "coordinator.md"
@@ -57,14 +61,79 @@ class RunProvenanceTests(unittest.TestCase):
         argv = ["run.py", "--repo", str(self.repo), "--agent-source", str(source),
                 "--sdk-tool", "/synthetic/sdk/tool.js", "--model", "synthetic/model",
                 "--artifacts-dir", str(self.artifacts)]
-        output = io.StringIO()
-        with mock.patch.object(sys, "argv", argv), mock.patch.object(run.subprocess, "run") as spawn, \
-                redirect_stdout(output), redirect_stderr(output):
-            spawn.return_value = mock.Mock(returncode=1)
-            self.assertNotEqual(0, run.main())
-        self.assertIn("CON-1944", output.getvalue())
-        self.assertIn("https://linear.app/sharper-flow/issue/CON-1944/instruction-evals-cannot-run-on-an-opencode-232-host", output.getvalue())
-        spawn.assert_not_called()
+        inside = self.repo / "provider.json"
+        inside.write_text(json.dumps({"model": "synthetic/model"}))
+        for extra, env, expected in (([], {}, "provider-profile"),
+                                    (["--provider-profile", str(source)], {"CONCORD_EVAL_OPENCODE_BIN": ""}, "CONCORD_EVAL_OPENCODE_BIN"),
+                                    (["--provider-profile", str(inside)], {"CONCORD_EVAL_OPENCODE_BIN": sys.executable},
+                                     "outside the repository")):
+            output = io.StringIO()
+            with mock.patch.object(sys, "argv", argv + extra), mock.patch.dict(os.environ, env, clear=True), \
+                    mock.patch.object(run.sandbox, "Launcher") as spawn, redirect_stderr(output), self.assertRaises(SystemExit):
+                run.main()
+            self.assertIn(expected, output.getvalue())
+            spawn.assert_not_called()
+            self.assertEqual(list(self.artifacts.iterdir()), [source])
+
+    def test_run_and_export_use_same_sandbox_and_v2_identity(self):
+        commands = []
+        def stub(launcher, command, root, stem, timeout):
+            commands.append((launcher, command))
+            data = '{"sessionID":"synthetic-session"}\n' if stem == "events" else json.dumps({"messages": [
+                {"type": "assistant", "agent": "coordinator-probe", "model": {"providerID": "synthetic", "id": "model"}}]})
+            (root / f"{stem}.jsonl").write_text(data)
+            return 0
+        with mock.patch.object(run, "command_to_files", side_effect=stub), mock.patch.object(run.sandbox, "Launcher") as factory:
+            factory.return_value.verify_version.return_value = {"version": run.sandbox.VERSION, "sha256": "binary-hash"}
+            args = self.args()
+            args.profile.update({"plugins": ["/synthetic/provider-plugin"], "providers": {"synthetic": {"name": "Fixture"}}})
+            result = run.run_case(args, "native-route-discovery", "coordinator body", {"rules.md": b"rule"})
+        self.assertTrue(result["identity_verified"])
+        self.assertEqual(commands[0][1][:2], ["--standalone", "run"])
+        self.assertEqual(commands[1][1], ["--standalone", "session", "export", "synthetic-session", "--sanitize"])
+        self.assertIs(commands[0][0], commands[1][0])
+        config = json.loads((Path(result["artifact_dir"]) / "opencode.json").read_text())
+        self.assertEqual(config["share"], "disabled")
+        self.assertEqual(config["update"], "disable")
+        self.assertFalse(config["compaction"]["auto"])
+        self.assertTrue(config["agents"]["title"]["disabled"])
+        self.assertEqual(config["plugins"][-1], "/synthetic/provider-plugin")
+        self.assertEqual(config["providers"], {"synthetic": {"name": "Fixture"}})
+        self.assertEqual(result["opencode"]["sha256"], "binary-hash")
+        self.assertEqual(result["provider_profile_sha256"], "profile-hash")
+
+    def test_variant_model_identity_is_verified_against_the_base_model_and_variant(self):
+        for requested, recorded, verified in (("synthetic/model#high", "high", True), ("synthetic/model#high", "low", False),
+                                              ("synthetic/model#high", None, False), ("synthetic/model", "default", True)):
+            def stub(launcher, command, root, stem, timeout):
+                model = {"providerID": "synthetic", "id": "model", **({"variant": recorded} if recorded else {})}
+                data = '{"sessionID":"synthetic-session"}\n' if stem == "events" else json.dumps({"messages": [
+                    {"type": "assistant", "agent": "coordinator-probe", "model": model}]})
+                (root / f"{stem}.jsonl").write_text(data)
+                return 0
+            with self.subTest(requested=requested, recorded=recorded), \
+                    mock.patch.object(run, "command_to_files", side_effect=stub), mock.patch.object(run.sandbox, "Launcher") as factory:
+                factory.return_value.verify_version.return_value = {"version": run.sandbox.VERSION, "sha256": "binary-hash"}
+                args = self.args()
+                args.model = args.profile["model"] = requested
+                result = run.run_case(args, "native-route-discovery", "coordinator body", {"rules.md": b"rule"})
+                self.assertIs(result["identity_verified"], verified)
+                self.assertEqual(result["runtime_identities"], [{"agent": "coordinator-probe", "model": "synthetic/model", "variant": recorded}])
+
+    def test_one_shot_commands_use_launcher_environment(self):
+        binary = self.artifacts / "binary"
+        binary.write_text("fixture")
+        launcher = run.sandbox.Launcher(self.artifacts, binary, {"env": {"SYNTHETIC_KEY": "value"}})
+        for command in (["--standalone", "run"],
+                        ["--standalone", "session", "export", "fixture"]):
+            with mock.patch.dict(os.environ, {"PRIVATE_CALLER_SECRET": "must-not-leak"}), \
+                    mock.patch.object(run.subprocess, "Popen") as popen:
+                popen.return_value.wait.return_value = 0
+                self.assertEqual(run.command_to_files(launcher, command, self.artifacts, "fixture", 10), 0)
+            argv = popen.call_args.args[0]
+            self.assertEqual(popen.call_args.kwargs["env"], {})
+            self.assertNotIn("must-not-leak", repr(popen.call_args))
+            self.assertIn("--args", argv)
 
     def test_result_records_production_and_tool_source_hashes(self):
         result = self.run_case()
@@ -85,6 +154,14 @@ class RunProvenanceTests(unittest.TestCase):
             self.assertEqual(sha((root / relative).read_bytes()), value)
         self.assertEqual(json.loads((root / "result.json").read_text())["production_source_sha256"],
                          result["production_source_sha256"])
+
+    @unittest.skipUnless(shutil.which("bun"), "Bun is required to load the production module")
+    def test_staged_production_module_loads_its_dependencies(self):
+        result = self.run_case()
+        module = Path(result["artifact_dir"]) / "production-tree/adapter/opencode/concord.ts"
+        process = subprocess.run(["bun", "-e", "import(process.argv[1]).then(m => { if (!m.registeredInputSchema) process.exit(1) })", str(module)],
+                                 capture_output=True, text=True, timeout=30)
+        self.assertEqual(process.returncode, 0, process.stderr)
 
     def test_conduct_corpus_resolves_in_the_repository(self):
         corpus = [path.name for path in (REPO / run.CONDUCT_CORPUS).glob("*.md") if path.name != "README.md"]
@@ -121,12 +198,17 @@ class RunProvenanceTests(unittest.TestCase):
         source.write_text("coordinator body")
         args = argparse.Namespace(repo=self.repo, agent_source=source, sdk_tool=Path("/synthetic/sdk/tool.js"),
                                   model="synthetic/model", artifacts_dir=self.artifacts, all=False, scenario=None)
+        sdk = self.artifacts / "sdk.js"
+        sdk.write_text("")
+        profile = self.artifacts / "profile.json"
+        profile.write_text(json.dumps({"model": "synthetic/model"}))
+        args.sdk_tool, args.provider_profile = sdk, profile
         result = {"scenario": "input-correction", "passed": True, "artifact_dir": "/synthetic/dir",
                   "checks": {"final_response": True},
                   "advisory": {"strict_output_compliance": False},
                   "final_response": {"status": "completed", "work_id": "synthetic-work"}}
         buffer = io.StringIO()
-        with mock.patch.object(run, "run_case", return_value=result), \
+        with mock.patch.object(run, "run_case", return_value=result), mock.patch.dict(os.environ, {"CONCORD_EVAL_OPENCODE_BIN": sys.executable}), \
                 redirect_stdout(buffer):
             self.assertEqual(run.run_model(args, argparse.ArgumentParser()), 0)
         printed = json.loads(buffer.getvalue().strip())

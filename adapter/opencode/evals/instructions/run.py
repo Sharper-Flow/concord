@@ -10,6 +10,7 @@ import traceback
 import uuid
 from pathlib import Path
 
+from adapter.opencode.evals import sandbox
 from . import accounting, cases, estimate, evaluation, host, plan, snapshots
 
 
@@ -19,7 +20,7 @@ LIMIT = 6
 
 def _hashes():
     paths = {name: Path(module.__file__) for name, module in
-             (("evaluator", evaluation), ("cases", cases), ("host", host),
+             (("evaluator", evaluation), ("cases", cases), ("host", host), ("sandbox", sandbox),
               ("accounting", accounting), ("snapshots", snapshots), ("plan", plan))}
     paths["run"] = Path(__file__)
     return {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in paths.items()}
@@ -92,6 +93,30 @@ def _validate_rates(value, provider, model):
     return rates, source
 
 
+def _accounting_messages(messages, variant=None):
+    """Adapt V2 session readback to the accounting module's input contract."""
+    result = []
+    for message in messages:
+        if not isinstance(message, dict) or "type" not in message:
+            raise accounting.AccountingError("invalid V2 message")
+        if message["type"] not in ("assistant", "compaction"):
+            result.append({"info": {"role": "user"}})
+            continue
+        if message["type"] == "compaction" and message.get("status") != "completed":
+            raise accounting.AccountingError("compaction did not complete")
+        model = message.get("model") or {}
+        if variant is not None and model.get("variant") != variant:
+            raise accounting.AccountingError("assistant variant does not match the requested variant")
+        info = {"role": "assistant", "providerID": model.get("providerID"), "modelID": model.get("id")}
+        if message["type"] == "compaction":
+            info["cost_optional"] = True
+        for key in ("tokens", "cost", "error"):
+            if key in message:
+                info[key] = message[key]
+        result.append({"info": info})
+    return result
+
+
 def _blind_packet(case_id, output, attempt_root):
     root = str(Path(attempt_root).resolve())
     token = Path(root).name
@@ -123,20 +148,26 @@ def _blind_packet(case_id, output, attempt_root):
     return packet
 
 
-def calibrate(snapshot_path, artifacts, model, case_ids, rates_path, timeout_seconds=180, *, repository=REPOSITORY):
+def calibrate(snapshot_path, artifacts, model, case_ids, rates_path, timeout_seconds=180, *, repository=REPOSITORY, provider_profile=None):
     """Run requested calibration cases once each, charging every claimed attempt.
 
     Host capture limits do not account for all provider retries or calls.
     The artifact directory is private and must not be shared with blind reviewers.
     """
-    if not isinstance(model, str) or model.count("/") != 1 or any(not p or p.strip() != p for p in model.split("/")):
-        raise ValueError("model must be providerID/modelID")
-    provider, model_id = model.split("/")
+    selected_model = host.model_ref(model)
+    provider, model_id = selected_model["providerID"], selected_model["id"]
     if (not isinstance(case_ids, (list, tuple)) or not 1 <= len(case_ids) <= LIMIT
             or any(not isinstance(case, str) or case not in cases.CASES for case in case_ids)):
         raise ValueError("request must contain one to six known cases")
     if type(timeout_seconds) is not int or timeout_seconds < 1:
         raise ValueError("timeout must be a positive integer")
+    if provider_profile is None:
+        raise ValueError("provider profile required")
+    provider_profile = snapshots.outside_repository(provider_profile, repository)
+    profile = json.loads(provider_profile.read_text(encoding="utf-8"))
+    if not isinstance(profile, dict) or profile.get("model") != model:
+        raise ValueError("provider profile model mismatch")
+    profile_sha256 = sandbox.profile_digest(profile)
     snapshot_path = snapshots.outside_repository(snapshot_path, repository)
     rates_path = snapshots.outside_repository(rates_path, repository)
     root = snapshots.outside_repository(artifacts, repository)
@@ -161,14 +192,14 @@ def calibrate(snapshot_path, artifacts, model, case_ids, rates_path, timeout_sec
         attempt_id = _claim(root, case_id)
         started = time.monotonic()
         result = {"attempt_id": attempt_id, "case_id": case_id, "snapshot_id_before": snapshot["snapshot_id"],
-                  "hashes_before": before_hashes,
+                  "hashes_before": before_hashes, "provider_profile_sha256": profile_sha256,
                   "accounting_limit": "Host capture limits do not account for all provider retries or calls."}
         try:
             output = host.run_session(root / (attempt_id + "-host"), before_snapshot, model, case_id,
-                                      timeout_seconds=timeout_seconds)
+                                      timeout_seconds=timeout_seconds, provider_profile=provider_profile)
             for key in ("host_version", "identity", "capture_paths", "capture_stage", "compacted", "compaction_index"):
                 result[key] = output[key]
-            result["usage"] = accounting.aggregate(output["messages"], provider, model_id, rates, source)
+            result["usage"] = accounting.aggregate(_accounting_messages(output["messages"], selected_model.get("variant")), provider, model_id, rates, source)
             result["grade"] = evaluation.evaluate(case_id, output["events"], output["artifacts"], output["final_text"])
             result["snapshot_id_after"] = snapshots.load(snapshot_path, repository)["snapshot_id"]
             result["hashes_after"] = _hashes()
@@ -258,6 +289,7 @@ def main(argv=None):
     run.add_argument("--model", required=True)
     run.add_argument("--cases", nargs="+", required=True)
     run.add_argument("--rates-json", required=True)
+    run.add_argument("--provider-profile", required=True)
     run.add_argument("--timeout-seconds", type=int, default=180)
     projection = sub.add_parser("estimate")
     projection.add_argument("--artifacts", required=True)
@@ -269,6 +301,7 @@ def main(argv=None):
     pilot_parser.add_argument("--model", required=True)
     pilot_parser.add_argument("--limits-json", required=True)
     pilot_parser.add_argument("--rates-json", required=True)
+    pilot_parser.add_argument("--provider-profile", required=True)
     pilot_parser.add_argument("--timeout-seconds", type=int, default=180)
     pilot_parser.add_argument("--max-new-attempts", type=int, default=96)
     args = parser.parse_args(argv)
@@ -280,14 +313,15 @@ def main(argv=None):
             from . import pilot
             results = pilot.execute(args.baseline, args.candidate, args.artifacts, args.model,
                                     args.limits_json, args.rates_json, args.timeout_seconds,
-                                    max_new_attempts=args.max_new_attempts)
+                                    max_new_attempts=args.max_new_attempts, provider_profile=args.provider_profile)
             journal = json.loads((snapshots.outside_repository(args.artifacts, REPOSITORY) / "pilot-journal.json").read_text())
             complete = len(journal["attempts"]) == 96 and all(a.get("status") == "completed" for a in journal["attempts"])
             print(json.dumps({"attempts": [{"id": r["attempt_id"], "status": r["status"]} for r in results],
                               "complete": complete,
                               "warning": "Nominal normalized usage is not provider billing."}))
             return 0 if complete else 1
-        results = calibrate(args.snapshot, args.artifacts, args.model, args.cases, args.rates_json, args.timeout_seconds)
+        results = calibrate(args.snapshot, args.artifacts, args.model, args.cases, args.rates_json, args.timeout_seconds,
+                            provider_profile=args.provider_profile)
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         parser.exit(2, f"{args.command} refused: {type(exc).__name__}\n")
     except ValueError as exc:

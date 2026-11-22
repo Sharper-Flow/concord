@@ -25,19 +25,23 @@ class CalibrationTest(unittest.TestCase):
         self.rates.write_text(json.dumps({"source": "published rates", "rates": {
             "input": 1, "output": 2, "cache_read": 0.5, "cache_write": 1.5}}))
         self.artifacts = self.root / "artifacts"
+        self.profile = self.root / "profile.json"
+        self.profile.write_text(json.dumps({"model": "provider/model", "plugins": [], "ro_binds": [], "env": {}}))
 
     def output(self):
         def message(input_tokens, output_tokens, summary=False):
-            return {"info": {"role": "assistant", "providerID": "provider", "modelID": "model",
-                             "summary": summary, "tokens": {"input": input_tokens, "output": output_tokens,
-                             "reasoning": 2, "cache": {"read": 4, "write": 6}}, "cost": 0.1}}
+            return {"type": "compaction" if summary else "assistant", "model": {"providerID": "provider", "id": "model"},
+                    **({"status": "completed"} if summary else {}),
+                    "tokens": {"input": input_tokens, "output": output_tokens,
+                               "reasoning": 2, "cache": {"read": 4, "write": 6}}, "cost": 0.1}
         return {"messages": [message(100, 20), message(30, 10, True)], "events": [],
                 "artifacts": {"files": dict(cases.FILES), "state": {}}, "final_text": "3 seconds",
-                "host_version": "1.18.35", "identity": {"providerID": "provider", "modelID": "model"},
+                "host_version": "2.3.2", "identity": {"providerID": "provider", "modelID": "model"},
                 "capture_paths": ["capture"], "capture_stage": "pre-provider-serialization",
                 "compacted": False, "compaction_index": None}
 
     def calibrate(self, case_ids=("S18",), **kwargs):
+        kwargs.setdefault("provider_profile", self.profile)
         return run.calibrate(self.snapshot, self.artifacts, "provider/model", list(case_ids), self.rates,
                              repository=self.repo, **kwargs)
 
@@ -71,15 +75,39 @@ class CalibrationTest(unittest.TestCase):
         self.assertEqual(result["usage"]["assistant_messages"], 2)
         for key in ("host_version", "identity", "capture_paths", "capture_stage", "compacted", "compaction_index"):
             self.assertEqual(result[key], self.output()[key])
-        self.assertEqual(set(result["hashes_before"]), {"evaluator", "cases", "host", "accounting", "snapshots", "run", "plan"})
+        self.assertEqual(set(result["hashes_before"]), {"evaluator", "cases", "host", "sandbox", "accounting", "snapshots", "run", "plan"})
         self.assertEqual(result["usage"]["totals"]["input"], 130)
         self.assertAlmostEqual(result["usage"]["nominal_api_equivalent"], 0.00022)
         output = self.output()
-        del output["messages"][1]["info"]["tokens"]
+        del output["messages"][1]["tokens"]
         with patch.object(run.host, "run_session", return_value=output):
             result = self.calibrate()[0]
         self.assertEqual(result["status"], "failed")
         self.assertEqual(result["failure"]["type"], "AccountingError")
+
+    def test_compaction_cost_is_optional_for_nominal_accounting(self):
+        output = self.output()
+        del output["messages"][1]["cost"]
+        with patch.object(run.host, "run_session", return_value=output):
+            result = self.calibrate()[0]
+        self.assertEqual(result["status"], "completed")
+        self.assertIsNone(result["usage"]["totals"]["host_cost"])
+        self.assertAlmostEqual(result["usage"]["nominal_api_equivalent"], 0.00022)
+
+    def test_explicit_variant_is_accounted_against_the_base_model(self):
+        model = "provider/model#high"
+        self.profile.write_text(json.dumps({"model": model, "plugins": [], "ro_binds": [], "env": {}}))
+        for variant, status in (("high", "completed"), ("low", "failed")):
+            output = self.output()
+            for message in output["messages"]:
+                message["model"]["variant"] = variant
+            with self.subTest(variant=variant), patch.object(run.host, "run_session", return_value=output) as session:
+                result = run.calibrate(self.snapshot, self.artifacts, model, ["S18"], self.rates,
+                                       repository=self.repo, provider_profile=self.profile)[0]
+                self.assertEqual(session.call_args.args[2], model)
+                self.assertEqual(result["status"], status)
+                if status == "failed":
+                    self.assertEqual(result["failure"]["type"], "AccountingError")
 
     def test_changed_snapshot_invalidates_attempt(self):
         def change(*args, **kwargs):
@@ -157,6 +185,38 @@ class CalibrationTest(unittest.TestCase):
             run.main(["estimate", "--artifacts", str(self.artifacts), "--proposed-cap", "1"])
         self.assertNotIn("private secret", stderr.getvalue())
         self.assertNotIn(str(self.artifacts), stderr.getvalue())
+
+    def test_calibrate_cli_threads_provider_profile(self):
+        profile = self.root / "provider.json"
+        profile.write_text(json.dumps({"plugins": [], "ro_binds": [], "env": {}, "model": "provider/model"}))
+        with patch.object(run, "calibrate", return_value=[]) as calibrate, redirect_stdout(io.StringIO()):
+            status = run.main(["calibrate", "--snapshot", str(self.snapshot), "--artifacts", str(self.artifacts),
+                               "--model", "provider/model", "--cases", "S18", "--rates-json", str(self.rates),
+                               "--provider-profile", str(profile)])
+        self.assertEqual(status, 0)
+        self.assertEqual(Path(calibrate.call_args.kwargs["provider_profile"]), profile)
+
+    def test_calibrate_passes_provider_profile_to_host(self):
+        profile = self.root / "provider.json"
+        profile.write_text(json.dumps({"plugins": [], "ro_binds": [], "env": {}, "model": "provider/model"}))
+        with patch.object(run.host, "run_session", return_value=self.output()) as session:
+            result = self.calibrate(provider_profile=profile)
+        self.assertEqual(result[0]["status"], "completed")
+        self.assertEqual(Path(session.call_args.kwargs["provider_profile"]), profile)
+
+    def test_pilot_cli_threads_provider_profile(self):
+        from . import pilot
+        profile = self.root / "provider.json"
+        profile.write_text(json.dumps({"plugins": [], "ro_binds": [], "env": {}, "model": "provider/model"}))
+        self.artifacts.mkdir()
+        (self.artifacts / "pilot-journal.json").write_text(json.dumps({"version": 2, "attempts": [], "requests": []}))
+        with patch.object(pilot, "execute", return_value=[]) as execute, redirect_stdout(io.StringIO()):
+            status = run.main(["pilot", "--baseline", str(self.snapshot), "--candidate", str(self.snapshot),
+                               "--artifacts", str(self.artifacts), "--model", "provider/model", "--limits-json",
+                               str(self.root / "limits.json"), "--rates-json", str(self.rates),
+                               "--provider-profile", str(profile)])
+        self.assertEqual(status, 1)
+        self.assertEqual(Path(execute.call_args.kwargs["provider_profile"]), profile)
 
 
 if __name__ == "__main__":

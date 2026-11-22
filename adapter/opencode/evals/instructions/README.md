@@ -11,7 +11,7 @@ Calibration is not evidence of effectiveness.
 From the repository root, run:
 
 ```sh
-bin/oc-test broad -- python3 -m unittest discover -s adapter/opencode/evals/instructions -t . -p 'test_*.py'
+bin/oc-test broad -- sh -c "python3 -m unittest discover -s adapter/opencode/evals/instructions -t . -p 'test_*.py' && python3 -m unittest adapter.opencode.evals.test_sandbox"
 ```
 
 The suite calls Go for a restricted fixture check. It needs a local `go`
@@ -29,23 +29,22 @@ files may be in the repository, but the destination must be outside it. Supply
 accurate references and no secrets: the snapshot stores original content and
 source paths. `snapshots.load(path, repository)` verifies the snapshot before use.
 
-For calibration, use OpenCode 1.18.35 and an authenticated provider/model. The
-runner keeps OpenCode's internal plugins, including the Codex authentication
-plugin that serves OpenAI OAuth. It reuses the caller's OpenCode data directory
-(`XDG_DATA_HOME`), which holds stored provider authentication, so calibration
-sessions are also written to that data store. Provider calls may incur charges.
+For calibration, supply the OpenCode 2.3.2 binary in
+`CONCORD_EVAL_OPENCODE_BIN` and a provider profile JSON. The runner uses a
+private sandbox and does not reuse the caller's OpenCode data directory.
+Provider calls may incur charges.
 The rates JSON must contain a `source` and `rates` object with `input`,
 `output`, `cache_read`, and `cache_write` rates per million tokens. The runner
 does not check that the rates belong to the chosen model. Choose case IDs from
-`cases.py`. From `adapter/opencode/evals`:
+`cases.py`. From the repository root:
 
 ```sh
-python3 -m instructions.run calibrate --snapshot /outside/snapshot.json --artifacts /outside/calibration --model provider/model --cases S18 --rates-json /outside/rates.json
-python3 -m instructions.run estimate --artifacts /outside/calibration --proposed-cap 1
+python3 -m adapter.opencode.evals.instructions.run calibrate --snapshot /outside/snapshot.json --artifacts /outside/calibration --model provider/model --cases S18 --rates-json /outside/rates.json --provider-profile /outside/provider.json
+python3 -m adapter.opencode.evals.instructions.run estimate --artifacts /outside/calibration --proposed-cap 1
 ```
 
 The snapshot, rates file and artifact directory must be outside the repository.
-Protect artifacts: captures and the reused OpenCode data store may contain
+Protect artifacts: captures and the private OpenCode data store may contain
 sensitive text. Do not put secrets in snapshot sources, captures, or logs. The
 runner discards server standard output, keeps standard error in each attempt's
 `host-stderr.log` without lines that look like credentials, and withholds
@@ -103,17 +102,20 @@ key and other artifacts away from blind graders. A failed or pending claim stops
 the pilot and is never retried. The command exits nonzero while incomplete.
 
 The limits JSON must identify the selected model and source and provide positive
-integer `context`, `input`, and `output` limits. The rates JSON has the same shape
-as calibration. For example, these are synthetic values, not model guidance:
+integer `context` and `output` limits, plus `input` when the model declares one.
+The guard refuses a request whose declared limits differ from these. The rates
+JSON has the same shape as calibration. A model written `provider/model#variant`
+pins that variant; without `#variant` the guard accepts the variant OpenCode
+selects. For example, these are synthetic values, not model guidance:
 
 ```json
 {"model":"provider/model","source":"synthetic","limits":{"context":10000,"input":9000,"output":1000}}
 ```
 
-From `adapter/opencode/evals`:
+From the repository root:
 
 ```sh
-python3 -m instructions.run pilot --baseline /outside/baseline.json --candidate /outside/candidate.json --artifacts /outside/pilot --model provider/model --limits-json /outside/limits.json --rates-json /outside/rates.json --max-new-attempts 2
+python3 -m adapter.opencode.evals.instructions.run pilot --baseline /outside/baseline.json --candidate /outside/candidate.json --artifacts /outside/pilot --model provider/model --limits-json /outside/limits.json --rates-json /outside/rates.json --provider-profile /outside/provider.json --max-new-attempts 2
 ```
 
 `--max-new-attempts` limits new claims per invocation and defaults to 96. Use a
@@ -125,21 +127,28 @@ that field is false, including after a successful partial batch.
 
 The runner freezes model identity, supplied rates and limits, snapshot identities,
 and harness hashes. It reserves the full declared context at the highest input or
-cache rate plus the output limit at the output rate before each `chat.params`
-request. The pilot-wide nominal ceiling is USD 10. Unknown and failed request
-reservations remain charged. A completed, matching assistant message can settle
-only the most recent reservation for its message ID; zero or invalid usage stops
-the attempt. The ceiling can leave the pilot incomplete.
+cache rate plus the output limit at the output rate before each HTTP attempt.
+The pilot-wide nominal ceiling is USD 10. Reservations in a step or compaction
+group retain full reservations for every request except the last; the last is
+charged the verified nominal token amount. A failed step retains all reservations
+and stops the attempt. The ceiling can leave the pilot incomplete.
 
-Nominal amounts use OpenCode's normalized token fields, not provider billing. The
-loopback probe observed that OpenCode can normalize omitted usage fields to zero;
+Nominal amounts use OpenCode's normalized token fields, not provider billing.
+OpenCode can normalize omitted usage fields to zero;
 nonzero normalized usage does not attest the provider's raw response. The runner
-cannot guarantee subscription spend or provider charges. The host retains the
-calibration output-token setting and disables title generation for both arms.
+cannot guarantee subscription spend or provider charges. The host disables title
+generation for both arms.
 
-The opt-in `native_budget_probe.py` exercises OpenCode 1.18.35 against a synthetic
-loopback provider. Its artifacts must also be outside the repository. It is a
-hook-observation probe, not a spending guard or proof of provider billing.
+The pilot guards HTTP transport only. It refuses WebSocket handshakes and the
+Claude Agent provider, which bypasses the HTTP guard. Provider profiles declare
+the model, absolute plugin directories and read-only binds, environment, and
+optional provider configuration. Keep profiles and credentials outside the repository.
+Only use trusted provider plugins: arbitrary plugin code is not confined to the
+model HTTP hook. A minimal profile has this shape:
+
+```json
+{"model":"provider/model","plugins":[],"ro_binds":[],"env":{},"providers":{}}
+```
 
 ## Pilot analysis
 
@@ -173,11 +182,11 @@ illustrative ID, hash and check name with values from a real packet:
 Review every name in the packet's `semantic_checks`; use an empty object when
 there are none. Each check needs a boolean `passed` and `verified: true`;
 each review needs a nonempty severity note. A pending review cannot pass. From
-`adapter/opencode/evals`, lock the reviews before unmasking, then report:
+the repository root, lock the reviews before unmasking, then report:
 
 ```sh
-python3 -m instructions.analysis lock /outside/pilot /outside/reviews.json /outside/review-lock.json
-python3 -m instructions.analysis report /outside/pilot /outside/review-lock.json
+python3 -m adapter.opencode.evals.instructions.analysis lock /outside/pilot /outside/reviews.json /outside/review-lock.json
+python3 -m adapter.opencode.evals.instructions.analysis report /outside/pilot /outside/review-lock.json
 ```
 
 The lock is write-once and binds the stopped pilot files and reviewed packets.

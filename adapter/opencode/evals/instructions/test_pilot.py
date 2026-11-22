@@ -118,6 +118,15 @@ class PilotTest(unittest.TestCase):
                               self.limits, self.rates, max_new_attempts=value, repository=self.repo)
         self.assertFalse(self.artifacts.exists())
 
+    def test_claude_agent_provider_refused_before_pilot_creation(self):
+        self.limits.write_text(json.dumps({"model": "claude-agent/synthetic", "source": "synthetic", "limits": LIMITS}))
+        with patch.object(pilot.host, "run_session") as session:
+            with self.assertRaisesRegex(ValueError, "claude-agent"):
+                pilot.execute(self.baseline, self.candidate, self.artifacts, "claude-agent/synthetic",
+                              self.limits, self.rates, max_new_attempts=1, repository=self.repo)
+            session.assert_not_called()
+        self.assertFalse(self.artifacts.exists())
+
     def test_cli_batch_reports_pilot_incomplete(self):
         def successful_host(root, snapshot, model, case_id, *, guard, **kwargs):
             guard.reserve({"sessionID": "session", "message": {"id": "user"},
@@ -150,6 +159,39 @@ class PilotTest(unittest.TestCase):
         request["model"]["id"] = "synthetic"
         with self.assertRaises(ValueError):
             guard.reserve(request)
+        self.assertEqual(journal.update(lambda data: data["requests"]), [])
+
+    def test_v2_guard_refuses_non_session_generation_and_unknown_limits(self):
+        for kind, limits in (("title", LIMITS), ("generate", LIMITS), ("primary", None),
+                             ("primary", {**LIMITS, "output": LIMITS["output"] - 1})):
+            with self.subTest(kind=kind, limits=limits):
+                root = self.root / (str(kind) + str(len(list(self.root.iterdir()))))
+                root.mkdir()
+                journal = budget.Journal(root)
+                journal.create()
+                journal.update(lambda data: data["attempts"].append({"id": "attempt", "status": "pending"}))
+                guard = pilot.Guard(journal, "attempt", "openai/synthetic", LIMITS, RATES)
+                event = {"sessionID": "session", "agent": "instruction-probe",
+                         "model": {"providerID": "openai", "id": "synthetic"},
+                         "kind": kind, "request": {}, "limits": limits}
+                with self.assertRaises(ValueError):
+                    guard.reserve(event)
+                self.assertTrue(guard.failed)
+                self.assertEqual(journal.update(lambda data: data["requests"]), [])
+                with self.assertRaises(ValueError):
+                    guard.verify()
+
+    def test_v2_guard_refuses_model_mismatch_before_reservation(self):
+        journal = budget.Journal(self.root)
+        journal.create()
+        journal.update(lambda data: data["attempts"].append({"id": "attempt", "status": "pending"}))
+        guard = pilot.Guard(journal, "attempt", "openai/synthetic", LIMITS, RATES)
+        event = {"sessionID": "session", "agent": "instruction-probe",
+                 "model": {"providerID": "openai", "id": "other"},
+                 "kind": "primary", "request": {}, "limits": LIMITS}
+        with self.assertRaises(ValueError):
+            guard.reserve(event)
+        self.assertTrue(guard.failed)
         self.assertEqual(journal.update(lambda data: data["requests"]), [])
 
 

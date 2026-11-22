@@ -158,6 +158,38 @@ class CalibrationTest(unittest.TestCase):
         self.assertNotIn("private secret", stderr.getvalue())
         self.assertNotIn(str(self.artifacts), stderr.getvalue())
 
+    def test_calibrate_cli_threads_provider_profile(self):
+        profile = self.root / "provider.json"
+        profile.write_text(json.dumps({"plugins": [], "ro_binds": [], "env": {}, "model": "provider/model"}))
+        with patch.object(run, "calibrate", return_value=[]) as calibrate, redirect_stdout(io.StringIO()):
+            status = run.main(["calibrate", "--snapshot", str(self.snapshot), "--artifacts", str(self.artifacts),
+                               "--model", "provider/model", "--cases", "S18", "--rates-json", str(self.rates),
+                               "--provider-profile", str(profile)])
+        self.assertEqual(status, 0)
+        self.assertEqual(Path(calibrate.call_args.kwargs["provider_profile"]), profile)
+
+    def test_calibrate_passes_provider_profile_to_host(self):
+        profile = self.root / "provider.json"
+        profile.write_text(json.dumps({"plugins": [], "ro_binds": [], "env": {}, "model": "provider/model"}))
+        with patch.object(run.host, "run_session", return_value=self.output()) as session:
+            result = self.calibrate(provider_profile=profile)
+        self.assertEqual(result[0]["status"], "completed")
+        self.assertEqual(Path(session.call_args.kwargs["provider_profile"]), profile)
+
+    def test_pilot_cli_threads_provider_profile(self):
+        from . import pilot
+        profile = self.root / "provider.json"
+        profile.write_text(json.dumps({"plugins": [], "ro_binds": [], "env": {}, "model": "provider/model"}))
+        self.artifacts.mkdir()
+        (self.artifacts / "pilot-journal.json").write_text(json.dumps({"version": 2, "attempts": [], "requests": []}))
+        with patch.object(pilot, "execute", return_value=[]) as execute, redirect_stdout(io.StringIO()):
+            status = run.main(["pilot", "--baseline", str(self.snapshot), "--candidate", str(self.snapshot),
+                               "--artifacts", str(self.artifacts), "--model", "provider/model", "--limits-json",
+                               str(self.root / "limits.json"), "--rates-json", str(self.rates),
+                               "--provider-profile", str(profile)])
+        self.assertEqual(status, 1)
+        self.assertEqual(Path(execute.call_args.kwargs["provider_profile"]), profile)
+
 
 if __name__ == "__main__":
     unittest.main()

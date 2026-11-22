@@ -66,6 +66,8 @@ def execute(baseline_path, candidate_path, artifacts, model, limits_path, rates_
             timeout_seconds=180, *, max_new_attempts=96, repository=run.REPOSITORY):
     if not isinstance(model, str) or model.count("/") != 1 or any(not p or p.strip() != p for p in model.split("/")):
         raise ValueError("model must be providerID/modelID")
+    if model.split("/")[0] == "claude-agent":
+        raise ValueError("claude-agent bypasses the pilot HTTP guard")
     if type(timeout_seconds) is not int or timeout_seconds <= 0:
         raise ValueError("timeout must be a positive integer")
     if type(max_new_attempts) is not int or max_new_attempts <= 0:

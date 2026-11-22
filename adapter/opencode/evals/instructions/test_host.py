@@ -92,7 +92,12 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=settle, args=(message,), daemon=True).start()
             self.send({"data": message})
         elif self.path == "/api/experimental/session/synthetic/wait":
+            if os.environ.get("SYNTHETIC_FAIL_WAIT") == "1":
+                bridge("/fail", {"reason": "event subscription ended", "eventType": "session.step.failed"})
+                time.sleep(20)
             self.send({"data": {}})
+        elif self.path == "/api/session/synthetic/interrupt":
+            self.send({"interrupted": True})
         elif self.path == "/api/session/synthetic/compact":
             reserve("compaction")
             messages.append({"id": "compact", "type": "compaction", "status": "completed", "reason": "manual",
@@ -224,6 +229,29 @@ class V2HostTest(unittest.TestCase):
 
 
 class HostTest(V2HostTest):
+    def test_guard_failure_interrupts_wait(self):
+        class Guard:
+            failed = False
+            open_kind = None
+            def reserve(self, event):
+                self.open_kind = event["kind"]
+                return 1
+
+        root = self.base / "guard-failure"
+        self.profile.write_text(json.dumps({"plugins": [], "ro_binds": [],
+                                            "env": {"SYNTHETIC_FAIL_WAIT": "1"}, "model": "provider/model"}))
+        import time
+        start = time.monotonic()
+        with self.assertRaisesRegex(ValueError, "pilot guard stopped"):
+            host.run_session(root, self.snapshot, "provider/model", "S18", guard=Guard(),
+                             timeout_seconds=12, provider_profile=self.profile)
+        self.assertLess(time.monotonic() - start, 8)
+        paths = [json.loads(line)["path"] for line in (root / "v2-requests.jsonl").read_text().splitlines()]
+        self.assertIn("/api/session/synthetic/interrupt", paths)
+        state = json.loads((root / "failure-state.json").read_text())
+        self.assertIn({"reason": "event subscription ended", "event_type": "session.step.failed"},
+                      state["guard_observations"]["failures"])
+
     def test_deadline_stops_server(self):
         root = self.base / "timeout"
         self.profile.write_text(json.dumps({"plugins": [], "ro_binds": [], "env": {"SYNTHETIC_HANG": "1"}, "model": "provider/model"}))

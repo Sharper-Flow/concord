@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 import unittest
 from contextlib import nullcontext
 from decimal import Decimal
@@ -35,7 +36,9 @@ class SyntheticProviderIntegrationTest(unittest.TestCase):
                 tool_step = len(Provider.hits) == 2
                 delta = ({"role": "assistant", "tool_calls": [{"index": 0, "id": "call_synthetic", "type": "function",
                           "function": {"name": "fixture", "arguments": json.dumps({"action": "read_work", "arguments": {}})}}]}
-                         if tool_step else {"role": "assistant", "content": "synthetic response"})
+                         if tool_step else {"role": "assistant", "content":
+                                            "## Objective\n- Synthetic summary" if Provider.current_kind == "compaction"
+                                            else "synthetic response"})
                 chunks = [
                     {"id": "synthetic", "object": "chat.completion.chunk", "model": "synthetic",
                      "choices": [{"index": 0, "delta": delta,
@@ -124,10 +127,15 @@ class SyntheticProviderIntegrationTest(unittest.TestCase):
             print(json.dumps({"http_request_firings": guard.firings, "provider_hits": len(Provider.hits),
                               "provider_hit_kinds": [hit["kind"] for hit in Provider.hits],
                               "step_events": step_events, "step_ended_subjects": event_ids,
+                              "retry_events": output["guard_observations"]["retry_events"],
                               "compaction_readback_subjects": compact_ids,
                               "title_requests": sum(kind == "title" for kind in guard.firings)}, sort_keys=True), flush=True)
             self.assertTrue(output["compacted"])
             self.assertGreaterEqual(primary, 2)
+            self.assertEqual(len(output["guard_observations"]["retry_events"]), 1)
+            self.assertEqual(entries[0]["group_id"], entries[1]["group_id"])
+            self.assertEqual(Decimal(entries[0]["charge"]), budget.reservation(limits, rates))
+            self.assertEqual(Decimal(entries[1]["charge"]), Decimal("0.000092"))
             self.assertGreaterEqual(compact, 1)
             self.assertEqual(len(guard.firings), len(Provider.hits))
             self.assertEqual(guard.firings, [hit["kind"] for hit in Provider.hits])
@@ -141,6 +149,7 @@ class SyntheticProviderIntegrationTest(unittest.TestCase):
 
             blocked = new_guard(RefusingGuard, "blocked-journal")
             before = len(Provider.hits)
+            started = time.monotonic()
             with self.assertRaises((ValueError, RuntimeError, OSError)):
                 host.run_session(root / "blocked", snapshot, "synthetic/synthetic", "S18",
                                  provider_profile=profile, guard=blocked, timeout_seconds=180)
@@ -148,6 +157,7 @@ class SyntheticProviderIntegrationTest(unittest.TestCase):
                               "provider_hits_before_refusal": before, "provider_hits_after_refusal": len(Provider.hits)}, sort_keys=True))
             self.assertTrue(blocked.firings)
             self.assertTrue(blocked.failed)
+            self.assertLess(time.monotonic() - started, 15)
             self.assertEqual(len(Provider.hits), before)
 
 

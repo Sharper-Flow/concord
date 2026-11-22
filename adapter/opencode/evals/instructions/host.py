@@ -72,19 +72,32 @@ PLUGIN = r'''export default {
         const model = result.data.find(m => m.providerID === e.model.providerID && m.id === e.model.id);
         await send("/reserve", {sessionID: e.sessionID, agent: e.agent, model: e.model,
                                 kind: e.kind, request: {}, limits: model?.limit});
-      } catch (error) { failed = true; throw error; }
+      } catch (error) {
+        failed = true;
+        try { await send("/fail", {reason: "request admission error"}); } catch (_) {}
+        throw error;
+      }
     });
     if (guarded) {
       (async () => {
+        let eventType = null;
+        let reason = "event subscription ended";
         try {
           for await (const event of ctx.event.subscribe()) {
+            eventType = event.type;
             if (event.type === "session.step.ended" || event.type === "session.step.failed")
-              await send("/step", {type: event.type, ...event.data});
+              await send("/step", {type: event.type, sessionID: event.data.sessionID,
+                                   assistantMessageID: event.data.assistantMessageID,
+                                   finish: event.data.finish, tokens: event.data.tokens});
+            if (event.type === "session.retry.scheduled")
+              await send("/retry", {sessionID: event.data.sessionID, attempt: event.data.attempt});
           }
-        } catch (_) {
+        } catch (error) {
+          reason = /^harness bridge refused \/(?:step|retry): \d{3}$/.test(error?.message)
+            ? error.message : "event subscription error";
         } finally {
           failed = true;
-          try { await send("/fail", {}); } catch (_) {}
+          try { await send("/fail", {reason, eventType}); } catch (_) {}
         }
       })();
     }
@@ -210,6 +223,9 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
     messages = []
     usage_ids = set()
     step_events = []
+    retry_events = []
+    guard_failures = []
+    retry_sessions = set()
     lock = threading.Lock()
     bridge_closed = False
     token = secrets.token_urlsafe(32)
@@ -220,6 +236,7 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
 
         def do_POST(self):
             nonlocal call_count
+            value = None
             if self.headers.get("Authorization") != "Bearer " + token:
                 self.send_error(403)
                 return
@@ -234,6 +251,9 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
                             if guard.failed:
                                 raise ValueError("pilot guard stopped")
                             opened = bool(getattr(guard, "groups", {})) or getattr(guard, "open_kind", None) is not None
+                            if opened and value.get("sessionID") in retry_sessions:
+                                retry_sessions.remove(value["sessionID"])
+                                break
                         if not opened:
                             break
                         time.sleep(min(0.05, _remaining(deadline)))
@@ -264,9 +284,24 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
                         result = {"ok": True}
                     elif self.path == "/reserve" and guard is not None:
                         result = {"ordinal": guard.reserve(value)}
+                    elif self.path == "/retry" and guard is not None:
+                        if (value.get("sessionID") != session_id or type(value.get("attempt")) is not int
+                                or value["attempt"] < 1 or session_id not in guard.groups or guard.failed):
+                            raise ValueError("invalid retry")
+                        retry_sessions.add(session_id)
+                        retry_events.append(value)
+                        result = {"ok": True}
                     elif self.path == "/fail" and guard is not None:
+                        reason = value.get("reason") if isinstance(value, dict) else None
+                        event_type = value.get("eventType") if isinstance(value, dict) else None
+                        if not isinstance(reason, str) or not (reason in ("event subscription ended", "event subscription error", "request admission error")
+                                or re.fullmatch(r"harness bridge refused /(?:step|retry): \d{3}", reason)):
+                            reason = "guard failure"
+                        if event_type not in ("session.step.ended", "session.step.failed", "session.retry.scheduled"):
+                            event_type = None
+                        guard_failures.append({"reason": reason, "event_type": event_type})
                         guard.failed = True
-                        raise ValueError("pilot guard stopped")
+                        result = {"ok": True}
                     elif self.path == "/step" and guard is not None:
                         step_events.append(value)
                         if value.get("sessionID") != session_id:
@@ -293,8 +328,16 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
                 self.send_header("Content-Length", str(len(encoded)))
                 self.end_headers()
                 self.wfile.write(encoded)
-            except Exception:
+            except Exception as exc:
                 if guard is not None:
+                    safe_reasons = {"invalid or failed step", "step failed", "request identity or declared limits mismatch",
+                                    "previous group not settled", "settlement without matching reservation",
+                                    "pilot guard stopped", "synthetic refusal"}
+                    reason = str(exc) if str(exc) in safe_reasons else "bridge request refused"
+                    event_type = value.get("type") if self.path == "/step" and isinstance(value, dict) else None
+                    if event_type not in ("session.step.ended", "session.step.failed"):
+                        event_type = None
+                    guard_failures.append({"reason": reason, "event_type": event_type})
                     guard.failed = True
                 self.send_error(403, "pilot preflight refused")
 
@@ -409,9 +452,32 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
                     if completed <= usage_ids and not getattr(guard, "groups", {}) and getattr(guard, "open_kind", None) is None:
                         return
                 time.sleep(min(0.05, _remaining(deadline)))
+        def wait_session():
+            done = threading.Event()
+            errors = []
+            def wait():
+                try:
+                    _request(wait_url, payload={}, timeout=_remaining(deadline), password=password)
+                except Exception as exc:
+                    errors.append(exc)
+                finally:
+                    done.set()
+            threading.Thread(target=wait, daemon=True).start()
+            while True:
+                finished = done.wait(min(0.05, _remaining(deadline)))
+                if guard is not None and guard.failed:
+                    try:
+                        _request(url + "/interrupt", payload={}, timeout=min(2, _remaining(deadline)), password=password)
+                    except (OSError, urllib.error.URLError):
+                        pass
+                    raise ValueError("pilot guard stopped")
+                if finished:
+                    break
+            if errors:
+                raise errors[0]
         def prompt(text):
             _request(url + "/prompt", payload={"text": text}, timeout=_remaining(deadline), password=password)
-            _request(wait_url, payload={}, timeout=_remaining(deadline), password=password)
+            wait_session()
             current = read_messages()
             wait_settlement(current)
             return current
@@ -421,7 +487,7 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
         if case["family"] == "HOLD":
             phase = "compaction"
             _request(url + "/compact", payload={}, timeout=_remaining(deadline), password=password)
-            _request(wait_url, payload={}, timeout=_remaining(deadline), password=password)
+            wait_session()
             messages = read_messages()
             compaction_index = _compaction(messages)
             if compaction_index is None:
@@ -444,7 +510,7 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
         return {"messages": messages, "events": fixture.events, "artifacts": fixture.artifacts(),
                 "final_text": _final_text(messages), "compacted": compacted, "compaction_index": compaction_index,
                 "capture_paths": capture_paths, "capture_stage": STAGE, "elapsed_seconds": time.monotonic() - start,
-                "guard_observations": {"step_events": step_events},
+                 "guard_observations": {"step_events": step_events, "retry_events": retry_events, "failures": guard_failures},
                 "host_version": version, "identity": {"providerID": provider, "modelID": model_id, "executable_sha256": identity["sha256"],
                 "plugin_sha256": _digest(PLUGIN.encode()), "tool_schema_sha256": _digest(_json_bytes(TOOL_SCHEMA)),
                 "snapshot_provenance": snapshot.get("provenance"), "config_sha256": _digest(config_path.read_bytes()),
@@ -464,5 +530,7 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
             stderr_thread.join(timeout=2)
         state_path = root / "failure-state.json"
         state_path.write_bytes(_json_bytes({"events": fixture.events, "artifacts": fixture.artifacts(),
-                                            "capture_paths": capture_paths, "messages": messages}))
+                                            "capture_paths": capture_paths, "messages": messages,
+                                            "guard_observations": {"step_events": step_events, "retry_events": retry_events,
+                                                                   "failures": guard_failures}}))
         state_path.chmod(0o600)

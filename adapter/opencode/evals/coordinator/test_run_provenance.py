@@ -85,7 +85,8 @@ class RunProvenanceTests(unittest.TestCase):
             args.profile.update({"plugins": ["/synthetic/provider-plugin"], "providers": {"synthetic": {"name": "Fixture"}}})
             result = run.run_case(args, "native-route-discovery", "coordinator body", {"rules.md": b"rule"})
         self.assertTrue(result["identity_verified"])
-        self.assertEqual([cmd[1][2] for cmd in commands], ["run", "session"])
+        self.assertEqual(commands[0][1][:2], ["--standalone", "run"])
+        self.assertEqual(commands[1][1], ["--standalone", "session", "export", "synthetic-session", "--sanitize"])
         self.assertIs(commands[0][0], commands[1][0])
         config = json.loads((Path(result["artifact_dir"]) / "opencode.json").read_text())
         self.assertEqual(config["share"], "disabled")
@@ -101,8 +102,8 @@ class RunProvenanceTests(unittest.TestCase):
         binary = self.artifacts / "binary"
         binary.write_text("fixture")
         launcher = run.sandbox.Launcher(self.artifacts, binary, {"env": {"SYNTHETIC_KEY": "value"}})
-        for command in (["--standalone", str(self.artifacts), "run"],
-                        ["--standalone", str(self.artifacts), "session", "export", "fixture"]):
+        for command in (["--standalone", "run"],
+                        ["--standalone", "session", "export", "fixture"]):
             with mock.patch.dict(os.environ, {"PRIVATE_CALLER_SECRET": "must-not-leak"}), \
                     mock.patch.object(run.subprocess, "Popen") as popen:
                 popen.return_value.wait.return_value = 0

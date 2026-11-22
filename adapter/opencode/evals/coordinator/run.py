@@ -428,11 +428,9 @@ def run_case(args, name, source, originals):
     tool_hashes = {str(path.relative_to(root)): digest(path.read_bytes()) for path in tool_files}
     (root / "scenario.txt").write_text(case["prompt"])
     # File-backed output preserves CLI output when the subprocess exits quickly.
-    # OpenCode 2.3.2 takes the working directory as a root positional argument
-    # and isolates through a private server (--standalone), and session export
-    # lives under the session subcommand.
+    # The launcher sets the working directory; --standalone starts a private server.
     exit_code = command_to_files(launcher, [
-        "--standalone", str(root), "run", "--agent", "coordinator-probe",
+        "--standalone", "run", "--agent", "coordinator-probe",
         "--model", args.model, "--format", "json", case["prompt"],
     ], root, "events", 240)
     try:
@@ -442,7 +440,7 @@ def run_case(args, name, source, originals):
         ids = {event["sessionID"] for event in events if event.get("sessionID")}
         readback = {}
         if len(ids) == 1:
-            exported = command_to_files(launcher, ["--standalone", str(root), "session", "export", ids.pop(), "--sanitize"], root, "session", 60)
+            exported = command_to_files(launcher, ["--standalone", "session", "export", ids.pop(), "--sanitize"], root, "session", 60)
             if exported == 0:
                 readback = json.loads((root / "session.jsonl").read_text())
         identities = [{"agent": item.get("agent"), "model": f'{item.get("model", {}).get("providerID")}/{item.get("model", {}).get("id")}'}

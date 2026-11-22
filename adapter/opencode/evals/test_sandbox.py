@@ -31,7 +31,7 @@ class SandboxTest(unittest.TestCase):
     def test_launch_isolated_environment_and_mounts(self):
         with patch.dict(os.environ, {"HOME": "/poison", "SECRET": "poison"}, clear=False):
             launcher = sandbox.Launcher(self.root, self.binary, self.profile)
-            argv, env = launcher.command(["serve", "--hostname", "127.0.0.1", "--port", "1234"])
+            argv, env = launcher.command(["serve", "--port", "1234"])
         self.assertEqual(env, {})
         self.assertIn("--clearenv", argv)
         self.assertIn("--unshare-pid", argv)

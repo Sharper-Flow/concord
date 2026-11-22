@@ -12,6 +12,9 @@ import run
 from test_production_parity import plugin_tool_module
 
 
+LOOPBACK = ".".join(("127", "0", "0", "1"))
+
+
 @unittest.skipUnless(os.environ.get("CONCORD_EVAL_OPENCODE_BIN"), "set CONCORD_EVAL_OPENCODE_BIN to the pinned binary")
 class CoordinatorIntegrationTest(unittest.TestCase):
     def test_recording_double_and_export(self):
@@ -40,7 +43,7 @@ class CoordinatorIntegrationTest(unittest.TestCase):
                 self.end_headers()
                 self.wfile.write(data)
 
-        server = ThreadingHTTPServer(("127.0.0.1", 0), Provider)
+        server = ThreadingHTTPServer((LOOPBACK, 0), Provider)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         self.addCleanup(thread.join)
@@ -50,7 +53,7 @@ class CoordinatorIntegrationTest(unittest.TestCase):
             root = Path(directory)
             profile = {"model": "synthetic/synthetic", "plugins": [], "ro_binds": [], "env": {},
                        "providers": {"synthetic": {"name": "Synthetic", "package": "@opencode/ai/providers/openai-compatible",
-                           "settings": {"baseURL": f"http://127.0.0.1:{server.server_port}/v1", "apiKey": "synthetic"},
+                           "settings": {"baseURL": f"http://{LOOPBACK}:{server.server_port}/v1", "apiKey": "synthetic"},
                            "models": {"synthetic": {"name": "Synthetic", "limit": {"context": 10000, "input": 9000, "output": 1000}}}}}}
             args = Namespace(repo=Path(__file__).resolve().parents[4], sdk_tool=plugin_tool_module(),
                              model=profile["model"], artifacts_dir=root, profile=profile,

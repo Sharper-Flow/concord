@@ -134,6 +134,18 @@ class SandboxTest(unittest.TestCase):
         with patch("adapter.opencode.evals.sandbox.subprocess.Popen", side_effect=inspect):
             launcher.popen(["serve"], extra_env={"HARNESS_TOKEN": "private-token"})
 
+    def test_sandbox_never_shares_the_caller_terminal_session(self):
+        launcher = sandbox.Launcher(self.root, self.binary, self.profile)
+        for requested in ({}, {"start_new_session": False}):
+            with self.subTest(requested=requested), patch("adapter.opencode.evals.sandbox.subprocess.Popen") as popen:
+                launcher.popen(["serve"], **requested)
+                self.assertIs(popen.call_args.kwargs["start_new_session"], True)
+        with patch("adapter.opencode.evals.sandbox.subprocess.run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = sandbox.VERSION + "\n"
+            launcher.verify_version()
+            self.assertIs(run.call_args.kwargs["start_new_session"], True)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -94,6 +94,21 @@ class CalibrationTest(unittest.TestCase):
         self.assertIsNone(result["usage"]["totals"]["host_cost"])
         self.assertAlmostEqual(result["usage"]["nominal_api_equivalent"], 0.00022)
 
+    def test_explicit_variant_is_accounted_against_the_base_model(self):
+        model = "provider/model#high"
+        self.profile.write_text(json.dumps({"model": model, "plugins": [], "ro_binds": [], "env": {}}))
+        for variant, status in (("high", "completed"), ("low", "failed")):
+            output = self.output()
+            for message in output["messages"]:
+                message["model"]["variant"] = variant
+            with self.subTest(variant=variant), patch.object(run.host, "run_session", return_value=output) as session:
+                result = run.calibrate(self.snapshot, self.artifacts, model, ["S18"], self.rates,
+                                       repository=self.repo, provider_profile=self.profile)[0]
+                self.assertEqual(session.call_args.args[2], model)
+                self.assertEqual(result["status"], status)
+                if status == "failed":
+                    self.assertEqual(result["failure"]["type"], "AccountingError")
+
     def test_changed_snapshot_invalidates_attempt(self):
         def change(*args, **kwargs):
             self.snapshot.chmod(0o600)

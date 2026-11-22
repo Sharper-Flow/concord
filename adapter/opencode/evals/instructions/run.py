@@ -93,7 +93,7 @@ def _validate_rates(value, provider, model):
     return rates, source
 
 
-def _accounting_messages(messages):
+def _accounting_messages(messages, variant=None):
     """Adapt V2 session readback to the accounting module's input contract."""
     result = []
     for message in messages:
@@ -105,6 +105,8 @@ def _accounting_messages(messages):
         if message["type"] == "compaction" and message.get("status") != "completed":
             raise accounting.AccountingError("compaction did not complete")
         model = message.get("model") or {}
+        if variant is not None and model.get("variant") != variant:
+            raise accounting.AccountingError("assistant variant does not match the requested variant")
         info = {"role": "assistant", "providerID": model.get("providerID"), "modelID": model.get("id")}
         if message["type"] == "compaction":
             info["cost_optional"] = True
@@ -152,9 +154,8 @@ def calibrate(snapshot_path, artifacts, model, case_ids, rates_path, timeout_sec
     Host capture limits do not account for all provider retries or calls.
     The artifact directory is private and must not be shared with blind reviewers.
     """
-    if not isinstance(model, str) or model.count("/") != 1 or any(not p or p.strip() != p for p in model.split("/")):
-        raise ValueError("model must be providerID/modelID")
-    provider, model_id = model.split("/")
+    selected_model = host.model_ref(model)
+    provider, model_id = selected_model["providerID"], selected_model["id"]
     if (not isinstance(case_ids, (list, tuple)) or not 1 <= len(case_ids) <= LIMIT
             or any(not isinstance(case, str) or case not in cases.CASES for case in case_ids)):
         raise ValueError("request must contain one to six known cases")
@@ -198,7 +199,7 @@ def calibrate(snapshot_path, artifacts, model, case_ids, rates_path, timeout_sec
                                       timeout_seconds=timeout_seconds, provider_profile=provider_profile)
             for key in ("host_version", "identity", "capture_paths", "capture_stage", "compacted", "compaction_index"):
                 result[key] = output[key]
-            result["usage"] = accounting.aggregate(_accounting_messages(output["messages"]), provider, model_id, rates, source)
+            result["usage"] = accounting.aggregate(_accounting_messages(output["messages"], selected_model.get("variant")), provider, model_id, rates, source)
             result["grade"] = evaluation.evaluate(case_id, output["events"], output["artifacts"], output["final_text"])
             result["snapshot_id_after"] = snapshots.load(snapshot_path, repository)["snapshot_id"]
             result["hashes_after"] = _hashes()

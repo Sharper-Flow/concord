@@ -124,12 +124,14 @@ class Launcher:
             os.close(fd)
 
     def popen(self, args, *, extra_env=None, cwd=None, readonly=(), **kwargs):
+        # A new session detaches the sandbox from the caller's terminal, so it cannot inject terminal input.
         with self._sealed_args(args, extra_env, cwd, readonly) as (argv, env, fd):
-            return subprocess.Popen(argv, env=env, pass_fds=(fd,), **kwargs)
+            return subprocess.Popen(argv, env=env, pass_fds=(fd,), **{**kwargs, "start_new_session": True})
 
     def verify_version(self, timeout=None):
         with self._sealed_args(["--version"]) as (argv, env, fd):
-            result = subprocess.run(argv, env=env, pass_fds=(fd,), capture_output=True, text=True, timeout=timeout, check=False)
+            result = subprocess.run(argv, env=env, pass_fds=(fd,), start_new_session=True,
+                                    capture_output=True, text=True, timeout=timeout, check=False)
         if result.returncode or result.stdout.strip() != VERSION:
             raise ValueError(f"unexpected OpenCode version (exit {result.returncode}): {result.stderr.strip()}")
         return {"version": VERSION, "sha256": self.binary_sha256}

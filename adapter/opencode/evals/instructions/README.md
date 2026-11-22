@@ -102,8 +102,11 @@ key and other artifacts away from blind graders. A failed or pending claim stops
 the pilot and is never retried. The command exits nonzero while incomplete.
 
 The limits JSON must identify the selected model and source and provide positive
-integer `context`, `input`, and `output` limits. The rates JSON has the same shape
-as calibration. For example, these are synthetic values, not model guidance:
+integer `context` and `output` limits, plus `input` when the model declares one.
+The guard refuses a request whose declared limits differ from these. The rates
+JSON has the same shape as calibration. A model written `provider/model#variant`
+pins that variant; without `#variant` the guard accepts the variant OpenCode
+selects. For example, these are synthetic values, not model guidance:
 
 ```json
 {"model":"provider/model","source":"synthetic","limits":{"context":10000,"input":9000,"output":1000}}

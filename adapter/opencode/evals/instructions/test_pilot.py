@@ -11,6 +11,14 @@ from . import budget, pilot, run, snapshots
 from .test_budget import LIMITS, RATES, assistant
 
 
+def reserve_and_settle(guard):
+    guard.reserve({"sessionID": "session", "agent": "instruction-probe",
+                   "model": {"providerID": "openai", "id": "synthetic"},
+                   "kind": "primary", "request": {}, "limits": LIMITS})
+    guard.settle({"id": "assistant", "type": "assistant", "model": {"providerID": "openai", "id": "synthetic"},
+                  "time": {"completed": 1}, "finish": "stop", "tokens": assistant()["tokens"]})
+
+
 class PilotTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -38,11 +46,7 @@ class PilotTest(unittest.TestCase):
         if (self.artifacts / "one-success").exists():
             raise RuntimeError("synthetic failure")
         (self.artifacts / "one-success").touch()
-        guard.reserve({"sessionID": "session", "message": {"id": "user"},
-                       "assistant": {"id": "assistant", "sessionID": "session", "parentID": "user",
-                                     "providerID": "openai", "modelID": "synthetic", "time": {}},
-                       "model": {"providerID": "openai", "id": "synthetic", "limit": LIMITS}})
-        guard.settle(assistant())
+        reserve_and_settle(guard)
         return {"events": [], "artifacts": {}, "final_text": "synthetic", "identity": {"modelID": "synthetic"}}
 
     def test_schedule_claims_and_resume_do_not_repeat_rows(self):
@@ -79,11 +83,7 @@ class PilotTest(unittest.TestCase):
 
     def test_batches_resume_without_changing_pilot_identity(self):
         def successful_host(root, snapshot, model, case_id, *, guard, **kwargs):
-            guard.reserve({"sessionID": "session", "message": {"id": "user"},
-                           "assistant": {"id": "assistant", "sessionID": "session", "parentID": "user",
-                                         "providerID": "openai", "modelID": "synthetic", "time": {}},
-                           "model": {"providerID": "openai", "id": "synthetic", "limit": LIMITS}})
-            guard.settle(assistant())
+            reserve_and_settle(guard)
             return {"events": [], "artifacts": {}, "final_text": "synthetic", "identity": {"modelID": "synthetic"}}
 
         def batch(size):
@@ -129,11 +129,7 @@ class PilotTest(unittest.TestCase):
 
     def test_cli_batch_reports_pilot_incomplete(self):
         def successful_host(root, snapshot, model, case_id, *, guard, **kwargs):
-            guard.reserve({"sessionID": "session", "message": {"id": "user"},
-                           "assistant": {"id": "assistant", "sessionID": "session", "parentID": "user",
-                                         "providerID": "openai", "modelID": "synthetic", "time": {}},
-                           "model": {"providerID": "openai", "id": "synthetic", "limit": LIMITS}})
-            guard.settle(assistant())
+            reserve_and_settle(guard)
             return {"events": [], "artifacts": {}, "final_text": "synthetic", "identity": {"modelID": "synthetic"}}
         output = io.StringIO()
         with patch.object(pilot.host, "run_session", side_effect=successful_host), patch.object(pilot.evaluation, "evaluate", return_value={}), redirect_stdout(output):
@@ -150,10 +146,8 @@ class PilotTest(unittest.TestCase):
         journal.create()
         journal.update(lambda data: data["attempts"].append({"id": "attempt", "status": "pending"}))
         guard = pilot.Guard(journal, "attempt", "openai/synthetic", LIMITS, RATES)
-        request = {"sessionID": "session", "message": {"id": "user"},
-                   "assistant": {"id": "assistant", "sessionID": "session", "parentID": "user",
-                                 "providerID": "openai", "modelID": "synthetic", "time": {}},
-                   "model": {"providerID": "openai", "id": "other", "limit": LIMITS}}
+        request = {"sessionID": "session", "agent": "instruction-probe", "kind": "primary", "request": {},
+                   "model": {"providerID": "openai", "id": "other"}, "limits": LIMITS}
         with self.assertRaises(ValueError):
             guard.reserve(request)
         request["model"]["id"] = "synthetic"

@@ -216,8 +216,7 @@ jobs:
       - name: Test named adapter result consumption
         run: python3 scripts/test-adapter-acceptance.py
       - name: Instruction evaluator tests (no model calls)
-        working-directory: adapter/opencode/evals
-        run: python3 -m unittest discover -s instructions -t . -p 'test_*.py'
+        run: python3 -m unittest discover -s adapter/opencode/evals/instructions -t . -p 'test_*.py' && python3 -m unittest adapter.opencode.evals.test_sandbox
       - name: Test isolated rapid integration
         run: python3 scripts/test-rapid-integration.py
       - name: Test workflow plan contracts

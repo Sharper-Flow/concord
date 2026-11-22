@@ -28,12 +28,13 @@ class CalibrationTest(unittest.TestCase):
 
     def output(self):
         def message(input_tokens, output_tokens, summary=False):
-            return {"info": {"role": "assistant", "providerID": "provider", "modelID": "model",
-                             "summary": summary, "tokens": {"input": input_tokens, "output": output_tokens,
-                             "reasoning": 2, "cache": {"read": 4, "write": 6}}, "cost": 0.1}}
+            return {"type": "compaction" if summary else "assistant", "model": {"providerID": "provider", "id": "model"},
+                    **({"status": "completed"} if summary else {}),
+                    "tokens": {"input": input_tokens, "output": output_tokens,
+                               "reasoning": 2, "cache": {"read": 4, "write": 6}}, "cost": 0.1}
         return {"messages": [message(100, 20), message(30, 10, True)], "events": [],
                 "artifacts": {"files": dict(cases.FILES), "state": {}}, "final_text": "3 seconds",
-                "host_version": "1.18.35", "identity": {"providerID": "provider", "modelID": "model"},
+                "host_version": "2.3.2", "identity": {"providerID": "provider", "modelID": "model"},
                 "capture_paths": ["capture"], "capture_stage": "pre-provider-serialization",
                 "compacted": False, "compaction_index": None}
 
@@ -71,11 +72,11 @@ class CalibrationTest(unittest.TestCase):
         self.assertEqual(result["usage"]["assistant_messages"], 2)
         for key in ("host_version", "identity", "capture_paths", "capture_stage", "compacted", "compaction_index"):
             self.assertEqual(result[key], self.output()[key])
-        self.assertEqual(set(result["hashes_before"]), {"evaluator", "cases", "host", "accounting", "snapshots", "run", "plan"})
+        self.assertEqual(set(result["hashes_before"]), {"evaluator", "cases", "host", "sandbox", "accounting", "snapshots", "run", "plan"})
         self.assertEqual(result["usage"]["totals"]["input"], 130)
         self.assertAlmostEqual(result["usage"]["nominal_api_equivalent"], 0.00022)
         output = self.output()
-        del output["messages"][1]["info"]["tokens"]
+        del output["messages"][1]["tokens"]
         with patch.object(run.host, "run_session", return_value=output):
             result = self.calibrate()[0]
         self.assertEqual(result["status"], "failed")

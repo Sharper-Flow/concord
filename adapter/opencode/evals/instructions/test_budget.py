@@ -31,38 +31,42 @@ class BudgetTest(unittest.TestCase):
     def test_reservation_is_full_context_and_output(self):
         self.assertEqual(budget.reservation(LIMITS, RATES), Decimal("2.155"))
 
-    def test_failed_retry_reservation_remains_after_success(self):
+    def test_retry_group_settles_at_aggregate_charge(self):
         amount = budget.reservation(LIMITS, RATES)
-        self.journal.reserve("attempt", "assistant", "user", "session", amount)
-        self.journal.reserve("attempt", "assistant", "user", "session", amount)
-        self.journal.settle("attempt", assistant(), "openai", "synthetic", LIMITS, RATES)
+        self.journal.reserve("attempt", "session", "context", "group", amount)
+        self.journal.reserve("attempt", "session", "context", "group", amount)
+        completed = {"id": "assistant", "type": "assistant", "model": {"providerID": "openai", "id": "synthetic"},
+                     "time": {"completed": 1}, "finish": "stop", "tokens": assistant()["tokens"]}
+        self.journal.settle("attempt", "session", "context", "group", completed, "openai", "synthetic", LIMITS, RATES)
         requests = self.journal.update(lambda data: list(data["requests"]))
-        self.assertEqual([r["status"] for r in requests], ["reserved", "settled"])
-        self.assertEqual(requests[0]["charge"], "2.155")
-        self.assertEqual(Decimal(requests[1]["charge"]), Decimal("0.000629"))
+        self.assertEqual([r["status"] for r in requests], ["settled", "settled"])
+        self.assertEqual(sum(Decimal(r["charge"]) for r in requests), Decimal("0.000629"))
 
     def test_cap_cannot_be_reopened_by_reinstantiating_journal(self):
         amount = budget.reservation(LIMITS, RATES)
         for _ in range(4):
-            self.journal.reserve("attempt", "assistant", "user", "session", amount)
+            self.journal.reserve("attempt", "session", "context", "group", amount)
         with self.assertRaises(ValueError):
-            budget.Journal(self.journal.root).reserve("attempt", "assistant", "user", "session", amount)
+            budget.Journal(self.journal.root).reserve("attempt", "session", "context", "group", amount)
         self.assertEqual(len(self.journal.update(lambda data: list(data["requests"]))), 4)
 
     def test_anomalous_usage_cannot_release_reservation(self):
         amount = budget.reservation(LIMITS, RATES)
-        self.journal.reserve("attempt", "assistant", "user", "session", amount)
-        for info in (assistant(error={"message": "error"}), assistant(error={}), assistant(modelID="other"),
-                     assistant(tokens={"input": 0, "output": 1, "reasoning": 0, "cache": {"read": 0, "write": 0}}),
-                     assistant(tokens={"input": 1, "output": 0, "reasoning": 0, "cache": {"read": 0, "write": 0}})):
+        self.journal.reserve("attempt", "session", "context", "group", amount)
+        good = {"id": "assistant", "type": "assistant", "model": {"providerID": "openai", "id": "synthetic"},
+                "time": {"completed": 1}, "finish": "stop", "tokens": assistant()["tokens"]}
+        for info in ({**good, "error": {"message": "error"}}, {**good, "error": {}},
+                     {**good, "model": {"providerID": "other", "id": "synthetic"}},
+                     {**good, "tokens": {"input": 0, "output": 1, "reasoning": 0, "cache": {"read": 0, "write": 0}}},
+                     {**good, "tokens": {"input": 1, "output": 0, "reasoning": 0, "cache": {"read": 0, "write": 0}}}):
             with self.subTest(info=info), self.assertRaises(ValueError):
-                self.journal.settle("attempt", info, "openai", "synthetic", LIMITS, RATES)
+                self.journal.settle("attempt", "session", "context", "group", info, "openai", "synthetic", LIMITS, RATES)
         self.assertEqual(self.journal.update(lambda data: data["requests"][0]["charge"]), "2.155")
 
     def test_concurrent_reservations_cannot_cross_ceiling(self):
         def reserve(_):
             try:
-                self.journal.reserve("attempt", "assistant", "user", "session", budget.reservation(LIMITS, RATES))
+                self.journal.reserve("attempt", "session", "context", "group", budget.reservation(LIMITS, RATES))
                 return True
             except ValueError:
                 return False

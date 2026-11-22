@@ -132,9 +132,14 @@ def _request(url, *, payload=None, timeout, password=None):
         headers["Authorization"] = "Basic " + base64.b64encode(("opencode:" + password).encode()).decode()
     req = urllib.request.Request(url, data=data, headers=headers)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    with opener.open(req, timeout=timeout) as response:
-        content = response.read()
-        return json.loads(content) if content else None
+    try:
+        with opener.open(req, timeout=timeout) as response:
+            content = response.read()
+            return json.loads(content) if content else None
+    except urllib.error.HTTPError as exc:
+        # The error owns the open response; callers that retry or ignore it never read it.
+        exc.close()
+        raise
 
 
 def _remaining(deadline):
@@ -288,7 +293,10 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
                         if (value.get("sessionID") != session_id or type(value.get("attempt")) is not int
                                 or value["attempt"] < 1 or session_id not in guard.groups or guard.failed):
                             raise ValueError("invalid retry")
-                        retry_sessions.add(session_id)
+                        # A retried step refreshes context while its group is open; admit only that refresh.
+                        # The request it makes still reserves in the open group through http.request.
+                        if guard.groups[session_id][0] == "context":
+                            retry_sessions.add(session_id)
                         retry_events.append(value)
                         result = {"ok": True}
                     elif self.path == "/fail" and guard is not None:
@@ -317,6 +325,7 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
                                    "time": {"completed": 1}, "finish": value.get("finish"),
                                    "tokens": value.get("tokens")}
                         guard.settle(message)
+                        retry_sessions.discard(session_id)
                         usage_ids.add(message["id"])
                         result = {"ok": True}
                     else:

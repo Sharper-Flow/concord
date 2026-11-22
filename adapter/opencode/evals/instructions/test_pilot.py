@@ -1,5 +1,6 @@
 import json
 import io
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -37,10 +38,17 @@ class PilotTest(unittest.TestCase):
         self.limits = self.root / "limits.json"
         self.limits.write_text(json.dumps({"model": "openai/synthetic", "source": "synthetic", "limits": LIMITS}))
         self.artifacts = self.root / "pilot"
+        self.profile = self.root / "profile.json"
+        self.profile.write_text(json.dumps({"model": "openai/synthetic", "plugins": [], "ro_binds": [], "env": {}}))
+        self.binary = self.root / "opencode"
+        self.binary.write_text("synthetic executable")
+        env_patch = patch.dict(os.environ, {"CONCORD_EVAL_OPENCODE_BIN": str(self.binary)})
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
 
     def execute(self, **kwargs):
         return pilot.execute(self.baseline, self.candidate, self.artifacts, "openai/synthetic",
-                             self.limits, self.rates, repository=self.repo, **kwargs)
+                             self.limits, self.rates, repository=self.repo, provider_profile=self.profile, **kwargs)
 
     def host(self, root, snapshot, model, case_id, *, guard, **kwargs):
         if (self.artifacts / "one-success").exists():
@@ -88,7 +96,7 @@ class PilotTest(unittest.TestCase):
 
         def batch(size):
             return pilot.execute(self.baseline, self.candidate, self.artifacts, "openai/synthetic",
-                                 self.limits, self.rates, max_new_attempts=size, repository=self.repo)
+                                 self.limits, self.rates, max_new_attempts=size, repository=self.repo, provider_profile=self.profile)
         with patch.object(pilot.host, "run_session", side_effect=successful_host), patch.object(pilot.evaluation, "evaluate", return_value={}):
             first = batch(2)
             paths = [self.artifacts / name for name in ("pilot-metadata.json", "pilot-schedule.json", "pilot-key.json")]
@@ -127,6 +135,37 @@ class PilotTest(unittest.TestCase):
             session.assert_not_called()
         self.assertFalse(self.artifacts.exists())
 
+    def test_missing_profile_or_binary_refused_before_artifacts(self):
+        with self.assertRaises(ValueError):
+            pilot.execute(self.baseline, self.candidate, self.artifacts, "openai/synthetic",
+                          self.limits, self.rates, repository=self.repo)
+        with patch.dict(os.environ, {"CONCORD_EVAL_OPENCODE_BIN": ""}), self.assertRaises(ValueError):
+            self.execute()
+        self.assertFalse(self.artifacts.exists())
+
+    def test_claude_agent_package_under_another_id_is_refused(self):
+        self.profile.write_text(json.dumps({"model": "openai/synthetic", "plugins": [], "env": {},
+                                            "providers": {"alias": {"package": "@opencode/claude-agent"}}}))
+        with self.assertRaisesRegex(ValueError, "claude-agent"):
+            self.execute()
+        self.assertFalse(self.artifacts.exists())
+
+    def test_changed_binary_or_plugin_rejects_resume(self):
+        plugin = self.root / "plugin"
+        plugin.mkdir()
+        source = plugin / "index.js"
+        source.write_text("one")
+        self.profile.write_text(json.dumps({"model": "openai/synthetic", "plugins": [str(plugin)], "env": {}}))
+        with patch.object(pilot.host, "run_session", side_effect=RuntimeError("synthetic")):
+            self.execute(max_new_attempts=1)
+        source.write_text("two")
+        with self.assertRaises(ValueError):
+            self.execute()
+        source.write_text("one")
+        self.binary.write_text("changed")
+        with self.assertRaises(ValueError):
+            self.execute()
+
     def test_cli_batch_reports_pilot_incomplete(self):
         def successful_host(root, snapshot, model, case_id, *, guard, **kwargs):
             reserve_and_settle(guard)
@@ -135,7 +174,7 @@ class PilotTest(unittest.TestCase):
         with patch.object(pilot.host, "run_session", side_effect=successful_host), patch.object(pilot.evaluation, "evaluate", return_value={}), redirect_stdout(output):
             status = run.main(["pilot", "--baseline", str(self.baseline), "--candidate", str(self.candidate),
                                "--artifacts", str(self.artifacts), "--model", "openai/synthetic",
-                               "--limits-json", str(self.limits), "--rates-json", str(self.rates), "--max-new-attempts", "2"])
+                               "--limits-json", str(self.limits), "--rates-json", str(self.rates), "--provider-profile", str(self.profile), "--max-new-attempts", "2"])
         result = json.loads(output.getvalue())
         self.assertEqual(status, 1)
         self.assertFalse(result["complete"])
@@ -154,6 +193,22 @@ class PilotTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             guard.reserve(request)
         self.assertEqual(journal.update(lambda data: data["requests"]), [])
+
+    def test_failed_step_closes_group_without_releasing_reservations(self):
+        journal = budget.Journal(self.root)
+        journal.create()
+        journal.update(lambda data: data["attempts"].append({"id": "attempt", "status": "pending"}))
+        guard = pilot.Guard(journal, "attempt", "openai/synthetic", LIMITS, RATES)
+        event = {"sessionID": "session", "agent": "instruction-probe", "kind": "primary", "request": {},
+                 "model": {"providerID": "openai", "id": "synthetic"}, "limits": LIMITS}
+        guard.reserve(event)
+        guard.reserve(event)
+        guard.fail_step("session", "failed-step")
+        entries = journal.update(lambda data: data["requests"])
+        self.assertTrue(guard.failed)
+        self.assertEqual([entry["status"] for entry in entries], ["settled", "settled"])
+        self.assertEqual([Decimal(entry["charge"]) for entry in entries], [Decimal("2.155"), Decimal("2.155")])
+        self.assertEqual({entry["subject_id"] for entry in entries}, {"failed-step"})
 
     def test_v2_guard_refuses_non_session_generation_and_unknown_limits(self):
         for kind, limits in (("title", LIMITS), ("generate", LIMITS), ("primary", None),

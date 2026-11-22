@@ -25,6 +25,8 @@ class CalibrationTest(unittest.TestCase):
         self.rates.write_text(json.dumps({"source": "published rates", "rates": {
             "input": 1, "output": 2, "cache_read": 0.5, "cache_write": 1.5}}))
         self.artifacts = self.root / "artifacts"
+        self.profile = self.root / "profile.json"
+        self.profile.write_text(json.dumps({"model": "provider/model", "plugins": [], "ro_binds": [], "env": {}}))
 
     def output(self):
         def message(input_tokens, output_tokens, summary=False):
@@ -39,6 +41,7 @@ class CalibrationTest(unittest.TestCase):
                 "compacted": False, "compaction_index": None}
 
     def calibrate(self, case_ids=("S18",), **kwargs):
+        kwargs.setdefault("provider_profile", self.profile)
         return run.calibrate(self.snapshot, self.artifacts, "provider/model", list(case_ids), self.rates,
                              repository=self.repo, **kwargs)
 
@@ -81,6 +84,15 @@ class CalibrationTest(unittest.TestCase):
             result = self.calibrate()[0]
         self.assertEqual(result["status"], "failed")
         self.assertEqual(result["failure"]["type"], "AccountingError")
+
+    def test_compaction_cost_is_optional_for_nominal_accounting(self):
+        output = self.output()
+        del output["messages"][1]["cost"]
+        with patch.object(run.host, "run_session", return_value=output):
+            result = self.calibrate()[0]
+        self.assertEqual(result["status"], "completed")
+        self.assertIsNone(result["usage"]["totals"]["host_cost"])
+        self.assertAlmostEqual(result["usage"]["nominal_api_equivalent"], 0.00022)
 
     def test_changed_snapshot_invalidates_attempt(self):
         def change(*args, **kwargs):

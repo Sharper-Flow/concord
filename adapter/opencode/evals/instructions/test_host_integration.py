@@ -5,6 +5,7 @@ import os
 import tempfile
 import threading
 import unittest
+from contextlib import nullcontext
 from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -25,12 +26,22 @@ class SyntheticProviderIntegrationTest(unittest.TestCase):
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 Provider.hits.append({"path": self.path, "kind": Provider.current_kind})
+                if len(Provider.hits) == 1:
+                    self.send_response(429)
+                    self.send_header("Retry-After", "0")
+                    self.end_headers()
+                    self.wfile.write(b'{"error":{"message":"synthetic rate limit","type":"rate_limit_error"}}')
+                    return
+                tool_step = len(Provider.hits) == 2
+                delta = ({"role": "assistant", "tool_calls": [{"index": 0, "id": "call_synthetic", "type": "function",
+                          "function": {"name": "fixture", "arguments": json.dumps({"action": "read_work", "arguments": {}})}}]}
+                         if tool_step else {"role": "assistant", "content": "synthetic response"})
                 chunks = [
                     {"id": "synthetic", "object": "chat.completion.chunk", "model": "synthetic",
-                     "choices": [{"index": 0, "delta": {"role": "assistant", "content": "synthetic response"},
+                     "choices": [{"index": 0, "delta": delta,
                                   "finish_reason": None}]},
                     {"id": "synthetic", "object": "chat.completion.chunk", "model": "synthetic",
-                     "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                     "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls" if tool_step else "stop"}],
                      "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18}},
                 ]
                 data = ("".join("data: " + json.dumps(chunk) + "\n\n" for chunk in chunks) + "data: [DONE]\n\n").encode()
@@ -45,6 +56,7 @@ class SyntheticProviderIntegrationTest(unittest.TestCase):
                 super().__init__(*args)
                 self.firings = []
                 self.settlements = []
+                self.failed_steps = []
 
             def reserve(self, event):
                 self.firings.append(event["kind"])
@@ -54,6 +66,10 @@ class SyntheticProviderIntegrationTest(unittest.TestCase):
             def settle(self, message):
                 self.settlements.append(message)
                 return super().settle(message)
+
+            def fail_step(self, session, subject):
+                self.failed_steps.append({"sessionID": session, "assistantMessageID": subject})
+                return super().fail_step(session, subject)
 
         class RefusingGuard(RecordingGuard):
             def reserve(self, event):
@@ -67,7 +83,8 @@ class SyntheticProviderIntegrationTest(unittest.TestCase):
         self.addCleanup(thread.join)
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
-        with tempfile.TemporaryDirectory() as directory:
+        with nullcontext(tempfile.mkdtemp(prefix="concord-eval-diagnostic-")) as directory:
+            print("diagnostic_artifacts=" + directory, flush=True)
             root = Path(directory)
             limits = {"context": 10000, "input": 9000, "output": 1000}
             rates = {"input": 2, "output": 10, "cache_read": 0.1, "cache_write": 2.5}
@@ -87,8 +104,15 @@ class SyntheticProviderIntegrationTest(unittest.TestCase):
 
             guard = new_guard(RecordingGuard, "journal")
             snapshot = {"role": "Respond briefly.", "instructions": [], "catalog": "", "provenance": {}}
-            output = host.run_session(root / "run", snapshot, "synthetic/synthetic", "S19",
-                                      provider_profile=profile, guard=guard, timeout_seconds=180)
+            try:
+                output = host.run_session(root / "run", snapshot, "synthetic/synthetic", "S19",
+                                          provider_profile=profile, guard=guard, timeout_seconds=180)
+            except Exception:
+                print(json.dumps({"http_request_firings": guard.firings, "provider_hits": len(Provider.hits),
+                                  "provider_hit_kinds": [hit["kind"] for hit in Provider.hits],
+                                  "settlements": guard.settlements, "failed_steps": guard.failed_steps,
+                                  "guard_failed": guard.failed}, sort_keys=True), flush=True)
+                raise
             guard.verify()
             entries = guard.journal.update(lambda data: list(data["requests"]))
             primary = sum(kind == "primary" for kind in guard.firings)
@@ -99,7 +123,9 @@ class SyntheticProviderIntegrationTest(unittest.TestCase):
             event_ids = [event["assistantMessageID"] for event in step_events if event["type"] == "session.step.ended"]
             print(json.dumps({"http_request_firings": guard.firings, "provider_hits": len(Provider.hits),
                               "provider_hit_kinds": [hit["kind"] for hit in Provider.hits],
-                              "step_ended_subjects": event_ids, "compaction_readback_subjects": compact_ids}, sort_keys=True))
+                              "step_events": step_events, "step_ended_subjects": event_ids,
+                              "compaction_readback_subjects": compact_ids,
+                              "title_requests": sum(kind == "title" for kind in guard.firings)}, sort_keys=True), flush=True)
             self.assertTrue(output["compacted"])
             self.assertGreaterEqual(primary, 2)
             self.assertGreaterEqual(compact, 1)

@@ -45,10 +45,12 @@ class SandboxTest(unittest.TestCase):
                             for i in range(len(argv) - 2)))
 
     def test_unsafe_profile_binds_and_environment_are_refused(self):
-        for path in ("/", "/proc", "/sys", "/dev", "/run", pwd.getpwuid(os.getuid()).pw_dir, "relative"):
+        home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+        for path in ("/", "/proc", "/proc/self", "/sys", "/dev", "/run", str(home),
+                     str(home / ".local/share/opencode"), str(home / ".config/opencode"), "relative"):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 sandbox.Launcher(self.root, self.binary, {**self.profile, "ro_binds": [path]})
-        for name in ("HOME", "PATH", "XDG_CONFIG_HOME", "OPENCODE_CONFIG_DIR", "bad=name"):
+        for name in ("HOME", "PATH", "XDG_CONFIG_HOME", "OPENCODE_CONFIG_DIR", "OPENCODE_OTHER", "NODE_OPTIONS", "BUN_FOO", "LD_PRELOAD", "bad=name"):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 sandbox.Launcher(self.root, self.binary, {**self.profile, "env": {name: "x"}})
 
@@ -60,6 +62,20 @@ class SandboxTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 launcher.verify_version()
             self.assertEqual(run.call_args.kwargs["env"], {})
+
+    def test_spawn_keeps_secrets_out_of_process_arguments(self):
+        launcher = sandbox.Launcher(self.root, self.binary, self.profile)
+        def inspect(argv, **kwargs):
+            self.assertNotIn("synthetic", " ".join(argv))
+            self.assertNotIn("private-token", " ".join(argv))
+            self.assertEqual(kwargs["env"], {})
+            fd = kwargs["pass_fds"][0]
+            data = os.read(fd, 65536).split(b"\0")
+            self.assertIn(b"private-token", data)
+            self.assertIn(b"synthetic", data)
+            return object()
+        with patch("adapter.opencode.evals.sandbox.subprocess.Popen", side_effect=inspect):
+            launcher.popen(["serve"], extra_env={"HARNESS_TOKEN": "private-token"})
 
 
 if __name__ == "__main__":

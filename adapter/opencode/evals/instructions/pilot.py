@@ -9,6 +9,7 @@ import time
 import uuid
 from pathlib import Path
 
+from adapter.opencode.evals import sandbox
 from . import budget, evaluation, host, plan, run, snapshots
 
 
@@ -76,6 +77,16 @@ class Guard:
         if self.failed or self.groups or not requests or any(r["status"] != "settled" for r in requests):
             raise ValueError("attempt has unresolved current usage")
 
+    def fail_step(self, session, subject):
+        try:
+            group = self.groups.get(session)
+            if self.failed or group is None or group[0] != "context":
+                raise ValueError("failed step has no open context group")
+            self.journal.fail_group(self.attempt, session, *group, subject)
+            del self.groups[session]
+        finally:
+            self.failed = True
+
 
 def execute(baseline_path, candidate_path, artifacts, model, limits_path, rates_path,
             timeout_seconds=180, *, max_new_attempts=96, repository=run.REPOSITORY, provider_profile=None):
@@ -87,13 +98,21 @@ def execute(baseline_path, candidate_path, artifacts, model, limits_path, rates_
         raise ValueError("timeout must be a positive integer")
     if type(max_new_attempts) is not int or max_new_attempts <= 0:
         raise ValueError("max_new_attempts must be a positive integer")
-    profile_bytes = b""
-    if provider_profile is not None:
-        provider_profile = snapshots.outside_repository(provider_profile, repository)
-        profile_bytes = provider_profile.read_bytes()
-        profile = json.loads(profile_bytes)
-        if not isinstance(profile, dict) or profile.get("model") != model:
-            raise ValueError("provider profile model mismatch")
+    if provider_profile is None:
+        raise ValueError("provider profile required")
+    binary = os.environ.get("CONCORD_EVAL_OPENCODE_BIN")
+    if not binary or not os.path.isabs(binary) or not Path(binary).is_file():
+        raise ValueError("CONCORD_EVAL_OPENCODE_BIN must name an executable")
+    executable_sha256 = hashlib.sha256(Path(binary).read_bytes()).hexdigest()
+    provider_profile = snapshots.outside_repository(provider_profile, repository)
+    profile = json.loads(provider_profile.read_bytes())
+    if not isinstance(profile, dict) or profile.get("model") != model:
+        raise ValueError("provider profile model mismatch")
+    providers = profile.get("providers", {})
+    if not isinstance(providers, dict) or any(isinstance(value, dict) and "claude-agent" in str(value.get("package", "")).lower()
+                                              for value in providers.values()):
+        raise ValueError("claude-agent bypasses the pilot HTTP guard")
+    profile_sha256 = sandbox.profile_digest(profile)
     baseline_path, candidate_path, artifacts, limits_path, rates_path = [
         snapshots.outside_repository(p, repository) for p in (baseline_path, candidate_path, artifacts, limits_path, rates_path)]
     baseline, candidate = snapshots.load(baseline_path, repository), snapshots.load(candidate_path, repository)
@@ -115,7 +134,7 @@ def execute(baseline_path, candidate_path, artifacts, model, limits_path, rates_
                     "rates": rates, "rate_source": source, "cap_usd": "10", "reservation_usd": str(reserve),
                     "snapshots": {"baseline": baseline["snapshot_id"], "candidate": candidate["snapshot_id"]},
                     "hashes": _hashes(), "timeout_seconds": timeout_seconds,
-                    "provider_profile_sha256": hashlib.sha256(profile_bytes).hexdigest()}
+                    "provider_profile_sha256": profile_sha256, "executable_sha256": executable_sha256}
         meta_path, schedule_path, key_path = [artifacts / n for n in ("pilot-metadata.json", "pilot-schedule.json", "pilot-key.json")]
         journal = budget.Journal(artifacts)
         if not meta_path.exists():
@@ -153,7 +172,8 @@ def execute(baseline_path, candidate_path, artifacts, model, limits_path, rates_
                     or json.loads(schedule_path.read_text()) != schedule
                     or json.loads(key_path.read_text()) != key):
                 raise ValueError("pilot metadata or schedule changed")
-            if (hashlib.sha256(provider_profile.read_bytes() if provider_profile is not None else b"").hexdigest() != metadata["provider_profile_sha256"]
+            if (sandbox.profile_digest(json.loads(provider_profile.read_bytes())) != metadata["provider_profile_sha256"]
+                    or hashlib.sha256(Path(binary).read_bytes()).hexdigest() != metadata["executable_sha256"]
                     or _hashes() != metadata["hashes"] or snapshots.load(baseline_path, repository)["snapshot_id"] != baseline["snapshot_id"] or snapshots.load(candidate_path, repository)["snapshot_id"] != candidate["snapshot_id"]):
                 raise ValueError("snapshot or harness changed")
             attempt_id = uuid.uuid4().hex
@@ -173,7 +193,8 @@ def execute(baseline_path, candidate_path, artifacts, model, limits_path, rates_
                                           model, row["case_id"], timeout_seconds=timeout_seconds, guard=guard,
                                           provider_profile=provider_profile)
                 guard.verify()
-                if (hashlib.sha256(provider_profile.read_bytes() if provider_profile is not None else b"").hexdigest() != metadata["provider_profile_sha256"]
+                if (sandbox.profile_digest(json.loads(provider_profile.read_bytes())) != metadata["provider_profile_sha256"]
+                        or hashlib.sha256(Path(binary).read_bytes()).hexdigest() != metadata["executable_sha256"]
                         or _hashes() != metadata["hashes"] or snapshots.load(baseline_path, repository)["snapshot_id"] != baseline["snapshot_id"] or snapshots.load(candidate_path, repository)["snapshot_id"] != candidate["snapshot_id"]):
                     raise ValueError("snapshot or harness changed")
                 result["grade"] = evaluation.evaluate(row["case_id"], output["events"], output["artifacts"], output["final_text"])

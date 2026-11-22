@@ -51,12 +51,21 @@ def aggregate(messages, provider, model, rates, rate_source):
             values = {
                 "input": tokens["input"], "output": tokens["output"],
                 "reasoning": tokens["reasoning"], "cache_read": tokens["cache"]["read"],
-                "cache_write": tokens["cache"]["write"], "host_cost": info["cost"],
+                "cache_write": tokens["cache"]["write"],
             }
         except (KeyError, TypeError) as exc:
             raise AccountingError(f"missing assistant usage field: {exc}") from exc
         for name, value in values.items():
             totals[name] += _number(value, name)
+        if "cost" not in info and info.get("cost_optional") is True:
+            totals["host_cost"] = None
+        else:
+            try:
+                cost = _number(info["cost"], "host_cost")
+            except KeyError as exc:
+                raise AccountingError("missing assistant usage field: cost") from exc
+            if totals["host_cost"] is not None:
+                totals["host_cost"] += cost
     if not count:
         raise AccountingError("no assistant usage recorded")
     nominal = (totals["input"] * prices["input"]

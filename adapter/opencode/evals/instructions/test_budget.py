@@ -40,7 +40,7 @@ class BudgetTest(unittest.TestCase):
         self.journal.settle("attempt", "session", "context", "group", completed, "openai", "synthetic", LIMITS, RATES)
         requests = self.journal.update(lambda data: list(data["requests"]))
         self.assertEqual([r["status"] for r in requests], ["settled", "settled"])
-        self.assertEqual(sum(Decimal(r["charge"]) for r in requests), Decimal("0.000629"))
+        self.assertEqual([Decimal(r["charge"]) for r in requests], [Decimal("2.155"), Decimal("0.000629")])
 
     def test_cap_cannot_be_reopened_by_reinstantiating_journal(self):
         amount = budget.reservation(LIMITS, RATES)
@@ -113,7 +113,7 @@ class GroupedJournalTest(unittest.TestCase):
         self.assertEqual({r["kind"] for r in requests}, {"context"})
         self.assertEqual({r["subject_id"] for r in requests}, {"assistant"})
         self.assertTrue(all(r["status"] == "settled" for r in requests))
-        self.assertEqual(sum(Decimal(r["charge"]) for r in requests), Decimal("0.000629"))
+        self.assertEqual([Decimal(r["charge"]) for r in requests], [Decimal("2.155"), Decimal("0.000629")])
 
     def test_no_mixed_kind_or_new_group_before_settlement(self):
         self.reserve()
@@ -138,6 +138,13 @@ class GroupedJournalTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.settle()
         self.assertEqual(self.requests()[0]["charge"], "0.000001")
+
+    def test_charge_above_last_reservation_is_refused_even_if_group_sum_covers_it(self):
+        for _ in range(2):
+            self.journal.reserve("attempt", "session", "context", "group-1", Decimal("0.0005"))
+        with self.assertRaises(ValueError):
+            self.settle()
+        self.assertEqual([entry["status"] for entry in self.requests()], ["reserved", "reserved"])
 
     def test_version_one_journal_is_refused(self):
         path = self.root / "pilot-journal.json"

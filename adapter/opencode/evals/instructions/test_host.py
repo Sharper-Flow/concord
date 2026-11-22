@@ -1,7 +1,9 @@
 """Offline protocol tests. The stand-in never invokes a model provider."""
 
 import json
+import hashlib
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,7 +13,7 @@ from . import host
 
 
 V2_STUB = r'''#!/usr/bin/env python3
-import json, os, sys, threading, time, urllib.request
+import json, os, signal, sys, threading, time, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 if sys.argv[1:] == ["--version"]:
@@ -35,6 +37,11 @@ def settle(message):
         time.sleep(.4)
         bridge("/step", {"type": "session.step.ended", "sessionID": "synthetic",
                          "assistantMessageID": message["id"], "finish": message["finish"], "tokens": message["tokens"]})
+def on_stop(signum, frame):
+    if os.environ.get("SYNTHETIC_SHUTDOWN_SIGNAL") == "1":
+        bridge("/fail", {})
+    sys.exit(0)
+signal.signal(signal.SIGTERM, on_stop)
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args): pass
     def send(self, value):
@@ -53,7 +60,13 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/info":
             self.send({"version": "2.3.2"})
         elif self.path.startswith("/api/session/synthetic/message"):
-            self.send({"data": messages, "cursor": None})
+            if "cursor=end" in self.path:
+                if "order=" in self.path:
+                    self.send_error(400)
+                    return
+                self.send({"data": [], "cursor": {"next": None, "previous": "end"}})
+            else:
+                self.send({"data": messages, "cursor": {"next": "end", "previous": "start"}})
         else:
             self.send_error(404)
     def do_POST(self):
@@ -95,6 +108,25 @@ ThreadingHTTPServer((hostname, port), Handler).serve_forever()
 '''
 
 
+class StandInLauncher:
+    def __init__(self, root, binary, profile):
+        self.root, self.binary = root, binary
+        self.profile_env = profile.get("env", {})
+
+    def verify_version(self, timeout=None):
+        result = subprocess.run([self.binary, "--version"], capture_output=True, text=True, timeout=timeout)
+        if result.returncode or result.stdout.strip() != "opencode v2.3.2":
+            raise ValueError("unexpected version")
+        return {"version": result.stdout.strip(), "sha256": hashlib.sha256(Path(self.binary).read_bytes()).hexdigest()}
+
+    def popen(self, args, *, extra_env, cwd, readonly, **kwargs):
+        env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": str(self.root / "home"),
+               "XDG_CONFIG_HOME": str(self.root / "config"), "XDG_CACHE_HOME": str(self.root / "cache"),
+               "XDG_STATE_HOME": str(self.root / "state"), "XDG_DATA_HOME": str(self.root / "data"),
+               **self.profile_env, **extra_env}
+        return subprocess.Popen([self.binary, *args], cwd=cwd, env=env, **kwargs)
+
+
 class V2HostTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -109,6 +141,9 @@ class V2HostTest(unittest.TestCase):
                                                     "CONCORD_EVAL_OPENCODE_BIN": str(self.binary)})
         self.environment.start()
         self.addCleanup(self.environment.stop)
+        launcher_patch = patch.object(host.sandbox, "Launcher", StandInLauncher)
+        launcher_patch.start()
+        self.addCleanup(launcher_patch.stop)
         self.snapshot = {"role": "role body", "instructions": ["rule"], "catalog": "catalog", "provenance": {}}
 
     def test_v2_routes_config_and_wait_for_settlement(self):
@@ -134,6 +169,7 @@ class V2HostTest(unittest.TestCase):
                     raise ValueError("unsettled")
 
         guard = Guard()
+        self.profile.write_text(json.dumps({"plugins": [], "ro_binds": [], "env": {"SYNTHETIC_SHUTDOWN_SIGNAL": "1"}, "model": "provider/model"}))
         root = self.base / "run"
         result = host.run_session(root, self.snapshot, "provider/model", "S19", guard=guard,
                                   provider_profile=self.profile, timeout_seconds=30)
@@ -141,6 +177,7 @@ class V2HostTest(unittest.TestCase):
         paths = [r["path"].split("?", 1)[0] for r in requests]
         self.assertIn("/api/info", paths)
         self.assertEqual(paths.count("/api/session"), 1)
+        self.assertEqual(next(r["body"]["title"] for r in requests if r["path"] == "/api/session"), "Instruction fixture S19")
         self.assertEqual(paths.count("/api/session/synthetic/prompt"), 2)
         self.assertGreaterEqual(paths.count("/api/experimental/session/synthetic/wait"), 2)
         self.assertGreaterEqual(paths.count("/api/session/synthetic/message"), 2)
@@ -160,6 +197,12 @@ class V2HostTest(unittest.TestCase):
         self.assertEqual(state["events"], result["events"])
         self.assertIn("files", state["artifacts"])
         config = json.loads((root / "config" / "opencode" / "opencode.json").read_text())
+        self.assertEqual(config["permissions"], [{"action": "*", "resource": "*", "effect": "deny"},
+                                                {"action": "fixture", "resource": "*", "effect": "allow"}])
+        self.assertEqual([Path(p).read_text() for p in config["instructions"]], ["rule", "catalog"])
+        self.assertEqual(result["identity"]["config_sha256"], hashlib.sha256((root / "config" / "opencode" / "opencode.json").read_bytes()).hexdigest())
+        self.assertEqual(result["identity"]["instruction_sha256"], [hashlib.sha256(s.encode()).hexdigest() for s in ("rule", "catalog")])
+        self.assertEqual(result["capture_stage"], "pre-provider-serialization")
         self.assertEqual(config["agents"]["instruction-probe"]["system"], "role body")
         self.assertTrue(config["agents"]["title"]["disabled"])
         self.assertFalse(config["compaction"]["auto"])

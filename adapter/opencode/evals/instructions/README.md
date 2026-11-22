@@ -126,14 +126,15 @@ The runner freezes model identity, supplied rates and limits, snapshot identitie
 and harness hashes. It reserves the full declared context at the highest input or
 cache rate plus the output limit at the output rate before each HTTP attempt.
 The pilot-wide nominal ceiling is USD 10. Reservations in a step or compaction
-group settle together against the group's verified nominal token charge. Missing
-or invalid usage stops the attempt. The ceiling can leave the pilot incomplete.
+group retain full reservations for every request except the last; the last is
+charged the verified nominal token amount. A failed step retains all reservations
+and stops the attempt. The ceiling can leave the pilot incomplete.
 
-Nominal amounts use OpenCode's normalized token fields, not provider billing. The
+Nominal amounts use OpenCode's normalized token fields, not provider billing.
 OpenCode can normalize omitted usage fields to zero;
 nonzero normalized usage does not attest the provider's raw response. The runner
-cannot guarantee subscription spend or provider charges. The host retains the
-disables title generation for both arms.
+cannot guarantee subscription spend or provider charges. The host disables title
+generation for both arms.
 
 The pilot guards HTTP transport only. It refuses WebSocket handshakes and the
 Claude Agent provider, which bypasses the HTTP guard. Provider profiles declare

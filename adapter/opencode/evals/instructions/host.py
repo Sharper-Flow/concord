@@ -17,6 +17,7 @@ import subprocess
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -167,7 +168,7 @@ def _final_text(messages):
 
 def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
                 timeout_seconds: int = 180, max_steps: int = 6, max_calls: int = 12, guard=None,
-                provider_profile=None) -> dict:
+                provider_profile=None, launcher_factory=None) -> dict:
     """Run one fixture in the pinned isolated OpenCode host."""
     if any(type(v) is not int or v < 1 for v in (timeout_seconds, max_steps, max_calls)):
         raise ValueError("timeout_seconds, max_steps and max_calls must be positive integers")
@@ -197,7 +198,7 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
     fixture = Fixture(case_id, root / "repo")
     for name in ("home", "config", "cache", "state", "data", "captures"):
         (root / name).mkdir(mode=0o700)
-    launcher = sandbox.Launcher(root, binary, profile)
+    launcher = (launcher_factory or sandbox.Launcher)(root, binary, profile)
     config_dir = root / "config" / "opencode"
     config_dir.mkdir(mode=0o700)
     plugin_path = config_dir / "capture-plugin"
@@ -210,6 +211,7 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
     usage_ids = set()
     step_events = []
     lock = threading.Lock()
+    bridge_closed = False
     token = secrets.token_urlsafe(32)
 
     class Bridge(BaseHTTPRequestHandler):
@@ -239,7 +241,9 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
                 else:
                     result = None
                 with lock:
-                    if self.path == "/context" and guard is not None:
+                    if self.path == "/fail" and bridge_closed:
+                        result = {"ok": True}
+                    elif self.path == "/context" and guard is not None:
                         pass
                     elif self.path == "/fixture":
                         if not isinstance(value, dict) or not isinstance(value.get("action"), str) or not isinstance(value.get("arguments"), dict):
@@ -265,8 +269,14 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
                         raise ValueError("pilot guard stopped")
                     elif self.path == "/step" and guard is not None:
                         step_events.append(value)
-                        if value.get("type") != "session.step.ended" or value.get("sessionID") != session_id:
+                        if value.get("sessionID") != session_id:
                             raise ValueError("invalid or failed step")
+                        if value.get("type") == "session.step.failed":
+                            guard.fail_step(session_id, value.get("assistantMessageID"))
+                            raise ValueError("step failed")
+                        if value.get("type") != "session.step.ended":
+                            raise ValueError("invalid or failed step")
+                        # Step events have no model; every admitted request already verified this identity.
                         message = {"id": value.get("assistantMessageID"), "type": "assistant",
                                    "model": {"providerID": provider, "id": model_id},
                                    "time": {"completed": 1}, "finish": value.get("finish"),
@@ -313,7 +323,8 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
             instruction_hashes.append(_digest(data))
         permissions = [{"action": "*", "resource": "*", "effect": "deny"},
                        {"action": "fixture", "resource": "*", "effect": "allow"}]
-        config = {"$schema": "https://opencode.ai/config.json", "plugins": [str(plugin_path), *profile.get("plugins", [])],
+        config = {"$schema": "https://opencode.ai/config.json", "share": "disabled", "update": "disable",
+                  "plugins": [str(plugin_path), *profile.get("plugins", [])],
                   "instructions": instruction_paths, "compaction": {"auto": False},
                   "permissions": permissions, "default_agent": "instruction-probe",
                   "agents": {"instruction-probe": {"mode": "primary", "description": "Synthetic instruction evaluation",
@@ -335,9 +346,9 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
         base = f"http://{LOOPBACK}:{port}"
         password = secrets.token_urlsafe(32)
         env["OPENCODE_PASSWORD"] = password
-        command, process_env = launcher.command(["serve", "--hostname", LOOPBACK, "--port", str(port)], env, cwd=fixture.root)
-        process = subprocess.Popen(command, cwd=fixture.root, env=process_env, stdout=subprocess.DEVNULL,
-                                   stderr=subprocess.PIPE, start_new_session=True)
+        process = launcher.popen(["serve", "--hostname", LOOPBACK, "--port", str(port)], extra_env=env,
+                                 cwd=fixture.root, readonly=(config_dir,), stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.PIPE, start_new_session=True)
         basic = base64.b64encode(("opencode:" + password).encode()).decode()
         sensitive = (token, password, basic, *(v for v in launcher.profile_env.values() if v))
         stderr_thread = threading.Thread(target=_stderr_copy, args=(process.stderr, root / "host-stderr.log", sensitive), daemon=True)
@@ -359,10 +370,34 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
         url = base + "/api/session/" + session_id
         wait_url = base + "/api/experimental/session/" + session_id + "/wait"
         def read_messages():
-            response = _request(url + "/message", timeout=_remaining(deadline), password=password)
-            if not isinstance(response, dict) or not isinstance(response.get("data"), list) or response.get("cursor"):
-                raise ValueError("invalid or incomplete message readback")
-            return response["data"]
+            messages, seen_ids, seen_cursors = [], set(), set()
+            cursor = None
+            while True:
+                params = {"limit": "100"}
+                if cursor is None:
+                    params["order"] = "asc"
+                else:
+                    params["cursor"] = cursor
+                response = _request(url + "/message?" + urllib.parse.urlencode(params), timeout=_remaining(deadline), password=password)
+                if (not isinstance(response, dict) or not isinstance(response.get("data"), list)
+                        or not isinstance(response.get("cursor"), dict)):
+                    raise ValueError("invalid message readback")
+                page, cursors = response["data"], response["cursor"]
+                if any(k not in ("next", "previous") or (v is not None and (not isinstance(v, str) or not v))
+                       for k, v in cursors.items()):
+                    raise ValueError("invalid message cursor")
+                for message in page:
+                    if not isinstance(message, dict) or not isinstance(message.get("id"), str) or not message["id"] or message["id"] in seen_ids:
+                        raise ValueError("invalid or duplicate message")
+                    seen_ids.add(message["id"])
+                    messages.append(message)
+                next_cursor = cursors.get("next")
+                if not page or next_cursor is None:
+                    return messages
+                if next_cursor in seen_cursors:
+                    raise ValueError("repeated message cursor")
+                seen_cursors.add(next_cursor)
+                cursor = next_cursor
         def wait_settlement(current):
             if guard is None:
                 return
@@ -419,6 +454,8 @@ def run_session(root: Path, snapshot: dict, model: str, case_id: str, *,
             guard.failed = True
         raise
     finally:
+        with lock:
+            bridge_closed = True
         _stop_group(process)
         bridge.shutdown()
         bridge.server_close()

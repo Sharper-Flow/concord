@@ -179,12 +179,25 @@ class Journal:
             if (not matches or not isinstance(info, dict) or not isinstance(info.get("id"), str) or not info["id"]
                     or info.get("type") != ("assistant" if kind == "context" else "compaction")):
                 raise ValueError("usage does not match request reservation")
-            aggregate_limits = {key: limits[key] * len(matches) for key in ("context", "input", "output")}
-            charge = normalized_charge(info, provider, model, aggregate_limits, rates)
-            if charge > sum(Decimal(r["charge"]) for r in matches):
+            charge = normalized_charge(info, provider, model, limits, rates)
+            if charge > Decimal(matches[-1]["charge"]):
                 raise ValueError("usage does not match request reservation")
             for entry in matches:
-                entry.update(status="settled", subject_id=info["id"], charge="0")
+                entry.update(status="settled", subject_id=info["id"])
             matches[-1]["charge"] = str(charge)
             return matches[-1]["ordinal"]
+        return self.update(apply)
+
+    def fail_group(self, attempt_id, session_id, kind, group_id, subject_id):
+        def apply(data):
+            if not isinstance(subject_id, str) or not subject_id:
+                raise ValueError("missing failed step identity")
+            if not any(a.get("id") == attempt_id and a.get("status") == "pending" for a in data["attempts"]):
+                raise ValueError("attempt is not pending")
+            matches = [r for r in data["requests"] if r["attempt_id"] == attempt_id and r["session_id"] == session_id
+                       and r["kind"] == kind and r["group_id"] == group_id and r["status"] == "reserved"]
+            if not matches:
+                raise ValueError("failed step has no open reservation")
+            for entry in matches:
+                entry.update(status="settled", subject_id=subject_id)
         return self.update(apply)

@@ -106,6 +106,8 @@ def _accounting_messages(messages):
             raise accounting.AccountingError("compaction did not complete")
         model = message.get("model") or {}
         info = {"role": "assistant", "providerID": model.get("providerID"), "modelID": model.get("id")}
+        if message["type"] == "compaction":
+            info["cost_optional"] = True
         for key in ("tokens", "cost", "error"):
             if key in message:
                 info[key] = message[key]
@@ -158,11 +160,13 @@ def calibrate(snapshot_path, artifacts, model, case_ids, rates_path, timeout_sec
         raise ValueError("request must contain one to six known cases")
     if type(timeout_seconds) is not int or timeout_seconds < 1:
         raise ValueError("timeout must be a positive integer")
-    if provider_profile is not None:
-        provider_profile = snapshots.outside_repository(provider_profile, repository)
-        profile = json.loads(provider_profile.read_text(encoding="utf-8"))
-        if not isinstance(profile, dict) or profile.get("model") != model:
-            raise ValueError("provider profile model mismatch")
+    if provider_profile is None:
+        raise ValueError("provider profile required")
+    provider_profile = snapshots.outside_repository(provider_profile, repository)
+    profile = json.loads(provider_profile.read_text(encoding="utf-8"))
+    if not isinstance(profile, dict) or profile.get("model") != model:
+        raise ValueError("provider profile model mismatch")
+    profile_sha256 = sandbox.profile_digest(profile)
     snapshot_path = snapshots.outside_repository(snapshot_path, repository)
     rates_path = snapshots.outside_repository(rates_path, repository)
     root = snapshots.outside_repository(artifacts, repository)
@@ -187,7 +191,7 @@ def calibrate(snapshot_path, artifacts, model, case_ids, rates_path, timeout_sec
         attempt_id = _claim(root, case_id)
         started = time.monotonic()
         result = {"attempt_id": attempt_id, "case_id": case_id, "snapshot_id_before": snapshot["snapshot_id"],
-                  "hashes_before": before_hashes,
+                  "hashes_before": before_hashes, "provider_profile_sha256": profile_sha256,
                   "accounting_limit": "Host capture limits do not account for all provider retries or calls."}
         try:
             output = host.run_session(root / (attempt_id + "-host"), before_snapshot, model, case_id,
@@ -284,7 +288,7 @@ def main(argv=None):
     run.add_argument("--model", required=True)
     run.add_argument("--cases", nargs="+", required=True)
     run.add_argument("--rates-json", required=True)
-    run.add_argument("--provider-profile")
+    run.add_argument("--provider-profile", required=True)
     run.add_argument("--timeout-seconds", type=int, default=180)
     projection = sub.add_parser("estimate")
     projection.add_argument("--artifacts", required=True)
@@ -296,7 +300,7 @@ def main(argv=None):
     pilot_parser.add_argument("--model", required=True)
     pilot_parser.add_argument("--limits-json", required=True)
     pilot_parser.add_argument("--rates-json", required=True)
-    pilot_parser.add_argument("--provider-profile")
+    pilot_parser.add_argument("--provider-profile", required=True)
     pilot_parser.add_argument("--timeout-seconds", type=int, default=180)
     pilot_parser.add_argument("--max-new-attempts", type=int, default=96)
     args = parser.parse_args(argv)

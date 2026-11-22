@@ -440,9 +440,14 @@ def run_case(args, name, source, originals):
             exported = command_to_files(launcher, ["--standalone", "session", "export", ids.pop(), "--sanitize"], root, "session", 60)
             if exported == 0:
                 readback = json.loads((root / "session.jsonl").read_text())
-        identities = [{"agent": item.get("agent"), "model": f'{(item.get("model") or {}).get("providerID")}/{(item.get("model") or {}).get("id")}'}
+        identities = [{"agent": item.get("agent"), "model": f'{(item.get("model") or {}).get("providerID")}/{(item.get("model") or {}).get("id")}',
+                       "variant": (item.get("model") or {}).get("variant")}
                       for item in readback.get("messages", []) if item.get("type") == "assistant"]
-        identity_verified = bool(identities) and all(item == {"agent": "coordinator-probe", "model": args.model} for item in identities)
+        # OpenCode records provider/model#variant as a base model plus a variant; an unrequested variant is not pinned.
+        model, _, variant = args.model.partition("#")
+        identity_verified = bool(identities) and all(
+            item["agent"] == "coordinator-probe" and item["model"] == model and (not variant or item["variant"] == variant)
+            for item in identities)
         unchanged = all(digest(Path(path).read_bytes()) == hashes[Path(path).name] for path in paths)
         unchanged = unchanged and digest((root / "opencode.json").read_bytes()) == config_hash
         unchanged = unchanged and all(digest((root / relative).read_bytes()) == value for relative, value in tool_hashes.items())

@@ -102,6 +102,24 @@ class RunProvenanceTests(unittest.TestCase):
         self.assertEqual(result["opencode"]["sha256"], "binary-hash")
         self.assertEqual(result["provider_profile_sha256"], "profile-hash")
 
+    def test_variant_model_identity_is_verified_against_the_base_model_and_variant(self):
+        for requested, recorded, verified in (("synthetic/model#high", "high", True), ("synthetic/model#high", "low", False),
+                                              ("synthetic/model#high", None, False), ("synthetic/model", "default", True)):
+            def stub(launcher, command, root, stem, timeout):
+                model = {"providerID": "synthetic", "id": "model", **({"variant": recorded} if recorded else {})}
+                data = '{"sessionID":"synthetic-session"}\n' if stem == "events" else json.dumps({"messages": [
+                    {"type": "assistant", "agent": "coordinator-probe", "model": model}]})
+                (root / f"{stem}.jsonl").write_text(data)
+                return 0
+            with self.subTest(requested=requested, recorded=recorded), \
+                    mock.patch.object(run, "command_to_files", side_effect=stub), mock.patch.object(run.sandbox, "Launcher") as factory:
+                factory.return_value.verify_version.return_value = {"version": run.sandbox.VERSION, "sha256": "binary-hash"}
+                args = self.args()
+                args.model = args.profile["model"] = requested
+                result = run.run_case(args, "native-route-discovery", "coordinator body", {"rules.md": b"rule"})
+                self.assertIs(result["identity_verified"], verified)
+                self.assertEqual(result["runtime_identities"], [{"agent": "coordinator-probe", "model": "synthetic/model", "variant": recorded}])
+
     def test_one_shot_commands_use_launcher_environment(self):
         binary = self.artifacts / "binary"
         binary.write_text("fixture")

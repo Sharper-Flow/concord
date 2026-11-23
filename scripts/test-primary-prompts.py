@@ -22,12 +22,17 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from pathlib import Path
+import json
 
 ROOT = Path(__file__).resolve().parents[1]
 
 spec = importlib.util.spec_from_file_location("check_primary_prompts", ROOT / "scripts" / "check-primary-prompts.py")
 check_primary_prompts = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(check_primary_prompts)
+
+
+def rule(action: str, resource: str, effect: str) -> str:
+    return "  - " + json.dumps({"action": action, "resource": resource, "effect": effect}) + "\n"
 
 
 class PrimaryPromptCheckTests(unittest.TestCase):
@@ -76,7 +81,7 @@ class PrimaryPromptCheckTests(unittest.TestCase):
     def test_concord_lost_build_permission_grants_report(self) -> None:
         def strip_grants(text: str) -> str:
             for tool in check_primary_prompts.PRIMARY_BUILD_TOOLS:
-                line = f"  {tool}: allow\n"
+                line = rule(tool, "*", "allow")
                 self.assertIn(line, text, line)
                 text = text.replace(line, "")
             return text
@@ -94,7 +99,7 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         # frontmatter would strand the end-to-end work the role exists for.
         self.rewrite(
             "Concord.md",
-            lambda text: text.replace("  webfetch: allow\n", "  webfetch: allow\n  concord_work_define: deny\n"),
+            lambda text: text.replace(rule("webfetch", "*", "allow"), rule("webfetch", "*", "allow") + rule("concord_work_define", "*", "deny")),
         )
         findings = self.findings()
         self.assertTrue(any("Concord.md" in finding and "concord_work_define" in finding for finding in findings))
@@ -102,7 +107,7 @@ class PrimaryPromptCheckTests(unittest.TestCase):
     def test_rte_lost_build_permission_grants_report(self) -> None:
         def strip_grants(text: str) -> str:
             for tool in check_primary_prompts.PRIMARY_BUILD_TOOLS:
-                line = f"  {tool}: allow\n"
+                line = rule(tool, "*", "allow")
                 self.assertIn(line, text, line)
                 text = text.replace(line, "")
             return text
@@ -120,17 +125,17 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         # frontmatter would strand the job the role exists for.
         self.rewrite(
             "Concord-RTE.md",
-            lambda text: text.replace("  webfetch: allow\n", "  webfetch: allow\n  concord_work_define: deny\n"),
+            lambda text: text.replace(rule("webfetch", "*", "allow"), rule("webfetch", "*", "allow") + rule("concord_work_define", "*", "deny")),
         )
         findings = self.findings()
         self.assertTrue(any("Concord-RTE.md" in finding and "concord_work_define" in finding for finding in findings))
 
     def test_named_profiles_cannot_reallow_host_bash_denials(self) -> None:
         for name in check_primary_prompts.FULL_PROFILE_FILES:
-            for rule in ('    "git *": allow\n', '    "git *": "ask"\n'):
+            for effect in ("allow", "ask"):
                 self.setUp()
-                self.rewrite(name, lambda text: text.replace('  bash:\n', '  bash:\n' + rule, 1))
-                self.assertTrue(any(name in finding and "bash rules must only deny named commands" in finding for finding in self.findings()), rule)
+                self.rewrite(name, lambda text: text.replace("permissions:\n", "permissions:\n" + rule("shell", "git *", effect), 1))
+                self.assertTrue(any(name in finding and "bash rules must only deny named commands" in finding for finding in self.findings()), effect)
 
     def assert_planner_finding(self, transform, fragment: str) -> None:
         self.rewrite("Concord-Planner.md", transform)
@@ -181,11 +186,11 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         self.assertTrue(any("Concord.md" in item and "'Context7'" in item for item in check_primary_prompts.generated_profile_name_advisories(self.root)))
 
     def test_generated_helper_host_tool_fragment_does_not_add_findings(self) -> None:
-        self.rewrite("concord-advisor.md", lambda text: text.replace("  bash: true\n", "  bash: true\n  exa_search: false\n", 1))
+        self.rewrite("concord-advisor.md", lambda text: text.replace("permissions:\n", "permissions:\n" + rule("exa_search", "*", "deny"), 1))
         self.assertEqual(self.findings(), [])
 
     def test_advisory_does_not_change_existing_blocking_findings(self) -> None:
-        self.rewrite("Concord.md", lambda text: text.replace("  edit: allow\n", "", 1))
+        self.rewrite("Concord.md", lambda text: text.replace(rule("edit", "*", "allow"), "", 1))
         before = self.findings()
         self.assertTrue(before)
         self.rewrite("concord-lookup.md", lambda text: text + "\nQuery Exa.\n")
@@ -196,24 +201,24 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         self.assertIn("primary agent finding:", output.getvalue())
 
     def test_planner_edit_outside_planning_reports(self) -> None:
-        self.assert_planner_finding(lambda text: text.replace('  edit:\n    "*": deny\n', '  edit:\n    "*": allow\n', 1), "permission.edit")
+        self.assert_planner_finding(lambda text: text.replace(rule("edit", "*", "deny"), rule("edit", "*", "allow"), 1), "permission.edit")
 
     def test_planner_unscoped_editor_grant_reports(self) -> None:
-        self.assert_planner_finding(lambda text: text.replace("  webfetch: allow\n", "  webfetch: allow\n  write: allow\n", 1), "unscoped 'write: allow'")
+        self.assert_planner_finding(lambda text: text.replace(rule("webfetch", "*", "allow"), rule("webfetch", "*", "allow") + rule("edit", "*", "allow"), 1), "unscoped 'edit: allow'")
 
     def test_planner_reallowed_push_reports(self) -> None:
-        self.assert_planner_finding(lambda text: text.replace('    "git push *": deny\n', "", 1), "'git push origin main' to ask, not deny")
+        self.assert_planner_finding(lambda text: text.replace(rule("shell", "git push *", "deny"), "", 1), "'git push origin main' to ask, not deny")
         self.setUp()
-        self.assert_planner_finding(lambda text: text.replace('    "git stash *": deny\n', '    "gh pr merge *": allow\n    "git stash *": deny\n', 1), "'gh pr merge 12 --auto --squash' to allow, not deny")
+        self.assert_planner_finding(lambda text: text.replace(rule("shell", "git stash *", "deny"), rule("shell", "gh pr merge *", "allow") + rule("shell", "git stash *", "deny"), 1), "'gh pr merge 12 --auto --squash' to allow, not deny")
 
     def test_planner_allow_default_shell_reports(self) -> None:
-        self.assert_planner_finding(lambda text: text.replace('  bash:\n    "*": ask\n', '  bash:\n    "*": allow\n', 1), 'permission.bash must open with "*": ask')
+        self.assert_planner_finding(lambda text: text.replace(rule("shell", "*", "ask"), rule("shell", "*", "allow"), 1), 'permission.bash must open with "*": ask')
 
     def test_planner_lane_delegation_reports(self) -> None:
-        self.assert_planner_finding(lambda text: text.replace('  task:\n    "*": deny\n', '  task:\n    "*": allow\n', 1), "'concord-implement' to allow, not deny")
+        self.assert_planner_finding(lambda text: text.replace(rule("subagent", "*", "deny"), rule("subagent", "*", "allow"), 1), "'concord-implement' to allow, not deny")
 
     def test_planner_lost_work_state_denial_reports(self) -> None:
-        self.assert_planner_finding(lambda text: text.replace("  concord_work_transition: deny\n", "", 1), "does not deny Concord tool concord_work_transition")
+        self.assert_planner_finding(lambda text: text.replace(rule("concord_work_transition", "*", "deny"), "", 1), "does not deny Concord tool concord_work_transition")
 
     def test_rte_coordination_issue_reports(self) -> None:
         path = self.root / check_primary_prompts.PROFILE_DIR / "Concord-RTE.md"
@@ -271,7 +276,7 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         self.assertTrue(any("Concord.md" in finding and "concord-explore" in finding for finding in findings))
 
     def test_named_profile_host_tool_in_frontmatter_reports(self) -> None:
-        self.rewrite("Concord.md", lambda text: text.replace("  webfetch: allow\n", "  webfetch: allow\n  exa_*: allow\n", 1))
+        self.rewrite("Concord.md", lambda text: text.replace(rule("webfetch", "*", "allow"), rule("webfetch", "*", "allow") + rule("exa_*", "*", "allow"), 1))
         findings = self.findings()
         self.assertTrue(any("Concord.md" in finding and "exa_" in finding for finding in findings))
 
@@ -294,12 +299,12 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         self.assertTrue(any("missing primary agent example" in finding for finding in findings))
 
     def test_host_tool_name_in_frontmatter_reports(self) -> None:
-        self.rewrite("concord-0.md", lambda text: text.replace("permission:\n", "permission:\n  github_*: allow\n", 1))
+        self.rewrite("concord-0.md", lambda text: text.replace("permissions:\n", "permissions:\n" + rule("github_*", "*", "allow"), 1))
         findings = self.findings()
         self.assertTrue(any("github_'" in finding and "frontmatter" in finding for finding in findings))
 
     def test_host_mutation_tool_permission_in_coordinator_frontmatter_reports(self) -> None:
-        self.rewrite("Concord.md", lambda text: text.replace("  edit: allow\n", "  edit: allow\n  morph_edit: allow\n"))
+        self.rewrite("Concord.md", lambda text: text.replace(rule("edit", "*", "allow"), rule("edit", "*", "allow") + rule("morph_edit", "*", "allow")))
         findings = self.findings()
         self.assertTrue(any("morph_edit" in finding and "frontmatter" in finding for finding in findings))
 
@@ -353,18 +358,14 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         self.assertEqual(check_primary_prompts.split_frontmatter(text), """# Example only. Concord never installs or manages this file.
 description: Concord 0, intake posture — aligns Product data and defines managed work without executing it; Linear MCP owns planning.
 mode: primary
-permission:
-  edit: deny
-  write: deny
-  patch: deny
-  morph_edit: deny
-  bash:
-    "*": deny
-    "gh issue list *": allow
-    "gh issue view *": allow
-  task:
-    "*": deny
-  concord_work_transition: deny""")
+permissions:
+  - {"action": "edit", "resource": "*", "effect": "deny"}
+  - {"action": "morph_edit", "resource": "*", "effect": "deny"}
+  - {"action": "shell", "resource": "*", "effect": "deny"}
+  - {"action": "shell", "resource": "gh issue list *", "effect": "allow"}
+  - {"action": "shell", "resource": "gh issue view *", "effect": "allow"}
+  - {"action": "subagent", "resource": "*", "effect": "deny"}
+  - {"action": "concord_work_transition", "resource": "*", "effect": "deny"}""")
         body = check_primary_prompts.flatten(check_primary_prompts.body(text))
         for marker in ("dispatch", "lane", "packet", "attempt window", "retry a failure"):
             with self.subTest(marker=marker):
@@ -374,24 +375,33 @@ permission:
         self.assertIn("This posture records what the work is, not where it stands", body)
 
     def test_intake_boundary_loss_reports(self) -> None:
-        self.rewrite("concord-0.md", lambda text: text.replace("  write: deny\n", ""))
+        self.rewrite("concord-0.md", lambda text: text.replace(rule("edit", "*", "deny"), ""))
         findings = self.findings()
         self.assertTrue(any("intake boundary" in finding for finding in findings))
+
+    def test_intake_later_grant_overrides_denial(self) -> None:
+        original = check_primary_prompts.read_prompt(self.root, "concord-0.md")
+        for action in ("edit", "morph_edit", "concord_work_transition", "subagent"):
+            with self.subTest(action=action):
+                self.rewrite("concord-0.md", lambda _: original.replace(
+                    "\n---\n", "\n" + rule(action, "*", "allow").rstrip() + "\n---\n", 1,
+                ))
+                self.assertTrue(any("intake boundary" in finding and action in finding for finding in self.findings()))
 
     def test_intake_github_planning_write_grants_report(self) -> None:
         original = check_primary_prompts.read_prompt(self.root, "concord-0.md")
         for pattern in ("gh issue create *", "gh issue edit *", "gh issue comment *", "gh issue create*", "gh issue close *", "gh api *"):
             with self.subTest(pattern=pattern):
                 self.rewrite("concord-0.md", lambda _: original.replace(
-                    '    "gh issue view *": allow\n',
-                    f'    "gh issue view *": allow\n    "{pattern}": allow\n',
+                    rule("shell", "gh issue view *", "allow"),
+                    rule("shell", "gh issue view *", "allow") + rule("shell", pattern, "allow"),
                 ))
                 self.assertTrue(any("unapproved bash grant" in finding for finding in self.findings()))
 
     def test_coordinator_task_boundary_loss_reports(self) -> None:
         self.rewrite(
             "Concord.md",
-            lambda text: text.replace('task:\n    "*": allow', 'task:\n    "*": deny'),
+            lambda text: text.replace(rule("subagent", "*", "allow"), rule("subagent", "*", "deny")),
         )
         findings = self.findings()
         self.assertTrue(any("does not allow task by default" in finding for finding in findings))

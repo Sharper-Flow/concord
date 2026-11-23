@@ -158,6 +158,7 @@ jobs:
             test -n "$adapter_name"
             cp "adapter/opencode/$adapter_name" release/package/adapter/opencode/
           done < release/adapter-files.txt
+          test -s release/package/adapter/opencode/index.ts
           cp -a skills/. release/package/skills/
           cp -a .concord/instructions/. release/package/instructions/
           cp .opencode/agents/[Cc]oncord*.md release/package/agents/

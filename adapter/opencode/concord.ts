@@ -2,7 +2,6 @@ import { clientRef } from "./credentials"
 import { contractOperations, maxEnvelopeBytes, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resolveDiskManifestDigest } from "./manifest-pin"
 import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePath, payloadFailurePath } from "./generated-contract-tests"
-import { sessionDirectoryReader } from "./session-directory"
 import { concordBinaryPath, CoreBinaryUnavailable } from "./core-runtime"
 import { hostLeaseFault } from "./host-lease"
 import { reconstructMutationResult } from "./mutation-result"
@@ -11,28 +10,25 @@ type ToolContext = {
   sessionID: string
   messageID: string
   agent: string
-  directory: string
-  worktree: string
-  abort: AbortSignal
-  metadata: (input: { title?: string; metadata?: { [key: string]: any } }) => void
-  ask: (request: { permission: string; patterns: string[]; always: string[]; metadata: { [key: string]: any } }) => Promise<void>
+  signal: AbortSignal
+  sessionDirectory: () => Promise<string>
 }
-type ToolResult = string | { output: string; title?: string; metadata?: Record<string, unknown>; attachments?: unknown[] }
-const requestToolNames = new WeakMap<object, string>()
-function tool<T extends { args: object; execute: (args: any, context: ToolContext) => Promise<ToolResult> }>(definition: T): T {
-  const toolName = requestToolNames.get(definition.args)
-  if (!toolName) return definition
-  const execute = definition.execute
-  return { ...definition, execute: async (args: any, context: ToolContext): Promise<ToolResult> => {
-    const request: unknown = args?.request
-    if (request === null || typeof request !== "object" || Array.isArray(request)) {
-      const operation = typeof args?.operation === "string" && contractOperations.some((candidate) => candidate.tool === toolName && candidate.id === `${toolName}.${args.operation}`) ? args.operation : ""
-      const requestID = `${context.sessionID}-${context.messageID}`
-      const envelope = adapterError(toolName, operation, requestID, "invalid_request_wrapper", "Missing or invalid request wrapper: submit {request: {operation, input}}.")
-      return encodeHostResult(toolName, operation, requestID, envelope)
-    }
-    return execute(args, context)
-  } }
+type ToolResult = { content: string; metadata: Record<string, unknown> }
+function tool<T extends { name: string; description: string }>(definition: T) {
+  return {
+    ...definition,
+    options: { codemode: false as const },
+    input: registeredInputSchema(definition.name),
+    execute: async (args: unknown, context: ToolContext): Promise<ToolResult> => {
+      const request = record(args) ? args.request : undefined
+      if (!record(request)) {
+        const requestID = `${context.sessionID}-${context.messageID}`
+        const operation = record(args) && typeof args.operation === "string" && contractOperations.some((item) => item.tool === definition.name && item.id === `${definition.name}.${args.operation}`) ? args.operation : ""
+        return encodeHostResult(definition.name, operation, requestID, adapterError(definition.name, operation, requestID, "invalid_request_wrapper", "Missing or invalid request wrapper: submit {request: {operation, input}}."))
+      }
+      return executeHostTool(definition.name, request as HostToolArgs, context)
+    },
+  }
 }
 
 const MAX_STDERR = 8192
@@ -42,39 +38,6 @@ const CLI_INPUT_REFUSAL_EXIT = 64
 const MAX_SALVAGE_BYTES = 16_384
 
 type HostToolArgs = Record<string, unknown> & { operation: string; input: Record<string, unknown> }
-type HostToolCall = { request: HostToolArgs | { request: HostToolArgs } }
-
-// opencode 1.18.30's Code Mode bridge delivers the published arguments to
-// plugin tool execute wrapped one extra time under the schema's own
-// `request` property: {request: {request: {operation, input}}}. No legitimate
-// HostToolArgs carries a `request` property, so that key is the discriminator. Both host shapes
-// normalize here, at the single boundary between host delivery and the
-// shared transport.
-//
-// The bridge can also deliver that wrapper without the published top-level
-// `operation`, which leaves a caller's copy inside `input` as the only
-// surviving name. No tool input payload declares an `operation` property, so
-// the key names the operation and never the payload: it is recovered when the
-// top-level name is absent, and always removed before the payload reaches the
-// core, which keeps sole authority over whether the named operation is
-// admissible.
-function hostRequest(args: HostToolCall): HostToolArgs {
-  const outer: unknown = args["request"]
-  let delivered = outer
-  if (outer !== null && typeof outer === "object" && "request" in outer) {
-    const inner: unknown = (outer as { request: unknown }).request
-    if (inner !== null && typeof inner === "object") delivered = inner
-  }
-  return withOperationNamed(delivered as HostToolArgs)
-}
-
-function withOperationNamed(delivered: HostToolArgs): HostToolArgs {
-  const input: unknown = delivered?.input
-  if (input === null || typeof input !== "object" || !("operation" in input)) return delivered
-  const { operation: named, ...payload } = input as Record<string, unknown>
-  const operation = typeof delivered.operation === "string" ? delivered.operation : named
-  return { ...delivered, ...(typeof operation === "string" ? { operation } : {}), input: payload }
-}
 type JSONSchema = Record<string, unknown>
 type CoreConcordEnvelope = Record<string, unknown>
 type HostConcordEnvelope = CoreConcordEnvelope
@@ -181,8 +144,6 @@ function publishClosedSchema(value: unknown, resolving = new Set<string>()): JSO
   const result: Record<string, unknown> = {}
   for (const [key, child] of Object.entries(schema)) {
     if (key === "$defs" || key === "definitions") continue
-    // The generated description already carries this complete illustrative value.
-    // Keep the canonical, validated examples annotation without publishing it twice.
     if (key === "examples" && typeof schema.description === "string" && schema.description.includes("Accepted shape:")) continue
     if (key === "properties" && typeof child === "object" && child !== null && !Array.isArray(child)) {
       result[key] = Object.fromEntries(Object.entries(child as Record<string, unknown>).map(([name, property]) => [name, publishClosedSchema(property, resolving)]))
@@ -220,8 +181,6 @@ function publishSchemaAlternative(value: unknown, resolving = new Set<string>())
   return schema
 }
 
-// Only schema-valued positions are traversed. Property maps and annotation
-// objects cannot become references: their keys are not schema keywords.
 function mapPublicationChildren(schema: JSONSchema, visit: (child: JSONSchema) => JSONSchema): JSONSchema {
   const result = { ...schema }
   for (const key of ["properties", "patternProperties"]) {
@@ -240,10 +199,6 @@ function mapPublicationChildren(schema: JSONSchema, visit: (child: JSONSchema) =
   return result
 }
 
-// A containing object and a selected oneOf member both apply. Identical
-// properties and common requireds therefore need only one constraint owner.
-// Closed children still declare shared property names with empty schemas,
-// because additionalProperties does not inherit names from its parent.
 function factorPublication(schema: JSONSchema): JSONSchema {
   const node = mapPublicationChildren(schema, factorPublication)
   const branches = node.oneOf as JSONSchema[] | undefined
@@ -382,22 +337,9 @@ export function publishedRequestSchema(toolName: string): JSONSchema {
   }))
 }
 
-// OpenCode wraps plain argument entries in properties. JSON pointers resolve
-// against that complete argument root, not the nested request document, so the
-// definition hook moves its table to the root without changing runtime args.
-export async function publishRequestDefinition(
-  input: { toolID: string },
-  output: { description: string; parameters: unknown; jsonSchema?: unknown },
-): Promise<void> {
-  if (!contractOperations.some((operation) => operation.tool === input.toolID)) return
-  const { $defs, ...request } = publishedRequestSchema(input.toolID)
-  output.jsonSchema = { type: "object", properties: { request }, required: ["request"], ...($defs ? { $defs } : {}) }
-}
-
-function argsSchema(toolName: string): any {
-  const args = { request: publishedRequestSchema(toolName) }
-  requestToolNames.set(args, toolName)
-  return args
+export function registeredInputSchema(toolName: string): JSONSchema {
+  const { $defs, ...request } = publishedRequestSchema(toolName)
+  return { type: "object", properties: { request }, required: ["request"], ...($defs ? { $defs } : {}) }
 }
 
 function baseEnvelope(toolName: string, operation: string) {
@@ -672,12 +614,12 @@ function concordCallEnvelope(context: ToolContext, sessionDirectory: string, amb
   return { schema_version: "1.0", request_id: `${context.sessionID}-${context.messageID}`, client_ref: clientRef(), principal_ref: "", session_ref: context.sessionID, agent_ref: context.agent, directory: sessionDirectory, worktree: sessionDirectory, ambient_project_id: ambient.projectID, selected_product_id: selectedProduct, scope_version: ambient.scopeVersion, manifest_digest: activeManifestDigest() }
 }
 
-async function resolveAmbientContext(context: Pick<ToolContext, "abort">, sessionDirectory: string): Promise<AmbientContext> {
+async function resolveAmbientContext(context: Pick<ToolContext, "signal">, sessionDirectory: string): Promise<AmbientContext> {
   let result
   try {
-    result = await runner.run([concordBinaryPath(), "project-resolve"], JSON.stringify({ directory: sessionDirectory, worktree: sessionDirectory }), context.abort)
+    result = await runner.run([concordBinaryPath(), "project-resolve"], JSON.stringify({ directory: sessionDirectory, worktree: sessionDirectory }), context.signal)
   } catch (error) {
-    throw runnerFailure(error, context.abort)
+    throw runnerFailure(error, context.signal)
   }
   if (result.exitCode !== 0) throw new AdapterFailure("io_failure_operator", result.stderr.slice(0, MAX_STDERR))
   let response
@@ -690,9 +632,11 @@ async function resolveAmbientContext(context: Pick<ToolContext, "abort">, sessio
 
 async function resolveSessionDirectory(context: ToolContext): Promise<string> {
   try {
-    return await sessionDirectoryReader().sessionDirectory(context.sessionID, context.abort)
+    const directory = await context.sessionDirectory()
+    if (typeof directory !== "string" || !directory) throw new Error("session directory is missing")
+    return directory
   } catch (error) {
-    if (context.abort.aborted) throw runnerFailure(error, context.abort)
+    if (context.signal.aborted) throw runnerFailure(error, context.signal)
     throw new AdapterFailure("session_directory_unreadable", error instanceof Error ? error.message : String(error))
   }
 }
@@ -715,9 +659,9 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   try { ambient = await resolveAmbientContext(context, sessionDirectory) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
   const selectedProduct = selectedProductID() || (ambient.productIDs.length === 1 ? ambient.productIDs[0] : "")
   const envelope: any = concordCallEnvelope(context, sessionDirectory, ambient, selectedProduct)
-  const run = async (input: any) => runner.run([concordBinaryPath(), "invoke"], JSON.stringify({ call_envelope: envelope, tool: toolName, operation, input }), context.abort)
+  const run = async (input: any) => runner.run([concordBinaryPath(), "invoke"], JSON.stringify({ call_envelope: envelope, tool: toolName, operation, input }), context.signal)
   let result: any
-  try { result = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort, false) }
+  try { result = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.signal, false) }
   if (result.exitCode !== 0 && !result.stdout.trim()) {
     if (result.exitCode === CLI_INPUT_REFUSAL_EXIT && result.stdout === "") return cliInputRefusal(toolName, operation, requestID, result.stderr)
     return unknownOutcomeEnvelope(toolName, operation, requestID, true, result.stderr.slice(0, MAX_STDERR))
@@ -749,7 +693,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     if (disk !== null && disk === response.manifest_digest && adoptManifestDigest(disk)) {
       envelope.manifest_digest = activeManifestDigest()
       let retryResult: any
-      try { retryResult = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort, true) }
+      try { retryResult = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.signal, true) }
       if (retryResult.exitCode !== 0 && !retryResult.stdout.trim()) {
         if (retryResult.exitCode === CLI_INPUT_REFUSAL_EXIT && retryResult.stdout === "" && !operationIsMutation(toolName, operation)) return cliInputRefusal(toolName, operation, requestID, retryResult.stderr)
         return unknownOutcomeEnvelope(toolName, operation, requestID, true, retryResult.stderr.slice(0, MAX_STDERR))
@@ -835,7 +779,7 @@ function encodeHostResult(toolName: string, operation: string, requestID: string
   // Final host exit: the serialized bytes must carry a schema-valid
   // adapter-origin envelope, after any replacement.
   validateAdapterEnvelope(settled, requestID)
-  return { title: toolName, output: JSON.stringify(settled), metadata: {} }
+  return { content: JSON.stringify(settled), metadata: {} }
 }
 
 async function encodeHostToolResult(toolName: string, args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<ToolResult> {
@@ -861,14 +805,10 @@ function boundedUTF8(value: string, maxBytes: number): string {
   return new TextDecoder().decode(Buffer.from(value).subarray(0, maxBytes))
 }
 
-export const product_view = tool({ description: "Concord product view", args: argsSchema("concord_product_view"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_product_view", hostRequest(args), context) })
-export const work_browse = tool({ description: "Concord work browse", args: argsSchema("concord_work_browse"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_browse", hostRequest(args), context) })
-export const work_trace = tool({ description: "Concord work trace", args: argsSchema("concord_work_trace"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_trace", hostRequest(args), context) })
-export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_define", hostRequest(args), context) })
-export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_domain", hostRequest(args), context) })
-export const work_transition = tool({ description: "Concord work transition. Use operation workflow_action for declared workflow actions, including record_review. Route discovery does not prove admission at the current workflow step.", args: argsSchema("concord_work_transition"), execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_transition", hostRequest(args), context) })
-export const work_relate = tool({
-  description: "Concord work relate",
-  args: argsSchema("concord_work_relate"),
-  execute: (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_relate", hostRequest(args), context),
-})
+export const product_view = tool({ name: "concord_product_view", description: "Concord product view" })
+export const work_browse = tool({ name: "concord_work_browse", description: "Concord work browse" })
+export const work_trace = tool({ name: "concord_work_trace", description: "Concord work trace" })
+export const work_define = tool({ name: "concord_work_define", description: "Concord work define" })
+export const domain = tool({ name: "concord_domain", description: "Concord domain" })
+export const work_transition = tool({ name: "concord_work_transition", description: "Concord work transition. Use operation workflow_action for declared workflow actions, including record_review. Route discovery does not prove admission at the current workflow step." })
+export const work_relate = tool({ name: "concord_work_relate", description: "Concord work relate" })

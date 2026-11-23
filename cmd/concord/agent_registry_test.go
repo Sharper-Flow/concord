@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -14,6 +15,24 @@ func stubResolution(document string) hostCommandResolution {
 	return hostCommandResolution{Command: append([]string(nil), defaultHostCommand...), Registry: []byte(document)}
 }
 
+// The document mirrors the sorted Agent.Info array OpenCode 2.3.2 prints for
+// `debug agents`, including fields Concord does not read. A hidden primary
+// still starts by its ID, so hidden alone does not refuse.
+func TestHostRegistrationAcceptsV2Registry(t *testing.T) {
+	document := `[
+  {"id":"build","name":"build","request":{"settings":{},"headers":{},"body":{}},"mode":"primary","hidden":false,
+   "permissions":[{"action":"*","resource":"*","effect":"allow"}]},
+  {"id":"concord-orchestrator","name":"concord-orchestrator","request":{"settings":{},"headers":{},"body":{}},
+   "system":"Synthetic body","description":"Synthetic primary","mode":"primary","hidden":true,
+   "permissions":[{"action":"*","resource":"*","effect":"allow"},{"action":"read","resource":"*.env","effect":"ask"}]},
+  {"id":"explore","name":"explore","request":{"settings":{},"headers":{},"body":{}},"mode":"subagent","hidden":false,
+   "permissions":[{"action":"*","resource":"*","effect":"allow"}]}
+]`
+	if err := verifyHostRegistersHandle(stubResolution(document), "concord-orchestrator"); err != nil {
+		t.Fatalf("resolved primary identity refused: %v", err)
+	}
+}
+
 // A registry that lists the handle as an enabled primary agent is the only
 // state that lets a session proceed. The host answers an unregistered name
 // with the operator's default agent and exits zero, so the
@@ -22,7 +41,7 @@ func stubResolution(document string) hostCommandResolution {
 func TestHostRegistrationAcceptsAnEnabledPrimaryHandle(t *testing.T) {
 	for _, mode := range []string{"primary", "all"} {
 		t.Run(mode, func(t *testing.T) {
-			document := `{"agent":{"concord-orchestrator":{"mode":"` + mode + `"}}}`
+			document := `[{"id":"concord-orchestrator","mode":"` + mode + `"}]`
 			if err := verifyHostRegistersHandle(stubResolution(document), "concord-orchestrator"); err != nil {
 				t.Fatalf("verify: %v", err)
 			}
@@ -41,24 +60,14 @@ func TestHostRegistrationRefusesUnstartableHandles(t *testing.T) {
 		observed string
 	}{
 		{
-			name:     "handle absent from the registry",
-			document: `{"agent":{"build":{"mode":"primary"}}}`,
-			observed: "not registered",
-		},
-		{
-			name:     "handle disabled by configuration",
-			document: `{"agent":{"concord-orchestrator":{"mode":"primary","disable":true}}}`,
-			observed: "disabled",
+			name:     "handle missing or disabled",
+			document: `[{"id":"build","mode":"primary"}]`,
+			observed: "not registered (missing or disabled)",
 		},
 		{
 			name:     "handle registered as a subagent",
-			document: `{"agent":{"concord-orchestrator":{"mode":"subagent"}}}`,
+			document: `[{"id":"concord-orchestrator","mode":"subagent"}]`,
 			observed: "subagent",
-		},
-		{
-			name:     "registry declares no agents at all",
-			document: `{"agent":{}}`,
-			observed: "not registered",
 		},
 	}
 	for _, tc := range cases {
@@ -82,7 +91,7 @@ func TestHostRegistrationRefusesUnstartableHandles(t *testing.T) {
 // checking the registry rather than trusting the scan — a divergence becomes
 // a refusal instead of a silent substitution.
 func TestHostRegistrationRefusesAHandleTheScanReadDifferently(t *testing.T) {
-	document := `{"agent":{"op-renamed":{"mode":"primary"}}}`
+	document := `[{"id":"op-renamed","mode":"primary"}]`
 	err := verifyHostRegistersHandle(stubResolution(document), "op-renamed # trailing comment")
 	if err == nil {
 		t.Fatal("verification accepted a handle the registry does not carry")
@@ -92,11 +101,10 @@ func TestHostRegistrationRefusesAHandleTheScanReadDifferently(t *testing.T) {
 	}
 }
 
-// An unreadable registry is not an absent constraint. The resolution
-// carrying no document means Concord cannot establish the property, and
-// there is no degraded start, so the session refuses and says why.
-// Each row models the resolution a failed probe leaves behind: no document to
-// read.
+// An unreadable registry is not an absent constraint: Concord cannot establish
+// the property, and there is no degraded start, so the session refuses and
+// says why. Each row is a document whose used fields do not decode as an
+// Agent.Info array; it must refuse as unreadable, not as a missing handle.
 func TestHostRegistrationRefusesWhenTheRegistryCannotBeRead(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -104,13 +112,22 @@ func TestHostRegistrationRefusesWhenTheRegistryCannotBeRead(t *testing.T) {
 	}{
 		{name: "resolution carried no document"},
 		{name: "resolution carried malformed json", document: "{not json"},
-		{name: "resolution carried no agent map", document: `{"default_agent":"build"}`},
+		{name: "resolution carried an object", document: `{"default_agent":"build"}`},
+		{name: "null registry", document: `null`},
+		{name: "missing id", document: `[{"mode":"primary"}]`},
+		{name: "empty id", document: `[{"id":"","mode":"primary"}]`},
+		{name: "missing mode", document: `[{"id":"concord-orchestrator"}]`},
+		{name: "wrong id type", document: `[{"id":1,"mode":"primary"}]`},
+		{name: "wrong mode type", document: `[{"id":"concord-orchestrator","mode":true}]`},
+		{name: "unknown mode", document: `[{"id":"concord-orchestrator","mode":"other"}]`},
+		{name: "duplicate id", document: `[{"id":"concord-orchestrator","mode":"primary"},{"id":"concord-orchestrator","mode":"subagent"}]`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := verifyHostRegistersHandle(stubResolution(tc.document), "concord-orchestrator")
-			if err == nil {
-				t.Fatal("verification proceeded without reading the registry")
+			var refusal *hostRegistrationError
+			if !errors.As(err, &refusal) || refusal.Observed != "registry unreadable" {
+				t.Fatalf("err=%v, want an unreadable-registry refusal", err)
 			}
 			if !strings.Contains(err.Error(), "concord-orchestrator") {
 				t.Fatalf("diagnostic omits the required handle: %q", err.Error())
@@ -124,10 +141,10 @@ func TestHostRegistrationRefusesWhenTheRegistryCannotBeRead(t *testing.T) {
 // handle refuses even when the bare host's registry would have admitted it —
 // the verified registry is the executing registry.
 func TestHostRegistrationReadsTheDocumentTheConfiguredCommandResolved(t *testing.T) {
-	bareRegistersOnly := stubResolution(`{"agent":{"concord-orchestrator":{"mode":"primary"}}}`)
+	bareRegistersOnly := stubResolution(`[{"id":"concord-orchestrator","mode":"primary"}]`)
 	configuredDoesNot := hostCommandResolution{
 		Command:  []string{"host-wrapper", "--profile", "work"},
-		Registry: []byte(`{"agent":{"someone-else":{"mode":"primary"}}}`),
+		Registry: []byte(`[{"id":"someone-else","mode":"primary"}]`),
 	}
 	if err := verifyHostRegistersHandle(bareRegistersOnly, "concord-orchestrator"); err != nil {
 		t.Fatalf("bare registry refused a registered handle: %v", err)
@@ -136,7 +153,7 @@ func TestHostRegistrationReadsTheDocumentTheConfiguredCommandResolved(t *testing
 	if err == nil {
 		t.Fatal("verification used a registry the configured command does not resolve")
 	}
-	if !strings.Contains(err.Error(), "not registered") || !strings.Contains(err.Error(), "host-wrapper --profile work debug config") {
+	if !strings.Contains(err.Error(), "not registered") || !strings.Contains(err.Error(), "host-wrapper --profile work debug agents") {
 		t.Fatalf("diagnostic=%q, want the configured probe argv and the refusal", err.Error())
 	}
 }

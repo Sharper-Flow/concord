@@ -2,8 +2,8 @@ package main
 
 // Shared fixture for tests that exercise the real registry probe against a
 // fake host installed on PATH. The fake host's probe branch emulates the
-// directory dependence of the real host: it answers `debug config` with an
-// agent map read from the invocation directory, and it counts its probes.
+// directory dependence of the real host: it answers `debug agents` with an
+// agent array read from the invocation directory, and it counts its probes.
 
 import (
 	"os"
@@ -15,14 +15,14 @@ import (
 // fakeHostScript is the fake host binary the tests install on PATH.
 const fakeHostScript = `#!/bin/sh
 record="$CONCORD_FAKE_HOST_RECORD"
-if [ "$1" = "debug" ] && [ "$2" = "config" ]; then
+if [ "$1" = "debug" ] && [ "$2" = "agents" ]; then
 	pwd > "$record/probe-cwd"
 	n=$(cat "$record/probe-count" 2>/dev/null || echo 0)
 	echo $((n+1)) > "$record/probe-count"
 	if [ -f opencode.registry.json ]; then
 		cat opencode.registry.json
 	else
-		printf '{}'
+		printf '[]'
 	fi
 	exit 0
 fi

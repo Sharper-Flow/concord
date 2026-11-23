@@ -8,7 +8,7 @@ import shutil
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -37,7 +37,7 @@ class RunProvenanceTests(unittest.TestCase):
         shutil.rmtree(self.artifacts, ignore_errors=True)
 
     def args(self):
-        return argparse.Namespace(repo=self.repo, sdk_tool=Path("/synthetic/sdk/tool.js"),
+        return argparse.Namespace(repo=self.repo, sdk_tool=Path("/synthetic/sdk/index.js"),
                                   model="synthetic/model", artifacts_dir=self.artifacts)
 
     def run_case(self, during=None):
@@ -49,6 +49,23 @@ class RunProvenanceTests(unittest.TestCase):
         with mock.patch.object(run, "command_to_files", side_effect=stub):
             return run.run_case(self.args(), "native-route-discovery", "coordinator body", {"rules.md": b"rule"})
 
+    def test_model_run_refuses_before_spawning(self):
+        (self.repo / ".concord/instructions").mkdir(parents=True)
+        (self.repo / ".concord/instructions/rules.md").write_bytes(b"rule")
+        source = self.artifacts / "coordinator.md"
+        source.write_text("coordinator body")
+        argv = ["run.py", "--repo", str(self.repo), "--agent-source", str(source),
+                "--sdk-tool", "/synthetic/sdk/tool.js", "--model", "synthetic/model",
+                "--artifacts-dir", str(self.artifacts)]
+        output = io.StringIO()
+        with mock.patch.object(sys, "argv", argv), mock.patch.object(run.subprocess, "run") as spawn, \
+                redirect_stdout(output), redirect_stderr(output):
+            spawn.return_value = mock.Mock(returncode=1)
+            self.assertNotEqual(0, run.main())
+        self.assertIn("CON-1944", output.getvalue())
+        self.assertIn("https://linear.app/sharper-flow/issue/CON-1944/instruction-evals-cannot-run-on-an-opencode-232-host", output.getvalue())
+        spawn.assert_not_called()
+
     def test_result_records_production_and_tool_source_hashes(self):
         result = self.run_case()
         root = Path(result["artifact_dir"])
@@ -59,7 +76,11 @@ class RunProvenanceTests(unittest.TestCase):
             snapshot = root / "production-sources" / relative.replace("/", "__")
             self.assertEqual(sha(snapshot.read_bytes()), value)
         self.assertEqual(set(result["tool_source_sha256"]), {
-            ".opencode/tools/concord.ts", ".opencode/recording-tool.ts", ".opencode/tools/runtime_status.ts"})
+            ".opencode/plugins/coordinator/index.ts",
+            ".opencode/plugins/coordinator/concord-plugin.ts",
+            ".opencode/plugins/coordinator/concord.ts",
+            ".opencode/plugins/coordinator/runtime_status.ts",
+            ".opencode/plugins/coordinator/recording-tool.ts"})
         for relative, value in result["tool_source_sha256"].items():
             self.assertEqual(sha((root / relative).read_bytes()), value)
         self.assertEqual(json.loads((root / "result.json").read_text())["production_source_sha256"],
@@ -78,7 +99,7 @@ class RunProvenanceTests(unittest.TestCase):
     def test_tool_source_change_during_a_run_fails_the_snapshot_check(self):
         def change():
             [root] = list(self.artifacts.iterdir())
-            tool = root / ".opencode/tools/concord.ts"
+            tool = root / ".opencode/plugins/coordinator/concord.ts"
             tool.write_text(tool.read_text() + "\n// changed\n")
         result = self.run_case(during=change)
         self.assertFalse(result["snapshots_unchanged"])
@@ -91,25 +112,23 @@ class RunProvenanceTests(unittest.TestCase):
         self.assertEqual(recorded.get("advisory"), {"strict_output_compliance": False})
         self.assertNotIn("strict_output_compliance", recorded["checks"])
 
-    def test_main_prints_the_advisory_object_on_the_per_case_line(self):
+    def test_run_model_prints_the_advisory_object_on_the_per_case_line(self):
         # Contract v2: the printed per-case line reports the advisory object
         # beside the gating checks.
         (self.repo / ".concord/instructions").mkdir(parents=True)
         (self.repo / ".concord/instructions/rules.md").write_bytes(b"rule")
         source = self.artifacts / "coordinator.md"
         source.write_text("coordinator body")
-        argv = ["run.py", "--repo", str(self.repo), "--agent-source", str(source),
-                "--sdk-tool", "/synthetic/sdk/tool.js", "--model", "synthetic/model",
-                "--artifacts-dir", str(self.artifacts)]
+        args = argparse.Namespace(repo=self.repo, agent_source=source, sdk_tool=Path("/synthetic/sdk/tool.js"),
+                                  model="synthetic/model", artifacts_dir=self.artifacts, all=False, scenario=None)
         result = {"scenario": "input-correction", "passed": True, "artifact_dir": "/synthetic/dir",
                   "checks": {"final_response": True},
                   "advisory": {"strict_output_compliance": False},
                   "final_response": {"status": "completed", "work_id": "synthetic-work"}}
         buffer = io.StringIO()
-        with mock.patch.object(sys, "argv", argv), \
-                mock.patch.object(run, "run_case", return_value=result), \
+        with mock.patch.object(run, "run_case", return_value=result), \
                 redirect_stdout(buffer):
-            self.assertEqual(run.main(), 0)
+            self.assertEqual(run.run_model(args, argparse.ArgumentParser()), 0)
         printed = json.loads(buffer.getvalue().strip())
         self.assertEqual(printed["advisory"], {"strict_output_compliance": False})
         self.assertNotIn("strict_output_compliance", printed["checks"])

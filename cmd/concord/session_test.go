@@ -30,11 +30,11 @@ func defaultHostResolution() hostCommandResolution {
 // definition derives", so a registration refusal never masquerades as the
 // failure under test.
 func registryResolutionFor(handles ...string) hostCommandResolution {
-	agents := make(map[string]hostAgentEntry, len(handles))
+	agents := make([]map[string]string, 0, len(handles))
 	for _, handle := range handles {
-		agents[handle] = hostAgentEntry{Mode: "primary"}
+		agents = append(agents, map[string]string{"id": handle, "mode": "primary"})
 	}
-	document, err := json.Marshal(hostConfigDocument{Agent: agents})
+	document, err := json.Marshal(agents)
 	if err != nil {
 		panic(err)
 	}

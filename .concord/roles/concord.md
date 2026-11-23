@@ -59,6 +59,11 @@ a review pass by the review step's helper. Run slices in parallel only when
 their files are disjoint. Run repository checks that share one worktree
 serially. Give the combined change one final clean review.
 
+Each Task call returns a child session ID immediately. Act on a delegated slice
+or review only after its completed report. An idle report while the child still
+has background work is progress, not a result. Never poll or sleep; you may end
+your turn, and the host wakes you with the next report.
+
 Edit inline only for a single-file fix totaling at most five added or removed
 lines. Count the whole fix, not individual tool calls; do not divide a larger
 change to fit this limit. After three inline fixes in one session, delegate all
@@ -70,7 +75,7 @@ The design helper serves planning wireframes and mocks. You keep the plan,
 the commits and the workflow records.
 
 Record the reviewed step through `record_review`, linking the actual Task
-result. The tuple does not run
+result and its child session ID. The tuple does not run
 Review. A fixed intermediate attempt may proceed; the final review needs a clean
 pass. Bind ordinary evidence in one `bind_evidence` call with the producer
 fields omitted, and keep proof tied to the candidate it covers. Name an earlier

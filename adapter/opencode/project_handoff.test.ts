@@ -4,6 +4,7 @@ import { configureCoreBinary, type CoreRunner } from "./core-runtime"
 import { manifestDigest } from "./generated-contracts"
 import { configureHostLease } from "./host-lease"
 import { configureConcordAdapter, work_trace } from "./concord"
+import { fakeV2Context } from "./v2-context.fixture"
 
 // The consume resolves the core binary path before the runner seam
 // intercepts the verb, so the file binds a path once at module level.
@@ -14,16 +15,13 @@ const context = () =>
     sessionID: "session-receive",
     messageID: "message-1",
     agent: "agent-receive",
-    directory: "/worktree",
-    worktree: "/worktree",
-    abort: new AbortController().signal,
-    metadata: () => {},
-    ask: async () => {},
-  }) as Parameters<typeof work_trace.execute>[1]
+    signal: new AbortController().signal,
+    sessionDirectory: async () => "/worktree",
+  }) satisfies Parameters<typeof work_trace.execute>[1]
 
-// fakeHost wires the plugin's control-plane client so the session route
+// fakeHost wires the plugin's session context so the session lookup
 // answers the host-placed checkout, and swaps the runner
-// seam the owning invoke route uses. The plugin factory claims the host
+// seam the owning invoke route uses. The plugin setup claims the host
 // lease at load, so the file stamps the release identity and answers the
 // claim leg the way an installed release would, or every operation would
 // refuse closed before the transport runs (CD-0111 D2). The runner models
@@ -42,20 +40,9 @@ async function fakeHost(runner: CoreRunner) {
     } as never,
   })
   configureConcordAdapter({ runner })
-  await ConcordAdapterPlugin({
-    client: {
-      _client: {
-        post: async () => {
-          throw new Error("unexpected POST")
-        },
-        get: async (request: { path?: { id?: string } }) => ({
-          data: { id: request?.path?.id ?? "session-receive", directory: "/worktree" },
-          response: new Response(null, { status: 200 }),
-        }),
-      },
-    },
-    serverUrl: new URL("https://example.invalid"),
-  } as never)
+  const { context, tools } = fakeV2Context(async () => ({ location: { directory: "/worktree" } }))
+  await ConcordAdapterPlugin.setup(context)
+  return tools.find((tool) => tool.name === "concord_work_trace")
 }
 
 type CapturedInvoke = { call_envelope?: Record<string, unknown>; tool?: string; operation?: string; input?: Record<string, unknown>; projectResolve?: boolean }
@@ -106,20 +93,14 @@ function coreEnvelope(tool: string, operation: string, outcome: string, extra: R
 afterEach(async () => {
   configureConcordAdapter({ reset: true })
   configureHostLease({ reset: true })
-  // The bare factory re-claims the lease against the repository placeholder,
-  // which records the closed-transport fault; clear it so the shared test
-  // process hands the next file an unfaulted lease module.
-  await ConcordAdapterPlugin({})
-  configureHostLease({ reset: true })
 })
 
 describe("project_retirement preserves the core's derived state", () => {
   const hostCall = (operation: string, input: Record<string, unknown>) => ({ request: { operation, input } })
-  const rawHostResult = async (result: Promise<string | { output: string }>) => {
+  const rawHostResult = async (result: Promise<{ content: string }>) => {
     const value = await result
-    if (typeof value === "string") throw new Error("adapter returned a string ToolResult")
-    const newline = value.output.indexOf("\n")
-    return JSON.parse(newline === -1 ? value.output : value.output.slice(0, newline))
+    const newline = value.content.indexOf("\n")
+    return JSON.parse(newline === -1 ? value.content : value.content.slice(0, newline))
   }
 
   const readyAnswer = () =>
@@ -129,8 +110,8 @@ describe("project_retirement preserves the core's derived state", () => {
 
   async function readRetirement() {
     const captured: CapturedInvoke = {}
-    await fakeHost(coreRunner(readyAnswer(), captured))
-    return rawHostResult(work_trace.execute(hostCall("project_retirement", { work_id: "work-1" }), context()) as Promise<{ output: string }>)
+    const tool = await fakeHost(coreRunner(readyAnswer(), captured))
+    return rawHostResult(tool.execute(hostCall("project_retirement", { work_id: "work-1" }), context()))
   }
 
   test("a clean session passes the core's derived ready state through", async () => {

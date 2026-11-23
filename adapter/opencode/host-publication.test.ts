@@ -1,12 +1,29 @@
-import { test, expect, mock } from "bun:test"
+import { test, expect } from "bun:test"
 import { contractOperations, workflowActionPublicVariants } from "./generated-contracts"
 import { expandedPublishedRequestSchema, actionFieldsBranches } from "./generated-contract-tests"
 import { validateAgainstSchema } from "./core-runtime"
 
-const fakeTool = (config: unknown) => config
-mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
-
 const adapter = await import("./concord")
+
+const tools: Record<string, any> = {
+  concord_product_view: adapter.product_view, concord_work_browse: adapter.work_browse,
+  concord_work_trace: adapter.work_trace, concord_work_define: adapter.work_define,
+  concord_domain: adapter.domain, concord_work_transition: adapter.work_transition,
+  concord_work_relate: adapter.work_relate,
+}
+const requestSchema = (toolName: string) => {
+  const input = tools[toolName].input
+  return { ...input.properties.request, $defs: input.$defs }
+}
+
+test("registered input publishes compact request constraints", () => {
+  const schema: any = adapter.work_browse.input
+  expect(schema.required).toEqual(["request"])
+  expect(schema.properties.request.properties.operation.enum).toContain("list")
+  expect(Object.keys(schema.$defs).every(name => /^d\d+$/.test(name))).toBe(true)
+  expect(validateAgainstSchema(schema, { request: { operation: "list", input: { product_id: "concord" } } }, [])).toBe(true)
+  expect(validateAgainstSchema(schema, { operation: "list", input: { product_id: "concord" } }, [])).toBe(false)
+})
 
 // workflow_action publishes its action variants grouped under one operation
 // branch; the expanded view restores one closed branch per action. Select by
@@ -26,7 +43,7 @@ function actionInputBranch(published: any, actionId: string): any {
 test("published request schemas are compact and safe for host publication", () => {
   const tools = [...new Set(contractOperations.map((operation: any) => operation.tool))]
   for (const toolName of tools) {
-    const schema = adapter.publishedRequestSchema(toolName) as any
+    const schema = requestSchema(toolName) as any
     expect(schema).toMatchObject({
       type: "object",
       required: ["operation", "input"],
@@ -68,7 +85,7 @@ test("published request schemas are compact and safe for host publication", () =
 })
 
 test("published approval validates contract fields", () => {
-  const schema = adapter.publishedRequestSchema("concord_work_transition") as any
+  const schema = requestSchema("concord_work_transition") as any
   const fields = actionFieldsBranches(actionInputBranch(schema, "approve_contract"))
   expect(fields).toHaveLength(1)
   const request = { operation: "workflow_action", input: {
@@ -84,7 +101,7 @@ test("published approval validates contract fields", () => {
 })
 
 test("published workflow action variants state their guard-owned requirements", () => {
-  const schema = adapter.publishedRequestSchema("concord_work_transition") as any
+  const schema = requestSchema("concord_work_transition") as any
   // The provider reads each requirement on the compact document's action
   // variant, so inspect that node rather than the expanded view.
   const operation = schema.oneOf.find((candidate: any) => candidate.properties.operation.const === "workflow_action")
@@ -103,38 +120,12 @@ test("published workflow action variants state their guard-owned requirements", 
   expect(fields.properties.spec_mandate.description).toContain("2..128 Unicode code points")
 })
 
-test("the request definition hook publishes an isolated root per tool and hoists no definitions anywhere else", async () => {
-  const outputFor = async (toolID: string) => {
-    const output = { description: "kept", parameters: { kept: true } as Record<string, unknown>, jsonSchema: undefined as unknown }
-    await adapter.publishRequestDefinition({ toolID }, output)
-    return { ...output, jsonSchema: output.jsonSchema as { $defs: Record<string, unknown> } }
-  }
-  const untouched = { description: "d", parameters: {}, jsonSchema: { type: "object" } as unknown }
-  await adapter.publishRequestDefinition({ toolID: "bash" }, untouched)
-  expect(untouched.jsonSchema).toEqual({ type: "object" })
-  expect(untouched.parameters).toEqual({})
-
-  const first = await outputFor("concord_work_define")
-  const transition = await outputFor("concord_work_transition")
-  // Publication replaces the definition schema and nothing else: the host's
-  // parameters and description pass through untouched.
-  expect(first.parameters).toEqual({ kept: true })
-  expect(first.description).toBe("kept")
-  expect(transition.parameters).toEqual({ kept: true })
-
-  // Each call publishes a fresh root: mutating one publication cannot mutate
-  // the registration arguments, a later publication, or another tool's root.
-  const registration = (adapter.work_transition as any).args.request
-  const registrationSnapshot = JSON.stringify(registration)
-  const firstSnapshot = JSON.stringify(first.jsonSchema)
-  const transitionDefs = Object.keys(transition.jsonSchema.$defs).sort()
-  delete first.jsonSchema.$defs[Object.keys(first.jsonSchema.$defs)[0]]
-  expect(JSON.stringify((adapter.work_transition as any).args.request)).toBe(registrationSnapshot)
-  expect(Object.keys(transition.jsonSchema.$defs).sort()).toEqual(transitionDefs)
-  const firstAgain = await outputFor("concord_work_define")
-  expect(firstAgain.jsonSchema).not.toBe(first.jsonSchema)
-  expect(JSON.stringify(firstAgain.jsonSchema)).toBe(firstSnapshot)
-  // Each root resolves only against its own table.
-  expect(() => expandedPublishedRequestSchema(firstAgain.jsonSchema)).not.toThrow()
-  expect(() => expandedPublishedRequestSchema(transition.jsonSchema)).not.toThrow()
+test("registered inputs have isolated local definition tables", () => {
+  const first = structuredClone(adapter.work_define.input) as any
+  const transition = adapter.work_transition.input as any
+  const snapshot = JSON.stringify(transition)
+  delete first.$defs[Object.keys(first.$defs)[0]]
+  expect(JSON.stringify(transition)).toBe(snapshot)
+  expect(() => expandedPublishedRequestSchema(adapter.work_define.input)).not.toThrow()
+  expect(() => expandedPublishedRequestSchema(transition)).not.toThrow()
 })

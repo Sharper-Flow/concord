@@ -13,7 +13,7 @@ const adapter = await import("./concord")
 // Publication is compact: local references and factored unions,
 // so branch selection runs on the legacy-effective view the expansion
 // helper resolves from the actual published document, and every verdict
-// below is taken on the raw compact document and on the final hooked
+// below is taken on the raw compact document and on the registered
 // argument root, never on the expanded inspection view.
 const fixtures = JSON.parse(readFileSync(new URL("../../contracts/agent-tool-surface.fixtures.json", import.meta.url), "utf8")) as {
   fixtures: { input_schema: string; input_valid: Record<string, unknown> }[]
@@ -28,9 +28,7 @@ function publishedSchema(toolName: string): any {
 const finalRoots = new Map<string, unknown>()
 async function finalRoot(toolName: string): Promise<any> {
   if (!finalRoots.has(toolName)) {
-    const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }
-    await adapter.publishRequestDefinition({ toolID: toolName }, output)
-    finalRoots.set(toolName, output.jsonSchema)
+    finalRoots.set(toolName, adapter.registeredInputSchema(toolName))
   }
   return finalRoots.get(toolName)
 }
@@ -443,7 +441,7 @@ async function expectParity(toolName: string, inputSchema: string, call: { opera
   const root = await rootVerdict(toolName, call)
   expect(compact.ok, `${label}: compact published request ${compact.ok ? "admitted" : `refused: ${compact.failures.join("; ")}`} where the authored contract ${authored.ok ? "admits" : "refuses"}`)
     .toBe(authored.ok)
-  expect(root.ok, `${label}: final hooked root ${root.ok ? "admitted" : `refused: ${root.failures.join("; ")}`} where the authored contract ${authored.ok ? "admits" : "refuses"}`)
+  expect(root.ok, `${label}: registered root ${root.ok ? "admitted" : `refused: ${root.failures.join("; ")}`} where the authored contract ${authored.ok ? "admits" : "refuses"}`)
     .toBe(authored.ok)
 }
 
@@ -453,7 +451,7 @@ async function refuseEverywhere(toolName: string, call: { operation: string; inp
   const compact = compactVerdict(toolName, call)
   const root = await rootVerdict(toolName, call)
   expect(compact.ok, `${label}: compact published request admitted`).toBe(false)
-  expect(root.ok, `${label}: final hooked root admitted`).toBe(false)
+  expect(root.ok, `${label}: registered root admitted`).toBe(false)
 }
 
 // boundedStringPath finds the first declared string ceiling in a schema
@@ -593,7 +591,7 @@ test("every workflow action admits its minimal call and refuses the broken ones 
   }
 })
 
-test("every operation's minimal call and forbidden field agree across the authored contract, the compact request, and the final hooked root", async () => {
+test("every operation's minimal call and forbidden field agree across the authored contract, the compact request, and the registered root", async () => {
   const bySchema = new Map(contractOperations.map((operation: any) => [operation.input_schema.replace("#/schemas/", ""), operation]))
   for (const fixture of fixtures.fixtures) {
     const operation = bySchema.get(fixture.input_schema)
@@ -614,9 +612,9 @@ test("every operation's minimal call and forbidden field agree across the author
       delete broken[field]
       await refuseEverywhere(operation.tool, { operation: operationName, input: broken }, `${operation.id} missing ${field}`)
     }
-    // The forbidden field refuses on the final hooked root too.
+    // The forbidden field refuses on the registered root too.
     const root = await rootVerdict(operation.tool, { operation: operationName, input: { ...fixture.input_valid, zz_forbidden_probe: true } })
-    expect(root.ok, `${operation.id}: final hooked root admitted the forbidden field`).toBe(false)
+    expect(root.ok, `${operation.id}: registered root admitted the forbidden field`).toBe(false)
   }
 })
 

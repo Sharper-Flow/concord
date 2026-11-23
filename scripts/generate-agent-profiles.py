@@ -13,14 +13,17 @@ PRIMARY_PROFILES = ROOT / "contracts/agent-primary-profiles.v1.json"
 PRIMARY_PROFILES_SCHEMA = ROOT / "contracts/agent-primary-profiles.schema.json"
 PRIMARY_PROFILE_IDS = ("Concord-RTE", "Concord", "Concord-Planner")
 STEP_HELPER_IDS = ("concord-review", "concord-verify", "concord-implement", "concord-design", "concord-research")
-STASH_DENIALS = tuple(f"    {json.dumps(pattern)}: deny" for pattern in
-                     ("git stash *", "git * stash *", "*/git stash *", "*/git * stash *"))
+STASH_DENIALS = ("git stash *", "git * stash *", "*/git stash *", "*/git * stash *")
 STEP_HELPER_BOUNDARY = """## Shared boundaries
 
 Command-text restrictions are hygiene, not a sandbox: do not use the CLI, a
 direct store connection, a wrapper, or a connected service to bypass your
 boundaries. A Task result is not a workflow transition or an evidence
 binding; the caller owns workflow state, evidence binding and delivery.
+
+When you delegate to a utility, wait for its completed report before returning
+your result; an idle report with child work still running is progress. Never
+poll or sleep; you may end your turn, and the host wakes you with the next report.
 
 Prefer file tools for repository reads, especially .concord paths, before running
 a command. When a command is refused, including a host permission denial or an
@@ -232,9 +235,13 @@ def load_manifest(path: Path | None = None) -> dict:
 
 
 def utility_projection(utility: dict) -> str:
-    tools = [f"  {key}: {'true' if key in utility['allowed_tools'] else 'false'}" for key in UTILITY_TOOL_KEYS]
-    permissions = ['    "*": deny'] + [f'    "{command}": allow' for command in utility["allowed_commands"]]
-    permissions.extend(STASH_DENIALS)
+    grants = {key: "allow" if key in utility["allowed_tools"] else "deny" for key in UTILITY_TOOL_KEYS if key != "bash"}
+    permissions = [permission_rule(action, "*", effect) for action, effect in tool_grants(grants) if effect == "deny"]
+    # A last shell rule on "*" hides the shell tool; any later rule leaves it visible.
+    permissions.append(permission_rule("shell", "*", "deny"))
+    if utility["allowed_commands"]:
+        permissions.extend(permission_rule("shell", command, "allow") for command in utility["allowed_commands"])
+        permissions.extend(permission_rule("shell", pattern, "deny") for pattern in STASH_DENIALS)
     minutes, seconds = divmod(utility["time_seconds_max"], 60)
     duration = f"{minutes} minutes" if seconds == 0 else f"{utility['time_seconds_max']} seconds"
     commands = ", ".join(f"`{command.removesuffix(' *')}`" for command in utility["allowed_commands"])
@@ -243,10 +250,7 @@ def utility_projection(utility: dict) -> str:
 description: Concord {utility['id']} utility — {utility['purpose']}
 mode: subagent
 hidden: true
-tools:
-{chr(10).join(tools)}
-permission:
-  bash:
+permissions:
 {chr(10).join(permissions)}
 ---
 
@@ -282,24 +286,46 @@ def load_primary_profiles(manifest: dict, path: Path = PRIMARY_PROFILES) -> dict
         if "concord_work_transition" in profile["denied_concord_tools"]:
             if any(rule["action"] == "allow" and rule["pattern"] not in utilities for rule in profile["task"]):
                 raise ValueError(f"primary profile {profile['id']} may allow only coordinator utilities")
-        if "edit" in profile and set(profile["tools"]) & {"edit", "write", "patch"}:
+        if "edit" in profile and set(profile["tools"]) & {"edit", "write", "patch", "apply_patch"}:
             raise ValueError(f"primary profile {profile['id']} has both path-scoped and tool-wide edit grants")
         if not (ROOT / profile["role_source"]).is_file():
             raise ValueError(f"missing role source: {profile['role_source']}")
     return profiles
 
 
+# OpenCode 2.3.2 names the bash and task tools shell and subagent, and checks
+# its write and patch tools against the edit action.
+V2_ACTIONS = {"bash": "shell", "task": "subagent", "write": "edit", "patch": "edit", "apply_patch": "edit"}
+
+
+def action_name(name: str) -> str:
+    return V2_ACTIONS.get(name, name)
+
+
+def tool_grants(grants: dict[str, str]) -> list[tuple[str, str]]:
+    """Project tool-wide grants to one effect per V2 action, in first-seen order."""
+    effects: dict[str, str] = {}
+    for tool, effect in grants.items():
+        action = action_name(tool)
+        if effects.setdefault(action, effect) != effect:
+            raise ValueError(f"tool grants give the {action} action both {effects[action]} and {effect}")
+    return list(effects.items())
+
+
+def permission_rule(action: str, resource: str, effect: str) -> str:
+    return "  - " + json.dumps({"action": action, "resource": resource, "effect": effect})
+
+
 def primary_projection(profile: dict, role_source: str) -> str:
-    lines = ["---", f"description: {json.dumps(profile['description'], ensure_ascii=False)}", f"mode: {profile.get('mode', 'primary')}", "permission:"]
-    lines.extend(f"  {tool}: {action}" for tool, action in profile["tools"].items())
+    lines = ["---", f"description: {json.dumps(profile['description'], ensure_ascii=False)}", f"mode: {profile.get('mode', 'primary')}", "permissions:"]
+    lines.extend(permission_rule(action, "*", effect) for action, effect in tool_grants(profile["tools"]))
     for key in ("edit", "bash", "task"):
         if key not in profile:
             continue
-        lines.append(f"  {key}:")
-        lines.extend(f"    {json.dumps(rule['pattern'])}: {rule['action']}" for rule in profile[key])
+        lines.extend(permission_rule(action_name(key), rule["pattern"], rule["action"]) for rule in profile[key])
         if key == "bash":
-            lines.extend(STASH_DENIALS)
-    lines.extend(f"  {tool}: deny" for tool in profile["denied_concord_tools"])
+            lines.extend(permission_rule("shell", pattern, "deny") for pattern in STASH_DENIALS)
+    lines.extend(permission_rule(tool, "*", "deny") for tool in profile["denied_concord_tools"])
     lines.extend(["---", "", role_source.rstrip("\n")])
     if profile["id"] in STEP_HELPER_IDS:
         lines.extend(["", STEP_HELPER_BOUNDARY])

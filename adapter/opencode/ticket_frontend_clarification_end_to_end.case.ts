@@ -4,11 +4,11 @@ import { join } from "node:path"
 import { fixtureTempRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
 import { dbValue, fixturePublicKeyBase64, git, runJSON, type JSONRecord } from "./end-to-end.fixture"
 import ConcordAdapterPlugin from "./concord-plugin"
-import { configureConcordAdapter, invokeConcordOperation } from "./concord"
+import { configureConcordAdapter } from "./concord"
 import { configureCoreBinary } from "./core-runtime"
 import { configureHostLease } from "./host-lease"
 import { manifestDigest, payloadSchemas } from "./generated-contracts"
-import { sessionDirectoryReader, SESSION_ROUTE } from "./session-directory"
+import { fakeV2Context } from "./v2-context.fixture"
 
 requireOwnedFixtureRun()
 
@@ -96,11 +96,14 @@ if (!process.env.TEST_CONCORD_TICKET_CASE || new RegExp(process.env.TEST_CONCORD
   let directory = phase === "ask" ? repo : worktree
   configureHostLease({ release: { coreBinary: "concord", releaseRoot: "/releases/v11.0.0" }, runner: { async run() { return { exitCode: 0, stdout: JSON.stringify({ pid: process.pid, pid_start: 1, release_root: "/releases/v11.0.0", core_binary: "concord", schema_version: 93, manifest_digest: manifestDigest, directory, worktree: directory }), stderr: "" } } } as never })
   configureConcordAdapter({ runner: { async run(argv: string[], input: string, signal?: AbortSignal, options?: { cwd?: string }) { if (argv[1] === "invoke") captured.invoke = JSON.parse(input); return runFixtureProcess([binary, ...argv.slice(1)], input, { cwd: options?.cwd, env: { ...process.env, CONCORD_DB_PATH: dbPath }, signal }) } } as never })
-  const bindHost = async () => ConcordAdapterPlugin({ directory, client: { _client: { get: async ({ url, path }: { url: string; path: Record<string, unknown> }) => { expect(url).toBe(SESSION_ROUTE); expect(path.id).toBe(sessionID); return { data: { id: sessionID, directory, metadata: {}, messages: [] }, response: new Response(null, { status: 200 }) } } } }, serverUrl: new URL("https://example.invalid") } as never)
+  const fake = fakeV2Context(async ({ sessionID: requested }) => { expect(requested).toBe(sessionID); return { location: { directory } } })
+  const bindHost = async () => { fake.tools.length = 0; await ConcordAdapterPlugin.setup({ ...fake.context, location: { ...fake.context.location, directory } }) }
   await bindHost()
-  const context = { sessionID, messageID: "message-1", agent: "Concord", directory, worktree: directory, abort: new AbortController().signal, metadata: () => {}, ask: async () => {} } as any
+  const context: Omit<Parameters<typeof import("./concord").product_view.execute>[1], "sessionDirectory"> =
+    { sessionID, messageID: "message-1", agent: "Concord", signal: new AbortController().signal }
   const invoke = async (tool: string, operation: string, input: JSONRecord) => {
-    const result = await invokeConcordOperation(tool, { operation, input } as any, context)
+    const output = await fake.tools.find((entry) => entry.name === tool).execute({ request: { operation, input } }, context)
+    const result = JSON.parse(output.content.split("\n")[0])
     expect(result.outcome, `${tool}.${operation}: ${JSON.stringify(result)}`).toBe("ok")
     return result
   }
@@ -116,9 +119,6 @@ if (!process.env.TEST_CONCORD_TICKET_CASE || new RegExp(process.env.TEST_CONCORD
     await invoke("concord_work_define", "capture", { title: "Synthetic neighbor", kind: "task", task: "A second live item proves the key filter narrows.", project_ids: [projectID], human_key: neighborKey, remote_issue_uuid: "00000000-0000-4000-8000-000000007361", url: "https://linear.app/example/issue/CON-7361/fixture", idempotency_key: "ticket-capture-neighbor" })
     await git(repo, "worktree", "add", "-b", `work/${workID}`, worktree)
     directory = worktree
-    context.directory = worktree
-    context.worktree = worktree
-    await bindHost()
     await walk(workID, "record_intake", { outcome: "proceed" })
     await walk(workID, "pick_type", { type: "change", reason: "The requested output needs a bounded change." })
     const resume = await invoke("concord_work_trace", "resume", { work_id: workID })
@@ -131,7 +131,7 @@ if (!process.env.TEST_CONCORD_TICKET_CASE || new RegExp(process.env.TEST_CONCORD
   }
 
   expect(phase).toBe("resume")
-  expect(await sessionDirectoryReader().sessionDirectory(sessionID)).toBe(worktree)
+  expect((await fake.context.session.get({ sessionID })).location.directory).toBe(worktree)
   const snapshotState = await Bun.file(snapshot).json()
   const unfiltered = await invoke("concord_work_browse", "list", { product_id: productID })
   expect((unfiltered.result as JSONRecord).items).toHaveLength(2)

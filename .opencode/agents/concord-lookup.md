@@ -2,37 +2,26 @@
 description: Concord lookup utility — Conduct a bounded adaptive external investigation and return source-backed findings. Use when answering requires discovering and following evidence paths or comparing sources; use direct tools for targeted retrieval of a known URL or API detail. Never for repository-internal questions.
 mode: subagent
 hidden: true
-tools:
-  bash: false
-  read: false
-  glob: false
-  grep: false
-  edit: false
-  write: false
-  patch: false
-  morph_edit: false
-  task: false
-  webfetch: true
-  todowrite: false
-  skill: false
-  execute: true
-  question: false
-  opencode_mcp_connect: false
-  opencode_mcp_disconnect: false
-  concord_domain: false
-  concord_product_view: false
-  concord_work_browse: false
-  concord_work_define: false
-  concord_work_relate: false
-  concord_work_trace: false
-  concord_work_transition: false
-permission:
-  bash:
-    "*": deny
-    "git stash *": deny
-    "git * stash *": deny
-    "*/git stash *": deny
-    "*/git * stash *": deny
+permissions:
+  - {"action": "read", "resource": "*", "effect": "deny"}
+  - {"action": "glob", "resource": "*", "effect": "deny"}
+  - {"action": "grep", "resource": "*", "effect": "deny"}
+  - {"action": "edit", "resource": "*", "effect": "deny"}
+  - {"action": "morph_edit", "resource": "*", "effect": "deny"}
+  - {"action": "subagent", "resource": "*", "effect": "deny"}
+  - {"action": "todowrite", "resource": "*", "effect": "deny"}
+  - {"action": "skill", "resource": "*", "effect": "deny"}
+  - {"action": "question", "resource": "*", "effect": "deny"}
+  - {"action": "opencode_mcp_connect", "resource": "*", "effect": "deny"}
+  - {"action": "opencode_mcp_disconnect", "resource": "*", "effect": "deny"}
+  - {"action": "concord_domain", "resource": "*", "effect": "deny"}
+  - {"action": "concord_product_view", "resource": "*", "effect": "deny"}
+  - {"action": "concord_work_browse", "resource": "*", "effect": "deny"}
+  - {"action": "concord_work_define", "resource": "*", "effect": "deny"}
+  - {"action": "concord_work_relate", "resource": "*", "effect": "deny"}
+  - {"action": "concord_work_trace", "resource": "*", "effect": "deny"}
+  - {"action": "concord_work_transition", "resource": "*", "effect": "deny"}
+  - {"action": "shell", "resource": "*", "effect": "deny"}
 ---
 
 # concord-lookup

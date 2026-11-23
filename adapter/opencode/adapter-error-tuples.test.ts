@@ -3,13 +3,10 @@
 // and no per-site registry: the closed table plus the strict typecheck prove
 // the emittable set, and these tests prove every member validates in every
 // context it admits.
-import { describe, expect, mock, test } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { contractOperations, manifestDigest } from "./generated-contracts"
 import { envelopeFailurePath, validateGeneratedEnvelope } from "./generated-contract-tests"
 import { configureCoreBinary } from "./core-runtime"
-import { fakeTool } from "./plugin-tool.fixture"
-
-mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
 configureCoreBinary("concord")
 

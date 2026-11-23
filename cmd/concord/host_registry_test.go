@@ -35,7 +35,7 @@ func (p *probeStub) probe(_ context.Context, argv []string, _ string) ([]byte, e
 // The session-prepare registry resolution runs exactly one bare probe, and the document that
 // probe printed is the registry the identity verification reads.
 func TestSessionPrepareRegistryRunsOneBareProbe(t *testing.T) {
-	document := `{"agent":{"concord-1":{"mode":"primary"}}}`
+	document := `[{"id":"concord-1","mode":"primary"}]`
 	probe := &probeStub{documents: map[string]string{"opencode": document}}
 	resolution, err := sessionPrepareRegistryProbe(context.Background(), "/resolved/dir", probe.probe)
 	if err != nil {
@@ -47,7 +47,7 @@ func TestSessionPrepareRegistryRunsOneBareProbe(t *testing.T) {
 	if string(resolution.Registry) != document {
 		t.Fatalf("registry=%q, want the bare probe's document", resolution.Registry)
 	}
-	if len(probe.calls) != 1 || !slices.Equal(probe.calls[0], []string{"opencode", "debug", "config"}) {
+	if len(probe.calls) != 1 || !slices.Equal(probe.calls[0], []string{"opencode", "debug", "agents"}) {
 		t.Fatalf("probes=%q, want exactly the bare probe argv", probe.calls)
 	}
 }
@@ -82,7 +82,7 @@ func TestSessionPrepareRegistryCarriesAProbeFailure(t *testing.T) {
 	}
 }
 
-// probeHostConfig classifies the probe's own deadline as an interrupted
+// probeHostRegistry classifies the probe's own deadline as an interrupted
 // probe: the error is the typed interrupted-probe error and it names the
 // deadline.
 func TestTimedOutRegistryProbeIsTheTypedInterruptedError(t *testing.T) {
@@ -94,7 +94,7 @@ func TestTimedOutRegistryProbeIsTheTypedInterruptedError(t *testing.T) {
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	probeCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	_, err := probeHostConfig(probeCtx, hostProbeArgv([]string{"sleepy-host"}), t.TempDir())
+	_, err := probeHostRegistry(probeCtx, hostProbeArgv([]string{"sleepy-host"}), t.TempDir())
 	var interrupted *hostProbeInterruptedError
 	if !errors.As(err, &interrupted) || !interrupted.DeadlinePassed {
 		t.Fatalf("probe error=%v, want the typed interrupted-probe error naming the deadline", err)

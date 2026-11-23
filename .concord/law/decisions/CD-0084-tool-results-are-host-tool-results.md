@@ -13,12 +13,11 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-29
-- **Scope:** The `tool()` exports in `adapter/opencode/concord.ts`; the
-  `execute` return boundary and `encodeHostResult`; the recorded runtime probe
-  and the spent TS2322 allowance in `.concord/docs/adapter-host-pin.v1.json`; issue #560;
+- **Scope:** The tool exports in `adapter/opencode/concord.ts`; the
+  `execute` return boundary and `encodeHostResult`; host qualification;
   the host hooks the plugin entry `adapter/opencode/concord-plugin.ts`
-  registers, the per-call session-directory read in
-  `adapter/opencode/session-directory.ts`, and completion reporting
+  registers, the per-call `ctx.session.get({ sessionID })` read in
+  `adapter/opencode/concord-plugin.ts`, and completion reporting
 - **Approval:** Operator approved a decision record for this boundary rather
   than a bare defect fix. The implementation is accepted in PR #579.
 - **Related:** CD-0005, TS6, agent-result-envelope, issues #485 and #560
@@ -27,46 +26,30 @@
 
 ## Context
 
-Every Concord tool export returned the core response envelope. The host
-declares a narrower type. `@opencode-ai/plugin@1.18.23` declares `ToolResult`
-as a string, or an object carrying a string `output`.
-
-The pinned host does not tolerate the wider value. At
-[`packages/opencode/src/tool/registry.ts:155`](https://github.com/anomalyco/opencode/blob/ef2880f379129aa048be9e9353e30aa168d42c17/packages/opencode/src/tool/registry.ts#L155) core reads
-`typeof result === "string" ? result : result.output`. It passes that value to
-`truncate.output` at line 159. [`packages/opencode/src/tool/truncate.ts:85`](https://github.com/anomalyco/opencode/blob/ef2880f379129aa048be9e9353e30aa168d42c17/packages/opencode/src/tool/truncate.ts#L85)
-declares the parameter `text: string` and line 90 calls `text.split("\n")`.
-The function holds no guard for an absent value.
-
-A Concord envelope carries `outcome`, `error`, and payload fields, and no
-`output`. Core therefore read `undefined` and threw a `TypeError`. The AI SDK
-turns a rejected `execute` into a `tool-error` part, so the model received an
-error string instead of the response. No Concord tool call could succeed.
-
-Two conditions hid this. `invokeConcordOperation` was typed `Promise<any>`, so
-nine exports typechecked; only `work_transition` reported TS2322, and issue
-#485 recorded that as a single allowance. CD-0010 forbids Concord from
-coordinating its own development, so the tool surface never ran against a real
-host, and the defect never showed itself in use.
-
-Issue #560 asked whether the adapter or the declaration was wrong. The
-declaration is the contract, and core enforces it by crashing rather than by
-validating.
+The pinned `@opencode/plugin@2.3.2` host result uses `content` for tool text
+([schema](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/schema/src/tool.ts#L103-L107)).
+The host treats an `output` key on a tool without an output schema as a defect,
+even when its value is undefined
+([runtime](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/core/src/tool/runtime.ts#L48-L49)).
+The adapter must conform to that boundary without changing the core envelope.
 
 ## Decision
 
-### D1. The adapter returns the host's declared ToolResult
+### D1. The adapter returns the host's declared Tool.Result
 
-Every tool export returns a value satisfying `ToolResult`. The adapter treats
+Every tool export returns one value satisfying `Tool.Result`. The adapter treats
 the host declaration as binding, not advisory. No export returns a domain
 object to the host.
 
-### D2. The envelope travels as JSON text, and `output` is its only carrier
+### D2. The envelope travels as JSON text, and `content` is its only carrier
 
-`output` carries `JSON.stringify(envelope)`. Nothing is dropped, summarized, or
+`content` carries `JSON.stringify(envelope)`. Nothing is dropped, summarized, or
 reordered. `metadata` carries no copy of the envelope, so the result has one
 carrier and one parse: a reader never has to decide which of two copies is
-current, and the payload is not doubled against the host's byte ceiling.
+current, and the payload is not doubled against the host's byte ceiling. The
+result has no `output` key and `metadata` never contains `truncated`: the host
+skips its output bound for any result whose `metadata.truncated` is set
+([source](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/core/src/tool-output.ts#L76)).
 
 The adapter does not render prose for the model. A rendered summary would move
 presentation into the envelope-thin adapter, and would
@@ -75,17 +58,21 @@ put adapter wording between the core result and the reader.
 ### D3. The execute boundary states its own return type
 
 `invokeConcordOperation` returns `CoreConcordEnvelope`, not `any`. Each export
-declares `Promise<ToolResult>` and reaches the host through `encodeHostResult`.
+declares `Promise<Tool.Result>` and reaches the host through `encodeHostResult`.
 No export reaches the host contract through `any`, so the typechecker sees the
 boundary.
 
 ### D4. An oversize result becomes a bounded error envelope
 
-The host truncates output above a byte ceiling. Rather than let it cut an
+The host bounds output at 2,000 lines or 51,200 bytes
+([source](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/core/src/tool-output.ts#L13-L14)). Rather than let it cut an
 envelope into invalid JSON, `encodeHostResult` measures the serialized envelope
-against `maxEnvelopeBytes` and replaces an oversize result with a
-`malformed_core_response` adapter error. A reader therefore parses either the
-whole envelope or a valid statement that it did not fit, and never a fragment.
+against the 51,200-byte `maxEnvelopeBytes` and replaces an oversize result with
+an adapter error chosen by operation kind. An oversize mutation response may
+describe a committed effect, so it becomes `unknown_effect` with effect state
+`possible`. A read cannot have written, so it becomes
+`malformed_core_response`. A reader therefore parses either the whole envelope
+or a valid statement that it did not fit, and never a fragment.
 
 ### D5. The host owns sessions and tool availability; the agent writes completion
 
@@ -108,46 +95,38 @@ resume and emits no per-call release-staleness notice.
 
 ## Consequences
 
-An agent receives the core envelope as JSON text in `output`. Callers read
-envelope fields from parsed `output`.
+An agent receives the core envelope as JSON text in `content`. Callers read
+envelope fields from parsed `content`.
 
 `encodeHostResult` owns the conversion, so a new tool cannot reach the host
 through a different path. A test asserts that every tool the contract declares
-returns a string `output` that parses to a valid envelope, and a second test
+returns a string `content` that parses to a valid envelope, and a second test
 holds the oversize path to the byte ceiling.
 
 The host pin holds no outstanding allowance. A future TS2322 is a real
 diagnostic rather than an expected one.
 
-`.concord/docs/adapter-host-pin.v1.json` records a runtime probe under
-`probe_identity: tool-result-contract-v1`. The probe ran both shapes against
-the pinned host: the bare envelope failed with
-`undefined is not an object (evaluating 'c.split')`, the minified form of the
-unguarded `split` above, and the conforming result passed. The reading is
-therefore held by source and by observation, and the probe is re-runnable when
-the pin moves.
+`scripts/qualify-opencode-host.py` qualifies the exact pinned host in an isolated
+environment with a scripted OpenAI-compatible model server and no credentials.
 
 This decision binds the adapter to a host declaration Concord does not own. If
-the host widens or changes `ToolResult`, the pin records the version and the
+the host widens or changes `Tool.Result`, the pin records the version and the
 generated contract tests fail on the change.
 
 ## Rejected alternatives
 
-**Recording the divergence and keeping the raw envelope.** This was reading 2
-in issue #560, and it required core to accept a wider value than it declares.
-Source and probe both refute it: `registry.ts:155` reads `output`,
-`truncate.ts:90` splits it without a guard, and the probe observed the crash.
-Recording a divergence would have documented a crash as a design.
+**Keeping the raw envelope.** Rejected because it does not satisfy the host
+result contract.
 
 **A cast to silence TS2322.** Rejected because the diagnostic was correct. The
 cast would have removed the last signal that the surface did not work.
 
-**An adapter-rendered human summary in `output`.** Rejected under D2.
+**An adapter-rendered human summary in `content`.** Rejected under D2.
 It reads better and costs fewer tokens, but it makes the adapter decide what
 the model learns about a core result.
 
 **Carrying the envelope object on `metadata` as well.** Rejected because a
-second copy serves no reader the parsed `output` does not, and two copies of
+second copy serves no reader the parsed `content` does not, and two copies of
 one result can disagree once either path gains handling.
 
 **Truncating an oversize envelope to the ceiling.** Rejected because a cut

@@ -39,13 +39,112 @@ import install as installer
 
 
 class NativeTaskInstallerTests(unittest.TestCase):
+    def test_v2_invalid_skills_diagnostics_name_array(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "opencode.json"
+            for skills, message in ((42, "incompatible skills value"), ([1], "non-string skills entries")):
+                with self.subTest(skills=skills):
+                    path.write_text(json.dumps({"skills": skills}))
+                    with self.assertRaisesRegex(installer.InstallerError, message):
+                        installer.plan_config(path, "/synthetic/skills", None)
+
+    def test_v2_config_registers_skills_array(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = installer.paths_for(Path(directory))
+            plan = installer.plan_config(paths.config_file, installer.stable_skill_path(paths), None)
+            config = installer.jsonc_data(plan.text)
+            self.assertEqual(config["skills"], [installer.stable_skill_path(paths)])
+
+    def test_v2_plugin_registration_migrates_legacy_tuple(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = installer.paths_for(Path(directory))
+            old = str((paths.tools_dir / "concord-plugin.ts").resolve())
+            target = installer.plugin_entry_path(paths)
+            text = json.dumps({"plugin": [[old, {"label": "keep"}], "other"]})
+            paths.config_file.parent.mkdir(parents=True)
+            paths.config_file.write_text(text)
+            with mock.patch.object(installer, "command_status", return_value="/synthetic/tool"), \
+                    mock.patch.object(installer.platform, "system", return_value="Linux"), \
+                    mock.patch.object(installer.platform, "machine", return_value="x86_64"):
+                config = installer.jsonc_data(installer.preflight(paths, "v1.0.0", None).text)
+            self.assertEqual(config["plugin"], ["other"])
+            self.assertEqual(config["plugins"], [{"package": target, "options": {"label": "keep"}}])
+
+    def test_v2_skills_migrates_managed_object(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = installer.paths_for(Path(directory))
+            paths.config_file.parent.mkdir(parents=True)
+            path = installer.stable_skill_path(paths)
+            paths.config_file.write_text(json.dumps({"skills": {"paths": [path, "/other"]}}))
+            plan = installer.plan_config(paths.config_file, path, path)
+            self.assertEqual(installer.jsonc_data(plan.text)["skills"], [path, "/other"])
+
+    def test_v2_skills_migration_preserves_jsonc_comments_and_urls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = installer.paths_for(Path(directory))
+            paths.config_file.parent.mkdir(parents=True)
+            old = str(paths.data_root / "v1.0.0" / "skills")
+            text = '{"skills": { /* note */ "paths": ["https://example.org/skills", ' + json.dumps(old) + '], // keep\n }}'
+            paths.config_file.write_text(text)
+            plan = installer.plan_config(paths.config_file, installer.stable_skill_path(paths), old)
+            self.assertEqual(installer.jsonc_data(plan.text)["skills"], ["https://example.org/skills", installer.stable_skill_path(paths)])
+            self.assertIn("/* note */", plan.text)
+            self.assertIn("// keep", plan.text)
+
+    def test_v2_skills_preserves_foreign_entries_and_removes_only_managed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = installer.paths_for(Path(directory))
+            paths.config_file.parent.mkdir(parents=True)
+            paths.config_file.write_text('{"skills": ["/other", /* keep */]}')
+            managed = installer.stable_skill_path(paths)
+            plan = installer.plan_config(paths.config_file, managed, None)
+            self.assertEqual(installer.jsonc_data(plan.text)["skills"], [managed, "/other"])
+            self.assertIn("/* keep */", plan.text)
+            paths.config_file.write_text(plan.text)
+            removed = installer.remove_path_from_config(paths.config_file, managed)
+            self.assertEqual(installer.jsonc_data(removed)["skills"], ["/other"])
+
+    def test_foreign_skills_object_is_not_rewritten(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = installer.paths_for(Path(directory))
+            paths.config_file.parent.mkdir(parents=True)
+            text = '{"skills": {"paths": ["/other"]}}'
+            paths.config_file.write_text(text)
+            with self.assertRaises(installer.InstallerError):
+                installer.plan_config(paths.config_file, installer.stable_skill_path(paths), None)
+            self.assertEqual(paths.config_file.read_text(), text)
+
+    def test_null_config_shapes_refuse_and_trailing_comma_is_preserved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = installer.paths_for(Path(directory))
+            paths.config_file.parent.mkdir(parents=True)
+            paths.config_file.write_text('{"skills": null}')
+            with self.assertRaises(installer.InstallerError):
+                installer.plan_config(paths.config_file, installer.stable_skill_path(paths), None)
+            for key in ("plugin", "plugins"):
+                with self.subTest(key=key), self.assertRaises(installer.InstallerError):
+                    installer.plan_plugin_entry(json.dumps({key: None}), "/synthetic/adapter")
+            paths.config_file.write_text('{"other": true, // keep\n}')
+            text = installer.plan_config(paths.config_file, installer.stable_skill_path(paths), None).text
+            text = installer.plan_plugin_entry(text, "/synthetic/adapter")
+            self.assertTrue(installer.jsonc_data(text)["other"])
+            self.assertIn("// keep", text)
+
+    def test_native_plugin_options_are_preserved_and_removed_whole(self):
+        entry = "/synthetic/adapter"
+        text = json.dumps({"plugins": [{"package": entry, "options": {"label": "ops"}}, "other"]})
+        self.assertEqual(installer.plan_plugin_entry(text, entry), text)
+        self.assertEqual(installer.jsonc_data(installer.remove_plugin_entry(text, entry))["plugins"], ["other"])
+
     def test_deleted_continuity_module_is_retired_and_other_hooks_still_ship(self):
         self.assertNotIn("continuity-hook.ts", installer.ADAPTER_FILES)
         self.assertIn("continuity-hook.ts", installer.RETIRED_ADAPTER_FILES)
         self.assertNotIn("claimed-worktree.ts", installer.ADAPTER_FILES)
         self.assertIn("claimed-worktree.ts", installer.RETIRED_ADAPTER_FILES)
-        for name in ("agent-switch-hook.ts", "host-lease.ts", "session-directory.ts"):
+        for name in ("agent-switch-hook.ts", "host-lease.ts"):
             self.assertIn(name, installer.ADAPTER_FILES)
+        self.assertNotIn("session-directory.ts", installer.ADAPTER_FILES)
+        self.assertIn("session-directory.ts", installer.RETIRED_ADAPTER_FILES)
         for name in ("move-session.ts", "host-prompt.ts", "turn-move-boundary.ts",
                      "work-start-continuation.ts", "workflow-status.ts"):
             self.assertNotIn(name, installer.ADAPTER_FILES)
@@ -365,7 +464,7 @@ else:
                 installer.repair(args)
             with self.assert_workspace_cleanup("concord-repair-"):
                 self.assertEqual(installer.repair(args), 0)
-            (self.root / "config" / "opencode" / "tools" / "concord.ts").unlink()
+            (self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / "concord.ts").unlink()
             with self.assert_workspace_cleanup("concord-repair-"):
                 self.assertEqual(installer.repair(args), 0)
 
@@ -519,7 +618,7 @@ esac''',
         self.assertEqual(first.returncode, 0, first.stderr)
         managed_files = [
             self.root / "data" / "concord" / "v1.0.0" / "bin" / "concord",
-            self.root / "config" / "opencode" / "tools" / "concord.ts",
+            self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / "concord.ts",
             self.root / "bin" / "concord",
             self.config,
         ]
@@ -541,7 +640,7 @@ esac''',
         self.assertIn(
             "marker:new", (self.root / "data" / "concord" / "v1.1.0" / "bin" / "concord").read_text()
         )
-        adapter = self.root / "config" / "opencode" / "tools" / "concord.ts"
+        adapter = self.root / "data" / "concord" / "v1.1.0" / "adapter" / "opencode" / "concord.ts"
         self.assertIn("new", adapter.read_text(encoding="utf-8"))
         config = self.config.read_text(encoding="utf-8")
         self.assertIn("concord/current/skills", config)
@@ -742,8 +841,9 @@ esac''',
         self.assertTrue(launcher.is_symlink(), "the launcher is not a symlink")
         self.assertEqual(os.readlink(launcher), str(self.data_root / version / "bin" / "concord"))
         self.assertEqual(os.readlink(self.data_root / "current"), str(self.data_root / version))
-        tools_marker = (self.root / "config" / "opencode" / "tools" / "concord.ts").read_text(encoding="utf-8").strip()
-        self.assertEqual(tools_marker, f"concord.ts:{marker}")
+        adapter_marker = (self.data_root / "current" / "adapter" / "opencode" / "concord.ts").read_text(encoding="utf-8").strip()
+        self.assertEqual(adapter_marker, f"concord.ts:{marker}")
+        self.assertIn(self.plugin_entry_path(), installer.jsonc_data(self.config.read_text(encoding="utf-8"))["plugins"])
         agents_marker = (self.root / "config" / "opencode" / "agents" / "concord-explore.md").read_text(encoding="utf-8").strip()
         self.assertEqual(agents_marker, f"agent:concord-explore.md:{marker}")
 
@@ -1659,6 +1759,54 @@ esac''',
                 self.assertFalse(self.prepared_path.exists())
                 self.assertFalse(self.fence_path.exists())
 
+    def assert_legacy_activation_recovery(self, phase: str, *, modified: bool = False) -> None:
+        self.prepare_a_blocked_release()
+        tools = self.record_old_tools_copies()
+        environment = self.plan_env(blocked=False)
+        environment["CONCORD_INSTALLER_STOP_AFTER_PHASE"] = phase
+        stopped = self.run_installer("activate", "--version", "v1.1.0", env=environment)
+        self.assertEqual(stopped.returncode, 97, stopped.stderr)
+        transaction = next((self.data_root / installer.TRANSACTION_PARENT).iterdir())
+        journal_file = transaction / "journal.json"
+        journal = json.loads(journal_file.read_text(encoding="utf-8"))
+        version_adapter = self.data_root / "v1.1.0" / "adapter" / "opencode"
+        records = {name: hashlib.sha256((version_adapter / name).read_bytes()).hexdigest()
+                   for name in installer.ADAPTER_FILES}
+        journal["new_adapter"] = records
+        staged_manifest = transaction / "stage" / "manifest"
+        manifest = json.loads(staged_manifest.read_text(encoding="utf-8"))
+        manifest["adapter_files"] = records
+        staged_manifest.write_text(json.dumps(manifest), encoding="utf-8")
+        journal["new_manifest"]["sha256"] = hashlib.sha256(staged_manifest.read_bytes()).hexdigest()
+        journal_file.write_text(json.dumps(journal), encoding="utf-8")
+        if phase == "adapter_swapped":
+            for name in records:
+                (tools / name).write_bytes((version_adapter / name).read_bytes())
+        if modified:
+            (tools / "concord.ts").write_text("operator change\n", encoding="utf-8")
+        recovered = self.run_installer("status", env=self.plan_env(blocked=False))
+        if modified:
+            self.assertNotEqual(recovered.returncode, 0)
+            self.assertIn("transaction conflict at adapter concord.ts", recovered.stderr)
+            self.assertEqual((tools / "concord.ts").read_text(encoding="utf-8"), "operator change\n")
+            self.assertEqual((tools / "operator.ts").read_text(encoding="utf-8"), "operator content\n")
+            return
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        self.assert_active_release("v1.1.0", "v1.1.0")
+        self.assert_old_tools_removed(tools)
+        removed = self.run_installer("uninstall")
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertEqual((tools / "operator.ts").read_text(encoding="utf-8"), "operator content\n")
+
+    def test_legacy_forward_recovery_before_adapter_swap(self) -> None:
+        self.assert_legacy_activation_recovery("agents_swapped")
+
+    def test_legacy_forward_recovery_after_adapter_swap(self) -> None:
+        self.assert_legacy_activation_recovery("adapter_swapped")
+
+    def test_legacy_forward_recovery_preserves_modified_copy(self) -> None:
+        self.assert_legacy_activation_recovery("adapter_swapped", modified=True)
+
     def test_a_prepared_install_crash_converges_to_the_prepared_state(self) -> None:
         """A crash after the prepared record landed recovers to the prepared
         state, and a re-run install re-prepares coherently."""
@@ -1738,7 +1886,7 @@ esac''',
         self.make_release("v1.0.0")
         result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(result.returncode, 0, result.stderr)
-        stamped = (self.root / "config" / "opencode" / "tools" / installer.RELEASE_CONSTANTS_FILE).read_text(encoding="utf-8")
+        stamped = (self.root / "data" / "concord" / "current" / "adapter" / "opencode" / installer.RELEASE_CONSTANTS_FILE).read_text(encoding="utf-8")
         release_root = str((self.root / "data" / "concord" / "v1.0.0").resolve())
         self.assertIn(f'export const coreBinary: string = "{release_root}/bin/concord"', stamped)
         self.assertIn(f'export const releaseRoot: string = "{release_root}"', stamped)
@@ -1748,20 +1896,18 @@ esac''',
     def test_upgrade_from_a_manifest_recording_fewer_adapter_files(self) -> None:
         """An installation predating an added adapter file upgrades cleanly.
 
-        The manifest of an existing installation records the adapter files that
-        shipped at the time. Adding one must not turn a broken adapter into a
-        broken upgrade, so the new file is placed rather than refused as
-        user-authored.
+        The manifest records the versioned adapter files that shipped at the
+        time. An upgrade adds a later file to the new version tree.
         """
         added = "core-runtime.ts"
         self.assertIn(added, installer.ADAPTER_FILES)
-        for shipped in ("core-runtime.ts", "mutation-result.ts", "session-directory.ts"):
+        for shipped in ("core-runtime.ts", "mutation-result.ts"):
             self.assertIn(shipped, installer.ADAPTER_FILES, f"missing shared host module {shipped}")
         # Test suites and their vectors are dev-only inputs, not adapter runtime
         # inputs. Shipping them would put test code and fixtures in the
         # installed archive, so the installer's adapter file list is asserted to
         # exclude them by name.
-        for dev_only in ("concord.test.ts", "session-scope.test.ts", "mutation-projection.fixture.ts", "plugin-tool.fixture.ts"):
+        for dev_only in ("concord.test.ts", "session-scope.test.ts", "mutation-projection.fixture.ts", "v2-context.fixture.ts"):
             self.assertNotIn(dev_only, installer.ADAPTER_FILES, f"dev-only file {dev_only} must not ship in the adapter archive")
         self.make_release("v1.0.0", "old")
         self.make_release("v1.1.0", "new")
@@ -1770,32 +1916,28 @@ esac''',
 
         manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        del manifest["adapter_files"][added]
+        del manifest["version_files"][f"adapter/opencode/{added}"]
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-        (self.root / "config" / "opencode" / "tools" / added).unlink()
+        (self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / added).unlink()
 
         second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(second.returncode, 0, second.stderr)
         for name in installer.ADAPTER_FILES:
-            placed = self.root / "config" / "opencode" / "tools" / name
+            placed = self.root / "data" / "concord" / "v1.1.0" / "adapter" / "opencode" / name
             self.assertTrue(placed.is_file(), f"{name} was not placed by the upgrade")
             expected = "new" if name != installer.RELEASE_CONSTANTS_FILE else str(self.root / "data" / "concord" / "v1.1.0")
             self.assertIn(expected, placed.read_text(encoding="utf-8"))
 
     def _shrink_installation_to(self, names: tuple[str, ...]) -> None:
-        """Rewrite the installed manifest and delete files, as an older
-        installer with a shorter adapter list leaves behind: the manifest
-        records only the files it deployed, and no more exist on disk."""
+        """Leave a version tree and manifest with a shorter adapter list."""
         manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         for name in names:
-            del manifest["adapter_files"][name]
             del manifest["version_files"][f"adapter/opencode/{name}"]
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         version_tree = self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode"
         for name in names:
             (version_tree / name).unlink()
-            (self.root / "config" / "opencode" / "tools" / name).unlink()
 
     def test_repair_restores_an_incomplete_deployment(self) -> None:
         missing = ("host-lease.ts", installer.RELEASE_CONSTANTS_FILE)
@@ -1809,11 +1951,10 @@ esac''',
         self.assertEqual(result.returncode, 0, result.stderr)
         manifest = json.loads((self.root / "data" / "concord" / installer.MANIFEST_NAME).read_text(encoding="utf-8"))
         for name in missing:
-            placed = self.root / "config" / "opencode" / "tools" / name
-            self.assertTrue(placed.is_file(), f"{name} was not restored to the tools directory")
-            self.assertIn(name, manifest["adapter_files"], f"{name} missing from repaired manifest adapter_files")
+            placed = self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / name
+            self.assertTrue(placed.is_file(), f"{name} was not restored to the versioned adapter")
             self.assertIn(f"adapter/opencode/{name}", manifest["version_files"])
-        stamped = (self.root / "config" / "opencode" / "tools" / installer.RELEASE_CONSTANTS_FILE).read_text(encoding="utf-8")
+        stamped = (self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / installer.RELEASE_CONSTANTS_FILE).read_text(encoding="utf-8")
         self.assertIn(str(self.root / "data" / "concord" / "v1.0.0"), stamped)
         again = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(again.returncode, 0, again.stderr)
@@ -2104,7 +2245,7 @@ esac''',
         self.make_release("v1.0.0")
         first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(first.returncode, 0, first.stderr)
-        target = self.root / "config" / "opencode" / "tools" / "concord.ts"
+        target = self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / "concord.ts"
         target.write_text("operator edited this file\n", encoding="utf-8")
 
         result = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
@@ -2146,8 +2287,78 @@ esac''',
                 self.assertEqual(died.returncode, 97, died.stderr)
                 recovered = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
                 self.assertEqual(recovered.returncode, 0, recovered.stderr)
-                placed = self.root / "config" / "opencode" / "tools" / installer.RELEASE_CONSTANTS_FILE
+                placed = self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / installer.RELEASE_CONSTANTS_FILE
                 self.assertTrue(placed.is_file(), f"{phase}: stamped constants were not restored after recovery")
+
+    def test_fresh_install_does_not_write_tools_directory(self) -> None:
+        self.make_release("v1.0.0")
+        tools = self.root / "config" / "opencode" / "tools"
+        tools.mkdir(parents=True)
+        result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(tools.exists() and list(tools.iterdir()))
+
+    def record_old_tools_copies(self) -> Path:
+        manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        tools = self.root / "config" / "opencode" / "tools"
+        tools.mkdir(parents=True, exist_ok=True)
+        records = {}
+        for name in installer.ADAPTER_FILES:
+            content = (self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / name).read_bytes()
+            (tools / name).write_bytes(content)
+            records[name] = hashlib.sha256(content).hexdigest()
+        manifest["adapter_files"] = records
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        foreign = tools / "operator.ts"
+        foreign.write_text("operator content\n", encoding="utf-8")
+        return tools
+
+    def assert_old_tools_removed(self, tools: Path) -> None:
+        self.assertEqual([p.name for p in tools.iterdir()], ["operator.ts"])
+        self.assertEqual((tools / "operator.ts").read_text(encoding="utf-8"), "operator content\n")
+
+    def test_upgrade_removes_recorded_tools_and_preserves_foreign_file(self) -> None:
+        self.make_release("v1.0.0", "old")
+        self.make_release("v1.1.0", "new")
+        first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        tools = self.record_old_tools_copies()
+        second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assert_old_tools_removed(tools)
+
+    def test_repair_removes_recorded_tools_and_preserves_foreign_file(self) -> None:
+        self.assertEqual(self.install_release("v1.0.0").returncode, 0)
+        tools = self.record_old_tools_copies()
+        result = self.run_installer("repair", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_old_tools_removed(tools)
+
+    def test_same_version_install_removes_recorded_tools_and_preserves_foreign_file(self) -> None:
+        self.assertEqual(self.install_release("v1.0.0").returncode, 0)
+        tools = self.record_old_tools_copies()
+        result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_old_tools_removed(tools)
+
+    def test_adapter_removal_refuses_a_change_after_transaction_capture(self) -> None:
+        paths = installer.paths_for(self.root)
+        paths.tools_dir.mkdir(parents=True)
+        target = paths.tools_dir / "concord.ts"
+        target.write_text("recorded\n", encoding="utf-8")
+        journal = {"old_adapter": {"concord.ts": installer.file_state(target)}}
+        target.write_text("operator edit\n", encoding="utf-8")
+        with self.assertRaisesRegex(installer.InstallerError, "transaction conflict at adapter"):
+            installer.apply_adapters(self.root, journal, paths)
+        self.assertEqual(target.read_text(encoding="utf-8"), "operator edit\n")
+
+    def test_activate_removes_recorded_tools_and_preserves_foreign_file(self) -> None:
+        self.prepare_a_blocked_release()
+        tools = self.record_old_tools_copies()
+        result = self.run_installer("activate", "--version", "v1.1.0", env=self.plan_env(blocked=False))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_old_tools_removed(tools)
 
     def test_upgrade_from_a_pre_plugin_entry_manifest(self) -> None:
         """An installation before the plugin entry module upgrades cleanly."""
@@ -2160,15 +2371,13 @@ esac''',
 
         manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        del manifest["adapter_files"][added]
         del manifest["version_files"][f"adapter/opencode/{added}"]
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         (self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / added).unlink()
-        (self.root / "config" / "opencode" / "tools" / added).unlink()
 
         second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(second.returncode, 0, second.stderr)
-        self.assertTrue((self.root / "config" / "opencode" / "tools" / added).is_file())
+        self.assertTrue((self.root / "data" / "concord" / "v1.1.0" / "adapter" / "opencode" / added).is_file())
 
     RETIRED_ADAPTER = "native-subtask-refusal.ts"
 
@@ -2185,6 +2394,7 @@ esac''',
         digest = hashlib.sha256(content).hexdigest()
         (self.root / "data" / "concord" / "v1.0.0" / "adapter" / "opencode" / name).write_bytes(content)
         retired = self.root / "config" / "opencode" / "tools" / name
+        retired.parent.mkdir(parents=True, exist_ok=True)
         retired.write_bytes(content)
         manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -2205,8 +2415,6 @@ esac''',
         self.assertNotIn(self.RETIRED_ADAPTER, manifest["adapter_files"])
         self.assertNotIn(f"adapter/opencode/{self.RETIRED_ADAPTER}", manifest["version_files"])
         self.assertFalse((self.root / "data" / "concord" / "v1.1.0" / "adapter" / "opencode" / self.RETIRED_ADAPTER).exists())
-        for name in installer.ADAPTER_FILES:
-            self.assertTrue((self.root / "config" / "opencode" / "tools" / name).is_file(), f"{name} was not placed")
         status = self.run_installer("status")
         self.assertEqual(status.returncode, 0, status.stderr)
 
@@ -2252,6 +2460,7 @@ esac''',
         first = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(first.returncode, 0, first.stderr)
         foreign = self.root / "config" / "opencode" / "tools" / self.RETIRED_ADAPTER
+        foreign.parent.mkdir(parents=True, exist_ok=True)
         foreign.write_text("operator authored\n", encoding="utf-8")
 
         second = self.run_installer("install", "--version", "v1.1.0", "--artifact-dir", str(self.artifacts))
@@ -2267,6 +2476,7 @@ esac''',
         never = "never-shipped.ts"
         self.assertNotIn(never, installer.ADAPTER_FILES + installer.RETIRED_ADAPTER_FILES)
         placed = self.root / "config" / "opencode" / "tools" / never
+        placed.parent.mkdir(parents=True, exist_ok=True)
         placed.write_text("untouched\n", encoding="utf-8")
         manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
         original = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -2338,24 +2548,22 @@ esac''',
         adapter.write_text("operator-authored\n", encoding="utf-8")
         self.make_release("v1.0.0")
         result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("user-authored adapter file", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(adapter.read_text(encoding="utf-8"), "operator-authored\n")
-        self.assert_retained_empty_lock_root()
 
     def plugin_entry_path(self) -> str:
-        return str((self.root / "config" / "opencode" / "tools" / installer.PLUGIN_ENTRY_FILE).resolve())
+        return str(self.root / "data" / "concord" / "current" / "adapter" / "opencode")
 
     def test_install_registers_plugin_entry(self) -> None:
         self.make_release("v1.0.0")
         result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(result.returncode, 0, result.stderr)
         entry = self.plugin_entry_path()
-        self.assertTrue((self.root / "config" / "opencode" / "tools" / installer.PLUGIN_ENTRY_FILE).is_file())
+        self.assertTrue((Path(entry) / installer.PLUGIN_ENTRY_FILE).is_file())
         config = self.config.read_text(encoding="utf-8")
         self.assertIn(f'"{entry}"', config)
         # The entry must be a member of the plugin array, not only a comment.
-        self.assertIn(entry, installer.jsonc_data(config)["plugin"])
+        self.assertIn(entry, installer.jsonc_data(config)["plugins"])
 
     def test_install_appends_plugin_entry_to_existing_array(self) -> None:
         self.config.write_text(
@@ -2366,7 +2574,7 @@ esac''',
         result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
         self.assertEqual(result.returncode, 0, result.stderr)
         plugin = installer.jsonc_data(self.config.read_text(encoding="utf-8"))["plugin"]
-        self.assertIn(self.plugin_entry_path(), plugin)
+        self.assertIn(self.plugin_entry_path(), installer.jsonc_data(self.config.read_text(encoding="utf-8"))["plugins"])
         # Existing entries are preserved, including the tuple form.
         self.assertIn("/operator/other", plugin)
         self.assertTrue(any(isinstance(item, list) and item[0] == "/operator/plugin" for item in plugin))
@@ -2509,7 +2717,10 @@ esac''',
         outside = self.root / "outside-symlink.txt"
         outside.write_text("untouched", encoding="utf-8")
         adapter = self.root / "config" / "opencode" / "tools" / "concord.ts"
-        adapter.unlink()
+        adapter.parent.mkdir(parents=True, exist_ok=True)
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["adapter_files"]["concord.ts"] = hashlib.sha256(b"old").hexdigest()
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         adapter.symlink_to(outside)
         result = self.run_installer("uninstall")
         self.assertNotEqual(result.returncode, 0)
@@ -2604,9 +2815,18 @@ esac''',
     def test_recovery_refuses_post_transaction_user_change(self) -> None:
         version = "v5.0.0"
         self.make_release(version)
+        self.make_release("v4.9.0")
+        installed = self.run_installer("install", "--version", "v4.9.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        adapter = self.root / "config" / "opencode" / "tools" / "concord.ts"
+        adapter.parent.mkdir(parents=True, exist_ok=True)
+        adapter.write_text("old adapter\n", encoding="utf-8")
+        manifest_path = self.root / "data" / "concord" / installer.MANIFEST_NAME
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["adapter_files"]["concord.ts"] = hashlib.sha256(adapter.read_bytes()).hexdigest()
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         stopped = self.run_after_phase("adapter_swapped", "install", "--version", version, "--artifact-dir", str(self.artifacts))
         self.assertEqual(stopped.returncode, 97, stopped.stderr)
-        adapter = self.root / "config" / "opencode" / "tools" / "concord.ts"
         adapter.write_text("operator changed this after the crash\n", encoding="utf-8")
         recovered = self.run_installer("status")
         self.assertNotEqual(recovered.returncode, 0)
@@ -2685,11 +2905,6 @@ esac''',
         with mock.patch.dict(installer.os.environ, {"XDG_DATA_HOME": str(durable)}, clear=False):
             paths = installer.paths_for(None)
         self.assertEqual(paths.data_root, durable / "concord")
-
-    def test_unmanaged_note_names_the_manifest(self) -> None:
-        paths = installer.paths_for(self.root / "operator-note")
-        self.assertIn(str(paths.data_root / installer.MANIFEST_NAME), installer.unmanaged_manifest_note(None, paths))
-        self.assertEqual(installer.unmanaged_manifest_note({"version": "v"}, paths), "")
 
     # --- CD-0063: shipped operator conduct rules -----------------------
 
@@ -2857,7 +3072,7 @@ esac''',
             self.assertEqual(project_data["theme"], "dark")
             self.assertIn(b"// Keep the intentional Product-local instruction.", project_config.read_bytes())
             global_data = installer.jsonc_data(self.config.read_text(encoding="utf-8"))
-            self.assertIn(str(stable / "skills"), global_data["skills"]["paths"])
+            self.assertIn(str(stable / "skills"), global_data["skills"])
             registered = stable / "skills"
             for relative in sorted(skill_relatives):
                 skill = stable / relative
@@ -3346,8 +3561,9 @@ esac''',
         machine_dir.mkdir(parents=True)
         machine_agent = {
             "model": "openai/machine-model",
-            "tools": {"read": False},
-            "permission": {"read": "deny", "bash": {"git status *": "deny", "custom-command *": "allow"}},
+            "permissions": [{"action": "read", "resource": "*", "effect": "deny"},
+                            {"action": "shell", "resource": "git status *", "effect": "deny"},
+                            {"action": "shell", "resource": "custom-command *", "effect": "allow"}],
         }
         machine_config = machine_dir / "opencode.jsonc"
         machine_config.write_text(json.dumps({"$schema": "https://opencode.ai/config.json", "agent": {"concord-explore": machine_agent}}, indent=2) + "\n", encoding="utf-8")
@@ -4844,7 +5060,7 @@ class PluginEntryTupleUnitTest(unittest.TestCase):
     def test_plan_still_adds_a_bare_entry_when_absent(self) -> None:
         text = '{\n  "keep": true,\n  "plugin": [\n    ["/operator/plugin", {"agents": {}}]\n  ]\n}\n'
         planned = installer.plan_plugin_entry(text, self.ENTRY)
-        self.assertIn(self.ENTRY, installer.jsonc_data(planned)["plugin"])
+        self.assertIn(self.ENTRY, installer.jsonc_data(planned)["plugins"])
 
     def test_remove_drops_the_whole_tuple_and_keeps_neighbours(self) -> None:
         text = (
@@ -4979,7 +5195,7 @@ class DeriveAdapterFilesTest(unittest.TestCase):
     def test_shipped_set_follows_the_entry_import_graph(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text(
+            (root / "index.ts").write_text(
                 'import { a } from "./concord"\nimport { b } from "./agent-switch-hook"\n',
                 encoding="utf-8",
             )
@@ -4989,27 +5205,27 @@ class DeriveAdapterFilesTest(unittest.TestCase):
             (root / "unreferenced.test.ts").write_text("", encoding="utf-8")
             self.assertEqual(
                 installer.derive_adapter_files(root),
-                ("agent-switch-hook.ts", "concord-plugin.ts", "concord.ts", "credentials.ts"),
+                ("agent-switch-hook.ts", "concord.ts", "credentials.ts", "index.ts"),
             )
 
     def test_unresolvable_entry_import_refuses(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text('import { a } from "./missing"\n', encoding="utf-8")
+            (root / "index.ts").write_text('import { a } from "./missing"\n', encoding="utf-8")
             with self.assertRaises(installer.InstallerError):
                 installer.derive_adapter_files(root)
 
     def test_import_escaping_the_adapter_directory_refuses(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text('import { a } from "../escape"\n', encoding="utf-8")
+            (root / "index.ts").write_text('import { a } from "../escape"\n', encoding="utf-8")
             with self.assertRaises(installer.InstallerError):
                 installer.derive_adapter_files(root)
 
     def test_an_explicit_js_specifier_ships_the_plain_js_module_under_its_exact_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text(
+            (root / "index.ts").write_text(
                 'import { nativeHelper } from "./native-helper.js"\n',
                 encoding="utf-8",
             )
@@ -5017,7 +5233,7 @@ class DeriveAdapterFilesTest(unittest.TestCase):
                 "export const nativeHelper = 1\n", encoding="utf-8"
             )
             derived = installer.derive_adapter_files(root)
-            self.assertEqual(derived, ("concord-plugin.ts", "native-helper.js"))
+            self.assertEqual(derived, ("index.ts", "native-helper.js"))
             self.assertNotIn("native-helper.js.ts", derived)
 
     def test_an_exact_js_file_wins_over_a_same_stem_ts_sibling(self) -> None:
@@ -5025,20 +5241,20 @@ class DeriveAdapterFilesTest(unittest.TestCase):
         # ship that file alone, not the sibling source beside it.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text(
+            (root / "index.ts").write_text(
                 'import { a } from "./shared.js"\n', encoding="utf-8"
             )
             (root / "shared.js").write_text("export const a = 1\n", encoding="utf-8")
             (root / "shared.ts").write_text("export const a = 2\n", encoding="utf-8")
             self.assertEqual(
                 installer.derive_adapter_files(root),
-                ("concord-plugin.ts", "shared.js"),
+                ("index.ts", "shared.js"),
             )
 
     def test_a_plain_js_module_walks_its_own_relative_import_chain(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text(
+            (root / "index.ts").write_text(
                 'import { first } from "./first.js"\n', encoding="utf-8"
             )
             (root / "first.js").write_text(
@@ -5047,7 +5263,7 @@ class DeriveAdapterFilesTest(unittest.TestCase):
             (root / "second.js").write_text("export const second = 2\n", encoding="utf-8")
             self.assertEqual(
                 installer.derive_adapter_files(root),
-                ("concord-plugin.ts", "first.js", "second.js"),
+                ("first.js", "index.ts", "second.js"),
             )
 
     def test_an_explicit_js_specifier_without_the_plain_js_module_refuses(self) -> None:
@@ -5056,7 +5272,7 @@ class DeriveAdapterFilesTest(unittest.TestCase):
         # conceal the loss of the declared module at release time.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text(
+            (root / "index.ts").write_text(
                 'import { a } from "./emitted.js"\n', encoding="utf-8"
             )
             (root / "emitted.ts").write_text("export const a = 1\n", encoding="utf-8")
@@ -5066,19 +5282,19 @@ class DeriveAdapterFilesTest(unittest.TestCase):
     def test_an_explicit_ts_specifier_resolves_under_its_own_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text(
+            (root / "index.ts").write_text(
                 'import { a } from "./named.ts"\n', encoding="utf-8"
             )
             (root / "named.ts").write_text("export const a = 1\n", encoding="utf-8")
             self.assertEqual(
                 installer.derive_adapter_files(root),
-                ("concord-plugin.ts", "named.ts"),
+                ("index.ts", "named.ts"),
             )
 
     def test_a_js_specifier_with_neither_a_js_nor_a_ts_module_refuses(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text(
+            (root / "index.ts").write_text(
                 'import { a } from "./gone.js"\n', encoding="utf-8"
             )
             with self.assertRaises(installer.InstallerError):
@@ -5087,7 +5303,7 @@ class DeriveAdapterFilesTest(unittest.TestCase):
     def test_an_escaping_import_inside_a_plain_js_module_refuses(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "concord-plugin.ts").write_text(
+            (root / "index.ts").write_text(
                 'import { a } from "./plain.js"\n', encoding="utf-8"
             )
             (root / "plain.js").write_text(

@@ -38,10 +38,8 @@ MANIFEST_NAME = "install-manifest.json"
 # a hand list: an entry import referencing an unshipped module is a
 # new-session outage, not a packaging choice (issue #681).
 RELATIVE_IMPORT_RE = re.compile(r'(?:from\s+|import\(\s*)([\'"])(\.[^\'"]+)\1')
-# The OpenCode plugin entry module, installed into the tools directory and
-# registered by path in the host `plugin` array so OpenCode loads it as the
-# adapter's plugin factory. The import walk starts here.
-PLUGIN_ENTRY_FILE = "concord-plugin.ts"
+# The host resolves this conventional entry in the release adapter directory.
+PLUGIN_ENTRY_FILE = "index.ts"
 
 
 class InstallerError(Exception):
@@ -128,10 +126,10 @@ ADAPTER_FILES = (
     "generated-primary-profiles.ts",
     "generated-release.ts",
     "host-lease.ts",
+    "index.ts",
     "manifest-pin.ts",
     "mutation-result.ts",
     "primary-role.ts",
-    "session-directory.ts",
 )
 # Adapter files an earlier release shipped and this installer no longer does.
 # A manifest an older installer wrote may still record them. A transaction
@@ -149,6 +147,7 @@ RETIRED_ADAPTER_FILES = (
     "oracle-readiness.ts", "packet.ts", "task-result.ts", "worker-report-protocol.js", "worker_control.ts",
     "worker_diff.ts", "worker_recovery.ts", "worker_source.ts", "worker_subject.ts",
     "adapter-contract-defect.ts",
+    "session-directory.ts",
 )
 INSTRUCTION_FILES = (
     "asking.md",
@@ -1308,7 +1307,7 @@ def jsonc_array_end(text: str, key: str) -> int | None:
 
 
 def registration_snippet(skill_path: str) -> str:
-    return f'"skills": {{"paths": [{json.dumps(skill_path)}]}}'
+    return f'"skills": [{json.dumps(skill_path)}]'
 
 
 def stable_skill_path(paths: Paths) -> str:
@@ -1318,7 +1317,7 @@ def stable_skill_path(paths: Paths) -> str:
 
 def plan_config(path: Path, skill_path: str, old_skill_path: str | None) -> ConfigPlan:
     if not path.exists():
-        text = '{\n  "skills": {\n    "paths": [\n      ' + json.dumps(skill_path) + '\n    ]\n  }\n}\n'
+        text = '{\n  "skills": [' + json.dumps(skill_path) + ']\n}\n'
         return ConfigPlan(path, text, True, text)
     original = path.read_text(encoding="utf-8")
     parsed = jsonc_data(original)
@@ -1327,23 +1326,60 @@ def plan_config(path: Path, skill_path: str, old_skill_path: str | None) -> Conf
             f"OpenCode config {path} is not an object; add {registration_snippet(skill_path)} manually"
         )
     skills = parsed.get("skills")
-    if skills is None:
+    if "skills" not in parsed:
         end = outer_object_end(original)
         before = original[:end]
-        separator = "" if before.rstrip().endswith("{") else ","
+        previous = _skip_ws_comments_left(before, len(before) - 1)
+        separator = "" if previous >= 0 and before[previous] in "{," else ","
         addition = (
-            f'{separator}\n  "skills": {{\n    "paths": [\n      {json.dumps(skill_path)}\n    ]\n  }}\n'
+            f'{separator}\n  "skills": [{json.dumps(skill_path)}]\n'
         )
         return ConfigPlan(path, original[:end] + addition + original[end:], True, addition)
-    if not isinstance(skills, dict) or not isinstance(skills.get("paths"), list):
+    if isinstance(skills, dict):
+        values = skills.get("paths")
+        if (set(skills) != {"paths"} or not isinstance(values, list)
+                or not all(isinstance(value, str) for value in values)
+                or not any(value in values for value in (skill_path, old_skill_path) if value)):
+            raise InstallerError(f"OpenCode config {path} has an incompatible skills.paths value; add {registration_snippet(skill_path)} manually")
+        matches = list(re.finditer(r'"skills"\s*:\s*\{', original))
+        if len(matches) != 1:
+            raise InstallerError(f"cannot safely migrate skills in {path}")
+        start = matches[0].end() - 1
+        end = start + outer_object_end(original[start:]) + 1
+        body = original[start:end]
+        key = json.dumps("paths")
+        managed = skill_path if skill_path in values else old_skill_path
+        token = json.dumps(managed)
+        if body.count(key) != 1 or original.count(token) != 1:
+            raise InstallerError(f"cannot safely migrate skills in {path}")
+        key_start = body.index(key)
+        colon = skip_jsonc_space(body, key_start + len(key))
+        if colon >= len(body) or body[colon] != ":":
+            raise InstallerError(f"cannot safely migrate skills in {path}")
+        array_start, array_end = jsonc_array_span_around(original, original.index(token))
+        if not (start < array_start < array_end < end):
+            raise InstallerError(f"cannot safely migrate skills in {path}")
+        prefix = body[1:key_start] + body[colon + 1:array_start - start]
+        suffix = original[array_end:end - 1]
+        significant = _skip_ws_comments_right(suffix, 0)
+        if significant < len(suffix) and suffix[significant] == ",":
+            suffix = suffix[:significant] + suffix[significant + 1:]
+        if _skip_ws_comments_right(prefix, 0) != len(prefix) or _skip_ws_comments_right(suffix, 0) != len(suffix):
+            raise InstallerError(f"cannot safely migrate skills in {path}")
+        array = original[array_start:array_end]
+        if managed != skill_path:
+            array = array.replace(token, json.dumps(skill_path))
+        replacement = prefix + array + suffix
+        return ConfigPlan(path, original[:start] + replacement + original[end:], True, body)
+    if not isinstance(skills, list):
         raise InstallerError(
-            f"OpenCode config {path} has an incompatible skills.paths value; "
+            f"OpenCode config {path} has an incompatible skills value; "
             f"add {registration_snippet(skill_path)} manually"
         )
-    values = skills["paths"]
+    values = skills
     if not all(isinstance(value, str) for value in values):
         raise InstallerError(
-            f"OpenCode config {path} has non-string skills.paths entries; "
+            f"OpenCode config {path} has non-string skills entries; "
             f"add {json.dumps(skill_path)} manually"
         )
     if skill_path in values:
@@ -1357,42 +1393,32 @@ def plan_config(path: Path, skill_path: str, old_skill_path: str | None) -> Conf
             )
         replacement = json.dumps(skill_path)
         return ConfigPlan(path, original.replace(old_json, replacement), True, old_json)
-    raise InstallerError(
-        f"OpenCode config {path} already defines skills.paths; the installer will not "
-        f"clobber it. Add {json.dumps(skill_path)} to that array manually"
-    )
+    matches = list(re.finditer(r'"skills"\s*:\s*\[', original))
+    if len(matches) != 1:
+        raise InstallerError(f"cannot locate skills array in {path}")
+    start = matches[0].end()
+    addition = json.dumps(skill_path) + (", " if values else "")
+    return ConfigPlan(path, original[:start] + addition + original[start:], True, addition)
 
 
 def remove_path_from_config(path: Path, skill_path: str) -> str:
     original = path.read_text(encoding="utf-8")
     parsed = jsonc_data(original)
-    if not isinstance(parsed, dict) or not isinstance(parsed.get("skills"), dict):
+    if not isinstance(parsed, dict):
         return original
-    values = parsed["skills"].get("paths")
+    skills = parsed.get("skills")
+    values = skills.get("paths") if isinstance(skills, dict) else skills
     if not isinstance(values, list) or skill_path not in values:
         return original
     token = json.dumps(skill_path)
     if original.count(token) != 1:
         raise InstallerError(f"cannot safely remove the managed skills path from {path}")
-    start = original.index(token)
-    end = start + len(token)
-    after = end
-    while after < len(original) and original[after].isspace():
-        after += 1
-    if after < len(original) and original[after] == ",":
-        end = after + 1
-    else:
-        before = start - 1
-        while before >= 0 and original[before].isspace():
-            before -= 1
-        if before >= 0 and original[before] == ",":
-            start = before
-    return original[:start] + original[end:]
+    return drop_string_token(original, token)
 
 
 def plugin_entry_path(paths: Paths) -> str:
-    """Absolute, version-stable path of the installed plugin entry module."""
-    return str((paths.tools_dir / PLUGIN_ENTRY_FILE).resolve())
+    """Version-stable directory of the installed plugin."""
+    return str(paths.stable_root / "adapter" / "opencode")
 
 
 def drop_string_token(original: str, token: str) -> str:
@@ -1446,44 +1472,59 @@ def is_plugin_entry(candidate: object, entry_path: str) -> bool:
     """
     if isinstance(candidate, str):
         return candidate == entry_path
+    if isinstance(candidate, dict):
+        return candidate.get("package") == entry_path
     return isinstance(candidate, list) and len(candidate) >= 1 and candidate[0] == entry_path
 
 
-def plan_plugin_entry(text: str, entry_path: str) -> str:
-    """Ensure the plugin entry module path is registered in the host plugin array.
-
-    The plugin path is version-stable, so this is an idempotent ensure-present:
-    it adds the path when absent and leaves an existing registration — bare or
-    tuple form, options included — untouched. Raises InstallerError carrying
-    the exact manual entry when the existing plugin configuration cannot be
-    edited safely.
-    """
+def plan_plugin_entry(text: str, entry_path: str, old_entry_path: str | None = None) -> str:
+    """Register the directory, migrating the old file and preserving options."""
     parsed = jsonc_data(text)
     if not isinstance(parsed, dict):
         raise InstallerError(
             f"OpenCode config is not an object; add {json.dumps(entry_path)} to its plugin array manually"
         )
-    token = json.dumps(entry_path)
     plugin = parsed.get("plugin")
-    if plugin is None:
+    if "plugin" in parsed and not isinstance(plugin, list):
+        raise InstallerError("OpenCode config plugin value is not an array; edit it manually")
+    native = parsed.get("plugins")
+    if "plugins" in parsed and not isinstance(native, list):
+        raise InstallerError("OpenCode config plugins value is not an array; edit it manually")
+    native = native or []
+    legacy = [item for item in (plugin or []) if old_entry_path and is_plugin_entry(item, old_entry_path)]
+    if len(legacy) > 1:
+        raise InstallerError("cannot safely migrate duplicate managed plugin entries")
+    existing = [item for item in native if is_plugin_entry(item, entry_path)]
+    existing_legacy = [item for item in (plugin or []) if is_plugin_entry(item, entry_path)]
+    if existing_legacy and not legacy and not existing:
+        return text
+    if legacy and existing:
+        raise InstallerError("cannot safely merge managed plugin entries; edit them manually")
+    options = None
+    if legacy:
+        item = legacy[0]
+        if isinstance(item, list):
+            if len(item) != 2 or not isinstance(item[1], dict):
+                raise InstallerError("cannot safely migrate managed plugin options")
+            options = item[1]
+        text = remove_plugin_entry(text, old_entry_path)
+    if existing:
+        return text
+    token = json.dumps({"package": entry_path, "options": options} if options is not None else entry_path)
+    if "plugins" not in parsed:
         end = outer_object_end(text)
         before = text[:end]
-        separator = "" if before.rstrip().endswith("{") else ","
-        addition = f'{separator}\n  "plugin": [\n    {token}\n  ]\n'
+        previous = _skip_ws_comments_left(before, len(before) - 1)
+        separator = "" if previous >= 0 and before[previous] in "{," else ","
+        addition = f'{separator}\n  "plugins": [\n    {token}\n  ]\n'
         return text[:end] + addition + text[end:]
-    if not isinstance(plugin, list):
-        raise InstallerError(
-            f"OpenCode config plugin value is not an array; add {token} to it manually"
-        )
-    if any(is_plugin_entry(entry, entry_path) for entry in plugin):
-        return text
-    matches = list(re.finditer(r'"plugin"\s*:\s*\[', text))
+    matches = list(re.finditer(r'"plugins"\s*:\s*\[', text))
     if len(matches) != 1:
         raise InstallerError(
             f"cannot locate the plugin array in the OpenCode config; add {token} to it manually"
         )
     insert_at = matches[0].end()
-    insertion = f"\n    {token}\n  " if len(plugin) == 0 else f"\n    {token},"
+    insertion = f"\n    {token}\n  " if len(native) == 0 else f"\n    {token},"
     return text[:insert_at] + insertion + text[insert_at:]
 
 
@@ -1576,8 +1617,8 @@ def span_without_adjacent_comma(original: str, start: int, end: int) -> tuple[in
     return start, end
 
 
-def jsonc_array_span_around(original: str, token_start: int) -> tuple[int, int]:
-    """Return the (start, end) offsets of the JSON array open at token_start.
+def jsonc_array_span_around(original: str, token_start: int, opening: str = "[") -> tuple[int, int]:
+    """Return the offsets of the JSON container open at token_start.
 
     The walk parses the JSONC structure — strings, ``//`` line comments, and
     ``/*`` block comments are skipped — so a bracket inside a comment or an
@@ -1623,7 +1664,7 @@ def jsonc_array_span_around(original: str, token_start: int) -> tuple[int, int]:
                 raise InstallerError(refuse)
             close_at[stack.pop()] = index
         index += 1
-    if open_at_token < 0 or original[open_at_token] != "[" or open_at_token not in close_at:
+    if open_at_token < 0 or original[open_at_token] != opening or open_at_token not in close_at:
         raise InstallerError(refuse)
     return open_at_token, close_at[open_at_token] + 1
 
@@ -1652,15 +1693,18 @@ def remove_plugin_entry(text: str, entry_path: str) -> str:
     parsed = jsonc_data(text)
     if not isinstance(parsed, dict):
         return text
-    plugin = parsed.get("plugin")
-    if not isinstance(plugin, list) or not any(is_plugin_entry(entry, entry_path) for entry in plugin):
+    candidates = [item for key in ("plugin", "plugins") for item in (parsed.get(key) if isinstance(parsed.get(key), list) else []) if is_plugin_entry(item, entry_path)]
+    if not candidates:
         return text
     token = json.dumps(entry_path)
     if text.count(token) != 1:
         raise InstallerError("cannot safely remove the managed plugin entry from the OpenCode config")
-    tupled = any(isinstance(entry, list) and len(entry) >= 1 and entry[0] == entry_path for entry in plugin)
-    if tupled:
+    if isinstance(candidates[0], list):
         return drop_json_array_span(text, token)
+    if isinstance(candidates[0], dict):
+        start, end = jsonc_array_span_around(text, text.index(token), "{")
+        start, end = span_without_adjacent_comma(text, start, end)
+        return text[:start] + text[end:]
     return drop_string_token(text, token)
 
 
@@ -1760,7 +1804,7 @@ def validate_manifest(paths: Paths, manifest: dict[str, object]) -> None:
         or not all(isinstance(value, str) and SHA256_RE.fullmatch(value) for value in adapter_files.values())
     ):
         raise InstallerError("installer manifest has invalid adapter file records")
-    for name in ADAPTER_FILES + RETIRED_ADAPTER_FILES:
+    for name in adapter_files:
         safe_relative_target(paths.tools_dir, name, "adapter")
 
     # Central agent definitions: filenames only (the path inside the version
@@ -1838,13 +1882,6 @@ def command_status(command: str) -> str | None:
     return shutil.which(command)
 
 
-def unmanaged_manifest_note(old_manifest: dict[str, object] | None, paths: Paths) -> str:
-    """Name the manifest a preflight refusal consulted, so an install run from
-    a redirected data root explains why it sees no managed files (#648)."""
-    if old_manifest:
-        return ""
-    return f" (no install manifest at {paths.data_root / MANIFEST_NAME})"
-
 def runtime_preflight(paths: Paths) -> None:
     """Check host usability before install or repair, not after migration."""
     failures: list[str] = []
@@ -1863,7 +1900,7 @@ def runtime_preflight(paths: Paths) -> None:
         raise InstallerError("Preflight refused installation:\n- " + "\n- ".join(failures))
 
 
-def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None, staged_adapters: dict[str, str] | None = None) -> ConfigPlan:
+def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None) -> ConfigPlan:
     failures: list[str] = []
     failures.extend(
         f"refusing symlinked managed path {managed_parent}"
@@ -1892,24 +1929,7 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
         if not old_manifest or not paths.launcher.is_symlink() or os.readlink(paths.launcher) != expected_launcher:
             failures.append(f"refusing to overwrite user-authored launcher {paths.launcher}")
     adapter_records = managed_adapter_records(old_manifest)
-    manifest_note = unmanaged_manifest_note(old_manifest, paths)
-    for name in ADAPTER_FILES:
-        destination = paths.tools_dir / name
-        if (destination.exists() or destination.is_symlink()) and (
-            not old_manifest or name not in adapter_records
-        ):
-            # Repair accepts a file an incomplete deployment placed that
-            # the stale manifest never recorded, when its content is the
-            # release's own.
-                if (
-                    staged_adapters is not None
-                    and destination.is_file()
-                    and not destination.is_symlink()
-                    and sha256(destination) == staged_adapters.get(name)
-                ):
-                    continue
-                failures.append(f"refusing to overwrite user-authored adapter file {destination}{manifest_note}")
-    for name in retired_adapter_slots(old_manifest):
+    for name in adapter_records:
         destination = paths.tools_dir / name
         if (destination.exists() or destination.is_symlink()) and (
             not destination.is_file() or destination.is_symlink() or sha256(destination) != adapter_records[name]
@@ -1931,7 +1951,8 @@ def preflight(paths: Paths, version: str, old_manifest: dict[str, object] | None
         failures.append("existing installer manifest has no valid skills path")
     try:
         config_plan = plan_config(paths.config_file, stable_skill_path(paths), old_skill)
-        plugin_text = plan_plugin_entry(config_plan.text, plugin_entry_path(paths))
+        old_entry = str((paths.tools_dir / "concord-plugin.ts").resolve())
+        plugin_text = plan_plugin_entry(config_plan.text, plugin_entry_path(paths), old_entry)
         if plugin_text != config_plan.text:
             config_plan = ConfigPlan(config_plan.path, plugin_text, True, config_plan.managed_fragment)
     except InstallerError as error:
@@ -2115,19 +2136,8 @@ def managed_adapter_records(manifest: dict[str, object] | None) -> dict[str, str
     return value  # type: ignore[return-value]
 
 
-def retired_adapter_slots(manifest: dict[str, object] | None) -> tuple[str, ...]:
-    """The retired adapter files a transaction over this manifest owns.
-
-    Only a name the manifest records is owned. A file in a retired slot that
-    no manifest recorded is the operator's, and no transaction touches it.
-    """
-    records = managed_adapter_records(manifest)
-    return tuple(name for name in RETIRED_ADAPTER_FILES if name in records)
-
-
 def journal_adapter_slots(journal: dict[str, object]) -> list[str]:
-    """Every adapter slot a validated journal captured: the shipped set plus
-    the retired files its old manifest recorded."""
+    """Every adapter slot a validated journal captured."""
     return sorted(journal["old_adapter"])  # type: ignore[arg-type]
 
 
@@ -2357,7 +2367,7 @@ def validate_transaction(journal: dict[str, object], transaction_root: Path, pat
                 raise InstallerError(f"refusing malformed transaction file record {journal_path(transaction_root)}")
             safe_relative_target(record_root, relative, "transaction file")
     old_adapter = journal.get("old_adapter")
-    if not isinstance(old_adapter, dict) or not set(ADAPTER_FILES) <= set(old_adapter) <= set(ADAPTER_FILES + RETIRED_ADAPTER_FILES):
+    if not isinstance(old_adapter, dict) or not set(old_adapter) <= set(ADAPTER_FILES + RETIRED_ADAPTER_FILES):
         raise InstallerError(f"refusing malformed transaction adapter records {journal_path(transaction_root)}")
     for name, state in old_adapter.items():
         if not isinstance(state, dict) or not isinstance(state.get("exists"), bool):
@@ -2369,7 +2379,7 @@ def validate_transaction(journal: dict[str, object], transaction_root: Path, pat
     new_adapter = journal.get("new_adapter")
     if new_adapter is not None and (
         not isinstance(new_adapter, dict)
-        or set(new_adapter) != set(ADAPTER_FILES)
+        or not set(new_adapter) <= set(old_adapter)
         or not all(isinstance(value, str) and SHA256_RE.fullmatch(value) for value in new_adapter.values())
     ):
         raise InstallerError(f"refusing malformed transaction adapter targets {journal_path(transaction_root)}")
@@ -2493,13 +2503,14 @@ def make_transaction(
         durable_copy_tree(activation_root, version_backup)
     elif operation == "uninstall":
         raise InstallerError("cannot uninstall without a managed version directory")
-    # A retired file the old manifest recorded is captured beside the shipped
-    # set: the new adapter targets omit it, so the swap removes it and a
-    # rollback restores it.
-    adapter_slots = sorted(ADAPTER_FILES + retired_adapter_slots(old_manifest))
+    adapter_records = managed_adapter_records(old_manifest)
+    adapter_slots = sorted(adapter_records)
     old_adapter: dict[str, object] = {}
     for name in adapter_slots:
-        old_adapter[name] = capture_file(paths.tools_dir / name, backup / "adapter" / name, f"adapter {name}")
+        state = capture_file(paths.tools_dir / name, backup / "adapter" / name, f"adapter {name}")
+        if state.get("exists") and state.get("sha256") != adapter_records[name]:
+            raise InstallerError(f"refusing to remove modified managed adapter file {paths.tools_dir / name}")
+        old_adapter[name] = state
     # Capture only agent paths this transaction owns or will write. A broad
     # concord-*.md snapshot would give uninstall deletion authority over
     # operator-authored primary agents that the manifest never managed.
@@ -2734,13 +2745,36 @@ def apply_agents(transaction_root: Path, journal: dict[str, object], paths: Path
 def apply_adapters(transaction_root: Path, journal: dict[str, object], paths: Paths) -> None:
     for name in journal_adapter_slots(journal):
         target = paths.tools_dir / name
-        if activating(journal["operation"]) and name in ADAPTER_FILES:
-            version = journal["new_version"]
-            source = paths.data_root / str(version) / "adapter" / "opencode" / name
-            write_atomic(target, source.read_bytes())
-        elif target.exists() or target.is_symlink():
+        if target.exists() or target.is_symlink():
+            if not state_matches(target, journal["old_adapter"][name]):
+                raise InstallerError(f"transaction conflict at adapter {name}")
             target.unlink()
-    fsync_directory(paths.tools_dir)
+    if paths.tools_dir.exists():
+        fsync_directory(paths.tools_dir)
+
+
+def retire_legacy_adapters(journal: dict[str, object], paths: Paths) -> None:
+    """Converge an interrupted old activation without placing adapter files."""
+    new_adapter = journal.get("new_adapter")
+    if not isinstance(new_adapter, dict) or not new_adapter:
+        return
+    # The old swap could have stopped within its per-file writes, before
+    # advancing past agents_swapped. Earlier phases could not have placed one.
+    may_have_swapped = journal["phase"] not in {"staged", "version_activated"}
+    touched = False
+    for name in journal_adapter_slots(journal):
+        target = paths.tools_dir / name
+        if not target.exists() and not target.is_symlink():
+            continue
+        old = journal["old_adapter"][name]
+        digest = new_adapter.get(name) if may_have_swapped else None
+        new = {"exists": True, "kind": "file", "sha256": digest} if digest else {"exists": False}
+        if not state_matches(target, old) and not state_matches(target, new):
+            raise InstallerError(f"transaction conflict at adapter {name}")
+        target.unlink()
+        touched = True
+    if touched:
+        fsync_directory(paths.tools_dir)
 
 
 def apply_launcher(transaction_root: Path, journal: dict[str, object], paths: Paths) -> None:
@@ -2862,7 +2896,6 @@ def verify_states(journal: dict[str, object], paths: Paths, committed: bool) -> 
             raise InstallerError("transaction conflict: new version data is not intact")
         if operation == "uninstall" and journal["activation_version"] and (paths.data_root / str(journal["activation_version"])).exists():
             raise InstallerError("transaction conflict: uninstalled version data reappeared")
-        adapter_expected = journal["new_adapter"]
         agents_expected = journal.get("new_agents") or {}
         launcher_expected = journal["new_launcher"]
         config_expected = journal["new_config"]
@@ -2887,8 +2920,7 @@ def verify_states(journal: dict[str, object], paths: Paths, committed: bool) -> 
         stable_root_expected = journal.get("old_stable_root", {"exists": False})
     for name in journal_adapter_slots(journal):
         if committed:
-            digest = adapter_expected.get(name) if isinstance(adapter_expected, dict) else None
-            expected = {"exists": True, "kind": "file", "sha256": digest} if digest else {"exists": False}
+            expected = {"exists": False}
         else:
             expected = adapter_expected[name] if isinstance(adapter_expected, dict) and name in adapter_expected else {"exists": False}
         if not state_matches(paths.tools_dir / name, expected):
@@ -3324,6 +3356,7 @@ def resume_forward(transaction_root: Path, journal: dict[str, object], paths: Pa
     version tree must already match the journal's records; each remaining
     swap is idempotent, and the walk advances the journal after each one.
     """
+    retire_legacy_adapters(journal, paths)
     phase = journal["phase"]
     if phase == "staged":
         apply_version(transaction_root, journal, paths)
@@ -3407,6 +3440,7 @@ def recover_transaction(transaction_root: Path, paths: Paths, *, prepared_cutove
         advance_phase(transaction_root, journal, "manifest_committed")
         phase = "manifest_committed"
     if phase in {"manifest_committed", "cleanup"}:
+        retire_legacy_adapters(journal, paths)
         verify_states(journal, paths, committed=True)
         if phase != "cleanup":
             advance_phase(transaction_root, journal, "cleanup")
@@ -3515,6 +3549,8 @@ def install(args: argparse.Namespace) -> int:
     prepared = load_prepared_release(paths)
     runtime_preflight(paths)
     config_plan = preflight(paths, version, manifest)
+    if manifest and manifest.get("version") == version and managed_adapter_records(manifest):
+        return repair(args)
     if manifest and manifest.get("version") == version:
         records = manifest.get("version_files")
         if not isinstance(records, dict):
@@ -3616,7 +3652,7 @@ def install(args: argparse.Namespace) -> int:
         fsync_tree(source_stage)
         managed_version_paths = [str(path.relative_to(source_stage)) for path in source_stage.rglob("*") if path.is_file()]
         version_records = file_records(source_stage, managed_version_paths)
-        adapter_stage_records = {name: sha256(source_stage / "adapter" / "opencode" / name) for name in ADAPTER_FILES}
+        adapter_stage_records: dict[str, str] = {}
         agent_stage_records = {
             path.name: sha256(path)
             for path in sorted((source_stage / "agents").glob(AGENT_GLOB))
@@ -3796,7 +3832,6 @@ def install(args: argparse.Namespace) -> int:
         complete_prepared_boundary(paths)
     link_worktrees_root(paths)
     print(f"Installed Concord {version} under {version_root}.")
-    print(f"OpenCode custom tools installed under {paths.tools_dir}.")
     print(f"Concord agent definitions installed under {paths.agents_dir}.")
     print("Restart OpenCode before using the newly registered stable skills path.")
     return 0
@@ -3976,7 +4011,7 @@ def activate(args: argparse.Namespace, *, require_quiet: bool = False) -> int:
         source_stage = Path(temporary) / "version"
         shutil.copytree(version_root, source_stage, symlinks=False)
         fsync_tree(source_stage)
-        adapter_stage_records = {name: sha256(source_stage / "adapter" / "opencode" / name) for name in ADAPTER_FILES}
+        adapter_stage_records: dict[str, str] = {}
         agent_stage_records = {
             path.name: sha256(path)
             for path in sorted((source_stage / "agents").glob(AGENT_GLOB))
@@ -4051,7 +4086,6 @@ def plan_repair(
     manifest: dict[str, object],
     config_plan: ConfigPlan,
     version_records: dict[str, str],
-    adapter_records: dict[str, str],
     agent_records: dict[str, str],
 ) -> set[str]:
     """Diff the deployment against the verified release and list repairs.
@@ -4069,7 +4103,6 @@ def plan_repair(
     manifest_version_files = manifest.get("version_files")
     if not isinstance(manifest_version_files, dict):
         manifest_version_files = {}
-    manifest_adapter = managed_adapter_records(manifest)
     manifest_agents = managed_agent_records(manifest)
     present = {str(path.relative_to(version_root)) for path in version_root.rglob("*") if path.is_file()}
     for relative in sorted(present):
@@ -4089,20 +4122,6 @@ def plan_repair(
             continue
         if digest == manifest_version_files.get(relative):
             repairs.add(f"restored {relative}")
-            continue
-        raise InstallerError(f"refusing to repair modified managed file {target}")
-    for name, expected in adapter_records.items():
-        target = paths.tools_dir / name
-        if not target.exists():
-            repairs.add(f"restored adapter {name}")
-            continue
-        if not target.is_file() or target.is_symlink():
-            raise InstallerError(f"refusing to repair managed adapter path {target}: it is not a regular file")
-        digest = sha256(target)
-        if digest == expected:
-            continue
-        if digest == manifest_adapter.get(name):
-            repairs.add(f"restored adapter {name}")
             continue
         raise InstallerError(f"refusing to repair modified managed file {target}")
     agent_names = set(manifest_agents) | set(agent_records)
@@ -4205,14 +4224,14 @@ def repair(args: argparse.Namespace) -> int:
         fsync_tree(source_stage)
         managed_version_paths = [str(path.relative_to(source_stage)) for path in source_stage.rglob("*") if path.is_file()]
         version_records = file_records(source_stage, managed_version_paths)
-        adapter_stage_records = {name: sha256(source_stage / "adapter" / "opencode" / name) for name in ADAPTER_FILES}
+        adapter_stage_records: dict[str, str] = {}
         agent_stage_records = {
             path.name: sha256(path)
             for path in sorted((source_stage / "agents").glob(AGENT_GLOB))
         }
         runtime_preflight(paths)
-        config_plan = preflight(paths, installed, manifest, staged_adapters=adapter_stage_records)
-        repairs = plan_repair(paths, manifest, config_plan, version_records, adapter_stage_records, agent_stage_records)
+        config_plan = preflight(paths, installed, manifest)
+        repairs = plan_repair(paths, manifest, config_plan, version_records, agent_stage_records)
         new_manifest = {
             "managed_by": "concord-installer-v1",
             "version": installed,
@@ -4299,7 +4318,9 @@ def uninstall(args: argparse.Namespace) -> int:
     adapter_records = managed_adapter_records(manifest)
     for relative, expected in adapter_records.items():
         destination = paths.tools_dir / relative
-        if not destination.is_file() or sha256(destination) != expected:
+        if (destination.exists() or destination.is_symlink()) and (
+            not destination.is_file() or destination.is_symlink() or sha256(destination) != expected
+        ):
             raise InstallerError(f"refusing to remove modified adapter file {destination}")
     agent_records = managed_agent_records(manifest)
     for name, expected in agent_records.items():

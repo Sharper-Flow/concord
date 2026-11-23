@@ -15,7 +15,7 @@ refuses to continue when any of these are missing:
 
 The installer also refuses to overwrite an existing user-authored adapter,
 launcher, version directory, or incompatible OpenCode configuration. When it
-cannot safely add the stable skills path, it prints the exact `skills.paths`
+cannot safely add the stable skills path, it prints the exact `skills` array
 entry to add manually.
 
 ## Install or upgrade
@@ -50,20 +50,17 @@ ${XDG_DATA_HOME:-$HOME/.local/share}/concord/v0.1.0/
 ```
 
 The managed `concord` launcher is placed under `$HOME/.local/bin/`, and the
-adapter files are placed under `~/.config/opencode/tools/`. Existing files at
-those paths are never overwritten unless they are still the files recorded by
-the Concord installer manifest. Re-running the same version makes no changes.
+adapter files remain in the versioned release. The installer removes obsolete
+copies in OpenCode's `tools/` directory only when the manifest records them
+and their contents still match. It leaves user-owned files untouched.
+Existing managed files are not overwritten when their contents have changed.
 Installing a newer version replaces the prior Concord-managed version after
 the new artifact is verified. It does not remove user-authored files.
 
-The adapter loads through an OpenCode plugin entry module,
-`~/.config/opencode/tools/concord-plugin.ts`. The installer registers its path
-in the host `plugin` array so the typed tools load on the next OpenCode start.
-OpenCode invokes every function-valued export of a plugin entry module as a
-factory, so the entry module exports exactly one default factory and re-exports
-the tool definitions; the tool modules are never entry points themselves. When
-the installer cannot safely edit the `plugin` array (for example a non-array
-value), it refuses and prints the exact entry to add manually.
+The installer registers the stable `current/adapter/opencode` directory in the
+host `plugins` array. Its `index.ts` exports the plugin entry. When the
+installer cannot safely edit the `plugins` array, it refuses and names the
+configuration that needs manual correction.
 
 ### Crash recovery
 
@@ -99,9 +96,12 @@ python3 concord-installer.py status
 ```
 
 Restart OpenCode after installation or upgrade. OpenCode reads the registered
-stable `skills.paths` entry and the plugin entry module at startup. The
+stable `skills` array entry and the plugin directory at startup. The
 installer also registers project-scoped conduct when linking a project; it does
 not modify unrelated configuration keys.
+
+For helper-to-utility delegation, set `experimental.subagent_depth` to `2` in
+the host configuration. Concord does not set this host-owned value.
 
 ### Shared requirements and Product knowledge
 
@@ -149,14 +149,10 @@ listed in your global `opencode.jsonc`:
   "agent": {
     "concord-explore": {
       "model": "provider/model-id",
-      "tools": { "read": false },
-      "permission": {
-        "read": "deny",
-        "bash": {
-          "git status *": "deny",
-          "custom-command *": "allow"
-        }
-      }
+      "permissions": [
+        { "action": "read", "resource": "*", "effect": "deny" },
+        { "action": "shell", "resource": "custom-command *", "effect": "allow" }
+      ]
     }
   }
 }
@@ -169,13 +165,10 @@ listed in your global `opencode.jsonc`:
 ```
 
 OpenCode loads `~/.opencode/opencode.jsonc` after Concord's generated agents and
-after project configuration, with no launcher setting. A same-key value there
-replaces a release's model, tool key, or permission value, so an upgrade that
-adds a competing default does not change your choice. A replaced permission
-key keeps the shipped key's position, and OpenCode applies the last matching
-rule, so a later shipped pattern that also matches still wins; check the result
-as shown below. Move existing machine-specific `agent.<name>` keys from the
-global JSON to this file when they must override shipped settings.
+after project configuration, with no launcher setting. Check the resolved agent
+and ordered permissions after changing an override. Move existing machine-specific
+`agent.<name>` keys from the global JSON to this file when they must override
+shipped settings.
 
 Keep only `agent` settings in that file. Do not put agent markdown in
 `~/.opencode/agents/`: it loads last and overrides every field it defines,
@@ -203,11 +196,9 @@ Machine settings therefore also win over project settings for the same key.
 Do not duplicate the agent markdown to customize it. Linking, upgrading,
 repairing, unlinking, and uninstalling preserve these user keys. Host permission
 grants do not grant Concord workflow authority. Check the result with
-`opencode debug agent concord-explore` and `opencode debug config`, then start
-a new session to use changed host configuration. The examples follow
-[OpenCode's native merge order](https://github.com/anomalyco/opencode/blob/v1.18.35/packages/opencode/src/config/config.ts#L412-L489)
-and [directory ordering](https://github.com/anomalyco/opencode/blob/v1.18.35/packages/opencode/src/config/paths.ts#L23-L40),
-with [instruction loading](https://github.com/anomalyco/opencode/blob/v1.18.35/packages/opencode/src/session/instruction.ts#L135-L168).
+`opencode debug agents` and `opencode debug config`, then start a new session to
+use changed host configuration. `concord session-prepare` reads the JSON array
+from `opencode debug agents` to check the calling agent.
 
 Installer regression tests use temporary home and configuration roots. To also check the
 resolved agent with an existing OpenCode binary, run:

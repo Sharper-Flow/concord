@@ -6,6 +6,7 @@ import json
 import secrets
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -39,18 +40,43 @@ is required. Refused means a verified authority restriction prevents the task.
 Unresolved means the cause or recovery remains unknown.
 """
 
-TOOLS = r'''import { tool } from SDK;
-import { recordingTool } from "../recording-tool.ts";
+# The recording doubles are one OpenCode 2.3.2 local plugin directory, shaped
+# like the production adapter: an index entry re-exporting a plain
+# {id, setup} default export (concord-plugin.ts), tools registered through
+# ctx.tool.transform with the same published JSON Schema production
+# registers (registeredInputSchema), and results served as {content,
+# metadata}. The doubles' only plugin-package dependency is the type import
+# in concord-plugin.ts, which names the pinned plugin API module resolved
+# for this run.
+PLUGIN_INDEX = r'''export { default } from "./concord-plugin.ts";
+'''
+
+CONCORD_PLUGIN = r'''import type { Plugin } from SDK;
+import { work_trace, work_transition } from "./concord.ts";
+import { runtime_status } from "./runtime_status.ts";
+
+const definitions = [work_trace, work_transition, runtime_status]
+
+export default {
+  id: "concord-coordinator-doubles",
+  async setup(ctx) {
+    await ctx.tool.transform((editor) => {
+      for (const definition of definitions) editor.add(definition)
+    })
+  },
+} satisfies Plugin.Plugin
+'''
+
+TOOLS = r'''import { registeredInputSchema, work_transition as productionTransition } from SOURCE;
 import { appendFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
-import { work_transition as productionTransition } from SOURCE;
+import { recordingTool } from "./recording-tool.ts";
 const responses = RESPONSES;
 const reviewFields = REVIEWFIELDS;
 const trace = TRACE;
 function result(name, args, value) {
   appendFileSync(trace, JSON.stringify({tool:name, args, result:value}) + "\n");
-  const output = JSON.stringify(value);
-  return {title:"Synthetic observation", output, metadata:{synthetic:true}};
+  return {content: JSON.stringify(value), metadata:{synthetic:true}};
 }
 const refused = {outcome:"error", error:{reason_code:"authorization_denied", effect_state:"none", message:"Outside the fixture grant."}};
 const coreInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"correct_request"},retry_safe:false,message}});
@@ -61,8 +87,9 @@ const coreInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input
 // table below is derived at generation time from the tracked contracts —
 // the same operation input schemas the core validates with — and the parity
 // test holds every served message to the executed core's bytes. Wrong-typed
-// values never reach this classifier: the tool schema layer types every
-// field before it.
+// values never reach this classifier: the host's schema layer — the same
+// published JSON Schema registered below via registeredInputSchema — types
+// every field before execute at a model run.
 const payloadFieldRules = PAYLOADRULES;
 const withFieldGuidance = (message, field) => {
   const marker = typeof field.description === "string" ? field.description.indexOf("Accepted shape:") : -1;
@@ -94,27 +121,35 @@ const coreInputDetail = (operation, data) => {
   }
   return null;
 };
+// The request-wrapper gate the executed production boundary serves before
+// any payload classification: a call that is not {request: {operation,
+// input}} with a string operation and an object input is refused as
+// invalid input. The production adapter serves the same diagnostic for a
+// missing or invalid request wrapper.
+const wrapperRefusal = "Missing or invalid request wrapper: submit {request: {operation, input}}.";
+const requestWrapperDetail = args => {
+  if (args === null || typeof args !== "object" || Array.isArray(args)) return wrapperRefusal;
+  const request = args.request;
+  if (request === null || typeof request !== "object" || Array.isArray(request)) return wrapperRefusal;
+  if (typeof request.operation !== "string" || request.operation === "") return wrapperRefusal;
+  if (request.input === null || typeof request.input !== "object" || Array.isArray(request.input)) return wrapperRefusal;
+  return null;
+};
 export const work_trace = recordingTool("concord_work_trace", {
   description:"Read the authoritative synthetic stored step plan for an existing work identity.",
-  args:{request:tool.schema.strictObject({operation:tool.schema.literal("resume"), input:tool.schema.strictObject({
-    work_id:tool.schema.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
-    limit:tool.schema.number().int().min(1).max(100).optional(),
-    page:tool.schema.strictObject({cursor:tool.schema.string().max(4096).nullable().optional(),limit:tool.schema.number().int().min(1).max(100).optional()}).optional(),
-    requested_budget_seconds:tool.schema.number().int().min(1).optional(),
-  })})},
+  input: registeredInputSchema("concord_work_trace"),
+  inputDetail: requestWrapperDetail,
   async execute(args) {
-    return result("concord_work_trace", args, args.request.input.work_id === "synthetic-work"
+    // The published schema admits every work_trace operation; the fixture
+    // grant serves resume reads on the synthetic identity only.
+    return result("concord_work_trace", args, args.request.operation === "resume" && args.request.input.work_id === "synthetic-work"
       ? responses.concord_work_trace ?? refused : refused);
   },
 }, coreInputRefusal);
 export const work_transition = recordingTool("concord_work_transition", {
-  description:productionTransition.description,
-  args:{request:tool.schema.strictObject({operation:tool.schema.literal("workflow_action"), input:tool.schema.strictObject({
-    work_id:tool.schema.string(), expected_version:tool.schema.number().int(), action_id:tool.schema.string().optional(),
-    idempotency_key:tool.schema.string().optional(),
-    fields:tool.schema.strictObject({step_id:tool.schema.string(), note:tool.schema.string(), reviewer:tool.schema.string(),
-      result:tool.schema.enum(["pass", "fixed"]), commit:tool.schema.string(), link:tool.schema.string()}).optional(),
-  })})},
+  description: productionTransition.description,
+  input: registeredInputSchema("concord_work_transition"),
+  inputDetail: requestWrapperDetail,
   async execute(args) {
     const data = args.request.input;
     // The core's input boundary classifies the payload before admission:
@@ -134,22 +169,29 @@ export const work_transition = recordingTool("concord_work_transition", {
 }, coreInputRefusal);
 '''
 
-RECORDING_TOOL = r'''import { tool } from SDK;
-import { appendFileSync } from "node:fs";
+RECORDING_TOOL = r'''import { appendFileSync } from "node:fs";
+// A 2.3.2 plugin tool has no schema factory: the registered input is the
+// JSON Schema production registers, the host's schema layer types every
+// field before execute at a model run, and this in-execute wrapper gate
+// keeps direct-execute callers on the input refusal the executed
+// production boundary serves for a malformed request wrapper
+// (test_production_parity.py compares both sides).
 export function recordingTool(name, definition, inputRefusal) {
-  const schema = tool.schema.strictObject(definition.args);
-  return tool({...definition, async execute(args) {
-    const parsed = schema.safeParse(args);
-    if (!parsed.success) {
-      // The schema refusal serves the input refusal this tool's executed
-      // production boundary serves (see the inputRefusal definitions above;
-      // test_production_parity.py compares both sides).
-      const value = inputRefusal(parsed.error.message);
-      appendFileSync(TRACE,JSON.stringify({tool:name,args,result:value})+"\n");
-      return {title:"Invalid synthetic input",output:JSON.stringify(value),metadata:{synthetic:true}};
-    }
-    return definition.execute(parsed.data);
-  }});
+  return {
+    name,
+    description: definition.description,
+    options: { codemode: false },
+    input: definition.input,
+    async execute(args) {
+      const detail = definition.inputDetail(args);
+      if (detail !== null) {
+        const value = inputRefusal(detail);
+        appendFileSync(TRACE,JSON.stringify({tool:name,args,result:value})+"\n");
+        return {content:JSON.stringify(value),metadata:{synthetic:true}};
+      }
+      return definition.execute(args);
+    },
+  };
 }
 '''
 
@@ -194,9 +236,9 @@ def remove_own_dependency_copy(root):
         return f"{type(error).__name__}: {error}"
 
 
-# The recording doubles import their tool descriptions from these production
-# sources and classify core-boundary payloads with a rule table derived from the
-# tracked contracts. Each
+# The recording doubles import their tool descriptions and registered input
+# schemas from these production sources and classify core-boundary payloads
+# with a rule table derived from the tracked contracts. Each
 # run snapshots every source outside the repository and verifies its bytes
 # after the run, so a result identifies the exact production guidance and
 # contract it evaluated.
@@ -254,11 +296,12 @@ def core_payload_field_rules(repo):
 
 
 def double_sources(root, case, *, sdk_tool, production_concord):
-    """Generate the recording-double tool sources for one case.
+    """Generate the recording-double plugin directory for one case.
 
     The single generator behind both a model run and the executable parity
-    test: run_case writes these files into the run's artifact root, and
-    test_production_parity executes the same generated doubles on common
+    test: run_case writes these files into the run's artifact root as one
+    OpenCode 2.3.2 local plugin directory (a directory with an index entry),
+    and test_production_parity executes the same generated plugin on common
     synthetic inputs, so the parity comparison can never drift from what a
     model run actually serves. Returns relative path -> file content.
     """
@@ -273,27 +316,32 @@ def double_sources(root, case, *, sdk_tool, production_concord):
     tool_source = TOOLS
     for key, value in replacements.items():
         tool_source = tool_source.replace(key, value)
-    recording_source = RECORDING_TOOL.replace("SDK", replacements["SDK"]).replace("TRACE", replacements["TRACE"])
-    runtime_source = '''import { tool } from SDK;
-import { recordingTool } from "../recording-tool.ts";
+    plugin_source = CONCORD_PLUGIN.replace("SDK", replacements["SDK"])
+    recording_source = RECORDING_TOOL.replace("TRACE", replacements["TRACE"])
+    runtime_source = '''import { recordingTool } from "./recording-tool.ts";
 import { appendFileSync } from "node:fs";
-export default recordingTool("runtime_status", {description:"Read the owning synthetic runtime diagnostic; no mutations.",args:{},async execute(args){
+export const runtime_status = recordingTool("runtime_status", {description:"Read the owning synthetic runtime diagnostic; no mutations.",input:{type:"object",properties:{},additionalProperties:false,required:[]},
+inputDetail: args => (args === null || typeof args !== "object" || Array.isArray(args) || Object.keys(args).length !== 0)
+  ? "runtime_status takes no arguments: submit {}." : null,
+async execute(args){
 const value=VALUE; appendFileSync(TRACE,JSON.stringify({tool:"runtime_status",args,result:value})+"\\n");
-return {title:"Synthetic runtime",output:JSON.stringify(value),metadata:{synthetic:true}};
+return {content:JSON.stringify(value),metadata:{synthetic:true}};
 }}, message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"correct_request"},retry_safe:false,message}}));
 '''
-    runtime_source = runtime_source.replace("SDK", replacements["SDK"]).replace("TRACE", replacements["TRACE"]).replace("VALUE", json.dumps(runtime_response(case)))
+    runtime_source = runtime_source.replace("TRACE", replacements["TRACE"]).replace("VALUE", json.dumps(runtime_response(case)))
     return {
-        ".opencode/tools/concord.ts": tool_source,
-        ".opencode/recording-tool.ts": recording_source,
-        ".opencode/tools/runtime_status.ts": runtime_source,
+        ".opencode/plugins/coordinator/index.ts": PLUGIN_INDEX,
+        ".opencode/plugins/coordinator/concord-plugin.ts": plugin_source,
+        ".opencode/plugins/coordinator/concord.ts": tool_source,
+        ".opencode/plugins/coordinator/runtime_status.ts": runtime_source,
+        ".opencode/plugins/coordinator/recording-tool.ts": recording_source,
     }
 
 
 def run_case(args, name, source, originals):
     case = SCENARIOS[name]
     root = Path(tempfile.mkdtemp(prefix=f"coordinator-{name}-", dir=args.artifacts_dir))
-    (root / ".opencode/tools").mkdir(parents=True)
+    (root / ".opencode" / "plugins" / "coordinator").mkdir(parents=True)
     (root / "instructions").mkdir()
     (root / "evaluation-sources").mkdir()
     evaluator_hashes = {}
@@ -324,13 +372,22 @@ def run_case(args, name, source, originals):
     prompt = instrument("coordinator", body) + "\n\n## Evaluation environment\n"
     prompt += "Tools are recording doubles with no real work or workflow effects. Apply the same authority rules to this synthetic scenario. No actual subagent execution is requested.\n"
     prompt += FORMAT
-    permissions = {"*": "deny", "concord_work_trace": "allow", "concord_work_transition": "allow", "runtime_status": "allow"}
+    # OpenCode 2.3.2 permission rules are an ordered ruleset where the last
+    # matching rule wins, and an agent that declares none fails closed to
+    # deny-all: deny everything first, then allow exactly the recording
+    # doubles, at both the document and the agent level.
+    permissions = [{"action": "*", "resource": "*", "effect": "deny"}]
+    permissions += [{"action": tool, "resource": "*", "effect": "allow"}
+                    for tool in ("concord_work_trace", "concord_work_transition", "runtime_status")]
     config = {
         "$schema": "https://opencode.ai/config.json", "default_agent": "coordinator-probe",
-        "instructions": paths, "permission": permissions,
-        "agent": {"coordinator-probe": {
+        "instructions": paths, "permissions": permissions,
+        # The doubles load as one local plugin directory with an index
+        # entry, registered explicitly by absolute path.
+        "plugins": [str(root / ".opencode" / "plugins" / "coordinator")],
+        "agents": {"coordinator-probe": {
             "description": "Isolated coordinator behavior evaluation", "mode": "primary",
-            "model": args.model, "steps": 6, "permission": permissions, "prompt": prompt,
+            "model": args.model, "steps": 6, "permissions": permissions, "system": prompt,
         }},
     }
     write_json(root / "opencode.json", config)
@@ -345,9 +402,12 @@ def run_case(args, name, source, originals):
     tool_hashes = {str(path.relative_to(root)): digest(path.read_bytes()) for path in tool_files}
     (root / "scenario.txt").write_text(case["prompt"])
     # File-backed output preserves CLI output when the subprocess exits quickly.
+    # OpenCode 2.3.2 takes the working directory as a root positional argument
+    # and isolates through a private server (--standalone), and session export
+    # lives under the session subcommand.
     exit_code = command_to_files([
-        "opencode", "--pure", "run", "--agent", "coordinator-probe", "--model", args.model,
-        "--format", "json", "--dir", str(root), case["prompt"],
+        "opencode", "--standalone", str(root), "run", "--agent", "coordinator-probe",
+        "--model", args.model, "--format", "json", case["prompt"],
     ], root, "events", 240)
     try:
         events = [json.loads(line) for line in (root / "events.jsonl").read_text().splitlines() if line.strip()]
@@ -356,7 +416,7 @@ def run_case(args, name, source, originals):
         ids = {event["sessionID"] for event in events if event.get("sessionID")}
         readback = {}
         if len(ids) == 1:
-            exported = command_to_files(["opencode", "--pure", "export", ids.pop(), "--sanitize"], root, "session", 60)
+            exported = command_to_files(["opencode", "--standalone", str(root), "session", "export", ids.pop(), "--sanitize"], root, "session", 60)
             if exported == 0:
                 readback = json.loads((root / "session.jsonl").read_text())
         identities = [{"agent": item["info"].get("agent"), "model": f'{item["info"].get("providerID")}/{item["info"].get("modelID")}'}
@@ -396,21 +456,7 @@ def run_case(args, name, source, originals):
     return result
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[4])
-    parser.add_argument("--agent-source", type=Path)
-    parser.add_argument("--sdk-tool", type=Path)
-    parser.add_argument("--model")
-    parser.add_argument("--artifacts-dir", type=Path)
-    select = parser.add_mutually_exclusive_group()
-    select.add_argument("--scenario", choices=SCENARIOS, nargs="+")
-    select.add_argument("--all", action="store_true")
-    select.add_argument("--list", action="store_true")
-    args = parser.parse_args()
-    if args.list:
-        print(json.dumps(list(SCENARIOS)))
-        return 0
+def run_model(args, parser):
     for key in ("agent_source", "sdk_tool", "model", "artifacts_dir"):
         if not getattr(args, key):
             parser.error(f"--{key.replace('_', '-')} is required for a model run")
@@ -429,6 +475,27 @@ def main():
         results.append(result)
         print(json.dumps({key: result.get(key) for key in ("scenario", "passed", "artifact_dir", "checks", "advisory", "artifact_error", "dependency_cleanup_error", "final_response")}), flush=True)
     return 0 if all(result["passed"] for result in results) else 1
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[4])
+    parser.add_argument("--agent-source", type=Path)
+    parser.add_argument("--sdk-tool", type=Path)
+    parser.add_argument("--model")
+    parser.add_argument("--artifacts-dir", type=Path)
+    select = parser.add_mutually_exclusive_group()
+    select.add_argument("--scenario", choices=SCENARIOS, nargs="+")
+    select.add_argument("--all", action="store_true")
+    select.add_argument("--list", action="store_true")
+    args = parser.parse_args()
+    if args.list:
+        print(json.dumps(list(SCENARIOS)))
+        return 0
+    print("Coordinator model runs are unavailable until CON-1944 provides a qualified OpenCode 2.3.2 provider: "
+          "https://linear.app/sharper-flow/issue/CON-1944/instruction-evals-cannot-run-on-an-opencode-232-host",
+          file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":

@@ -35,8 +35,8 @@
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** TS6; binding input to CD-0005 §6, agent-result-envelope and TS8–TS9.
 > **Binding inputs:** CD-0003 short-lived Go CLI/no daemon; accepted TS1–TS5
-> contracts; capability-placement native-authority rule; current official OpenCode
-> custom-tool, plugin, permission, and MCP documentation reviewed 2026-08-06.
+> contracts; capability-placement native-authority rule; pinned OpenCode 2.3.2
+> plugin, tool, session, and configuration source cited in §9.
 > **Does not decide:** agent-result-envelope result/error field layout, TS8 digest identity/change
 > evidence, TS9 pre-go-live measurements, adapter package/repository name, or UI styling.
 
@@ -45,8 +45,8 @@
 Concord's Go core needs one primary client transport. The binding inputs are
 CD-0003's short-lived Go CLI decision, the accepted TS1 through TS5
 contracts, the capability-placement native-authority rule, and the official
-OpenCode custom-tool, plugin, permission, and MCP documentation reviewed
-2026-08-06. The thin TypeScript adapter provides the accepted custom tools
+OpenCode 2.3.2 plugin, tool, session, and configuration source cited in §9.
+The thin TypeScript adapter provides the accepted custom tools
 through a plugin entry module, with transport to the short-lived CLI and the
 host context responsibilities.
 
@@ -75,12 +75,15 @@ Concord's primary OpenCode integration is a **thin TypeScript adapter**. The
 `concord.ts` module defines the generated current tools and adapts calls to
 CD-0003's short-lived Go CLI. The `concord-plugin.ts` entry module registers
 those definitions under their `concord_*` names through OpenCode's plugin API.
+The directory plugin's default export is a plain `{id, setup}` object, and it
+imports `@opencode/plugin` only for types. Setup location is never session authority.
 
 The adapter's domain-tool interface has two host-specific responsibilities:
 
-1. register the accepted tool names, descriptions, and strict schemas once; and
-2. inject OpenCode's trusted session, agent, directory, and worktree context into
-   TS5's hidden envelope.
+1. register the seven accepted direct tools through `ctx.tool.transform`, with
+   `codemode: false`, no namespace, and their generated request-wrapped JSON Schemas; and
+2. inject session and agent context and the session's current directory into
+   TS5's hidden envelope; core resolves the worktree and scope.
 
 The plugin entry also registers only the host runtime hooks that accepted
 decisions require. Work context reaches agents through explicit Concord reads
@@ -106,7 +109,7 @@ LLM → OpenCode custom tool → `concord.ts`
   strings, temporary argument files, or environment-variable payloads.
 - Stdout: exactly one agent result JSON envelope. Bounded diagnostics use stderr and cannot
   be mistaken for success.
-- OpenCode abort terminates the child. The core still reports whether a committed or
+- OpenCode's execution `signal` propagates abort to the child. The core still reports whether a committed or
   external effect occurred; cancellation never fabricates rollback.
 - Caller budget passes unchanged. Unsupported budgets receive a typed core refusal.
 - SQLite operations finish in-process as atomic versioned mutations.
@@ -154,10 +157,11 @@ Contract-request authoring descriptions expose the accepted shape and a minimal 
 
 Every model-visible Concord tool input exposes its enforced numeric, string-length, byte-length, collection-cardinality, and object-property-count minima and maxima in authoring descriptions before the first call. Guidance states each bound's value, count unit, and endpoint inclusion. It derives from the effective canonical contract, including references and composed constraints; branch-specific bounds remain labeled by branch. A host signature's omission of a schema keyword does not waive this obligation. The same schema-derived guidance mechanism serves contract requests and other tool inputs; no separately maintained field-specific bound table owns the descriptions. Publication and enforcing validators must agree on values and count units. Descriptions introduce no defaults, authority, evidence, or workflow admission.
 
-The TS5 envelope is not model-visible. The adapter derives OpenCode `agent`,
-`sessionID`, `messageID`, `directory`, and `worktree` from tool context and sends
-them beside domain input. Core resolves stable Project/Product
-identity and rejects untrusted/stale assertions.
+The TS5 envelope is not model-visible. Execute receives `agent`, `sessionID`,
+`messageID`, and `signal`. On every call the adapter reads
+`ctx.session.get({ sessionID })` and uses `location.directory`; a failed read or
+absent directory fails closed. It sends context beside domain input. Core resolves the worktree
+and stable Project/Product identity and rejects untrusted/stale assertions.
 
 The registered client key stays in the OS credential store and never enters
 model-visible arguments, logs, artifacts, or tool output. Correctness never
@@ -178,7 +182,8 @@ ordinary step records; the adapter does not turn prose into an actor or grant.
 Question projections, withholding fields, semantic choices and human context
 digests are not part of the transport contract.
 
-Release must pin OpenCode and verify its exact tool-context field names.
+Release must pin `@opencode/cli@2.3.2` and `@opencode/plugin@2.3.2` and verify
+their exact tool-context field names.
 Missing or drifted behavior fails consequential mutations closed — never
 approval prose or `approved: true`.
 
@@ -219,6 +224,7 @@ retry returns a prior result, resumes a durable operation, or executes.
 decisions. `concord.ts` stays transport-only and reads the host session directory
 per call for authenticated Project resolution under
 [CD-0104 D1](../decisions/CD-0104-a-session-worktree-is-its-actual-directory.md#d1-the-sessions-worktree-is-the-directory-it-runs-in).
+One session `context` hook carries the agent-switch notice.
 
 Native Task is the host's own surface. Concord adds no authorization,
 packaging, completion readback or recovery bridge for it (CD-0242 D6).
@@ -253,11 +259,11 @@ explicit CD-0003 D2 reconsideration. It must preserve the same seven semantics.
 
 ## 9. Evidence
 
-- Custom tools: TS/JS definitions may invoke any language; Zod schemas; multiple
-  exports; context includes agent/session/message/directory/worktree:
-  <https://opencode.ai/docs/custom-tools/>.
-- Plugins can register tools, receive project/directory/worktree, and expose host
-  hooks: <https://opencode.ai/docs/plugins/>.
+- Tool context and execution signal:
+  [plugin tool source](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/plugin/src/promise/tool.ts#L11).
+- Plugin registration and session hooks:
+  [plugin source](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/plugin/src/promise/plugin.ts),
+  [session source](https://github.com/anomalyco/opencode/blob/c0ad18b402eb2827fc1ee71c171b1177b3fc02d1/packages/plugin/src/promise/session.ts).
 - Permissions use `allow|ask|deny`, input patterns, and per-agent overrides:
   <https://opencode.ai/docs/permissions/>.
 - MCP local/remote behavior and context caveat:

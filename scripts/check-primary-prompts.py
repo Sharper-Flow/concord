@@ -71,7 +71,9 @@ NAMED_PROFILE_FILES = (
 # The profiles that leave every unnamed shell command to the host (CD-0154 D2).
 FULL_PROFILE_FILES = ("Concord-RTE.md", "Concord.md")
 PLANNER_PROFILE_FILE = "Concord-Planner.md"
-PRIMARY_BUILD_TOOLS = ("edit", "write", "patch")
+# OpenCode 2.3.2 checks its write and patch tools against the edit action.
+PRIMARY_BUILD_TOOLS = ("edit",)
+V2_ACTIONS = {"bash": "shell", "task": "subagent", "write": "edit", "patch": "edit", "apply_patch": "edit"}
 # The RTE holds coordination in a Linear project. An issue used as the
 # coordination record stays open with no deliverable, so any mention of one
 # in the RTE body is a regression, whatever the surrounding sentence says.
@@ -211,7 +213,10 @@ def wildcard_match(value: str, pattern: str) -> bool:
 
 
 def permission_rules(frontmatter: str, key: str) -> list[tuple[str, str]]:
-    """The ordered pattern rules of one `permission.<key>` block."""
+    """Read ordered V2 action rules, or the legacy intake permission block."""
+    if "permissions:\n" in frontmatter:
+        action = V2_ACTIONS.get(key, key)
+        return [(rule["resource"], rule["effect"]) for rule in v2_rules(frontmatter) if rule["action"] == action]
     match = re.search(rf"\n  {re.escape(key)}:\n((?:    .*\n?)*)", "\n" + frontmatter + "\n")
     if not match:
         return []
@@ -224,25 +229,30 @@ def permission_rules(frontmatter: str, key: str) -> list[tuple[str, str]]:
     return rules
 
 
+def v2_rules(frontmatter: str) -> list[dict]:
+    return [json.loads(line[4:]) for line in frontmatter.splitlines() if line.startswith("  - ")]
+
+
 def evaluate(rules: list[tuple[str, str]], value: str) -> str:
     """The last matching rule wins; with no match OpenCode asks."""
     return next((action for pattern, action in reversed(rules) if wildcard_match(value, pattern)), "ask")
 
 
 def check_full_profile(name: str, frontmatter: str, flat_body: str) -> list[str]:
+    rules = v2_rules(frontmatter)
     findings = [
         f"{name} frontmatter lost the Build-level grant '{tool}: allow'"
         for tool in PRIMARY_BUILD_TOOLS
-        if f"\n  {tool}: allow" not in "\n" + frontmatter
+        if evaluate(permission_rules(frontmatter, tool), "*") != "allow"
     ]
-    if '\n  task:\n    "*": allow' not in "\n" + frontmatter:
+    if evaluate(permission_rules(frontmatter, "task"), "*") != "allow":
         findings.append(f"{name} frontmatter does not allow task by default")
-    bash = re.search(r'\n  bash:\n((?:    .*\n?)*)', "\n" + frontmatter)
-    if not bash or re.search(r'^    "\*":|: "?(?:allow|ask)"?\s*$', bash[1], re.MULTILINE):
+    bash = permission_rules(frontmatter, "bash")
+    if not bash or any(pattern == "*" or effect != "deny" for pattern, effect in bash):
         findings.append(f"{name} bash rules must only deny named commands; the host governs other commands")
     findings.extend(
-        f"{name} frontmatter denies Concord tool {tool}"
-        for tool in re.findall(r"^  (concord_\w+): deny$", frontmatter, re.MULTILINE)
+        f"{name} frontmatter denies Concord tool {rule['action']}"
+        for rule in rules if rule["action"].startswith("concord_") and rule["effect"] == "deny"
     )
     if name == "Concord-RTE.md" and (match := RTE_FORBIDDEN_PATTERN.search(flat_body)):
         findings.append(f"{name} names {match.group(0)!r}; the RTE holds coordination in a Linear project, never an issue")
@@ -259,7 +269,7 @@ def check_planner_profile(name: str, frontmatter: str) -> list[str]:
     findings = [
         f"{name} frontmatter grants unscoped '{tool}: allow'; edits must stay path-scoped"
         for tool in PRIMARY_BUILD_TOOLS
-        if re.search(rf"^  {tool}: (?:allow|ask)$", frontmatter, re.MULTILINE)
+        if any(pattern == "*" and action != "deny" for pattern, action in permission_rules(frontmatter, tool))
     ]
     try:
         rules = {key: permission_rules(frontmatter, key) for key in ("edit", "bash", "task")}
@@ -282,7 +292,7 @@ def check_planner_profile(name: str, frontmatter: str) -> list[str]:
     findings.extend(
         f"{name} frontmatter does not deny Concord tool {tool}"
         for tool in PLANNER_WRITERS
-        if f"\n  {tool}: deny" not in "\n" + frontmatter
+        if evaluate(permission_rules(frontmatter, tool), "*") != "deny"
     )
     return findings
 
@@ -389,20 +399,14 @@ def check_primary_prompts(root: Path) -> list[str]:
     )
 
     intake_frontmatter = split_frontmatter(texts["concord-0.md"])
-    findings.extend(
-        f"concord-0.md frontmatter lost its intake boundary {boundary!r}"
-        for boundary in (
-            "edit: deny",
-            "write: deny",
-            "patch: deny",
-            "morph_edit: deny",
-            "concord_work_transition: deny",
-        )
-        if boundary not in intake_frontmatter
-    )
     try:
+        findings.extend(
+            f"concord-0.md frontmatter lost its intake boundary {action!r}"
+            for action in ("edit", "morph_edit", "concord_work_transition", "subagent")
+            if evaluate(permission_rules(intake_frontmatter, action), "*") != "deny"
+        )
         intake_bash = permission_rules(intake_frontmatter, "bash")
-        if not intake_bash or intake_bash[0] != ("*", "deny"):
+        if not intake_bash or intake_bash[0] != ("*", "deny") or evaluate(intake_bash, "*") != "deny":
             findings.append("concord-0.md frontmatter does not deny bash by default")
         findings.extend(
             f"concord-0.md has an unapproved bash grant {pattern!r}; Linear MCP owns planning"

@@ -24,28 +24,56 @@ class ProfileTests(unittest.TestCase):
         self.manifest = generator.load_manifest()
         self.profiles = generator.load_primary_profiles(self.manifest)
 
+    def test_v2_permissions_are_ordered_and_deny_unlisted_children(self):
+        profile = next(p for p in self.profiles["profiles"] if p["id"] == "concord-implement")
+        text = generator.primary_projection(profile, "Role\n")
+        frontmatter = checks.split_frontmatter(text)
+        self.assertIn('permissions:\n', frontmatter)
+        self.assertIn('{"action": "subagent", "resource": "*", "effect": "deny"}', frontmatter)
+        self.assertIn('{"action": "subagent", "resource": "concord-explore", "effect": "allow"}', frontmatter)
+        rules = checks.permission_rules(frontmatter, "task")
+        self.assertEqual(checks.evaluate(rules, "concord-explore"), "allow")
+        self.assertEqual(checks.evaluate(rules, "general"), "deny")
+        self.assertEqual(checks.evaluate(list(reversed(rules)), "concord-explore"), "deny")
+
+    def test_all_generated_frontmatter_uses_v2_fields(self):
+        projections = [generator.primary_projection(p, "Role\n") for p in self.profiles["profiles"]]
+        projections += [generator.utility_projection(u) for u in self.manifest["utilities"]]
+        for text in projections:
+            frontmatter = checks.split_frontmatter(text)
+            top_level = [line.split(":", 1)[0] for line in frontmatter.splitlines() if line and not line.startswith(" ")]
+            self.assertTrue(set(top_level) <= {"description", "mode", "hidden", "permissions"})
+            for rule in checks.v2_rules(frontmatter):
+                self.assertEqual(set(rule), {"action", "resource", "effect"})
+                self.assertNotIn(rule["action"], generator.V2_ACTIONS, "OpenCode 2.3.2 never checks this action")
+
     def test_only_native_utilities_are_generated(self):
         self.assertEqual([entry["id"] for entry in self.manifest["utilities"]], ["explore", "lookup", "advisor"])
         for utility in self.manifest["utilities"]:
             text = generator.utility_projection(utility)
             self.assertIn("mode: subagent\n", text)
             self.assertIn("hidden: true\n", text)
-            self.assertIn("  task: false\n", text)
-            for tool in generator.concord_tool_ids():
-                self.assertIn(f"  {tool}: false\n", text)
+            rules = checks.v2_rules(checks.split_frontmatter(text))
+            self.assertTrue(rules)
+            self.assertEqual(next(rule["effect"] for rule in reversed(rules) if checks.wildcard_match("subagent", rule["action"])), "deny")
             self.assertIn("without TODO tracking, progress updates, or direct\noperator questions", text)
 
     def test_declared_utility_tool_and_command_grants_are_exact(self):
         for utility in self.manifest["utilities"]:
             text = generator.utility_projection(utility)
+            rules = [{"action": "*", "resource": "*", "effect": "allow"}, *checks.v2_rules(checks.split_frontmatter(text))]
+            def effect(action, resource="*"):
+                return next((rule["effect"] for rule in reversed(rules) if checks.wildcard_match(action, rule["action"]) and checks.wildcard_match(resource, rule["resource"])), "ask")
             for tool in generator.UTILITY_TOOL_KEYS:
-                expected = "true" if tool in utility["allowed_tools"] else "false"
-                self.assertIn(f"  {tool}: {expected}\n", text)
-            self.assertIn('    "*": deny', text)
+                if tool == "bash":
+                    continue
+                self.assertEqual(effect(generator.action_name(tool)), "allow" if tool in utility["allowed_tools"] else "deny", tool)
             for command in utility["allowed_commands"]:
-                self.assertIn(f'    "{command}": allow', text)
-            for line in generator.STASH_DENIALS:
-                self.assertIn(line, text)
+                self.assertEqual(effect("shell", command.removesuffix(" *")), "allow")
+            self.assertEqual(effect("shell", "git stash"), "deny")
+            # OpenCode hides a tool whose last matching rule denies resource "*".
+            last_shell = next(rule for rule in reversed(rules) if checks.wildcard_match("shell", rule["action"]))
+            self.assertEqual((last_shell["resource"], last_shell["effect"]) == ("*", "deny"), not utility["allowed_commands"], utility["id"])
 
     def test_utilities_can_discover_connected_tools_by_need(self):
         guidance = {
@@ -56,7 +84,7 @@ class ProfileTests(unittest.TestCase):
         for utility in self.manifest["utilities"]:
             with self.subTest(utility=utility["id"]):
                 text = generator.utility_projection(utility)
-                self.assertIn("  execute: true\n", text)
+                self.assertNotIn(generator.permission_rule("execute", "*", "deny"), text)
                 self.assertIn("`execute`", text)
                 self.assertIn(guidance[utility["id"]], " ".join(text.split()))
 
@@ -133,7 +161,7 @@ class ProfileTests(unittest.TestCase):
                 self.assertTrue(text.endswith("Role source\n"))
                 self.assertNotIn("## Shared boundaries", text)
             for tool in profile["denied_concord_tools"]:
-                self.assertIn(f"  {tool}: deny\n", text)
+                self.assertIn(generator.permission_rule(tool, "*", "deny"), text)
 
     def test_step_helpers_share_boundary_only_in_projection(self):
         for profile in self.profiles["profiles"]:
@@ -217,14 +245,13 @@ class ProfileTests(unittest.TestCase):
             self.assertIn(clause, normalized)
         frontmatter = checks.split_frontmatter(text)
         # Flat permissions append after the host grants, just like pattern rules.
-        flat = [(line.strip().split(": ")[0], line.strip().split(": ")[1])
-                for line in frontmatter.splitlines() if line.startswith("  ") and not line.startswith("    ") and line.endswith((": allow", ": deny", ": ask"))]
+        flat = [(rule["action"], rule["effect"]) for rule in checks.v2_rules(frontmatter) if rule["resource"] == "*"]
         for tool in ("edit", "write", "patch", "apply_patch", "morph_edit", "question", "todowrite", "ci_watch",
                      "opencode_mcp_connect", "opencode_mcp_disconnect", *checks.PLANNER_WRITERS):
-            self.assertEqual(checks.evaluate([("*", "allow"), *flat], tool), "deny", tool)
+            self.assertEqual(checks.evaluate([("*", "allow"), *flat], generator.action_name(tool)), "deny", tool)
         for tool in ("read", "glob", "grep", "skill", "execute", "webfetch",
                      "concord_work_browse", "concord_work_trace", "concord_domain", "concord_product_view"):
-            self.assertEqual(checks.evaluate([("*", "allow"), *flat], tool), "allow", tool)
+            self.assertEqual(checks.evaluate([("*", "allow"), *flat], generator.action_name(tool)), "allow", tool)
         self.assertEqual(set(profile["denied_concord_tools"]), set(checks.PLANNER_WRITERS))
         bash = checks.permission_rules(frontmatter, "bash")
         self.assertNotIn("*", [pattern for pattern, _ in bash])
@@ -275,14 +302,13 @@ class ProfileTests(unittest.TestCase):
                        "exact changed paths", "Command-text restrictions are hygiene, not a sandbox"):
             self.assertIn(clause, normalized)
         frontmatter = checks.split_frontmatter(text)
-        flat = [(line.strip().split(": ")[0], line.strip().split(": ")[1])
-                for line in frontmatter.splitlines() if line.startswith("  ") and not line.startswith("    ") and line.endswith((": allow", ": deny", ": ask"))]
+        flat = [(rule["action"], rule["effect"]) for rule in checks.v2_rules(frontmatter) if rule["resource"] == "*"]
         for tool in ("question", *checks.PLANNER_WRITERS):
-            self.assertEqual(checks.evaluate([("*", "allow"), *flat], tool), "deny", tool)
+            self.assertEqual(checks.evaluate([("*", "allow"), *flat], generator.action_name(tool)), "deny", tool)
         for tool in ("edit", "write", "patch", "apply_patch", "morph_edit", "execute", "read", "skill", "webfetch",
                      "concord_domain", "concord_work_browse", "concord_work_trace", "concord_product_view",
                      "playwright_browser_snapshot", "playwright_browser_take_screenshot"):
-            self.assertEqual(checks.evaluate([("*", "allow"), *flat], tool), "allow", tool)
+            self.assertEqual(checks.evaluate([("*", "allow"), *flat], generator.action_name(tool)), "allow", tool)
         self.assertEqual(set(profile["denied_concord_tools"]), set(checks.PLANNER_WRITERS))
         bash = checks.permission_rules(frontmatter, "bash")
         self.assertNotIn("*", [pattern for pattern, _ in bash])
@@ -431,20 +457,19 @@ class ProfileTests(unittest.TestCase):
             home, repo = root / "home", root / "repo"
             for path in (home / ".config/opencode", home / ".local/share", home / ".cache", repo / ".opencode/agents"):
                 path.mkdir(parents=True)
-            (home / ".config/opencode/opencode.json").write_text(json.dumps({"permission": {"bash": {"*": "allow", "ps *": "deny", "kill *": "deny", "pkill *": "deny"}}}))
+            (home / ".config/opencode/opencode.json").write_text(json.dumps({"permissions": [{"action": "shell", "resource": pattern, "effect": effect} for pattern, effect in [("*", "allow"), ("ps *", "deny"), ("kill *", "deny"), ("pkill *", "deny")]]}))
             for profile in self.profiles["profiles"]:
                 shutil.copyfile(ROOT / f".opencode/agents/{profile['id']}.md", repo / f".opencode/agents/{profile['id']}.md")
-            env = {"PATH": os.environ["PATH"], "HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config"), "XDG_DATA_HOME": str(home / ".local/share"), "XDG_CACHE_HOME": str(home / ".cache")}
+            env = {"PATH": os.environ["PATH"], "HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config"), "XDG_DATA_HOME": str(home / ".local/share"), "XDG_CACHE_HOME": str(home / ".cache"), "XDG_STATE_HOME": str(home / ".local/state"), "OPENCODE_DISABLE_MODELS_FETCH": "true"}
 
             def resolve(agent):
-                result = subprocess.run([os.environ["CONCORD_HOST_MERGE_PROBE"], "--pure", "debug", "agent", agent], cwd=repo, env=env, capture_output=True, text=True, timeout=30)
+                result = subprocess.run([os.environ["CONCORD_HOST_MERGE_PROBE"], "debug", "agents", "--standalone"], cwd=repo, env=env, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                data = json.loads(result.stdout)
-                self.assertEqual(data["name"], agent)
+                data = next(item for item in json.loads(result.stdout) if item["id"] == agent)
                 return data
 
             def action(data, permission, value="*"):
-                rules = [(rule["pattern"], rule["action"]) for rule in data["permission"] if checks.wildcard_match(permission, rule["permission"])]
+                rules = [(rule["resource"], rule["effect"]) for rule in data["permissions"] if checks.wildcard_match(generator.action_name(permission), rule["action"])]
                 return checks.evaluate(rules, value)
 
             driver, reviewer = resolve("Concord"), resolve("concord-review")

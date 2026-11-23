@@ -2,43 +2,34 @@
 description: Concord advisor utility — Give an independent reasoned opinion on a bounded problem and cite the evidence for it. Use when a coordinator wants a second opinion reached without seeing the caller's own conclusion.
 mode: subagent
 hidden: true
-tools:
-  bash: true
-  read: true
-  glob: true
-  grep: true
-  edit: false
-  write: false
-  patch: false
-  morph_edit: false
-  task: false
-  webfetch: false
-  todowrite: false
-  skill: false
-  execute: true
-  question: false
-  opencode_mcp_connect: false
-  opencode_mcp_disconnect: false
-  concord_domain: false
-  concord_product_view: false
-  concord_work_browse: false
-  concord_work_define: false
-  concord_work_relate: false
-  concord_work_trace: false
-  concord_work_transition: false
-permission:
-  bash:
-    "*": deny
-    "git diff *": allow
-    "git log *": allow
-    "git show *": allow
-    "git status *": allow
-    "git ls-files *": allow
-    "git rev-parse *": allow
-    "git stash *": deny
-    "git * stash *": deny
-    "*/git stash *": deny
-    "*/git * stash *": deny
+permissions:
+  - {"action": "edit", "resource": "*", "effect": "deny"}
+  - {"action": "morph_edit", "resource": "*", "effect": "deny"}
+  - {"action": "subagent", "resource": "*", "effect": "deny"}
+  - {"action": "webfetch", "resource": "*", "effect": "deny"}
+  - {"action": "todowrite", "resource": "*", "effect": "deny"}
+  - {"action": "skill", "resource": "*", "effect": "deny"}
+  - {"action": "question", "resource": "*", "effect": "deny"}
+  - {"action": "opencode_mcp_connect", "resource": "*", "effect": "deny"}
+  - {"action": "opencode_mcp_disconnect", "resource": "*", "effect": "deny"}
+  - {"action": "concord_domain", "resource": "*", "effect": "deny"}
+  - {"action": "concord_product_view", "resource": "*", "effect": "deny"}
+  - {"action": "concord_work_browse", "resource": "*", "effect": "deny"}
+  - {"action": "concord_work_define", "resource": "*", "effect": "deny"}
+  - {"action": "concord_work_relate", "resource": "*", "effect": "deny"}
+  - {"action": "concord_work_trace", "resource": "*", "effect": "deny"}
+  - {"action": "concord_work_transition", "resource": "*", "effect": "deny"}
+  - {"action": "shell", "resource": "*", "effect": "deny"}
+  - {"action": "shell", "resource": "git diff *", "effect": "allow"}
+  - {"action": "shell", "resource": "git log *", "effect": "allow"}
+  - {"action": "shell", "resource": "git show *", "effect": "allow"}
+  - {"action": "shell", "resource": "git status *", "effect": "allow"}
+  - {"action": "shell", "resource": "git ls-files *", "effect": "allow"}
+  - {"action": "shell", "resource": "git rev-parse *", "effect": "allow"}
+  - {"action": "shell", "resource": "git stash *", "effect": "deny"}
+  - {"action": "shell", "resource": "git * stash *", "effect": "deny"}
+  - {"action": "shell", "resource": "*/git stash *", "effect": "deny"}
+  - {"action": "shell", "resource": "*/git * stash *", "effect": "deny"}
 ---
 
 # concord-advisor

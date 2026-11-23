@@ -1,62 +1,59 @@
 ---
 description: "Concord-Planner — optional research and backlog refinement; reads code and law, writes only under .planning/, and updates Linear within approved scope. Never edits other files, publishes, or advances managed work."
 mode: primary
-permission:
-  read: allow
-  glob: allow
-  grep: allow
-  question: allow
-  todowrite: allow
-  skill: allow
-  webfetch: allow
-  edit:
-    "*": deny
-    ".planning/*": allow
-  bash:
-    "*": ask
-    "git status *": allow
-    "git log *": allow
-    "git diff *": allow
-    "git show *": allow
-    "git blame *": allow
-    "git ls-files *": allow
-    "git rev-parse *": allow
-    "gh issue view *": allow
-    "gh issue list *": allow
-    "gh run view *": allow
-    "gh run list *": allow
-    "ls *": allow
-    "wc *": allow
-    "du *": allow
-    "git commit *": deny
-    "git push *": deny
-    "git merge *": deny
-    "git rebase *": deny
-    "git tag *": deny
-    "gh pr *": deny
-    "gh release *": deny
-    "gh workflow run *": deny
-    "sudo *": deny
-    "rm -rf / *": deny
-    "gh pr view *": allow
-    "gh pr list *": allow
-    "gh pr checks *": allow
-    "gh pr diff *": allow
-    "gh release list *": allow
-    "gh release view *": allow
-    "git tag --list *": allow
-    "git stash *": deny
-    "git * stash *": deny
-    "*/git stash *": deny
-    "*/git * stash *": deny
-  task:
-    "*": deny
-    "concord-explore": allow
-    "concord-lookup": allow
-    "concord-advisor": allow
-  concord_work_define: deny
-  concord_work_relate: deny
-  concord_work_transition: deny
+permissions:
+  - {"action": "read", "resource": "*", "effect": "allow"}
+  - {"action": "glob", "resource": "*", "effect": "allow"}
+  - {"action": "grep", "resource": "*", "effect": "allow"}
+  - {"action": "question", "resource": "*", "effect": "allow"}
+  - {"action": "todowrite", "resource": "*", "effect": "allow"}
+  - {"action": "skill", "resource": "*", "effect": "allow"}
+  - {"action": "webfetch", "resource": "*", "effect": "allow"}
+  - {"action": "edit", "resource": "*", "effect": "deny"}
+  - {"action": "edit", "resource": ".planning/*", "effect": "allow"}
+  - {"action": "shell", "resource": "*", "effect": "ask"}
+  - {"action": "shell", "resource": "git status *", "effect": "allow"}
+  - {"action": "shell", "resource": "git log *", "effect": "allow"}
+  - {"action": "shell", "resource": "git diff *", "effect": "allow"}
+  - {"action": "shell", "resource": "git show *", "effect": "allow"}
+  - {"action": "shell", "resource": "git blame *", "effect": "allow"}
+  - {"action": "shell", "resource": "git ls-files *", "effect": "allow"}
+  - {"action": "shell", "resource": "git rev-parse *", "effect": "allow"}
+  - {"action": "shell", "resource": "gh issue view *", "effect": "allow"}
+  - {"action": "shell", "resource": "gh issue list *", "effect": "allow"}
+  - {"action": "shell", "resource": "gh run view *", "effect": "allow"}
+  - {"action": "shell", "resource": "gh run list *", "effect": "allow"}
+  - {"action": "shell", "resource": "ls *", "effect": "allow"}
+  - {"action": "shell", "resource": "wc *", "effect": "allow"}
+  - {"action": "shell", "resource": "du *", "effect": "allow"}
+  - {"action": "shell", "resource": "git commit *", "effect": "deny"}
+  - {"action": "shell", "resource": "git push *", "effect": "deny"}
+  - {"action": "shell", "resource": "git merge *", "effect": "deny"}
+  - {"action": "shell", "resource": "git rebase *", "effect": "deny"}
+  - {"action": "shell", "resource": "git tag *", "effect": "deny"}
+  - {"action": "shell", "resource": "gh pr *", "effect": "deny"}
+  - {"action": "shell", "resource": "gh release *", "effect": "deny"}
+  - {"action": "shell", "resource": "gh workflow run *", "effect": "deny"}
+  - {"action": "shell", "resource": "sudo *", "effect": "deny"}
+  - {"action": "shell", "resource": "rm -rf / *", "effect": "deny"}
+  - {"action": "shell", "resource": "gh pr view *", "effect": "allow"}
+  - {"action": "shell", "resource": "gh pr list *", "effect": "allow"}
+  - {"action": "shell", "resource": "gh pr checks *", "effect": "allow"}
+  - {"action": "shell", "resource": "gh pr diff *", "effect": "allow"}
+  - {"action": "shell", "resource": "gh release list *", "effect": "allow"}
+  - {"action": "shell", "resource": "gh release view *", "effect": "allow"}
+  - {"action": "shell", "resource": "git tag --list *", "effect": "allow"}
+  - {"action": "shell", "resource": "git stash *", "effect": "deny"}
+  - {"action": "shell", "resource": "git * stash *", "effect": "deny"}
+  - {"action": "shell", "resource": "*/git stash *", "effect": "deny"}
+  - {"action": "shell", "resource": "*/git * stash *", "effect": "deny"}
+  - {"action": "subagent", "resource": "*", "effect": "deny"}
+  - {"action": "subagent", "resource": "concord-explore", "effect": "allow"}
+  - {"action": "subagent", "resource": "concord-lookup", "effect": "allow"}
+  - {"action": "subagent", "resource": "concord-advisor", "effect": "allow"}
+  - {"action": "concord_work_define", "resource": "*", "effect": "deny"}
+  - {"action": "concord_work_relate", "resource": "*", "effect": "deny"}
+  - {"action": "concord_work_transition", "resource": "*", "effect": "deny"}
 ---
 
 # Concord-Planner
@@ -94,6 +91,7 @@ Use direct tools for targeted retrieval of known files, symbols, strings, or
 documentation. Delegate a bounded repository investigation to the explore
 utility when it must discover and follow evidence paths. Request a right-sized
 briefing with cited sources, useful retrieval handles, and remaining gaps.
+Act on a child only from its completed `<subagent>` report.
 
 ## What you never do
 

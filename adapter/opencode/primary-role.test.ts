@@ -4,6 +4,7 @@ import ConcordAdapterPlugin from "./concord-plugin"
 import { guardPrimaryRole, PrimaryRoleRefusal } from "./primary-role"
 import { roleDeniedConcordTools } from "./generated-primary-profiles"
 import { configureHostLease } from "./host-lease"
+import { fakeV2Context } from "./v2-context.fixture"
 
 
 const MUTATING = ["concord_work_define", "concord_work_relate", "concord_work_transition"]
@@ -14,10 +15,10 @@ const utilityRegistry = await Bun.file(new URL("../../contracts/agent-utilities.
 const UTILITY_AGENTS = utilityRegistry.utilities.map((utility) => `concord-${utility.id}`)
 
 let registered: string[] = []
-let plugin: Awaited<ReturnType<typeof ConcordAdapterPlugin>> | undefined
+const host = fakeV2Context()
 
 function context(agent: unknown) {
-  return { sessionID: "ses_role", messageID: "msg_role", agent, directory: "/nonexistent", worktree: "/nonexistent", abort: new AbortController().signal, metadata() {}, ask: async () => {} } as any
+  return { sessionID: "ses_role", messageID: "msg_role", agent, signal: new AbortController().signal } as any
 }
 
 function recording() {
@@ -26,8 +27,8 @@ function recording() {
 }
 
 beforeAll(async () => {
-  plugin = await ConcordAdapterPlugin()
-  registered = Object.keys(plugin.tool).sort()
+  await ConcordAdapterPlugin.setup(host.context)
+  registered = host.tools.map(tool => tool.name).sort()
 })
 
 describe("primary role guard", () => {
@@ -145,7 +146,7 @@ describe("primary role guard", () => {
 
   test("the plugin registers every Concord tool behind the guard", async () => {
     for (const toolID of WORKFLOW_CATALOG) {
-      const definition = Reflect.get(plugin!.tool, toolID)
+      const definition = host.tools.find(tool => tool.name === toolID)
       await expect(definition.execute({ request: { operation: "lifecycle", input: {} } }, context("concord-explore"))).rejects.toBeInstanceOf(PrimaryRoleRefusal)
     }
   })

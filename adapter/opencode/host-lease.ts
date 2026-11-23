@@ -26,7 +26,9 @@ type HostLease = {
   worktree?: string
 }
 
-let leaseFault: string | null = null
+const UNCLAIMED = "this adapter has not claimed a host lease"
+let leaseFault: string | null = UNCLAIMED
+let pendingClaim: Promise<void> | undefined
 
 export function hostLeaseFault(): string | null {
   return leaseFault
@@ -36,7 +38,8 @@ export function hostLeaseFault(): string | null {
  * stamp a release identity the way the installer would. */
 export function configureHostLease(options: { runner?: CoreRunner; reset?: boolean; release?: { coreBinary: string; releaseRoot: string } } = {}) {
   if (options.reset) {
-    leaseFault = null
+    leaseFault = UNCLAIMED
+    pendingClaim = undefined
     runner = defaultRunner
     claimedCoreBinary = coreBinary
     claimedReleaseRoot = releaseRoot
@@ -57,6 +60,12 @@ let claimedReleaseRoot: string = releaseRoot
 type LeaseLocation = { directory?: string; worktree?: string }
 
 export async function claimHostLease(pid: number, location: LeaseLocation = {}): Promise<void> {
+  if (pendingClaim) return pendingClaim
+  pendingClaim = performClaim(pid, location)
+  return pendingClaim
+}
+
+async function performClaim(pid: number, location: LeaseLocation): Promise<void> {
   try {
     if (!claimedCoreBinary || !claimedReleaseRoot) {
       leaseFault = "this adapter copy is not bound to a release, so the session cannot claim a host lease; the tools stay closed until the adapter runs from an installed release (CD-0111 D1)"

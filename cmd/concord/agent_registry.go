@@ -8,14 +8,8 @@ import (
 
 // hostAgentEntry contains only the resolved agent fields Concord reads.
 type hostAgentEntry struct {
-	Mode    string `json:"mode"`
-	Disable bool   `json:"disable"`
-}
-
-// hostConfigDocument is the shape Concord reads out of the host's resolved
-// configuration: a map from registered handle to agent record.
-type hostConfigDocument struct {
-	Agent map[string]hostAgentEntry `json:"agent"`
+	ID   *string `json:"id"`
+	Mode *string `json:"mode"`
 }
 
 // hostRegistrationError reports a handle the host cannot start as the session
@@ -46,33 +40,40 @@ func (e *hostRegistrationError) Unwrap() error { return e.Cause }
 // verifyHostRegistersHandle checks the host's resolved registry. A definition
 // alone cannot prove registration: configuration can rename, disable or demote
 // an agent without changing its file. Unreadable or unsuitable registrations
-// refuse; the host otherwise silently substitutes its default agent.
+// refuse; the host otherwise silently substitutes its default agent. The host
+// omits disabled agents from the registry. `hidden` only removes an agent from
+// host pickers, so it does not refuse.
 func verifyHostRegistersHandle(host hostCommandResolution, handle string) error {
 	printed := strings.Join(hostProbeArgv(host.Command), " ")
 	document := host.Registry
 	if len(document) == 0 {
 		return &hostRegistrationError{Handle: handle, Observed: "registry unreadable", Probe: printed,
-			Cause: fmt.Errorf("host printed no configuration document")}
+			Cause: fmt.Errorf("host printed no registry document")}
 	}
-	var resolved hostConfigDocument
+	var resolved []hostAgentEntry
 	if err := json.Unmarshal(document, &resolved); err != nil {
 		return &hostRegistrationError{Handle: handle, Observed: "registry unreadable", Probe: printed, Cause: err}
 	}
-	if resolved.Agent == nil {
+	if resolved == nil {
 		return &hostRegistrationError{Handle: handle, Observed: "registry unreadable", Probe: printed,
-			Cause: fmt.Errorf("configuration document declares no agent map")}
+			Cause: fmt.Errorf("registry document is not an agent array")}
 	}
-	entry, ok := resolved.Agent[handle]
-	if !ok {
-		return &hostRegistrationError{Handle: handle, Observed: "not registered", Probe: printed}
+	seen := make(map[string]bool, len(resolved))
+	mode := ""
+	for _, entry := range resolved {
+		if entry.ID == nil || *entry.ID == "" || entry.Mode == nil || (*entry.Mode != "primary" && *entry.Mode != "all" && *entry.Mode != "subagent") || seen[*entry.ID] {
+			return &hostRegistrationError{Handle: handle, Observed: "registry unreadable", Probe: printed,
+				Cause: fmt.Errorf("registry contains an invalid agent identity or mode")}
+		}
+		seen[*entry.ID] = true
+		if *entry.ID == handle {
+			mode = *entry.Mode
+		}
 	}
-	if entry.Disable {
-		return &hostRegistrationError{Handle: handle, Observed: "disabled", Probe: printed}
+	if mode == "" {
+		return &hostRegistrationError{Handle: handle, Observed: "not registered (missing or disabled)", Probe: printed}
 	}
-	// The host records a subagent as `subagent` and a session-startable
-	// agent as `primary` or `all`. A subagent cannot hold the session
-	// authority the assertion claims for it.
-	if entry.Mode == "subagent" {
+	if mode == "subagent" {
 		return &hostRegistrationError{Handle: handle, Observed: "registered as a subagent", Probe: printed}
 	}
 	return nil
